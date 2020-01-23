@@ -44,7 +44,8 @@ SECRET_KEY = '6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-_y7c_c^l5c0m$'
 
 ALLOWED_HOSTS = [
     'app.posthog.com',
-    't.posthog.com'
+    't.posthog.com',
+    'posthog.herokuapp.com'
 ]
 
 
