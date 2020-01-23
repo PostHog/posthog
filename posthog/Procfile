@@ -1,2 +1,2 @@
 release: python manage.py migrate
-web: gunicorn hiberly.wsgi --log-file -
+web: gunicorn posthog.wsgi --log-file -

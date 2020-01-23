@@ -37,7 +37,6 @@ def get_event(request):
     Event.objects.create(
         event=data['event'],
         properties=data['properties'],
-        distinct_id=data['properties'],
         ip=get_ip_address(request),
         team=Team.objects.get(api_token=data['properties']['token'])
     )
