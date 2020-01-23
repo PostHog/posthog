@@ -42,7 +42,10 @@ SECRET_KEY = '6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-_y7c_c^l5c0m$'
 
 # SECURITY WARNING: don't run with debug turned on in production!
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    'app.posthog.com',
+    't.posthog.com'
+]
 
 
 # Application definition
