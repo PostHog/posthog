@@ -12,20 +12,35 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 
 import os
 import sys
+import dj_database_url
+import sentry_sdk
+from sentry_sdk.integrations.django import DjangoIntegration
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+DEBUG = os.environ.get("DEBUG", False)
+TEST = 'test' in sys.argv
+
+SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
+
+
+if not DEBUG and not TEST:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    if os.environ.get('SENTRY_DSN'):
+        sentry_sdk.init(
+            dsn=os.environ['SENTRY_DSN'],
+            integrations=[DjangoIntegration()]
+        )
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = '6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-_y7c_c^l5c0m$'
-TEST = 'test' in sys.argv
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
 
 ALLOWED_HOSTS = []
 
@@ -84,7 +99,7 @@ DATABASES = {
         'PORT': '5432'
     }
 }
-
+DATABASES['default'].update(dj_database_url.config())
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
