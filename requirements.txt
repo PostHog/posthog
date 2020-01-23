@@ -1,5 +1,6 @@
 appnope==0.1.0
 backcall==0.1.0
+certifi==2019.11.28
 decorator==4.4.1
 dj-database-url==0.5.0
 Django==2.2.7
@@ -17,8 +18,10 @@ psycopg2==2.8.4
 ptyprocess==0.6.0
 Pygments==2.4.2
 pytz==2019.3
+sentry-sdk==0.14.1
 six==1.13.0
 sqlparse==0.3.0
 traitlets==4.3.3
+urllib3==1.25.8
 uuid==1.30
 wcwidth==0.1.7
