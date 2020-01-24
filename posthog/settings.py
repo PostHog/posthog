@@ -80,7 +80,7 @@ ROOT_URLCONF = 'posthog.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': ['frontend/dist'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -147,7 +147,7 @@ USE_TZ = True
 STATIC_ROOT = os.path.join(BASE_DIR, 'dist')
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'static')
+    os.path.join(BASE_DIR, 'frontend/dist')
 ]
 
 AUTH_USER_MODEL = 'posthog.User'

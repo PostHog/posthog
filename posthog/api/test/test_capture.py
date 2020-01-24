@@ -13,7 +13,6 @@ class TestCapture(BaseTest):
 
     def test_capture_new_person(self):
         user = self._create_user('tim')
-        self.client.force_login(user)
 
         response = self.client.get('/e/?data=%s' % self._dict_to_b64({
             'event': 'ph_page_view',

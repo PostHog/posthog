@@ -1,0 +1,29 @@
+{
+  "environments": {
+    "review": {
+      "scripts": {
+        "postdeploy": ""
+      },
+      "env": {
+        "DEBUG": true
+      },
+      "buildpacks": [
+        {"url": "heroku/nodejs"},
+        {"url": "https://github.com/timgl/heroku-buildpack-python.git"}
+      ]
+    },
+    "test": {
+      "addons": ["heroku-postgresql:in-dyno"],
+      "scripts": {
+        "test": "python manage.py test --keepdb -v 2"
+      },
+      "buildpacks": [
+        {"url": "https://github.com/timgl/heroku-buildpack-python.git"}
+      ]
+    }
+  },
+  "buildpacks": [
+        {"url": "heroku/nodejs"},
+        {"url": "https://github.com/timgl/heroku-buildpack-python.git"}
+  ]
+}

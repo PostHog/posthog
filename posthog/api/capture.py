@@ -30,7 +30,6 @@ def get_event(request):
         return HttpResponse("1")
     
     data = json.loads(base64.b64decode(data))
-    print(data)
     team = Team.objects.get(api_token=data['properties']['token'])
 
     Event.objects.create(
@@ -41,7 +40,7 @@ def get_event(request):
     )
 
     if not Person.objects.filter(team=team, distinct_ids__contains=data['properties']['distinct_id']).exists():
-        Person.objects.create(team=team, distinct_ids=[data['properties']['distinct_id']])
+        Person.objects.create(team=team, distinct_ids=[data['properties']['distinct_id']], is_user=request.user if not request.user.is_anonymous else None)
     return cors_response(request, HttpResponse("1"))
 
 
@@ -56,7 +55,6 @@ def get_engage(request):
         return HttpResponse("1")
     
     data = json.loads(base64.b64decode(data))
-    print(data)
     team = Team.objects.get(api_token=data['$token'])
 
     person = Person.objects.get(team=team, distinct_ids__contains=data['$distinct_id'])

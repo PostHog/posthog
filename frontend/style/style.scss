@@ -1,0 +1,38 @@
+@import "../node_modules/bootstrap/scss/functions";
+@import "../node_modules/bootstrap/scss/variables";
+@import "../node_modules/bootstrap/scss/mixins";
+@import "../node_modules/bootstrap/scss/_root";
+@import "../node_modules/bootstrap/scss/_reboot";
+@import "../node_modules/bootstrap/scss/utilities";
+
+$blue:    #007bff;
+$indigo:  #6610f2;
+$purple:  #6f42c1;
+$pink:    #e83e8c;
+$red:     #dc3545;
+$orange:  #fd7e14;
+$yellow:  #ffc107;
+$green:   #28a745;
+$teal:    #20c997;
+$cyan:    #17a2b8;
+
+$badge-font-weight: 400;
+
+// bootstrap components
+@import "../node_modules/bootstrap/scss/_buttons";
+@import "../node_modules/bootstrap/scss/_button-group";
+@import "../node_modules/bootstrap/scss/_tables";
+@import "../node_modules/bootstrap/scss/_forms";
+@import "../node_modules/bootstrap/scss/_nav";
+@import "../node_modules/bootstrap/scss/_badge";
+@import "../node_modules/bootstrap/scss/_grid";
+@import "../node_modules/bootstrap/scss/_close";
+
+// our components
+.cursor-pointer { cursor: pointer }
+
+.badge .close {
+    text-shadow: none;
+    margin: -6px 0 -8px 8px;
+    font-size: 1.3rem;
+}

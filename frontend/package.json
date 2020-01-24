@@ -1,11 +1,43 @@
 {
-  "name": "funnellab",
-  "version": "1.0.0",
+  "name": "frontend2",
+  "version": "0.1.0",
   "description": "",
-  "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "parcel watch index.html",
+    "build": "parcel build index.html"
   },
-  "author": "",
-  "license": "ISC"
+  "license": "MIT",
+  "dependencies": {
+    "@babel/core": "^7.5.5",
+    "babel-preset-nano-react-app": "^0.1.0",
+    "bootstrap": "^4.4.1",
+    "moment": "^2.24.0",
+    "parcel-bundler": "1.11.0",
+    "react": "^16.9.0",
+    "react-dom": "^16.9.0",
+    "react-router-dom": "^5.1.0",
+    "react-stripe-elements": "^6.0.1"
+  },
+  "babel": {
+    "presets": [
+      "nano-react-app"
+    ],
+    "plugins": [
+      [
+        "@babel/plugin-proposal-class-properties",
+        {
+          "loose": true
+        }
+      ],
+      [
+        "@babel/plugin-transform-react-jsx",
+        {
+          "pragmaFrag": "React.Fragment"
+        }
+      ]
+    ]
+  },
+  "devDependencies": {
+    "sass": "^1.25.0"
+  }
 }

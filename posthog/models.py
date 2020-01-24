@@ -37,3 +37,4 @@ class Person(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     properties: JSONField = JSONField(default=dict)
+    is_user: models.ForeignKey = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
