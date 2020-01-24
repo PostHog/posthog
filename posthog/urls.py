@@ -16,12 +16,13 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from django.views.generic.base import TemplateView
-from .api import EventViewSet, get_event, get_decide
+from .api import router, capture
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/event/', EventViewSet.as_view({'get': 'list', 'post': 'create'})),
-    path('decide/', get_decide),
+    path('api/', include(router.urls)),
+    path('decide/', capture.get_decide),
+    path('engage/', capture.get_engage),
     path('demo', TemplateView.as_view(template_name='demo.html')),
-    path('e/', get_event)
+    path('e/', capture.get_event)
 ]

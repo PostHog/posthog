@@ -1,21 +1,10 @@
-from rest_framework import routers # type: ignore
-from posthog.models import Event, Team
-from rest_framework import serializers, viewsets # type: ignore
+from posthog.models import Event, Team, Person
 from django.http import HttpResponse, JsonResponse
 import json
 import base64
 from django.views.decorators.csrf import csrf_exempt
 from urllib.parse import urlparse
 
-class EventSerializer(serializers.HyperlinkedModelSerializer):
-    class Meta:
-        model = Event
-        fields = ['id', 'data', 'timestamp']
-
-
-class EventViewSet(viewsets.ModelViewSet):
-    queryset = Event.objects.none()
-    serializer_class = EventSerializer
 
 def get_ip_address(request):
     """ use requestobject to fetch client machine's IP Address """
@@ -42,16 +31,37 @@ def get_event(request):
     
     data = json.loads(base64.b64decode(data))
     print(data)
+    team = Team.objects.get(api_token=data['properties']['token'])
 
     Event.objects.create(
         event=data['event'],
         properties=data['properties'],
         ip=get_ip_address(request),
-        team=Team.objects.get(api_token=data['properties']['token'])
+        team=team
     )
+
+    if not Person.objects.filter(team=team, distinct_ids__contains=data['properties']['distinct_id']).exists():
+        Person.objects.create(team=team, distinct_ids=[data['properties']['distinct_id']])
     return cors_response(request, HttpResponse("1"))
 
 
 @csrf_exempt
 def get_decide(request):
     return cors_response(request, JsonResponse({"config": {"enable_collect_everything": True}}))
+
+@csrf_exempt
+def get_engage(request):
+    data = request.GET.get('data')
+    if not data:
+        return HttpResponse("1")
+    
+    data = json.loads(base64.b64decode(data))
+    print(data)
+    team = Team.objects.get(api_token=data['$token'])
+
+    person = Person.objects.get(team=team, distinct_ids__contains=data['$distinct_id'])
+    if data.get('$set'):
+        person.properties = data['$set']
+        person.save()
+ 
+    return cors_response(request, HttpResponse("1"))

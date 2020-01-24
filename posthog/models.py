@@ -31,3 +31,9 @@ class Event(models.Model):
     elements: JSONField = JSONField(default=list)
     timestamp: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     ip: models.GenericIPAddressField = models.GenericIPAddressField()
+
+class Person(models.Model):
+    distinct_ids: JSONField = JSONField(default=list)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
+    properties: JSONField = JSONField(default=dict)

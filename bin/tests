@@ -1,0 +1,2 @@
+python manage.py test --noinput
+nodemon --ext py --exec "python manage.py test --parallel=1 --keepdb $@; mypy posthog"
