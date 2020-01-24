@@ -5,6 +5,7 @@ from django.http import HttpResponse, JsonResponse
 import json
 import base64
 from django.views.decorators.csrf import csrf_exempt
+from urllib.parse import urlparse
 
 class EventSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
@@ -26,7 +27,7 @@ def get_ip_address(request):
     return ip   
 
 def cors_response(request, response):
-    response["Access-Control-Allow-Origin"] = request.META['HTTP_HOST']
+    response["Access-Control-Allow-Origin"] = urlparse(request.META['HTTP_REFERER']).netloc
     response["Access-Control-Allow-Credentials"] = True
     response["Access-Control-Allow-Methods"] = 'GET, POST, OPTIONS'
     response["Access-Control-Allow-Headers"] = 'X-Requested-With'
