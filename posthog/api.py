@@ -25,6 +25,13 @@ def get_ip_address(request):
         ip = request.META.get('REMOTE_ADDR')    ### Real IP address of client Machine
     return ip   
 
+def cors_response(request, response):
+    response["Access-Control-Allow-Origin"] = request.META['HTTP_HOST']
+    response["Access-Control-Allow-Credentials"] = True
+    response["Access-Control-Allow-Methods"] = 'GET, POST, OPTIONS'
+    response["Access-Control-Allow-Headers"] = 'X-Requested-With'
+    return response
+
 @csrf_exempt
 def get_event(request):
     data = request.GET.get('data')
@@ -40,9 +47,9 @@ def get_event(request):
         ip=get_ip_address(request),
         team=Team.objects.get(api_token=data['properties']['token'])
     )
-    return HttpResponse("1")
+    return cors_response(request, HttpResponse("1"))
 
 
 @csrf_exempt
 def get_decide(request):
-    return JsonResponse({"config": {"enable_collect_everything": True}})
+    return cors_response(request, JsonResponse({"config": {"enable_collect_everything": True}}))
