@@ -4,6 +4,7 @@ import json
 import base64
 from django.views.decorators.csrf import csrf_exempt
 from urllib.parse import urlparse
+from django.db import transaction
 
 
 def get_ip_address(request):
@@ -46,8 +47,9 @@ def get_event(request):
         team=team
     )
 
-    if not Person.objects.filter(team=team, distinct_ids__contains=data['properties']['distinct_id']).exists():
-        Person.objects.create(team=team, distinct_ids=[data['properties']['distinct_id']], is_user=request.user if not request.user.is_anonymous else None)
+    with transaction.atomic():
+        if not Person.objects.filter(team=team, distinct_ids__contains=data['properties']['distinct_id']).exists():
+            Person.objects.create(team=team, distinct_ids=[data['properties']['distinct_id']], is_user=request.user if not request.user.is_anonymous else None)
     return cors_response(request, HttpResponse("1"))
 
 
