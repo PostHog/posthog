@@ -1,5 +1,5 @@
 from django.db import models
-from django.contrib.postgres.fields import JSONField
+from django.contrib.postgres.fields import JSONField, ArrayField
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.dispatch import receiver
@@ -34,7 +34,7 @@ class Event(models.Model):
     ip: models.GenericIPAddressField = models.GenericIPAddressField()
 
 class Person(models.Model):
-    distinct_ids: JSONField = JSONField(default=list)
+    distinct_ids: ArrayField = ArrayField(models.CharField(max_length=400, blank=True), null=True, blank=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     properties: JSONField = JSONField(default=dict)

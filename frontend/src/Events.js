@@ -12,19 +12,40 @@ export class EventsTable extends Component {
         super(props)
     
         this.state = {
-            filters: fromParams()
+            filters: fromParams(),
+            newEvents: []
         }
         this.fetchEvents = this.fetchEvents.bind(this);
         this.FilterLink = this.FilterLink.bind(this);
         this.Filters = this.Filters.bind(this);
+        this.pollEvents = this.pollEvents.bind(this);
+        this.pollTimeout = 5000;
         this.fetchEvents();
     }
     fetchEvents() {
         let params = toParams({
             ...this.state.filters,
-            ...this.props.fixedFileters
+            ...this.props.fixedFilters
         })
-        api.get('api/event/?' + params).then((events) => this.setState({events: events.results}))
+        clearTimeout(this.poller)
+        api.get('api/event/?' + params).then((events) => {
+            this.setState({events: events.results});
+            this.poller = setTimeout(this.pollEvents, this.pollTimeout);
+        })
+    }
+    pollEvents() {
+        let params = { 
+            ...this.state.filters,
+            ...this.props.fixedFilters,
+        }
+        if(this.state.events[0]) params['after'] = this.state.events[0].timestamp
+        api.get('api/event/?' + toParams(params)).then((events) => {
+            this.setState({events: [...events.results, ...this.state.events], newEvents: events.results.map((event) => event.id)});
+            this.poller = setTimeout(this.pollEvents, this.pollTimeout);
+        })
+    }
+    componentWillUnmount() {
+        clearTimeout(this.poller)
     }
     FilterLink(props) {
         let filters = {...this.state.filters};
@@ -54,7 +75,7 @@ export class EventsTable extends Component {
         </div>
     }
     render() {
-        let params = ['distinct_id', '$current_url']
+        let params = ['$current_url']
         return (
             <div class='events'>
                 <this.Filters />
@@ -63,12 +84,13 @@ export class EventsTable extends Component {
                         <tr><th>Event</th><th>Person</th><th>Path</th><th>When</th></tr>
                         {this.state.events && this.state.events.map((event, index) => [
                             index > 0 && !moment(event.timestamp).isSame(this.state.events[index - 1].timestamp, 'day') && <tr key={event.id + '_time'}><td colSpan="4" className='event-day-separator'>{moment(event.timestamp).format('LL')}</td></tr>,
-                            <tr key={event.id} className='cursor-pointer event-row' onClick={() => this.setState({eventSelected: this.state.eventSelected != event.id ? event.id : false})}>
+                            <tr key={event.id} className={'cursor-pointer event-row ' + (this.state.newEvents.indexOf(event.id) > -1 && 'event-row-new')} onClick={() => this.setState({eventSelected: this.state.eventSelected != event.id ? event.id : false})}>
                                 <td>
                                     {event.properties.$event_type == 'click' ? 'clicked' : event.event}
                                     {event.elements && ' a ' + event.elements[0].tag_name + ' element '}
                                     {event.elements && event.elements[0].$el_text && ' with text ' + event.elements[0].$el_text}
                                 </td>
+                                <td><Link to={'/person/' + event.properties.distinct_id}>{event.person}</Link></td>
                                 {params.map((param) => <td key={param} title={event.properties[param]}>
                                     <this.FilterLink property={param} value={event.properties[param]} />
                                 </td>)}

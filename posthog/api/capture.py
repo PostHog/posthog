@@ -50,7 +50,7 @@ def get_event(request):
     )
 
     with transaction.atomic():
-        if not Person.objects.filter(team=team, distinct_ids__contains=distinct_id).exists():
+        if not Person.objects.filter(team=team, distinct_ids__contains=[distinct_id]).exists():
             Person.objects.create(team=team, distinct_ids=[distinct_id], is_user=request.user if not request.user.is_anonymous else None)
     return cors_response(request, HttpResponse("1"))
 
@@ -72,7 +72,7 @@ def get_engage(request):
     team = Team.objects.get(api_token=data['$token'])
 
     # sometimes race condition creates 2 people. Just fix that for now
-    person = Person.objects.filter(team=team, distinct_ids__contains=str(data['$distinct_id'])).first()
+    person = Person.objects.filter(team=team, distinct_ids__contains=[str(data['$distinct_id'])]).first()
     if data.get('$set'):
         person.properties = data['$set']
         person.save()

@@ -12,4 +12,11 @@
         background-color: $gray-300;
         text-align: center;
     }
+    .event-row {
+        transition: background-color 2s;
+    }
+    .event-row-new {
+        background-color: $gray-300;
+
+    }
 }
