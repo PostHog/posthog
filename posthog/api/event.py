@@ -8,7 +8,7 @@ from django.db.models import Q
 class EventSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = Event
-        fields = ['id', 'properties', 'event', 'ip', 'timestamp']
+        fields = ['id', 'properties', 'elements', 'event', 'ip', 'timestamp']
 
 
 class EventViewSet(viewsets.ModelViewSet):
