@@ -29,7 +29,7 @@ class Event(models.Model):
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     properties: JSONField = JSONField(default=dict)
-    elements: JSONField = JSONField(default=list)
+    elements: JSONField = JSONField(default=list, null=True, blank=True)
     timestamp: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     ip: models.GenericIPAddressField = models.GenericIPAddressField()
 

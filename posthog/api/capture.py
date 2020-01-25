@@ -31,14 +31,14 @@ def get_event(request):
     else:
         data = request.GET.get('data')
     if not data:
-        return HttpResponse("1")
+        return cors_response(request, HttpResponse("1"))
     
     data = json.loads(base64.b64decode(data))
-    print(data)
     team = Team.objects.get(api_token=data['properties']['token'])
 
-    elements = data['properties']['$elements']
-    del data['properties']['$elements']
+    elements = data['properties'].get('$elements')
+    if elements:
+        del data['properties']['$elements']
     Event.objects.create(
         event=data['event'],
         properties=data['properties'],
@@ -61,7 +61,7 @@ def get_decide(request):
 def get_engage(request):
     data = request.GET.get('data')
     if not data:
-        return HttpResponse("1")
+        return cors_response(request, HttpResponse("1"))
     
     data = json.loads(base64.b64decode(data))
     team = Team.objects.get(api_token=data['$token'])
