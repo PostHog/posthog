@@ -3,6 +3,9 @@ import { BrowserRouter as Router, Route, Redirect } from "react-router-dom";
 import api from "./Api";
 import Events from "./Events";
 import "../style/style.scss";
+import Person from "./Person";
+import Sidebar from "./Sidebar";
+import People from "./People";
 
 
 
@@ -58,17 +61,12 @@ export default class App extends React.Component {
             <Router>
                 <div className="container-fluid flex-grow-1 d-flex">
                     <div className="row flex-fill flex-column flex-sm-row">
-                        <div className="col-sm-3 col-md-2 sidebar flex-shrink-1 bg-dark pt-3" style={{minHeight: '100vh'}}>
-                            <ul className="nav flex-sm-column">
-                                <li className="active"><a className="nav-link" href="/">Home</a></li>
-                                <li><a className="nav-link" href="../notes">Notes</a></li>
-                                <li><a className="nav-link" href="../chat">Chat</a></li>
-                                <li><a className="nav-link" href="../rss">RSS</a></li>
-                            </ul>
-                        </div>
+                        <Sidebar user={this.state.user} /> 
                         <div className="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 flex-grow-1 py-3">
                             <PrivateRoute path="/" exact component={function() { return 'asdfrrr '}} user={this.state.user} />
                             <Route path="/events" component={Events} user={this.state.user} />
+                            <Route path="/person/:distinct_id" component={Person} user={this.state.user} />
+                            <Route path="/people" component={People} user={this.state.user} />
                             <Route path="/login/:signup_token?" strict={false} render={props => { trackPageView(); return <Login {...props} />}} />
                         </div>
                     </div>

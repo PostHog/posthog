@@ -23,10 +23,7 @@ class EventViewSet(viewsets.ModelViewSet):
             if key != 'event' and key != 'ip':
                 key = 'properties__%s' % key
             params = {}
-            try:
-                params[key] = int(value)
-            except ValueError:
-                params[key] = value
+            params[key] = value
             queryset = queryset.filter(**params)
         return queryset.order_by('-id')
 

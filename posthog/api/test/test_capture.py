@@ -23,9 +23,11 @@ class TestCapture(BaseTest):
             },
         }), content_type='application/json', HTTP_REFERER='https://localhost')
 
-        self.assertEqual(Person.objects.get().distinct_ids, [2])
-        self.assertEqual(Event.objects.get().event, '$web_event')
-        self.assertEqual(Event.objects.get().elements, [{'tag_name': 'a'}])
+        self.assertEqual(Person.objects.get().distinct_ids, ["2"])
+        event = Event.objects.get()
+        self.assertEqual(event.event, '$web_event')
+        self.assertEqual(event.elements, [{'tag_name': 'a'}])
+        self.assertEqual(event.properties['distinct_id'], "2")
 
     def test_capture_no_element(self):
         user = self._create_user('tim')
@@ -33,18 +35,20 @@ class TestCapture(BaseTest):
         response = self.client.get('/e/?data=%s' % self._dict_to_b64({
             'event': 'ph_page_view',
             'properties': {
-                'distinct_id': 2,
+                'distinct_id': 'asdfasdfasdf',
                 'token': self.team.api_token,
             },
         }), content_type='application/json', HTTP_REFERER='https://localhost')
 
-        self.assertEqual(Person.objects.get().distinct_ids, [2])
-        self.assertEqual(Event.objects.get().event, 'ph_page_view')
+        self.assertEqual(Person.objects.get().distinct_ids, ["asdfasdfasdf"])
+        event = Event.objects.get()
+        self.assertEqual(event.event, 'ph_page_view')
+
 
     def test_engage(self):
         user = self._create_user('tim')
         self.client.force_login(user)
-        Person.objects.create(team=self.team, distinct_ids=[3, '455'])
+        Person.objects.create(team=self.team, distinct_ids=["3", '455'])
 
         response = self.client.get('/engage/?data=%s' % self._dict_to_b64({
             '$set': {

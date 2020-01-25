@@ -37,6 +37,8 @@ def get_event(request):
     team = Team.objects.get(api_token=data['properties']['token'])
 
     elements = data['properties'].get('$elements')
+    distinct_id = str(data['properties']['distinct_id'])
+    data['properties']['distinct_id'] = distinct_id
     if elements:
         del data['properties']['$elements']
     Event.objects.create(
@@ -48,8 +50,8 @@ def get_event(request):
     )
 
     with transaction.atomic():
-        if not Person.objects.filter(team=team, distinct_ids__contains=data['properties']['distinct_id']).exists():
-            Person.objects.create(team=team, distinct_ids=[data['properties']['distinct_id']], is_user=request.user if not request.user.is_anonymous else None)
+        if not Person.objects.filter(team=team, distinct_ids__contains=distinct_id).exists():
+            Person.objects.create(team=team, distinct_ids=[distinct_id], is_user=request.user if not request.user.is_anonymous else None)
     return cors_response(request, HttpResponse("1"))
 
 
@@ -59,14 +61,18 @@ def get_decide(request):
 
 @csrf_exempt
 def get_engage(request):
-    data = request.GET.get('data')
+    if request.method == 'POST':
+        data = request.POST.get('data')
+    else:
+        data = request.GET.get('data')
     if not data:
         return cors_response(request, HttpResponse("1"))
     
     data = json.loads(base64.b64decode(data))
     team = Team.objects.get(api_token=data['$token'])
 
-    person = Person.objects.get(team=team, distinct_ids__contains=data['$distinct_id'])
+    # sometimes race condition creates 2 people. Just fix that for now
+    person = Person.objects.filter(team=team, distinct_ids__contains=str(data['$distinct_id'])).first()
     if data.get('$set'):
         person.properties = data['$set']
         person.save()
