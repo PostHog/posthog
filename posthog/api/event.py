@@ -48,7 +48,7 @@ class EventViewSet(viewsets.ModelViewSet):
         for event in queryset:
             try:
                 event['person'] = [person.properties['$email'] for person in people if event['properties']['distinct_id'] in person.distinct_ids][0]
-            except KeyError:
+            except (KeyError, IndexError):
                 event['person'] = event['properties']['distinct_id']
 
         data = EventSerializer(queryset, many=True).data
