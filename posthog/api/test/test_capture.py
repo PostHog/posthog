@@ -30,7 +30,7 @@ class TestCapture(BaseTest):
     def test_engage(self):
         user = self._create_user('tim')
         self.client.force_login(user)
-        Person.objects.create(team=self.team, distinct_ids=[3])
+        Person.objects.create(team=self.team, distinct_ids=[3, '455'])
 
         response = self.client.get('/engage/?data=%s' % self._dict_to_b64({
             '$set': {

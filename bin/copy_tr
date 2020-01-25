@@ -7,5 +7,6 @@ sed -i -e 's/mixpanel/posthog/g' frontend/dist/tr.js
 sed -i -e 's/Mixpanel/Posthog/g' frontend/dist/tr.js
 sed -i -e 's/mp_/ph_/g' frontend/dist/tr.js
 sed -i -e 's/track\//e\//g' frontend/dist/tr.js
+sed -i -e 's/api-js\./t\./g' frontend/dist/tr.js
 
 git add frontend/dist/tr.js -f
