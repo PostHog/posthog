@@ -18,12 +18,14 @@ class TestCapture(BaseTest):
             'event': 'ph_page_view',
             'properties': {
                 'distinct_id': 2,
-                'token': self.team.api_token
+                'token': self.team.api_token,
+                '$elements': [{'tag_name': 'a'}]
             },
         }), content_type='application/json', HTTP_REFERER='https://localhost')
 
         self.assertEqual(Person.objects.get().distinct_ids, [2])
         self.assertEqual(Event.objects.get().event, 'ph_page_view')
+        self.assertEqual(Event.objects.get().elements, [{'tag_name': 'a'}])
 
     def test_engage(self):
         user = self._create_user('tim')

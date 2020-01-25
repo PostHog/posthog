@@ -19,13 +19,6 @@ class EventViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         queryset = queryset.filter(team=self.request.user.team_set.get())
 
-
-        # filter out
-        queryset = queryset.filter(
-            Q(elements=[]) |
-            Q(elements__contains=[{'tag_name': 'a'}])
-        )
-        print(queryset.query)
         for key, value in self.request.GET.items():
             if key != 'event' and key != 'ip':
                 key = 'properties__%s' % key

@@ -18,17 +18,3 @@ class TestEvents(BaseTest):
 
         response = self.client.get('/api/event/person/').json()
         self.assertEqual(response[0]['id'], person.pk)
-
-
-    def test_filter_elements(self):
-        user = self._create_user('tim')
-        self.client.force_login(user)
-        person = Person.objects.create(distinct_ids=[2, 'some-random-uid', 'some-other-one'], team=self.team)
-
-        Event.objects.create(team=self.team, elements=[{'tag_name': 'a'}, {'tag_name': 'div'}], ip='8.8.8.8')
-        Event.objects.create(team=self.team, elements=[{'tag_name': 'div'}], ip='8.8.8.8')
-        Event.objects.create(team=self.team, elements=[{'tag_name': 'button'}], ip='8.8.8.8')
-        Event.objects.create(team=self.team, ip='8.8.8.8')
-
-        response = self.client.get('/api/event/').json()
-        self.assertEqual(response['count'], 3)

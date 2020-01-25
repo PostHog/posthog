@@ -36,9 +36,12 @@ def get_event(request):
     print(data)
     team = Team.objects.get(api_token=data['properties']['token'])
 
+    elements = data['properties']['$elements']
+    del data['properties']['$elements']
     Event.objects.create(
         event=data['event'],
         properties=data['properties'],
+        elements=elements,
         ip=get_ip_address(request),
         team=team
     )
