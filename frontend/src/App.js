@@ -59,7 +59,7 @@ export default class App extends React.Component {
             <Router>
                 <div className="container-fluid flex-grow-1 d-flex">
                     <div className="row flex-fill flex-column flex-sm-row">
-                        <div className="col-sm-3 col-md-2 sidebar flex-shrink-1 bg-dark pt-3" id="Navbar">
+                        <div className="col-sm-3 col-md-2 sidebar flex-shrink-1 bg-dark pt-3" style={{minHeight: '100vh'}}>
                             <ul className="nav flex-sm-column">
                                 <li className="active"><a className="nav-link" href="/">Home</a></li>
                                 <li><a className="nav-link" href="../notes">Notes</a></li>

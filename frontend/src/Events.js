@@ -4,7 +4,7 @@ import moment from 'moment';
 import { Link } from 'react-router-dom';
 
 let toParams = (obj) => Object.entries(obj).map(([key, val]) => `${key}=${encodeURIComponent(val)}`).join('&')
-let fromParams = () => window.location.search.slice(1).split('&').reduce((a, b) => { b = b.split('='); a[b[0]] = decodeURIComponent(b[1]); return a; }, {});
+let fromParams = () => window.location.search != '' && window.location.search.slice(1).split('&').reduce((a, b) => { b = b.split('='); a[b[0]] = decodeURIComponent(b[1]); return a; }, {});
 let colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
 
 export default class Events extends Component {
@@ -38,7 +38,7 @@ export default class Events extends Component {
         return <div style={{marginBottom: '2rem'}}>
             {Object.keys(this.state.filters).map((filter, index) => <div className={'badge badge-' + colors[index]} style={{marginRight: 8, padding: 8}}>
                 <strong>{filter}:</strong> {this.state.filters[filter]}
-                <button type="button" class="close" aria-label="Close" onClick={() => {
+                <button type="button" className="close" aria-label="Close" onClick={() => {
                     delete this.state.filters[filter];
                     this.setState({filters: this.state.filters});
                     this.fetchEvents();
@@ -52,27 +52,26 @@ export default class Events extends Component {
     render() {
         let params = ['distinct_id', '$current_url']
         return (
-            <div>
+            <div class='events'>
                 <this.Filters />
                 <table className='table'>
                     <tbody>
                         <tr><th>Event</th><th>Person</th><th>Path</th><th>When</th></tr>
-                        {this.state.events && this.state.events.map((event) => [<tr key={event.id} className='cursor-pointer' onClick={() => this.setState({eventSelected: this.state.eventSelected != event.id ? event.id : false})}>
+                        {this.state.events && this.state.events.map((event) => [<tr key={event.id} className='cursor-pointer event-row' onClick={() => this.setState({eventSelected: this.state.eventSelected != event.id ? event.id : false})}>
                             <td>
                                 {event.properties.$event_type == 'click' ? 'clicked' : event.properties.$event_type}
                                 {event.properties.$elements && ' a ' + event.properties.$elements[0].tag_name + ' element '}
                                 {event.properties.$el_text && ' with text ' + event.properties.$el_text}
 
                             </td>
-                            {params.map((param) => <td key={param}>
+                            {params.map((param) => <td key={param} title={event.properties[param]}>
                                 <this.FilterLink property={param} value={event.properties[param]} />
                             </td>)}
-                            <td>{event.properties.$current_url}</td>
                             <td>{moment(event.timestamp).fromNow()}</td>
                             {/* <td><pre>{JSON.stringify(event)}</pre></td> */}
                         </tr>,
                         this.state.eventSelected == event.id && <tr>
-                            <td colSpan="99">
+                            <td colSpan="4">
                                 <div className='d-flex flex-wrap'>
                                     {Object.keys(event.properties).map((key) => <div style={{width: '25%'}} key={key}>
                                         <strong>{key}:</strong> <this.FilterLink property={key} value={event.properties[key]} />

@@ -25,6 +25,7 @@ def create_team_signup_token(sender, instance, created, **kwargs):
 
 
 class Event(models.Model):
+    ELEMENTS = ['a', 'button', 'input', 'select']
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     properties: JSONField = JSONField(default=dict)

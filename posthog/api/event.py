@@ -3,6 +3,7 @@ from rest_framework import routers # type: ignore
 from rest_framework import serializers, viewsets # type: ignore
 from rest_framework.decorators import action # type: ignore
 from django.http import HttpResponse, JsonResponse
+from django.db.models import Q
 
 class EventSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
@@ -17,6 +18,14 @@ class EventViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         queryset = queryset.filter(team=self.request.user.team_set.get())
+
+
+        # filter out
+        queryset = queryset.filter(
+            Q(elements=[]) |
+            Q(elements__contains=[{'tag_name': 'a'}])
+        )
+        print(queryset.query)
         for key, value in self.request.GET.items():
             if key != 'event' and key != 'ip':
                 key = 'properties__%s' % key

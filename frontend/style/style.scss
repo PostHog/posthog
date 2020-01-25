@@ -29,6 +29,7 @@ $badge-font-weight: 400;
 @import "../node_modules/bootstrap/scss/_close";
 
 // our components
+@import "events";
 .cursor-pointer { cursor: pointer }
 
 .badge .close {

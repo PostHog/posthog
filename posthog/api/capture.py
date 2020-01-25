@@ -25,11 +25,15 @@ def cors_response(request, response):
 
 @csrf_exempt
 def get_event(request):
-    data = request.GET.get('data')
+    if request.method == 'POST':
+        data = request.POST.get('data')
+    else:
+        data = request.GET.get('data')
     if not data:
         return HttpResponse("1")
     
     data = json.loads(base64.b64decode(data))
+    print(data)
     team = Team.objects.get(api_token=data['properties']['token'])
 
     Event.objects.create(

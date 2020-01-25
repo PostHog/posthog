@@ -1,0 +1,11 @@
+.events {
+    & > .table {
+        table-layout: fixed;
+        .event-row > td {
+            width: 25%;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+    }
+}
