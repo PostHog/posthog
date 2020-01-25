@@ -16,7 +16,8 @@
     "react": "^16.9.0",
     "react-dom": "^16.9.0",
     "react-router-dom": "^5.1.0",
-    "react-stripe-elements": "^6.0.1"
+    "react-stripe-elements": "^6.0.1",
+    "sass": "^1.25.0"
   },
   "babel": {
     "presets": [
@@ -36,8 +37,5 @@
         }
       ]
     ]
-  },
-  "devDependencies": {
-    "sass": "^1.25.0"
   }
 }
