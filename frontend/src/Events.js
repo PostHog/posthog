@@ -59,7 +59,7 @@ export default class Events extends Component {
                         <tr><th>Event</th><th>Person</th><th>Path</th><th>When</th></tr>
                         {this.state.events && this.state.events.map((event) => [<tr key={event.id} className='cursor-pointer event-row' onClick={() => this.setState({eventSelected: this.state.eventSelected != event.id ? event.id : false})}>
                             <td>
-                                {event.properties.$event_type == 'click' ? 'clicked' : event.properties.$event_type}
+                                {event.properties.$event_type == 'click' ? 'clicked' : event.event}
                                 {event.properties.$elements && ' a ' + event.properties.$elements[0].tag_name + ' element '}
                                 {event.properties.$el_text && ' with text ' + event.properties.$el_text}
 

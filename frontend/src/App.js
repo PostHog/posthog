@@ -18,7 +18,6 @@ class PrivateRoute extends React.Component {
             path={this.props.path}
             exact
             render={props => {
-                if(window.posthog) window.posthog.track('ph_page_view');
                 if(this.props.user) return (<div>
                     <Component {...this.props} {...props} user={this.props.user} history={props.history} />
                 </div>);
@@ -47,7 +46,7 @@ export default class App extends React.Component {
             if(user && user.id) {
                 Sentry.setUser({"email": user.email, "id": user.id});
                 posthog.identify(user.id);
-                posthog.peopel.set({
+                posthog.people.set({
                     "email": user.email
                 })
             }
