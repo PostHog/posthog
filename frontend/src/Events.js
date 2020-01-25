@@ -61,8 +61,7 @@ export default class Events extends Component {
                             <td>
                                 {event.properties.$event_type == 'click' ? 'clicked' : event.event}
                                 {event.elements && ' a ' + event.elements[0].tag_name + ' element '}
-                                {event.properties.$el_text && ' with text ' + event.properties.$el_text}
-
+                                {event.elements[0].$el_text && ' with text ' + event.elements[0].$el_text}
                             </td>
                             {params.map((param) => <td key={param} title={event.properties[param]}>
                                 <this.FilterLink property={param} value={event.properties[param]} />
