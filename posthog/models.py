@@ -52,3 +52,18 @@ class Element(models.Model):
     attributes: JSONField = JSONField(default=dict)
     event: models.ForeignKey = models.ForeignKey(Event, on_delete=models.CASCADE)
     order: models.IntegerField = models.IntegerField()
+
+class Action(models.Model):
+    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    created_by: models.ForeignKey = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+
+class ActionStep(models.Model):
+    action: models.ForeignKey = models.ForeignKey(Action, related_name='steps', on_delete=models.CASCADE)
+    tag_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    text: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    href: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    selector: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    url: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)

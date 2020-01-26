@@ -1,6 +1,7 @@
 import React, { Component } from "react";
 import ReactDOM from "react-dom";
 import api from '../src/api';
+import { uuid } from '../src/utils';
 import Simmer from 'simmerjs';
 import root from 'react-shadow';
 
@@ -22,16 +23,20 @@ let getSafeText = (el) => {
 class SelectElement extends Component {
     constructor(props) {
         super(props);
-        this.state = {};
+        this.state = {
+            step: props.step,
+            selection: Object.keys(props.step)
+        };
         this.onMouseOver = this.onMouseOver.bind(this);
         this.onKeyDown = this.onKeyDown.bind(this);
         this.Option = this.Option.bind(this);
+        this.sendStep = this.sendStep.bind(this);
+        this.stop = this.stop.bind(this);
+
+        this.box = document.createElement('div');
+        document.body.appendChild(this.box)
     }
     drawBox(element) {
-        if(!this.box) {
-            this.box = document.createElement('div');
-            document.body.appendChild(this.box)
-        }
         let rect = element.getBoundingClientRect();
         this.box.style.display = 'block';
         this.box.style.position = 'absolute';
@@ -43,16 +48,32 @@ class SelectElement extends Component {
         this.box.style.opacity = '0.3';
     }
     onMouseOver(event) {
-        this.drawBox(event.currentTarget);
-        let res = simmer(event.currentTarget);
+        let el = event.currentTarget;
+        this.drawBox(el);
+        let query = simmer(el);
         // Turn tags into lower cases
-        res = res.replace(/(^[A-Z]+| [A-Z]+)/g, (d) => d.toLowerCase())
-        let tagName = event.currentTarget.tagName.toLowerCase();
+        query = query.replace(/(^[A-Z]+| [A-Z]+)/g, (d) => d.toLowerCase())
+        let tagName = el.tagName.toLowerCase();
 
         let selection = ['selector'];
         if(tagName == 'a') selection = ['href'];
         else if(tagName == 'button') selection = ['text'];
-        this.setState({element: event.currentTarget, query: res, selection})
+        else if(el.getAttribute('name')) selection = ['name'];
+        let step = {
+            id: this.state.step.id,
+            isNew: this.state.step.isNew,
+            href: el.getAttribute('href'),
+            name: el.getAttribute('name'),
+            text: getSafeText(el),
+            selector: query,
+            url: window.location.protocol + '//' + window.location.host + window.location.pathname
+        }
+        this.setState({
+            element: el,
+            step,
+            query,
+            selection})
+        this.sendStep(step);
     }
     onKeyDown(event) {
         // stop selecting if esc key was pressed
@@ -65,6 +86,7 @@ class SelectElement extends Component {
                 element.addEventListener('mouseover', this.onMouseOver, {capture: true})
             })
         document.addEventListener('keydown', this.onKeyDown)
+        this.box.addEventListener('click', this.stop)
     }
     stop() {
         this.box.style.display = 'none';
@@ -75,8 +97,19 @@ class SelectElement extends Component {
             })
         document.removeEventListener('keydown', this.onKeyDown)
     }
+    sendStep(step) {
+        let data = {};
+        this.state.selection.map((selected) => data[selected] = step[selected])
+        this.props.onChange(data)
+    }
     Option(props) {
+        let onChange = (e) => {
+            this.state.step[props.item] = e.target.value;
+            this.setState({step: this.state.step})
+            this.sendStep(this.state.step);
+        }
         return <div className={'form-group ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
+            
             <label><input
                 type="checkbox"
                 name='selection'
@@ -88,46 +121,48 @@ class SelectElement extends Component {
                     } else {
                         this.state.selection = this.state.selection.filter((i) => i != props.item)
                     }
-                    this.setState({selection: this.state.selection})
+                    this.setState({selection: this.state.selection}, () => this.sendStep(this.state.step))
                 }}
                 /> {props.label}</label>
             {props.item == 'selector' ?
-                <textarea style={{width: '100%'}} className='form-control' value={props.value} /> :
-                <input style={{width: '100%'}} className='form-control' value={props.value} />}
+                <textarea className='form-control' onChange={onChange} value={this.state.step[props.item]} /> :
+                <input className='form-control' onChange={onChange} value={this.state.step[props.item]} />}
             {props.selector && <small className='form-text text-muted'>Matches {document.querySelectorAll(props.selector).length} elements</small>}
         </div>
     }
+
     render() {
-        let tagName = this.state.element && this.state.element.tagName.toLowerCase()
-        return <div>
-            <button className='btn btn-success' onClick={() => this.start()}>
-                Select element
+        return <div style={{borderBottom: '1px solid rgba(0, 0, 0, 0.1)', paddingBottom: '1rem'}}>
+            <button style={{marginTop: -3}} type="button" className="close pull-right" aria-label="Close" onClick={this.props.onDelete}>
+                <span aria-hidden="true">&times;</span>
             </button>
-            {this.state.whatever}
-            {this.state.element && <div>
+            <button type="button" className='btn btn-sm btn-light' onClick={() => this.start()}>
+                inspect element
+            </button>
+            <div style={{margin: '0 -12px'}}>
                 <br />
-                {tagName == 'a' && <this.Option
+                {this.state.step.href && <this.Option
                     item='href'
                     label='Link href'
-                    value={this.state.element.getAttribute('href')}
-                    selector={'a[href="' + this.state.element.getAttribute('href') +'"]'} />}
-                {(tagName == 'button' || tagName == 'a') && <this.Option
+                    selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') +'"]'} />}
+                {this.state.step.name && <this.Option
+                    item='name'
+                    label='Element name'
+                    selector={this.state.element && '[name="' + this.state.element.getAttribute('name') + '"]'} />}
+                {this.state.step.text && <this.Option
                     item='text'
                     label='Text'
-                    value={getSafeText(this.state.element)}
                      />}
-                <this.Option
+                {this.state.step.selector && <this.Option
                     item='selector'
                     label='Selector'
-                    value={this.state.query}
-                    selector={this.state.query}
-                    />
-                <this.Option
+                    selector={this.state.step.selector}
+                    />}
+                {this.state.step.url && <this.Option
                     item='url'
                     label='Match url'
-                    value={window.location.pathname}
-                     />
-            </div>}
+                    />}
+            </div>
         </div>
     }
 }
@@ -142,21 +177,75 @@ class App extends Component {
         super(props)
     
         this.state = {
+            action: {
+                steps: []
+            }
         }
-        this.fetchElements.call(this);
-        console.log(styles)
+        this.fetchAction.call(this);
+        this.onSubmit = this.onSubmit.bind(this);
     }
-    fetchElements() {
-        api.get('api/event/elements').then((elements) => this.setState({elements}))
+    fetchAction() {
+        if(sessionStorage.getItem('editorActionId')) {
+            return api.get('api/action/' + sessionStorage.getItem('editorActionId')).then((action) => this.setState({action}))
+        }
+        // If it's a new action, add an empty step
+        this.setState({action: {steps: [{isNew: uuid()}]}})
     }
-
+    onSubmit(event, createNew) {
+        event.preventDefault();
+        let save = (action) => {
+            if(createNew) {
+                this.setState({action: {name: '', steps: [{isNew: uuid()}]}})
+                sessionStorage.removeItem('editorActionId');
+            } else {
+                this.setState({action})
+                sessionStorage.setItem('editorActionId', action.id)
+                setTimeout(() => this.setState({saved: true}), 500)
+            }
+        }
+        if(this.state.action.id) {
+            return api.update('api/action/' + this.state.action.id, this.state.action).then(save)
+        }
+        api.create('api/action', this.state.action).then(save)
+    }
     render() {
-        return <root.div style={{position: 'fixed', top: 0, zIndex: 999999999, right: 0, height: '100vh', overflowY: 'scroll', width: 280, background: 'white', borderLeft: '1px solid rgba(0, 0, 0, 0.1)', fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif'}}>
+        return <root.div style={{position: 'fixed', top: 0, zIndex: 999999999, padding: 12, right: 0, height: '100vh', overflowY: 'scroll', width: 280, background: 'white', borderLeft: '1px solid rgba(0, 0, 0, 0.1)', fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif'}}>
             <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
+            <style>{styles}</style>
             <h2>PostHog</h2><br />
-            <style>{styles}
-            </style>
-            <SelectElement />
+
+            <form>
+                <label>Action name</label>
+                <input required className='form-control' placeholder="user signed up" value={this.state.action.name} onChange={(e) => this.setState({action: {...this.state.action, name: e.target.value}})} />
+                <br />
+                {this.state.action.steps.map((step, index) => <SelectElement
+                    key={step.id || step.isNew}
+                    step={step}
+                    onDelete={() => {
+                        this.state.action.steps = this.state.action.steps.filter((s) => s.id != step.id)
+                        this.setState({action: this.state.action});
+                    }}
+                    onChange={(newStep) => {
+                        this.state.action.steps = this.state.action.steps.map((s) => (s.id == step.id || (step.isNew && s.isNew == step.isNew)) ? {...step, ...newStep} : s);
+                        this.setState({action: this.state.action});
+                    }} />
+                )}
+                <br />
+                <button
+                    type="button"
+                    className='btn btn-light btn-sm'
+                    onClick={() => {
+                        this.state.action.steps.push({isNew: uuid()});
+                        this.setState({action: this.state.action})
+                    }}>Add another element</button>
+                <br /><br />
+                <div className='btn-group'>
+                    <button type="submit" onClick={(e) => this.onSubmit(e)} className='btn btn-success'>Save action</button>
+                    <button type="submit" onClick={(e) => this.onSubmit(e, true)} className='btn btn-light'>Save & new action</button>
+                </div>
+                <br />
+                {this.state.saved && <p className='text-success'>Action saved</p>}
+            </form>
         </root.div>
     }
 }
