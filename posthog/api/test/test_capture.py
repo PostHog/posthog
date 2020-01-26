@@ -19,14 +19,19 @@ class TestCapture(BaseTest):
             'properties': {
                 'distinct_id': 2,
                 'token': self.team.api_token,
-                '$elements': [{'tag_name': 'a'}]
+                '$elements': [
+                    {'tag_name': 'a', 'nth_child': 1, 'nth_of_type': 2},
+                    {'tag_name': 'div', 'nth_child': 1, 'nth_of_type': 2}
+                ]
             },
         }), content_type='application/json', HTTP_REFERER='https://localhost')
 
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
         event = Event.objects.get()
         self.assertEqual(event.event, '$web_event')
-        self.assertEqual(event.elements, [{'tag_name': 'a'}])
+        elements = event.element_set.all()
+        self.assertEqual(elements[0].tag_name, 'a')
+        self.assertEqual(elements[1].order, 1)
         self.assertEqual(event.properties['distinct_id'], "2")
 
     def test_capture_no_element(self):

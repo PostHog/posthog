@@ -1,12 +1,19 @@
-from posthog.models import Event, Team, Person
+from posthog.models import Event, Team, Person, Element
 from rest_framework import request, response, serializers, viewsets # type: ignore
 from rest_framework.decorators import action # type: ignore
 from django.http import HttpResponse, JsonResponse
-from django.db.models import Q
+from django.db.models import Q, Count
 from typing import Any
+
+class ElementSerializer(serializers.HyperlinkedModelSerializer):
+    class Meta:
+        model = Element
+        fields = ['el_text', 'tag_name', 'href', 'attr_id', 'nth_child', 'nth_of_type', 'attributes', 'order']
 
 class EventSerializer(serializers.HyperlinkedModelSerializer):
     person = serializers.SerializerMethodField()
+    elements = serializers.SerializerMethodField()
+
     class Meta:
         model = Event
         fields = ['id', 'properties', 'elements', 'event', 'ip', 'timestamp', 'person']
@@ -14,13 +21,20 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
     def get_person(self, event) -> Any:
         return hasattr(event, 'get') and event.get('person')
 
+    def get_elements(self, event):
+        elements = Element.objects.filter(event_id=event['id'])
+        return ElementSerializer(elements, many=True).data
+
 class EventViewSet(viewsets.ModelViewSet):
     queryset = Event.objects.all()
     serializer_class = EventSerializer
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        return queryset.filter(team=self.request.user.team_set.get()).order_by('-timestamp')
+        return queryset\
+            .filter(team=self.request.user.team_set.get())\
+            .prefetch_related('elements')\
+            .order_by('-timestamp')
 
     def _filter_request(self, request, queryset):
         for key, value in self.request.GET.items():
@@ -55,3 +69,18 @@ class EventViewSet(viewsets.ModelViewSet):
         return response.Response({
             'results': data
         })
+
+    @action(methods=['GET'], detail=False)
+    def elements(self, request) -> response.Response:
+        elements = Element.objects.filter(team=request.user.team_set.get())\
+            .filter(tag_name__in=Element.USEFUL_ELEMENTS)\
+            .values('tag_name', 'el_text', 'order')\
+            .annotate(count=Count('event'))\
+            .order_by('-count')
+
+        
+        return response.Response([{
+            'name': '%s with text "%s"' % (el['tag_name'], el['el_text']),
+            'count': el['count'],
+            'common': el
+        } for el in elements])

@@ -25,7 +25,6 @@ def create_team_signup_token(sender, instance, created, **kwargs):
 
 
 class Event(models.Model):
-    ELEMENTS = ['a', 'button', 'input', 'select']
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     properties: JSONField = JSONField(default=dict)
@@ -39,3 +38,17 @@ class Person(models.Model):
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     properties: JSONField = JSONField(default=dict)
     is_user: models.ForeignKey = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+
+
+class Element(models.Model):
+    USEFUL_ELEMENTS = ['a', 'button', 'input', 'select', 'textarea', 'label']
+    el_text: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    tag_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    href: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    attr_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
+    nth_child: models.IntegerField = models.IntegerField()
+    nth_of_type: models.IntegerField = models.IntegerField()
+    attributes: JSONField = JSONField(default=dict)
+    event: models.ForeignKey = models.ForeignKey(Event, on_delete=models.CASCADE)
+    order: models.IntegerField = models.IntegerField()

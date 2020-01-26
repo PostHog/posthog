@@ -5,19 +5,31 @@ for(h=0;h<l.length;h++)c(e,l[h]);var f="set set_once union unset remove delete".
 MIXPANEL_CUSTOM_LIB_URL:"file:"===c.location.protocol&&"//127.0.0.1:8000/static/tr.js".match(/^\/\//)?"https://127.0.0.1:8000/static/tr.js":"//127.0.0.1:8000/static/tr.js";d=c.getElementsByTagName("script")[0];d.parentNode.insertBefore(b,d)}})(document,window.posthog||[]);
     posthog.init('xp9qT2VLY76JJg', {
         api_host: 'http://127.0.0.1:8000',
+        app_host: 'http://127.0.0.1:8000',
     });
 </script>
 
+<style>
+    button {
+        background: #007bff;
+        padding: 20;
+    }
+</style>
+
 <form>
 <h1>Welcome to my page</h1>
-
-<input type="text"  onclick="javascript:(event) => event.preventDefault()"/>
-<a href='#' onclick="test(event)">Prevented!</a>
-<a href='#'>nothing</a>
+<div class='some-weird-claSss'>
+<input type="text" name='something' onclick="javascript:(event) => event.preventDefault()"/>
+<a href='#1' onclick="test(event)" id="someid" data-attr="whatever">Prevented!</a>
+<a href='#2' onclick="test(event)" id="someID" data-attr="whatever">Prevented!</a>
+<a href='#2' class="whrRRratever">Prevented!</a>
+</div>
+<a href='#3'>nothing</a>
 </form>
 
 <a href='#'><strong>nothing</strong></a>
 <button className='whatever'>Some text <span>spantext</span></button>
+<div style="height: 120vh; background: #333; width: 30px"></div>
 <script>
 
 </script>

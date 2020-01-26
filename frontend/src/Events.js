@@ -87,8 +87,8 @@ export class EventsTable extends Component {
                             <tr key={event.id} className={'cursor-pointer event-row ' + (this.state.newEvents.indexOf(event.id) > -1 && 'event-row-new')} onClick={() => this.setState({eventSelected: this.state.eventSelected != event.id ? event.id : false})}>
                                 <td>
                                     {event.properties.$event_type == 'click' ? 'clicked' : event.event}
-                                    {event.elements && ' a ' + event.elements[0].tag_name + ' element '}
-                                    {event.elements && event.elements[0].$el_text && ' with text ' + event.elements[0].$el_text}
+                                    {event.elements.length > 0 && ' a ' + event.elements[0].tag_name + ' element '}
+                                    {event.elements.length > 0 && event.elements[0].$el_text && ' with text ' + event.elements[0].$el_text}
                                 </td>
                                 <td><Link to={'/person/' + event.properties.distinct_id}>{event.person}</Link></td>
                                 {params.map((param) => <td key={param} title={event.properties[param]}>

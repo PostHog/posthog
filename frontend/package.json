@@ -4,7 +4,8 @@
   "description": "",
   "scripts": {
     "start": "parcel watch index.html",
-    "build": "parcel build index.html"
+    "build": "parcel build index.html",
+    "start-editor": "parcel watch editor/index.js --out-file dist/editor.js"
   },
   "license": "MIT",
   "dependencies": {
@@ -16,8 +17,11 @@
     "react": "^16.9.0",
     "react-dom": "^16.9.0",
     "react-router-dom": "^5.1.0",
+    "react-shadow": "^17.4.0",
     "react-stripe-elements": "^6.0.1",
-    "sass": "^1.25.0"
+    "sass": "^1.25.0",
+    "simmerjs": "^0.5.6",
+    "style.css": "^1.0.0"
   },
   "babel": {
     "presets": [

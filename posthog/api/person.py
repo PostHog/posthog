@@ -42,3 +42,4 @@ class PersonViewSet(viewsets.ModelViewSet):
         person = self.get_queryset().filter(distinct_ids__contains=[request.GET['distinct_id']]).first()
         
         return response.Response(PersonSerializer(person).data)
+

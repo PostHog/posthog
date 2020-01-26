@@ -1,10 +1,11 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from posthog.models import Event, User, Team, Person
+from posthog.models import Event, User, Team, Person, Element
 
 admin.site.register(User, UserAdmin)
 admin.site.register(Team)
 admin.site.register(Person)
+admin.site.register(Element)
 
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):

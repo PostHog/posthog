@@ -1,4 +1,4 @@
-from posthog.models import Event, Team, Person
+from posthog.models import Event, Team, Person, Element
 from django.http import HttpResponse, JsonResponse
 import json
 import base64
@@ -36,18 +36,32 @@ def get_event(request):
     data = json.loads(base64.b64decode(data))
     team = Team.objects.get(api_token=data['properties']['token'])
 
-    elements = data['properties'].get('$elements')
     distinct_id = str(data['properties']['distinct_id'])
     data['properties']['distinct_id'] = distinct_id
+    elements = data['properties'].get('$elements')
     if elements:
         del data['properties']['$elements']
-    Event.objects.create(
+    event = Event.objects.create(
         event=data['event'],
         properties=data['properties'],
-        elements=elements,
         ip=get_ip_address(request),
         team=team
     )
+    if elements: 
+        Element.objects.bulk_create([
+            Element(
+                el_text=el.get('$el_text'),
+                tag_name=el['tag_name'],
+                href=el.get('attr__href'),
+                attr_id=el.get('attr__id'),
+                nth_child=el.get('nth_child'),
+                nth_of_type=el.get('nth_of_type'),
+                attributes={key: value for key, value in el.items() if key.startswith('attr__')},
+                team=team,
+                event=event,
+                order=index
+            ) for index, el in enumerate(elements)
+        ])
 
     with transaction.atomic():
         if not Person.objects.filter(team=team, distinct_ids__contains=[distinct_id]).exists():
