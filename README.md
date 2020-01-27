@@ -20,7 +20,9 @@
 
 ## Running frontend
 
-1) If you get "command not found: nvm", you need to install nvm, then use that to install node.
+If at any point, you get "command not found: nvm", you need to install nvm, then use that to install node.
+
+1) Make sure you are running Django above in a separate terminal
 2) Go to the frontend directory, `cd frontend`
 3) Run `yarn install`
 4) Now run `bin/start-frontend`
