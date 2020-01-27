@@ -13,6 +13,7 @@
 10) Run `python manage.py createsuperuser`
 11) Create a username, email and password
 12) Run `python manage.py runserver`
+13) If you get an error on loading https://127.0.0.1:8000 (which Chrome will default to) - "you're accessing the dev server over HTTPS, but it only supports HTTP", then go to settings.py and set `SECURE_SSL_REDIRECT = False`
 
 ## Running tests
 `bin/tests`
