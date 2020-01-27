@@ -8,7 +8,7 @@ import Sidebar from "./Sidebar";
 import People from "./People";
 import Actions from "./Actions";
 import Action from "./Action";
-
+import Topcontent from "./Topcontent";
 
 class PrivateRoute extends React.Component {
     constructor(props) {
@@ -62,8 +62,9 @@ export default class App extends React.Component {
             <Router>
                 <div className="container-fluid flex-grow-1 d-flex">
                     <div className="row flex-fill flex-column flex-sm-row">
-                        <Sidebar user={this.state.user} /> 
-                        <div className="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 flex-grow-1 py-3">
+                        <Sidebar user={this.state.user} />
+                        <div class="col top-content">
+                        <Topcontent />
                             <PrivateRoute path="/" exact component={function() { return 'asdfrrr '}} user={this.state.user} />
                             <Route path="/events" component={Events} user={this.state.user} />
                             <Route path="/person/:distinct_id" component={Person} user={this.state.user} />
