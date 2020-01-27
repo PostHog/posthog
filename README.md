@@ -8,7 +8,7 @@
 5) Navigate into the correct folder `cd posthog`
 6) Run `python3 -m venv env` (creates virtual environment in current direction called 'env')
 7) Run `source env/bin/activate` (activates virtual environment)
-8) Run `pip install -r requirements.txt`
+8) Run `pip install -r requirements.txt`. If you have problems with this step (TLS/SSL error), then run `~ brew update && brew upgrade` followed by `python3 -m pip install --upgrade pip`, then retry the requirements.txt install.
 9) Run migrations `python manage.py migrate`
 10) Run `python manage.py createsuperuser`
 11) Create a username, email and password
