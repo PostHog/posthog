@@ -19,9 +19,7 @@ from sentry_sdk.integrations.django import DjangoIntegration
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# DEBUG = os.environ.get("DEBUG", False)
-
-DEBUG = True
+DEBUG = os.environ.get("DEBUG", False)
 TEST = 'test' in sys.argv
 
 SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
