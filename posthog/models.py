@@ -4,6 +4,7 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.dispatch import receiver
 from django.forms.models import model_to_dict
+from typing import List, Tuple, Optional
 
 import secrets
 import re
@@ -83,19 +84,27 @@ class EventManager(models.Manager):
                 "posthog_event"."ip" 
             FROM   "posthog_event" """
 
-    def filter_by_action(self, action, count=False):
+    def filter_by_action(self, action, count: Optional[bool]=None, limit: Optional[int]=None, where: Optional[List[Tuple[str, str]]]=None) -> models.query.RawQuerySet:
         query = self._select(count=count)
         
-        self.joins = ['INNER JOIN posthog_element E0 ON (posthog_event.id = E0.event_id)']
-        self.where = []
-        self.params = []
+        self.joins: List[str] = ['INNER JOIN posthog_element E0 ON (posthog_event.id = E0.event_id)']
+        self.where: List[str] = []
+        self.params: List[str] = []
 
         for step in action.steps.all():
             self._step(step)
 
         query += ' '.join(self.joins)
-        query += ' WHERE 1=2 '
+        query += ' WHERE (1=2 '
         query += ' '.join(self.where)
+        query += ') '
+        if where:
+            for w in where:
+                query += ' AND {} %s'.format(w[0])
+                self.params.append(w[1])
+        query += ' ORDER BY posthog_event.timestamp DESC'
+        if limit:
+            query += ' LIMIT %s' % limit
         events = Event.objects.raw(query, self.params)
         if count:
             return events[0].id # bit of a hack to get the total count here

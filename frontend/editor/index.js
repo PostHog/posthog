@@ -109,7 +109,6 @@ class SelectElement extends Component {
             this.sendStep(this.state.step);
         }
         return <div className={'form-group ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
-            
             <label><input
                 type="checkbox"
                 name='selection'
@@ -127,7 +126,7 @@ class SelectElement extends Component {
             {props.item == 'selector' ?
                 <textarea className='form-control' onChange={onChange} value={this.state.step[props.item]} /> :
                 <input className='form-control' onChange={onChange} value={this.state.step[props.item]} />}
-            {props.selector && <small className='form-text text-muted'>Matches {document.querySelectorAll(props.selector).length} elements</small>}
+            {props.selector && this.props.isEditor && <small className='form-text text-muted'>Matches {document.querySelectorAll(props.selector).length} elements</small>}
         </div>
     }
 
@@ -136,11 +135,10 @@ class SelectElement extends Component {
             <button style={{marginTop: -3}} type="button" className="close pull-right" aria-label="Close" onClick={this.props.onDelete}>
                 <span aria-hidden="true">&times;</span>
             </button>
-            <button type="button" className='btn btn-sm btn-light' onClick={() => this.start()}>
+            {this.props.isEditor && <button type="button" className='btn btn-sm btn-light' onClick={() => this.start()}>
                 inspect element
-            </button>
-            {this.state.step.id}:{this.state.step.isNew}
-            <div style={{margin: '0 -12px'}}>
+            </button>}
+            <div style={{margin: (this.props.isEditor ? '0 -12px' : '')}}>
                 <br />
                 {this.state.step.href && <this.Option
                     item='href'
@@ -168,12 +166,7 @@ class SelectElement extends Component {
     }
 }
 
-let styles = `
-    .form-group { padding: 1rem 12px;margin: 0 }
-    .form-group.selected { background: rgba(0, 0, 0, 0.1)}
-    .form-group:not(:last-child) {border-bottom: 1px solid rgba(0, 0, 0, 0.1) }
-`;
-class App extends Component {
+export class EditAction extends Component {
     constructor(props) {
         super(props)
     
@@ -186,8 +179,8 @@ class App extends Component {
         this.onSubmit = this.onSubmit.bind(this);
     }
     fetchAction() {
-        if(sessionStorage.getItem('editorActionId')) {
-            return api.get('api/action/' + sessionStorage.getItem('editorActionId')).then((action) => this.setState({action}))
+        if(this.props.actionId) {
+            return api.get('api/action/' + this.props.actionId).then((action) => this.setState({action}))
         }
         // If it's a new action, add an empty step
         this.setState({action: {steps: [{isNew: uuid()}]}})
@@ -200,7 +193,7 @@ class App extends Component {
                 sessionStorage.removeItem('editorActionId');
             } else {
                 this.setState({action})
-                sessionStorage.setItem('editorActionId', action.id)
+                if(this.props.isEditor) sessionStorage.setItem('editorActionId', action.id);
                 setTimeout(() => this.setState({saved: true}), 500)
             }
         }
@@ -210,43 +203,57 @@ class App extends Component {
         api.create('api/action', this.state.action).then(save)
     }
     render() {
+        return <form>
+            <label>Action name</label>
+            <input required className='form-control' placeholder="user signed up" value={this.state.action.name} onChange={(e) => this.setState({action: {...this.state.action, name: e.target.value}})} />
+            <br />
+            {this.state.action.steps.map((step, index) => <SelectElement
+                key={step.id || step.isNew}
+                step={step}
+                isEditor={this.props.isEditor}
+                onDelete={() => {
+                    this.state.action.steps = this.state.action.steps.filter((s) => s.id != step.id)
+                    this.setState({action: this.state.action});
+                }}
+                onChange={(newStep) => {
+                    this.state.action.steps = this.state.action.steps.map((s) => ((step.id && s.id == step.id) || (step.isNew && s.isNew == step.isNew)) ? {...step, ...newStep} : s);
+                    this.setState({action: this.state.action});
+                }} />
+            )}
+            <br />
+            <button
+                type="button"
+                className='btn btn-light btn-sm'
+                onClick={() => {
+                    this.state.action.steps.push({isNew: uuid()});
+                    this.setState({action: this.state.action})
+                }}>Add another element</button>
+            <br /><br />
+            <div className='btn-group'>
+                <button type="submit" onClick={(e) => this.onSubmit(e)} className='btn btn-success'>Save action</button>
+                {this.props.isEditor && <button type="submit" onClick={(e) => this.onSubmit(e, true)} className='btn btn-light'>Save & new action</button>}
+            </div>
+            <br />
+            {this.state.saved && <p className='text-success'>Action saved</p>}
+        </form>
+    }
+}
+
+let styles = `
+    .form-group { padding: 1rem 12px;margin: 0 }
+    .form-group.selected { background: rgba(0, 0, 0, 0.1)}
+    .form-group:not(:last-child) {border-bottom: 1px solid rgba(0, 0, 0, 0.1) }
+`;
+class App extends Component {
+    constructor(props) {
+        super(props)
+    }
+    render() {
         return <root.div style={{position: 'fixed', top: 0, zIndex: 999999999, padding: 12, right: 0, height: '100vh', overflowY: 'scroll', width: 280, background: 'white', borderLeft: '1px solid rgba(0, 0, 0, 0.1)', fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif'}}>
             <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
             <style>{styles}</style>
             <h2>PostHog</h2><br />
-
-            <form>
-                <label>Action name</label>
-                <input required className='form-control' placeholder="user signed up" value={this.state.action.name} onChange={(e) => this.setState({action: {...this.state.action, name: e.target.value}})} />
-                <br />
-                {this.state.action.steps.map((step, index) => <SelectElement
-                    key={step.id || step.isNew}
-                    step={step}
-                    onDelete={() => {
-                        this.state.action.steps = this.state.action.steps.filter((s) => s.id != step.id)
-                        this.setState({action: this.state.action});
-                    }}
-                    onChange={(newStep) => {
-                        this.state.action.steps = this.state.action.steps.map((s) => ((step.id && s.id == step.id) || (step.isNew && s.isNew == step.isNew)) ? {...step, ...newStep} : s);
-                        this.setState({action: this.state.action});
-                    }} />
-                )}
-                <br />
-                <button
-                    type="button"
-                    className='btn btn-light btn-sm'
-                    onClick={() => {
-                        this.state.action.steps.push({isNew: uuid()});
-                        this.setState({action: this.state.action})
-                    }}>Add another element</button>
-                <br /><br />
-                <div className='btn-group'>
-                    <button type="submit" onClick={(e) => this.onSubmit(e)} className='btn btn-success'>Save action</button>
-                    <button type="submit" onClick={(e) => this.onSubmit(e, true)} className='btn btn-light'>Save & new action</button>
-                </div>
-                <br />
-                {this.state.saved && <p className='text-success'>Action saved</p>}
-            </form>
+            <EditAction actionId={sessionStorage.getItem('editorActionId')} isEditor={true} />
         </root.div>
     }
 }

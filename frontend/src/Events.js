@@ -2,10 +2,9 @@ import React, { Component } from 'react';
 import api from './Api';
 import moment from 'moment';
 import { Link } from 'react-router-dom';
+import { toParams, fromParams, colors } from './utils';
+import PropTypes from 'prop-types';
 
-let toParams = (obj) => Object.entries(obj).map(([key, val]) => `${key}=${encodeURIComponent(val)}`).join('&')
-let fromParams = () => window.location.search != '' ? window.location.search.slice(1).split('&').reduce((a, b) => { b = b.split('='); a[b[0]] = decodeURIComponent(b[1]); return a; }, {}) : {};
-let colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
 
 export class EventsTable extends Component {
     constructor(props) {
@@ -112,6 +111,10 @@ export class EventsTable extends Component {
             </div>
         )
     }
+}
+EventsTable.propTypes = {
+    fixedFilters: PropTypes.object,
+    history: PropTypes.object.isRequired
 }
 
 export default class Events extends Component {

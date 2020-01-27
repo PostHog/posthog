@@ -79,12 +79,11 @@ class ActionViewSet(viewsets.ModelViewSet):
         actions = self.get_queryset()
         actions_list = []
         for action in actions:
-            count = Event.objects.filter_by_action(action)
+            count = Event.objects.filter_by_action(action, count=True)
             actions_list.append({
                 'id': action.pk,
                 'name': action.name,
                 'count': count
             })
+        actions_list.sort(key=lambda action: action['count'], reverse=True)
         return Response({'results': actions_list})
-        
-            

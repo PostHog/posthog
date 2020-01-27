@@ -4,7 +4,9 @@
   "scripts": {
     "heroku-postbuild": "cd frontend && npm install && npm run build"
   },
-  "cacheDirectories": ["frontend/node_modules"],
+  "cacheDirectories": [
+    "frontend/node_modules"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/timgl/posthog.git"
@@ -14,5 +16,8 @@
   "bugs": {
     "url": "https://github.com/timgl/posthog/issues"
   },
-  "homepage": "https://github.com/timgl/posthog#readme"
+  "homepage": "https://github.com/timgl/posthog#readme",
+  "dependencies": {
+    "prop-types": "^15.7.2"
+  }
 }
