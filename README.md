@@ -1,6 +1,6 @@
 # Posthog
 
-## Running locally
+## Running backend (Django)
 1) Make sure you have python 3 installed `python3 --version`
 2) Make sure you have postgres installed `brew install postgres`
 3) Start postgres, run `brew services start postgresql`
@@ -18,7 +18,7 @@
 ## Running tests
 `bin/tests`
 
-## Running frontend
+## Running frontend (React)
 
 If at any point, you get "command not found: nvm", you need to install nvm, then use that to install node.
 
