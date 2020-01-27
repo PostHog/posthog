@@ -14,7 +14,7 @@ class TestEvents(BaseTest):
         event1 = Event.objects.create(team=self.team, properties={"distinct_id": "2"}, ip='8.8.8.8')
         Event.objects.create(team=self.team, properties={"distinct_id": 'some-random-uid'}, ip='8.8.8.8')
         Event.objects.create(team=self.team, properties={"distinct_id": 'some-other-one'}, ip='8.8.8.8')
-        Element.objects.create(tag_name='button', el_text='something', nth_child=0, nth_of_type=0, event=event1, order=0, team=self.team)
+        Element.objects.create(tag_name='button', text='something', nth_child=0, nth_of_type=0, event=event1, order=0, team=self.team)
 
 
         response = self.client.get('/api/event/?distinct_id=2').json()
@@ -40,10 +40,10 @@ class TestEvents(BaseTest):
         event2 = Event.objects.create(team=self.team, ip='8.8.8.8')
         event3 = Event.objects.create(team=self.team, ip='8.8.8.8')
         event4 = Event.objects.create(team=self.team, ip='8.8.8.8')
-        Element.objects.create(tag_name='button', el_text='something', nth_child=0, nth_of_type=0, event=event1, order=0, team=self.team)
-        Element.objects.create(tag_name='button', el_text='something', nth_child=0, nth_of_type=0, event=event2, order=0, team=self.team)
-        Element.objects.create(tag_name='button', el_text='something else', nth_child=0, nth_of_type=0, event=event3, order=0, team=self.team)
-        Element.objects.create(tag_name='input', el_text='', nth_child=0, nth_of_type=0, event=event3, order=0, team=self.team)
+        Element.objects.create(tag_name='button', text='something', nth_child=0, nth_of_type=0, event=event1, order=0, team=self.team)
+        Element.objects.create(tag_name='button', text='something', nth_child=0, nth_of_type=0, event=event2, order=0, team=self.team)
+        Element.objects.create(tag_name='button', text='something else', nth_child=0, nth_of_type=0, event=event3, order=0, team=self.team)
+        Element.objects.create(tag_name='input', text='', nth_child=0, nth_of_type=0, event=event3, order=0, team=self.team)
         
         response = self.client.get('/api/event/elements/').json()
         self.assertEqual(response[0]['name'], 'button with text "something"')

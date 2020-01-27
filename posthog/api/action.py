@@ -1,7 +1,9 @@
-from posthog.models import Event, Team, Action, ActionStep
+from posthog.models import Event, Team, Action, ActionStep, Element
 from rest_framework import request, serializers, viewsets # type: ignore
 from rest_framework.response import Response
 from rest_framework.decorators import action # type: ignore
+from django.db.models import Q, F
+from django.forms.models import model_to_dict
 from typing import Any
 
 
@@ -38,6 +40,8 @@ class ActionViewSet(viewsets.ModelViewSet):
             return Response(data={'detail': 'event already exists'}, status=400)
 
         for step in steps:
+            if step.get('isNew'):
+                step.pop('isNew')
             ActionStep.objects.create(
                 action=action,
                 **step
@@ -67,3 +71,20 @@ class ActionViewSet(viewsets.ModelViewSet):
                     **step
                 )
         return Response(ActionSerializer(action).data)
+
+
+
+
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        actions = self.get_queryset()
+        actions_list = []
+        for action in actions:
+            count = Event.objects.filter_by_action(action)
+            actions_list.append({
+                'id': action.pk,
+                'name': action.name,
+                'count': count
+            })
+        return Response({'results': actions_list})
+        
+            

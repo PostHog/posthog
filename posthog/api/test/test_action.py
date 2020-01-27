@@ -1,5 +1,5 @@
 from .base import BaseTest
-from posthog.models import Action, ActionStep
+from posthog.models import Action, ActionStep, Event, Element
 
 class TestAction(BaseTest):
     TESTS_API = True

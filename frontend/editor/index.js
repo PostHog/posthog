@@ -139,6 +139,7 @@ class SelectElement extends Component {
             <button type="button" className='btn btn-sm btn-light' onClick={() => this.start()}>
                 inspect element
             </button>
+            {this.state.step.id}:{this.state.step.isNew}
             <div style={{margin: '0 -12px'}}>
                 <br />
                 {this.state.step.href && <this.Option
@@ -226,7 +227,7 @@ class App extends Component {
                         this.setState({action: this.state.action});
                     }}
                     onChange={(newStep) => {
-                        this.state.action.steps = this.state.action.steps.map((s) => (s.id == step.id || (step.isNew && s.isNew == step.isNew)) ? {...step, ...newStep} : s);
+                        this.state.action.steps = this.state.action.steps.map((s) => ((step.id && s.id == step.id) || (step.isNew && s.isNew == step.isNew)) ? {...step, ...newStep} : s);
                         this.setState({action: this.state.action});
                     }} />
                 )}

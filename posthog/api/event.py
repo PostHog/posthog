@@ -8,7 +8,7 @@ from typing import Any
 class ElementSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = Element
-        fields = ['el_text', 'tag_name', 'href', 'attr_id', 'nth_child', 'nth_of_type', 'attributes', 'order']
+        fields = ['text', 'tag_name', 'href', 'attr_id', 'nth_child', 'nth_of_type', 'attributes', 'order']
 
 class EventSerializer(serializers.HyperlinkedModelSerializer):
     person = serializers.SerializerMethodField()
@@ -74,13 +74,13 @@ class EventViewSet(viewsets.ModelViewSet):
     def elements(self, request) -> response.Response:
         elements = Element.objects.filter(team=request.user.team_set.get())\
             .filter(tag_name__in=Element.USEFUL_ELEMENTS)\
-            .values('tag_name', 'el_text', 'order')\
+            .values('tag_name', 'text', 'order')\
             .annotate(count=Count('event'))\
             .order_by('-count')
 
         
         return response.Response([{
-            'name': '%s with text "%s"' % (el['tag_name'], el['el_text']),
+            'name': '%s with text "%s"' % (el['tag_name'], el['text']),
             'count': el['count'],
             'common': el
         } for el in elements])

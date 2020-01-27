@@ -50,7 +50,7 @@ def get_event(request):
     if elements: 
         Element.objects.bulk_create([
             Element(
-                el_text=el.get('$el_text'),
+                text=el.get('$el_text'),
                 tag_name=el['tag_name'],
                 href=el.get('attr__href'),
                 attr_id=el.get('attr__id'),
