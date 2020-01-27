@@ -8,18 +8,22 @@
 5) Navigate into the correct folder `cd posthog`
 6) Run `python3 -m venv env` (creates virtual environment in current direction called 'env')
 7) Run `source env/bin/activate` (activates virtual environment)
-8) Run `pip install -r requirements.txt`
+8) Run `pip install -r requirements.txt`. If you have problems with this step (TLS/SSL error), then run `~ brew update && brew upgrade` followed by `python3 -m pip install --upgrade pip`, then retry the requirements.txt install.
 9) Run migrations `python manage.py migrate`
 10) Run `python manage.py createsuperuser`
 11) Create a username, email and password
 12) Run `python manage.py runserver`
+13) If you get an error on loading https://127.0.0.1:8000 (which Chrome will default to) - "you're accessing the dev server over HTTPS, but it only supports HTTP", then go to settings.py and set `SECURE_SSL_REDIRECT = False`
 
 ## Running tests
 `bin/tests`
 
 ## Running frontend
 
-`bin/start-frontend`
+1) If you get "command not found: nvm", you need to install nvm, then use that to install node.
+2) Go to the frontend directory, `cd frontend`
+3) Run `yarn install`
+4) Now run `bin/start-frontend`
 
 ## Pulling production database locally
 
