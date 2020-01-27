@@ -20,7 +20,10 @@
 
 ## Running frontend
 
-`bin/start-frontend`
+1) If you get "command not found: nvm", you need to install nvm, then use that to install node.
+2) Go to the frontend directory, `cd frontend`
+3) Run `yarn install`
+4) Now run `bin/start-frontend`
 
 ## Pulling production database locally
 
