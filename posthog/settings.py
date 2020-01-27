@@ -27,7 +27,7 @@ TEST = 'test' in sys.argv
 SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
 
 if not DEBUG and not TEST:
-    SECURE_SSL_REDIRECT = False
+    SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     if os.environ.get('SENTRY_DSN'):
         sentry_sdk.init(
