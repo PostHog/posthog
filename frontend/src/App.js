@@ -57,7 +57,6 @@ export default class App extends React.Component {
                     "email": user.email
                 })
             }
-
         }).catch(() => this.setState({user: false}));
     }
     render() {
