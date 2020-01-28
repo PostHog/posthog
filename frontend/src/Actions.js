@@ -22,10 +22,21 @@ export class ActionsTable extends Component {
     
     render() {
         return (
-            <div class='events'>
+            <div>
+                <h1>Action Log</h1>
                 <table className='table'>
+                    <thead>
+                        <tr>
+                            <th scope="col">Action ID</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">User</th>
+                            <th scope="col">Date</th>
+                            <th scope="col">Browser</th>
+                            <th scope="col">City</th>
+                            <th scope="col">Country</th>
+                        </tr>
+                    </thead>
                     <tbody>
-                        <tr><th>Name</th><th>Matching events</th></tr>
                         {this.state.actions && this.state.actions.map((action) => 
                             <tr key={action.id}>
                                 <td>
@@ -38,6 +49,7 @@ export class ActionsTable extends Component {
                     </tbody>
                 </table>
             </div>
+
         )
     }
 }

@@ -1,9 +1,6 @@
 @import "../node_modules/bootstrap/scss/_functions";
 @import "../node_modules/bootstrap/scss/_variables";
 @import "../node_modules/bootstrap/scss/_mixins";
-@import "../node_modules/bootstrap/scss/_root";
-@import "../node_modules/bootstrap/scss/_reboot";
-@import "../node_modules/bootstrap/scss/utilities";
 
 $blue:    #007bff;
 $indigo:  #6610f2;
@@ -17,8 +14,13 @@ $teal:    #20c997;
 $cyan:    #17a2b8;
 
 $badge-font-weight: 400;
+$body-bg:          #FFFEFC; 
+$body-color:#37352F; 
 
 // bootstrap components
+@import "../node_modules/bootstrap/scss/_root";
+@import "../node_modules/bootstrap/scss/utilities";
+@import "../node_modules/bootstrap/scss/_reboot";
 @import "../node_modules/bootstrap/scss/_buttons";
 @import "../node_modules/bootstrap/scss/_button-group";
 @import "../node_modules/bootstrap/scss/_tables";
@@ -29,13 +31,29 @@ $badge-font-weight: 400;
 @import "../node_modules/bootstrap/scss/_close";
 @import "../node_modules/bootstrap/scss/_card";
 
+// icons
+@import "../font/flaticon";
+
 // our components
 @import "events";
 @import "funnel";
+@import "sidebar";
 .cursor-pointer { cursor: pointer }
 
 .badge .close {
     text-shadow: none;
     margin: -6px 0 -8px 8px;
     font-size: 1.3rem;
+}
+
+
+.right-align {
+    width: 400px;
+    float: right;
+    .fi { font-size: 20px; margin-right: 12px }
+}
+
+
+.content{
+	padding: 0 45px;
 }

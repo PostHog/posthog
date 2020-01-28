@@ -2,6 +2,9 @@
     .funnel-success {
         background-color: $green;
     }
+    .funnel-dropped {
+        background-color: $gray-200;
+    }
     table {
         table-layout: fixed;
     }

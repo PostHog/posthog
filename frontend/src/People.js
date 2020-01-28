@@ -30,6 +30,7 @@ export default class People extends Component {
     render() {
         return (
             <div>
+                <h1>Users</h1>
                 <table className='table'>
                     <tbody>
                         <tr><th>Person</th><th>Last seen</th></tr>

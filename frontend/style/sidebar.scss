@@ -1,0 +1,41 @@
+.sidebar { 
+
+    background-color: #F7F6F3;
+
+    li {
+        padding: 7px 0;
+    }
+    a {
+        color: #333;
+        &:hover {
+            color: black;
+            background-color: #E8E7E5
+        }
+        .fi {
+            margin: 0 15px;
+            font-size: 20px;
+        }
+    }
+    .active{
+        background-color:#E8E7E5;
+    }
+
+    .posthog-title{
+        font-weight:500;
+        font-size:20px;
+        color: #333;
+        padding-left:15px;
+        margin-top: 4px;
+    }
+
+    .logo{
+        margin-left: 15px;
+        width: 35px;
+        height: 35px; 
+    }
+
+    .logo-row{
+        padding:15px 15px 3rem;
+    }
+}
+

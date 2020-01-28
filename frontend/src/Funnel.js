@@ -1,6 +1,6 @@
 import React, { Component } from 'react'
 import api from './Api';
-import { uuid } from './utils';
+import { uuid, percentage } from './utils';
 import PropTypes from 'prop-types';
 import { Link } from 'react-router-dom';
 
@@ -11,12 +11,15 @@ export class EditFunnel extends Component {
         this.state = {
             actions: [],
             steps: [{id: uuid(), order: 0}],
-            id: props.funnel && props.funnel.id,
-            name: props.funnel && props.funnel.name
+            id: this.props.match.params.id,
         }
         this.Step = this.Step.bind(this);
         this.onSubmit = this.onSubmit.bind(this);
         this.fetchActions.call(this);
+        if(props.match.params.id) this.fetchFunnel.call(this);
+    }
+    fetchFunnel() {
+        api.get('api/funnel/' + this.props.match.params.id).then((funnel) => this.setState({steps: funnel.steps, name: funnel.name}))
     }
     fetchActions() {
         api.get('api/action').then((actions) => this.setState({actions: actions.results}))
@@ -29,10 +32,10 @@ export class EditFunnel extends Component {
                     required
                     onChange={(e) => {
                         this.setState({steps: this.state.steps.map(
-                            (s) => s.id == step.id ? {...step, action: e.target.value} : s
+                            (s) => s.id == step.id ? {...step, action_id: e.target.value} : s
                         )})
                     }}
-                    value={step.action}
+                    value={step.action_id}
                     className='form-control'>
                     <option value=''>Select action</option>
                     {this.state.actions && this.state.actions.map((action) => <option
@@ -40,7 +43,7 @@ export class EditFunnel extends Component {
                         value={action.id}
                         >{action.name}</option>)}
                 </select>
-                {step.action && <a target='_blank' href={'/action/' + step.action}>Edit action</a>}
+                {step.action_id && <a target='_blank' href={'/action/' + step.action_id}>Edit action</a>}
             </div>
         </div>
     }
@@ -59,6 +62,7 @@ export class EditFunnel extends Component {
     }
     render() {
         return <form onSubmit={this.onSubmit}>
+            {!this.props.match.params.id ? <h1>New funnel</h1> : this.state.name && <h1>Edit funnel: {this.state.name}</h1>}
             <label>Name</label>
             <input required placeholder='User drop off through signup' type='text' onChange={(e) => this.setState({name: e.target.value})} value={this.state.name} className='form-control' />
             <br /><br />
@@ -73,13 +77,14 @@ export class EditFunnel extends Component {
                 </div>
             </div>
             <br /><br />
-            <button className='btn btn-success'>Save</button>
-            {this.state.saved && <p className='text-success'>Funnel saved</p>}
+            <button className='btn btn-success'>Save funnel</button><br /><br />
+            {this.state.saved && <p className='text-success'>Funnel saved. <Link to={'/funnel/' + this.state.id}>Click here to go back to the funnel.</Link></p>}
         </form>
     }
 }
 
 EditFunnel.propTypes = {
+    history: PropTypes.object,
     funnel: PropTypes.object
 }
 
@@ -112,6 +117,7 @@ export default class Funnel extends Component {
     render() {
         return this.state.funnel ? (
             <div className='funnel'>
+                <Link to={'/funnel/' + this.state.funnel.id + '/edit'} className='btn btn-outline-success float-right'><i className='fi flaticon-edit' /> Edit funnel</Link>
                 <h1>Funnel: {this.state.funnel.name}</h1>
                 <table className='table table-bordered table-fixed'>
                     <tbody>
@@ -124,14 +130,14 @@ export default class Funnel extends Component {
                             <td></td>
                             {this.state.funnel.steps.map((step) => <td key={step.id}>
                                 {step.count}&nbsp;
-                                ({(step.count/this.state.funnel.steps[0].count ).toLocaleString(undefined, {style: 'percent', maximumFractionDigits: 2})})
+                                ({percentage(step.count/this.state.funnel.steps[0].count)})
                             </td>)}
                         </tr>
                         {this.state.people && this.state.people.map((person) => <tr key={person.id}>
                             <td><Link to={'/person/' + person.id}>{person.name}</Link></td>
                             {this.state.funnel.steps.map((step) => <td
                                 key={step.id}
-                                className={step.people.indexOf(person.id) > -1 ? 'funnel-success' : ''}
+                                className={step.people.indexOf(person.id) > -1 ? 'funnel-success' : 'funnel-dropped'}
                                 ></td>)}
                         </tr>)}
                     </tbody>
