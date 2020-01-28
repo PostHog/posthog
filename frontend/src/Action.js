@@ -1,6 +1,5 @@
 import React, { Component } from 'react';
-import api from './Api';
-import { EditAction } from '../editor/index';
+import { EditAction } from './editor/index';
 import { EventsTable } from './Events';
 
 
@@ -14,7 +13,10 @@ export default class Action extends Component {
     }
     render() {
         return <div>
+            <h1>Edit action</h1>
             <EditAction actionId={this.props.match.params.id} />
+            
+            <hr />
 
             <h2>Events</h2>
             <EventsTable fixedFilters={{action_id: this.props.match.params.id}} history={this.props.history} />

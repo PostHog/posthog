@@ -4,14 +4,15 @@
   "description": "",
   "scripts": {
     "start": "parcel watch index.html",
-    "build": "parcel build index.html",
-    "start-editor": "parcel watch editor/index.js --out-file dist/editor.js"
+    "build": "parcel build index.html && parcel build src/editor/index.js --out-file dist/editor.js",
+    "start-editor": "parcel watch src/editor/index.js --out-file dist/editor.js"
   },
   "license": "MIT",
   "dependencies": {
     "@babel/core": "^7.5.5",
     "babel-preset-nano-react-app": "^0.1.0",
     "bootstrap": "^4.4.1",
+    "editor": "^1.0.0",
     "moment": "^2.24.0",
     "parcel-bundler": "1.11.0",
     "react": "^16.9.0",
