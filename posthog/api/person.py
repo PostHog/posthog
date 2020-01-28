@@ -34,6 +34,10 @@ class PersonViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         queryset = queryset.filter(team=self.request.user.team_set.get())
+        if self.action == 'list':
+            if self.request.GET.get('id'):
+                people = self.request.GET['id'].split(',')
+                queryset = queryset.filter(id__in=people)
         return queryset.order_by('-id')
 
     @action(methods=['GET'], detail=False)

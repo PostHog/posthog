@@ -8,6 +8,7 @@ import Sidebar from "./Sidebar";
 import People from "./People";
 import Actions from "./Actions";
 import Action from "./Action";
+import Funnel, { EditFunnel } from "./Funnel";
 
 
 class PrivateRoute extends React.Component {
@@ -70,6 +71,8 @@ export default class App extends React.Component {
                             <Route path="/people" component={People} user={this.state.user} />
                             <Route path="/actions" component={Actions} user={this.state.user} />
                             <Route path="/action/:id" component={Action} user={this.state.user} />
+                            <Route path="/new-funnel" component={EditFunnel} user={this.state.user} />
+                            <Route path="/funnel/:id" component={Funnel} user={this.state.user} />
                             <Route path="/login/:signup_token?" strict={false} render={props => { trackPageView(); return <Login {...props} />}} />
                         </div>
                     </div>

@@ -15,6 +15,9 @@ class BaseTest(TestCase):
 
     def setUp(self):
         super().setUp()
+        self.team: Team = Team.objects.create(api_token='token123')
         if self.TESTS_API:
             self.client = Client()
+            self.user = self._create_user('user1')
+            self.client.force_login(self.user)
     

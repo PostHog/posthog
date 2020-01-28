@@ -22,7 +22,7 @@ class Api {
     return fetch(url)
       .then((response) => {
         if(!response.ok) {
-          throw Error(response.statusText);
+          return response.json().then((data) => {throw data})
         }
         return response.json();
       })
@@ -38,7 +38,7 @@ class Api {
     })
     .then((response) => {
       if(!response.ok) {
-        throw Error(response.statusText);
+        return response.json().then((data) => {throw data})
       }
       return response.json();
     })
@@ -54,7 +54,7 @@ class Api {
     })
     .then((response) => {
       if(!response.ok) {
-        throw Error(response.data);
+        return response.json().then((data) => {throw data})
       }
       return response.json();
     })
@@ -69,7 +69,7 @@ class Api {
     })
     .then((response) => {
       if(!response.ok) {
-        throw Error(response.statusText);
+          return response.json().then((data) => {throw data})
       }
       return response.json();
     })

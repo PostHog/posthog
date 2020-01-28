@@ -19,8 +19,12 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
         model = Event
         fields = ['id', 'properties', 'elements', 'event', 'ip', 'timestamp', 'person']
 
-    def get_person(self, event) -> Any:
-        return hasattr(event, 'get') and event.get('person')
+    def get_person(self, event: Event) -> Any:
+        if hasattr(event, 'person_properties'):
+            return event.person_properties.get('$email', event.distinct_id)
+        if hasattr(event, 'person'):
+            return event.person.properties.get('$email', event.distinct_id)
+        return event.distinct_id
 
     def get_elements(self, event):
         elements = Element.objects.filter(event_id=event.id)
@@ -39,9 +43,9 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def _filter_by_action(self, request: request.Request) -> query.RawQuerySet:
             action = Action.objects.get(pk=request.GET['action_id'], team=request.user.team_set.get())
-            where = []
+            where = None
             if request.GET.get('after'):
-                where.append(('posthog_event.timestamp >', request.GET['after']))
+                where = ['posthog_event.timestamp >', request.GET['after']]
             return Event.objects.filter_by_action(action, limit=100, where=where)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
@@ -52,7 +56,9 @@ class EventViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(timestamp__gt=request.GET['after'])
             elif key == 'person_id':
                 person = Person.objects.get(pk=request.GET['person_id'])
-                queryset = queryset.filter(properties__distinct_id__contained_by=person.distinct_ids)
+                queryset = queryset.filter(distinct_id__in=person.distinct_ids)
+            elif key == 'distinct_id':
+                queryset = queryset.filter(distinct_id=request.GET['distinct_id'])
             else:
                 key = 'properties__%s' % key
                 params = {}
@@ -68,20 +74,13 @@ class EventViewSet(viewsets.ModelViewSet):
             queryset = self._filter_request(request, queryset)
 
         events = [EventSerializer(d).data for d in queryset[0: 100]]
-        people = Person.objects.filter(distinct_ids__overlap=[v['properties']['distinct_id'] for v in events])
-        for event in events:
-            try:
-                event['person'] = [person.properties['$email'] for person in people if event['properties']['distinct_id'] in person.distinct_ids][0]
-            except (KeyError, IndexError):
-                event['person'] = event['properties']['distinct_id']
-
         return response.Response({
             'results': events
         })
 
     @action(methods=['GET'], detail=False)
     def elements(self, request) -> response.Response:
-        elements = Element.objects.filter(team=request.user.team_set.get())\
+        elements = Element.objects.filter(event__team=request.user.team_set.get())\
             .filter(tag_name__in=Element.USEFUL_ELEMENTS)\
             .values('tag_name', 'text', 'order')\
             .annotate(count=Count('event'))\

@@ -45,7 +45,7 @@ urlpatterns = [
     path('api/user/', user),
     path('decide/', capture.get_decide),
     path('engage/', capture.get_engage),
-    path('demo', TemplateView.as_view(template_name='demo.html')),
+    re_path(r'demo.*', TemplateView.as_view(template_name='demo.html')),
     path('e/', capture.get_event),
 
     # react frontend
