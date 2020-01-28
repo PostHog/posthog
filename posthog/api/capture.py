@@ -1,10 +1,10 @@
-from posthog.models import Event, Team, Person, Element
+from posthog.models import Event, Team, Person, Element, PersonDistinctId
 from django.http import HttpResponse, JsonResponse
+from django.db import IntegrityError
+from django.views.decorators.csrf import csrf_exempt
 import json
 import base64
-from django.views.decorators.csrf import csrf_exempt
 from urllib.parse import urlparse
-from django.db import transaction
 
 
 def get_ip_address(request):
@@ -43,6 +43,7 @@ def get_event(request):
         del data['properties']['$elements']
     event = Event.objects.create(
         event=data['event'],
+        distinct_id=distinct_id,
         properties=data['properties'],
         ip=get_ip_address(request),
         team=team
@@ -57,15 +58,16 @@ def get_event(request):
                 nth_child=el.get('nth_child'),
                 nth_of_type=el.get('nth_of_type'),
                 attributes={key: value for key, value in el.items() if key.startswith('attr__')},
-                team=team,
                 event=event,
                 order=index
             ) for index, el in enumerate(elements)
         ])
 
-    with transaction.atomic():
-        if not Person.objects.filter(team=team, distinct_ids__contains=[distinct_id]).exists():
-            Person.objects.create(team=team, distinct_ids=[distinct_id], is_user=request.user if not request.user.is_anonymous else None)
+    # try to create a new person
+    try:
+        Person.objects.create(team=team, distinct_ids=[str(distinct_id)], is_user=request.user if not request.user.is_anonymous else None)
+    except IntegrityError: 
+        pass # person already exists, which is fine
     return cors_response(request, HttpResponse("1"))
 
 
@@ -85,8 +87,7 @@ def get_engage(request):
     data = json.loads(base64.b64decode(data))
     team = Team.objects.get(api_token=data['$token'])
 
-    # sometimes race condition creates 2 people. Just fix that for now
-    person = Person.objects.filter(team=team, distinct_ids__contains=[str(data['$distinct_id'])]).first()
+    person = Person.objects.get(team=team, persondistinctid__distinct_id=str(data['$distinct_id']))
     if data.get('$set'):
         person.properties = data['$set']
         person.save()

@@ -36,6 +36,7 @@ class TestCapture(BaseTest):
 
     def test_capture_no_element(self):
         user = self._create_user('tim')
+        Person.objects.create(team=self.team, distinct_ids=['asdfasdfasdf'])
 
         response = self.client.get('/e/?data=%s' % self._dict_to_b64({
             'event': 'ph_page_view',

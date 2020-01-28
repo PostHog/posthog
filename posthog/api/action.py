@@ -30,27 +30,24 @@ class ActionViewSet(viewsets.ModelViewSet):
             .order_by('-id')
 
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        if request.data.get('steps'):
-            steps = request.data.pop('steps')
         action, created = Action.objects.get_or_create(
             name=request.data['name'],
             team=request.user.team_set.get()
         )
         if not created:
-            return Response(data={'detail': 'event already exists'}, status=400)
+            return Response(data={'detail': 'action-exists', 'id': action.pk}, status=400)
 
-        for step in steps:
-            if step.get('isNew'):
-                step.pop('isNew')
-            ActionStep.objects.create(
-                action=action,
-                **step
-            )
+        if request.data.get('steps'):
+            for step in request.data['steps']:
+                ActionStep.objects.create(
+                    action=action,
+                    **{key: value for key, value in step.items() if key != 'isNew' and key != 'selection'}
+                )
         return Response(ActionSerializer(action).data)
 
-    def update(self, request: request.Request, pk: str, *args: Any, **kwargs: Any) -> Response:
+    def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         steps = request.data.pop('steps')
-        action = Action.objects.get(pk=pk, team=request.user.team_set.get())
+        action = Action.objects.get(pk=kwargs['pk'], team=request.user.team_set.get())
         serializer = ActionSerializer(action)
         serializer.update(action, request.data)
 
@@ -61,19 +58,14 @@ class ActionViewSet(viewsets.ModelViewSet):
         for step in steps:
             if step.get('id'):
                 db_step = ActionStep.objects.get(pk=step['id'])
-                serializer = ActionStepSerializer(db_step)
-                serializer.update(db_step, step)
+                step_serializer = ActionStepSerializer(db_step)
+                step_serializer.update(db_step, step)
             else:
-                if step.get('isNew'):
-                    step.pop('isNew')
                 ActionStep.objects.create(
                     action=action,
-                    **step
+                    **{key: value for key, value in step.items() if key != 'isNew' and key != 'selection'}
                 )
         return Response(ActionSerializer(action).data)
-
-
-
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         actions = self.get_queryset()

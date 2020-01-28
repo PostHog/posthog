@@ -27,9 +27,11 @@ $badge-font-weight: 400;
 @import "../node_modules/bootstrap/scss/_badge";
 @import "../node_modules/bootstrap/scss/_grid";
 @import "../node_modules/bootstrap/scss/_close";
+@import "../node_modules/bootstrap/scss/_card";
 
 // our components
 @import "events";
+@import "funnel";
 .cursor-pointer { cursor: pointer }
 
 .badge .close {

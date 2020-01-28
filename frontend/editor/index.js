@@ -25,7 +25,7 @@ class SelectElement extends Component {
         super(props);
         this.state = {
             step: props.step,
-            selection: Object.keys(props.step)
+            selection: Object.keys(props.step).filter((key) => key != 'id' && key != 'isNew')
         };
         this.onMouseOver = this.onMouseOver.bind(this);
         this.onKeyDown = this.onKeyDown.bind(this);
@@ -98,9 +98,8 @@ class SelectElement extends Component {
         document.removeEventListener('keydown', this.onKeyDown)
     }
     sendStep(step) {
-        let data = {};
-        this.state.selection.map((selected) => data[selected] = step[selected])
-        this.props.onChange(data)
+        step.selection = this.state.selection;
+        this.props.onChange(step)
     }
     Option(props) {
         let onChange = (e) => {
@@ -186,24 +185,35 @@ export class EditAction extends Component {
         this.setState({action: {steps: [{isNew: uuid()}]}})
     }
     onSubmit(event, createNew) {
-        event.preventDefault();
+        if(!event.target.form.checkValidity()) return;
         let save = (action) => {
             if(createNew) {
-                this.setState({action: {name: '', steps: [{isNew: uuid()}]}})
+                this.setState({error: false, saved: true, action: {name: '', steps: [{isNew: uuid()}]}})
                 sessionStorage.removeItem('editorActionId');
             } else {
-                this.setState({action})
+                this.setState({action: {...this.state.action, id: action.id}})
                 if(this.props.isEditor) sessionStorage.setItem('editorActionId', action.id);
-                setTimeout(() => this.setState({saved: true}), 500)
+                setTimeout(() => this.setState({error: false, saved: true}), 500)
             }
         }
-        if(this.state.action.id) {
-            return api.update('api/action/' + this.state.action.id, this.state.action).then(save)
+        let error = (detail) => {
+            if(detail.detail == 'action-exists') this.setState({saved: false, error: 'action-exists', error_id: detail.id})
         }
-        api.create('api/action', this.state.action).then(save)
+        let steps = this.state.action.steps.map((step) => {
+            if(!step.selection) return step;
+            let data = {};
+            Object.keys(step).map((key) => {
+                data[key] = (key == 'id' || step.selection.indexOf(key) > -1) ? step[key] : null;
+            })
+            return data;
+        })
+        if(this.state.action.id) {
+            return api.update('api/action/' + this.state.action.id, {name: this.state.action.name, steps}).then(save).catch(error)
+        }
+        api.create('api/action', this.state.action, {name: this.state.action.name, steps}).then(save).catch(error)
     }
     render() {
-        return <form>
+        return <form onSubmit={(e) => e.preventDefault()}>
             <label>Action name</label>
             <input required className='form-control' placeholder="user signed up" value={this.state.action.name} onChange={(e) => this.setState({action: {...this.state.action, name: e.target.value}})} />
             <br />
@@ -216,7 +226,7 @@ export class EditAction extends Component {
                     this.setState({action: this.state.action});
                 }}
                 onChange={(newStep) => {
-                    this.state.action.steps = this.state.action.steps.map((s) => ((step.id && s.id == step.id) || (step.isNew && s.isNew == step.isNew)) ? {...step, ...newStep} : s);
+                    this.state.action.steps = this.state.action.steps.map((s) => ((step.id && s.id == step.id) || (step.isNew && s.isNew == step.isNew)) ? {id: step.id, isNew: step.isNew, ...newStep} : s);
                     this.setState({action: this.state.action});
                 }} />
             )}
@@ -235,6 +245,7 @@ export class EditAction extends Component {
             </div>
             <br />
             {this.state.saved && <p className='text-success'>Action saved</p>}
+            {this.state.error && <p className='text-danger'>Action with this name already exists. <a href={'https://app.posthog.com/action/' + this.state.error_id}>Click here to edit.</a></p>}
         </form>
     }
 }

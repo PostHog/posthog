@@ -12,7 +12,8 @@ class TestAction(BaseTest):
             'steps': [{
                 "text": "sign up",
                 "selector": "div > button",
-                "url": "/signup"
+                "url": "/signup",
+                "isNew": 'asdf'
             }]
         }, content_type='application/json').json()
         action = Action.objects.get()
@@ -23,13 +24,14 @@ class TestAction(BaseTest):
 
         # test no actions with same name
         response = self.client.post('/api/action/', data={'name': 'user signed up'}, content_type='application/json').json()
-        self.assertEqual(response['detail'], 'event already exists')
+        self.assertEqual(response['detail'], 'action-exists')
 
         # test update
         response = self.client.patch('/api/action/%s/' % action.pk, data={
             'name': 'user signed up 2',
             'steps': [{
                 "id": action.steps.get().pk,
+                "isNew": "asdf",
                 "text": "sign up NOW",
                 "selector": "div > button",
                 "url": "/signup"
