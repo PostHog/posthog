@@ -1,6 +1,6 @@
 import React, { Component } from "react";
 import ReactDOM from "react-dom";
-import api from '../api';
+import api from '../Api';
 import { uuid } from '../utils';
 import Simmer from 'simmerjs';
 import root from 'react-shadow';
