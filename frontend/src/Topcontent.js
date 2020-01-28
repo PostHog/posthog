@@ -7,13 +7,13 @@ export default class Topcontent extends Component {
         	<div>
 		        <div class="row right-align">
 		          <div class="col-4">
-		            <img class="icon-link" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Product-Assets/down-arrow-1+1.png" />Export
+		            <i className='fi flaticon-down-arrow-1' /> Export
 		          </div>
 		          <div class="col-4">
-		            <img class="icon-link" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Product-Assets/settings+1.png" />Settings
+		            <i className='fi flaticon-settings' /> Settings
 		          </div>
 		          <div class="col-4">
-		            <img class="icon-link" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Product-Assets/profile.png" />Profile
+		            <i className='fi flaticon-user-1' /> Profile
 		          </div>
 		        </div>
 		    </div>

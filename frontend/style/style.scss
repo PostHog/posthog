@@ -1,9 +1,6 @@
 @import "../node_modules/bootstrap/scss/_functions";
 @import "../node_modules/bootstrap/scss/_variables";
 @import "../node_modules/bootstrap/scss/_mixins";
-@import "../node_modules/bootstrap/scss/_root";
-@import "../node_modules/bootstrap/scss/_reboot";
-@import "../node_modules/bootstrap/scss/utilities";
 
 $blue:    #007bff;
 $indigo:  #6610f2;
@@ -17,8 +14,13 @@ $teal:    #20c997;
 $cyan:    #17a2b8;
 
 $badge-font-weight: 400;
+$body-bg:          #FFFEFC; 
+$body-color:#37352F; 
 
 // bootstrap components
+@import "../node_modules/bootstrap/scss/_root";
+@import "../node_modules/bootstrap/scss/utilities";
+@import "../node_modules/bootstrap/scss/_reboot";
 @import "../node_modules/bootstrap/scss/_buttons";
 @import "../node_modules/bootstrap/scss/_button-group";
 @import "../node_modules/bootstrap/scss/_tables";
@@ -29,9 +31,13 @@ $badge-font-weight: 400;
 @import "../node_modules/bootstrap/scss/_close";
 @import "../node_modules/bootstrap/scss/_card";
 
+// icons
+@import "../font/flaticon";
+
 // our components
 @import "events";
 @import "funnel";
+@import "sidebar";
 .cursor-pointer { cursor: pointer }
 
 .badge .close {
@@ -40,86 +46,14 @@ $badge-font-weight: 400;
     font-size: 1.3rem;
 }
 
-html{
-	height: 100%;
+
+.right-align {
+    width: 400px;
+    float: right;
+    .fi { font-size: 20px; margin-right: 12px }
 }
 
-body{
-	background-color: #FFFEFC;
-	color: #37352F;
-	height: 100%;
-	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
-}
-
-a{
-	color: #333;
-}
-
-a:hover{
-	color: black;
-	background-color:#E8E7E5;
-}
-
-.active{
-	background-color:#E8E7E5;
-}
-
-.posthog-title{
-	font-weight:500;
-	font-size:15px;
-	color: #333;
-	padding-left:15px;
-}
-
-.logo{
-	margin-left: 15px;
-	width: 25px;
-	height: 25px;
-	margin-top:auto;
-	margin-bottom:auto;
-}
-
-.logo-row{
-	padding:15px;
-}
-
-.left-navigation{
-	background-color: #F7F6F3;
-	width:270px;
-	color: #333;
-	font-weight:500;
-	height:100vh;
-}
-
-.menu-item{
-	padding:15px;
-	margin-left:45px;
-}
-
-.indent{
-	margin-left:105px;
-}
-
-.right-align{
-	float:right;
-	width:400px;
-}
-
-.icon-link{
-	padding-right:15px;
-}
-
-.top-content{
-	padding-top:15px;
-}
-
-.header{
-	padding-top:60px;
-	padding-left:45px;
-	width:100%;
-}
 
 .content{
-	padding-top:60px;
-	padding-left:45px;
+	padding: 0 45px;
 }

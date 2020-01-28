@@ -9,3 +9,4 @@ export let toParams = (obj) => Object.entries(obj).map(([key, val]) => `${key}=$
 export let fromParams = () => window.location.search != '' ? window.location.search.slice(1).split('&').reduce((a, b) => { b = b.split('='); a[b[0]] = decodeURIComponent(b[1]); return a; }, {}) : {};
 
 export let colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
+export let percentage = (division) => division.toLocaleString(undefined, {style: 'percent', maximumFractionDigits: 2})

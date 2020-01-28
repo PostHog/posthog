@@ -32,6 +32,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
                 'id': step.id,
                 'action_id': step.action.id,
                 'name': step.action.name,
+                'order': step.order,
                 'people': [person.id for person in people],
                 'count':  count
             })
@@ -44,7 +45,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
         for index, step in enumerate(steps):
             FunnelStep.objects.create(
                 funnel=funnel,
-                action_id=step['action'],
+                action_id=step['action_id'],
                 order=index
             )
         return funnel
@@ -56,5 +57,5 @@ class FunnelViewSet(viewsets.ModelViewSet):
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
         return queryset\
-            .filter(team=self.request.user.team_set.get())\
+            .filter(team=self.request.user.team_set.get())
  

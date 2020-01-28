@@ -22,35 +22,32 @@ export class ActionsTable extends Component {
     
     render() {
         return (
-            <div class='row'>
-                <div class='row header'><h1>Action Log</h1></div>
-                <div class='row content'>
-
-                    <table className='table'>
-                        <thead>
-                            <tr>
-                                <th scope="col">Action ID</th>
-                                <th scope="col">Type</th>
-                                <th scope="col">User</th>
-                                <th scope="col">Date</th>
-                                <th scope="col">Browser</th>
-                                <th scope="col">City</th>
-                                <th scope="col">Country</th>
+            <div>
+                <h1>Action Log</h1>
+                <table className='table'>
+                    <thead>
+                        <tr>
+                            <th scope="col">Action ID</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">User</th>
+                            <th scope="col">Date</th>
+                            <th scope="col">Browser</th>
+                            <th scope="col">City</th>
+                            <th scope="col">Country</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {this.state.actions && this.state.actions.map((action) => 
+                            <tr key={action.id}>
+                                <td>
+                                    <Link to={'/action/' + action.id}>{action.name}</Link>
+                                </td>
+                                <td>{action.count}</td>
+                                {/* <td>{moment(event.timestamp).fromNow()}</td> */}
                             </tr>
-                        </thead>
-                        <tbody>
-                            {this.state.actions && this.state.actions.map((action) => 
-                                <tr key={action.id}>
-                                    <td>
-                                        <Link to={'/action/' + action.id}>{action.name}</Link>
-                                    </td>
-                                    <td>{action.count}</td>
-                                    {/* <td>{moment(event.timestamp).fromNow()}</td> */}
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+                        )}
+                    </tbody>
+                </table>
             </div>
 
         )
