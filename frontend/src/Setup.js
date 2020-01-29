@@ -1,5 +1,5 @@
 import React, { Component } from 'react'
-import api from './api';
+import api from './Api';
 
 export default class Setup extends Component {
     constructor(props) {
