@@ -57,3 +57,13 @@ $body-color:#37352F;
 .content{
 	padding: 0 45px;
 }
+
+pre.code {
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: rgb(51, 51, 51);
+    padding: 20px;
+    border-radius: 3px;
+    color: white;
+    margin-top: 2rem;
+}

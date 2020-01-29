@@ -18,6 +18,7 @@ class Sidebar extends Component {
                 <li><NavLink className={"nav-link " + (matches('/person') && 'active')} to="/people"><i className='fi flaticon-speech-bubble' /> Users</NavLink></li>
                 <li><NavLink className="nav-link" to="/funnel"><i className='fi flaticon-cursor-1' /> Funnels</NavLink></li>
                 <li><NavLink className="nav-link" to="/events"><i className='fi flaticon-zoom-in' /> Events</NavLink></li>
+                <li><NavLink className="nav-link" to="/setup"><i className='fi flaticon-settings' /> Setup</NavLink></li>
             </ul>
         </div>
     }
