@@ -61,6 +61,9 @@ class Team(models.Model):
     api_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     app_url: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
+    def __str__(self):
+        return self.app_url if self.app_url else str(self.pk)
+
 @receiver(models.signals.post_save, sender=Team)
 def create_team_signup_token(sender, instance, created, **kwargs):
     # Don't do this when running tests to speed up

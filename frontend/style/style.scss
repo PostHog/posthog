@@ -30,6 +30,7 @@ $body-color:#37352F;
 @import "../node_modules/bootstrap/scss/_grid";
 @import "../node_modules/bootstrap/scss/_close";
 @import "../node_modules/bootstrap/scss/_card";
+@import "../node_modules/bootstrap/scss/_modal";
 
 // icons
 @import "../font/flaticon";
@@ -48,7 +49,6 @@ $body-color:#37352F;
 
 
 .right-align {
-    width: 400px;
     float: right;
     .fi { font-size: 20px; margin-right: 12px }
 }

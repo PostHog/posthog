@@ -69,7 +69,7 @@ export default class App extends React.Component {
                     <div className="row flex-fill flex-column flex-sm-row">
                         <Sidebar user={this.state.user} />
                         <div class="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 flex-grow-1 py-3 content">
-                            <Topcontent />
+                            <Topcontent user={this.state.user} />
                             <div style={{marginTop: '6rem'}}>
                                 <PrivateRoute path="/" exact component={function() { return ''}} user={this.state.user} />
                                 <PrivateRoute path="/setup" component={Setup} user={this.state.user} onUpdateUser={(user) => this.setState({user})} />
