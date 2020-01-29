@@ -4,6 +4,9 @@
 
     li {
         padding: 7px 0;
+        &.nav-indent {
+            padding-left: 30px
+        }
     }
     a {
         color: #333;

@@ -10,3 +10,4 @@ export let fromParams = () => window.location.search != '' ? window.location.sea
 
 export let colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
 export let percentage = (division) => division.toLocaleString(undefined, {style: 'percent', maximumFractionDigits: 2})
+export let appEditorUrl = (team) => team.app_url + '#state=' + encodeURIComponent(JSON.stringify({'action': 'mpeditor', token: team.api_token}))

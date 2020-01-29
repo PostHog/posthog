@@ -1,0 +1,19 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+    <form class="form-signin" method="post" action="/signup">
+        {% csrf_token %}
+        <img class="mb-4" src="/docs/4.4/assets/brand/bootstrap-solid.svg" alt="" width="72" height="72">
+        <h1 class="h3 mb-3 font-weight-normal">Create PostHog account</h1>
+
+        {% if error %}
+        <p>That account already exists. <a href='/login'>Try logging in?</a>.</p>
+        {% endif %}
+        <label for="inputEmail" class="sr-only">Email address</label>
+        <input type="email" name='email' id="inputEmail" class="form-control" placeholder="Email address" required autofocus>
+        <label for="inputPassword" class="sr-only">Password</label>
+        <input type="password" name='password' id="inputPassword" class="form-control" placeholder="Password" required>
+        <p>Already have an account? <a href='/login'>Log in here.</a></p>
+        <button class="btn btn-lg btn-primary btn-block" type="submit">Create account</button>
+    </form>
+{% endblock %}

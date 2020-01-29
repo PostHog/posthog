@@ -11,6 +11,9 @@ import Action from "./Action";
 import Topcontent from "./Topcontent";
 import Funnel, { EditFunnel } from "./Funnel";
 import Funnels from "./Funnels";
+import { EditAction } from "./editor";
+import ActionEvents from "./ActionEvents";
+import Setup from "./Setup";
 
 
 class PrivateRoute extends React.Component {
@@ -68,11 +71,13 @@ export default class App extends React.Component {
                         <div class="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 flex-grow-1 py-3 content">
                             <Topcontent />
                             <div style={{marginTop: '6rem'}}>
-                                <PrivateRoute path="/" exact component={function() { return 'asdfrrr '}} user={this.state.user} />
+                                <PrivateRoute path="/" exact component={function() { return ''}} user={this.state.user} />
+                                <PrivateRoute path="/setup" component={Setup} user={this.state.user} onUpdateUser={(user) => this.setState({user})} />
                                 <Route path="/events" component={Events} user={this.state.user} />
                                 <Route path="/person/:distinct_id" component={Person} user={this.state.user} />
                                 <Route path="/people" component={People} user={this.state.user} />
-                                <Route path="/actions" component={Actions} user={this.state.user} />
+                                <PrivateRoute path="/actions" exact component={Actions} user={this.state.user} />
+                                <PrivateRoute path="/actions/live" component={ActionEvents} user={this.state.user} />
                                 <Route path="/action/:id" component={Action} user={this.state.user} />
                                 <Route path="/new-funnel" component={EditFunnel} user={this.state.user} />
                                 <Route path="/funnel/:id" exact component={Funnel} user={this.state.user} />

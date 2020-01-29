@@ -1,5 +1,5 @@
 from .base import BaseTest
-from posthog.models import Event, Person, Element
+from posthog.models import Event, Person, Element, Action, ActionStep
 
 
 class TestEvents(BaseTest):
@@ -53,3 +53,58 @@ class TestEvents(BaseTest):
 
         self.assertEqual(response[2]['name'], 'input with text ""')
         self.assertEqual(response[2]['count'], 1)
+
+    def _signup_event(self, distinct_id: str):
+        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team)
+        Element.objects.create(tag_name='button', text='Sign up!', event=sign_up)
+        return sign_up
+
+    def _pay_event(self, distinct_id: str):
+        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team)
+        Element.objects.create(tag_name='button', text='Pay $10', event=sign_up)
+        # check we're not duplicating
+        Element.objects.create(tag_name='div', text='Sign up!', event=sign_up)
+        return sign_up
+
+    def _movie_event(self, distinct_id: str):
+        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team)
+        Element.objects.create(tag_name='a', attr_class=['watch_movie', 'play'], text='Watch now', attr_id='something', href='/movie', event=sign_up, order=0)
+        Element.objects.create(tag_name='div', href='/movie', event=sign_up, order=1)
+
+    def test_live_action_events(self):
+        action_sign_up = Action.objects.create(team=self.team, name='signed up')
+        ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
+        # 2 steps that match same element might trip stuff up
+        ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
+        action_credit_card = Action.objects.create(team=self.team, name='paid')
+        ActionStep.objects.create(action=action_credit_card, tag_name='button', text='Pay $10')
+
+        action_watch_movie = Action.objects.create(team=self.team, name='watch movie')
+        ActionStep.objects.create(action=action_watch_movie, text='Watch now', selector="div > a.watch_movie")
+
+        # events
+        person_stopped_after_signup = Person.objects.create(distinct_ids=["stopped_after_signup"], team=self.team)
+        event_sign_up_1 = self._signup_event('stopped_after_signup')
+
+        person_stopped_after_pay = Person.objects.create(distinct_ids=["stopped_after_pay"], team=self.team)
+        self._signup_event('stopped_after_pay')
+        self._pay_event('stopped_after_pay')
+        self._movie_event('stopped_after_pay')
+
+        # non matching events
+        non_matching = Event.objects.create(distinct_id='stopped_after_pay', properties={'$current_url': 'http://whatever.com'}, team=self.team)
+        Element.objects.create(tag_name='blabla', href='/moviedd', event=non_matching, order=0)
+        Element.objects.create(tag_name='blabla', href='/moviedd', event=non_matching, order=1)
+        Event.objects.create(distinct_id='stopped_after_pay', properties={'$current_url': 'http://whatever.com'}, team=self.team)
+
+        with self.assertNumQueries(25):
+            response = self.client.get('/api/event/actions/').json()
+        self.assertEqual(len(response['results']), 4)
+        self.assertEqual(response['results'][3]['action']['id'], action_sign_up.pk)
+        self.assertEqual(response['results'][3]['action']['name'], 'signed up')
+        self.assertEqual(response['results'][3]['event']['id'], event_sign_up_1.pk)
+
+        self.assertEqual(response['results'][2]['action']['id'], action_sign_up.pk)
+        self.assertEqual(response['results'][1]['action']['id'], action_credit_card.pk)
+
+        self.assertEqual(response['results'][0]['action']['id'], action_watch_movie.pk)

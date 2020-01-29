@@ -1,7 +1,8 @@
 from django.db import models
 from django.contrib.postgres.fields import JSONField, ArrayField
 from django.conf import settings
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.utils.translation import ugettext_lazy as _
 from django.dispatch import receiver
 from django.forms.models import model_to_dict
 from typing import List, Tuple, Optional, Any, Union
@@ -11,13 +12,54 @@ import secrets
 import re
 
 
+
+class UserManager(BaseUserManager):
+    """Define a model manager for User model with no username field."""
+
+    use_in_migrations = True
+
+    def _create_user(self, email, password, **extra_fields):
+        """Create and save a User with the given email and password."""
+        if not email:
+            raise ValueError('The given email must be set')
+        email = self.normalize_email(email)
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_user(self, email, password=None, **extra_fields):
+        """Create and save a regular User with the given email and password."""
+        extra_fields.setdefault('is_staff', False)
+        extra_fields.setdefault('is_superuser', False)
+        return self._create_user(email, password, **extra_fields)
+
+    def create_superuser(self, email, password, **extra_fields):
+        """Create and save a SuperUser with the given email and password."""
+        extra_fields.setdefault('is_staff', True)
+        extra_fields.setdefault('is_superuser', True)
+
+        if extra_fields.get('is_staff') is not True:
+            raise ValueError('Superuser must have is_staff=True.')
+        if extra_fields.get('is_superuser') is not True:
+            raise ValueError('Superuser must have is_superuser=True.')
+
+        return self._create_user(email, password, **extra_fields)
+
 class User(AbstractUser):
-    pass
+    username = None # type: ignore
+    email = models.EmailField(_('email address'), unique=True)
+
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS: List[str] = []
+
+    objects = UserManager() # type: ignore
 
 
 class Team(models.Model):
     users: models.ManyToManyField = models.ManyToManyField(User, blank=True)    
     api_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    app_url: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
 @receiver(models.signals.post_save, sender=Team)
 def create_team_signup_token(sender, instance, created, **kwargs):
@@ -62,7 +104,7 @@ class EventManager(models.Manager):
             if key == 'url' and value:
                 self.where.append('AND posthog_event.properties ->> \'$current_url\' LIKE %s')
                 self.params.append('%{}%'.format(value))
-            elif key != 'action' and key != 'id' and key != 'selector' and value:
+            elif key not in ['action', 'id', 'selector'] and value:
                 self.where.append('AND E0.{} = %s'.format(key))
                 self.params.append(value)
 
@@ -74,7 +116,7 @@ class EventManager(models.Manager):
         self._filters(filters)
         self.where.append(')')
 
-    def _select(self, count, group_by, group_by_table):
+    def _select(self, count=None, group_by=None, group_by_table=None):
         if group_by:
             return "SELECT DISTINCT ON (posthog_persondistinctid.person_id) {}.{} as id, posthog_event.id as event_id FROM posthog_event ".format(group_by_table, group_by)
         if count:
@@ -123,7 +165,6 @@ class EventManager(models.Manager):
         if count:
             return events[0].id # bit of a hack to get the total count here
         return events
-
 
 
 class Event(models.Model):
@@ -186,6 +227,7 @@ class Element(models.Model):
     tag_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     href: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     attr_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    attr_class = ArrayField(models.CharField(max_length=200, blank=True), null=True, blank=True)
     nth_child: models.IntegerField = models.IntegerField(null=True, blank=True)
     nth_of_type: models.IntegerField = models.IntegerField(null=True, blank=True)
     attributes: JSONField = JSONField(default=dict)

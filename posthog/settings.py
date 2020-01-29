@@ -152,6 +152,9 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 AUTH_USER_MODEL = 'posthog.User'
 
+LOGIN_URL = '/login'
+LOGOUT_URL = '/logout'
+APPEND_SLASH = False
 
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',

@@ -1,6 +1,7 @@
 import React, { Component } from 'react';
 import api from './Api';
 import { Link } from 'react-router-dom';
+import { appEditorUrl } from './utils';
 
 
 export class ActionsTable extends Component {
@@ -23,7 +24,8 @@ export class ActionsTable extends Component {
     render() {
         return (
             <div>
-                <h1>Action Log</h1>
+                <a href={appEditorUrl(this.props.user.team)} target="_blank" className='btn btn-outline-success float-right'><i className='fi flaticon-add'/>&nbsp;&nbsp;New action&nbsp;<i className='fi flaticon-export' /></a>
+                <h1>Actions</h1>
                 <table className='table'>
                     <thead>
                         <tr>
@@ -55,6 +57,9 @@ export class ActionsTable extends Component {
 }
 
 export default class Actions extends Component {
+    constructor(props) {
+        super(props)
+    }
     render() {
         return <ActionsTable {...this.props} />
     }

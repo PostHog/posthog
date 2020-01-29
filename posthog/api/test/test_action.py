@@ -1,5 +1,5 @@
 from .base import BaseTest
-from posthog.models import Action, ActionStep, Event, Element
+from posthog.models import Action, ActionStep, Event, Element, Person
 
 class TestAction(BaseTest):
     TESTS_API = True
@@ -49,3 +49,4 @@ class TestAction(BaseTest):
             'steps': []
         }, content_type='application/json').json()
         self.assertEqual(ActionStep.objects.count(), 0)
+

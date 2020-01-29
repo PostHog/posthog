@@ -14,15 +14,60 @@
       posthog.init('sTMFPsFhdP1Ssg');
     </script>
 
-  <script src="https://browser.sentry-cdn.com/5.10.1/bundle.min.js" integrity="sha384-sAOze6ZTBIpiWBF3VlUteSInM4rYpjxrejp1wMmmKqA9clRZ1vZJ36Ihmt1ilTrG" crossorigin="anonymous">
-  </script>
+    <link href="style/style.scss" rel="stylesheet">
   <script>location.host.indexOf('127.0.0.1') == -1 && Sentry.init({ dsn: 'https://05644c4d24a4496cbff36078f49cf7a6@sentry.io/1847666' });</script>
+<style>
+    html,
+body {
+  height: 100%;
+}
+
+body {
+  display: -ms-flexbox;
+  display: flex;
+  -ms-flex-align: center;
+  align-items: center;
+  padding-top: 40px;
+  padding-bottom: 40px;
+}
+
+.form-signin {
+  width: 100%;
+  max-width: 330px;
+  padding: 15px;
+  margin: auto;
+}
+.form-signin .checkbox {
+  font-weight: 400;
+}
+.form-signin .form-control {
+  position: relative;
+  box-sizing: border-box;
+  height: auto;
+  padding: 10px;
+  font-size: 16px;
+}
+.form-signin .form-control:focus {
+  z-index: 2;
+}
+.form-signin input[type="email"] {
+  margin-bottom: -1px;
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.form-signin input[type="password"] {
+  margin-bottom: 10px;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+</style>
+  {% block head %}
+  {% endblock %}
   </head>
-  
   <body>
-    <div id="root"></div>
     
-    <script src="./src/index.js"></script>
+        {% block content %}
+        {% endblock %}
 
   </body>
 </html>

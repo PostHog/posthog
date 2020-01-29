@@ -54,6 +54,7 @@ def get_event(request):
                 text=el.get('$el_text'),
                 tag_name=el['tag_name'],
                 href=el.get('attr__href'),
+                attr_class=el['attr__class'].split(' ') if el.get('attr_class') else None,
                 attr_id=el.get('attr__id'),
                 nth_child=el.get('nth_child'),
                 nth_of_type=el.get('nth_of_type'),

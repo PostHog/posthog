@@ -1,0 +1,19 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+    <form class="form-signin" method="post" action="/login">
+        {% csrf_token %}
+        <img class="mb-4" src="/docs/4.4/assets/brand/bootstrap-solid.svg" alt="" width="72" height="72">
+        <h1 class="h3 mb-3 font-weight-normal">Please sign in</h1>
+
+        {% if error %}
+        <p>Your username and password didn't match. Please try again.</p>
+        {% endif %}
+        <label for="inputEmail" class="sr-only">Email address</label>
+        <input type="email" name='email' value="{{ email }}" id="inputEmail" class="form-control" placeholder="Email address" required autofocus>
+        <label for="inputPassword" class="sr-only">Password</label>
+        <input type="password" name='password' id="inputPassword" class="form-control" placeholder="Password" required>
+        <p>No account? <a href='/signup'>Create one here.</a></p>
+        <button class="btn btn-lg btn-primary btn-block" type="submit">Sign in</button>
+    </form>
+{% endblock %}
