@@ -16,7 +16,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
     steps = ActionStepSerializer(many=True, read_only=True)
     class Meta:
         model = Action
-        fields = ['id', 'name', 'steps', 'created_at']
+        fields = ['id', 'name', 'steps', 'created_at', 'created_by']
 
 
 class ActionViewSet(viewsets.ModelViewSet):
@@ -32,7 +32,8 @@ class ActionViewSet(viewsets.ModelViewSet):
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         action, created = Action.objects.get_or_create(
             name=request.data['name'],
-            team=request.user.team_set.get()
+            team=request.user.team_set.get(),
+            created_by=request.user
         )
         if not created:
             return Response(data={'detail': 'action-exists', 'id': action.pk}, status=400)

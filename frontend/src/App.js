@@ -71,7 +71,7 @@ export default class App extends React.Component {
                         <div class="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 flex-grow-1 py-3 content">
                             <Topcontent user={this.state.user} />
                             <div style={{marginTop: '6rem'}}>
-                                <PrivateRoute path="/" exact component={function() { return ''}} user={this.state.user} />
+                                <PrivateRoute path="/" exact component={function() { return <Redirect to="/actions" />}} user={this.state.user} />
                                 <PrivateRoute path="/setup" component={Setup} user={this.state.user} onUpdateUser={(user) => this.setState({user})} />
                                 <Route path="/events" component={Events} user={this.state.user} />
                                 <Route path="/person/:distinct_id" component={Person} user={this.state.user} />
@@ -82,7 +82,7 @@ export default class App extends React.Component {
                                 <Route path="/new-funnel" component={EditFunnel} user={this.state.user} />
                                 <Route path="/funnel/:id" exact component={Funnel} user={this.state.user} />
                                 <Route path="/funnel/:id/edit" exact component={EditFunnel} user={this.state.user} />
-                                <Route path="/funnels" component={Funnels} user={this.state.user} />
+                                <Route path="/funnel" exact component={Funnels} user={this.state.user} />
                                 <Route path="/login/:signup_token?" strict={false} render={props => { trackPageView(); return <Login {...props} />}} />
                             </div>
                         </div>
