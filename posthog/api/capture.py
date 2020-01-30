@@ -17,6 +17,8 @@ def get_ip_address(request):
     return ip   
 
 def cors_response(request, response):
+    if not request.META.get('HTTP_REFERER'):
+        return response
     url = urlparse(request.META['HTTP_REFERER'])
     response["Access-Control-Allow-Origin"] = "%s://%s" % (url.scheme, url.netloc)
     response["Access-Control-Allow-Credentials"] = 'true'
@@ -33,8 +35,12 @@ def get_event(request):
     if not data:
         return cors_response(request, HttpResponse("1"))
     
-    data = json.loads(base64.b64decode(data))
-    team = Team.objects.get(api_token=data['properties']['token'])
+    data = json.loads(base64.b64decode(data).decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
+    if request.POST.get('api_key'):
+        token = request.POST['api_key']
+    else:
+        token = data['properties'].pop('token')
+    team = Team.objects.get(api_token=token)
 
     distinct_id = str(data['properties']['distinct_id'])
     data['properties']['distinct_id'] = distinct_id
@@ -69,7 +75,7 @@ def get_event(request):
         Person.objects.create(team=team, distinct_ids=[str(distinct_id)], is_user=request.user if not request.user.is_anonymous else None)
     except IntegrityError: 
         pass # person already exists, which is fine
-    return cors_response(request, HttpResponse("1"))
+    return cors_response(request, JsonResponse({'status': 1}))
 
 
 @csrf_exempt
@@ -86,11 +92,15 @@ def get_engage(request):
         return cors_response(request, HttpResponse("1"))
     
     data = json.loads(base64.b64decode(data))
-    team = Team.objects.get(api_token=data['$token'])
+    if request.POST.get('api_key'):
+        token = request.POST['api_key']
+    else:
+        token = data.pop('$token')
+    team = Team.objects.get(api_token=token)
 
     person = Person.objects.get(team=team, persondistinctid__distinct_id=str(data['$distinct_id']))
     if data.get('$set'):
         person.properties = data['$set']
         person.save()
  
-    return cors_response(request, HttpResponse("1"))
+    return cors_response(request, JsonResponse({'status': 1}))

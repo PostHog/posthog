@@ -16,7 +16,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
     steps = ActionStepSerializer(many=True, read_only=True)
     class Meta:
         model = Action
-        fields = ['id', 'name', 'steps', 'created_at', 'created_by']
+        fields = ['id', 'name', 'steps', 'created_at',]
 
 
 class ActionViewSet(viewsets.ModelViewSet):

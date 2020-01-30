@@ -58,10 +58,8 @@ def user(request):
     })
 
 def login_view(request):
-    if request.method == 'GET':
-        if request.user.is_authenticated:
-            return redirect('/')
-        return render_template('login.html', request)
+    if request.user.is_authenticated:
+        return redirect('/')
     if request.method == 'POST':
         email = request.POST['email']
         password = request.POST['password']
@@ -71,6 +69,7 @@ def login_view(request):
             return redirect('/')
         else:
             return render_template('login.html', request=request, context={'email': email, 'error': True})
+    return render_template('login.html', request)
 
 def signup_view(request):
     if request.method == 'GET':
@@ -98,8 +97,11 @@ urlpatterns = [
     path('api/user/', user),
     path('decide/', capture.get_decide),
     path('engage/', capture.get_engage),
+    path('engage', capture.get_engage),
     re_path(r'demo.*', TemplateView.as_view(template_name='demo.html')),
     path('e/', capture.get_event),
+    path('track', capture.get_event),
+    path('track/', capture.get_event),
     path('logout', logout, name='login'),
     path('login', login_view, name='login'),
     path('signup', signup_view, name='signup'),
