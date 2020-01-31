@@ -23,6 +23,7 @@ class EventAdmin(admin.ModelAdmin):
 @admin.register(User)
 class UserAdmin(DjangoUserAdmin):
     """Define admin model for custom User model with no email field."""
+    change_form_template = 'loginas/change_form.html'
 
     fieldsets = (
         (None, {'fields': ('email', 'password')}),

@@ -14,6 +14,7 @@ import os
 import sys
 import dj_database_url
 import sentry_sdk
+
 from sentry_sdk.integrations.django import DjangoIntegration
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
@@ -60,6 +61,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'posthog.apps.PostHogConfig',
     'rest_framework',
+    'loginas',
 ]
 
 MIDDLEWARE = [
@@ -154,6 +156,7 @@ AUTH_USER_MODEL = 'posthog.User'
 
 LOGIN_URL = '/login'
 LOGOUT_URL = '/logout'
+LOGIN_REDIRECT_URL = '/'
 APPEND_SLASH = False
 
 REST_FRAMEWORK = {

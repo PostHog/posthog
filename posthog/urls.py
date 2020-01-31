@@ -93,7 +93,9 @@ def logout(request):
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('admin/', include('loginas.urls')),
     path('api/', include(router.urls)),
+
     path('api/user/', user),
     path('decide/', capture.get_decide),
     path('engage/', capture.get_engage),
