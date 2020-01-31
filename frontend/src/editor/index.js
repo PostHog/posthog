@@ -4,6 +4,8 @@ import api from '../Api';
 import { uuid } from '../utils';
 import Simmer from 'simmerjs';
 import root from 'react-shadow';
+import { AppEditorLink } from "../Actions";
+import PropTypes from 'prop-types';
 
 window.simmer = new Simmer(window, {depth: 8});
 
@@ -20,7 +22,7 @@ let getSafeText = (el) => {
     return elText
 }
 
-class SelectElement extends Component {
+class ActionStep extends Component {
     constructor(props) {
         super(props);
         this.state = {
@@ -70,10 +72,8 @@ class SelectElement extends Component {
         }
         this.setState({
             element: el,
-            step,
-            query,
             selection})
-        this.sendStep(step);
+        this.sendStep(step)
     }
     onKeyDown(event) {
         // stop selecting if esc key was pressed
@@ -103,9 +103,8 @@ class SelectElement extends Component {
     }
     Option(props) {
         let onChange = (e) => {
-            this.state.step[props.item] = e.target.value;
-            this.setState({step: this.state.step})
-            this.sendStep(this.state.step);
+            this.props.step[props.item] = e.target.value;
+            this.sendStep(this.props.step);
         }
         return <div className={'form-group ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
             <label><input
@@ -119,44 +118,62 @@ class SelectElement extends Component {
                     } else {
                         this.state.selection = this.state.selection.filter((i) => i != props.item)
                     }
-                    this.setState({selection: this.state.selection}, () => this.sendStep(this.state.step))
+                    this.setState({selection: this.state.selection}, () => this.sendStep())
                 }}
                 /> {props.label}</label>
             {props.item == 'selector' ?
-                <textarea className='form-control' onChange={onChange} value={this.state.step[props.item]} /> :
-                <input className='form-control' onChange={onChange} value={this.state.step[props.item]} />}
+                <textarea className='form-control' onChange={onChange} value={this.props.step[props.item]} /> :
+                <input className='form-control' onChange={onChange} value={this.props.step[props.item]} />}
             {props.selector && this.props.isEditor && <small className='form-text text-muted'>Matches {document.querySelectorAll(props.selector).length} elements</small>}
         </div>
     }
 
     render() {
+        let step = this.props.step;
         return <div style={{borderBottom: '1px solid rgba(0, 0, 0, 0.1)', paddingBottom: '1rem'}}>
             <button style={{marginTop: -3}} type="button" className="close pull-right" aria-label="Close" onClick={this.props.onDelete}>
                 <span aria-hidden="true">&times;</span>
             </button>
-            {this.props.isEditor && <button type="button" className='btn btn-sm btn-light' onClick={() => this.start()}>
-                inspect element
-            </button>}
+            <label>Action type</label><br />
+            <div className='btn-group'>
+                <div onClick={() => this.sendStep({...step, event: '$web_event'})} className={'btn ' + (step.event == '$web_event' ? 'btn-secondary' : 'btn-light')}>Match element</div>
+                <div onClick={() => this.sendStep({...step, event: ''})} className={'btn ' + (step.event &&step.event != '$web_event' && step.event != 'ph_page_view' ? 'btn-secondary' : 'btn-light')}>Match event</div>
+                <div onClick={() => this.sendStep({...step, event: 'ph_page_view'})} className={'btn ' + (step.event == 'ph_page_view' ? 'btn-secondary' : 'btn-light')}>Page view</div>
+            </div>
+            {step.event != null && <div style={{marginTop: '2rem'}}><label>Event name</label>
+            <input
+                type="text"
+                className='form-control'
+                disabled={step.event == '$web_event' || step.event == 'ph_page_view'}
+                value={step.event}
+                onChange={(e) => this.sendStep({...step, event: e.target.value})} />
+            </div>}
             <div style={{margin: (this.props.isEditor ? '0 -12px' : '')}}>
                 <br />
-                {this.state.step.href && <this.Option
-                    item='href'
-                    label='Link href'
-                    selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') +'"]'} />}
-                {this.state.step.name && <this.Option
-                    item='name'
-                    label='Element name'
-                    selector={this.state.element && '[name="' + this.state.element.getAttribute('name') + '"]'} />}
-                {this.state.step.text && <this.Option
-                    item='text'
-                    label='Text'
-                     />}
-                {this.state.step.selector && <this.Option
-                    item='selector'
-                    label='Selector'
-                    selector={this.state.step.selector}
-                    />}
-                {this.state.step.url && <this.Option
+                {step.event == '$web_event' && [
+                    this.props.isEditor && <button type="button" className='btn btn-sm btn-light' onClick={() => this.start()}>
+                        inspect element
+                    </button>,
+                    !this.props.isEditor && <AppEditorLink user={this.props.user} actionId={this.props.actionId} style={{marginBottom: '1rem'}} className='btn btn-sm btn-light'>Select element on site <i className='fi flaticon-export' /></AppEditorLink>,
+                    step.href && <this.Option
+                        item='href'
+                        label='Link href'
+                        selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') +'"]'} />,
+                    step.name && <this.Option
+                        item='name'
+                        label='Element name'
+                        selector={this.state.element && '[name="' + this.state.element.getAttribute('name') + '"]'} />,
+                    step.text && <this.Option
+                        item='text'
+                        label='Text'
+                        />,
+                    step.selector && <this.Option
+                        item='selector'
+                        label='Selector'
+                        selector={step.selector}
+                        />
+                ]}
+                {(step.event == '$web_event' || step.event == 'ph_page_view') && <this.Option
                     item='url'
                     label='Match url'
                     />}
@@ -176,6 +193,10 @@ export class EditAction extends Component {
         }
         this.fetchAction.call(this);
         this.onSubmit = this.onSubmit.bind(this);
+    }
+    propTypes = {
+        user: PropTypes.object,
+        isEditor: PropTypes.bool
     }
     fetchAction() {
         if(this.props.actionId) {
@@ -200,6 +221,8 @@ export class EditAction extends Component {
             if(detail.detail == 'action-exists') this.setState({saved: false, error: 'action-exists', error_id: detail.id})
         }
         let steps = this.state.action.steps.map((step) => {
+            if(step.event == 'ph_page_view') step.selection = ['event', 'url'];
+            if(step.event != '$web_event') step.selection = ['event', 'url'];
             if(!step.selection) return step;
             let data = {};
             Object.keys(step).map((key) => {
@@ -213,21 +236,24 @@ export class EditAction extends Component {
         api.create('api/action', this.state.action, {name: this.state.action.name, steps}).then(save).catch(error)
     }
     render() {
+        let action = this.state.action;
         return <form onSubmit={(e) => e.preventDefault()}>
             <label>Action name</label>
-            <input required className='form-control' placeholder="user signed up" value={this.state.action.name} onChange={(e) => this.setState({action: {...this.state.action, name: e.target.value}})} />
+            <input required className='form-control' placeholder="user signed up" value={action.name} onChange={(e) => this.setState({action: {...action, name: e.target.value}})} />
             <br />
-            {this.state.action.steps.map((step, index) => <SelectElement
+            {action.steps.map((step, index) => <ActionStep
                 key={step.id || step.isNew}
                 step={step}
                 isEditor={this.props.isEditor}
+                actionId={action.id}
+                user={this.props.user}
                 onDelete={() => {
-                    this.state.action.steps = this.state.action.steps.filter((s) => s.id != step.id)
-                    this.setState({action: this.state.action});
+                    action.steps = action.steps.filter((s) => s.id != step.id)
+                    this.setState({action: action});
                 }}
                 onChange={(newStep) => {
-                    this.state.action.steps = this.state.action.steps.map((s) => ((step.id && s.id == step.id) || (step.isNew && s.isNew == step.isNew)) ? {id: step.id, isNew: step.isNew, ...newStep} : s);
-                    this.setState({action: this.state.action});
+                    action.steps = action.steps.map((s) => ((step.id && s.id == step.id) || (step.isNew && s.isNew == step.isNew)) ? {id: step.id, isNew: step.isNew, ...newStep} : s);
+                    this.setState({action: action});
                 }} />
             )}
             <br />
@@ -235,16 +261,16 @@ export class EditAction extends Component {
                 type="button"
                 className='btn btn-light btn-sm'
                 onClick={() => {
-                    this.state.action.steps.push({isNew: uuid()});
-                    this.setState({action: this.state.action})
-                }}>Add another element</button>
+                    action.steps.push({isNew: uuid()});
+                    this.setState({action: action})
+                }}>Add another match group</button>
             <br /><br />
             <div className='btn-group'>
                 <button type="submit" onClick={(e) => this.onSubmit(e)} className='btn btn-success'>Save action</button>
                 {this.props.isEditor && <button type="submit" onClick={(e) => this.onSubmit(e, true)} className='btn btn-light'>Save & new action</button>}
             </div>
             <br />
-            {this.state.saved && <p className='text-success'>Action saved. {!this.props.editor && <a href={'/action/' + this.state.action.id}>Click here to see all events.</a>}</p>}
+            {this.state.saved && <p className='text-success'>Action saved. {!this.props.editor && <a href={'/action/' + action.id}>Click here to see all events.</a>}</p>}
             {this.state.error && <p className='text-danger'>Action with this name already exists. <a href={'https://app.posthog.com/action/' + this.state.error_id}>Click here to edit.</a></p>}
         </form>
     }

@@ -65,7 +65,7 @@ export class EventsTable extends Component {
             ...this.state.filters,
             ...this.props.fixedFilters,
         }
-        if(this.state.events[0]) params['after'] = this.state.events[0].event.timestamp
+        if(this.state.events[0]) params['after'] = this.state.events[0].timestamp ? this.state.events[0].timestamp : this.state.events[0].event.timestamp
         api.get('api/event/?' + toParams(params)).then((events) => {
             this.setState({events: [...events.results, ...this.state.events], newEvents: events.results.map((event) => event.id)});
             this.poller = setTimeout(this.pollEvents, this.pollTimeout);

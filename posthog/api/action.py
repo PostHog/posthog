@@ -10,7 +10,7 @@ from typing import Any
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = ActionStep
-        fields = ['id', 'tag_name', 'text', 'href', 'selector', 'url', 'name']
+        fields = ['id', 'event', 'tag_name', 'text', 'href', 'selector', 'url', 'name']
 
 class ActionSerializer(serializers.HyperlinkedModelSerializer):
     steps = ActionStepSerializer(many=True, read_only=True)

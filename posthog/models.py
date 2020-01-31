@@ -130,6 +130,9 @@ class EventManager(models.Manager):
             if key == 'url' and value:
                 self.where.append('AND posthog_event.properties ->> \'$current_url\' LIKE %s')
                 self.params.append('%{}%'.format(value))
+            elif key == 'event' and value:
+                self.where.append('AND posthog_event.event = %s')
+                self.params.append(value)
             elif key not in ['action', 'id', 'selector'] and value:
                 self.where.append('AND E0.{} = %s'.format(key))
                 self.params.append(value)
@@ -277,9 +280,6 @@ class Event(models.Model):
     elements: JSONField = JSONField(default=list, null=True, blank=True)
     timestamp: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     ip: models.GenericIPAddressField = models.GenericIPAddressField(null=True, blank=True)
-
-    def __str__(self):
-        return self.event
 
 class PersonManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):

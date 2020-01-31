@@ -14,7 +14,7 @@ export default class Action extends Component {
     render() {
         return <div>
             <h1>Edit action</h1>
-            <EditAction actionId={this.props.match.params.id} />
+            <EditAction user={this.props.user} actionId={this.props.match.params.id} />
             
             <hr />
 

@@ -78,7 +78,7 @@ export default class App extends React.Component {
                                 <Route path="/people" component={People} user={this.state.user} />
                                 <PrivateRoute path="/actions" exact component={Actions} user={this.state.user} />
                                 <PrivateRoute path="/actions/live" component={ActionEvents} user={this.state.user} />
-                                <Route path="/action/:id" component={Action} user={this.state.user} />
+                                <PrivateRoute path="/action/:id" component={Action} user={this.state.user} />
                                 <Route path="/new-funnel" component={EditFunnel} user={this.state.user} />
                                 <Route path="/funnel/:id" exact component={Funnel} user={this.state.user} />
                                 <Route path="/funnel/:id/edit" exact component={EditFunnel} user={this.state.user} />

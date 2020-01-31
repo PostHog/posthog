@@ -14,7 +14,7 @@ export class AppEditorLink extends Component {
     }
 
     appEditorUrl(user) {
-        return user.team.app_url + '#state=' + encodeURIComponent(JSON.stringify({'action': 'mpeditor', token: user.team.api_token}));
+        return user.team.app_url + '#state=' + encodeURIComponent(JSON.stringify({'action': 'mpeditor', token: user.team.api_token, actionId: this.props.actionId}));
     }
     SetURLModal() {
         return <Modal title={'Set your app url'}>
@@ -43,16 +43,16 @@ export class AppEditorLink extends Component {
                 if(this.props.user.team.app_url) return null;
                 e.preventDefault();
                 this.setState({openModal: true})
-
             }}
-            href={this.appEditorUrl(this.props.user)} target="_blank" className={this.props.className}>
+            href={this.appEditorUrl(this.props.user)} target="_blank" {...this.props}>
             {this.props.children}
         </a>,
         this.state.openModal && <this.SetURLModal />]
     }
 }
 AppEditorLink.propTypes = {
-    user: PropTypes.object.isRequired
+    user: PropTypes.object.isRequired,
+    actionId: PropTypes.number
 }
 
 export class ActionsTable extends Component {

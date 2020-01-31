@@ -34,7 +34,6 @@ class TestAction(BaseTest):
                 "isNew": "asdf",
                 "text": "sign up NOW",
                 "selector": "div > button",
-                "url": "/signup"
             }, {'href': '/a-new-link'}]
         }, content_type='application/json').json()
         action = Action.objects.get()

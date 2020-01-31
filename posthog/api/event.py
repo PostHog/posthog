@@ -7,10 +7,11 @@ from django.forms.models import model_to_dict
 from typing import Any, Union, Tuple, Dict, List
 import re
 
-class ElementSerializer(serializers.HyperlinkedModelSerializer):
+class ElementSerializer(serializers.ModelSerializer):
+    event = serializers.CharField() 
     class Meta:
         model = Element
-        fields = ['text', 'tag_name', 'href', 'attr_id', 'nth_child', 'nth_of_type', 'attributes', 'order']
+        fields = ['event', 'text', 'tag_name', 'href', 'attr_id', 'nth_child', 'nth_of_type', 'attributes', 'order']
 
 class EventSerializer(serializers.HyperlinkedModelSerializer):
     person = serializers.SerializerMethodField()
