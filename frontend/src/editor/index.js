@@ -62,8 +62,7 @@ class ActionStep extends Component {
         else if(tagName == 'button') selection = ['text'];
         else if(el.getAttribute('name')) selection = ['name'];
         let step = {
-            id: this.state.step.id,
-            isNew: this.state.step.isNew,
+            ...this.props.step,
             href: el.getAttribute('href'),
             name: el.getAttribute('name'),
             text: getSafeText(el),
