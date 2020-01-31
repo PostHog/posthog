@@ -71,6 +71,7 @@ class TestEvents(BaseTest):
         Element.objects.create(tag_name='a', attr_class=['watch_movie', 'play'], text='Watch now', attr_id='something', href='/movie', event=sign_up, order=0)
         Element.objects.create(tag_name='div', href='/movie', event=sign_up, order=1)
 
+    # this is sort of re-testing Event.actions but worth being sure, especially with the specific formatting of the data
     def test_live_action_events(self):
         action_sign_up = Action.objects.create(team=self.team, name='signed up')
         ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
@@ -97,7 +98,7 @@ class TestEvents(BaseTest):
         Element.objects.create(tag_name='blabla', href='/moviedd', event=non_matching, order=1)
         Event.objects.create(distinct_id='stopped_after_pay', properties={'$current_url': 'http://whatever.com'}, team=self.team)
 
-        with self.assertNumQueries(25):
+        with self.assertNumQueries(20):
             response = self.client.get('/api/event/actions/').json()
         self.assertEqual(len(response['results']), 4)
         self.assertEqual(response['results'][3]['action']['id'], action_sign_up.pk)

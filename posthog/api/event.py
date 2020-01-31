@@ -93,73 +93,13 @@ class EventViewSet(viewsets.ModelViewSet):
             'common': el
         } for el in elements])
 
-    def _split_selector_into_parts(self, selector: str) -> Dict:
-        data: Dict[str, Union[str, List]] = {}
-        if 'id=' in selector:
-            id_regex =  r"\[id=\'(.*)']"
-            result = re.match(id_regex, selector)
-            return {'attr_id': result[1]} # type: ignore
-        if 'nth-child(' in selector:
-            parts = selector.split(':nth-child(')
-            data['nth_child'] = parts[1].replace(')', '')
-            selector = parts[0]
-        if '.' in selector:
-            parts = selector.split('.')
-            data['attr_class__contains'] = parts[1:]
-            selector = parts[0]
-        data['tag_name'] = selector
-        return data
-
-    def _event_matches_selector(self, event: Event, selector: str) -> bool:
-        tags = selector.split(' > ')
-        tags.reverse()
-
-        prev = event.element_set.filter(**self._split_selector_into_parts(tags[0])).first()
-        if not prev:
-            return False
-        for tag in tags[1:]:
-            try:
-                prev = event.element_set.get(order=prev.order + 1, **self._split_selector_into_parts(tag))
-            except Element.DoesNotExist:
-                return False
-        return True
-
-    def _element_matches_step(self, filters: Dict, element: Element) -> bool:
-        match = True
-        for key, value in filters.items():
-            if key not in ['action', 'id'] and value:
-                if getattr(element, key) != value:
-                    match = False
-        return match
-
-    def _event_matches_step(self, event: Event, step: ActionStep) -> bool:
-        filters = model_to_dict(step)
-        # assume we have a match until we find a reason not to
-        match = True
-        if filters.get('url'):
-            if event.properties['$current_url'] != filters['url']:
-                return False
-            filters.pop('url')
-        elif event.element_set.count() == 0:
-            # if the event doesn't have elements, it's a page view so should have matched url
-            return False
-        elif filters.get('selector'):
-            if not self._event_matches_selector(event, filters['selector']):
-                return False
-            filters.pop('selector')
-        # make sure at least one event matches 
-        for element in event.element_set.all():
-            if self._element_matches_step(filters, element):
-                return True
-        return False
-
-    def _serialize_actions(self, event: Event, step: ActionStep) -> Dict:
+    def _serialize_actions(self, event: Event, action: Action) -> Dict:
         return {
-            'id': "{}-{}".format(step.action_id, event.id),
+            'id': "{}-{}".format(action.pk, event.id),
             'event': EventSerializer(event).data,
             'action': {
-                'name': step.action.name,
-                'id': step.action_id
+                'name': action.name,
+                'id': action.pk
             }
         }
 
@@ -170,15 +110,11 @@ class EventViewSet(viewsets.ModelViewSet):
 
         action_steps = ActionStep.objects.filter(action__team=request.user.team_set.get()).select_related('action')
         matches = []
-        event_action_key: List[Tuple] = []
         count = 0
         for event in events:
-            for step in action_steps:
-                if (event.pk, step.action.pk) not in event_action_key:
-                    if self._event_matches_step(event, step):
-                        matches.append(self._serialize_actions(event, step))
-                        event_action_key.append((event.pk, step.action.pk))
-                        count += 1
+            for action in event.actions:
+                matches.append(self._serialize_actions(event, action))
+                count += 1
             if count == 50:
                 break
         return response.Response({'results': matches})

@@ -1,7 +1,7 @@
 from posthog.models import Event, Element, Action, ActionStep, Person
 from posthog.api.test.base import BaseTest
 
-class TestEvent(BaseTest):
+class TestFilterByActions(BaseTest):
     def test_filter_with_selectors(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
         event1 = Event.objects.create(team=self.team, distinct_id='whatever')
@@ -52,7 +52,6 @@ class TestEvent(BaseTest):
         ActionStep.objects.create(action=action1, href='/a-url', tag_name='a')
         ActionStep.objects.create(action=action1, href='/a-url-2')
 
-
         events = Event.objects.filter_by_action(action1)
         self.assertEqual(events[0], event2)
         self.assertEqual(events[1], event1)
@@ -61,6 +60,19 @@ class TestEvent(BaseTest):
         # test count
         events = Event.objects.filter_by_action(action1, count=True)
         self.assertEqual(events, 2)
+
+    def test_with_class(self):
+        Person.objects.create(distinct_ids=['whatever'], team=self.team)
+        event1 = Event.objects.create(team=self.team, distinct_id="whatever")
+        Element.objects.create(event=event1, tag_name='a', attr_class=['nav-link', 'active'])
+
+        action1 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=action1, selector='a.nav-link', tag_name='a')
+
+        events = Event.objects.filter_by_action(action1)
+        self.assertEqual(events[0], event1)
+        self.assertEqual(len(events), 1)
+
 
     def test_page_views(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
@@ -91,3 +103,43 @@ class TestEvent(BaseTest):
         events = Event.objects.filter_by_action(action_watch_movie)
         self.assertEqual(events[0], event_watched_movie)
         self.assertEqual(events[0].person_id, person.pk)
+
+
+class TestActions(BaseTest):
+    def _signup_event(self, distinct_id: str):
+        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team)
+        Element.objects.create(tag_name='button', text='Sign up!', event=sign_up)
+        return sign_up
+
+    def _movie_event(self, distinct_id: str):
+        event = Event.objects.create(distinct_id=distinct_id, team=self.team)
+        Element.objects.create(tag_name='a', attr_class=['watch_movie', 'play'], text='Watch now', attr_id='something', href='/movie', event=event, order=0)
+        Element.objects.create(tag_name='div', href='/movie', event=event, order=1)
+        return event
+
+    def test_simple_element_filters(self):
+        action_sign_up = Action.objects.create(team=self.team, name='signed up')
+        ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
+        # 2 steps that match same element might trip stuff up
+        ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
+        action_credit_card = Action.objects.create(team=self.team, name='paid')
+        ActionStep.objects.create(action=action_credit_card, tag_name='button', text='Pay $10')
+
+        # events
+        person_stopped_after_signup = Person.objects.create(distinct_ids=["stopped_after_signup"], team=self.team)
+        event_sign_up_1 = self._signup_event('stopped_after_signup')
+        self.assertEqual(event_sign_up_1.actions, [action_sign_up])
+
+    def test_selector(self):
+        action_watch_movie = Action.objects.create(team=self.team, name='watch movie')
+        ActionStep.objects.create(action=action_watch_movie, text='Watch now', selector="div > a.watch_movie")
+        Person.objects.create(distinct_ids=["watched_movie"], team=self.team)
+        event = self._movie_event('watched_movie')
+        self.assertEqual(event.actions, [action_watch_movie])
+
+    def test_event_filter(self):
+        action_user_paid = Action.objects.create(team=self.team, name='user paid')
+        ActionStep.objects.create(action=action_user_paid, event='user paid')
+        Person.objects.create(distinct_ids=["user_paid"], team=self.team)
+        event = Event.objects.create(event='user paid', distinct_id='user_paid', team=self.team)
+        self.assertEqual(event.actions, [action_user_paid])

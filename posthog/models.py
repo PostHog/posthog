@@ -5,13 +5,33 @@ from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.utils.translation import ugettext_lazy as _
 from django.dispatch import receiver
 from django.forms.models import model_to_dict
-from typing import List, Tuple, Optional, Any, Union
+from typing import List, Tuple, Optional, Any, Union, Dict
 from django.db import transaction
 
 import secrets
 import re
 
-
+def split_selector_into_parts(selector: str) -> List:
+    tags = selector.split(' > ')
+    tags.reverse()
+    ret: List[Dict[str, Union[str, List]]] = []
+    for tag in tags:
+        data: Dict[str, Union[str, List]] = {}
+        if 'id=' in tag:
+            id_regex =  r"\[id=\'(.*)']"
+            result = re.match(id_regex, tag)
+            return [{'attr_id': result[1]}] # type: ignore
+        if 'nth-child(' in tag:
+            parts = tag.split(':nth-child(')
+            data['nth_child'] = parts[1].replace(')', '')
+            tag = parts[0]
+        if '.' in tag:
+            parts = tag.split('.')
+            data['attr_class'] = parts[1:]
+            tag = parts[0]
+        data['tag_name'] = tag
+        ret.append(data)
+    return ret
 
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
@@ -73,31 +93,34 @@ def create_team_signup_token(sender, instance, created, **kwargs):
             instance.save()
 
 class EventManager(models.Manager):
-    def _handle_nth_child(self, index, tag):
-        nth_child_regex =  r"([a-z]+):nth-child\(([0-9]+)\)"
-        nth_child = re.match(nth_child_regex, tag)
-        self.where.append("AND E{}.tag_name = %s".format(index))
-        self.params.append(nth_child[1])
-        self.where.append("AND E{}.nth_child = {}".format(index, nth_child[2]))
+    def _handle_nth_child(self, index, item):
+        self.where.append("AND E{}.nth_child = %s".format(index))
+        self.params.append(item)
 
-    def _handle_id(self, index, tag):
-        id_regex =  r"\[id=\'(.*)']"
-        result = re.match(id_regex, tag)
+    def _handle_tag_name(self, index, item):
+        self.where.append("AND E{}.tag_name = %s".format(index))
+        self.params.append(item)
+
+    def _handle_id(self, index, item):
         self.where.append("AND E{}.attr_id = %s".format(index))
-        self.params.append(result[1])
+        self.params.append(item)
+
+    def _handle_class(self, index, item):
+        self.where.append("AND E{}.attr_class @> %s::varchar(200)[]".format(index))
+        self.params.append(item)
 
     def _filter_selector(self, filters):
         selector = filters.pop('selector')
-        tags = selector.split(' > ')
-        tags.reverse()
-        for index, tag in enumerate(tags):
-            if 'nth-child' in tag:
-                self._handle_nth_child(index, tag)
-            elif 'id=' in tag:
-                self._handle_id(index, tag)
-            else:
-                self.where.append("AND E{}.tag_name = %s".format(index))
-                self.params.append(tag)
+        parts = split_selector_into_parts(selector)
+        for index, tag in enumerate(parts):
+            if tag.get('nth_child'):
+                self._handle_nth_child(index, tag['nth_child'])
+            if tag.get('attr_id'):
+                self._handle_id(index, tag['attr_id'])
+            if tag.get('attr_class'):
+                self._handle_class(index, tag['attr_class'])
+            if tag.get('tag_name'):
+                self._handle_tag_name(index, tag['tag_name'])
             if index > 0:
                 self.joins.append('INNER JOIN posthog_element E{0} ON (posthog_event.id = E{0}.event_id)'.format(index))
                 self.where.append('AND E{0}.order = (( E{1}.order + 1))'.format(index, index-1))
@@ -173,7 +196,78 @@ class EventManager(models.Manager):
 class Event(models.Model):
     @property
     def person(self):
-        return Person.objects.get(team=self.team, persondistinctid__distinct_id=self.distinct_id)
+        return Person.objects.get(team_id=self.team_id, persondistinctid__distinct_id=self.distinct_id)
+
+    def _element_matches_selector(self, elements, selector: Dict, order=None):
+        for element in elements:
+            if order != None and order != element.order:
+                continue
+            if selector.get('tag_name') and selector['tag_name'] != element.tag_name:
+                continue
+            if selector.get('attr_class') and not all(name in element.attr_class for name in selector['attr_class']):
+                continue
+            if selector.get('nth_child') and selector['nth_child'] != element.nth_child:
+                continue
+            if selector.get('attr_id') and selector['attr_id'] != element.attr_id:
+                continue
+            return element
+        return False
+
+    def _event_matches_selector(self, event, selector: str) -> bool:
+        elements = event.element_set.all()
+        prev = None
+        parts = split_selector_into_parts(selector)
+        for tag in parts:
+            prev = self._element_matches_selector(
+                elements=elements,
+                order=prev.order + 1 if prev else None, # type: ignore
+                selector=tag)
+            if not prev:
+                return False
+        return True
+
+    def _element_matches_step(self, filters: Dict, element) -> bool:
+        match = True
+        for key, value in filters.items():
+            if getattr(element, key) != value:
+                match = False
+        return match
+
+    def _event_matches_step(self, event, step) -> bool:
+        filters = model_to_dict(step)
+        filters.pop('action')
+        filters.pop('id')
+        filters = {key: value for key, value in filters.items() if value}
+
+        if filters.get('url'):
+            if event.properties['$current_url'] != filters['url']:
+                return False
+            filters.pop('url')
+        if filters.get('event'):
+            if event.event != filters['event']:
+                return False
+            filters.pop('event')
+        if len(filters.keys()) == 0 and event.element_set.count() == 0:
+            # if no more filters to apply, and no elements, means it was a pageview/event filter so can return
+            return True
+        if filters.get('selector'):
+            if not self._event_matches_selector(event, filters['selector']):
+                return False
+            filters.pop('selector')
+        for element in event.element_set.all():
+            if self._element_matches_step(filters, element):
+                return True
+        return False
+
+    @property
+    def actions(self) -> List:
+        action_steps = ActionStep.objects.filter(action__team_id=self.team_id).select_related('action')
+        actions: List[Dict] = []
+        for step in action_steps:
+            if step.action not in actions:
+                if self._event_matches_step(self, step):
+                    actions.append(step.action)
+        return actions
 
     objects = EventManager()
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
@@ -254,6 +348,7 @@ class ActionStep(models.Model):
     selector: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     url: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    event: models.CharField = models.CharField(max_length=400, null=True, blank=True)
 
 class Funnel(models.Model):
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
