@@ -14,7 +14,7 @@ export class AppEditorLink extends Component {
     }
 
     appEditorUrl(user) {
-        return user.team.app_url + '#state=' + encodeURIComponent(JSON.stringify({'action': 'mpeditor', token: user.team.api_token, actionId: this.props.actionId}));
+        return user.team.app_url + '#state=' + encodeURIComponent(JSON.stringify({'action': 'mpeditor', token: user.team.api_token, actionId: this.props.actionId, apiURL: window.location.origin + '/'}));
     }
     SetURLModal() {
         return <Modal title={'Set your app url'}>

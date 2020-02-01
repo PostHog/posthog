@@ -199,7 +199,7 @@ export class EditAction extends Component {
     }
     fetchAction() {
         if(this.props.actionId) {
-            return api.get('api/action/' + this.props.actionId).then((action) => this.setState({action}))
+            return api.get(this.props.apiURL + 'api/action/' + this.props.actionId).then((action) => this.setState({action}))
         }
         // If it's a new action, add an empty step
         this.setState({action: {steps: [{isNew: uuid()}]}})
@@ -230,7 +230,7 @@ export class EditAction extends Component {
             return data;
         })
         if(this.state.action.id) {
-            return api.update('api/action/' + this.state.action.id, {name: this.state.action.name, steps}).then(save).catch(error)
+            return api.update(this.props.apiURL + 'api/action/' + this.state.action.id, {name: this.state.action.name, steps}).then(save).catch(error)
         }
         api.create('api/action', this.state.action, {name: this.state.action.name, steps}).then(save).catch(error)
     }
@@ -289,14 +289,14 @@ class App extends Component {
             <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
             <style>{styles}</style>
             <h2>PostHog</h2><br />
-            <EditAction actionId={sessionStorage.getItem('editorActionId')} isEditor={true} />
+            <EditAction apiURL={editorParams} actionId={sessionStorage.getItem('editorActionId')} isEditor={true} />
         </root.div>
     }
 }
 
-window.ph_load_editor = function() {
+window.ph_load_editor = function(editorParams) {
     let container = document.createElement('div');
     document.body.appendChild(container);
 
-    ReactDOM.render(<App />, container);
+    ReactDOM.render(<App apiURL={editorParams.apiURL} />, container);
 }

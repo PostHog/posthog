@@ -27,8 +27,11 @@ class Api {
         return response.json();
       })
   }
-  update(model, data) {
-    return fetch('/' + model + '/', {
+  update(url, data) {
+    if(url.indexOf('http') !== 0) {
+      url = '/' + url + (url.indexOf('?') == -1 ? '/' : '');
+    }
+    return fetch(url, {
       method: 'PATCH',
       headers: {
           'Content-Type': 'application/json',
@@ -43,8 +46,11 @@ class Api {
       return response.json();
     })
   }
-  create(model, data) {
-    return fetch('/' + model + '/', {
+  create(url, data) {
+    if(url.indexOf('http') !== 0) {
+      url = '/' + url + (url.indexOf('?') == -1 ? '/' : '');
+    }
+    return fetch(url, {
       method: 'POST',
       headers: {
           'Content-Type': 'application/json',
@@ -59,8 +65,11 @@ class Api {
       return response.json();
     })
   }
-  delete(model, error) {
-    return fetch('/' + model + '/', {
+  delete(url, error) {
+    if(url.indexOf('http') !== 0) {
+      url = '/' + url + (url.indexOf('?') == -1 ? '/' : '');
+    }
+    return fetch(url, {
       method: 'DELETE',
       headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
