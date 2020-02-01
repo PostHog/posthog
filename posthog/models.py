@@ -69,6 +69,7 @@ class UserManager(BaseUserManager):
 class User(AbstractUser):
     username = None # type: ignore
     email = models.EmailField(_('email address'), unique=True)
+    temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS: List[str] = []
@@ -89,7 +90,7 @@ def create_team_signup_token(sender, instance, created, **kwargs):
     # Don't do this when running tests to speed up
     if created and not settings.TEST:
         if not instance.api_token:
-            instance.api_token = secrets.token_urlsafe(10)
+            instance.api_token = secrets.token_urlsafe(32)
             instance.save()
 
 class EventManager(models.Manager):

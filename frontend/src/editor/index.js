@@ -62,6 +62,7 @@ class ActionStep extends Component {
         else if(el.getAttribute('name')) selection = ['name'];
         let step = {
             ...this.props.step,
+            tag_name: tagName,
             href: el.getAttribute('href'),
             name: el.getAttribute('name'),
             text: getSafeText(el),
@@ -70,8 +71,7 @@ class ActionStep extends Component {
         }
         this.setState({
             element: el,
-            selection})
-        this.sendStep(step)
+            selection}, () => this.sendStep(step))
     }
     onKeyDown(event) {
         // stop selecting if esc key was pressed
@@ -116,7 +116,7 @@ class ActionStep extends Component {
                     } else {
                         this.state.selection = this.state.selection.filter((i) => i != props.item)
                     }
-                    this.setState({selection: this.state.selection}, () => this.sendStep())
+                    this.setState({selection: this.state.selection}, () => this.sendStep(this.props.step))
                 }}
                 /> {props.label}</label>
             {props.item == 'selector' ?
@@ -136,7 +136,14 @@ class ActionStep extends Component {
             <div className='btn-group'>
                 <div onClick={() => this.sendStep({...step, event: '$web_event'})} className={'btn ' + (step.event == '$web_event' ? 'btn-secondary' : 'btn-light')}>Match element</div>
                 <div onClick={() => this.sendStep({...step, event: ''})} className={'btn ' + (step.event &&step.event != '$web_event' && step.event != 'ph_page_view' ? 'btn-secondary' : 'btn-light')}>Match event</div>
-                <div onClick={() => this.sendStep({...step, event: 'ph_page_view'})} className={'btn ' + (step.event == 'ph_page_view' ? 'btn-secondary' : 'btn-light')}>Page view</div>
+                <div onClick={() => { 
+                    this.setState({selection: ['url']}, () => this.sendStep({
+                            ...step,
+                            event: 'ph_page_view',
+                            url: window.location.protocol + '//' + window.location.host + window.location.pathname
+                        })
+                    )
+                }} className={'btn ' + (step.event == 'ph_page_view' ? 'btn-secondary' : 'btn-light')}>Page view</div>
             </div>
             {step.event != null && <div style={{marginTop: '2rem'}}><label>Event name</label>
             <input
@@ -189,6 +196,7 @@ export class EditAction extends Component {
                 steps: []
             }
         }
+        this.temporaryToken = props.temporaryToken ? '?temporary_token=' + props.temporaryToken : ''
         this.fetchAction.call(this);
         this.onSubmit = this.onSubmit.bind(this);
     }
@@ -198,7 +206,7 @@ export class EditAction extends Component {
     }
     fetchAction() {
         if(this.props.actionId) {
-            return api.get(this.props.apiURL + 'api/action/' + this.props.actionId).then((action) => this.setState({action}))
+            return api.get(this.props.apiURL + 'api/action/' + this.props.actionId + '/' + this.temporaryToken).then((action) => this.setState({action}))
         }
         // If it's a new action, add an empty step
         this.setState({action: {steps: [{isNew: uuid()}]}})
@@ -219,19 +227,19 @@ export class EditAction extends Component {
             if(detail.detail == 'action-exists') this.setState({saved: false, error: 'action-exists', error_id: detail.id})
         }
         let steps = this.state.action.steps.map((step) => {
-            if(step.event == 'ph_page_view') step.selection = ['event', 'url'];
-            if(step.event != '$web_event') step.selection = ['event', 'url'];
+            if(step.event == 'ph_page_view') step.selection = ['url'];
+            if(step.event != '$web_event') step.selection = [];
             if(!step.selection) return step;
             let data = {};
             Object.keys(step).map((key) => {
-                data[key] = (key == 'id' || step.selection.indexOf(key) > -1) ? step[key] : null;
+                data[key] = (key == 'id' || key == 'event' || step.selection.indexOf(key) > -1) ? step[key] : null;
             })
             return data;
         })
         if(this.state.action.id) {
-            return api.update(this.props.apiURL + 'api/action/' + this.state.action.id + '/', {name: this.state.action.name, steps}).then(save).catch(error)
+            return api.update(this.props.apiURL + 'api/action/' + this.state.action.id + '/' + this.temporaryToken, {name: this.state.action.name, steps}).then(save).catch(error)
         }
-        api.create(this.props.apiURL + 'api/action/', this.state.action, {name: this.state.action.name, steps}).then(save).catch(error)
+        api.create(this.props.apiURL + 'api/action/' + this.temporaryToken, {name: this.state.action.name, steps}).then(save).catch(error)
     }
     render() {
         let action = this.state.action;
@@ -288,7 +296,8 @@ class App extends Component {
             <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
             <style>{styles}</style>
             <h2>PostHog</h2><br />
-            <EditAction apiURL={this.props.apiURL} actionId={sessionStorage.getItem('editorActionId')} isEditor={true} />
+            <EditAction apiURL={this.props.apiURL} temporaryToken={this.props.temporaryToken} actionId={sessionStorage.getItem('editorActionId')} isEditor={true} />
+            <br /><br /><br />
         </root.div>
     }
 }
@@ -297,5 +306,5 @@ window.ph_load_editor = function(editorParams) {
     let container = document.createElement('div');
     document.body.appendChild(container);
 
-    ReactDOM.render(<App apiURL={editorParams.apiURL} />, container);
+    ReactDOM.render(<App apiURL={editorParams.apiURL} temporaryToken={editorParams.temporaryToken} />, container);
 }

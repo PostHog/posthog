@@ -15,7 +15,7 @@ class TestAction(BaseTest):
                 "url": "/signup",
                 "isNew": 'asdf'
             }]
-        }, content_type='application/json').json()
+        }, content_type='application/json', HTTP_REFERER='https://somewebsite.com', HTTP_ORIGIN='https://somewebsite.com').json()
         action = Action.objects.get()
         self.assertEqual(action.name, 'user signed up')
         self.assertEqual(action.team, self.team)
@@ -49,3 +49,26 @@ class TestAction(BaseTest):
         }, content_type='application/json').json()
         self.assertEqual(ActionStep.objects.count(), 0)
 
+    # When we send a user to their own site, we give them a token.
+    # Make sure you can only create actions if that token is set,
+    # otherwise evil sites could create actions with a users' session.
+    # NOTE: Origin header is only set on cross domain request
+    def test_create_from_other_domain(self):
+        response = self.client.post('/api/action/', data={
+            'name': 'user signed up',
+        }, content_type='application/json', HTTP_REFERER='https://somewebsite.com', HTTP_ORIGIN='https://evilwebsite.com')
+        self.assertEqual(response.status_code, 403)
+
+        self.user.temporary_token = 'token123'
+        self.user.save()
+
+        response = self.client.post('/api/action/?temporary_token=token123', data={
+            'name': 'user signed up',
+        }, content_type='application/json', HTTP_REFERER='https://somewebsite.com', HTTP_ORIGIN='https://evilwebsite.com')
+        self.assertEqual(response.status_code, 200)
+
+        list_response = self.client.get('/api/action/', content_type='application/json', HTTP_REFERER='https://somewebsite.com', HTTP_ORIGIN='https://evilwebsite.com')
+        self.assertEqual(list_response.status_code, 403)
+
+        detail_response = self.client.get('/api/action/{}/'.format(response.json()['id']), content_type='application/json', HTTP_REFERER='https://somewebsite.com', HTTP_ORIGIN='https://evilwebsite.com')
+        self.assertEqual(detail_response.status_code, 403)

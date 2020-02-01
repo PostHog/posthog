@@ -12,10 +12,6 @@ export class AppEditorLink extends Component {
         }
         this.SetURLModal = this.SetURLModal.bind(this);
     }
-
-    appEditorUrl(user) {
-        return user.team.app_url + '#state=' + encodeURIComponent(JSON.stringify({'action': 'mpeditor', token: user.team.api_token, actionId: this.props.actionId, apiURL: window.location.origin + '/'}));
-    }
     SetURLModal() {
         return <Modal title={'Set your app url'}>
             <label>What URL will you be using PostHog on?</label>
@@ -44,7 +40,7 @@ export class AppEditorLink extends Component {
                 e.preventDefault();
                 this.setState({openModal: true})
             }}
-            href={this.appEditorUrl(this.props.user)} target="_blank" {...this.props}>
+            href={'/api/user/redirect_to_site/' + (this.props.actionId ? '?actionId=' + this.props.actionId : '')} target="_blank" {...this.props}>
             {this.props.children}
         </a>,
         this.state.openModal && <this.SetURLModal />]

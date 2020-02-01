@@ -22,7 +22,7 @@ from django.shortcuts import redirect
 from django.contrib.auth import authenticate, login, views as auth_views, decorators
 
 
-from .api import router, capture
+from .api import router, capture, user
 from .models import Team, User
 import json
 
@@ -35,27 +35,6 @@ def home(request, **kwargs):
     if request.path.endswith('.map'):
         return redirect('/static/%s' % request.path)
     return render_template('index.html', request)
-
-def user(request):
-    if not request.user.is_authenticated:
-        return HttpResponse('Unauthorized', status=401)
-
-    team = request.user.team_set.get()
-
-    if request.method == 'PATCH':
-        data = json.loads(request.body)
-        team.app_url = data['team']['app_url']
-        team.save()
-
-    return JsonResponse({
-        'id': request.user.pk,
-        'name': request.user.first_name or request.user.username,
-        'email': request.user.email,
-        'team': {
-            'app_url': team.app_url,
-            'api_token': team.api_token
-        }
-    })
 
 def login_view(request):
     if request.user.is_authenticated:
@@ -96,7 +75,8 @@ urlpatterns = [
     path('admin/', include('loginas.urls')),
     path('api/', include(router.urls)),
 
-    path('api/user/', user),
+    path('api/user/', user.user),
+    path('api/user/redirect_to_site/', user.redirect_to_site),
     path('decide/', capture.get_decide),
     path('engage/', capture.get_engage),
     path('engage', capture.get_engage),

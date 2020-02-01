@@ -1,7 +1,8 @@
-from posthog.models import Event, Team, Action, ActionStep, Element
-from rest_framework import request, serializers, viewsets # type: ignore
+from posthog.models import Event, Team, Action, ActionStep, Element, User
+from rest_framework import request, serializers, viewsets, authentication # type: ignore
 from rest_framework.response import Response
 from rest_framework.decorators import action # type: ignore
+from rest_framework.exceptions import AuthenticationFailed
 from django.db.models import Q, F
 from django.forms.models import model_to_dict
 from typing import Any
@@ -18,10 +19,21 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         model = Action
         fields = ['id', 'name', 'steps', 'created_at',]
 
+class TemporaryTokenAuthentication(authentication.BaseAuthentication):
+    def authenticate(self, request: request.Request):
+        if request.headers.get('Origin') and request.headers['Origin'] not in request.headers['Referer']:
+            if not request.GET.get('temporary_token'):
+                raise AuthenticationFailed()
+            user = User.objects.filter(temporary_token=request.GET.get('temporary_token'))
+            if not user.exists():
+                raise AuthenticationFailed()
+            return (user.first(), None)
+        return None
 
 class ActionViewSet(viewsets.ModelViewSet):
     queryset = Action.objects.all()
     serializer_class = ActionSerializer
+    authentication_classes = [TemporaryTokenAuthentication, authentication.SessionAuthentication, authentication.BasicAuthentication]
 
     def get_queryset(self):
         queryset = super().get_queryset()
