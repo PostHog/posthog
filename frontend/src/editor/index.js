@@ -289,7 +289,7 @@ class App extends Component {
             <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
             <style>{styles}</style>
             <h2>PostHog</h2><br />
-            <EditAction apiURL={editorParams} actionId={sessionStorage.getItem('editorActionId')} isEditor={true} />
+            <EditAction apiURL={this.props.apiURL} actionId={sessionStorage.getItem('editorActionId')} isEditor={true} />
         </root.div>
     }
 }
