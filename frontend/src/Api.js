@@ -17,7 +17,7 @@ function getCookie(name) {
 class Api {
   get(url, error) { 
     if(url.indexOf('http') !== 0) {
-      url = '/' + url + (url.indexOf('?') == -1 ? '/' : '');
+      url = '/' + url + (url.indexOf('?') == -1 && url.indexOf('/') -1 != url.length ? '/' : '');
     }
     return fetch(url)
       .then((response) => {
@@ -29,7 +29,7 @@ class Api {
   }
   update(url, data) {
     if(url.indexOf('http') !== 0) {
-      url = '/' + url + (url.indexOf('?') == -1 ? '/' : '');
+      url = '/' + url + (url.indexOf('?') == -1 && url[url.length-1] != '/' ? '/' : '');
     }
     return fetch(url, {
       method: 'PATCH',
@@ -48,7 +48,7 @@ class Api {
   }
   create(url, data) {
     if(url.indexOf('http') !== 0) {
-      url = '/' + url + (url.indexOf('?') == -1 ? '/' : '');
+      url = '/' + url + (url.indexOf('?') == -1 && url[url.length-1] != '/' ? '/' : '');
     }
     return fetch(url, {
       method: 'POST',
@@ -67,7 +67,7 @@ class Api {
   }
   delete(url, error) {
     if(url.indexOf('http') !== 0) {
-      url = '/' + url + (url.indexOf('?') == -1 ? '/' : '');
+      url = '/' + url + (url.indexOf('?') == -1 && url[url.length-1] != '/' ? '/' : '');
     }
     return fetch(url, {
       method: 'DELETE',

@@ -229,9 +229,9 @@ export class EditAction extends Component {
             return data;
         })
         if(this.state.action.id) {
-            return api.update(this.props.apiURL + 'api/action/' + this.state.action.id, {name: this.state.action.name, steps}).then(save).catch(error)
+            return api.update(this.props.apiURL + 'api/action/' + this.state.action.id + '/', {name: this.state.action.name, steps}).then(save).catch(error)
         }
-        api.create(this.props.apiURL + 'api/action', this.state.action, {name: this.state.action.name, steps}).then(save).catch(error)
+        api.create(this.props.apiURL + 'api/action/', this.state.action, {name: this.state.action.name, steps}).then(save).catch(error)
     }
     render() {
         let action = this.state.action;
