@@ -47,6 +47,7 @@ class ActionStep extends Component {
         this.box.style.height = parseInt(rect.bottom - rect.top) + 'px';
         this.box.style.background = 'red';
         this.box.style.opacity = '0.3';
+        this.box.style.zIndex = '9999999999';
     }
     onMouseOver(event) {
         let el = event.currentTarget;
