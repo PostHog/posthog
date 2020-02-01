@@ -4,6 +4,7 @@ certifi==2019.11.28
 decorator==4.4.1
 dj-database-url==0.5.0
 Django==2.2.7
+django-cors-headers==3.2.1
 django-loginas==0.3.8
 django-stubs==1.4.0
 djangorestframework==3.10.3
