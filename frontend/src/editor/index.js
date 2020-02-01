@@ -9,7 +9,6 @@ import PropTypes from 'prop-types';
 
 window.simmer = new Simmer(window, {depth: 8});
 
-// Function basically a copy of the mixpanel thing
 let getSafeText = (el) => {
     if(!el.childNodes || !el.childNodes.length) return;
     let elText = '';
@@ -232,7 +231,7 @@ export class EditAction extends Component {
         if(this.state.action.id) {
             return api.update(this.props.apiURL + 'api/action/' + this.state.action.id, {name: this.state.action.name, steps}).then(save).catch(error)
         }
-        api.create('api/action', this.state.action, {name: this.state.action.name, steps}).then(save).catch(error)
+        api.create(this.props.apiURL + 'api/action', this.state.action, {name: this.state.action.name, steps}).then(save).catch(error)
     }
     render() {
         let action = this.state.action;
