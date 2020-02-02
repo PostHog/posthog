@@ -23,10 +23,10 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: request.Request):
         if request.headers.get('Origin') and request.headers['Origin'] not in request.headers['Referer']:
             if not request.GET.get('temporary_token'):
-                raise AuthenticationFailed()
+                raise AuthenticationFailed(detail='No token')
             user = User.objects.filter(temporary_token=request.GET.get('temporary_token'))
             if not user.exists():
-                raise AuthenticationFailed()
+                raise AuthenticationFailed(detail='User doesnt exist')
             return (user.first(), None)
         return None
 
