@@ -26,6 +26,7 @@ class TestCapture(BaseTest):
             },
         }), content_type='application/json', HTTP_REFERER='https://localhost')
 
+        self.assertEqual(response._headers['access-control-allow-origin'][1], 'https://localhost')
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
         event = Event.objects.get()
         self.assertEqual(event.event, '$web_event')
@@ -71,6 +72,7 @@ class TestCapture(BaseTest):
             '$device_id': '16fd4afae9b2d8-0fce8fe900d42b-39637c0e-7e9000-16fd4afae9c395',
             '$user_id': 3
         }), content_type='application/json', HTTP_REFERER='https://localhost')
+        self.assertEqual(response._headers['access-control-allow-origin'][1], 'https://localhost')
 
         person = Person.objects.get()
         self.assertEqual(person.properties['whatever'], 'this is')
