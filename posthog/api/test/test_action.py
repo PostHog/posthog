@@ -15,7 +15,7 @@ class TestAction(BaseTest):
                 "url": "/signup",
                 "isNew": 'asdf'
             }]
-        }, content_type='application/json', HTTP_REFERER='https://somewebsite.com', HTTP_ORIGIN='https://somewebsite.com').json()
+        }, content_type='application/json', HTTP_ORIGIN='http://testserver').json()
         action = Action.objects.get()
         self.assertEqual(action.name, 'user signed up')
         self.assertEqual(action.team, self.team)
@@ -23,7 +23,7 @@ class TestAction(BaseTest):
         self.assertEqual(response['steps'][0]['text'], 'sign up')
 
         # test no actions with same name
-        response = self.client.post('/api/action/', data={'name': 'user signed up'}, content_type='application/json').json()
+        response = self.client.post('/api/action/', data={'name': 'user signed up'}, content_type='application/json', HTTP_ORIGIN='http://testserver').json()
         self.assertEqual(response['detail'], 'action-exists')
 
         # test update
@@ -35,7 +35,7 @@ class TestAction(BaseTest):
                 "text": "sign up NOW",
                 "selector": "div > button",
             }, {'href': '/a-new-link'}]
-        }, content_type='application/json').json()
+        }, content_type='application/json', HTTP_ORIGIN='http://testserver').json()
         action = Action.objects.get()
         steps = action.steps.all()
         self.assertEqual(action.name, 'user signed up 2')
@@ -46,7 +46,7 @@ class TestAction(BaseTest):
         response = self.client.patch('/api/action/%s/' % action.pk, data={
             'name': 'user signed up 2',
             'steps': []
-        }, content_type='application/json').json()
+        }, content_type='application/json', HTTP_ORIGIN='http://testserver').json()
         self.assertEqual(ActionStep.objects.count(), 0)
 
     # When we send a user to their own site, we give them a token.
@@ -56,7 +56,7 @@ class TestAction(BaseTest):
     def test_create_from_other_domain(self):
         response = self.client.post('/api/action/', data={
             'name': 'user signed up',
-        }, content_type='application/json', HTTP_REFERER='https://somewebsite.com', HTTP_ORIGIN='https://evilwebsite.com')
+        }, content_type='application/json', HTTP_ORIGIN='https://evilwebsite.com')
         self.assertEqual(response.status_code, 403)
 
         self.user.temporary_token = 'token123'
@@ -64,11 +64,21 @@ class TestAction(BaseTest):
 
         response = self.client.post('/api/action/?temporary_token=token123', data={
             'name': 'user signed up',
-        }, content_type='application/json', HTTP_REFERER='https://somewebsite.com', HTTP_ORIGIN='https://evilwebsite.com')
+        }, content_type='application/json', HTTP_ORIGIN='https://somewebsite.com')
         self.assertEqual(response.status_code, 200)
 
-        list_response = self.client.get('/api/action/', content_type='application/json', HTTP_REFERER='https://somewebsite.com', HTTP_ORIGIN='https://evilwebsite.com')
+        list_response = self.client.get('/api/action/', content_type='application/json', HTTP_ORIGIN='https://evilwebsite.com')
         self.assertEqual(list_response.status_code, 403)
 
-        detail_response = self.client.get('/api/action/{}/'.format(response.json()['id']), content_type='application/json', HTTP_REFERER='https://somewebsite.com', HTTP_ORIGIN='https://evilwebsite.com')
+        detail_response = self.client.get('/api/action/{}/'.format(response.json()['id']), content_type='application/json', HTTP_ORIGIN='https://evilwebsite.com')
         self.assertEqual(detail_response.status_code, 403)
+
+        self.client.logout()
+        list_response = self.client.get('/api/action/?temporary_token=token123', content_type='application/json', HTTP_ORIGIN='https://somewebsite.com')
+        self.assertEqual(list_response.status_code, 200)
+
+        response = self.client.post('/api/action/?temporary_token=token123', data={
+            'name': 'user signed up 22',
+        }, content_type='application/json', HTTP_ORIGIN='https://somewebsite.com')
+        self.assertEqual(response.status_code, 200, response.json())
+

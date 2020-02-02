@@ -21,9 +21,11 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
 
 class TemporaryTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: request.Request):
-        if request.headers.get('Origin') and request.headers['Origin'] not in request.headers['Referer']:
+        # if the Origin is different, the only authentication method should be temporary_token
+        if request.headers.get('Origin') and request.headers['Origin'] not in request.build_absolute_uri('/'):
             if not request.GET.get('temporary_token'):
                 raise AuthenticationFailed(detail='No token')
+        if request.GET.get('temporary_token'):
             user = User.objects.filter(temporary_token=request.GET.get('temporary_token'))
             if not user.exists():
                 raise AuthenticationFailed(detail='User doesnt exist')
