@@ -17,7 +17,7 @@ function getCookie(name) {
 class Api {
   get(url, error) { 
     if(url.indexOf('http') !== 0) {
-      url = '/' + url + (url.indexOf('?') == -1 && url.indexOf('/') -1 != url.length ? '/' : '');
+      url = '/' + url + (url.indexOf('?') == -1 && url[url.length-1] != '/' ? '/' : '');
     }
     return fetch(url)
       .then((response) => {
