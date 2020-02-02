@@ -31,6 +31,7 @@ class UserAdmin(DjangoUserAdmin):
         (_('Permissions'), {'fields': ('is_active', 'is_staff', 'is_superuser',
                                        'groups', 'user_permissions')}),
         (_('Important dates'), {'fields': ('last_login', 'date_joined')}),
+        (_('PostHog'), {'fields': ('temporary_token', )}),
     )
     add_fieldsets = (
         (None, {
