@@ -1,4 +1,4 @@
-from posthog.models import Event, Element, Action, ActionStep, Person
+from posthog.models import Event, Element, Action, ActionStep, Person, Team
 from posthog.api.test.base import BaseTest
 
 class TestFilterByActions(BaseTest):
@@ -13,6 +13,12 @@ class TestFilterByActions(BaseTest):
         Element.objects.create(tag_name='div', event=event2, nth_child=0, nth_of_type=0, order=1)
         # make sure elements don't get double counted if they're part of the same event
         Element.objects.create(href='/a-url-2', event=event2, nth_child=0, nth_of_type=0, order=2)
+
+        # make sure other teams' data doesn't get mixed in
+        team2 = Team.objects.create()
+        event3 = Event.objects.create(event='$web_event', team=team2, distinct_id='whatever')
+        Element.objects.create(tag_name='a', event=event3, nth_child=2, nth_of_type=0, order=0, attr_id='someId')
+        Element.objects.create(tag_name='div', event=event3, nth_child=0, nth_of_type=0, order=1)
 
         # test direct decendant ordering
         action1 = Action.objects.create(team=self.team)

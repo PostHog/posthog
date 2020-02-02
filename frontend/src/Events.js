@@ -13,13 +13,13 @@ export class EventDetails extends Component {
     }
     render() {
         return <div className='row'>
-            <div className='col-3'>
+            <div className='col-2'>
                 <div className="nav flex-column nav-pills" id="v-pills-tab" role="tablist" aria-orientation="vertical">
                     <a className={"cursor-pointer nav-link " + (this.state.selected == 'properties' && 'active')} onClick={() => this.setState({selected: 'properties'})}>Properties</a>
                     <a className={"cursor-pointer nav-link " + (this.state.selected == 'elements' && 'active')} onClick={() => this.setState({selected: 'elements'})}>Elements</a>
                 </div>
             </div>
-            <div className='col-9'>
+            <div className='col-10'>
                 {this.state.selected == 'properties' ? <div className='d-flex flex-wrap flex-column' style={{height: 200}}>
                     {Object.keys(this.props.event.properties).sort().map((key) =>
                         <div style={{flex: '0 1 '}} key={key}>

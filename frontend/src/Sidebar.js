@@ -13,7 +13,8 @@ class Sidebar extends Component {
             <ul className="nav flex-sm-column">
                 <li><NavLink className="nav-link" exact to="/actions"><i className='fi flaticon-click' /> Actions</NavLink></li>
                 {matches('/action') && [
-                    <li className='nav-indent'><NavLink className='nav-link' to="/actions/live"><i className='fi flaticon-refresh' /> Live actions</NavLink></li>
+                    <li className='nav-indent'><NavLink className='nav-link' to="/actions/live"><i className='fi flaticon-refresh' /> Live actions</NavLink></li>,
+                    <li className='nav-indent'><NavLink className='nav-link' to="/actions/trends"><i className='fi flaticon-target' /> Trends</NavLink></li>
                 ]}
                 <li><NavLink className={"nav-link " + (matches('/person') && 'active')} to="/people"><i className='fi flaticon-speech-bubble' /> Users</NavLink></li>
                 <li><NavLink className="nav-link" to="/funnel"><i className='fi flaticon-cursor-1' /> Funnels</NavLink></li>

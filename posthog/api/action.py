@@ -6,6 +6,10 @@ from rest_framework.exceptions import AuthenticationFailed
 from django.db.models import Q, F
 from django.forms.models import model_to_dict
 from typing import Any
+import pandas as pd # type: ignore
+import numpy as np # type: ignore
+import datetime
+from dateutil.relativedelta import relativedelta
 
 
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
@@ -94,3 +98,40 @@ class ActionViewSet(viewsets.ModelViewSet):
             })
         actions_list.sort(key=lambda action: action['count'], reverse=True)
         return Response({'results': actions_list})
+
+    def _group_events_to_date(self, date_from, aggregates, steps, ):
+        aggregates = pd.DataFrame([{'date': a.day, 'count': a.id} for a in aggregates])
+        aggregates['date'] = aggregates['date'].dt.date
+        # create all dates
+        time_index = pd.date_range(date_from, periods=steps + 1, freq='D')
+        grouped = pd.DataFrame(aggregates.groupby('date').mean(), index=time_index)
+
+        # fill gaps
+        grouped = grouped.fillna(0)
+        return grouped
+
+
+    @action(methods=['GET'], detail=False)
+    def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        actions = self.get_queryset()
+        actions_list = []
+        steps = int(request.GET.get('days', 7))
+        date_from = datetime.date.today() - relativedelta(days=steps)
+        date_to = datetime.date.today()
+        for action in actions:
+            aggregates = Event.objects.filter_by_action(action, count_by='day')
+            if len(aggregates) == 0:
+                continue
+            dates_filled = self._group_events_to_date(date_from=date_from, aggregates=aggregates, steps=steps)
+            values = [value[0] for key, value in dates_filled.iterrows()]
+            actions_list.append({
+                'action': {
+                    'id': action.pk,
+                    'name': action.name
+                },
+                'label': action.name,
+                'labels': [key.strftime('%-d %B') for key, value in dates_filled.iterrows()],
+                'data': values,
+                'count': sum(values)
+            })
+        return Response(actions_list)

@@ -14,6 +14,7 @@ import Funnels from "./Funnels";
 import { EditAction } from "./editor";
 import ActionEvents from "./ActionEvents";
 import Setup from "./Setup";
+import ActionsGraph from "./ActionsGraph";
 
 
 class PrivateRoute extends React.Component {
@@ -77,6 +78,7 @@ export default class App extends React.Component {
                                 <Route path="/person/:distinct_id" component={Person} user={this.state.user} />
                                 <Route path="/people" component={People} user={this.state.user} />
                                 <PrivateRoute path="/actions" exact component={Actions} user={this.state.user} />
+                                <PrivateRoute path="/actions/trends" exact component={ActionsGraph} user={this.state.user} />
                                 <PrivateRoute path="/actions/live" component={ActionEvents} user={this.state.user} />
                                 <PrivateRoute path="/action/:id" component={Action} user={this.state.user} />
                                 <Route path="/new-funnel" component={EditFunnel} user={this.state.user} />

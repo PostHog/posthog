@@ -1,5 +1,6 @@
 from .base import BaseTest
 from posthog.models import Action, ActionStep, Event, Element, Person
+from freezegun import freeze_time # type: ignore
 
 class TestAction(BaseTest):
     TESTS_API = True
@@ -82,3 +83,24 @@ class TestAction(BaseTest):
         }, content_type='application/json', HTTP_ORIGIN='https://somewebsite.com')
         self.assertEqual(response.status_code, 200, response.json())
 
+    def test_trends_per_day(self):
+        sign_up_action = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=sign_up_action, event='sign up')
+
+        no_events = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=no_events, event='no events')
+
+        with freeze_time('2020-01-01'):
+            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
+            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
+            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
+        with freeze_time('2020-01-02'):
+            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
+
+        with freeze_time('2020-01-04'):
+            response = self.client.get('/api/action/trends/').json()
+
+        self.assertEqual(response[0]['labels'][4], '1 January')
+        self.assertEqual(response[0]['data'][4], 3.0)
+        self.assertEqual(response[0]['labels'][5], '2 January')
+        self.assertEqual(response[0]['data'][5], 1.0)

@@ -146,7 +146,9 @@ class EventManager(models.Manager):
         self._filters(filters)
         self.where.append(')')
 
-    def _select(self, count=None, group_by=None, group_by_table=None):
+    def _select(self, count=None, group_by=None, group_by_table=None, count_by=None):
+        if count_by:
+            return "SELECT date_trunc('{0}', posthog_event.timestamp) as {0}, COUNT(1) as id FROM posthog_event ".format(count_by)
         if group_by:
             return "SELECT DISTINCT ON (posthog_persondistinctid.person_id) {}.{} as id, posthog_event.id as event_id FROM posthog_event ".format(group_by_table, group_by)
         if count:
@@ -162,13 +164,13 @@ class EventManager(models.Manager):
             "posthog_persondistinctid"."person_id" as person_id
         FROM   "posthog_event" """
 
-    def filter_by_action(self, action, count: Optional[bool]=None, group_by: Optional[str]=None, group_by_table: Optional[str]=None, limit: Optional[int]=None, where: Optional[Union[str, List[Any]]]=None) -> models.query.RawQuerySet:
-        query = self._select(count=count, group_by=group_by, group_by_table=group_by_table)
-        
+    def filter_by_action(self, action, count: Optional[bool]=None, group_by: Optional[str]=None, count_by: Optional[str]=None, group_by_table: Optional[str]=None, limit: Optional[int]=None, where: Optional[Union[str, List[Any]]]=None) -> models.query.RawQuerySet:
+        query = self._select(count=count, group_by=group_by, group_by_table=group_by_table, count_by=count_by)
+
         self.joins: List[str] = [
-            'RIGHT OUTER JOIN posthog_persondistinctid ON (posthog_event.distinct_id = posthog_persondistinctid.distinct_id) ',
-            'INNER JOIN posthog_element E0 ON (posthog_event.id = E0.event_id)'
-         ]
+            'LEFT OUTER JOIN posthog_persondistinctid ON (posthog_event.distinct_id = posthog_persondistinctid.distinct_id) ',
+            'LEFT OUTER JOIN posthog_element E0 ON (posthog_event.id = E0.event_id)'
+        ]
         self.where: List[str] = []
         self.params: List[str] = []
 
@@ -176,7 +178,9 @@ class EventManager(models.Manager):
             self._step(step)
 
         query += ' '.join(self.joins)
-        query += ' WHERE (1=2 '
+        query += ' WHERE '
+        query += ' posthog_event.team_id = {}'.format(action.team_id)
+        query += ' AND (1=2 '
         query += ' '.join(self.where)
         query += ') '
         if where:
@@ -185,9 +189,12 @@ class EventManager(models.Manager):
                 self.params.append(where[1])
             elif where != '':
                 query += ' AND ({})'.format(where)
+
         if group_by:
             query += ' GROUP BY {}.{}, posthog_event.id'.format(group_by_table, group_by)
-        if not count and not group_by:
+        if count_by:
+            query += ' GROUP BY day'
+        if not count and not group_by and not count_by:
             query += ' ORDER BY posthog_event.timestamp DESC'
         if limit:
             query += ' LIMIT %s' % limit

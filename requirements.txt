@@ -9,6 +9,7 @@ django-loginas==0.3.8
 django-stubs==1.4.0
 djangorestframework==3.10.3
 djangorestframework-stubs==1.1.0
+freezegun==0.3.14
 gunicorn==20.0.4
 ipdb==0.12.2
 ipython==7.9.0
@@ -16,6 +17,8 @@ ipython-genutils==0.2.0
 jedi==0.15.1
 mypy==0.761
 mypy-extensions==0.4.3
+numpy==1.18.1
+pandas==1.0.0
 parso==0.5.1
 pexpect==4.7.0
 pickleshare==0.7.5
@@ -23,6 +26,7 @@ prompt-toolkit==2.0.10
 psycopg2==2.8.4
 ptyprocess==0.6.0
 Pygments==2.4.2
+python-dateutil==2.8.1
 pytz==2019.3
 sentry-sdk==0.14.1
 six==1.13.0
