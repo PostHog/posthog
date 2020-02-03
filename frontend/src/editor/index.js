@@ -26,7 +26,7 @@ class ActionStep extends Component {
         super(props);
         this.state = {
             step: props.step,
-            selection: Object.keys(props.step).filter((key) => key != 'id' && key != 'isNew')
+            selection: Object.keys(props.step).filter((key) => key != 'id' && key != 'isNew' && props.step[key])
         };
         this.onMouseOver = this.onMouseOver.bind(this);
         this.onKeyDown = this.onKeyDown.bind(this);
@@ -161,19 +161,19 @@ class ActionStep extends Component {
                         inspect element
                     </button>,
                     !this.props.isEditor && <AppEditorLink user={this.props.user} actionId={this.props.actionId} style={{marginBottom: '1rem'}} className='btn btn-sm btn-light'>Select element on site <i className='fi flaticon-export' /></AppEditorLink>,
-                    step.href && <this.Option
+                    <this.Option
                         item='href'
                         label='Link href'
                         selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') +'"]'} />,
-                    step.name && <this.Option
+                    <this.Option
                         item='name'
                         label='Element name'
                         selector={this.state.element && '[name="' + this.state.element.getAttribute('name') + '"]'} />,
-                    step.text && <this.Option
+                    <this.Option
                         item='text'
                         label='Text'
                         />,
-                    step.selector && <this.Option
+                    <this.Option
                         item='selector'
                         label='Selector'
                         selector={step.selector}
