@@ -277,7 +277,7 @@ export class EditAction extends Component {
                 {this.props.isEditor && <button type="submit" onClick={(e) => this.onSubmit(e, true)} className='btn btn-light'>Save & new action</button>}
             </div>
             <br />
-            {this.state.saved && <p className='text-success'>Action saved. {!this.props.editor && <a href={'/action/' + action.id}>Click here to see all events.</a>}</p>}
+            {this.state.saved && <p className='text-success'>Action saved. {!this.props.isEditor && <a href={'/action/' + action.id}>Click here to see all events.</a>}</p>}
             {this.state.error && <p className='text-danger'>Action with this name already exists. <a href={'https://app.posthog.com/action/' + this.state.error_id}>Click here to edit.</a></p>}
         </form>
     }
