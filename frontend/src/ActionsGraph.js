@@ -1,6 +1,7 @@
 import React, { Component } from 'react'
 import LineGraph from './LineGraph';
 import api from './Api';
+import { Link } from 'react-router-dom';
 
 export default class ActionsGraph extends Component {
     constructor(props) {
@@ -25,7 +26,7 @@ export default class ActionsGraph extends Component {
             <div>
                 <h1>Action trends</h1>
                 <div>
-                    <select
+                    {data && data[0] && <select
                         className='float-right form-control'
                         style={{width: 170}}
                         onChange={e => this.fetchGraph(e.target.value)}>
@@ -34,7 +35,7 @@ export default class ActionsGraph extends Component {
                         <option value="30">Show last 30 days</option>
                         <option value="60">Show last 60 days</option>
                         <option value="90">Show last 90 days</option>
-                    </select>
+                    </select>}
                     {data && data.map((item) => <label className='cursor-pointer' style={{marginRight: 8}}>
                         <input
                             checked={selected.indexOf(item.label) > -1}
@@ -49,7 +50,8 @@ export default class ActionsGraph extends Component {
                             type='checkbox' /> {item.action.name} ({item.count})
                     </label>)}
                 </div>
-                {data && <LineGraph
+                {data && !data[0] && <p>You don't have any actions configured yet. <Link to='/actions'>Click here to create some.</Link></p>}
+                {data && data[0] && <LineGraph
                     datasets={data.filter(item => selected.indexOf(item.label) > -1)}
                     labels={data[0].labels}
                     options={{}} />}

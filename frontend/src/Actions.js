@@ -81,6 +81,7 @@ export class ActionsTable extends Component {
                         </tr>
                     </thead>
                     <tbody>
+                        {this.state.actions && this.state.actions.length == 0 && <tr><td>You don't have any actions yet.</td></tr>}
                         {this.state.actions && this.state.actions.map((action) => 
                             <tr key={action.id}>
                                 <td>

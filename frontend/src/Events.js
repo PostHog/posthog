@@ -109,6 +109,7 @@ export class EventsTable extends Component {
                 <table className='table'>
                     <tbody>
                         <tr><th>Event</th><th>Person</th><th>Path</th><th>When</th></tr>
+                        {this.state.events && this.state.events.length == 0 && <tr><td colSpan="4">You don't have any items here. If you haven't integrated PostHog yet, <Link to='/setup'>click here to set PostHog up on your app</Link></td></tr>}
                         {this.state.events && this.state.events.map((event, index) => [
                             index > 0 && !moment(event.timestamp).isSame(this.state.events[index - 1].timestamp, 'day') && <tr key={event.id + '_time'}><td colSpan="4" className='event-day-separator'>{moment(event.timestamp).format('LL')}</td></tr>,
                             <tr key={event.id} className={'cursor-pointer event-row ' + (this.state.newEvents.indexOf(event.id) > -1 && 'event-row-new')} onClick={() => this.setState({eventSelected: this.state.eventSelected != event.id ? event.id : false})}>

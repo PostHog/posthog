@@ -90,6 +90,8 @@ export class ActionEventsTable extends Component {
                             <th scope="col">City</th>
                             <th scope="col">Country</th>
                         </tr>
+
+                        {this.state.events && this.state.events.length == 0 && <tr><td colSpan="7">We didn't find any events matching any actions. You can either <Link to='/actions'>set up some actions</Link> or <Link to='/setup'>integrate PostHog in your app</Link>.</td></tr>}
                         {this.state.events && this.state.events.map((action, index) => [
                             index > 0
                                 && !moment(action.event.timestamp).isSame(this.state.events[index - 1].event.timestamp, 'day')

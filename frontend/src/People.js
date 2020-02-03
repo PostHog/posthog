@@ -34,6 +34,7 @@ export default class People extends Component {
                 <table className='table'>
                     <tbody>
                         <tr><th>Person</th><th>Last seen</th></tr>
+                        {this.state.people && this.state.people.length == 0 && <tr><td colSpan="2">We haven't seen any data yet. If you haven't integrated PostHog, <Link to='/setup'>click here to set PostHog up on your app</Link></td></tr>}
                         {this.state.people && this.state.people.map((person) => [
                             <tr key={person.id} className='cursor-pointer' onClick={() => this.setState({personSelected: person.id})}>
                                 <td><Link to={'/person/' + person.distinct_ids[0]}>{person.name}</Link></td>

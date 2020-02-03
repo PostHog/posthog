@@ -28,6 +28,7 @@ export default class Funnels extends Component {
             <table className='table'>
                 <tbody>
                     <tr><th>Funnel name</th><th>Completion rate</th><th>Users top of funnel</th><th>Users bottom of funnel</th><th>Steps in funnel</th><th>Actions</th></tr>
+                    {this.state.funnels && this.state.funnels.length == 0 && <tr><td colSpan="6">You haven't created any funnels yet. <Link to='/new-funnel'>Click here to create one!</Link></td></tr>}
                     {this.state.funnels && this.state.funnels.map((funnel) => <tr key={funnel.id}>
                         <td><Link to={'/funnel/' + funnel.id}>{funnel.name}</Link></td>
                         <td>{funnel.steps[0] && percentage(funnel.steps[funnel.steps.length -1].people.length / funnel.steps[0].people.length)}</td>
