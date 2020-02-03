@@ -70,6 +70,9 @@ def signup_view(request):
 def logout(request):
     return auth_views.logout_then_login(request)
 
+def demo(request):
+    return render_template('demo.html', request=request, context={'api_token': request.user.team_set.get().api_token})
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('admin/', include('loginas.urls')),
@@ -80,7 +83,7 @@ urlpatterns = [
     path('decide/', capture.get_decide),
     path('engage/', capture.get_engage),
     path('engage', capture.get_engage),
-    re_path(r'demo.*', TemplateView.as_view(template_name='demo.html')),
+    re_path(r'demo.*', demo),
     path('e/', capture.get_event),
     path('track', capture.get_event),
     path('track/', capture.get_event),

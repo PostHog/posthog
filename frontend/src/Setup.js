@@ -12,7 +12,7 @@ export default class Setup extends Component {
         return (
             <div>
                 <h1>Setup your PostHog account</h1>
-                <label>What URL will you be using PostHog on?</label>
+                <label>What domain will you be using PostHog on?</label>
                 <form onSubmit={(e) => {
                     event.preventDefault();
                     api.update('api/user', {team: {app_url: e.target.url.value}}).then(() => this.setState({saved: true}))
