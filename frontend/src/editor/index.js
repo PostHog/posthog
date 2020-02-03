@@ -221,7 +221,7 @@ export class EditAction extends Component {
             } else {
                 this.setState({action: {...this.state.action, id: action.id}})
                 if(this.props.isEditor) sessionStorage.setItem('editorActionId', action.id);
-                setTimeout(() => this.setState({error: false, saved: true}), 500)
+                this.setState({error: false, saved: true})
             }
         }
         let error = (detail) => {
@@ -277,8 +277,8 @@ export class EditAction extends Component {
                 {this.props.isEditor && <button type="submit" onClick={(e) => this.onSubmit(e, true)} className='btn btn-light'>Save & new action</button>}
             </div>
             <br />
-            {this.state.saved && <p className='text-success'>Action saved. {!this.props.isEditor && <a href={'/action/' + action.id}>Click here to see all events.</a>}</p>}
-            {this.state.error && <p className='text-danger'>Action with this name already exists. <a href={'https://app.posthog.com/action/' + this.state.error_id}>Click here to edit.</a></p>}
+            {this.state.saved && <p className='text-success'>Action saved. <a href={this.props.apiURL + 'action/' + action.id}>Click here to see all events.</a></p>}
+            {this.state.error && <p className='text-danger'>Action with this name already exists. <a href={this.props.apiURL + 'action/' + this.state.error_id}>Click here to edit.</a></p>}
         </form>
     }
 }

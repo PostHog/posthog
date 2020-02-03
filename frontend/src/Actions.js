@@ -12,6 +12,9 @@ export class AppEditorLink extends Component {
         }
         this.SetURLModal = this.SetURLModal.bind(this);
     }
+    appEditorUrl(actionId) {
+        return '/api/user/redirect_to_site/' + (actionId ? '?actionId=' + actionId : '')
+    }
     SetURLModal() {
         return <Modal title={'Set your app url'}>
             <label>What URL will you be using PostHog on?</label>
@@ -24,7 +27,7 @@ export class AppEditorLink extends Component {
                             this.setState({saved: true})
                         })
                         this.props.user.team.app_url = e.target.form.url.value;
-                        window.open(this.appEditorUrl(this.props.user), '_blank');
+                        window.open(this.appEditorUrl(this.props.actionId), '_blank');
                         this.props.onUpdateUser(this.props.user);
                     }}
                     className='btn btn-success' type="submit">Save URL & go</button>
@@ -40,7 +43,7 @@ export class AppEditorLink extends Component {
                 e.preventDefault();
                 this.setState({openModal: true})
             }}
-            href={'/api/user/redirect_to_site/' + (this.props.actionId ? '?actionId=' + this.props.actionId : '')} target="_blank" {...this.props}>
+            href={this.appEditorUrl(this.props.actionId)} target="_blank" {...this.props}>
             {this.props.children}
         </a>,
         this.state.openModal && <this.SetURLModal />]
