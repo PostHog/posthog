@@ -18,6 +18,7 @@
     "react": "^16.9.0",
     "react-dom": "^16.9.0",
     "react-router-dom": "^5.1.0",
+    "react-select": "^3.0.8",
     "react-shadow": "^17.4.0",
     "react-stripe-elements": "^6.0.1",
     "sass": "^1.25.0",

@@ -119,3 +119,14 @@ class EventViewSet(viewsets.ModelViewSet):
             if count == 50:
                 break
         return response.Response({'results': matches})
+
+
+    @action(methods=['GET'], detail=False)
+    def names(self, request: request.Request) -> response.Response:
+        events = Event.objects\
+            .filter(team=request.user.team_set.get())\
+            .values('event')\
+            .annotate(count=Count('id'))\
+            .order_by('-count')
+        
+        return response.Response([{'name': event['event'], 'count': event['count']} for event in events])

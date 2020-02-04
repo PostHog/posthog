@@ -43,7 +43,7 @@ export class AppEditorLink extends Component {
                 e.preventDefault();
                 this.setState({openModal: true})
             }}
-            href={this.appEditorUrl(this.props.actionId)} target="_blank" {...this.props}>
+            href={this.appEditorUrl(this.props.actionId)} target="_blank" style={this.props.style} className={this.props.className}>
             {this.props.children}
         </a>,
         this.state.openModal && <this.SetURLModal />]
@@ -74,7 +74,10 @@ export class ActionsTable extends Component {
     render() {
         return (
             <div>
-                <AppEditorLink user={this.props.user} className='btn btn-outline-success float-right'><i className='fi flaticon-add'/>&nbsp;&nbsp;New action&nbsp;<i className='fi flaticon-export' /></AppEditorLink>
+                <div className='btn-group float-right'>
+                    <Link to='/new-action' className='btn btn-light'><i className='fi flaticon-add'/>&nbsp; New action</Link>
+                    <AppEditorLink user={this.props.user} className='btn btn-success'><i className='fi flaticon-export' /></AppEditorLink>
+                </div>
                 <h1>Actions</h1>
                 <table className='table'>
                     <thead>

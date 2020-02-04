@@ -109,3 +109,14 @@ class TestEvents(BaseTest):
         self.assertEqual(response['results'][1]['action']['id'], action_credit_card.pk)
 
         self.assertEqual(response['results'][0]['action']['id'], action_watch_movie.pk)
+
+    def test_event_names(self):
+        Event.objects.create(team=self.team, event='user login')
+        Event.objects.create(team=self.team, event='user sign up')
+        Event.objects.create(team=self.team, event='user sign up')
+
+        response = self.client.get('/api/event/names/').json()
+        self.assertEqual(response[0]['name'], 'user sign up')
+        self.assertEqual(response[0]['count'], 2)
+        self.assertEqual(response[1]['name'], 'user login')
+        self.assertEqual(response[1]['count'], 1)

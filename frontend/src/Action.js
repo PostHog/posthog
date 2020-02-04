@@ -13,13 +13,14 @@ export default class Action extends Component {
     }
     render() {
         return <div>
-            <h1>Edit action</h1>
+            <h1>{this.props.match.params.id ? 'Edit action' : 'New action'}</h1>
             <EditAction apiURL='' user={this.props.user} actionId={this.props.match.params.id} />
-            
-            <hr />
+            {this.props.match.params.id && <div>
+                <hr />
 
-            <h2>Events</h2>
-            <EventsTable fixedFilters={{action_id: this.props.match.params.id}} history={this.props.history} />
+                <h2>Events</h2>
+                <EventsTable fixedFilters={{action_id: this.props.match.params.id}} history={this.props.history} />
+            </div>}
         </div>
     }
 }

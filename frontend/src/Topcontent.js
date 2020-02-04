@@ -5,7 +5,7 @@ export default class Topcontent extends Component {
     render() {
         return (
         	<div>
-		        <div class="right-align">
+		        <div className="right-align">
 		            <i className='fi flaticon-user-1' /> {this.props.user.email}
 		        </div>
 		    </div>

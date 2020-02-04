@@ -69,7 +69,7 @@ export default class App extends React.Component {
                 <div className="container-fluid flex-grow-1 d-flex">
                     <div className="row flex-fill flex-column flex-sm-row">
                         <Sidebar user={this.state.user} />
-                        <div class="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 flex-grow-1 py-3 content">
+                        <div className="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 flex-grow-1 py-3 content">
                             <Topcontent user={this.state.user} />
                             <div style={{marginTop: '6rem'}}>
                                 <PrivateRoute path="/" exact component={function() { return <Redirect to="/actions" />}} user={this.state.user} />
@@ -81,6 +81,7 @@ export default class App extends React.Component {
                                 <PrivateRoute path="/actions/trends" exact component={ActionsGraph} user={this.state.user} />
                                 <PrivateRoute path="/actions/live" component={ActionEvents} user={this.state.user} />
                                 <PrivateRoute path="/action/:id" component={Action} user={this.state.user} />
+                                <PrivateRoute path="/new-action" component={Action} user={this.state.user} />
                                 <Route path="/new-funnel" component={EditFunnel} user={this.state.user} />
                                 <Route path="/funnel/:id" exact component={Funnel} user={this.state.user} />
                                 <Route path="/funnel/:id/edit" exact component={EditFunnel} user={this.state.user} />

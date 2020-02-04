@@ -6,6 +6,7 @@ import Simmer from 'simmerjs';
 import root from 'react-shadow';
 import { AppEditorLink } from "../Actions";
 import PropTypes from 'prop-types';
+import Select from 'react-select';
 
 window.simmer = new Simmer(window, {depth: 8});
 
@@ -20,7 +21,37 @@ let getSafeText = (el) => {
     })
     return elText
 }
-
+class EventName extends Component {
+    constructor(props) {
+        super(props)
+    
+        this.state = {
+        }
+        this.fetchNames.call(this);
+    }
+    fetchNames() {
+        api.get('api/event/names').then((names) => this.setState({
+            names: names.map((name) => ({
+                value: name.name,
+                label: name.name + ' (' + name.count + ' events)'
+            })).filter((item) => item.value != '$web_event' && item.value != 'ph_page_view')
+        }))
+    }
+    render() {
+        if(this.props.value == '$web_event' || this.props.value == 'ph_page_view') return <input type="text" disabled value={this.props.value} className='form-control' />;
+        return this.state.names ? <Select
+            options={this.state.names}
+            isSearchable={true}
+            isClearable={true}
+            onChange={this.props.onChange}
+            value={this.props.value && this.state.names.filter((item) => this.props.value == item.value)[0]}
+            /> : null;
+    }
+}
+EventName.propTypes = {
+    onChange: PropTypes.func.isRequired,
+    value: PropTypes.string.isRequired
+}
 class ActionStep extends Component {
     constructor(props) {
         super(props);
@@ -147,12 +178,9 @@ class ActionStep extends Component {
                 }} className={'btn ' + (step.event == 'ph_page_view' ? 'btn-secondary' : 'btn-light')}>Page view</div>
             </div>
             {step.event != null && <div style={{marginTop: '2rem'}}><label>Event name</label>
-            <input
-                type="text"
-                className='form-control'
-                disabled={step.event == '$web_event' || step.event == 'ph_page_view'}
+            <EventName
                 value={step.event}
-                onChange={(e) => this.sendStep({...step, event: e.target.value})} />
+                onChange={(item) => this.sendStep({...step, event: item.value})} />
             </div>}
             <div style={{margin: (this.props.isEditor ? '0 -12px' : '')}}>
                 <br />
@@ -200,10 +228,6 @@ export class EditAction extends Component {
         this.temporaryToken = props.temporaryToken ? '?temporary_token=' + props.temporaryToken : ''
         this.fetchAction.call(this);
         this.onSubmit = this.onSubmit.bind(this);
-    }
-    propTypes = {
-        user: PropTypes.object,
-        isEditor: PropTypes.bool
     }
     fetchAction() {
         if(this.props.actionId) {
@@ -281,6 +305,10 @@ export class EditAction extends Component {
             {this.state.error && <p className='text-danger'>Action with this name already exists. <a href={this.props.apiURL + 'action/' + this.state.error_id}>Click here to edit.</a></p>}
         </form>
     }
+}
+EditAction.propTypes = {
+    user: PropTypes.object,
+    isEditor: PropTypes.bool
 }
 
 let styles = `

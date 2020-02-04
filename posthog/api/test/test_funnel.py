@@ -102,7 +102,7 @@ class TestGetFunnel(BaseTest):
     def test_funnel_no_events(self):
         funnel = self._basic_funnel()
 
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(10):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
 
     def test_funnel_skipped_step(self):
