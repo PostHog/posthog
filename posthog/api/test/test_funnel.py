@@ -41,13 +41,22 @@ class TestGetFunnel(BaseTest):
         sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team)
         Element.objects.create(tag_name='a', href='/movie', event=sign_up)
 
-    def test_funnel_events(self):
+    def _basic_funnel(self):
         action_sign_up = Action.objects.create(team=self.team, name='signed up')
         ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
         action_credit_card = Action.objects.create(team=self.team, name='payd')
         ActionStep.objects.create(action=action_credit_card, tag_name='button', text='Pay $10')
         action_play_movie = Action.objects.create(team=self.team, name='watched movie')
         ActionStep.objects.create(action=action_play_movie, tag_name='a', href='/movie')
+
+        funnel = Funnel.objects.create(team=self.team, name='funnel')
+        FunnelStep.objects.create(funnel=funnel, order=0, action=action_sign_up)
+        FunnelStep.objects.create(funnel=funnel, order=1, action=action_credit_card)
+        FunnelStep.objects.create(funnel=funnel, order=2, action=action_play_movie)
+        return funnel
+
+    def test_funnel_events(self):
+        funnel = self._basic_funnel()
 
         # events
         person_stopped_after_signup = Person.objects.create(distinct_ids=["stopped_after_signup"], team=self.team)
@@ -68,12 +77,7 @@ class TestGetFunnel(BaseTest):
         person_wrong_order = Person.objects.create(distinct_ids=["wrong_order"], team=self.team)
         self._pay_event('wrong_order')
         self._signup_event('wrong_order')
-
-        # funnels
-        funnel = Funnel.objects.create(team=self.team, name='funnel')
-        FunnelStep.objects.create(funnel=funnel, order=0, action=action_sign_up)
-        FunnelStep.objects.create(funnel=funnel, order=1, action=action_credit_card)
-        FunnelStep.objects.create(funnel=funnel, order=2, action=action_play_movie)
+        self._movie_event('wrong_order')
 
         with self.assertNumQueries(14):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
@@ -83,6 +87,7 @@ class TestGetFunnel(BaseTest):
         self.assertEqual(response['steps'][1]['count'], 2)
         self.assertEqual(response['steps'][2]['name'], 'watched movie')
         self.assertEqual(response['steps'][2]['count'], 1)
+        self.assertEqual(response['steps'][2]['people'], [person_stopped_after_movie.pk])
 
         # make sure it's O(n)
         person_wrong_order = Person.objects.create(distinct_ids=["badalgo"], team=self.team)
@@ -95,17 +100,18 @@ class TestGetFunnel(BaseTest):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
 
     def test_funnel_no_events(self):
-        action_sign_up = Action.objects.create(team=self.team, name='signed up')
-        ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
-        action_credit_card = Action.objects.create(team=self.team, name='payd')
-        ActionStep.objects.create(action=action_credit_card, tag_name='button', text='Pay $10')
-        action_play_movie = Action.objects.create(team=self.team, name='watched movie')
-        ActionStep.objects.create(action=action_play_movie, tag_name='a', href='/movie')
-
-        funnel = Funnel.objects.create(team=self.team, name='funnel')
-        FunnelStep.objects.create(funnel=funnel, order=0, action=action_sign_up)
-        FunnelStep.objects.create(funnel=funnel, order=1, action=action_credit_card)
-        FunnelStep.objects.create(funnel=funnel, order=2, action=action_play_movie)
+        funnel = self._basic_funnel()
 
         with self.assertNumQueries(14):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
+
+    def test_funnel_skipped_step(self):
+        funnel = self._basic_funnel()
+
+        person_wrong_order = Person.objects.create(distinct_ids=["wrong_order"], team=self.team)
+        self._signup_event('wrong_order')
+        self._movie_event('wrong_order')
+
+        response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
+        self.assertEqual(response['steps'][1]['count'], 0)
+        self.assertEqual(response['steps'][2]['count'], 0)

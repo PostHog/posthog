@@ -40,7 +40,7 @@ def redirect_to_site(request):
         'action': 'mpeditor',
         'token': team.api_token,
         'temporaryToken': request.user.temporary_token,
-        'actionId': request.GET.get('action_id'),
+        'actionId': request.GET.get('actionId'),
         'apiURL': request.build_absolute_uri('/')
     }))
 
