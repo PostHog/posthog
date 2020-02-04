@@ -46,7 +46,8 @@ ALLOWED_HOSTS = [
     'app.posthog.com',
     't.posthog.com',
     'posthog.herokuapp.com',
-    '127.0.0.1'
+    '127.0.0.1',
+    'posthog.fly.dev'
 ]
 
 
