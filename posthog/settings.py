@@ -162,3 +162,6 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ]
 }
+
+# You can pass a comma deliminated list of domains with which users can sign up to this service
+RESTRICT_SIGNUPS = os.environ.get('RESTRICT_SIGNUPS', False)

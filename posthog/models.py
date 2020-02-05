@@ -43,6 +43,8 @@ class UserManager(BaseUserManager):
         if not email:
             raise ValueError('The given email must be set')
         email = self.normalize_email(email)
+        if hasattr(settings, 'RESTRICT_SIGNUPS') and settings.RESTRICT_SIGNUPS and email.rsplit('@', 1)[1] not in settings.RESTRICT_SIGNUPS.split(','):
+            raise ValueError("Can't sign up with this email")
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -252,7 +254,7 @@ class Event(models.Model):
         filters = {key: value for key, value in filters.items() if value}
 
         if filters.get('url'):
-            if event.properties['$current_url'] != filters['url']:
+            if event.properties.get('$current_url') != filters['url']:
                 return False
             filters.pop('url')
         if filters.get('event'):

@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { toParams, fromParams, colors } from './utils';
 import PropTypes from 'prop-types';
 import { EventDetails } from './Events';
+import PropertyFilter from './PropertyFilter'
 
 
 export class ActionEventsTable extends Component {
@@ -12,19 +13,18 @@ export class ActionEventsTable extends Component {
         super(props)
     
         this.state = {
-            filters: fromParams(),
+            propertyFilters: fromParams(),
             newEvents: []
         }
         this.fetchEvents = this.fetchEvents.bind(this);
         this.FilterLink = this.FilterLink.bind(this);
-        this.Filters = this.Filters.bind(this);
         this.pollEvents = this.pollEvents.bind(this);
         this.pollTimeout = 5000;
         this.fetchEvents(this);
     }
     fetchEvents() {
         let params = toParams({
-            ...this.state.filters,
+            ...this.state.propertyFilters,
             ...this.props.fixedFilters
         })
         clearTimeout(this.poller)
@@ -35,8 +35,8 @@ export class ActionEventsTable extends Component {
     }
     pollEvents() {
         let params = { 
-            ...this.state.filters,
             ...this.props.fixedFilters,
+            ...this.state.propertyFilters
         }
         if(this.state.events[0]) params['after'] = this.state.events[0].event.timestamp
         api.get('api/event/actions/?' + toParams(params)).then((events) => {
@@ -59,26 +59,11 @@ export class ActionEventsTable extends Component {
             }}
             >{typeof props.value === 'object' ? JSON.stringify(props.value) : props.value}</Link>
     }
-    Filters() {
-        return <div style={{marginBottom: '2rem'}}>
-            {Object.keys(this.state.filters).map((filter, index) => <div className={'badge badge-' + colors[index]} style={{marginRight: 8, padding: 8}}>
-                <strong>{filter}:</strong> {this.state.filters[filter]}
-                <button type="button" className="close" aria-label="Close" onClick={() => {
-                    delete this.state.filters[filter];
-                    this.setState({filters: this.state.filters});
-                    this.fetchEvents();
-                    this.props.history.push(this.props.history.location.pathname + '?' + toParams(this.state.filters))
-                }}>
-                    <span aria-hidden="true">&times;</span>
-                </button>
-            </div>)}
-        </div>
-    }
     render() {
         let params = ['$current_url']
         return (
             <div class='events'>
-                <this.Filters />
+                <PropertyFilter onChange={(propertyFilters) => this.setState({propertyFilters}, this.fetchEvents)} history={this.props.history} />
                 <table className='table'>
                     <tbody>
                         <tr>

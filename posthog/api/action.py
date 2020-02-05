@@ -115,7 +115,8 @@ class ActionViewSet(viewsets.ModelViewSet):
         for key, value in request.GET.items():
             if key != 'days':
                 ret.append(['(posthog_event.properties -> %s) = %s', [key, '"{}"'.format(value)]])
-        ret.append(['posthog_event.timestamp > %s', [date_from]])
+        if date_from:
+            ret.append(['posthog_event.timestamp > %s', [date_from]])
         return ret
 
     @action(methods=['GET'], detail=False)
