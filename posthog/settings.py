@@ -43,11 +43,7 @@ SECRET_KEY = os.environ.get('SECRET_KEY', "6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-
 # SECURITY WARNING: don't run with debug turned on in production!
 
 ALLOWED_HOSTS = [
-    'app.posthog.com',
-    't.posthog.com',
-    'posthog.herokuapp.com',
-    '127.0.0.1',
-    'posthog.fly.dev'
+    '*'
 ]
 
 
@@ -103,14 +99,10 @@ WSGI_APPLICATION = 'posthog.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
+DATABASE_URL = os.environ.get('DATABASE_URL', 'postgres://localhost:5432/posthog') 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'posthog',
-        'PORT': '5432'
-    }
+    'default': dj_database_url.config(default=DATABASE_URL, conn_max_age=600)
 }
-DATABASES['default'].update(dj_database_url.config())
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators

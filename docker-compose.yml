@@ -1,0 +1,22 @@
+version: '3'
+
+services:
+  db:
+    image: postgres:alpine
+    environment:
+      POSTGRES_USER: posthog
+      POSTGRES_DB: posthog
+  web:
+    build: .
+    command: gunicorn posthog.wsgi --bind 0.0.0.0:5000 --log-file -
+    volumes:
+      - .:/code
+    ports:
+      - "5000:5000"
+    environment:
+      IS_DOCKER: "true"
+      DEBUG: 1
+      DATABASE_URL: "postgres://posthog@db:5432/posthog"
+      SECRET_KEY: "<randomly generated secret key>"
+    depends_on:
+      - db
