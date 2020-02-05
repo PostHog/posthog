@@ -38,7 +38,7 @@ if not DEBUG and not TEST:
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = '6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-_y7c_c^l5c0m$'
+SECRET_KEY = os.environ.get('SECRET_KEY', "6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-_y7c_c^l5c0m$")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 
