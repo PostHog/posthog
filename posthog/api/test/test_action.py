@@ -84,18 +84,24 @@ class TestAction(BaseTest):
         self.assertEqual(response.status_code, 200, response.json())
 
     def test_trends_per_day(self):
-        sign_up_action = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=sign_up_action, event='sign up')
 
         no_events = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=no_events, event='no events')
 
+        sign_up_action = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=sign_up_action, event='sign up')
+
+
+        with freeze_time('2019-12-24'):
+            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "value"})
+
         with freeze_time('2020-01-01'):
-            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
+            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "value"})
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
         with freeze_time('2020-01-02'):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
+            Event.objects.create(team=self.team, event='no events', distinct_id='blabla')
 
         with freeze_time('2020-01-04'):
             response = self.client.get('/api/action/trends/').json()
@@ -104,3 +110,18 @@ class TestAction(BaseTest):
         self.assertEqual(response[0]['data'][4], 3.0)
         self.assertEqual(response[0]['labels'][5], '2 January')
         self.assertEqual(response[0]['data'][5], 1.0)
+
+        # test property filtering
+        with freeze_time('2020-01-04'):
+            response = self.client.get('/api/action/trends/?some_property=value').json()
+        self.assertEqual(response[0]['labels'][4], '1 January')
+        self.assertEqual(response[0]['data'][4], 1.0)
+        self.assertEqual(response[0]['labels'][5], '2 January')
+        self.assertEqual(response[0]['data'][5], 0)
+        self.assertEqual(len(response), 1)
+
+        # test day filtering
+        with freeze_time('2020-01-04'):
+            response = self.client.get('/api/action/trends/?days=14').json()
+        self.assertEqual(response[0]['labels'][3], '24 December')
+        self.assertEqual(response[0]['data'][3], 1.0)

@@ -120,3 +120,31 @@ class TestEvents(BaseTest):
         self.assertEqual(response[0]['count'], 2)
         self.assertEqual(response[1]['name'], 'user login')
         self.assertEqual(response[1]['count'], 1)
+
+    def test_event_property_names(self):
+        Event.objects.create(team=self.team, properties={'$browser': 'whatever', '$os': 'Mac OS X'})
+        Event.objects.create(team=self.team, properties={'random_prop': 'asdf'})
+        Event.objects.create(team=self.team, properties={'random_prop': 'asdf'})
+
+        response = self.client.get('/api/event/properties/').json()
+        self.assertEqual(response[0]['name'], 'random_prop')
+        self.assertEqual(response[0]['count'], 2)
+        self.assertEqual(response[1]['name'], '$os')
+        self.assertEqual(response[1]['count'], 1)
+        self.assertEqual(response[2]['name'], '$browser')
+        self.assertEqual(response[2]['count'], 1)
+
+    def test_event_property_values(self):
+        Event.objects.create(team=self.team, properties={'random_prop': 'asdf', 'some other prop': 'with some text'})
+        Event.objects.create(team=self.team, properties={'random_prop': 'asdf'})
+        Event.objects.create(team=self.team, properties={'random_prop': 'qwerty'})
+        Event.objects.create(team=self.team, properties={'something_else': 'qwerty'})
+        response = self.client.get('/api/event/values/?key=random_prop').json()
+        self.assertEqual(response[0]['name'], 'asdf')
+        self.assertEqual(response[0]['count'], 2)
+        self.assertEqual(response[1]['name'], 'qwerty')
+        self.assertEqual(response[1]['count'], 1)
+
+        response = self.client.get('/api/event/values/?key=random_prop&value=qw').json()
+        self.assertEqual(response[0]['name'], 'qwerty')
+        self.assertEqual(response[0]['count'], 1)

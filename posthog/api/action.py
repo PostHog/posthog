@@ -110,6 +110,13 @@ class ActionViewSet(viewsets.ModelViewSet):
         grouped = grouped.fillna(0)
         return grouped
 
+    def _where_query(self, request: request.Request, date_from: datetime.date):
+        ret = []
+        for key, value in request.GET.items():
+            if key != 'days':
+                ret.append(['(posthog_event.properties -> %s) = %s', [key, '"{}"'.format(value)]])
+        ret.append(['posthog_event.timestamp > %s', [date_from]])
+        return ret
 
     @action(methods=['GET'], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -119,7 +126,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         date_from = datetime.date.today() - relativedelta(days=steps)
         date_to = datetime.date.today()
         for action in actions:
-            aggregates = Event.objects.filter_by_action(action, count_by='day')
+            aggregates = Event.objects.filter_by_action(action, count_by='day', where=self._where_query(request, date_from))
             if len(aggregates) == 0:
                 continue
             dates_filled = self._group_events_to_date(date_from=date_from, aggregates=aggregates, steps=steps)

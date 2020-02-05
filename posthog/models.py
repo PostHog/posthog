@@ -185,8 +185,9 @@ class EventManager(models.Manager):
         query += ') '
         if where:
             if isinstance(where, list):
-                query += ' AND {} %s'.format(where[0])
-                self.params.append(where[1])
+                for w in where:
+                    query += ' AND {}'.format(w[0])
+                    self.params.extend(w[1])
             elif where != '':
                 query += ' AND ({})'.format(where)
 

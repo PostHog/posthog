@@ -2,7 +2,7 @@ from posthog.models import Event, Team, Person, Element, Action, ActionStep, Per
 from rest_framework import request, response, serializers, viewsets # type: ignore
 from rest_framework.decorators import action # type: ignore
 from django.http import HttpResponse, JsonResponse
-from django.db.models import Q, Count, QuerySet, query, Prefetch, F
+from django.db.models import Q, Count, QuerySet, query, Prefetch, F, Func, TextField, functions
 from django.forms.models import model_to_dict
 from typing import Any, Union, Tuple, Dict, List
 import re
@@ -23,7 +23,7 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
 
     def get_person(self, event: Event) -> Any:
         if hasattr(event, 'person_properties'):
-            return event.person_properties.get('$email', event.distinct_id)
+            return event.person_properties.get('$email', event.distinct_id) # type: ignore
         if hasattr(event, 'person'):
             return event.person.properties.get('$email', event.distinct_id)
         return event.distinct_id
@@ -40,14 +40,13 @@ class EventViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         return queryset\
             .filter(team=self.request.user.team_set.get())\
-            .prefetch_related('element_set')\
             .order_by('-timestamp')
 
     def _filter_by_action(self, request: request.Request) -> query.RawQuerySet:
             action = Action.objects.get(pk=request.GET['action_id'], team=request.user.team_set.get())
             where = None
             if request.GET.get('after'):
-                where = ['posthog_event.timestamp >', request.GET['after']]
+                where = [['posthog_event.timestamp > %s', [request.GET['after']]]]
             return Event.objects.filter_by_action(action, limit=100, where=where)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
@@ -72,7 +71,7 @@ class EventViewSet(viewsets.ModelViewSet):
         if request.GET.get('action_id'):
             queryset: Union[QuerySet, query.RawQuerySet] = self._filter_by_action(request)
         else:
-            queryset = self.get_queryset()
+            queryset = self.get_queryset().prefetch_related('element_set')
             queryset = self._filter_request(request, queryset)
 
         events = [EventSerializer(d).data for d in queryset[0: 100]]
@@ -106,7 +105,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(methods=['GET'], detail=False)
     def actions(self, request: request.Request) -> response.Response:
-        events = self.get_queryset()
+        events = self.get_queryset().prefetch_related('element_set')
         events = self._filter_request(request, events)
 
         action_steps = ActionStep.objects.filter(action__team=request.user.team_set.get()).select_related('action')
@@ -123,10 +122,38 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(methods=['GET'], detail=False)
     def names(self, request: request.Request) -> response.Response:
-        events = Event.objects\
-            .filter(team=request.user.team_set.get())\
+        events = self.get_queryset()
+        events = events\
             .values('event')\
             .annotate(count=Count('id'))\
             .order_by('-count')
         
         return response.Response([{'name': event['event'], 'count': event['count']} for event in events])
+
+    @action(methods=['GET'], detail=False)
+    def properties(self, request: request.Request) -> response.Response:
+        class JsonKeys(Func):
+            function = 'jsonb_object_keys'
+
+        events = self.get_queryset()
+        events = events\
+            .annotate(keys=JsonKeys('properties'))\
+            .values('keys')\
+            .annotate(count=Count('id'))\
+            .order_by('-count')
+
+        return response.Response([{'name': event['keys'], 'count': event['count']} for event in events])
+
+    @action(methods=['GET'], detail=False)
+    def values(self, request: request.Request) -> response.Response:
+        events = self.get_queryset()
+        key = "properties__{}".format(request.GET.get('key'))
+        events = events\
+            .values(key)\
+            .annotate(count=Count('id'))\
+            .order_by('-count')
+
+        if request.GET.get('value'):
+            events = events.extra(where=["properties ->> %s LIKE %s"], params=[request.GET['key'], '%{}%'.format(request.GET['value'])])
+
+        return response.Response([{'name': event[key], 'count': event['count']} for event in events[:50]])
