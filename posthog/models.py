@@ -96,57 +96,57 @@ def create_team_signup_token(sender, instance, created, **kwargs):
             instance.save()
 
 class EventManager(models.Manager):
-    def _handle_nth_child(self, index, item):
-        self.where.append("AND E{}.nth_child = %s".format(index))
-        self.params.append(item)
+    def _handle_nth_child(self, index, item, where, params):
+        where.append("AND E{}.nth_child = %s".format(index))
+        params.append(item)
 
-    def _handle_tag_name(self, index, item):
-        self.where.append("AND E{}.tag_name = %s".format(index))
-        self.params.append(item)
+    def _handle_tag_name(self, index, item, where, params):
+        where.append("AND E{}.tag_name = %s".format(index))
+        params.append(item)
 
-    def _handle_id(self, index, item):
-        self.where.append("AND E{}.attr_id = %s".format(index))
-        self.params.append(item)
+    def _handle_id(self, index, item, where, params):
+        where.append("AND E{}.attr_id = %s".format(index))
+        params.append(item)
 
-    def _handle_class(self, index, item):
-        self.where.append("AND E{}.attr_class @> %s::varchar(200)[]".format(index))
-        self.params.append(item)
+    def _handle_class(self, index, item, where, params):
+        where.append("AND E{}.attr_class @> %s::varchar(200)[]".format(index))
+        params.append(item)
 
-    def _filter_selector(self, filters):
+    def _filter_selector(self, filters, joins, where, params):
         selector = filters.pop('selector')
         parts = split_selector_into_parts(selector)
         for index, tag in enumerate(parts):
             if tag.get('nth_child'):
-                self._handle_nth_child(index, tag['nth_child'])
+                self._handle_nth_child(index, tag['nth_child'], where=where, params=params)
             if tag.get('attr_id'):
-                self._handle_id(index, tag['attr_id'])
+                self._handle_id(index, tag['attr_id'], where=where, params=params)
             if tag.get('attr_class'):
-                self._handle_class(index, tag['attr_class'])
+                self._handle_class(index, tag['attr_class'], where=where, params=params)
             if tag.get('tag_name'):
-                self._handle_tag_name(index, tag['tag_name'])
+                self._handle_tag_name(index, tag['tag_name'], where=where, params=params)
             if index > 0:
-                self.joins.append('INNER JOIN posthog_element E{0} ON (posthog_event.id = E{0}.event_id)'.format(index))
-                self.where.append('AND E{0}.order = (( E{1}.order + 1))'.format(index, index-1))
+                joins.append('INNER JOIN posthog_element E{0} ON (posthog_event.id = E{0}.event_id)'.format(index))
+                where.append('AND E{0}.order = (( E{1}.order + 1))'.format(index, index-1))
 
-    def _filters(self, filters):
+    def _filters(self, filters, where: List, params: List):
         for key, value in filters.items():
             if key == 'url' and value:
-                self.where.append('AND posthog_event.properties ->> \'$current_url\' LIKE %s')
-                self.params.append('%{}%'.format(value))
+                where.append('AND posthog_event.properties ->> \'$current_url\' LIKE %s')
+                params.append('%{}%'.format(value))
             elif key == 'event' and value:
-                self.where.append('AND posthog_event.event = %s')
-                self.params.append(value)
+                where.append('AND posthog_event.event = %s')
+                params.append(value)
             elif key not in ['action', 'id', 'selector'] and value:
-                self.where.append('AND E0.{} = %s'.format(key))
-                self.params.append(value)
+                where.append('AND E0.{} = %s'.format(key))
+                params.append(value)
 
-    def _step(self, step):
+    def _step(self, step, joins: List, where: List, params: List):
         filters = model_to_dict(step)
-        self.where.append(' OR (1=1 ')
+        where.append(' OR (1=1 ')
         if filters['selector']:
-            self._filter_selector(filters)
-        self._filters(filters)
-        self.where.append(')')
+            filter_selector = self._filter_selector(filters, joins=joins, where=where, params=params)
+        self._filters(filters, where=where, params=params)
+        where.append(')')
 
     def _select(self, count=None, group_by=None, group_by_table=None, count_by=None):
         if count_by:
@@ -169,27 +169,27 @@ class EventManager(models.Manager):
     def filter_by_action(self, action, count: Optional[bool]=None, group_by: Optional[str]=None, count_by: Optional[str]=None, group_by_table: Optional[str]=None, limit: Optional[int]=None, where: Optional[Union[str, List[Any]]]=None) -> models.query.RawQuerySet:
         query = self._select(count=count, group_by=group_by, group_by_table=group_by_table, count_by=count_by)
 
-        self.joins: List[str] = [
+        joins: List[str] = [
             'LEFT OUTER JOIN posthog_persondistinctid ON (posthog_event.distinct_id = posthog_persondistinctid.distinct_id) ',
             'LEFT OUTER JOIN posthog_element E0 ON (posthog_event.id = E0.event_id)'
         ]
-        self.where: List[str] = []
-        self.params: List[str] = []
+        where_list: List[str] = []
+        params: List[str] = []
 
         for step in action.steps.all():
-            self._step(step)
+            self._step(step, joins=joins, where=where_list, params=params)
 
-        query += ' '.join(self.joins)
+        query += ' '.join(joins)
         query += ' WHERE '
         query += ' posthog_event.team_id = {}'.format(action.team_id)
         query += ' AND (1=2 '
-        query += ' '.join(self.where)
+        query += ' '.join(where_list)
         query += ') '
         if where:
             if isinstance(where, list):
                 for w in where:
                     query += ' AND {}'.format(w[0])
-                    self.params.extend(w[1])
+                    params.extend(w[1])
             elif where != '':
                 query += ' AND ({})'.format(where)
 
@@ -201,7 +201,7 @@ class EventManager(models.Manager):
             query += ' ORDER BY posthog_event.timestamp DESC'
         if limit:
             query += ' LIMIT %s' % limit
-        events = Event.objects.raw(query, self.params)
+        events = Event.objects.raw(query, params)
         if count:
             return events[0].id # bit of a hack to get the total count here
         return events

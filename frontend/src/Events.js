@@ -86,26 +86,11 @@ export class EventsTable extends Component {
             }}
             >{typeof props.value === 'object' ? JSON.stringify(props.value) : props.value}</Link>
     }
-    Filters() {
-        return <div style={{marginBottom: '2rem'}}>
-            {Object.keys(this.state.filters).map((filter, index) => <div className={'badge badge-' + colors[index]} style={{marginRight: 8, padding: 8}}>
-                <strong>{filter}:</strong> {this.state.filters[filter]}
-                <button type="button" className="close" aria-label="Close" onClick={() => {
-                    delete this.state.filters[filter];
-                    this.setState({filters: this.state.filters});
-                    this.fetchEvents();
-                    this.props.history.push(this.props.history.location.pathname + '?' + toParams(this.state.filters))
-                }}>
-                    <span aria-hidden="true">&times;</span>
-                </button>
-            </div>)}
-        </div>
-    }
     render() {
         let params = ['$current_url']
         return (
             <div className='events'>
-                <this.Filters />
+                <PropertyFilter filters={this.state.filters} onChange={(filters) => this.setState({filters})} history={this.state.history} />
                 <table className='table'>
                     <tbody>
                         <tr><th>Event</th><th>Person</th><th>Path</th><th>When</th></tr>

@@ -118,7 +118,7 @@ class TestAction(BaseTest):
         self.assertEqual(response[0]['data'][4], 1.0)
         self.assertEqual(response[0]['labels'][5], '2 January')
         self.assertEqual(response[0]['data'][5], 0)
-        self.assertEqual(len(response), 1)
+        self.assertEqual(response[1]['count'], 0)
 
         # test day filtering
         with freeze_time('2020-01-04'):

@@ -19,7 +19,7 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
 
     class Meta:
         model = Event
-        fields = ['id', 'properties', 'elements', 'event', 'ip', 'timestamp', 'person']
+        fields = ['id', 'distinct_id', 'properties', 'elements', 'event', 'ip', 'timestamp', 'person']
 
     def get_person(self, event: Event) -> Any:
         if hasattr(event, 'person_properties'):

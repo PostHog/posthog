@@ -37,6 +37,7 @@ export default class LineGraph extends Component {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                scaleShowHorizontalLines: false,
                 tooltips: {
                     enabled: true,
                     intersect: false,
@@ -65,7 +66,8 @@ export default class LineGraph extends Component {
                 },
                 scales: {
                     xAxes: [{
-                        display: true ,
+                        display: true,
+                        gridLines: { lineWidth: 0 },
                         ticks: {autoSkip: true},
             
                     }],

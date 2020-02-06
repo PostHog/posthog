@@ -61,9 +61,10 @@ export class ActionEventsTable extends Component {
     }
     render() {
         let params = ['$current_url']
+        let { propertyFilters, events } = this.state;
         return (
             <div class='events'>
-                <PropertyFilter onChange={(propertyFilters) => this.setState({propertyFilters}, this.fetchEvents)} history={this.props.history} />
+                <PropertyFilter propertyFilters={propertyFilters} onChange={(propertyFilters) => this.setState({propertyFilters}, this.fetchEvents)} history={this.props.history} />
                 <table className='table'>
                     <tbody>
                         <tr>
@@ -75,11 +76,10 @@ export class ActionEventsTable extends Component {
                             <th scope="col">City</th>
                             <th scope="col">Country</th>
                         </tr>
-
-                        {this.state.events && this.state.events.length == 0 && <tr><td colSpan="7">We didn't find any events matching any actions. You can either <Link to='/actions'>set up some actions</Link> or <Link to='/setup'>integrate PostHog in your app</Link>.</td></tr>}
-                        {this.state.events && this.state.events.map((action, index) => [
+                        {events && events.length == 0 && <tr><td colSpan="7">We didn't find any events matching any actions. You can either <Link to='/actions'>set up some actions</Link> or <Link to='/setup'>integrate PostHog in your app</Link>.</td></tr>}
+                        {events && events.map((action, index) => [
                             index > 0
-                                && !moment(action.event.timestamp).isSame(this.state.events[index - 1].event.timestamp, 'day')
+                                && !moment(action.event.timestamp).isSame(events[index - 1].event.timestamp, 'day')
                                 && <tr key={action.event.id + '_time'}>
                                     <td colSpan="4" className='event-day-separator'>
                                         {moment(action.event.timestamp).format('LL')}

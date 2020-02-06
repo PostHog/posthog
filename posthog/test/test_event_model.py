@@ -70,10 +70,11 @@ class TestFilterByActions(BaseTest):
     def test_with_class(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
         event1 = Event.objects.create(team=self.team, distinct_id="whatever")
-        Element.objects.create(event=event1, tag_name='a', attr_class=['nav-link', 'active'])
+        Element.objects.create(event=event1, tag_name='span', attr_class=[''], order=0)
+        Element.objects.create(event=event1, tag_name='a', attr_class=['active', 'nav-link'], order=1)
 
         action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action1, selector='a.nav-link', tag_name='a')
+        ActionStep.objects.create(action=action1, selector='a.nav-link.active', tag_name='a')
 
         events = Event.objects.filter_by_action(action1)
         self.assertEqual(events[0], event1)

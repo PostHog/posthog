@@ -112,8 +112,9 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     def _where_query(self, request: request.Request, date_from: datetime.date):
         ret = []
+
         for key, value in request.GET.items():
-            if key != 'days':
+            if key != 'days' and key != 'actions':
                 ret.append(['(posthog_event.properties -> %s) = %s', [key, '"{}"'.format(value)]])
         if date_from:
             ret.append(['posthog_event.timestamp > %s', [date_from]])
@@ -127,19 +128,20 @@ class ActionViewSet(viewsets.ModelViewSet):
         date_from = datetime.date.today() - relativedelta(days=steps)
         date_to = datetime.date.today()
         for action in actions:
-            aggregates = Event.objects.filter_by_action(action, count_by='day', where=self._where_query(request, date_from))
-            if len(aggregates) == 0:
-                continue
-            dates_filled = self._group_events_to_date(date_from=date_from, aggregates=aggregates, steps=steps)
-            values = [value[0] for key, value in dates_filled.iterrows()]
-            actions_list.append({
+            append = {
                 'action': {
                     'id': action.pk,
                     'name': action.name
                 },
                 'label': action.name,
-                'labels': [key.strftime('%-d %B') for key, value in dates_filled.iterrows()],
-                'data': values,
-                'count': sum(values)
-            })
+                'count': 0
+            }
+            aggregates = Event.objects.filter_by_action(action, count_by='day', where=self._where_query(request, date_from))
+            if len(aggregates) > 0:
+                dates_filled = self._group_events_to_date(date_from=date_from, aggregates=aggregates, steps=steps)
+                values = [value[0] for key, value in dates_filled.iterrows()]
+                append['labels'] = [key.strftime('%-d %B') for key, value in dates_filled.iterrows()]
+                append['data'] = values
+                append['count'] = sum(values)
+            actions_list.append(append)
         return Response(actions_list)
