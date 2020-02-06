@@ -20,7 +20,7 @@ class TestCapture(BaseTest):
                 'distinct_id': 2,
                 'token': self.team.api_token,
                 '$elements': [
-                    {'tag_name': 'a', 'nth_child': 1, 'nth_of_type': 2},
+                    {'tag_name': 'a', 'nth_child': 1, 'nth_of_type': 2, 'attr__class': 'btn btn-sm'},
                     {'tag_name': 'div', 'nth_child': 1, 'nth_of_type': 2}
                 ]
             },
@@ -32,6 +32,7 @@ class TestCapture(BaseTest):
         self.assertEqual(event.event, '$web_event')
         elements = event.element_set.all()
         self.assertEqual(elements[0].tag_name, 'a')
+        self.assertEqual(elements[0].attr_class, ['btn', 'btn-sm'])
         self.assertEqual(elements[1].order, 1)
         self.assertEqual(event.properties['distinct_id'], "2")
 
