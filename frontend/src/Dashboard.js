@@ -32,28 +32,33 @@ export default class Dashboard extends Component {
     render() {
         let { items } = this.state;
         let typeMap = {
-            'ActionsLineGraph': ActionsLineGraph,
-            'ActionsTable': ActionsTable,
-            'FunnelViz': FunnelViz
+            'ActionsLineGraph': {
+                element: ActionsLineGraph,
+                link: filters => ({pathname: '/actions/trends', search: toParams(filters)})
+            },
+            'ActionsTable': {
+                element: ActionsTable,
+                link: filters => ({pathname: '/actions/trends', search: toParams(filters)})
+            },
+            'FunnelViz': {
+                element: FunnelViz,
+                link: filters => '/funnel/' + filters.funnel_id
+            }
         }
         return (
             <div className='row'>
                 {items && (items.length > 0 ? items.map((item) => {
-                    let Panel = typeMap[item.type]
+                    let Panel = typeMap[item.type].element
                     return <div className='col-6' key={item.id}>
                         <div className='card'>
                             <h5 className='card-header'>
                                 <Dropdown className='float-right'>
-                                    <Link className='dropdown-item' to={{
-                                        pathname: '/actions/trends', search: toParams(item.filters)
-                                    }}>View graph</Link>
+                                    <Link className='dropdown-item' to={typeMap[item.type].link(item.filters)}>View graph</Link>
                                     <a href='#' className='text-danger dropdown-item' onClick={(e) => { e.preventDefault(); this.delete(item, true)}}>Delete panel</a>
                                 </Dropdown>
-                                <Link to={{
-                                    pathname: '/actions/trends', search: toParams(item.filters)
-                                }}>{item.name}</Link>
+                                <Link to={typeMap[item.type].link(item.filters)}>{item.name}</Link>
                             </h5>
-                            <div style={{overflowY: 'scroll', height: '30vh', maxHeight: '30vh'}}>
+                            <div style={{overflowY: 'scroll', height: '25vh', maxHeight: '30vh'}}>
                                 <Panel filters={item.filters} />
                             </div>
                         </div>

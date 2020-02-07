@@ -105,6 +105,10 @@ export class FunnelViz extends Component {
     }
     componentDidMount() {
         if(this.props.funnel) this.buildChart();
+        window.addEventListener('resize', this.buildChart)
+    }
+    componentWillUnmount() {
+        window.removeEventListener('resize', this.buildChart)
     }
     fetchFunnel() {
         api.get('api/funnel/' + this.props.filters.funnel_id).then((funnel) => this.setState({funnel}, this.buildChart))
@@ -116,12 +120,14 @@ export class FunnelViz extends Component {
     }
     buildChart() {
         if(this.container.current) this.container.current.innerHTML = '';
+        if(!this.state.funnel) return;
         let graph = new FunnelGraph({
             container: '.funnel-graph',
             data: {
                 labels: this.state.funnel.steps.map((step) => step.name),
                 values: this.state.funnel.steps.map((step) => step.count),
-                colors: ['#66b0ff', 'var(--blue)']
+                colors: ['#4C5D6E']
+                // colors: ['#66b0ff', 'var(--blue)']
             },
             displayPercent: true
         });

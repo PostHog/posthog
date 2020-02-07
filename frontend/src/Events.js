@@ -4,6 +4,7 @@ import moment from 'moment';
 import { Link } from 'react-router-dom';
 import { toParams, fromParams, colors } from './utils';
 import PropTypes from 'prop-types';
+import PropertyFilter from './PropertyFilter';
 
 
 export class EventDetails extends Component {
@@ -44,7 +45,6 @@ export class EventsTable extends Component {
         }
         this.fetchEvents = this.fetchEvents.bind(this);
         this.FilterLink = this.FilterLink.bind(this);
-        this.Filters = this.Filters.bind(this);
         this.pollEvents = this.pollEvents.bind(this);
         this.pollTimeout = 5000;
         this.fetchEvents();
@@ -90,7 +90,7 @@ export class EventsTable extends Component {
         let params = ['$current_url']
         return (
             <div className='events'>
-                <PropertyFilter filters={this.state.filters} onChange={(filters) => this.setState({filters})} history={this.state.history} />
+                <PropertyFilter propertyFilters={this.state.filters} onChange={(filters) => this.setState({filters}, this.fetchEvents)} history={this.props.history} />
                 <table className='table'>
                     <tbody>
                         <tr><th>Event</th><th>Person</th><th>Path</th><th>When</th></tr>
