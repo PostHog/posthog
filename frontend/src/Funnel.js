@@ -124,10 +124,9 @@ export class FunnelViz extends Component {
         let graph = new FunnelGraph({
             container: '.funnel-graph',
             data: {
-                labels: this.state.funnel.steps.map((step) => step.name),
+                labels: this.state.funnel.steps.map((step) => `${step.name} (${step.count})`),
                 values: this.state.funnel.steps.map((step) => step.count),
-                colors: ['#4C5D6E']
-                // colors: ['#66b0ff', 'var(--blue)']
+                colors: ['#66b0ff', 'var(--blue)']
             },
             displayPercent: true
         });
