@@ -95,6 +95,6 @@ export default class PropertyFilter extends Component {
 
 PropertyFilter.propTypes = {
     history: PropTypes.object.isRequired,
-    filters: PropTypes.objectOf(PropTypes.string).isRequired,
+    propertyFilters: PropTypes.objectOf(PropTypes.string).isRequired,
     onChange: PropTypes.func.isRequired
 }

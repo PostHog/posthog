@@ -21,6 +21,7 @@
     "react-select": "^3.0.8",
     "react-shadow": "^17.4.0",
     "react-stripe-elements": "^6.0.1",
+    "react-toastify": "^5.5.0",
     "sass": "^1.25.0",
     "simmerjs": "^0.5.6",
     "style.css": "^1.0.0"

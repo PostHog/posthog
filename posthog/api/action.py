@@ -3,9 +3,9 @@ from rest_framework import request, serializers, viewsets, authentication # type
 from rest_framework.response import Response
 from rest_framework.decorators import action # type: ignore
 from rest_framework.exceptions import AuthenticationFailed
-from django.db.models import Q, F
+from django.db.models import Q, F, Count
 from django.forms.models import model_to_dict
-from typing import Any
+from typing import Any, List, Dict
 import pandas as pd # type: ignore
 import numpy as np # type: ignore
 import datetime
@@ -114,11 +114,23 @@ class ActionViewSet(viewsets.ModelViewSet):
         ret = []
 
         for key, value in request.GET.items():
-            if key != 'days' and key != 'actions':
+            if key != 'days' and key != 'actions' and key != 'display' and key != 'breakdown':
                 ret.append(['(posthog_event.properties -> %s) = %s', [key, '"{}"'.format(value)]])
         if date_from:
-            ret.append(['posthog_event.timestamp > %s', [date_from]])
+            ret.append(['posthog_event.timestamp >= %s', [date_from]])
         return ret
+
+    def _breakdown(self, action: Action, breakdown_by: str, where: List) -> Dict:
+        events = Event.objects.filter_by_action(action, where=where)
+        events = Event.objects.filter(pk__in=[event.id for event in events])
+
+        key = "properties__{}".format(breakdown_by)
+        events = events\
+            .values(key)\
+            .annotate(count=Count('id'))\
+            .order_by('-count')
+
+        return [{'name': item[key] if item[key] else 'undefined', 'count': item['count']} for item in events]
 
     @action(methods=['GET'], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -134,14 +146,18 @@ class ActionViewSet(viewsets.ModelViewSet):
                     'name': action.name
                 },
                 'label': action.name,
-                'count': 0
+                'count': 0,
+                'breakdown': []
             }
-            aggregates = Event.objects.filter_by_action(action, count_by='day', where=self._where_query(request, date_from))
+            where = self._where_query(request, date_from)
+            aggregates = Event.objects.filter_by_action(action, count_by='day', where=where)
             if len(aggregates) > 0:
                 dates_filled = self._group_events_to_date(date_from=date_from, aggregates=aggregates, steps=steps)
                 values = [value[0] for key, value in dates_filled.iterrows()]
                 append['labels'] = [key.strftime('%-d %B') for key, value in dates_filled.iterrows()]
                 append['data'] = values
                 append['count'] = sum(values)
+            if request.GET.get('breakdown'):
+                append['breakdown'] = self._breakdown(action, breakdown_by=request.GET['breakdown'], where=where)
             actions_list.append(append)
         return Response(actions_list)

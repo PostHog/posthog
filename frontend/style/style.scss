@@ -31,6 +31,7 @@ $body-color:#37352F;
 @import "../node_modules/bootstrap/scss/_close";
 @import "../node_modules/bootstrap/scss/_card";
 @import "../node_modules/bootstrap/scss/_modal";
+@import "../node_modules/bootstrap/scss/_dropdown";
 
 // icons
 @import "../font/flaticon";
@@ -39,12 +40,22 @@ $body-color:#37352F;
 @import "events";
 @import "funnel";
 @import "sidebar";
+@import "toast";
 .cursor-pointer { cursor: pointer }
 
 .badge .close {
     text-shadow: none;
     margin: -6px 0 -8px 8px;
     font-size: 1.3rem;
+}
+
+.card {
+    box-shadow: 0px 0px 13px rgba(0, 0, 0, 0.1);
+    border: 0;
+    .card-header {
+        font-weight: 500;
+        font-size: 15px
+    }
 }
 
 
@@ -66,4 +77,11 @@ pre.code {
     border-radius: 3px;
     color: white;
     margin-top: 2rem;
+}
+
+.text-overflow {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 0;
 }

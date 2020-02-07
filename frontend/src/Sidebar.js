@@ -11,6 +11,7 @@ class Sidebar extends Component {
               <div className="posthog-title">PostHog</div>
             </div>
             <ul className="nav flex-sm-column">
+                <li><NavLink className="nav-link" exact to="/"><i className='fi flaticon-home' /> Dashboard</NavLink></li>
                 <li><NavLink className="nav-link" exact to="/actions"><i className='fi flaticon-click' /> Actions</NavLink></li>
                 {matches('/action') && [
                     <li className='nav-indent'><NavLink className='nav-link' to="/actions/live"><i className='fi flaticon-refresh' /> Live actions</NavLink></li>,

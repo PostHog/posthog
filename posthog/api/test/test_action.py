@@ -100,7 +100,7 @@ class TestAction(BaseTest):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
         with freeze_time('2020-01-02'):
-            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
+            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "other_value"})
             Event.objects.create(team=self.team, event='no events', distinct_id='blabla')
 
         with freeze_time('2020-01-04'):
@@ -125,3 +125,13 @@ class TestAction(BaseTest):
             response = self.client.get('/api/action/trends/?days=14').json()
         self.assertEqual(response[0]['labels'][3], '24 December')
         self.assertEqual(response[0]['data'][3], 1.0)
+
+        # test breakdown filtering
+        with freeze_time('2020-01-04'):
+            response = self.client.get('/api/action/trends/?breakdown=some_property').json()
+        self.assertEqual(response[0]['breakdown'][0]['name'], 'value')
+        self.assertEqual(response[0]['breakdown'][0]['count'], 2)
+        self.assertEqual(response[0]['breakdown'][1]['name'], 'undefined')
+        self.assertEqual(response[0]['breakdown'][1]['count'], 2)
+        self.assertEqual(response[0]['breakdown'][2]['name'], 'other_value')
+        self.assertEqual(response[0]['breakdown'][2]['count'], 1)

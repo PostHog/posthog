@@ -1,7 +1,6 @@
 import React, { Component } from 'react'
 import Chart from "chart.js";
 import PropTypes from 'prop-types';
-let myLineChart;
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -15,24 +14,27 @@ export default class LineGraph extends Component {
         this.buildChart();
     }
 
-    componentDidUpdate() {
-        this.buildChart();
+    componentDidUpdate(prevProps) {
+        if(prevProps.datasets !== this.props.datasets) {
+            console.log(this.props.datasets !== prevProps.datasets)
+            this.buildChart();
+        }
     }
 
     buildChart = () => {
         const myChartRef = this.chartRef.current.getContext("2d");
         const { datasets, labels, options } = this.props;
 
-        if (typeof myLineChart !== "undefined") myLineChart.destroy();
+        if (typeof this.myLineChart !== "undefined") this.myLineChart.destroy();
         let colors = ['blue', 'orange', 'green', 'red', 'purple', 'gray'];
         let getVar = (variable) => getComputedStyle(document.body).getPropertyValue('--' + variable)
 
-        myLineChart = new Chart(myChartRef, {
+        this.myLineChart = new Chart(myChartRef, {
             type: "line",
             data: {
                 //Bring in data
                 labels: labels,
-                datasets: datasets.map((dataset, index) => ({borderColor: getVar(colors[index]), fill: false, ...dataset}))
+                datasets: datasets.map((dataset, index) => ({borderColor: getVar(colors[index]), fill: false, borderWidth: 1, ...dataset}))
             },
             options: {
                 responsive: true,
@@ -85,11 +87,9 @@ export default class LineGraph extends Component {
     }
 
     render() {
-
         return (
-            <div style={{height: '70vh'}}> 
+            <div style={{height: '100%'}}>
                 <canvas
-                    id="myChart"
                     ref={this.chartRef}
                 />
             </div>

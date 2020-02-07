@@ -270,7 +270,8 @@ export class EditAction extends Component {
         let action = this.state.action;
         return <form onSubmit={(e) => e.preventDefault()}>
             <label>Action name</label>
-            <input required className='form-control' placeholder="user signed up" value={action.name} onChange={(e) => this.setState({action: {...action, name: e.target.value}})} />
+            <input required pattern="[a-zA-Z0-9]{1,399}" className='form-control' placeholder="user signed up" value={action.name} onChange={(e) => this.setState({action: {...action, name: e.target.value}})} />
+            <small>Please only use lowercase, uppercase and numbers.</small>
             <br />
             {action.steps.map((step, index) => <ActionStep
                 key={step.id || step.isNew}

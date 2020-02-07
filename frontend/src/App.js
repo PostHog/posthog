@@ -1,5 +1,7 @@
 import React from "react";
 import { BrowserRouter as Router, Route, Redirect } from "react-router-dom";
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 import api from "./Api";
 import Events from "./Events";
 import "../style/style.scss";
@@ -15,6 +17,7 @@ import { EditAction } from "./editor";
 import ActionEvents from "./ActionEvents";
 import Setup from "./Setup";
 import ActionsGraph from "./ActionsGraph";
+import Dashboard from "./Dashboard";
 
 
 class PrivateRoute extends React.Component {
@@ -72,7 +75,7 @@ export default class App extends React.Component {
                         <div className="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 flex-grow-1 py-3 content">
                             <Topcontent user={this.state.user} />
                             <div style={{marginTop: '6rem'}}>
-                                <PrivateRoute path="/" exact component={function() { return <Redirect to="/actions" />}} user={this.state.user} />
+                                <PrivateRoute path="/" exact component={Dashboard} user={this.state.user} />
                                 <PrivateRoute path="/setup" component={Setup} user={this.state.user} onUpdateUser={(user) => this.setState({user})} />
                                 <Route path="/events" component={Events} user={this.state.user} />
                                 <Route path="/person/:distinct_id" component={Person} user={this.state.user} />
@@ -89,6 +92,10 @@ export default class App extends React.Component {
                                 <Route path="/login/:signup_token?" strict={false} render={props => { trackPageView(); return <Login {...props} />}} />
                             </div>
                         </div>
+                        <ToastContainer
+                            autoClose={8000}
+                            position='bottom-center' />
+
                     </div>
                 </div>
             </Router>
