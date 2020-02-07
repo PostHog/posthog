@@ -30,11 +30,16 @@ export default class LineGraph extends Component {
         let getVar = (variable) => getComputedStyle(document.body).getPropertyValue('--' + variable)
 
         this.myLineChart = new Chart(myChartRef, {
-            type: "line",
+            type: this.props.type || 'line',
             data: {
                 //Bring in data
                 labels: labels,
-                datasets: datasets.map((dataset, index) => ({borderColor: getVar(colors[index]), fill: false, borderWidth: 1, ...dataset}))
+                datasets: datasets.map((dataset, index) => ({
+                    borderColor: getVar(colors[index]),
+                    backgroundColor: this.props.type == 'bar' && getVar(colors[index]),
+                    fill: false,
+                    borderWidth: 1, ...dataset
+                }))
             },
             options: {
                 responsive: true,
@@ -97,7 +102,7 @@ export default class LineGraph extends Component {
     }
 }
 LineGraph.propTypes = {
-    datasets: PropTypes.array.isRequired,
+    datasets: PropTypes.arrayOf(PropTypes.shape({label: PropTypes.string, count: PropTypes.number})).isRequired,
     labels: PropTypes.array.isRequired,
-    options: PropTypes.object.isRequired
+    options: PropTypes.object,
 }

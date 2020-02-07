@@ -13,6 +13,7 @@
     "babel-preset-nano-react-app": "^0.1.0",
     "bootstrap": "^4.4.1",
     "editor": "^1.0.0",
+    "funnel-graph-js": "^1.4.1",
     "moment": "^2.24.0",
     "parcel-bundler": "1.11.0",
     "react": "^16.9.0",

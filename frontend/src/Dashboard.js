@@ -4,6 +4,7 @@ import { ActionsLineGraph, ActionsTable } from './ActionsGraph';
 import { Link } from 'react-router-dom';
 import { Dropdown, toParams } from './utils';
 import { toast } from 'react-toastify';
+import { FunnelViz } from './Funnel';
 
 export default class Dashboard extends Component {
     constructor(props) {
@@ -32,13 +33,14 @@ export default class Dashboard extends Component {
         let { items } = this.state;
         let typeMap = {
             'ActionsLineGraph': ActionsLineGraph,
-            'ActionsTable': ActionsTable
+            'ActionsTable': ActionsTable,
+            'FunnelViz': FunnelViz
         }
         return (
             <div className='row'>
                 {items && (items.length > 0 ? items.map((item) => {
                     let Panel = typeMap[item.type]
-                    return <div className='col-6' style={{marginBottom: '3rem'}} key={item.id}>
+                    return <div className='col-6' key={item.id}>
                         <div className='card'>
                             <h5 className='card-header'>
                                 <Dropdown className='float-right'>
@@ -51,7 +53,7 @@ export default class Dashboard extends Component {
                                     pathname: '/actions/trends', search: toParams(item.filters)
                                 }}>{item.name}</Link>
                             </h5>
-                            <div className='card-body' style={{overflowY: 'scroll', height: '30vh', maxHeight: '30vh'}}>
+                            <div style={{overflowY: 'scroll', height: '30vh', maxHeight: '30vh'}}>
                                 <Panel filters={item.filters} />
                             </div>
                         </div>

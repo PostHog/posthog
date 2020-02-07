@@ -1,6 +1,6 @@
 import React from "react";
 import { BrowserRouter as Router, Route, Redirect } from "react-router-dom";
-import { ToastContainer } from 'react-toastify';
+import { ToastContainer, Slide } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import api from "./Api";
 import Events from "./Events";
@@ -74,7 +74,7 @@ export default class App extends React.Component {
                         <Sidebar user={this.state.user} />
                         <div className="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 flex-grow-1 py-3 content">
                             <Topcontent user={this.state.user} />
-                            <div style={{marginTop: '6rem'}}>
+                            <div style={{marginTop: '3rem'}}>
                                 <PrivateRoute path="/" exact component={Dashboard} user={this.state.user} />
                                 <PrivateRoute path="/setup" component={Setup} user={this.state.user} onUpdateUser={(user) => this.setState({user})} />
                                 <Route path="/events" component={Events} user={this.state.user} />
@@ -87,15 +87,14 @@ export default class App extends React.Component {
                                 <PrivateRoute path="/new-action" component={Action} user={this.state.user} />
                                 <Route path="/new-funnel" component={EditFunnel} user={this.state.user} />
                                 <Route path="/funnel/:id" exact component={Funnel} user={this.state.user} />
-                                <Route path="/funnel/:id/edit" exact component={EditFunnel} user={this.state.user} />
                                 <Route path="/funnel" exact component={Funnels} user={this.state.user} />
                                 <Route path="/login/:signup_token?" strict={false} render={props => { trackPageView(); return <Login {...props} />}} />
                             </div>
                         </div>
                         <ToastContainer
                             autoClose={8000}
+                            transition={Slide}
                             position='bottom-center' />
-
                     </div>
                 </div>
             </Router>

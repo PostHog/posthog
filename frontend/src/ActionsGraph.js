@@ -5,51 +5,9 @@ import { Link } from 'react-router-dom';
 import PropertyFilter from './PropertyFilter';
 import { toParams, fromParams } from './utils';
 import PropTypes from 'prop-types';
-import { toast } from 'react-toastify';
-import Modal from './Modal';
 import Select from 'react-select';
+import SaveToDashboard from './SaveToDashboard';
 
-
-class SaveToDashboard extends Component {
-    constructor(props) {
-        super(props)
-    
-        this.state = {
-        }
-        this.Modal = this.Modal.bind(this)
-        this.save = this.save.bind(this)
-    }
-    Toast({closeToast}) {
-        return <div>
-            Panel added to dashboard.
-            <Link to='/'>Click here to see it.</Link>
-        </div>
-    }
-    save(event) {
-        event.preventDefault();
-        api.create('api/dashboard', {
-            filters: this.props.filters,
-            type: this.props.type,
-            name: event.target.name.value
-        }).then(() => toast(this.Toast))
-    }
-    Modal() {
-        return <Modal title='Add graph to dashboard' onDismiss={() => this.setState({openModal: false})}>
-            <form onSubmit={this.save}>
-                <label>Panel name on dashboard</label>
-                <input name="name" autoFocus required type="text" className='form-control' placeholder="Users who did x" /><br />
-                <button type="submit" className='btn btn-success'>Add panel to dashboard</button>
-            </form>
-        </Modal>
-
-    }
-    render() {
-        return <div>
-            {this.state.openModal && <this.Modal />}
-            <button onClick={() => this.setState({openModal: true})} className='btn btn-secondary'>Add to dashboard</button>
-        </div>
-    }
-}
 
 export class ActionsLineGraph extends Component {
     constructor(props) {
@@ -77,7 +35,7 @@ export class ActionsLineGraph extends Component {
         return data ? (data[0] ? <LineGraph
                             datasets={data}
                             labels={data[0].labels}
-                            options={{}} /> : <p>We couldn't find any matching elements</p>) : null;
+                            /> : <p>We couldn't find any matching elements</p>) : null;
     }
 }
 
@@ -127,7 +85,7 @@ export class ActionsTable extends Component {
                         <td className='text-overflow'>{item.breakdown[0] && item.breakdown[0].name}</td>
                         <td>{item.breakdown[0] && item.breakdown[0].count}</td>
                     </tr>,
-                    item.breakdown.slice(1).map((i) => <tr key={i}>
+                    item.breakdown.slice(1).map((i) => <tr key={i.name}>
                         <td className='text-overflow'>{i.name}</td>
                         <td>{i.count}</td>
                     </tr>)
@@ -165,6 +123,7 @@ class BreakdownFilter extends Component {
                     cacheOptions
                     defaultOptions
                     style={{width: 200}}
+                    value={{label: this.props.breakdown, value: this.props.breakdown}}
                     onChange={(item) => this.props.onChange(item.value)}
                     options={this.state.properties} />
             </div>

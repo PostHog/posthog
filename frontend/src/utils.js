@@ -13,6 +13,15 @@ export let fromParams = () => window.location.search != '' ? window.location.sea
 export let colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
 export let percentage = (division) => division.toLocaleString(undefined, {style: 'percent', maximumFractionDigits: 2})
 
+export function Card(props) {
+    return <div className={'card ' + props.className} style={props.style}>
+        {props.title && <div className='card-header'>
+            {props.title}
+        </div>}
+            {props.children}
+    </div>
+}
+
 export class Dropdown extends Component {
     constructor(props) {
         super(props)

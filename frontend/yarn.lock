@@ -2460,6 +2460,11 @@ function-bind@^1.1.1:
   resolved "https://registry.yarnpkg.com/function-bind/-/function-bind-1.1.1.tgz#a56899d3ea3c9bab874bb9773b7c5ede92f4895d"
   integrity sha512-yIovAzMX49sF8Yl58fSCWJ5svSLuaibPxXQJFLmBObTuCr0Mf1KiPopGM9NiFjiYBCbfaa2Fh6breQ6ANVTI0A==
 
+funnel-graph-js@^1.4.1:
+  version "1.4.1"
+  resolved "https://registry.yarnpkg.com/funnel-graph-js/-/funnel-graph-js-1.4.1.tgz#887af05d03fba082535cea2f4c8cde3b0d82aa99"
+  integrity sha512-wp9JSu7zDg3TbMFe8b9xac1a5L1RH9DXS81vYtIGT/1AK5AkKO994z1XPRvtFFJM7JvMHSEB5vY51PFGdS99ng==
+
 gensync@^1.0.0-beta.1:
   version "1.0.0-beta.1"
   resolved "https://registry.yarnpkg.com/gensync/-/gensync-1.0.0-beta.1.tgz#58f4361ff987e5ff6e1e7a210827aa371eaac269"

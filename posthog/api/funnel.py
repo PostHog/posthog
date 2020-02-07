@@ -51,6 +51,26 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             )
         return funnel
 
+    def update(self, funnel: Funnel, validated_data: Dict, *args: Any, **kwargs: Any) -> Funnel:
+        request = self.context['request']
+        steps = request.data.pop('steps')
+        steps_to_delete = funnel.steps.exclude(pk__in=[step.get('id') for step in steps if step.get('id')])
+        steps_to_delete.delete()
+
+        for index, step in enumerate(steps):
+            if step.get('id'):
+                db_step = FunnelStep.objects.get(funnel=funnel, pk=step['id'])
+                db_step.action_id = step['action_id']
+                db_step.order = index
+                db_step.save()
+            else:
+                FunnelStep.objects.create(
+                    funnel=funnel,
+                    order=index,
+                    action_id=step['action_id']
+                )
+        return funnel
+
 class FunnelViewSet(viewsets.ModelViewSet):
     queryset = Funnel.objects.all()
     serializer_class = FunnelSerializer

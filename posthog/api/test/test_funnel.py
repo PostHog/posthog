@@ -8,10 +8,11 @@ class TestCreateFunnel(BaseTest):
     def test_create_funnel(self):
         action_sign_up = Action.objects.create(team=self.team, name='signed up')
         ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
-        action_credit_card = Action.objects.create(team=self.team, name='payd')
+        action_credit_card = Action.objects.create(team=self.team, name='paid')
         ActionStep.objects.create(action=action_credit_card, tag_name='button', text='Pay $10')
         action_play_movie = Action.objects.create(team=self.team, name='watched movie')
         ActionStep.objects.create(action=action_play_movie, tag_name='a', href='/movie')
+        action_logout = Action.objects.create(team=self.team, name='user logged out')
 
         response = self.client.post('/api/funnel/', data={
             'name': 'Whatever',
@@ -25,6 +26,15 @@ class TestCreateFunnel(BaseTest):
         self.assertEqual(steps[0].action, action_sign_up) 
         self.assertEqual(steps[1].action, action_credit_card) 
 
+        del response['steps'][1]
+        response['steps'][0]['action_id'] = action_play_movie.pk
+        response['steps'].append({'action_id': action_logout.pk})
+        response = self.client.patch('/api/funnel/%s/' % response['id'], data=response, content_type='application/json').json()
+        funnels = Funnel.objects.get()
+        steps = funnels.steps.all()
+        self.assertEqual(steps[0].action, action_play_movie) 
+        self.assertEqual(steps[1].action, action_logout) 
+        self.assertEqual(len(steps), 2) 
 
 class TestGetFunnel(BaseTest):
     TESTS_API = True
@@ -44,7 +54,7 @@ class TestGetFunnel(BaseTest):
     def _basic_funnel(self):
         action_sign_up = Action.objects.create(team=self.team, name='signed up')
         ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
-        action_credit_card = Action.objects.create(team=self.team, name='payd')
+        action_credit_card = Action.objects.create(team=self.team, name='paid')
         ActionStep.objects.create(action=action_credit_card, tag_name='button', text='Pay $10')
         action_play_movie = Action.objects.create(team=self.team, name='watched movie')
         ActionStep.objects.create(action=action_play_movie, tag_name='a', href='/movie')
@@ -83,7 +93,7 @@ class TestGetFunnel(BaseTest):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
         self.assertEqual(response['steps'][0]['name'], 'signed up')
         self.assertEqual(response['steps'][0]['count'], 4)
-        self.assertEqual(response['steps'][1]['name'], 'payd')
+        self.assertEqual(response['steps'][1]['name'], 'paid')
         self.assertEqual(response['steps'][1]['count'], 2)
         self.assertEqual(response['steps'][2]['name'], 'watched movie')
         self.assertEqual(response['steps'][2]['count'], 1)

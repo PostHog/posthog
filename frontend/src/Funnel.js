@@ -1,8 +1,13 @@
 import React, { Component } from 'react'
 import api from './Api';
-import { uuid, percentage } from './utils';
+import { Card, uuid, percentage } from './utils';
 import PropTypes from 'prop-types';
 import { Link } from 'react-router-dom';
+import { toast } from 'react-toastify';
+import Select from 'react-select';
+import FunnelGraph from 'funnel-graph-js';
+import SaveToDashboard from './SaveToDashboard';
+
 
 export class EditFunnel extends Component {
     constructor(props) {
@@ -10,46 +15,47 @@ export class EditFunnel extends Component {
     
         this.state = {
             actions: [],
-            steps: [{id: uuid(), order: 0}],
-            id: this.props.match.params.id,
+            steps: props.funnel && props.funnel.steps || [{id: uuid(), order: 0}],
+            name: props.funnel && props.funnel.name,
+            id: (props.funnel && props.funnel.id) || props.match.params.id,
         }
         this.Step = this.Step.bind(this);
         this.onSubmit = this.onSubmit.bind(this);
         this.fetchActions.call(this);
-        if(props.match.params.id) this.fetchFunnel.call(this);
+        if(this.state.id) this.fetchFunnel.call(this);
     }
     fetchFunnel() {
-        api.get('api/funnel/' + this.props.match.params.id).then((funnel) => this.setState({steps: funnel.steps, name: funnel.name}))
+        api.get('api/funnel/' + this.state.id).then((funnel) => this.setState({steps: funnel.steps, name: funnel.name}))
     }
     fetchActions() {
         api.get('api/action').then((actions) => this.setState({actions: actions.results}))
     }
     Step(step) {
-        return <div className='card' style={{maxWidth: '20%'}}>
+        let { steps, actions } = this.state;
+        let selectedAction = actions.filter((action) => action.id == step.action_id)[0];
+        return <Card title={'Step ' + (step.order + 1)} style={{maxWidth: '20%'}}>
             <div className='card-body'>
-                <h2 className='card-title' style={{textAlign: 'center'}}>{step.order + 1}</h2>
-                <select
+                <Select
                     required
-                    onChange={(e) => {
+                    onChange={(item) => {
                         this.setState({steps: this.state.steps.map(
-                            (s) => s.id == step.id ? {...step, action_id: e.target.value} : s
-                        )})
+                            (s) => s.id == step.id ? {...step, action_id: item.value} : s
+                        )}, this.onSubmit)
                     }}
-                    value={step.action_id}
-                    className='form-control'>
-                    <option value=''>Select action</option>
-                    {this.state.actions && this.state.actions.map((action) => <option
-                        key={action.id}
-                        value={action.id}
-                        >{action.name}</option>)}
-                </select>
+                    defaultOptions
+                    options={actions.map((action) => ({label: action.name, value: action.id}))}
+                    value={{label: selectedAction && selectedAction.name, value: step.action_id}}
+                    />
                 {step.action_id && <a target='_blank' href={'/action/' + step.action_id}>Edit action</a>}
             </div>
-        </div>
+        </Card>
     }
     onSubmit(event) {
-        event.preventDefault();
-        let save = () => setTimeout(() => this.setState({saved: true}), 500);
+        if(event) event.preventDefault();
+        let save = (funnel) => {
+            toast('Funnel saved.', {autoClose: 3000, hideProgressBar: true})
+            this.props.onChange && this.props.onChange(funnel)
+        }
         let data = {
             name: this.state.name,
             id: this.state.id,
@@ -62,11 +68,9 @@ export class EditFunnel extends Component {
     }
     render() {
         return <form onSubmit={this.onSubmit}>
-            {!this.props.match.params.id ? <h1>New funnel</h1> : this.state.name && <h1>Edit funnel: {this.state.name}</h1>}
             <label>Name</label>
-            <input required placeholder='User drop off through signup' type='text' onChange={(e) => this.setState({name: e.target.value})} value={this.state.name} className='form-control' />
+            <input required placeholder='User drop off through signup' type='text' onChange={(e) => this.setState({name: e.target.value})} value={this.state.name} onBlur={() => this.onSubmit()} className='form-control' />
             <br /><br />
-            <label>Steps</label>
             <div className='card-deck'>
                 {this.state.steps.map((step) => <this.Step key={step.id} {...step} />)}
                 <div
@@ -77,7 +81,6 @@ export class EditFunnel extends Component {
                 </div>
             </div>
             <br /><br />
-            <button className='btn btn-success'>Save funnel</button><br /><br />
             {this.state.saved && <p className='text-success'>Funnel saved. <Link to={'/funnel/' + this.state.id}>Click here to go back to the funnel.</Link></p>}
         </form>
     }
@@ -88,6 +91,60 @@ EditFunnel.propTypes = {
     funnel: PropTypes.object
 }
 
+export class FunnelViz extends Component {
+    container = React.createRef();
+    graphContainer = React.createRef();
+    constructor(props) {
+        super(props)
+    
+        this.state = {
+            funnel: props.funnel
+        }
+        this.buildChart = this.buildChart.bind(this);
+        if(!props.funnel) this.fetchFunnel.call(this);
+    }
+    componentDidMount() {
+        if(this.props.funnel) this.buildChart();
+    }
+    fetchFunnel() {
+        api.get('api/funnel/' + this.props.filters.funnel_id).then((funnel) => this.setState({funnel}, this.buildChart))
+    }
+    componentDidUpdate(prevProps) {
+        if(prevProps.datasets !== this.props.datasets && this.state.funnel) {
+            this.buildChart();
+        }
+    }
+    buildChart() {
+        if(this.container.current) this.container.current.innerHTML = '';
+        let graph = new FunnelGraph({
+            container: '.funnel-graph',
+            data: {
+                labels: this.state.funnel.steps.map((step) => step.name),
+                values: this.state.funnel.steps.map((step) => step.count),
+                colors: ['#66b0ff', 'var(--blue)']
+            },
+            displayPercent: true
+        });
+        graph.createContainer = () => {}
+        graph.container = this.container.current;
+        graph.graphContainer = document.createElement('div');
+        graph.graphContainer.classList.add('svg-funnel-js__container');
+        graph.container.appendChild(graph.graphContainer);
+
+        graph.draw();
+    }
+    render() {
+
+        return (
+            <div ref={this.container} className='svg-funnel-js' style={{height: '100%', width: '100%'}}>
+            </div>
+        )
+    }
+}
+FunnelViz.propTypes = {
+    funnel: PropTypes.object,
+    filters: PropTypes.shape({funnel_id: PropTypes.number})
+}
 
 export default class Funnel extends Component {
     constructor(props) {
@@ -115,33 +172,46 @@ export default class Funnel extends Component {
         })
     }
     render() {
-        return this.state.funnel ? (
+        let { funnel, people } = this.state;
+        return funnel ? (
             <div className='funnel'>
-                <Link to={'/funnel/' + this.state.funnel.id + '/edit'} className='btn btn-outline-success float-right'><i className='fi flaticon-edit' /> Edit funnel</Link>
-                <h1>Funnel: {this.state.funnel.name}</h1>
-                <table className='table table-bordered table-fixed'>
-                    <tbody>
-                        <tr>
-                            <td></td>
-                            {this.state.funnel.steps.map((step) => <th key={step.id}>
-                                <Link to={'/action/' + step.action_id}>{step.name}</Link>
-                            </th>)}</tr>
-                        <tr>
-                            <td></td>
-                            {this.state.funnel.steps.map((step) => <td key={step.id}>
-                                {step.count}&nbsp;
-                                ({percentage(step.count/this.state.funnel.steps[0].count)})
-                            </td>)}
-                        </tr>
-                        {this.state.people && this.state.people.map((person) => <tr key={person.id}>
-                            <td><Link to={'/person/' + person.id}>{person.name}</Link></td>
-                            {this.state.funnel.steps.map((step) => <td
-                                key={step.id}
-                                className={step.people.indexOf(person.id) > -1 ? 'funnel-success' : 'funnel-dropped'}
-                                ></td>)}
-                        </tr>)}
-                    </tbody>
-                </table>
+                <h1>Funnel: {funnel.name}</h1>
+                <EditFunnel funnel={funnel} onChange={(funnel) => this.setState({funnel})} />
+                <Card title={<span>
+                    <SaveToDashboard className='float-right' filters={{funnel_id: funnel.id}} type='FunnelViz' name={funnel.name} />
+                    Graph
+                </span>}>
+                    <div style={{height: 300}}>
+                        {funnel.steps && <FunnelViz
+                            funnel={funnel}
+                            />}
+                    </div>
+                </Card>
+                <Card title='Per user'>
+                    <table className='table table-bordered table-fixed'>
+                        <tbody>
+                            <tr>
+                                <td></td>
+                                {funnel.steps.map((step) => <th key={step.id}>
+                                    <Link to={'/action/' + step.action_id}>{step.name}</Link>
+                                </th>)}</tr>
+                            <tr>
+                                <td></td>
+                                {funnel.steps.map((step) => <td key={step.id}>
+                                    {step.count}&nbsp;
+                                    ({percentage(step.count/funnel.steps[0].count)})
+                                </td>)}
+                            </tr>
+                            {people && people.map((person) => <tr key={person.id}>
+                                <td><Link to={'/person/' + person.id}>{person.name}</Link></td>
+                                {funnel.steps.map((step) => <td
+                                    key={step.id}
+                                    className={step.people.indexOf(person.id) > -1 ? 'funnel-success' : 'funnel-dropped'}
+                                    ></td>)}
+                            </tr>)}
+                        </tbody>
+                    </table>
+                </Card>
             </div>
         ) : null;
     }

@@ -1,11 +1,25 @@
 .funnel {
     .funnel-success {
-        background-color: $green;
+        background-color: lighten( $blue, 20% );
     }
     .funnel-dropped {
         background-color: $gray-200;
     }
     table {
         table-layout: fixed;
+        border-top: 0;
+        margin-bottom: 0;
+        td { padding: 0 0.75rem }
+    }
+}
+
+.svg-funnel-js {
+
+    .label__title { font-weight: 300 !important; }
+    .label__title, .label__percentage {
+        color: inherit !important;
+    }
+    &:not(.svg-funnel-js--vertical) .svg-funnel-js__label:not(:first-child) {
+        border-left: 1px solid $gray-300 !important;
     }
 }
