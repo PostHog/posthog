@@ -28,7 +28,7 @@ class TestCreateFunnel(BaseTest):
 
         del response['steps'][1]
         response['steps'][0]['action_id'] = action_play_movie.pk
-        response['steps'].append({'action_id': action_logout.pk})
+        response['steps'].append({'action_id': action_logout.pk, 'id': "8294bfc8-4a20-11ea-b77f-2e728ce8812"})
         response = self.client.patch('/api/funnel/%s/' % response['id'], data=response, content_type='application/json').json()
         funnels = Funnel.objects.get()
         steps = funnels.steps.all()

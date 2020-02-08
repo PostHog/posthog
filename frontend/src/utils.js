@@ -14,7 +14,7 @@ export let colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'in
 export let percentage = (division) => division.toLocaleString(undefined, {style: 'percent', maximumFractionDigits: 2})
 
 export function Card(props) {
-    return <div className={'card ' + props.className} style={props.style}>
+    return <div {...props} className={'card ' + props.className} style={props.style}>
         {props.title && <div className='card-header'>
             {props.title}
         </div>}

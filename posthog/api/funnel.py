@@ -54,11 +54,12 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
     def update(self, funnel: Funnel, validated_data: Any) -> Funnel: # type: ignore
         request = self.context['request']
         steps = request.data.pop('steps')
-        steps_to_delete = funnel.steps.exclude(pk__in=[step.get('id') for step in steps if step.get('id')])
+        steps_to_delete = funnel.steps.exclude(pk__in=[step.get('id') for step in steps if step.get('id') and '-' not in str(step['id'])])
         steps_to_delete.delete()
 
         for index, step in enumerate(steps):
-            if step.get('id'):
+            # make sure it's not a uuid, in which case we can just ignore id
+            if step.get('id') and '-' not in str(step['id']):
                 db_step = FunnelStep.objects.get(funnel=funnel, pk=step['id'])
                 db_step.action_id = step['action_id']
                 db_step.order = index

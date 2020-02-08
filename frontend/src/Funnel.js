@@ -23,6 +23,11 @@ export class EditFunnel extends Component {
         this.onSubmit = this.onSubmit.bind(this);
         this.fetchActions.call(this);
         if(this.state.id) this.fetchFunnel.call(this);
+
+        import('react-beautiful-dnd').then((dnd) => {
+            this.dnd = dnd
+            this.setState({dndLoaded: true})
+        })
     }
     fetchFunnel() {
         api.get('api/funnel/' + this.state.id).then((funnel) => this.setState({steps: funnel.steps, name: funnel.name}))
@@ -33,22 +38,40 @@ export class EditFunnel extends Component {
     Step(step) {
         let { steps, actions } = this.state;
         let selectedAction = actions.filter((action) => action.id == step.action_id)[0];
-        return <Card title={'Step ' + (step.order + 1)} style={{maxWidth: '20%'}}>
-            <div className='card-body'>
-                <Select
-                    required
-                    onChange={(item) => {
-                        this.setState({steps: this.state.steps.map(
-                            (s) => s.id == step.id ? {...step, action_id: item.value} : s
-                        )}, this.onSubmit)
-                    }}
-                    defaultOptions
-                    options={actions.map((action) => ({label: action.name, value: action.id}))}
-                    value={{label: selectedAction && selectedAction.name, value: step.action_id}}
-                    />
-                {step.action_id && <a target='_blank' href={'/action/' + step.action_id}>Edit action</a>}
-            </div>
-        </Card>
+        return <this.dnd.Draggable draggableId={step.id.toString()} index={step.order}>
+            {(draggableProvider) => (
+                <div
+                    ref={draggableProvider.innerRef}
+                    className='flex-grow-1 p-3'
+                    {...draggableProvider.draggableProps}
+                    {...draggableProvider.dragHandleProps}
+                    >
+                    <Card
+                        style={{margin: 0}}
+                        title={<span>
+                            Step {(step.index + 1)}
+                            <button type="button" className="close float-right" onClick={() => this.setState({steps: steps.filter((s) => s.id != step.id)}, this.onSubmit)}>
+                                <span style={{display: 'block'}}>×</span>
+                            </button>
+                        </span>}>
+                        <div className='card-body'>
+                            <Select
+                                required
+                                onChange={(item) => {
+                                    this.setState({steps: this.state.steps.map(
+                                        (s) => s.id == step.id ? {...step, action_id: item.value} : s
+                                    )}, this.onSubmit)
+                                }}
+                                defaultOptions
+                                options={actions.map((action) => ({label: action.name, value: action.id}))}
+                                value={{label: selectedAction && selectedAction.name, value: step.action_id}}
+                                />
+                            {step.action_id && <a target='_blank' href={'/action/' + step.action_id}>Edit action</a>}
+                        </div>
+                    </Card>
+                </div>
+            )}
+        </this.dnd.Draggable>
     }
     onSubmit(event) {
         if(event) event.preventDefault();
@@ -67,22 +90,53 @@ export class EditFunnel extends Component {
         api.create('api/funnel', data).then((funnel) => this.props.history.push('/funnel/' + funnel.id))
     }
     render() {
+        let { dndLoaded, name, steps } = this.state;
         return <form onSubmit={this.onSubmit}>
             <label>Name</label>
-            <input required placeholder='User drop off through signup' type='text' onChange={(e) => this.setState({name: e.target.value})} value={this.state.name} onBlur={() => this.onSubmit()} className='form-control' />
+            <input
+                required
+                placeholder='User drop off through signup'
+                type='text'
+                onChange={(e) => this.setState({name: e.target.value})}
+                value={name}
+                onBlur={() => this.onSubmit()}
+                className='form-control' />
             <br /><br />
-            <div className='card-deck'>
-                {this.state.steps.map((step) => <this.Step key={step.id} {...step} />)}
-                <div
-                    className='card cursor-pointer'
-                    onClick={() => this.setState({steps: [...this.state.steps, {id: uuid(), order: this.state.steps.length}]})}
-                    style={{maxWidth: '20%'}}>
-                    <span style={{fontSize: 75, textAlign: 'center', lineHeight: 1}} className='text-success'>+</span>
+            <div className='row'>
+                <div className='col-10'>
+                    {dndLoaded && <this.dnd.DragDropContext
+                        onDragEnd={(result) => {
+                            if(!result.destination) return;
+                            steps.splice(result.destination.index, 0, steps.splice(result.source.index, 1)[0])
+                            this.setState({steps}, this.onSubmit)
+                        }}>
+                        <this.dnd.Droppable droppableId='1' direction="horizontal">
+                            {(provider, snapshot) => (
+                                <div
+                                    ref={provider.innerRef}
+                                    className='d-flex'
+                                    style={{margin: '0 -1rem'}}
+                                    {...provider.droppableProps}>
+                                    {this.state.steps.map((step, index) => <this.Step key={step.id} index={index} {...step} />)}
+                                    {provider.placeholder}
+                                </div>
+                            )}
+                        </this.dnd.Droppable>
+                    </this.dnd.DragDropContext>}
+                </div>
+                <div className='col-2 p-3'>
+                    <div
+                        style={{height: '100%'}}
+                        className='card cursor-pointer'
+                        onClick={() => this.setState({steps: [...steps, {id: uuid(), order: steps.length}]})}
+                        >
+                        <span style={{fontSize: 75, textAlign: 'center', lineHeight: 1}} className='text-success'>+</span>
+                    </div>
                 </div>
             </div>
             <br /><br />
             {this.state.saved && <p className='text-success'>Funnel saved. <Link to={'/funnel/' + this.state.id}>Click here to go back to the funnel.</Link></p>}
-        </form>
+        </form>;
     }
 }
 
@@ -114,8 +168,8 @@ export class FunnelViz extends Component {
         api.get('api/funnel/' + this.props.filters.funnel_id).then((funnel) => this.setState({funnel}, this.buildChart))
     }
     componentDidUpdate(prevProps) {
-        if(prevProps.datasets !== this.props.datasets && this.state.funnel) {
-            this.buildChart();
+        if(prevProps.funnel !== this.props.funnel && this.state.funnel) {
+            this.setState({funnel: this.props.funnel}, this.buildChart);
         }
     }
     buildChart() {
