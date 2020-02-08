@@ -5,15 +5,14 @@ WORKDIR /code
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
 		curl \
-		gnupg && rm -rf /var/lib/apt/lists/*
-
-RUN curl -sL https://deb.nodesource.com/setup_12.x  | bash -
-RUN apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
-RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+		gnupg && rm -rf /var/lib/apt/lists/* \
+    && curl -sL https://deb.nodesource.com/setup_12.x  | bash - \
+    && apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8 \
+    && echo "deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get remove -y curl gnupg
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         postgresql \
-        postgresql-contrib \
         nodejs \
     && rm -rf /var/lib/apt/lists/*
 
@@ -35,8 +34,9 @@ COPY requirements.txt /code/
 RUN pip install -r requirements.txt --no-cache-dir
 COPY frontend/ /code/frontend
 RUN cd frontend \
-    && npm install && npm cache clean --force
-RUN cd frontend && npm run build \
+    && npm install \
+    && npm cache clean --force \
+    && npm run build \
     && rm -rf node_modules \
 	&& rm -rf /var/lib/apt/lists/* \
     && rm -rf .cache
