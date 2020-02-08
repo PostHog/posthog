@@ -112,3 +112,17 @@ class TestCapture(BaseTest):
         response = self.client.get('/e/?data=', content_type='application/json', HTTP_REFERER='https://localhost')
         self.assertEqual(response.content, b"1")
 
+    def test_alias(self):
+        Person.objects.create(team=self.team, distinct_ids=['old_distinct_id'])
+
+        response = self.client.get('/e/?data=%s' % self._dict_to_json({
+            'event': '$create_alias',
+            'properties': {
+                'distinct_id': 'old_distinct_id',
+                'token': self.team.api_token,
+                'alias': 'new_distinct_id'
+            },
+        }), content_type='application/json', HTTP_REFERER='https://localhost')
+
+        self.assertEqual(Event.objects.count(), 0)
+        self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])

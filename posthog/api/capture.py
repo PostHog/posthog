@@ -43,6 +43,11 @@ def _load_data(request) -> Union[Dict, None]:
         data = json.loads(base64.b64decode(data).decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
     return data
 
+def _alias(distinct_id: str, data: Dict, request):
+    person = Person.objects.get(persondistinctid__distinct_id=distinct_id)
+    person.add_distinct_id(data['properties']['alias'])
+    return cors_response(request, HttpResponse("1"))
+
 @csrf_exempt
 def get_event(request):
     data = _load_data(request)
@@ -56,6 +61,10 @@ def get_event(request):
     team = Team.objects.get(api_token=token)
 
     distinct_id = str(data['properties']['distinct_id'])
+
+    if data['event'] == '$create_alias':
+        return _alias(distinct_id=distinct_id, data=data, request=request)
+
     data['properties']['distinct_id'] = distinct_id
     elements = data['properties'].get('$elements')
     if elements:
