@@ -39,6 +39,9 @@ def home(request, **kwargs):
 def login_view(request):
     if request.user.is_authenticated:
         return redirect('/')
+
+    if not User.objects.exists():
+        return redirect('/setup_admin')
     if request.method == 'POST':
         email = request.POST['email']
         password = request.POST['password']
@@ -54,6 +57,8 @@ def signup_view(request):
     if request.method == 'GET':
         if request.user.is_authenticated:
             return redirect('/')
+        if not User.objects.exists():
+            return redirect('/setup_admin')
         return render_template('signup.html', request)
     if request.method == 'POST':
         email = request.POST['email']
@@ -62,6 +67,25 @@ def signup_view(request):
             user = User.objects.create_user(email=email, password=password)
         except:
             return render_template('signup.html', request=request, context={'error': True})
+        team = Team.objects.create()
+        team.users.add(user)
+        login(request, user)
+        return redirect('/setup')
+
+def setup_admin(request):
+    if User.objects.exists():
+        return redirect('/login')
+    if request.method == 'GET':
+        if request.user.is_authenticated:
+            return redirect('/')
+        return render_template('setup_admin.html', request)
+    if request.method == 'POST':
+        email = request.POST['email']
+        password = request.POST['password']
+        try:
+            user = User.objects.create_superuser(email=email, password=password)
+        except:
+            return render_template('setup_admin.html', request=request, context={'error': True})
         team = Team.objects.create()
         team.users.add(user)
         login(request, user)
@@ -90,6 +114,7 @@ urlpatterns = [
     path('logout', logout, name='login'),
     path('login', login_view, name='login'),
     path('signup', signup_view, name='signup'),
+    path('setup_admin', setup_admin, name='setup_admin'),
 
     # react frontend
     re_path(r'^.*', decorators.login_required(home)),

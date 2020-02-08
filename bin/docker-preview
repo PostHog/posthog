@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+
+export PGDATA=/var/lib/postgresql/data
+
+export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+
+/etc/init.d/postgresql start
+
+python manage.py migrate
+DEBUG=1 gunicorn posthog.wsgi --bind 0.0.0.0:8000 --log-file - -e DEBUG=1 -e DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog

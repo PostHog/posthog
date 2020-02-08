@@ -1,0 +1,10 @@
+*
+!bin/docker-preview
+!requirements.txt
+!posthog
+!manage.py
+!frontend/package.json
+!frontend/*.html
+!frontend/src
+!frontend/style
+!frontend/font
