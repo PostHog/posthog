@@ -60,10 +60,99 @@
                     <a href='https://netflix.com' target="_blank" class='btn btn-danger'>Watch now!</a>
                 </div>
             </div>
+            <div class='card' style="width: 18rem">
+                <img src='https://posthog-static-files.s3.us-east-2.amazonaws.com/Product-Assets/Big_buck_bunny_poster_big.jpg' class='card-img-top' />
+                <div class='card-body'><br />
+                    <h5 class='card-title'>Big Buck Bunny (2008)</h5>
+                    <p class='card-text'>A large and lovable rabbit deals with three tiny bullies, led by a flying squirrel, who are determined to squelch his happiness.</p>
+                    <a href='/demo/4' class='btn btn-danger'>Watch now!</a>
+                </div>
+            </div>
         </div>
         
 
     {% endif %}
+    {% if request.path == '/demo/4' %}
+    <style>
+    .video-js .vjs-current-time { display: none; }
+    .video-js .vjs-time-divider { display: none; }
+    .video-js .vjs-duration { display: none; }
+    .video-js .vjs-progress-control { display: none; }
+    .video-js .vjs-live-control { display: none; }
+    .video-js .vjs-seek-to-live-control { display: none; }
+    .video-js .vjs-playback-rate { display: none; }
+    .video-js .vjs-chapters-button { display: none; }
+    .video-js .vjs-descriptions-button { display: none; }
+    .video-js .vjs-subs-caps-button { display: none; }
+    .video-js .vjs-audio-button { display: none; }
+    .video-js .vjs-picture-in-picture-control { display: none; }
+    .video-js .vjs-fullscreen-control { display: none; }
+    .video-js .vjs-modal-dialog { display: none; }
+    .video-js .vjs-big-play-button { display:none; }
+    .video-js .vjs-mute-control { display:none; }
+    .video-js .vjs-remaining-time { display: none; }
+    .video-js .vjs-loading-spinner { display: none; }
+    .video-js .vjs-play-control {
+        color: #fff;
+        background-color: #17a2b8;
+        border-color: #17a2b8;
+        margin-top:20px; }
+
+    </style>
+    <script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            $("#submit-review").click(function(){
+                review = $("#review-text").val();
+                $("#new-review").text(review);
+                $(".review-area").hide();
+            });
+        });
+    </script>
+        <h1>Now Playing: Big Buck Bunny</h1>
+        <div class='card-deck'>
+            <div class='card' style="width: 18rem">
+              <video
+                id="my-video"
+                class="video-js"
+                controls
+                preload="auto"
+                data-setup="{}"
+              >
+                <source src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Product-Assets/BigBuckBunny.mp4" type="video/mp4" />
+                <p class="vjs-no-js">To view this video please enable JavaScript, and consider upgrading to a web browser that supports HTML5 video</p>
+              </video>
+              <script src="https://vjs.zencdn.net/7.6.6/video.js"></script>
+          </div>
+        </div>
+        <div class="container">
+            <div class="row" style="margin-top:100px; width:100%;">
+                <h2>Reviews</h2>
+            </div>
+            <div class="row" style="width:100%;">
+                <p><em>This movie was so great.</em></p>
+            </div>
+            <div class="row" style="width:100%;">
+                <p><em>The best thing I have ever seen.</em></p>
+            </div>
+            <div class="row" style="width:100%;">
+                <p id="new-review"><em></em></p>
+            </div>
+        </div>
+
+        <div class="row">&nbsp;</div>
+        <div class="review-area">
+            <label>Leave a review</label>
+            <textarea class='form-control' type='text' name='review' id="review-text" placeholder='What did you think?'></textarea><br />
+            <button class='btn btn-success' id='submit-review'>Submit Review</button>
+        </div>
+
+        <div class="row">&nbsp;</div>
+        <div class="copyright" style="margin-top:400px; font-size:12px;">Big Buck Bunny - (c) copyright Blender Foundation | peach.blender.org - [1], CC BY 3.0, https://commons.wikimedia.org/w/index.php?curid=3748497</div>
+        
+
+    {% endif %}
+
 </div>
 
     </body>
