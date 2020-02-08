@@ -1,7 +1,7 @@
 from posthog.models import Funnel, FunnelStep, Action, ActionStep, Event, Funnel, Person
 from rest_framework import request, response, serializers, viewsets # type: ignore
 from rest_framework.decorators import action # type: ignore
-from django.db.models import QuerySet, query
+from django.db.models import QuerySet, query, Model
 from typing import List, Dict, Any
 
 
@@ -18,7 +18,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
         db_steps = funnel.steps.all().order_by('order', 'id')
         for step in db_steps:
             count = 0
-            if people == None or len(people) > 0:
+            if people == None or len(people) > 0: # type: ignore
                 people = Event.objects.filter_by_action(
                     step.action,
                     where='({})' .format(') OR ('.join([
@@ -27,14 +27,14 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
                     ])) if people else None,
                     group_by='person_id',
                     group_by_table='posthog_persondistinctid')
-            if len(people) > 0:
-                count = len(people)
+                if len(people) > 0:
+                    count = len(people)
             steps.append({
                 'id': step.id,
                 'action_id': step.action.id,
                 'name': step.action.name,
                 'order': step.order,
-                'people': [person.id for person in people],
+                'people': [person.id for person in people] if people else [],
                 'count':  count
             })
         return steps
@@ -51,7 +51,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             )
         return funnel
 
-    def update(self, funnel: Funnel, validated_data: Dict, *args: Any, **kwargs: Any) -> Funnel:
+    def update(self, funnel: Funnel, validated_data: Any) -> Funnel: # type: ignore
         request = self.context['request']
         steps = request.data.pop('steps')
         steps_to_delete = funnel.steps.exclude(pk__in=[step.get('id') for step in steps if step.get('id')])

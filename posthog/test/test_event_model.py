@@ -4,11 +4,11 @@ from posthog.api.test.base import BaseTest
 class TestFilterByActions(BaseTest):
     def test_filter_with_selectors(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
-        event1 = Event.objects.create(event='$web_event', team=self.team, distinct_id='whatever')
+        event1 = Event.objects.create(event='$autocapture', team=self.team, distinct_id='whatever')
         Element.objects.create(tag_name='div', event=event1, nth_child=0, nth_of_type=0, order=0)
         Element.objects.create(tag_name='a', href='/a-url', event=event1, nth_child=1, nth_of_type=0, order=1)
 
-        event2 = Event.objects.create(event='$web_event', team=self.team, distinct_id='whatever')
+        event2 = Event.objects.create(event='$autocapture', team=self.team, distinct_id='whatever')
         Element.objects.create(tag_name='a', event=event2, nth_child=2, nth_of_type=0, order=0, attr_id='someId')
         Element.objects.create(tag_name='div', event=event2, nth_child=0, nth_of_type=0, order=1)
         # make sure elements don't get double counted if they're part of the same event
@@ -16,13 +16,13 @@ class TestFilterByActions(BaseTest):
 
         # make sure other teams' data doesn't get mixed in
         team2 = Team.objects.create()
-        event3 = Event.objects.create(event='$web_event', team=team2, distinct_id='whatever')
+        event3 = Event.objects.create(event='$autocapture', team=team2, distinct_id='whatever')
         Element.objects.create(tag_name='a', event=event3, nth_child=2, nth_of_type=0, order=0, attr_id='someId')
         Element.objects.create(tag_name='div', event=event3, nth_child=0, nth_of_type=0, order=1)
 
         # test direct decendant ordering
         action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(event='$web_event', action=action1, tag_name='a', selector='div > a')
+        ActionStep.objects.create(event='$autocapture', action=action1, tag_name='a', selector='div > a')
 
         events = Event.objects.filter_by_action(action1)
         self.assertEqual(len(events), 1)

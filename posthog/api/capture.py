@@ -5,6 +5,7 @@ from django.views.decorators.csrf import csrf_exempt
 import json
 import base64
 from urllib.parse import urlparse
+from typing import Dict, Union
 
 
 def get_ip_address(request):
@@ -26,16 +27,28 @@ def cors_response(request, response):
     response["Access-Control-Allow-Headers"] = 'X-Requested-With'
     return response
 
-@csrf_exempt
-def get_event(request):
+def _load_data(request) -> Union[Dict, None]:
     if request.method == 'POST':
         data = request.POST.get('data')
     else:
         data = request.GET.get('data')
     if not data:
-        return cors_response(request, HttpResponse("1"))
+        return None
     
-    data = json.loads(base64.b64decode(data).decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
+    #  Is it plain json?
+    try:
+        data = json.loads(data)
+    except json.JSONDecodeError:
+        # if not, it's probably base64 encoded from other libraries
+        data = json.loads(base64.b64decode(data).decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
+    return data
+
+@csrf_exempt
+def get_event(request):
+    data = _load_data(request)
+    if not data:
+        return cors_response(request, HttpResponse("1"))
+
     if request.POST.get('api_key'):
         token = request.POST['api_key']
     else:
@@ -84,14 +97,10 @@ def get_decide(request):
 
 @csrf_exempt
 def get_engage(request):
-    if request.method == 'POST':
-        data = request.POST.get('data')
-    else:
-        data = request.GET.get('data')
+    data = _load_data(request)
     if not data:
         return cors_response(request, HttpResponse("1"))
     
-    data = json.loads(base64.b64decode(data))
     if request.POST.get('api_key'):
         token = request.POST['api_key']
     else:

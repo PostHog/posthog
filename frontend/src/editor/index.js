@@ -34,11 +34,11 @@ class EventName extends Component {
             names: names.map((name) => ({
                 value: name.name,
                 label: name.name + ' (' + name.count + ' events)'
-            })).filter((item) => item.value != '$web_event' && item.value != 'ph_page_view')
+            })).filter((item) => item.value != '$autocapture' && item.value != '$pageview')
         }))
     }
     render() {
-        if(this.props.value == '$web_event' || this.props.value == 'ph_page_view') return <input type="text" disabled value={this.props.value} className='form-control' />;
+        if(this.props.value == '$autocapture' || this.props.value == '$pageview') return <input type="text" disabled value={this.props.value} className='form-control' />;
         return this.state.names ? <Select
             options={this.state.names}
             isSearchable={true}
@@ -166,16 +166,16 @@ class ActionStep extends Component {
             </button>
             <label>Action type</label><br />
             <div className='btn-group'>
-                <div onClick={() => this.sendStep({...step, event: '$web_event'})} className={'btn ' + (step.event == '$web_event' ? 'btn-secondary' : 'btn-light')}>Match element</div>
-                <div onClick={() => this.sendStep({...step, event: ''})} className={'btn ' + (step.event &&step.event != '$web_event' && step.event != 'ph_page_view' ? 'btn-secondary' : 'btn-light')}>Match event</div>
+                <div onClick={() => this.sendStep({...step, event: '$autocapture'})} className={'btn ' + (step.event == '$autocapture' ? 'btn-secondary' : 'btn-light')}>Match element</div>
+                <div onClick={() => this.sendStep({...step, event: ''})} className={'btn ' + (step.event &&step.event != '$autocapture' && step.event != '$pageview' ? 'btn-secondary' : 'btn-light')}>Match event</div>
                 <div onClick={() => { 
                     this.setState({selection: ['url']}, () => this.sendStep({
                             ...step,
-                            event: 'ph_page_view',
+                            event: '$pageview',
                             url: window.location.protocol + '//' + window.location.host + window.location.pathname
                         })
                     )
-                }} className={'btn ' + (step.event == 'ph_page_view' ? 'btn-secondary' : 'btn-light')}>Page view</div>
+                }} className={'btn ' + (step.event == '$pageview' ? 'btn-secondary' : 'btn-light')}>Page view</div>
             </div>
             {step.event != null && <div style={{marginTop: '2rem'}}><label>Event name</label>
             <EventName
@@ -184,7 +184,7 @@ class ActionStep extends Component {
             </div>}
             <div style={{margin: (this.props.isEditor ? '0 -12px' : '')}}>
                 <br />
-                {step.event == '$web_event' && [
+                {step.event == '$autocapture' && [
                     this.props.isEditor && <button type="button" className='btn btn-sm btn-light' onClick={() => this.start()}>
                         inspect element
                     </button>,
@@ -207,7 +207,7 @@ class ActionStep extends Component {
                         selector={step.selector}
                         />
                 ]}
-                {(step.event == '$web_event' || step.event == 'ph_page_view') && <this.Option
+                {(step.event == '$autocapture' || step.event == '$pageview') && <this.Option
                     item='url'
                     label='Match url'
                     />}
@@ -252,8 +252,8 @@ export class EditAction extends Component {
             if(detail.detail == 'action-exists') this.setState({saved: false, error: 'action-exists', error_id: detail.id})
         }
         let steps = this.state.action.steps.map((step) => {
-            if(step.event == 'ph_page_view') step.selection = ['url'];
-            if(step.event != '$web_event') step.selection = [];
+            if(step.event == '$pageview') step.selection = ['url'];
+            if(step.event != '$autocapture') step.selection = [];
             if(!step.selection) return step;
             let data = {};
             Object.keys(step).map((key) => {
@@ -270,8 +270,7 @@ export class EditAction extends Component {
         let action = this.state.action;
         return <form onSubmit={(e) => e.preventDefault()}>
             <label>Action name</label>
-            <input required pattern="[a-zA-Z0-9]{1,399}" className='form-control' placeholder="user signed up" value={action.name} onChange={(e) => this.setState({action: {...action, name: e.target.value}})} />
-            <small>Please only use lowercase, uppercase and numbers.</small>
+            <input required className='form-control' placeholder="user signed up" value={action.name} onChange={(e) => this.setState({action: {...action, name: e.target.value}})} />
             <br />
             {action.steps.map((step, index) => <ActionStep
                 key={step.id || step.isNew}

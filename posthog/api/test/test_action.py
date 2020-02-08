@@ -129,9 +129,10 @@ class TestAction(BaseTest):
         # test breakdown filtering
         with freeze_time('2020-01-04'):
             response = self.client.get('/api/action/trends/?breakdown=some_property').json()
-        self.assertEqual(response[0]['breakdown'][0]['name'], 'value')
+
+        self.assertEqual(response[0]['breakdown'][0]['name'], 'undefined')
         self.assertEqual(response[0]['breakdown'][0]['count'], 2)
-        self.assertEqual(response[0]['breakdown'][1]['name'], 'undefined')
-        self.assertEqual(response[0]['breakdown'][1]['count'], 2)
-        self.assertEqual(response[0]['breakdown'][2]['name'], 'other_value')
+        self.assertEqual(response[0]['breakdown'][1]['name'], 'other_value')
+        self.assertEqual(response[0]['breakdown'][1]['count'], 1)
+        self.assertEqual(response[0]['breakdown'][2]['name'], 'value')
         self.assertEqual(response[0]['breakdown'][2]['count'], 1)
