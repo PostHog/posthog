@@ -2,6 +2,8 @@
 
 PostHog is self-hosted product analytics. Automate the collection of every event on your website or app, and stay in control of your users’ data.
 
+[PostHog docs](https://posthog.com/docs/) explain the functionality in more depth.
+
 ## One-line docker preview
 
 ```bash
@@ -86,4 +88,4 @@ If you are working on some changes, please create a new branch, submit it to git
 * Then create your branch `git checkout -b %your_branch_name%` call your branch something that represents what you're planning to do
 * When you're finished add your changes `git add .`
 * And commit with a message `git commit -m "%your feature description%" `
-* When pushing to github make sure you push your branch name and not master!!
+* When pushing to github make sure you push your branch name and not master! Use `git push origin %your_branch_name%'
