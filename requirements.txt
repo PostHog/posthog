@@ -14,7 +14,7 @@ gunicorn==20.0.4
 ipdb==0.12.2
 ipython==7.9.0
 ipython-genutils==0.2.0
-jedi==0.15.1
+jedi==0.16.0
 mypy==0.761
 mypy-extensions==0.4.3
 numpy==1.18.1
