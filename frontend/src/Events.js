@@ -12,7 +12,7 @@ export class EventDetails extends Component {
         super(props)
         this.state = {selected: 'properties'}
     }
-    tab(n) {
+    indent(n) {
         return Array(n).fill().map(() => <span>&nbsp;&nbsp;&nbsp;&nbsp;</span>)
     }
     render() {
@@ -22,7 +22,7 @@ export class EventDetails extends Component {
             <div className='col-2'>
                 <div className="nav flex-column nav-pills" id="v-pills-tab" role="tablist" aria-orientation="vertical">
                     <a className={"cursor-pointer nav-link " + (this.state.selected == 'properties' && 'active')} onClick={() => this.setState({selected: 'properties'})}>Properties</a>
-                    <a className={"cursor-pointer nav-link " + (this.state.selected == 'elements' && 'active')} onClick={() => this.setState({selected: 'elements'})}>Elements</a>
+                    {elements.length > 0 && <a className={"cursor-pointer nav-link " + (this.state.selected == 'elements' && 'active')} onClick={() => this.setState({selected: 'elements'})}>Elements</a>}
                 </div>
             </div>
             <div className='col-10'>
@@ -35,7 +35,7 @@ export class EventDetails extends Component {
                 </div> : <div>
                     {elements.map((element, index) => (
                         <pre className='code' style={{margin: 0, padding: 0, borderRadius: 0, ...(index == elements.length -1 ? {backgroundColor: 'var(--blue)'} : {})}}>
-                            {this.tab(index)}
+                            {this.indent(index)}
                             &lt;{element.tag_name} 
 
                             {element.attr_id && ' id="' + element.attr_id + '"'}
@@ -48,7 +48,7 @@ export class EventDetails extends Component {
                         </pre>
                     ))}
                     {[...elements].reverse().slice(1).map((element, index) => <pre className='code' style={{margin: 0, padding: 0, borderRadius: 0}}>
-                        {this.tab(elements.length - index - 2)}
+                        {this.indent(elements.length - index - 2)}
                         &lt;/{element.tag_name}&gt;
                     </pre>)}
                 </div>}
@@ -121,9 +121,9 @@ export class EventsTable extends Component {
                             index > 0 && !moment(event.timestamp).isSame(this.state.events[index - 1].timestamp, 'day') && <tr key={event.id + '_time'}><td colSpan="4" className='event-day-separator'>{moment(event.timestamp).format('LL')}</td></tr>,
                             <tr key={event.id} className={'cursor-pointer event-row ' + (this.state.newEvents.indexOf(event.id) > -1 && 'event-row-new')} onClick={() => this.setState({eventSelected: this.state.eventSelected != event.id ? event.id : false})}>
                                 <td>
-                                    {event.properties.$event_type == 'click' ? 'clicked' : event.event}
-                                    {event.elements.length > 0 && ' a ' + event.elements[0].tag_name + ' element '}
-                                    {event.elements.length > 0 && event.elements[0].$el_text && ' with text ' + event.elements[0].$el_text}
+                                    {event.properties.$event_type == 'click' ? 'clicked ' : event.event}
+                                    {event.elements.length > 0 && <pre style={{marginBottom: 0, display: 'inline'}}>&lt;{event.elements[0].tag_name}&gt;</pre>}
+                                    {event.elements.length > 0 && event.elements[0].text && ' with text "' + event.elements[0].text + '"'}
                                 </td>
                                 <td><Link to={'/person/' + event.properties.distinct_id}>{event.person}</Link></td>
                                 {params.map((param) => <td key={param} title={event.properties[param]}>
