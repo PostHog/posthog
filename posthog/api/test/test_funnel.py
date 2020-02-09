@@ -36,6 +36,13 @@ class TestCreateFunnel(BaseTest):
         self.assertEqual(steps[1].action, action_logout) 
         self.assertEqual(len(steps), 2) 
 
+    def test_delete_funnel(self):
+        funnel = Funnel.objects.create(team=self.team)
+        response = self.client.patch('/api/funnel/%s/' % funnel.pk, data={'deleted': True, 'steps': []}, content_type='application/json').json()
+        response = self.client.get('/api/funnel/').json()
+        self.assertEqual(len(response['results']), 0)
+
+
 class TestGetFunnel(BaseTest):
     TESTS_API = True
 

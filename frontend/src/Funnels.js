@@ -1,7 +1,7 @@
 import React, { Component } from 'react';
 import { Link } from 'react-router-dom';
 import api from './Api';
-import { percentage } from './utils';
+import { percentage, DeleteWithUndo } from './utils';
 
 export default class Funnels extends Component {
     constructor(props) {
@@ -10,7 +10,8 @@ export default class Funnels extends Component {
         this.state = {
              
         }
-        this.fetchFunnels.call(this);
+        this.fetchFunnels = this.fetchFunnels.bind(this);
+        this.fetchFunnels();
     }
     fetchFunnels() {
         let sort = (funnels) => {
@@ -35,7 +36,18 @@ export default class Funnels extends Component {
                         <td>{funnel.steps[0] && funnel.steps[0].people.length}</td>
                         <td>{funnel.steps[funnel.steps.length - 1] && funnel.steps[funnel.steps.length -1].people.length}</td>
                         <td>{funnel.steps[0] && funnel.steps[0].people.length}</td>
-                        <td><Link to={'/funnel/' + funnel.id + '/edit'}><i className='fi flaticon-edit' /></Link></td>
+                        <td style={{fontSize: 16}}>
+                            <Link to={'/funnel/' + funnel.id}><i className='fi flaticon-edit' /></Link>
+                            <DeleteWithUndo
+                                endpoint="funnel"
+                                object={funnel}
+                                className='text-danger'
+                                style={{marginLeft: 8}}
+                                callback={this.fetchFunnels}>
+                                <i className='fi flaticon-basket' />
+                            </DeleteWithUndo>
+
+                        </td>
                     </tr>)}
                 </tbody>
             </table>

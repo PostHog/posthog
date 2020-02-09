@@ -10,7 +10,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
 
     class Meta:
         model = Funnel
-        fields = ['id', 'name', 'steps']
+        fields = ['id', 'name', 'deleted', 'steps']
 
     def get_steps(self, funnel: Funnel) -> List[Dict[str, Any]]:
         steps = []
@@ -53,6 +53,10 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
 
     def update(self, funnel: Funnel, validated_data: Any) -> Funnel: # type: ignore
         request = self.context['request']
+
+        funnel.deleted = validated_data.get('deleted', funnel.deleted)
+        funnel.save()
+
         steps = request.data.pop('steps')
         steps_to_delete = funnel.steps.exclude(pk__in=[step.get('id') for step in steps if step.get('id') and '-' not in str(step['id'])])
         steps_to_delete.delete()
@@ -78,6 +82,8 @@ class FunnelViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
+        if self.action == 'list':
+            queryset = queryset.filter(deleted=False)
         return queryset\
             .filter(team=self.request.user.team_set.get())
  

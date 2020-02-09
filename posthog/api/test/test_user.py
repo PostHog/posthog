@@ -17,7 +17,8 @@ class TestUser(BaseTest):
             user = User.objects.create_user(email='tim@uk.posthog.com')
             self.assertEqual(user.email, 'tim@uk.posthog.com')
 
+class TestLoginViews(BaseTest):
     def test_redirect_to_setup_admin_when_no_users(self):
         User.objects.all().delete()
-        response = self.client.get('/')
-        self.assertIn('/setup_admin', response.url)
+        response = self.client.get('/', follow=True)
+        self.assertRedirects(response, '/setup_admin')

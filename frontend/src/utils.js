@@ -1,4 +1,7 @@
 import React, { Component } from 'react'
+import api from './Api';
+import { toast } from 'react-toastify';
+import PropTypes from 'prop-types';
 
 export function uuid() {
     return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
@@ -20,6 +23,36 @@ export function Card(props) {
         </div>}
             {props.children}
     </div>
+}
+
+export let DeleteWithUndo = (props) => {
+    let deleteWithUndo = (undo) => {
+        api.update('api/' + props.endpoint + '/' + props.object.id, {...props.object, deleted: (undo ? false : true)}).then(() => {
+            props.callback();
+            let response = <div>
+                {
+                    !undo ? <span>"<strong>{props.object.name}</strong>" deleted. <a href='#' onClick={(e) => { e.preventDefault(); deleteWithUndo(true) }}>Click here to undo</a></span> : 
+                    <span>Delete un-done</span>
+                }
+            </div>
+            toast(response, {toastId: "delete-item"})
+        })
+    }
+
+    return <a
+        href='#'
+        onClick={(e) => {
+            e.preventDefault();
+            deleteWithUndo()
+        }}
+        className={props.className}
+        style={props.style}>{props.children}</a>
+}
+DeleteWithUndo.propTypes = {
+    endpoint: PropTypes.string.isRequired,
+    object: PropTypes.shape({name: PropTypes.string.isRequired, id: PropTypes.number.isRequired}).isRequired,
+    className: PropTypes.string,
+    style: PropTypes.object
 }
 
 export class Dropdown extends Component {
