@@ -25,7 +25,7 @@ USER root
 
 COPY requirements.txt /code/
 # install dependencies but ignore any we don't need for dev environment
-RUN pip install $(grep -ivE "ipdb|mypy|ipython|ipdb|pip|djangorestframework-stubs|django-stubs|ipython-genutils|mypy-extensions|Pygments|typed-ast|jedi" requirements.txt) --no-cache-dir --compile && pip uninstall ipython-genutils
+RUN pip install $(grep -ivE "ipdb|mypy|ipython|ipdb|pip|djangorestframework-stubs|django-stubs|ipython-genutils|mypy-extensions|Pygments|typed-ast|jedi" requirements.txt) --no-cache-dir --compile && pip uninstall ipython-genutils -y
 COPY frontend/ /code/frontend
 RUN cd frontend \
     && apt-get update && apt-get install -y --no-install-recommends curl \ 
