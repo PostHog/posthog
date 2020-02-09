@@ -1,4 +1,6 @@
 {
+  "name": "PostHog - Product analytics",
+  "website": "https://www.posthog.com",
   "environments": {
     "review": {
       "scripts": {
@@ -25,5 +27,14 @@
   "buildpacks": [
         {"url": "heroku/nodejs"},
         {"url": "https://github.com/timgl/heroku-buildpack-python.git"}
-  ]
+  ],
+  "addons": [
+      "heroku-postgresql"
+  ],
+  "env": {
+      "SECRET_KEY": {
+          "generator": "secret"
+      }
+  },
+  "logo": "https://posthog.com/wp-content/uploads/elementor/thumbs/Group-9-okswmm1u72v1i0der1e2tk8jeqjrowpdyt4euc6pu6.png"
 }
