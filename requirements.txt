@@ -22,7 +22,7 @@ pandas==1.0.0
 parso==0.5.1
 pexpect==4.7.0
 pickleshare==0.7.5
-prompt-toolkit==2.0.10
+prompt-toolkit==3.0.3
 psycopg2-binary==2.8.4
 ptyprocess==0.6.0
 Pygments==2.4.2
