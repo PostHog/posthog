@@ -1,6 +1,6 @@
 import React, { Component } from 'react';
-import { EditAction } from './editor/index';
 import { EventsTable } from './Events';
+import { ActionEdit } from './ActionEdit';
 
 
 export default class Action extends Component {
@@ -14,7 +14,7 @@ export default class Action extends Component {
     render() {
         return <div>
             <h1>{this.props.match.params.id ? 'Edit action' : 'New action'}</h1>
-            <EditAction apiURL='' user={this.props.user} actionId={this.props.match.params.id} />
+            <ActionEdit apiURL='' user={this.props.user} actionId={this.props.match.params.id} />
             {this.props.match.params.id && <div>
                 <hr />
 
