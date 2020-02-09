@@ -8,3 +8,4 @@
 !frontend/src
 !frontend/style
 !frontend/font
+!gunicorn.config.py

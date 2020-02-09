@@ -86,7 +86,7 @@ def setup_admin(request):
             user = User.objects.create_superuser(email=email, password=password)
         except:
             return render_template('setup_admin.html', request=request, context={'error': True})
-        team = Team.objects.create()
+        team = Team.objects.create(name=request.POST.get('company_name'))
         team.users.add(user)
         login(request, user)
         return redirect('/setup')

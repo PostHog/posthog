@@ -9,7 +9,7 @@
             })
         }
     </script>
-    <form class="form-signin" method="post" action="/signup" onsubmit="return captureForm(event)">
+    <form class="form-signin" method="post" action="/setup_admin" onsubmit="return captureForm(event)">
         {% csrf_token %}
         <img class="mb-4" src="/docs/4.4/assets/brand/bootstrap-solid.svg" alt="" width="72" height="72">
         <h1 class="h3 mb-3 font-weight-normal">Welcome to PostHog</h1>
@@ -19,7 +19,7 @@
         <p>That account already exists. <a href='/login'>Try logging in?</a>.</p>
         {% endif %}
         <label for="inputCompany" class="sr-only">Company name</label>
-        <input type="name" name='company' id="inputCompany" class="form-control" placeholder="Company name" required autofocus>
+        <input type="name" name='company_name' id="inputCompany" class="form-control" placeholder="Company name" required autofocus>
         <label for="inputEmail" class="sr-only">Email address</label>
         <input type="email" name='email' id="inputEmail" class="form-control" placeholder="Email address" required autofocus>
         <label for="inputPassword" class="sr-only">Password</label>
