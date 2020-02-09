@@ -207,19 +207,20 @@ export default class ActionsGraph extends Component {
                             <a href='#' onClick={(e) => {e.preventDefault(); this.setFilters({actions: []})}}>Unselect all</a> /&nbsp;
                             <a href='#' onClick={(e) => {e.preventDefault(); this.setFilters({actions: false})}}>Select all</a>
                         </small><br />
-                        {data && data.map((item) => <label className='cursor-pointer' style={{marginRight: 8, display: 'block', color: item.count > 0 ? 'inherit' : 'var(--gray)'}} key={item.label}>
+                        {data && data.map((item) => <label className='cursor-pointer filter-action' style={{marginRight: 8, display: 'block', color: item.count > 0 ? 'inherit' : 'var(--gray)'}} key={item.label}>
                             <input
                                 checked={filters.actions ? filters.actions.indexOf(item.action.id) > -1 : true}
                                 onChange={(e) => {
                                     if(e.target.checked) {
                                         filters.actions.push(item.action.id);
                                     } else {
-                                        filters.actions = filters.actions.filter((i) => i != item.action.id)
+                                        if(!filters.actions) filters.actions = data.map((item) => item.action.id);
+                                        filters.actions = filters.actions.filter((i) => i != item.action.id);
                                     }
                                     this.setFilters({actions: filters.actions})
                                 }}
                                 type='checkbox' /> {item.action.name} ({item.count})
-                                <small><a href='#' className='float-right' onClick={(e) => {e.preventDefault(); this.setFilters({actions: [item.action.id]})}}>only</a></small>
+                                <small className='filter-action-only'><a href='#' className='float-right' onClick={(e) => {e.preventDefault(); this.setFilters({actions: [item.action.id]})}}>only</a></small>
                         </label>)}
                     </div>
                 </div>
