@@ -25,9 +25,10 @@ If at any point, you get "command not found: nvm", you need to install nvm, then
 1) Make sure you are running Django above in a separate terminal
 2) Go to the frontend directory, `cd frontend`
 3) Run `yarn install`
-4) Now run `bin/start-frontend`
+4) Go back out to the root of the application `cd .`
+5) Now run `bin/start-frontend`
 
-## Pulling production database locally
+## Pulling production database locally - NOT RECOMMENDED - THIS IS A HUGE FILE
 
 `bin/pull_production_db`
 
