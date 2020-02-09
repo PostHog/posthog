@@ -25,7 +25,11 @@ USER root
 
 COPY requirements.txt /code/
 # install dependencies but ignore any we don't need for dev environment
-RUN pip install $(grep -ivE "ipdb|mypy|ipython|ipdb|pip|djangorestframework-stubs|django-stubs|ipython-genutils|mypy-extensions|Pygments|typed-ast|jedi" requirements.txt) --no-cache-dir --compile && pip uninstall ipython-genutils -y
+RUN pip install $(grep -ivE "ipdb|mypy|ipython|ipdb|pip|djangorestframework-stubs|django-stubs|ipython-genutils|mypy-extensions|Pygments|typed-ast|jedi" requirements.txt) --no-cache-dir --compile\
+    && pip uninstall ipython-genutils pip -y \
+    && rm -rf /usr/local/lib/python3.8/site-packages/numpy/core/tests \
+    && rm -rf /usr/local/lib/python3.8/site-packages/pandas/tests
+
 COPY frontend/ /code/frontend
 RUN cd frontend \
     && apt-get update && apt-get install -y --no-install-recommends curl \ 
@@ -37,7 +41,8 @@ RUN cd frontend \
     && apt-get purge -y nodejs curl \
     && rm -rf node_modules \
 	&& rm -rf /var/lib/apt/lists/* \
-    && rm -rf .cache
+    && rm -rf .cache \
+    && rm -rf frontend/dist/*.map
 
 COPY . /code/
 RUN /etc/init.d/postgresql start\

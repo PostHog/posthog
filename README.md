@@ -5,7 +5,7 @@ PostHog is self-hosted product analytics. Automate the collection of every event
 ## One-line docker preview
 
 ```bash
-docker run -t -i --rm --publish 8000:8000 -v postgres:/var/lib/postgresql posthog:preview
+docker run -t -i --rm --publish 8000:8000 -v postgres:/var/lib/postgresql posthog/posthog:preview
 ```
 
 This image has everything you need to try out PostHog locally! It will set up a server on http://127.0.0.1:8000.

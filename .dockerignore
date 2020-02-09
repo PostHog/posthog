@@ -10,3 +10,4 @@
 !frontend/style
 !frontend/font
 !gunicorn.config.py
+!frontend/dist/array.js
