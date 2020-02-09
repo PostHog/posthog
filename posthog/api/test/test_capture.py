@@ -32,7 +32,7 @@ class TestCapture(BaseTest):
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
         event = Event.objects.get()
         self.assertEqual(event.event, '$autocapture')
-        elements = event.element_set.all()
+        elements = event.element_set.all().order_by('order')
         self.assertEqual(elements[0].tag_name, 'a')
         self.assertEqual(elements[0].attr_class, ['btn', 'btn-sm'])
         self.assertEqual(elements[1].order, 1)

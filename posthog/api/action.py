@@ -18,10 +18,15 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
         fields = ['id', 'event', 'tag_name', 'text', 'href', 'selector', 'url', 'name']
 
 class ActionSerializer(serializers.HyperlinkedModelSerializer):
-    steps = ActionStepSerializer(many=True, read_only=True)
+    steps = serializers.SerializerMethodField()
+
     class Meta:
         model = Action
         fields = ['id', 'name', 'steps', 'created_at',]
+
+    def get_steps(self, action: Action) -> List:
+        steps = action.steps.all().order_by('id')
+        return ActionStepSerializer(steps, many=True).data
 
 class TemporaryTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: request.Request):

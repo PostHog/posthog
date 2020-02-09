@@ -1,6 +1,6 @@
 # Posthog
 
-PostHog is self-hosted product analytics. Automate the collection of every event on your website or app, and stay in control of your users’ data.
+PostHog is developer-friendly, self-hosted product analytics. Automate the collection of every event on your website or app, and stay in control of your users’ data.
 
 ## One-line docker preview
 
@@ -66,7 +66,7 @@ gunicorn posthog.wsgi --config gunicorn.config.py --log-file -
 7) Run `source env/bin/activate` (activates virtual environment)
 8) Run `pip install -r requirements.txt`. If you have problems with this step (TLS/SSL error), then run `~ brew update && brew upgrade` followed by `python3 -m pip install --upgrade pip`, then retry the requirements.txt install.
 9) Run migrations `python manage.py migrate`
-10) Run `python manage.py runserver`
+10) Run `DEBUG=1 python manage.py runserver`
 
 ## Running backend tests
 `bin/tests`
