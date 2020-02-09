@@ -11,7 +11,7 @@ class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField() 
     class Meta:
         model = Element
-        fields = ['event', 'text', 'tag_name', 'href', 'attr_id', 'nth_child', 'nth_of_type', 'attributes', 'order']
+        fields = ['event', 'text', 'tag_name', 'attr_class', 'href', 'attr_id', 'nth_child', 'nth_of_type', 'attributes', 'order']
 
 class EventSerializer(serializers.HyperlinkedModelSerializer):
     person = serializers.SerializerMethodField()

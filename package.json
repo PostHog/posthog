@@ -16,9 +16,5 @@
   "bugs": {
     "url": "https://github.com/timgl/posthog/issues"
   },
-  "homepage": "https://github.com/timgl/posthog#readme",
-  "dependencies": {
-    "chart.js": "^2.9.3",
-    "prop-types": "^15.7.2"
-  }
+  "homepage": "https://github.com/timgl/posthog#readme"
 }

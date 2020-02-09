@@ -107,7 +107,7 @@ urlpatterns = [
     path('decide/', capture.get_decide),
     path('engage/', capture.get_engage),
     path('engage', capture.get_engage),
-    re_path(r'demo.*', demo),
+    re_path(r'demo.*', decorators.login_required(demo)),
     path('e/', capture.get_event),
     path('track', capture.get_event),
     path('track/', capture.get_event),

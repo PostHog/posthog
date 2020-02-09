@@ -12,7 +12,12 @@ export class EventDetails extends Component {
         super(props)
         this.state = {selected: 'properties'}
     }
+    tab(n) {
+        return Array(n).fill().map(() => <span>&nbsp;&nbsp;&nbsp;&nbsp;</span>)
+    }
     render() {
+        let { event } = this.props;
+        let elements = [...event.elements].reverse();
         return <div className='row'>
             <div className='col-2'>
                 <div className="nav flex-column nav-pills" id="v-pills-tab" role="tablist" aria-orientation="vertical">
@@ -22,13 +27,30 @@ export class EventDetails extends Component {
             </div>
             <div className='col-10'>
                 {this.state.selected == 'properties' ? <div className='d-flex flex-wrap flex-column' style={{height: 200}}>
-                    {Object.keys(this.props.event.properties).sort().map((key) =>
+                    {Object.keys(event.properties).sort().map((key) =>
                         <div style={{flex: '0 1 '}} key={key}>
                             <strong>{key}:</strong>
                             {this.props.event.properties[key]}
                     </div>)}
                 </div> : <div>
-                    {JSON.stringify(this.props.event.elements)}
+                    {elements.map((element, index) => (
+                        <pre className='code' style={{margin: 0, padding: 0, borderRadius: 0, ...(index == elements.length -1 ? {backgroundColor: 'var(--blue)'} : {})}}>
+                            {this.tab(index)}
+                            &lt;{element.tag_name} 
+
+                            {element.attr_id && ' id="' + element.attr_id + '"'}
+                            {
+                                Object.entries(element.attributes)
+                                    .map(([key, value]) => <span> {key.replace('attr__', '')}="{value}"</span>)
+                            }
+                            &gt;{element.text}
+                            {index == elements.length - 1 && <span>&lt;/{element.tag_name}&gt;</span>}
+                        </pre>
+                    ))}
+                    {[...elements].reverse().slice(1).map((element, index) => <pre className='code' style={{margin: 0, padding: 0, borderRadius: 0}}>
+                        {this.tab(elements.length - index - 2)}
+                        &lt;/{element.tag_name}&gt;
+                    </pre>)}
                 </div>}
             </div>
         </div>
