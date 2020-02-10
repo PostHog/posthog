@@ -38,7 +38,7 @@ class TestAction(BaseTest):
             }, {'href': '/a-new-link'}]
         }, content_type='application/json', HTTP_ORIGIN='http://testserver').json()
         action = Action.objects.get()
-        steps = action.steps.all()
+        steps = action.steps.all().order_by('id')
         self.assertEqual(action.name, 'user signed up 2')
         self.assertEqual(steps[0].text, 'sign up NOW')
         self.assertEqual(steps[1].href, '/a-new-link')

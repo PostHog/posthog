@@ -310,7 +310,7 @@ class PersonManager(models.Manager):
 class Person(models.Model):
     @property
     def distinct_ids(self) -> List[str]:
-        return [id[0] for id in PersonDistinctId.objects.filter(person=self).values_list('distinct_id')]
+        return [id[0] for id in PersonDistinctId.objects.filter(person=self).order_by('id').values_list('distinct_id')]
 
     def add_distinct_id(self, distinct_id: str) -> None:
         PersonDistinctId.objects.create(person=self, distinct_id=distinct_id, team=self.team)
