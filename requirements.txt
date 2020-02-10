@@ -23,7 +23,7 @@ monotonic==1.5
 mypy==0.761
 mypy-extensions==0.4.3
 numpy==1.18.1
-pandas==1.0.0
+pandas==1.0.1
 parso==0.6.1
 pexpect==4.7.0
 pickleshare==0.7.5
