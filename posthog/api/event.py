@@ -23,9 +23,9 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
 
     def get_person(self, event: Event) -> Any:
         if hasattr(event, 'person_properties'):
-            return event.person_properties.get('$email', event.distinct_id) # type: ignore
+            return event.person_properties.get('email', event.distinct_id) # type: ignore
         if hasattr(event, 'person'):
-            return event.person.properties.get('$email', event.distinct_id)
+            return event.person.properties.get('email', event.distinct_id)
         return event.distinct_id
 
     def get_elements(self, event):

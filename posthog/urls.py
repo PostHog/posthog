@@ -1,18 +1,3 @@
-"""funnellab URL Configuration
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/2.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
-"""
 from django.contrib import admin
 from django.urls import path, include, re_path
 from django.views.generic.base import TemplateView
@@ -25,6 +10,7 @@ from django.contrib.auth import authenticate, login, views as auth_views, decora
 from .api import router, capture, user
 from .models import Team, User
 import json
+import posthoganalytics
 
 def render_template(template_name: str, request, context=None) -> HttpResponse:
     template = get_template(template_name)
@@ -48,6 +34,7 @@ def login_view(request):
         user = authenticate(request, email=email, password=password)
         if user is not None:
             login(request, user)
+            posthoganalytics.capture(user.distinct_id, 'user logged in')
             return redirect('/')
         else:
             return render_template('login.html', request=request, context={'email': email, 'error': True})
@@ -63,13 +50,19 @@ def signup_view(request):
     if request.method == 'POST':
         email = request.POST['email']
         password = request.POST['password']
+        company_name = request.POST.get('company_name')
         try:
             user = User.objects.create_user(email=email, password=password)
         except:
             return render_template('signup.html', request=request, context={'error': True})
-        team = Team.objects.create()
+        team = Team.objects.create(name=company_name)
         team.users.add(user)
         login(request, user)
+        posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': not User.objects.exists()})
+        posthoganalytics.identify(user.distinct_id, properties={
+            'email': user.email,
+            'company_name': company_name
+        })
         return redirect('/setup')
 
 def setup_admin(request):
@@ -79,17 +72,6 @@ def setup_admin(request):
         if request.user.is_authenticated:
             return redirect('/')
         return render_template('setup_admin.html', request)
-    if request.method == 'POST':
-        email = request.POST['email']
-        password = request.POST['password']
-        try:
-            user = User.objects.create_superuser(email=email, password=password)
-        except:
-            return render_template('setup_admin.html', request=request, context={'error': True})
-        team = Team.objects.create(name=request.POST.get('company_name'))
-        team.users.add(user)
-        login(request, user)
-        return redirect('/setup')
 
 def logout(request):
     return auth_views.logout_then_login(request)

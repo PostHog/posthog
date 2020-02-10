@@ -9,7 +9,7 @@ class TestEvents(BaseTest):
     def test_filter_events(self):
         user = self._create_user('tim')
         self.client.force_login(user)
-        person = Person.objects.create(properties={'$email': 'tim@posthog.com'}, team=self.team, distinct_ids=["2", 'some-random-uid'])
+        person = Person.objects.create(properties={'email': 'tim@posthog.com'}, team=self.team, distinct_ids=["2", 'some-random-uid'])
 
         event1 = Event.objects.create(team=self.team, distinct_id="2", ip='8.8.8.8')
         Event.objects.create(team=self.team, distinct_id='some-random-uid', ip='8.8.8.8')

@@ -17,6 +17,12 @@ class TestUser(BaseTest):
             user = User.objects.create_user(email='tim@uk.posthog.com')
             self.assertEqual(user.email, 'tim@uk.posthog.com')
 
+    def test_create_user_with_distinct_id(self):
+        with self.settings(TEST=False):
+            user = User.objects.create_user(email='tim@gmail.com')
+        self.assertNotEqual(user.distinct_id, '')
+        self.assertNotEqual(user.distinct_id, None)
+
 class TestLoginViews(BaseTest):
     def test_redirect_to_setup_admin_when_no_users(self):
         User.objects.all().delete()

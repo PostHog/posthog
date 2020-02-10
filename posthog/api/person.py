@@ -21,8 +21,8 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             return None
 
     def get_name(self, person: Person) -> str:
-        if person.properties.get('$email'):
-            return person.properties['$email']
+        if person.properties.get('email'):
+            return person.properties['email']
         if len(person.distinct_ids) > 0:
             return person.distinct_ids[-1]
         return person.pk
