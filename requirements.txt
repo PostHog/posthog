@@ -19,7 +19,7 @@ mypy==0.761
 mypy-extensions==0.4.3
 numpy==1.18.1
 pandas==1.0.0
-parso==0.5.1
+parso==0.6.1
 pexpect==4.7.0
 pickleshare==0.7.5
 prompt-toolkit==2.0.10
