@@ -133,6 +133,7 @@ class TestBatch(BaseTest):
     TESTS_API = True
     def test_batch_capture(self):
         response = self.client.post('/batch/', data={
+            'api_key': self.team.api_token,
             "batch":[
                 {
                     "properties":{
@@ -145,22 +146,32 @@ class TestBatch(BaseTest):
                     "distinct_id":"test_id",
                     "type":"capture",
                     "event":"user signed up",
-                    "messageId":"2b5c5750-46fc-4b21-8aa8-27032e8afb16",
-                    "api_key": self.team.api_token
+                    "messageId":"2b5c5750-46fc-4b21-8aa8-27032e8afb16"
                 },
+                {
+                    "timestamp":"2020-02-10T01:46:20.777210+00:00",
+                    "library": "posthog-python",
+                    "library_version": "1.3.0b1",
+                    "distinct_id":"test_id",
+                    "type":"capture",
+                    "event":"user did something else",
+                    "messageId":"2b5c5750-46fc-4b21-8aa8-27032e8afb16",
+                }
             ]
         }, content_type='application/json')
 
-        event = Event.objects.get()
-        self.assertEqual(event.event, 'user signed up')
-        self.assertEqual(event.properties, {'property1': 'value', 'property2': 'value'})
-        self.assertEqual(event.timestamp, datetime.datetime(2020, 2, 10, 1, 45, 20, 777210, tzinfo=pytz.UTC))
+        events = Event.objects.all()
+        self.assertEqual(events[0].event, 'user signed up')
+        self.assertEqual(events[0].properties, {'property1': 'value', 'property2': 'value'})
+        self.assertEqual(events[0].timestamp, datetime.datetime(2020, 2, 10, 1, 45, 20, 777210, tzinfo=pytz.UTC))
+        self.assertEqual(events[1].event, 'user did something else')
 
         self.assertEqual(Person.objects.get(persondistinctid__distinct_id='test_id').distinct_ids, ['test_id'])
 
     def test_batch_alias(self):
         Person.objects.create(team=self.team, distinct_ids=['old_distinct_id'])
         response = self.client.post('/batch/', data={
+            "api_key": self.team.api_token,
             "batch":[{
                 "properties":{
                     "distinct_id":"old_distinct_id",
@@ -173,7 +184,6 @@ class TestBatch(BaseTest):
                 "event":"$create_alias",
                 "messageId":"7723c0fa-9801-497c-bf06-6d61e5572a84",
                 "distinct_id": None,
-                "api_key": self.team.api_token
             }]
         }, content_type='application/json')
 
@@ -183,6 +193,7 @@ class TestBatch(BaseTest):
     def test_batch_engage(self):
         Person.objects.create(team=self.team, distinct_ids=["3", '455'])
         response = self.client.post('/batch/', data={
+            "api_key": self.team.api_token,
             "batch": [{
                 "timestamp":"2020-02-10T01:45:20.777635+00:00",
                 "library": "posthog-python",
@@ -194,7 +205,6 @@ class TestBatch(BaseTest):
                 },
                 "event":"$identify",
                 "messageId":"90ac5fe7-713c-46fd-8552-5954baf478f6",
-                "api_key": self.team.api_token
             }]
         }, content_type='application/json')
 
@@ -203,6 +213,7 @@ class TestBatch(BaseTest):
 
     def test_batch_engage_create_user(self):
         response = self.client.post('/batch/', data={
+            "api_key": self.team.api_token,
             "batch": [{
                 "timestamp":"2020-02-10T01:45:20.777635+00:00",
                 "library": "posthog-python",
@@ -214,9 +225,51 @@ class TestBatch(BaseTest):
                 },
                 "event":"$identify",
                 "messageId":"90ac5fe7-713c-46fd-8552-5954baf478f6",
-                "api_key": self.team.api_token
             }]
         }, content_type='application/json')
 
         person = Person.objects.get()
         self.assertEqual(person.properties['email'], 'something@something.com')
+
+    def test_batch_incorrect_token(self):
+        response = self.client.post('/batch/', data={
+            "api_key": "this-token-doesnt-exist",
+            "batch":[
+                {
+                    "type":"capture",
+                    "event":"user signed up",
+                    "distinct_id": "whatever"
+                },
+            ]
+        }, content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['message'], "API key is incorrect. You can find your API key in the /setup page in PostHog.")
+
+    def test_batch_token_not_set(self):
+        response = self.client.post('/batch/', data={
+            "batch":[
+                {
+                    "type":"capture",
+                    "event":"user signed up",
+                    "distinct_id": "whatever"
+                },
+            ]
+        }, content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['message'], "No api_key set. You can find your API key in the /setup page in posthog")
+
+    def test_batch_distinct_id_not_set(self):
+        response = self.client.post('/batch/', data={
+            "api_key": self.team.api_token,
+            "batch":[
+                {
+                    "type":"capture",
+                    "event":"user signed up",
+                },
+            ]
+        }, content_type='application/json')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['message'], "You need to set a distinct_id.")

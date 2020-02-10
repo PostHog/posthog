@@ -55,6 +55,8 @@ class UserManager(BaseUserManager):
         """Create and save a regular User with the given email and password."""
         extra_fields.setdefault('is_staff', False)
         extra_fields.setdefault('is_superuser', False)
+        if not settings.TEST:
+            extra_fields.setdefault('distinct_id', secrets.token_urlsafe(32))
         return self._create_user(email, password, **extra_fields)
 
     def create_superuser(self, email, password, **extra_fields):
@@ -73,6 +75,7 @@ class User(AbstractUser):
     username = None # type: ignore
     email = models.EmailField(_('email address'), unique=True)
     temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS: List[str] = []

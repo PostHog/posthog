@@ -1,15 +1,7 @@
 {% extends 'layout.html' %}
 
 {% block content %}
-    <script>
-        function captureForm(event) {
-            posthog.capture('superuser created', {
-                company_name: event.target.company.value,
-                email: event.target.email.value,
-            })
-        }
-    </script>
-    <form class="form-signin" method="post" action="/setup_admin" onsubmit="return captureForm(event)">
+    <form class="form-signin" method="post" action="/signup">
         {% csrf_token %}
         <img class="mb-4" src="/docs/4.4/assets/brand/bootstrap-solid.svg" alt="" width="72" height="72">
         <h1 class="h3 mb-3 font-weight-normal">Welcome to PostHog</h1>
