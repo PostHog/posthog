@@ -111,6 +111,8 @@ urlpatterns = [
     path('e/', capture.get_event),
     path('track', capture.get_event),
     path('track/', capture.get_event),
+    path('capture/', capture.get_event),
+    path('batch/', capture.batch),
     path('logout', logout, name='login'),
     path('login', login_view, name='login'),
     path('signup', signup_view, name='signup'),

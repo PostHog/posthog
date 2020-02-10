@@ -2,6 +2,8 @@ from .base import BaseTest
 from posthog.models import Event, Person
 import base64
 import json
+import datetime
+import pytz
 
 
 class TestCapture(BaseTest):
@@ -37,7 +39,7 @@ class TestCapture(BaseTest):
         self.assertEqual(elements[0].attr_class, ['btn', 'btn-sm'])
         self.assertEqual(elements[1].order, 1)
         self.assertEqual(elements[1].text, '💻')
-        self.assertEqual(event.properties['distinct_id'], "2")
+        self.assertEqual(event.distinct_id, "2")
 
     def test_capture_no_element(self):
         user = self._create_user('tim')
@@ -126,3 +128,95 @@ class TestCapture(BaseTest):
 
         self.assertEqual(Event.objects.count(), 0)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
+
+class TestBatch(BaseTest):
+    TESTS_API = True
+    def test_batch_capture(self):
+        response = self.client.post('/batch/', data={
+            "batch":[
+                {
+                    "properties":{
+                        "property1":"value",
+                        "property2":"value"
+                    },
+                    "timestamp":"2020-02-10T01:45:20.777210+00:00",
+                    "library": "posthog-python",
+                    "library_version": "1.3.0b1",
+                    "distinct_id":"test_id",
+                    "type":"capture",
+                    "event":"user signed up",
+                    "messageId":"2b5c5750-46fc-4b21-8aa8-27032e8afb16",
+                    "api_key": self.team.api_token
+                },
+            ]
+        }, content_type='application/json')
+
+        event = Event.objects.get()
+        self.assertEqual(event.event, 'user signed up')
+        self.assertEqual(event.properties, {'property1': 'value', 'property2': 'value'})
+        self.assertEqual(event.timestamp, datetime.datetime(2020, 2, 10, 1, 45, 20, 777210, tzinfo=pytz.UTC))
+
+        self.assertEqual(Person.objects.get(persondistinctid__distinct_id='test_id').distinct_ids, ['test_id'])
+
+    def test_batch_alias(self):
+        Person.objects.create(team=self.team, distinct_ids=['old_distinct_id'])
+        response = self.client.post('/batch/', data={
+            "batch":[{
+                "properties":{
+                    "distinct_id":"old_distinct_id",
+                    "alias":"new_distinct_id"
+                },
+                "timestamp":"2020-02-10T01:45:20.777395+00:00",
+                "library": "posthog-python",
+                "version": "1.3.0b1",
+                "type":"alias",
+                "event":"$create_alias",
+                "messageId":"7723c0fa-9801-497c-bf06-6d61e5572a84",
+                "distinct_id": None,
+                "api_key": self.team.api_token
+            }]
+        }, content_type='application/json')
+
+        self.assertEqual(Event.objects.count(), 0)
+        self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
+
+    def test_batch_engage(self):
+        Person.objects.create(team=self.team, distinct_ids=["3", '455'])
+        response = self.client.post('/batch/', data={
+            "batch": [{
+                "timestamp":"2020-02-10T01:45:20.777635+00:00",
+                "library": "posthog-python",
+                "version":"1.3.0b1",
+                "type":"identify",
+                "distinct_id": "3",
+                "$set":{
+                    "email": "something@something.com"
+                },
+                "event":"$identify",
+                "messageId":"90ac5fe7-713c-46fd-8552-5954baf478f6",
+                "api_key": self.team.api_token
+            }]
+        }, content_type='application/json')
+
+        person = Person.objects.get()
+        self.assertEqual(person.properties['email'], 'something@something.com')
+
+    def test_batch_engage_create_user(self):
+        response = self.client.post('/batch/', data={
+            "batch": [{
+                "timestamp":"2020-02-10T01:45:20.777635+00:00",
+                "library": "posthog-python",
+                "version":"1.3.0b1",
+                "type":"identify",
+                "distinct_id": "3",
+                "$set":{
+                    "email": "something@something.com"
+                },
+                "event":"$identify",
+                "messageId":"90ac5fe7-713c-46fd-8552-5954baf478f6",
+                "api_key": self.team.api_token
+            }]
+        }, content_type='application/json')
+
+        person = Person.objects.get()
+        self.assertEqual(person.properties['email'], 'something@something.com')
