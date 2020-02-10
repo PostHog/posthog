@@ -5,7 +5,7 @@ from django.views.decorators.csrf import csrf_exempt
 import json
 import base64
 from urllib.parse import urlparse
-from typing import Dict, Union
+from typing import Dict, Union, Optional
 
 
 def get_ip_address(request):
@@ -43,38 +43,24 @@ def _load_data(request) -> Union[Dict, None]:
         data = json.loads(base64.b64decode(data).decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
     return data
 
-def _alias(distinct_id: str, data: Dict, request):
+def _alias(distinct_id: str, new_distinct_id: str, request):
     person = Person.objects.get(persondistinctid__distinct_id=distinct_id)
-    person.add_distinct_id(data['properties']['alias'])
-    return cors_response(request, HttpResponse("1"))
+    person.add_distinct_id(new_distinct_id)
+    return cors_response(request, JsonResponse({'status': 1}))
 
-@csrf_exempt
-def get_event(request):
-    data = _load_data(request)
-    if not data:
-        return cors_response(request, HttpResponse("1"))
-
-    if request.POST.get('api_key'):
-        token = request.POST['api_key']
-    else:
-        token = data['properties'].pop('token')
+def _capture(request, token: str, event: str, distinct_id: str, properties: Dict, timestamp: Optional[str]=None) -> None:
     team = Team.objects.get(api_token=token)
 
-    distinct_id = str(data['properties']['distinct_id'])
-
-    if data['event'] == '$create_alias':
-        return _alias(distinct_id=distinct_id, data=data, request=request)
-
-    data['properties']['distinct_id'] = distinct_id
-    elements = data['properties'].get('$elements')
+    elements = properties.get('$elements')
     if elements:
-        del data['properties']['$elements']
-    event = Event.objects.create(
-        event=data['event'],
+        del properties['$elements']
+    db_event = Event.objects.create(
+        event=event,
         distinct_id=distinct_id,
-        properties=data['properties'],
+        properties=properties,
         ip=get_ip_address(request),
-        team=team
+        team=team,
+        **({'timestamp': timestamp} if timestamp else {})
     )
     if elements: 
         Element.objects.bulk_create([
@@ -87,7 +73,7 @@ def get_event(request):
                 nth_child=el.get('nth_child'),
                 nth_of_type=el.get('nth_of_type'),
                 attributes={key: value for key, value in el.items() if key.startswith('attr__')},
-                event=event,
+                event=db_event,
                 order=index
             ) for index, el in enumerate(elements)
         ])
@@ -97,6 +83,38 @@ def get_event(request):
         Person.objects.create(team=team, distinct_ids=[str(distinct_id)], is_user=request.user if not request.user.is_anonymous else None)
     except IntegrityError: 
         pass # person already exists, which is fine
+
+    return cors_response(request, JsonResponse({'status': 1}))
+
+def _engage(token: str, distinct_id: str, properties: Dict, request):
+    team = Team.objects.get(api_token=token)
+
+    try:
+        person = Person.objects.get(team=team, persondistinctid__distinct_id=str(distinct_id))
+    except Person.DoesNotExist:
+        person = Person.objects.create(team=team, distinct_ids=[str(distinct_id)])
+    person.properties.update(properties)
+    person.save()
+    return cors_response(request, JsonResponse({'status': 1}))
+
+@csrf_exempt
+def get_event(request):
+    data = _load_data(request)
+    if not data:
+        return cors_response(request, HttpResponse("1"))
+
+    if request.POST.get('api_key'):
+        token = request.POST['api_key']
+    else:
+        token = data['properties'].pop('token')
+
+    distinct_id = str(data['properties']['distinct_id'])
+
+    if data['event'] == '$create_alias':
+        return _alias(distinct_id=distinct_id, new_distinct_id=data['properties']['alias'], request=request)
+
+    return _capture(request=request, token=token, event=data['event'], distinct_id=distinct_id, properties=data['properties'])
+
     return cors_response(request, JsonResponse({'status': 1}))
 
 
@@ -114,11 +132,36 @@ def get_engage(request):
         token = request.POST['api_key']
     else:
         token = data.pop('$token')
-    team = Team.objects.get(api_token=token)
 
-    person = Person.objects.get(team=team, persondistinctid__distinct_id=str(data['$distinct_id']))
     if data.get('$set'):
-        person.properties = data['$set']
-        person.save()
- 
+        return _engage(token=token, distinct_id=data['$distinct_id'], properties=data['$set'], request=request)
+
+    return cors_response(request, JsonResponse({'status': 1}))
+
+@csrf_exempt
+def batch(request):
+    batch = json.loads(request.body)
+    for data in batch['batch']:
+        if data['type'] == 'alias':
+            return _alias(
+                distinct_id=data['properties']['distinct_id'],
+                new_distinct_id=data['properties']['alias'],
+                request=request
+            )
+        elif data['type'] == 'capture':
+            return _capture(
+                request=request,
+                token=data['api_key'],
+                event=data['event'],
+                distinct_id=data['distinct_id'],
+                properties=data['properties'],
+                timestamp=data['timestamp']
+            )
+        elif data['type'] == 'identify':
+            return _engage(
+                token=data['api_key'],
+                distinct_id=data['distinct_id'],
+                properties=data['$set'],
+                request=request
+            )
     return cors_response(request, JsonResponse({'status': 1}))

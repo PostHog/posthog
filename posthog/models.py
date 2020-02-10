@@ -5,6 +5,7 @@ from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.utils.translation import ugettext_lazy as _
 from django.dispatch import receiver
 from django.forms.models import model_to_dict
+from django.utils import timezone
 from typing import List, Tuple, Optional, Any, Union, Dict
 from django.db import transaction
 
@@ -294,7 +295,7 @@ class Event(models.Model):
     distinct_id: models.CharField = models.CharField(max_length=200)
     properties: JSONField = JSONField(default=dict)
     elements: JSONField = JSONField(default=list, null=True, blank=True)
-    timestamp: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
     ip: models.GenericIPAddressField = models.GenericIPAddressField(null=True, blank=True)
 
 class PersonManager(models.Manager):
