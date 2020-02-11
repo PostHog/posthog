@@ -59,7 +59,10 @@ class ActionViewSet(viewsets.ModelViewSet):
         action, created = Action.objects.get_or_create(
             name=request.data['name'],
             team=request.user.team_set.get(),
-            created_by=request.user
+            deleted=False,
+            defaults={
+                'created_by': request.user
+            }
         )
         if not created:
             return Response(data={'detail': 'action-exists', 'id': action.pk}, status=400)

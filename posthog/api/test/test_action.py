@@ -6,8 +6,6 @@ class TestAction(BaseTest):
     TESTS_API = True
 
     def test_create_and_update_action(self): 
-        user = self._create_user('tim')
-        self.client.force_login(user)
         response = self.client.post('/api/action/', data={
             'name': 'user signed up',
             'steps': [{
@@ -24,6 +22,8 @@ class TestAction(BaseTest):
         self.assertEqual(response['steps'][0]['text'], 'sign up')
 
         # test no actions with same name
+        user2 = self._create_user('tim2')
+        self.client.force_login(user2)
         response = self.client.post('/api/action/', data={'name': 'user signed up'}, content_type='application/json', HTTP_ORIGIN='http://testserver').json()
         self.assertEqual(response['detail'], 'action-exists')
 
