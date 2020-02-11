@@ -60,7 +60,7 @@ class App extends Component {
         return <root.div>
             <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
             <style>{styles}</style>
-            <Draggable>
+            <Draggable handle='.drag-bar'>
                 <div className='box'>
                         <div className='drag-bar'>
                             <img className="logo" src="https://posthog.com/wp-content/uploads/elementor/thumbs/Instagram-Post-1hedgehog-off-black-ok61e8eds76dma39iqao8cwbeihgdc2a9grtrwy6p4.png" />

@@ -253,11 +253,7 @@ export class ActionEdit extends Component {
     constructor(props) {
         super(props)
     
-        this.state = {
-            action: {
-                steps: []
-            }
-        }
+        this.state = {}
         this.temporaryToken = props.temporaryToken ? '?temporary_token=' + props.temporaryToken : ''
         this.fetchAction.call(this);
         this.onSubmit = this.onSubmit.bind(this);
@@ -267,7 +263,7 @@ export class ActionEdit extends Component {
             return api.get(this.props.apiURL + 'api/action/' + this.props.actionId + '/' + this.temporaryToken).then((action) => this.setState({action}))
         }
         // If it's a new action, add an empty step
-        this.state.action = {steps: [{isNew: uuid(), }]}
+        this.state.action = {name: '', steps: [{isNew: uuid(), }]}
     }
     onSubmit(event, createNew) {
         if(!event.target.form.checkValidity()) return;
