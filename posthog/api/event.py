@@ -71,7 +71,7 @@ class EventViewSet(viewsets.ModelViewSet):
         if request.GET.get('action_id'):
             queryset: Union[QuerySet, query.RawQuerySet] = self._filter_by_action(request)
         else:
-            queryset = self.get_queryset().prefetch_related('element_set')
+            queryset = self.get_queryset().prefetch_related(Prefetch('element_set', queryset=Element.objects.order_by('order')))
             queryset = self._filter_request(request, queryset)
 
         events = [EventSerializer(d).data for d in queryset[0: 100]]
