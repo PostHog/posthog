@@ -41,39 +41,43 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Funnel:
         request = self.context['request']
-        steps = request.data.pop('steps')
         funnel = Funnel.objects.create(team=request.user.team_set.get(), **validated_data)
-        for index, step in enumerate(steps):
-            FunnelStep.objects.create(
-                funnel=funnel,
-                action_id=step['action_id'],
-                order=index
-            )
+        if request.data.get('steps'):
+            for index, step in enumerate(request.data['steps']):
+                FunnelStep.objects.create(
+                    funnel=funnel,
+                    action_id=step['action_id'],
+                    order=index
+                )
         return funnel
 
     def update(self, funnel: Funnel, validated_data: Any) -> Funnel: # type: ignore
         request = self.context['request']
 
         funnel.deleted = validated_data.get('deleted', funnel.deleted)
+        funnel.name = validated_data.get('name', funnel.name)
         funnel.save()
 
-        steps = request.data.pop('steps')
-        steps_to_delete = funnel.steps.exclude(pk__in=[step.get('id') for step in steps if step.get('id') and '-' not in str(step['id'])])
-        steps_to_delete.delete()
+        # If there's no steps property at all we just ignore it
+        # If there is a step property but it's an empty array [], we'll delete all the steps
+        if 'steps' in request.data:
+            steps = request.data.pop('steps')
 
-        for index, step in enumerate(steps):
-            # make sure it's not a uuid, in which case we can just ignore id
-            if step.get('id') and '-' not in str(step['id']):
-                db_step = FunnelStep.objects.get(funnel=funnel, pk=step['id'])
-                db_step.action_id = step['action_id']
-                db_step.order = index
-                db_step.save()
-            else:
-                FunnelStep.objects.create(
-                    funnel=funnel,
-                    order=index,
-                    action_id=step['action_id']
-                )
+            steps_to_delete = funnel.steps.exclude(pk__in=[step.get('id') for step in steps if step.get('id') and '-' not in str(step['id'])])
+            steps_to_delete.delete()
+            for index, step in enumerate(steps):
+                # make sure it's not a uuid, in which case we can just ignore id
+                if step.get('id') and '-' not in str(step['id']):
+                    db_step = FunnelStep.objects.get(funnel=funnel, pk=step['id'])
+                    db_step.action_id = step['action_id']
+                    db_step.order = index
+                    db_step.save()
+                else:
+                    FunnelStep.objects.create(
+                        funnel=funnel,
+                        order=index,
+                        action_id=step['action_id']
+                    )
         return funnel
 
 class FunnelViewSet(viewsets.ModelViewSet):
@@ -82,7 +86,7 @@ class FunnelViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        if self.action == 'list':
+        if self.action == 'list': # type: ignore
             queryset = queryset.filter(deleted=False)
         return queryset\
             .filter(team=self.request.user.team_set.get())
