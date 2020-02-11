@@ -36,11 +36,29 @@ class TestCreateFunnel(BaseTest):
         self.assertEqual(steps[1].action, action_logout) 
         self.assertEqual(len(steps), 2) 
 
+
+        response['steps'] = []
+        response = self.client.patch('/api/funnel/%s/' % response['id'], data=response, content_type='application/json').json()
+        self.assertEqual(Funnel.objects.get().steps.count(), 0) 
+
+
     def test_delete_funnel(self):
         funnel = Funnel.objects.create(team=self.team)
         response = self.client.patch('/api/funnel/%s/' % funnel.pk, data={'deleted': True, 'steps': []}, content_type='application/json').json()
         response = self.client.get('/api/funnel/').json()
         self.assertEqual(len(response['results']), 0)
+
+    # Autosaving in frontend means funnel without steps get created
+    def test_create_and_update_funnel_no_steps(self):
+        response = self.client.post('/api/funnel/', data={
+            'name': 'Whatever'
+        }, content_type='application/json').json()
+        self.assertEqual(Funnel.objects.get().name, 'Whatever')
+
+        response = self.client.patch('/api/funnel/%s/' % response['id'], data={
+            'name': 'Whatever2'
+        }, content_type='application/json').json()
+        self.assertEqual(Funnel.objects.get().name, 'Whatever2')
 
 
 class TestGetFunnel(BaseTest):
