@@ -1,4 +1,3 @@
-
 import React, { Component } from 'react';
 import api from './Api';
 import { uuid } from './utils';
@@ -162,7 +161,7 @@ class ActionStep extends Component {
         </div>
     }
     TypeSwitcher() {
-        let { step } = this.props;
+        let { step, isEditor } = this.props;
         return <div>
             <label>Action type</label><br />
             <div className='btn-group'>
@@ -184,7 +183,7 @@ class ActionStep extends Component {
                         this.setState({selection: ['url']}, () => this.sendStep({
                                 ...step,
                                 event: '$pageview',
-                                url: window.location.protocol + '//' + window.location.host + window.location.pathname
+                                url: isEditor ? window.location.protocol + '//' + window.location.host + window.location.pathname : null
                             })
                         )
                     }} className={'btn ' + (step.event == '$pageview' ? 'btn-secondary' : 'btn-light')}>
@@ -281,13 +280,14 @@ export class ActionEdit extends Component {
                 if(this.props.isEditor) sessionStorage.setItem('editorActionId', action.id);
                 this.setState({error: false, saved: true})
             }
+            this.props.onSave && this.props.onSave(action);
         }
         let error = (detail) => {
             if(detail.detail == 'action-exists') this.setState({saved: false, error: 'action-exists', error_id: detail.id})
         }
         let steps = this.state.action.steps.map((step) => {
             if(step.event == '$pageview') step.selection = ['url'];
-            if(step.event != '$autocapture') step.selection = [];
+            if(step.event != '$pageview' && step.event != '$autocapture') step.selection = [];
             if(!step.selection) return step;
             let data = {};
             Object.keys(step).map((key) => {

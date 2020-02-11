@@ -5,7 +5,7 @@ from freezegun import freeze_time # type: ignore
 class TestAction(BaseTest):
     TESTS_API = True
 
-    def test_create_action(self): 
+    def test_create_and_update_action(self): 
         user = self._create_user('tim')
         self.client.force_login(user)
         response = self.client.post('/api/action/', data={

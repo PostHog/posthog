@@ -22,7 +22,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
 
     class Meta:
         model = Action
-        fields = ['id', 'name', 'steps', 'created_at',]
+        fields = ['id', 'name', 'steps', 'created_at', 'deleted']
 
     def get_steps(self, action: Action) -> List:
         steps = action.steps.all().order_by('id')
@@ -31,6 +31,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
 class TemporaryTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: request.Request):
         # if the Origin is different, the only authentication method should be temporary_token
+        # This happens when someone is trying to create actions from the editor on their own website
         if request.headers.get('Origin') and request.headers['Origin'] not in request.build_absolute_uri('/'):
             if not request.GET.get('temporary_token'):
                 raise AuthenticationFailed(detail='No token')
@@ -48,6 +49,8 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        if self.action == 'list':
+            queryset = queryset.filter(deleted=False)
         return queryset\
             .filter(team=self.request.user.team_set.get())\
             .order_by('-id')
@@ -70,25 +73,29 @@ class ActionViewSet(viewsets.ModelViewSet):
         return Response(ActionSerializer(action).data)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        steps = request.data.pop('steps')
         action = Action.objects.get(pk=kwargs['pk'], team=request.user.team_set.get())
+
+        # If there's no steps property at all we just ignore it
+        # If there is a step property but it's an empty array [], we'll delete all the steps
+        if 'steps' in request.data:
+            steps = request.data.pop('steps')
+            # remove steps not in the request
+            step_ids = [step['id'] for step in steps if step.get('id')]
+            action.steps.exclude(pk__in=step_ids).delete()
+
+            for step in steps:
+                if step.get('id'):
+                    db_step = ActionStep.objects.get(pk=step['id'])
+                    step_serializer = ActionStepSerializer(db_step)
+                    step_serializer.update(db_step, step)
+                else:
+                    ActionStep.objects.create(
+                        action=action,
+                        **{key: value for key, value in step.items() if key != 'isNew' and key != 'selection'}
+                    )
+
         serializer = ActionSerializer(action)
         serializer.update(action, request.data)
-
-        # remove steps not in the request
-        step_ids = [step['id'] for step in steps if step.get('id')]
-        action.steps.exclude(pk__in=step_ids).delete()
-
-        for step in steps:
-            if step.get('id'):
-                db_step = ActionStep.objects.get(pk=step['id'])
-                step_serializer = ActionStepSerializer(db_step)
-                step_serializer.update(db_step, step)
-            else:
-                ActionStep.objects.create(
-                    action=action,
-                    **{key: value for key, value in step.items() if key != 'isNew' and key != 'selection'}
-                )
         return Response(ActionSerializer(action).data)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
