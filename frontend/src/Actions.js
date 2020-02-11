@@ -3,6 +3,7 @@ import api from './Api';
 import { Link } from 'react-router-dom';
 import Modal from './Modal';
 import PropTypes from 'prop-types';
+import { DeleteWithUndo } from './utils';
 
 export class AppEditorLink extends Component {
     constructor(props) {
@@ -61,10 +62,10 @@ export class ActionsTable extends Component {
         this.state = {
             newEvents: []
         }
-        this.fetchEvents = this.fetchEvents.bind(this);
-        this.fetchEvents();
+        this.fetchActions = this.fetchActions.bind(this);
+        this.fetchActions();
     }
-    fetchEvents() {
+    fetchActions() {
         clearTimeout(this.poller)
         api.get('api/action').then((actions) => {
             this.setState({actions: actions.results});
@@ -75,7 +76,7 @@ export class ActionsTable extends Component {
         return (
             <div>
                 <div className='btn-group float-right'>
-                    <Link to='/new-action' className='btn btn-light'><i className='fi flaticon-add'/>&nbsp; New action</Link>
+                    <Link to='/action' className='btn btn-light'><i className='fi flaticon-add'/>&nbsp; New action</Link>
                     <AppEditorLink user={this.props.user} className='btn btn-success'><i className='fi flaticon-export' /></AppEditorLink>
                 </div>
                 <h1>Actions</h1>
@@ -84,6 +85,7 @@ export class ActionsTable extends Component {
                         <tr>
                             <th scope="col">Action ID</th>
                             <th scope="col"># of events</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -94,7 +96,17 @@ export class ActionsTable extends Component {
                                     <Link to={'/action/' + action.id}>{action.name}</Link>
                                 </td>
                                 <td>{action.count}</td>
-                                {/* <td>{moment(event.timestamp).fromNow()}</td> */}
+                                <td style={{fontSize: 16}}>
+                                    <Link to={'/action/' + action.id}><i className='fi flaticon-edit' /></Link>
+                                    <DeleteWithUndo
+                                        endpoint="action"
+                                        object={action}
+                                        className='text-danger'
+                                        style={{marginLeft: 8}}
+                                        callback={this.fetchActions}>
+                                        <i className='fi flaticon-basket' />
+                                    </DeleteWithUndo>
+                                </td>
                             </tr>
                         )}
                     </tbody>

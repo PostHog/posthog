@@ -35,7 +35,7 @@ export let DeleteWithUndo = (props) => {
                     <span>Delete un-done</span>
                 }
             </div>
-            toast(response, {toastId: "delete-item"})
+            toast(response, {toastId: "delete-item-" + props.object.id})
         })
     }
 
