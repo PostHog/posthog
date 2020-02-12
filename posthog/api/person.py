@@ -14,7 +14,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         fields = ['id', 'name', 'distinct_ids', 'properties', 'last_event']
 
     def get_last_event(self, person: Person) -> Union[dict, None]:
-        if not self.context['request'].GET('include_last_event'):
+        if not self.context['request'].GET.get('include_last_event'):
             return None
         last_event = Event.objects.filter(team_id=person.team_id, properties__distinct_id__contained_by=person.distinct_ids).order_by('-timestamp').first()
         if last_event:
