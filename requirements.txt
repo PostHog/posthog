@@ -29,7 +29,7 @@ pexpect==4.7.0
 pickleshare==0.7.5
 posthoganalytics==1.0.6
 prompt-toolkit==2.0.10
-psycopg2==2.8.4
+psycopg2-binary==2.8.4
 ptyprocess==0.6.0
 Pygments==2.5.2
 python-dateutil==2.8.1
