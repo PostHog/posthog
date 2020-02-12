@@ -18,7 +18,8 @@ def user(request):
 
     return JsonResponse({
         'id': request.user.pk,
-        'name': request.user.first_name or request.user.username,
+        'distinct_id': request.user.distinct_id,
+        'name': request.user.first_name,
         'email': request.user.email,
         'team': {
             'app_url': team.app_url,

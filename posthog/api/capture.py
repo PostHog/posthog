@@ -45,7 +45,10 @@ def _load_data(request) -> Union[Dict, None]:
 
 def _alias(distinct_id: str, new_distinct_id: str, team: Team):
     person = Person.objects.get(team=team, persondistinctid__distinct_id=distinct_id)
-    person.add_distinct_id(new_distinct_id)
+    try:
+        person.add_distinct_id(new_distinct_id)
+    except IntegrityError:
+        pass
 
 def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict, timestamp: Optional[str]=None) -> None:
     elements = properties.get('$elements')
@@ -109,6 +112,10 @@ def get_event(request):
 
     if data['event'] == '$create_alias':
         _alias(distinct_id=distinct_id, new_distinct_id=data['properties']['alias'], team=team)
+        return cors_response(request, JsonResponse({'status': 1}))
+
+    if data['event'] == '$identify' and data['properties'].get('$anon_distinct_id'):
+        _alias(distinct_id=data['properties']['$anon_distinct_id'], new_distinct_id=distinct_id, team=team)
         return cors_response(request, JsonResponse({'status': 1}))
 
     _capture(request=request, team=team, event=data['event'], distinct_id=distinct_id, properties=data['properties'])

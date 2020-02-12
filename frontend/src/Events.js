@@ -6,6 +6,13 @@ import { toParams, fromParams, colors } from './utils';
 import PropTypes from 'prop-types';
 import PropertyFilter from './PropertyFilter';
 
+let eventNameMap = (event) => {
+    if(event.properties.$event_type == 'click') return 'clicked ';
+    if(event.properties.$event_type == 'change') return 'typed something into ';
+    if(event.properties.$event_type == 'submit') return 'submitted ';
+    return event.event
+}
+
 
 export class EventDetails extends Component {
     constructor(props) {
@@ -121,7 +128,7 @@ export class EventsTable extends Component {
                             index > 0 && !moment(event.timestamp).isSame(this.state.events[index - 1].timestamp, 'day') && <tr key={event.id + '_time'}><td colSpan="4" className='event-day-separator'>{moment(event.timestamp).format('LL')}</td></tr>,
                             <tr key={event.id} className={'cursor-pointer event-row ' + (this.state.newEvents.indexOf(event.id) > -1 && 'event-row-new')} onClick={() => this.setState({eventSelected: this.state.eventSelected != event.id ? event.id : false})}>
                                 <td>
-                                    {event.properties.$event_type == 'click' ? 'clicked ' : event.event}
+                                    {eventNameMap(event)}
                                     {event.elements.length > 0 && <pre style={{marginBottom: 0, display: 'inline'}}>&lt;{event.elements[0].tag_name}&gt;</pre>}
                                     {event.elements.length > 0 && event.elements[0].text && ' with text "' + event.elements[0].text + '"'}
                                 </td>

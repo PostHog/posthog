@@ -129,6 +129,31 @@ class TestCapture(BaseTest):
         self.assertEqual(Event.objects.count(), 0)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
 
+    def test_distinct_with_anonymous_id(self):
+        Person.objects.create(team=self.team, distinct_ids=['anonymous_id'])
+
+        response = self.client.get('/e/?data=%s' % self._dict_to_json({
+            'event': '$identify',
+            'properties': {
+                '$anon_distinct_id': 'anonymous_id',
+                'token': self.team.api_token,
+                'distinct_id': 'new_distinct_id'
+            },
+        }), content_type='application/json', HTTP_REFERER='https://localhost')
+
+        self.assertEqual(Event.objects.count(), 0)
+        self.assertEqual(Person.objects.get().distinct_ids, ["anonymous_id", "new_distinct_id"])
+
+        # check no errors as this call happens a lot
+        response = self.client.get('/e/?data=%s' % self._dict_to_json({
+            'event': '$identify',
+            'properties': {
+                '$anon_distinct_id': 'anonymous_id',
+                'token': self.team.api_token,
+                'distinct_id': 'new_distinct_id'
+            },
+        }), content_type='application/json', HTTP_REFERER='https://localhost')
+
 class TestBatch(BaseTest):
     TESTS_API = True
     def test_batch_capture(self):
