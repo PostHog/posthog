@@ -48,7 +48,13 @@ def _alias(distinct_id: str, new_distinct_id: str, team: Team):
     try:
         person.add_distinct_id(new_distinct_id)
     except IntegrityError:
-        pass
+        # IntegrityError means a person with new_distinct_id already exists
+        # That can either mean `person` already has that distinct_id, in which case we do nothing
+        # OR it means there is _another_ Person with that distinct _id, in which case we want to remove that person
+        # and add that distinct ID to `person`
+        deletion = Person.objects.filter(persondistinctid__distinct_id=new_distinct_id).exclude(pk=person.id).delete()
+        if deletion[0] > 0:
+            person.add_distinct_id(new_distinct_id)
 
 def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict, timestamp: Optional[str]=None) -> None:
     elements = properties.get('$elements')
@@ -95,6 +101,7 @@ def _engage(team: Team, distinct_id: str, properties: Dict):
 @csrf_exempt
 def get_event(request):
     data = _load_data(request)
+
     if not data:
         return cors_response(request, HttpResponse("1"))
 
