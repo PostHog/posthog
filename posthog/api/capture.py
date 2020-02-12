@@ -40,7 +40,7 @@ def _load_data(request) -> Union[Dict, None]:
         data = json.loads(data)
     except json.JSONDecodeError:
         # if not, it's probably base64 encoded from other libraries
-        data = json.loads(base64.b64decode(data).decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
+        data = json.loads(base64.b64decode(data + "===").decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
     return data
 
 def _alias(distinct_id: str, new_distinct_id: str, team: Team):

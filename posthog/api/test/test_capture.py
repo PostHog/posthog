@@ -111,6 +111,10 @@ class TestCapture(BaseTest):
         event = Event.objects.get()
         self.assertEqual(event.element_set.all().first().text, '💻 Writing code')
 
+    def test_incorrect_padding(self):
+        response = self.client.get('/e/?data=eyJldmVudCI6IndoYXRldmVmciIsInByb3BlcnRpZXMiOnsidG9rZW4iOiJ0b2tlbjEyMyIsImRpc3RpbmN0X2lkIjoiYXNkZiJ9fQ', content_type='application/json', HTTP_REFERER='https://localhost')
+        self.assertEqual(response.json()['status'], 1)
+
     def test_ignore_empty_request(self):
         response = self.client.get('/e/?data=', content_type='application/json', HTTP_REFERER='https://localhost')
         self.assertEqual(response.content, b"1")
