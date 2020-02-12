@@ -35,7 +35,7 @@ export default class Funnels extends Component {
                         <td>{funnel.steps[0] && percentage(funnel.steps[funnel.steps.length -1].people.length / funnel.steps[0].people.length)}</td>
                         <td>{funnel.steps[0] && funnel.steps[0].people.length}</td>
                         <td>{funnel.steps[funnel.steps.length - 1] && funnel.steps[funnel.steps.length -1].people.length}</td>
-                        <td>{funnel.steps[0] && funnel.steps[0].people.length}</td>
+                        <td>{funnel.steps[0] && funnel.steps[0].length}</td>
                         <td style={{fontSize: 16}}>
                             <Link to={'/funnel/' + funnel.id}><i className='fi flaticon-edit' /></Link>
                             <DeleteWithUndo
