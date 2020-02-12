@@ -227,7 +227,7 @@ class Event(models.Model):
                 continue
             if selector.get('tag_name') and selector['tag_name'] != element.tag_name:
                 continue
-            if selector.get('attr_class') and not all(name in element.attr_class for name in selector['attr_class']):
+            if selector.get('attr_class') and (not element.attr_class or not all(name in element.attr_class for name in selector['attr_class'])):
                 continue
             if selector.get('nth_child') and selector['nth_child'] != element.nth_child:
                 continue
