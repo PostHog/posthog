@@ -29,7 +29,7 @@ body {
 
 .form-signin {
   width: 100%;
-  max-width: 330px;
+  max-width: 400px;
   padding: 15px;
   margin: auto;
 }
@@ -46,15 +46,65 @@ body {
 .form-signin .form-control:focus {
   z-index: 2;
 }
-.form-signin input[type="email"] {
-  margin-bottom: -1px;
-  border-bottom-right-radius: 0;
-  border-bottom-left-radius: 0;
+.form-signin-inputs input {
+    border-radius: 0;
+    margin-bottom: -1px;
 }
-.form-signin input[type="password"] {
-  margin-bottom: 10px;
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
+.form-signin-inputs input:first-child {
+  border-radius: 0.25rem 0.25rem 0 0;
+}
+.form-signin input:last-child {
+  border-radius: 0 0 0.25rem 0.25rem;
+}
+
+.field {
+  display: flex;
+  flex-flow: column-reverse;
+  margin-bottom: 1em;
+}
+.field label, .field input {
+  transition: all 0.2s;
+  touch-action: manipulation;
+  color: #495057;
+}
+
+.field input {
+  font-size: 1.5em;
+  border: 0;
+  border-bottom: 1px solid #ccc;
+  font-family: inherit;
+  -webkit-appearance: none;
+  border-radius: 0;
+  padding: 0;
+  cursor: text;
+}
+
+.field input:focus {
+  outline: 0;
+  border-bottom: 1px solid #666;
+}
+
+input:placeholder-shown + label {
+  cursor: text;
+  max-width: 66.66%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform-origin: left bottom;
+  transform: translate(0, 2.125rem) scale(1.5);
+}
+::-webkit-input-placeholder {
+  opacity: 0;
+  transition: inherit;
+}
+input:focus::-webkit-input-placeholder {
+  opacity: 1;
+}
+input:not(:placeholder-shown) + label,
+input:focus + label {
+  transform: translate(0, 0) scale(1);
+  cursor: pointer;
+color: var(--blue)
 }</style>
   {% block head %}
   {% endblock %}
