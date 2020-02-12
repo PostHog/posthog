@@ -1,4 +1,4 @@
-# Posthog
+# PostHog
 
 PostHog is developer-friendly, self-hosted product analytics. Automate the collection of every event on your website or app, and stay in control of your users’ data.
 
