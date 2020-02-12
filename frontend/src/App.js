@@ -59,10 +59,7 @@ export default class App extends React.Component {
             this.setState({user: user});
             if(user && user.id) {
                 Sentry.setUser({"email": user.email, "id": user.id});
-                posthog.identify(user.id);
-                posthog.people.set({
-                    "email": user.email
-                })
+                posthog.identify(user.distinct_id);
             }
         }).catch(() => this.setState({user: false}));
     }
