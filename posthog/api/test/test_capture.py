@@ -1,5 +1,6 @@
 from .base import BaseTest
-from posthog.models import Event, Person
+from posthog.models import Event, Person, Team, User
+from django.test import TransactionTestCase
 import base64
 import json
 import datetime
@@ -129,10 +130,22 @@ class TestCapture(BaseTest):
         self.assertEqual(Event.objects.count(), 0)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
 
+class TestAlias(TransactionTestCase):
+    def _create_user(self, email, **kwargs) -> User:
+        user = User.objects.create_user(email, **kwargs)
+        if not hasattr(self, 'team'):
+            self.team: Team = Team.objects.create(api_token='token123')
+        self.team.users.add(user)
+        self.team.save()
+        self.client.force_login(user)
+        return user
+
+
     def test_distinct_with_anonymous_id(self):
+        user = self._create_user('tim@timsomething.com')
         Person.objects.create(team=self.team, distinct_ids=['anonymous_id'])
 
-        response = self.client.get('/e/?data=%s' % self._dict_to_json({
+        response = self.client.get('/e/?data=%s' % json.dumps({
             'event': '$identify',
             'properties': {
                 '$anon_distinct_id': 'anonymous_id',
@@ -144,8 +157,8 @@ class TestCapture(BaseTest):
         self.assertEqual(Event.objects.count(), 0)
         self.assertEqual(Person.objects.get().distinct_ids, ["anonymous_id", "new_distinct_id"])
 
-        # check no errors as this call happens a lot
-        response = self.client.get('/e/?data=%s' % self._dict_to_json({
+        # check no errors as this call can happen multiple times
+        response = self.client.get('/e/?data=%s' % json.dumps({
             'event': '$identify',
             'properties': {
                 '$anon_distinct_id': 'anonymous_id',
@@ -153,6 +166,29 @@ class TestCapture(BaseTest):
                 'distinct_id': 'new_distinct_id'
             },
         }), content_type='application/json', HTTP_REFERER='https://localhost')
+
+    # This case is likely to happen after signup, for example:
+    # 1. User browses website with anonymous_id
+    # 2. User signs up, triggers event with their new_distinct_id (creating a new Person)
+    # 3. In the frontend, try to alias anonymous_id with new_distinct_id
+    # Result should be that we end up with one Person with both ID's
+    def test_distinct_with_anonymous_id_which_was_already_created(self):
+        user = self._create_user('tim@something')
+        Person.objects.create(team=self.team, distinct_ids=['anonymous_id'])
+        Person.objects.create(team=self.team, distinct_ids=['new_distinct_id'])
+
+        response = self.client.get('/e/?data=%s' % json.dumps({
+            'event': '$identify',
+            'properties': {
+                '$anon_distinct_id': 'anonymous_id',
+                'token': self.team.api_token,
+                'distinct_id': 'new_distinct_id'
+            },
+        }), content_type='application/json', HTTP_REFERER='https://localhost')
+
+        # self.assertEqual(Event.objects.count(), 0)
+        self.assertEqual(Person.objects.get().distinct_ids, ["anonymous_id", "new_distinct_id"])
+
 
 class TestBatch(BaseTest):
     TESTS_API = True

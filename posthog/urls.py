@@ -51,6 +51,7 @@ def signup_view(request):
         email = request.POST['email']
         password = request.POST['password']
         company_name = request.POST.get('company_name')
+        is_first_user = not User.objects.exists()
         try:
             user = User.objects.create_user(email=email, password=password, first_name=request.POST.get('name'))
         except:
@@ -58,7 +59,7 @@ def signup_view(request):
         team = Team.objects.create(name=company_name)
         team.users.add(user)
         login(request, user)
-        posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': not User.objects.exists()})
+        posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': is_first_user})
         posthoganalytics.identify(user.distinct_id, properties={
             'email': user.email,
             'company_name': company_name,
