@@ -131,14 +131,46 @@ class BreakdownFilter extends Component {
     }
 }
 
+class ActionFilter extends Component {
+    render() {
+        let { data, actionFilters } = this.props;
+        return <div>
+            <small>
+                <a href='#' onClick={(e) => {e.preventDefault(); this.props.onChange([])}}>Unselect all</a> /&nbsp;
+                <a href='#' onClick={(e) => {e.preventDefault(); this.props.onChange(false)}}>Select all</a>
+            </small><br />
+            {data && data.map((item) => <div>
+                <label className='cursor-pointer filter-action' style={{marginRight: 8, display: 'block', color: item.count > 0 ? 'inherit' : 'var(--gray)'}} key={item.label}>
+                    <input
+                        checked={actionFilters ? actionFilters.indexOf(item.action.id) > -1 : true}
+                        onChange={(e) => {
+                            if(e.target.checked) {
+                                actionFilters.push(item.action.id);
+                            } else {
+                                if(!actionFilters) actionFilters = data.map((item) => item.action.id);
+                                actionFilters = actionFilters.filter((i) => i != item.action.id);
+                            }
+                            this.props.onChange(actionFilters)
+                        }}
+                        type='checkbox' /> {item.action.name} ({item.count})
+                        <small className='filter-action-only'><a href='#' className='float-right' onClick={(e) => {e.preventDefault(); this.setFilters({actions: [item.action.id]})}}>only</a></small>
+                </label>
+            </div>
+            )}
+        </div>
+    }
+}
+
 export default class ActionsGraph extends Component {
     constructor(props) {
         super(props)
     
         this.state = {
+            loading: true
         }
         let filters = fromParams()
         filters.actions = filters.actions && filters.actions.split(',').map((id) => parseInt(id))
+        if(filters.breakdown) filters.display = 'ActionsTable';
         this.state = {filters};
     }
     setFilters(setState) {
@@ -149,12 +181,14 @@ export default class ActionsGraph extends Component {
             breakdown: this.state.filters.breakdown,
             ...setState
         }
+        if(filters.breakdown) filters.display = 'ActionsTable';
         this.props.history.push({
             pathname: this.props.history.location.pathname,
             search: toParams({...filters, actions: filters.actions ? filters.actions.join(',') : false})
         })
         this.setState({
             filters,
+            loading: true
         })
     }
     getPropertyFilters(filters) {
@@ -192,36 +226,20 @@ export default class ActionsGraph extends Component {
                     onChange={e => {
                         this.setFilters({display: e.target.value});
                     }}>
-                    <option value="ActionsLineGraph">Line chart</option>
+                    <option value="ActionsLineGraph" disabled={filters.breakdown}>Line chart {filters.breakdown && '(Not available with breakdown)'}</option>
                     <option value="ActionsTable">Table</option>
                 </select>
                 <br /><br /><br />
                 <div className='row'>
-                    <div className='col-10' style={{height: '70vh'}}>
-                        {(!filters.display || filters.display == 'ActionsLineGraph') && <ActionsLineGraph filters={filters} onData={(data) => this.setState({data})} />}
-                        {filters.display == 'ActionsTable' && <ActionsTable filters={filters} onData={(data) => this.setState({data})} />}
+                    <div className='col-10' style={{minHeight: '70vh'}}>
+                        {this.state.loading && <div className='loading-overlay'><div></div></div>}
+                        {(!filters.display || filters.display == 'ActionsLineGraph') && <ActionsLineGraph filters={filters} onData={(data) => this.setState({data, loading: false})} />}
+                        {filters.display == 'ActionsTable' && <ActionsTable filters={filters} onData={(data) => this.setState({data, loading: false})} />}
                     </div>
                     <div className='col-2'>
                         <strong>Actions</strong><br />
-                        <small>
-                            <a href='#' onClick={(e) => {e.preventDefault(); this.setFilters({actions: []})}}>Unselect all</a> /&nbsp;
-                            <a href='#' onClick={(e) => {e.preventDefault(); this.setFilters({actions: false})}}>Select all</a>
-                        </small><br />
-                        {data && data.map((item) => <label className='cursor-pointer filter-action' style={{marginRight: 8, display: 'block', color: item.count > 0 ? 'inherit' : 'var(--gray)'}} key={item.label}>
-                            <input
-                                checked={filters.actions ? filters.actions.indexOf(item.action.id) > -1 : true}
-                                onChange={(e) => {
-                                    if(e.target.checked) {
-                                        filters.actions.push(item.action.id);
-                                    } else {
-                                        if(!filters.actions) filters.actions = data.map((item) => item.action.id);
-                                        filters.actions = filters.actions.filter((i) => i != item.action.id);
-                                    }
-                                    this.setFilters({actions: filters.actions})
-                                }}
-                                type='checkbox' /> {item.action.name} ({item.count})
-                                <small className='filter-action-only'><a href='#' className='float-right' onClick={(e) => {e.preventDefault(); this.setFilters({actions: [item.action.id]})}}>only</a></small>
-                        </label>)}
+                        
+                        <ActionFilter actionFilters={filters.actions} data={data} onChange={(actions) => this.setFilters({actions})} />
                     </div>
                 </div>
             </div>

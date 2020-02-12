@@ -76,6 +76,37 @@ $body-color:#37352F;
     .fi { font-size: 20px; margin-right: 12px }
 }
 
+@keyframes rotation {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(359deg);
+    }
+  }
+
+.loading-overlay {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background: rgba(0, 0, 0, 0.3);
+    padding-top: 3rem;
+    text-align: center;
+
+    & > div {
+        height: 60px;
+        width: 40px;
+        animation: rotation 1.3s infinite linear;
+    }
+}
+.loading-overlay div::before {
+    content: "\f138";
+    font-family: Flaticon;
+    font-size: 30px;
+}
+
 
 .content{
 	padding: 0 45px;
