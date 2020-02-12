@@ -253,7 +253,9 @@ export class ActionEdit extends Component {
     constructor(props) {
         super(props)
     
-        this.state = {}
+        this.state = {
+            action: {name: '', steps: []}
+        }
         this.temporaryToken = props.temporaryToken ? '?temporary_token=' + props.temporaryToken : ''
         this.fetchAction.call(this);
         this.onSubmit = this.onSubmit.bind(this);
