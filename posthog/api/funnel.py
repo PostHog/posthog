@@ -18,7 +18,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             for step in steps:
                 if person in step['people']:
                     score += 1
-            return score
+            return (score, person)
         return sorted(people, key=order, reverse=True)
 
     def get_steps(self, funnel: Funnel) -> List[Dict[str, Any]]:
@@ -101,4 +101,3 @@ class FunnelViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(deleted=False)
         return queryset\
             .filter(team=self.request.user.team_set.get())
- 
