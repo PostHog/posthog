@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+rm -rf frontend/.cache
 cd frontend
 yarn install
 yarn build-editor
