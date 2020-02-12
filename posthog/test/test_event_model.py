@@ -70,7 +70,7 @@ class TestFilterByActions(BaseTest):
     def test_with_class(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
         event1 = Event.objects.create(team=self.team, distinct_id="whatever")
-        Element.objects.create(event=event1, tag_name='span', attr_class=[''], order=0)
+        Element.objects.create(event=event1, tag_name='span', attr_class=None, order=0)
         Element.objects.create(event=event1, tag_name='a', attr_class=['active', 'nav-link'], order=1)
 
         action1 = Action.objects.create(team=self.team)
@@ -150,3 +150,12 @@ class TestActions(BaseTest):
         Person.objects.create(distinct_ids=["user_paid"], team=self.team)
         event = Event.objects.create(event='user paid', distinct_id='user_paid', team=self.team)
         self.assertEqual(event.actions, [action_user_paid])
+
+    def test_element_class_set_to_none(self):
+        action_user_paid = Action.objects.create(team=self.team, name='user paid')
+        ActionStep.objects.create(action=action_user_paid, selector='a.something')
+        Person.objects.create(distinct_ids=["user_paid"], team=self.team)
+        event = Event.objects.create(event='$autocapture', distinct_id='user_paid', team=self.team)
+        Element.objects.create(event=event, tag_name='a', attr_class=None, order=0)
+        # This would error when attr_class wasn't set.
+        self.assertEqual(event.actions, [])
