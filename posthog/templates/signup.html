@@ -9,10 +9,24 @@
         {% if error %}
         <p>That account already exists. <a href='/login'>Try logging in?</a>.</p>
         {% endif %}
-        <label for="inputEmail" class="sr-only">Email address</label>
-        <input type="email" name='email' id="inputEmail" class="form-control" placeholder="Email address" required autofocus>
-        <label for="inputPassword" class="sr-only">Password</label>
-        <input type="password" name='password' id="inputPassword" class="form-control" placeholder="Password" required>
+        <div class='form-signin-inputs'>
+            <div class='field'>
+                <input type="name" name='company_name' id="inputCompany" value="{{ company_name }}" placeholder="Company name" required autofocus>
+                <label for="inputCompany" >Company name</label>
+            </div>
+            <div class='field'>
+                <input type="name" name='name' id="inputName" placeholder="Name" value="{{ name }}" required>
+                <label for="inputName" >Name</label>
+            </div>
+            <div class='field'>
+                <input type="email" name='email' id="inputEmail" value="{{ email }}" placeholder="Email address" required>
+                <label for="inputEmail">Email address</label>
+            </div>
+            <div class='field'>
+                <input type="password" name='password' id="inputPassword" placeholder="Password" required>
+                <label for="inputPassword">Password</label>
+            </div>
+        </div>
         <p>Already have an account? <a href='/login'>Log in here.</a></p>
         <button class="btn btn-lg btn-primary btn-block" type="submit">Create account</button>
     </form>

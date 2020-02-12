@@ -52,16 +52,17 @@ def signup_view(request):
         password = request.POST['password']
         company_name = request.POST.get('company_name')
         try:
-            user = User.objects.create_user(email=email, password=password)
+            user = User.objects.create_user(email=email, password=password, first_name=request.POST.get('name'))
         except:
-            return render_template('signup.html', request=request, context={'error': True})
+            return render_template('signup.html', request=request, context={'error': True, 'email': request.POST['email'], 'company_name': request.POST.get('company_name'), 'name': request.POST.get('name')})
         team = Team.objects.create(name=company_name)
         team.users.add(user)
         login(request, user)
         posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': not User.objects.exists()})
         posthoganalytics.identify(user.distinct_id, properties={
             'email': user.email,
-            'company_name': company_name
+            'company_name': company_name,
+            'name': user.first_name
         })
         return redirect('/setup')
 
@@ -71,7 +72,7 @@ def setup_admin(request):
     if request.method == 'GET':
         if request.user.is_authenticated:
             return redirect('/')
-        return render_template('setup_admin.html', request)
+        return render_template('signup.html', request)
 
 def logout(request):
     return auth_views.logout_then_login(request)

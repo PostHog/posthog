@@ -16,6 +16,13 @@ export default class Person extends Component {
     render() {
         return this.state.person ? <div>
                 <h1>{this.state.person.name}</h1>
+                <table className='table col-6'>
+                    <tbody>
+                        {Object.entries(this.state.person.properties).map(([key, value]) => <tr>
+                            <th>{key}</th><td>{value}</td>
+                        </tr>)}
+                    </tbody>
+                </table>
                 <EventsTable fixedFilters={{person_id: this.state.person.id}} history={this.props.history} />
             </div>
         : null;

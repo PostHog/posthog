@@ -9,10 +9,14 @@
         {% if error %}
         <p>Your username and password didn't match. Please try again.</p>
         {% endif %}
-        <label for="inputEmail" class="sr-only">Email address</label>
-        <input type="email" name='email' value="{{ email }}" id="inputEmail" class="form-control" placeholder="Email address" required autofocus>
-        <label for="inputPassword" class="sr-only">Password</label>
-        <input type="password" name='password' id="inputPassword" class="form-control" placeholder="Password" required>
+        <div class='field'>
+            <input type="email" name='email' id="inputEmail" placeholder="Email address" value="{{ email }}" required>
+            <label for="inputEmail">Email address</label>
+        </div>
+        <div class='field'>
+            <input type="password" name='password' id="inputPassword" placeholder="Password" required>
+            <label for="inputPassword">Password</label>
+        </div>
         <p>No account? <a href='/signup'>Create one here.</a></p>
         <button class="btn btn-lg btn-primary btn-block" type="submit">Sign in</button>
     </form>

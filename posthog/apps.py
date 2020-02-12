@@ -8,4 +8,3 @@ class PostHogConfig(AppConfig):
 
     def ready(self):
         posthoganalytics.api_key = 'sTMFPsFhdP1Ssg'
-        posthoganalytics.host = 'http://127.0.0.1:8000'
