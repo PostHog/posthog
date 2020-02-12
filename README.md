@@ -1,4 +1,4 @@
-# Posthog
+# PostHog
 
 PostHog is developer-friendly, self-hosted product analytics. Automate the collection of every event on your website or app, and stay in control of your users’ data.
 
@@ -30,7 +30,7 @@ We recommend getting at the very least a `hobby-dev` Postgres and Dyno for low v
 
 ### Docker
 
-Using the [posthog/posthog:latest](https://hub.docker.com/repository/docker/posthog/posthog/general) Docker image.
+Using the [posthog/posthog:latest](https://hub.docker.com/r/posthog/posthog) Docker image.
 
 **On Ubuntu**
 
