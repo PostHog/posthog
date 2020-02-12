@@ -41,7 +41,6 @@ class TestCreateFunnel(BaseTest):
         response = self.client.patch('/api/funnel/%s/' % response['id'], data=response, content_type='application/json').json()
         self.assertEqual(Funnel.objects.get().steps.count(), 0) 
 
-
     def test_delete_funnel(self):
         funnel = Funnel.objects.create(team=self.team)
         response = self.client.patch('/api/funnel/%s/' % funnel.pk, data={'deleted': True, 'steps': []}, content_type='application/json').json()
@@ -114,10 +113,13 @@ class TestGetFunnel(BaseTest):
         self._signup_event('wrong_order')
         self._movie_event('wrong_order')
 
+
         with self.assertNumQueries(14):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
         self.assertEqual(response['steps'][0]['name'], 'signed up')
         self.assertEqual(response['steps'][0]['count'], 4)
+        # check ordering of people in first step
+        self.assertEqual(response['steps'][0]['people'], [person_stopped_after_movie.pk, person_stopped_after_pay.pk, person_stopped_after_signup.pk, person_wrong_order.pk])
         self.assertEqual(response['steps'][1]['name'], 'paid')
         self.assertEqual(response['steps'][1]['count'], 2)
         self.assertEqual(response['steps'][2]['name'], 'watched movie')

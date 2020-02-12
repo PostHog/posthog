@@ -13,7 +13,7 @@ export default class People extends Component {
         this.fetchPeople.call(this);
     }
     fetchPeople() {
-        api.get('api/person').then((data) => this.setState({people: data.results}))
+        api.get('api/person/?include_last_event=1').then((data) => this.setState({people: data.results}))
     }
     FilterLink(props) {
         let filters = {...this.state.filters};

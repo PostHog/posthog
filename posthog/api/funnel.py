@@ -12,6 +12,15 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
         model = Funnel
         fields = ['id', 'name', 'deleted', 'steps']
 
+    def _order_people_in_step(self, steps: List[Dict[str, Any]], people: List[int]) -> List[int]:
+        def order(person):
+            score = 0
+            for step in steps:
+                if person in step['people']:
+                    score += 1
+            return score
+        return sorted(people, key=order, reverse=True)
+
     def get_steps(self, funnel: Funnel) -> List[Dict[str, Any]]:
         steps = []
         people = None
@@ -37,6 +46,8 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
                 'people': [person.id for person in people] if people else [],
                 'count':  count
             })
+        if len(steps) > 0:
+            steps[0]['people'] = self._order_people_in_step(steps, steps[0]['people'])
         return steps
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Funnel:
