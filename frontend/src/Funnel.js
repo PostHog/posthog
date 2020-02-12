@@ -262,7 +262,7 @@ export default class Funnel extends Component {
                                 </td>)}
                             </tr>
                             {people && people.map((person) => <tr key={person.id}>
-                                <td><Link to={'/person/' + person.id}>{person.name}</Link></td>
+                                <td><Link to={'/person/by_id/' + person.id}>{person.name}</Link></td>
                                 {funnel.steps.map((step) => <td
                                     key={step.id}
                                     className={step.people.indexOf(person.id) > -1 ? 'funnel-success' : 'funnel-dropped'}

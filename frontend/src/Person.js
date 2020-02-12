@@ -10,7 +10,13 @@ export default class Person extends Component {
         this.fetchPerson.call(this);
     }
     fetchPerson() {
-        api.get('api/person/by_distinct_id/?distinct_id=' + this.props.match.params.distinct_id).then((person) => this.setState({person}))
+        let url = '';
+        if(this.props.match.params.distinct_id) {
+            url = 'api/person/by_distinct_id/?distinct_id=' + this.props.match.params.distinct_id;
+        } else {
+            url = 'api/person/' + this.props.match.params.id;
+        }
+        api.get(url).then((person) => this.setState({person}))
     }
 
     render() {
