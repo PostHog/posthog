@@ -75,8 +75,8 @@ export default class App extends React.Component {
                                 <PrivateRoute path="/" exact component={Dashboard} user={this.state.user} />
                                 <PrivateRoute path="/setup" component={Setup} user={this.state.user} onUpdateUser={(user) => this.setState({user})} />
                                 <Route path="/events" component={Events} user={this.state.user} />
-                                <Route path="/person/:distinct_id" component={Person} user={this.state.user} />
-                                <Route path="/person/by_id/:id" component={Person} user={this.state.user} />
+                                <Route exact path="/person_by_id/:id" component={Person} user={this.state.user} />
+                                <Route exact path="/person/:distinct_id" component={Person} user={this.state.user} />
                                 <Route path="/people" component={People} user={this.state.user} />
                                 <PrivateRoute path="/actions" exact component={Actions} user={this.state.user} />
                                 <PrivateRoute path="/actions/trends" exact component={ActionsGraph} user={this.state.user} />

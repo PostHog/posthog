@@ -111,6 +111,20 @@ class TestFilterByActions(BaseTest):
         self.assertEqual(events[0], event_watched_movie)
         self.assertEqual(events[0].person_id, person.pk)
 
+    def test_no_person_leakage_from_other_teams(self):
+        action_watch_movie = Action.objects.create(team=self.team, name='watched movie')
+        ActionStep.objects.create(action=action_watch_movie, event='user signed up')
+
+        person = Person.objects.create(distinct_ids=["anonymous_user"], team=self.team)
+        event_watched_movie_anonymous = Event.objects.create(event='user signed up', distinct_id='anonymous_user', team=self.team)
+
+        team2 = Team.objects.create()
+        person2 = Person.objects.create(distinct_ids=["anonymous_user"], team=team2)
+
+        events = Event.objects.filter_by_action(action_watch_movie)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].person_id, person.pk)
+
 
 class TestActions(BaseTest):
     def _signup_event(self, distinct_id: str):

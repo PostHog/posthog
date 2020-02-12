@@ -226,7 +226,7 @@ export default class Funnel extends Component {
     fetchFunnel() {
         api.get('api/funnel/' + this.props.match.params.id).then((funnel) => {
             this.setState({funnel})
-            api.get('api/person/?id=' + funnel.steps[0].people.join(','))
+            api.get('api/person/?id=' + funnel.steps[0].people.slice(0, 99).join(','))
                 .then((people) => this.setState({people: this.sortPeople(people.results)}))
         })
     }
@@ -262,7 +262,7 @@ export default class Funnel extends Component {
                                 </td>)}
                             </tr>
                             {people && people.map((person) => <tr key={person.id}>
-                                <td><Link to={'/person/by_id/' + person.id}>{person.name}</Link></td>
+                                <td className='text-overflow'><Link to={'/person_by_id/' + person.id}>{person.name}</Link></td>
                                 {funnel.steps.map((step) => <td
                                     key={step.id}
                                     className={step.people.indexOf(person.id) > -1 ? 'funnel-success' : 'funnel-dropped'}

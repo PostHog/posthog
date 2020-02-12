@@ -179,7 +179,7 @@ class EventManager(models.Manager):
         query = self._select(count=count, group_by=group_by, group_by_table=group_by_table, count_by=count_by)
 
         joins: List[str] = [
-            'LEFT OUTER JOIN posthog_persondistinctid ON (posthog_event.distinct_id = posthog_persondistinctid.distinct_id) ',
+            'LEFT OUTER JOIN posthog_persondistinctid ON (posthog_event.distinct_id = posthog_persondistinctid.distinct_id AND posthog_persondistinctid.team_id = {}) '.format(action.team_id),
             'LEFT OUTER JOIN posthog_element E0 ON (posthog_event.id = E0.event_id)'
         ]
         where_list: List[str] = []
