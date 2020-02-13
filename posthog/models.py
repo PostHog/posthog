@@ -8,6 +8,7 @@ from django.forms.models import model_to_dict
 from django.utils import timezone
 from typing import List, Tuple, Optional, Any, Union, Dict
 from django.db import transaction
+from sentry_sdk import capture_exception
 
 import secrets
 import re

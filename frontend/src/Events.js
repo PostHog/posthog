@@ -70,11 +70,13 @@ export class EventsTable extends Component {
     
         this.state = {
             filters: fromParams(),
-            newEvents: []
+            newEvents: [],
+            loading: true
         }
         this.fetchEvents = this.fetchEvents.bind(this);
         this.FilterLink = this.FilterLink.bind(this);
         this.pollEvents = this.pollEvents.bind(this);
+        this.clickNext = this.clickNext.bind(this);
         this.pollTimeout = 5000;
         this.fetchEvents();
     }
@@ -85,7 +87,7 @@ export class EventsTable extends Component {
         })
         clearTimeout(this.poller)
         api.get('api/event/?' + params).then((events) => {
-            this.setState({events: events.results});
+            this.setState({events: events.results, hasNext: events.next, loading: false});
             this.poller = setTimeout(this.pollEvents, this.pollTimeout);
         })
     }
@@ -115,14 +117,31 @@ export class EventsTable extends Component {
             }}
             >{typeof props.value === 'object' ? JSON.stringify(props.value) : props.value}</Link>
     }
+    clickNext() {
+        let { events } = this.state;
+        let params = toParams({
+            ...this.state.filters,
+            ...this.props.fixedFilters,
+            before: events[events.length - 1].timestamp
+        })
+        this.setState({hasNext: false})
+        api.get('api/event/?' + params).then((olderEvents) => {
+            this.setState({events: [...events, ...olderEvents.results], hasNext: olderEvents.next, loading: false})
+        });
+    }
     render() {
         let params = ['$current_url']
+        let { filters, events, loading, hasNext} = this.state;
         return (
             <div className='events'>
                 <PropertyFilter propertyFilters={this.state.filters} onChange={(filters) => this.setState({filters}, this.fetchEvents)} history={this.props.history} />
-                <table className='table'>
-                    <tbody>
+                <table className='table' style={{position: 'relative'}}>
+                    {loading && <div className='loading-overlay'><div></div></div>}
+                    <thead>
                         <tr><th>Event</th><th>Person</th><th>Path</th><th>When</th></tr>
+                    </thead>
+                    <tbody>
+                        {loading && <div className='loading'><div></div></div>}
                         {this.state.events && this.state.events.length == 0 && <tr><td colSpan="4">You don't have any items here. If you haven't integrated PostHog yet, <Link to='/setup'>click here to set PostHog up on your app</Link></td></tr>}
                         {this.state.events && this.state.events.map((event, index) => [
                             index > 0 && !moment(event.timestamp).isSame(this.state.events[index - 1].timestamp, 'day') && <tr key={event.id + '_time'}><td colSpan="4" className='event-day-separator'>{moment(event.timestamp).format('LL')}</td></tr>,
@@ -147,6 +166,10 @@ export class EventsTable extends Component {
                         ])}
                     </tbody>
                 </table>
+                {hasNext && <button className='btn btn-primary' onClick={this.clickNext} style={{margin: '2rem auto 15rem', display: 'block'}}>
+                    Load more events
+                </button>}
+                <div style={{marginTop: '15rem'}}></div>
             </div>
         )
     }

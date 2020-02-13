@@ -27,6 +27,10 @@ export default class Person extends Component {
                         {Object.entries(this.state.person.properties).map(([key, value]) => <tr>
                             <th>{key}</th><td>{value}</td>
                         </tr>)}
+                        <tr>
+                            <td>Distinct IDs</td>
+                            <td>{this.state.person.distinct_ids.map((distinct_id) => <pre style={{margin: 0}}>{distinct_id}</pre>)}</td>
+                        </tr>
                     </tbody>
                 </table>
                 <EventsTable fixedFilters={{person_id: this.state.person.id}} history={this.props.history} />

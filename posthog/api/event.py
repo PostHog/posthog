@@ -24,9 +24,10 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
     def get_person(self, event: Event) -> Any:
         if hasattr(event, 'person_properties'):
             return event.person_properties.get('email', event.distinct_id) # type: ignore
-        if hasattr(event, 'person'):
+        try:
             return event.person.properties.get('email', event.distinct_id)
-        return event.distinct_id
+        except:
+            return event.distinct_id
 
     def get_elements(self, event):
         elements = event.element_set.all()
@@ -47,7 +48,7 @@ class EventViewSet(viewsets.ModelViewSet):
             where = None
             if request.GET.get('after'):
                 where = [['posthog_event.timestamp > %s', [request.GET['after']]]]
-            return Event.objects.filter_by_action(action, limit=100, where=where)
+            return Event.objects.filter_by_action(action, limit=101, where=where)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         for key, value in request.GET.items():
@@ -55,6 +56,8 @@ class EventViewSet(viewsets.ModelViewSet):
                 pass
             elif key == 'after':
                 queryset = queryset.filter(timestamp__gt=request.GET['after'])
+            elif key == 'before':
+                queryset = queryset.filter(timestamp__lt=request.GET['before'])
             elif key == 'person_id':
                 person = Person.objects.get(pk=request.GET['person_id'])
                 queryset = queryset.filter(distinct_id__in=person.distinct_ids)
@@ -68,14 +71,18 @@ class EventViewSet(viewsets.ModelViewSet):
         return queryset
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        has_next = False
         if request.GET.get('action_id'):
             queryset: Union[QuerySet, query.RawQuerySet] = self._filter_by_action(request)
+            has_next = len(queryset) > 100
         else:
             queryset = self.get_queryset().prefetch_related(Prefetch('element_set', queryset=Element.objects.order_by('order')))
             queryset = self._filter_request(request, queryset)
+            has_next = queryset.count() > 100
 
         events = [EventSerializer(d).data for d in queryset[0: 100]]
         return response.Response({
+            'next': has_next,
             'results': events
         })
 
