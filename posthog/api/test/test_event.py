@@ -98,7 +98,7 @@ class TestEvents(BaseTest):
         Element.objects.create(tag_name='blabla', href='/moviedd', event=non_matching, order=1)
         Event.objects.create(distinct_id='stopped_after_pay', properties={'$current_url': 'http://whatever.com'}, team=self.team)
 
-        with self.assertNumQueries(20):
+        with self.assertNumQueries(16):
             response = self.client.get('/api/event/actions/').json()
         self.assertEqual(len(response['results']), 4)
         self.assertEqual(response['results'][3]['action']['id'], action_sign_up.pk)
