@@ -96,7 +96,8 @@ $body-color:#37352F;
     text-align: center;
 
     & > div {
-        height: 60px;
+        display: inline-block;
+        height: 44px;
         width: 40px;
         animation: rotation 1.3s infinite linear;
     }
