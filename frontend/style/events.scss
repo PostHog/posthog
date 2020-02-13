@@ -14,8 +14,21 @@
     }
     .event-row {
         transition: background-color 2s;
+        background-color: #fff;
     }
-    .event-row-new {
+    .event-new-events {
+        opacity: 1;
+        transition: max-height 0.1s opacity 0.5s;
+        display: table-row;
+        cursor: pointer;
+
+        & div { opacity: 1; }
+        &.hide {
+            display: none;
+            & div { opacity: 0; max-height: 0}
+        }
+    }
+    .event-row-new, .event-new-events {
         background-color: $gray-300;
 
     }
