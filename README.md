@@ -36,7 +36,7 @@ Using the [posthog/posthog:latest](https://hub.docker.com/r/posthog/posthog) Doc
 
 1. [Install Docker](https://docs.docker.com/installation/ubuntulinux/)
 2. [Install Docker Compose](https://docs.docker.com/compose/install/)
-3.
+3. Run the following:
 ```bash
 sudo apt-get install git
 git clone https://github.com/posthog/posthog.git
@@ -48,7 +48,7 @@ docker-compose up -d
 ### From source
 1. Make sure you have Python >= 3.7 and pip installed
 2. [Install Yarn](https://classic.yarnpkg.com/en/docs/install/#mac-stable)
-3. 
+3. Run the following:
 ```bash
 git clone https://github.com/posthog/posthog.git
 yarn build
