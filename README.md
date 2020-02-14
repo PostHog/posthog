@@ -4,7 +4,7 @@ PostHog is open source product analytics. Automate the collection of every event
 
 See [PostHog docs](https://posthog.com/docs/) for in-depth walk throughs on functionality.
 
-![PostHog dashboard screenshot](https://posthog.com/wp-content/uploads/2020/02/Screenshot-2020-02-13-at-23.03.50.png)
+![PostHog dashboard screenshot](https://posthog.com/wp-content/uploads/2020/02/Screenshot-2020-02-13-at-23.14.36-2.png)
 
 ## Features
 
@@ -17,9 +17,15 @@ See [PostHog docs](https://posthog.com/docs/) for in-depth walk throughs on func
 
 ## Philosophy
 
-We strongly believe 3rd party analytics don't work anymore in a world of Cookie laws, GDPR, CCPA and lots of other 4 letter acronyms. There should be an alternative to sending all of your customer's personal information and usage data to 3rd parties.
+We strongly believe 3rd party analytics don't work anymore in a world of Cookie laws, GDPR, CCPA and lots of other 4 letter acronyms. There should be an alternative to sending all of your users' personal information and usage data to 3rd parties.
 
-PostHog gives you full control over all your customer's data, while being able to do powerful analytics.
+PostHog gives you full control over all your users' data, while being able to do powerful analytics.
+
+## What's cool about this?
+
+PostHog is the only <strong>product-focussed</strong> open source analytics library, with an event and user-driven architecture. That means tracking identifiable (where applicable) user behavior, event funnels, and event autocapture. We are an open source alternative to Mixpanel, Amplitude or Heap.
+
+There are a couple of session-based open source libraries that are nice alternatives to Google Analytics. That's not what we are focussed on.
 
 ## One-line docker preview
 
