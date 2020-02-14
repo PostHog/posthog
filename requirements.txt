@@ -12,6 +12,7 @@ django-loginas==0.3.8
 django-stubs==1.4.0
 djangorestframework==3.11.0
 djangorestframework-stubs==1.1.0
+drf-yasg==1.17.0
 freezegun==0.3.14
 gunicorn==20.0.4
 idna==2.8
