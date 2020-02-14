@@ -165,3 +165,6 @@ REST_FRAMEWORK = {
 
 # You can pass a comma deliminated list of domains with which users can sign up to this service
 RESTRICT_SIGNUPS = os.environ.get('RESTRICT_SIGNUPS', False)
+
+if os.environ.get('INCLUDE_DOCS', False):
+    INSTALLED_APPS.push('drf_yasg')

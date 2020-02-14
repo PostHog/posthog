@@ -12,6 +12,23 @@ from .models import Team, User
 import json
 import posthoganalytics
 
+from rest_framework import permissions
+from drf_yasg.views import get_schema_view
+from drf_yasg import openapi
+
+schema_view = get_schema_view(
+   openapi.Info(
+      title="PostHog API",
+      default_version='v1',
+      description="PostHog's API allows you to do anything you can do in the PostHog frontend.",
+      contact=openapi.Contact(email="hey@posthog.com"),
+      license=openapi.License(name="MIT License"),
+   ),
+   public=True,
+   permission_classes=(permissions.AllowAny,),
+)
+
+
 def render_template(template_name: str, request, context=None) -> HttpResponse:
     template = get_template(template_name)
     html = template.render(context, request=request)
@@ -101,6 +118,11 @@ urlpatterns = [
     path('login', login_view, name='login'),
     path('signup', signup_view, name='signup'),
     path('setup_admin', setup_admin, name='setup_admin'),
+    re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
+    re_path(r'^swagger/$', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
+    re_path(r'^redoc/$', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
+
+
 
     # react frontend
     re_path(r'^.*', decorators.login_required(home)),
