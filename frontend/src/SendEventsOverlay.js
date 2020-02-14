@@ -1,5 +1,6 @@
 import React, { Component } from 'react'
 import { withRouter } from 'react-router-dom';
+import { JSSnippet } from './utils';
 
 class SendEventsOverlay extends Component {
     constructor(props) {
@@ -32,12 +33,7 @@ class SendEventsOverlay extends Component {
                 <div style={{width: 400}} className='overlay-inner'>
                     <h2>Start sending events to PostHog</h2>
                     To get started using PostHog, you'll need to send us some events. By copying the snippet below, you can be up and running in minutes!
-                    <pre className='code'>
-                        {`<script src="${window.location.origin == 'https://app.posthog.com' ? 'https://t.posthog.com' : window.location.origin}/static/array.js"></script>`}<br />
-                        {`<script>`}<br />
-                        {`posthog.init('${this.props.user.team.api_token}')`}<br />
-                        {`</script>`}<br />
-                    </pre>
+                    <JSSnippet user={this.props.user} />
                     <a href='https://github.com/posthog/posthog-python'>Using Python instead?</a><br /><br />
                     {window.location.href.indexOf('127.0.0.1') && <div >
                         <h3>Running locally?</h3>
@@ -45,7 +41,7 @@ class SendEventsOverlay extends Component {
                         <a href='https://heroku.com/deploy?template=https://github.com/posthog/posthog'>
                             <img src="https://www.herokucdn.com/deploy/button.svg" />
                         </a><br /><br />
-                        Alternatively, <a href='https://github.com/PostHog/posthog'>click here</a> for instructions on deploying with Docker or from source.
+                        <a href='https://github.com/PostHog/posthog'>Click here</a> for instructions on deploying with Docker or from source.
                     </div>}
                 </div>
             </div>

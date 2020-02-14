@@ -86,3 +86,13 @@ export class Dropdown extends Component {
         </div>
     }
 }
+
+export let JSSnippet = (props) => {
+    let url = window.location.origin == 'https://app.posthog.com' ? 'https://t.posthog.com' : window.location.origin
+    return <pre className='code'>
+        {`<script src="${url}/static/array.js"></script>`}<br />
+        {`<script>`}<br />
+        {`posthog.init('${props.user.team.api_token}', {api_host: '${url}'})`}<br />
+        {`</script>`}<br />
+    </pre>
+}
