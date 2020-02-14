@@ -1,8 +1,23 @@
 # PostHog
 
-PostHog is developer-friendly, self-hosted product analytics. Automate the collection of every event on your website or app, and stay in control of your users’ data.
+PostHog is open source product analytics. Automate the collection of every event on your website or app, and stay in control of your users’ data.
 
-[PostHog docs](https://posthog.com/docs/) explain the functionality in more depth.
+See [PostHog docs](https://posthog.com/docs/) for in-depth walk throughs on functionality.
+
+## Features
+
+- **Event-based** analytics.
+- **Complete control** over your data -- host it yourself.
+- **Automatically capture** clicks and page views to do analyze what your users are doing **retroactively**. 
+- Libraries for **JS, Python, Ruby** + API for anything else.
+- Beautiful **graphs, funnels and dashboards**.
+- Super easy deploy using **Docker** or **Heroku**.
+
+## Philosophy
+
+We strongly believe 3rd party analytics don't work anymore in a world of Cookie laws, GDPR, CCPA and lots of other 4 letter acronyms. There should be an alternative to sending all of your customer's personal information and usage data to 3rd parties.
+
+PostHog gives you full control over all your customer's data, while being able to do powerful analytics.
 
 ## One-line docker preview
 
