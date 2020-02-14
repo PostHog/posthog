@@ -4,6 +4,8 @@ PostHog is open source product analytics. Automate the collection of every event
 
 See [PostHog docs](https://posthog.com/docs/) for in-depth walk throughs on functionality.
 
+![PostHog dashboard screenshot](https://posthog.com/wp-content/uploads/2020/02/Screenshot-2020-02-13-at-23.03.50.png)
+
 ## Features
 
 - **Event-based** analytics.
