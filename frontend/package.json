@@ -15,6 +15,8 @@
     "bootstrap": "^4.4.1",
     "chart.js": "^2.9.3",
     "core-js": "3",
+    "d3": "^5.15.0",
+    "d3-sankey": "^0.12.3",
     "editor": "^1.0.0",
     "funnel-graph-js": "^1.4.1",
     "moment": "^2.24.0",

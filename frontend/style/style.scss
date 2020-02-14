@@ -132,3 +132,7 @@ pre.code {
     text-overflow: ellipsis;
     max-width: 0;
 }
+.paths {
+    height: 720px;
+    svg { height: 100% !important }
+}

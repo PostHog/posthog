@@ -5,6 +5,7 @@ from rest_framework.decorators import action # type: ignore
 from rest_framework.exceptions import AuthenticationFailed
 from django.db.models import Q, F, Count, Prefetch
 from django.forms.models import model_to_dict
+from django.utils.decorators import method_decorator
 from typing import Any, List, Dict
 import pandas as pd # type: ignore
 import numpy as np # type: ignore
@@ -24,7 +25,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         model = Action
         fields = ['id', 'name', 'steps', 'created_at', 'deleted']
 
-    def get_steps(self, action: Action) -> List:
+    def get_steps(self, action: Action):
         steps = action.steps.all().order_by('id')
         return ActionStepSerializer(steps, many=True).data
 
