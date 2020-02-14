@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { Dropdown, toParams, DeleteWithUndo } from './utils';
 import { toast } from 'react-toastify';
 import { FunnelViz } from './Funnel';
+import SendEventsOverlay from './SendEventsOverlay';
 
 export default class Dashboard extends Component {
     constructor(props) {
@@ -36,7 +37,7 @@ export default class Dashboard extends Component {
         }
         return (
             <div className='row'>
-                {items && (items.length > 0 ? items.map((item) => {
+                {items && items.length > 0 && items.map((item) => {
                     let Panel = typeMap[item.type].element
                     return <div className='col-6' key={item.id}>
                         <div className='card'>
@@ -57,7 +58,8 @@ export default class Dashboard extends Component {
                             </div>
                         </div>
                     </div>
-                }) : <p>You don't have any panels set up. <Link to='/actions/trends'>Click here to create one.</Link></p>)}
+                })}
+                {items && this.props.user.has_events && items.length == 0 && <p>You don't have any panels set up. <Link to='/actions/trends'>Click here to create one.</Link></p>}
             </div>
         )
     }
