@@ -167,4 +167,4 @@ REST_FRAMEWORK = {
 RESTRICT_SIGNUPS = os.environ.get('RESTRICT_SIGNUPS', False)
 
 if os.environ.get('INCLUDE_DOCS', False):
-    INSTALLED_APPS.push('drf_yasg')
+    INSTALLED_APPS.append('drf_yasg')
