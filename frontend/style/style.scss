@@ -49,6 +49,7 @@ $body-color:#37352F;
 @import "sidebar";
 @import "toast";
 @import "trends";
+@import "send-events-overlay";
 
 
 .cursor-pointer { cursor: pointer }
@@ -121,6 +122,7 @@ pre.code {
     border-radius: 3px;
     color: white;
     margin-top: 2rem;
+    font-size: 15px;
 }
 
 .text-overflow {

@@ -1,0 +1,37 @@
+.send-events-overlay {
+    width: 100%;    
+    // background: url(https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png);
+    background-repeat: no-repeat;
+    background-size: contain;
+    font-size: 16px;
+    opacity: 0;
+    position: relative;
+
+    .overlay-image {
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        transition: opacity 1s;
+    }
+
+    &.animate {
+        opacity: 1;
+        transition: opacity 1.3s;
+    }
+    .overlay-inner {
+        transform: translateX(200px);
+    }
+    &.animate .overlay-inner {
+        transform: translateX(0);
+        transition: transform 1.5s;
+    }
+    .overlay {
+        width: 100%;
+        height: 100%;
+        padding: 5rem;
+        background: linear-gradient(125deg, rgb(255, 255, 255) 25%, rgba(255, 255, 255, 0) 100%);
+        position: absolute;
+        top: 0;
+        left: 0;
+    } 
+}
