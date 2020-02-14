@@ -5,6 +5,7 @@ from django.template.loader import get_template
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.contrib.auth import authenticate, login, views as auth_views, decorators
+from django.conf import settings
 
 
 from .api import router, capture, user
@@ -13,8 +14,6 @@ import json
 import posthoganalytics
 
 from rest_framework import permissions
-from drf_yasg.views import get_schema_view
-from drf_yasg import openapi
 
 schema_view = get_schema_view(
    openapi.Info(
@@ -118,12 +117,19 @@ urlpatterns = [
     path('login', login_view, name='login'),
     path('signup', signup_view, name='signup'),
     path('setup_admin', setup_admin, name='setup_admin'),
-    re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
-    re_path(r'^swagger/$', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
-    re_path(r'^redoc/$', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
 
 
 
     # react frontend
     re_path(r'^.*', decorators.login_required(home)),
 ]
+
+
+if settings.INCLUDE_API_DOCS:
+    from drf_yasg.views import get_schema_view
+    from drf_yasg import openapi
+    urlpatterns += [
+        re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
+        re_path(r'^swagger/$', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
+        re_path(r'^redoc/$', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
+    ]
