@@ -115,7 +115,7 @@ urlpatterns = [
 ]
 
 
-if settings.INCLUDE_API_DOCS:
+if hasattr(settings, 'INCLUDE_API_DOCS'):
     from drf_yasg.views import get_schema_view
     from drf_yasg import openapi
     schema_view = get_schema_view(
