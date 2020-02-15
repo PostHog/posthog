@@ -25,7 +25,7 @@ PostHog gives you full control over all your users' data, while being able to do
 
 PostHog is the only <strong>product-focussed</strong> open source analytics library, with an event and user-driven architecture. That means tracking identifiable (where applicable) user behavior, event funnels, and event autocapture. We are an open source alternative to Mixpanel, Amplitude or Heap.
 
-There are a couple of session-based open source libraries that are nice alternatives to Google Analytics. That's not what we are focussed on.
+There are a couple of session-based open source libraries that are nice alternatives to Google Analytics. That's not what we are focused on.
 
 ## One-line docker preview
 
