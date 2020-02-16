@@ -111,9 +111,14 @@ urlpatterns = [
 
 
     # react frontend
-    re_path(r'^.*', decorators.login_required(home)),
 ]
 
+if settings.DEBUG:
+    def debug(request):
+        assert False, locals()
+    urlpatterns += [
+        path('debug/', debug)
+    ]
 
 if hasattr(settings, 'INCLUDE_API_DOCS'):
     from drf_yasg.views import get_schema_view
@@ -134,3 +139,8 @@ if hasattr(settings, 'INCLUDE_API_DOCS'):
         re_path(r'^swagger/$', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
         re_path(r'^redoc/$', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
     ]
+
+
+urlpatterns += [
+    re_path(r'^.*', decorators.login_required(home)),
+]
