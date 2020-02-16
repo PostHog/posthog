@@ -100,6 +100,28 @@ class TestCapture(BaseTest):
         event = Event.objects.get()
         self.assertEqual(event.event, '$pageview')
 
+    def test_multiple_events(self):
+        response = self.client.post('/track/', data={
+            'data': json.dumps([{
+                'event': 'beep',
+                'properties': {
+                    'distinct_id': 'eeee',
+                    'token': self.team.api_token,
+                },
+            },
+                {
+                'event': 'boop',
+                'properties': {
+                    'distinct_id': 'aaaa',
+                    'token': self.team.api_token,
+                },
+            } ]),
+            'api_key': self.team.api_token
+        })
+
+        events = Event.objects.all().count()
+        self.assertEqual(events, 2)
+
     def test_emojis_in_text(self):
         self.team.api_token = 'xp9qT2VLY76JJg'
         self.team.save()
