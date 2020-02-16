@@ -6,7 +6,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.contrib.auth import authenticate, login, views as auth_views, decorators
 from django.conf import settings
-
+from django.views.decorators.csrf import csrf_exempt
 
 from .api import router, capture, user
 from .models import Team, User
@@ -114,6 +114,7 @@ urlpatterns = [
 ]
 
 if settings.DEBUG:
+    @csrf_exempt
     def debug(request):
         assert False, locals()
     urlpatterns += [
