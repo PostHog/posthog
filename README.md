@@ -85,6 +85,8 @@ pip install -r requirements.txt
 gunicorn posthog.wsgi --config gunicorn.config.py --log-file -
 ```
 
+### Running behind a proxy?
+Make sure you set the `IS_BEHIND_PROXY` environment variable which will set the HTTP_X_FORWARDED_PROTO header.
 
 # Development
 ## Running backend (Django)
