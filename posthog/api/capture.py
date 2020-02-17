@@ -52,9 +52,12 @@ def _alias(distinct_id: str, new_distinct_id: str, team: Team):
         # That can either mean `person` already has that distinct_id, in which case we do nothing
         # OR it means there is _another_ Person with that distinct _id, in which case we want to remove that person
         # and add that distinct ID to `person`
-        deletion = Person.objects.filter(persondistinctid__distinct_id=new_distinct_id).exclude(pk=person.id).delete()
-        if deletion[0] > 0:
+        previous_person = Person.objects.filter(persondistinctid__distinct_id=new_distinct_id).exclude(pk=person.id)
+        if previous_person.exists():
+            person.properties.update(previous_person.first().properties) # type: ignore
+            previous_person.delete()
             person.add_distinct_id(new_distinct_id)
+            person.save()
 
 def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict, timestamp: Optional[str]=None) -> None:
     elements = properties.get('$elements')
@@ -90,7 +93,7 @@ def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict
     except IntegrityError: 
         pass # person already exists, which is fine
 
-def _engage(team: Team, distinct_id: str, properties: Dict):
+def _update_person_properties(team: Team, distinct_id: str, properties: Dict):
     try:
         person = Person.objects.get(team=team, persondistinctid__distinct_id=str(distinct_id))
     except Person.DoesNotExist:
@@ -169,10 +172,10 @@ def get_engage(request):
     if isinstance(data, list):
         for i in data:
             if i.get('$set'):
-                _engage(distinct_id=i['$distinct_id'], properties=i['$set'], team=team)
+                _update_person_properties(distinct_id=i['$distinct_id'], properties=i['$set'], team=team)
     else:
         if data.get('$set'):
-            _engage(distinct_id=data['$distinct_id'], properties=data['$set'], team=team)
+            _update_person_properties(distinct_id=data['$distinct_id'], properties=data['$set'], team=team)
 
     return cors_response(request, JsonResponse({'status': 1}))
 
@@ -205,7 +208,7 @@ def batch(request):
                 timestamp=data.get('timestamp', None)
             )
         elif data['type'] == 'identify':
-            _engage(
+            _update_person_properties(
                 distinct_id=data['distinct_id'],
                 properties=data['$set'],
                 team=team

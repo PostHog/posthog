@@ -158,7 +158,7 @@ class TestCapture(BaseTest):
 
 class TestAlias(TransactionTestCase):
     def _create_user(self, email, **kwargs) -> User:
-        user = User.objects.create_user(email, **kwargs)
+        user: User = User.objects.create_user(email, **kwargs)
         if not hasattr(self, 'team'):
             self.team: Team = Team.objects.create(api_token='token123')
         self.team.users.add(user)
@@ -201,7 +201,7 @@ class TestAlias(TransactionTestCase):
     def test_distinct_with_anonymous_id_which_was_already_created(self):
         user = self._create_user('tim@something')
         Person.objects.create(team=self.team, distinct_ids=['anonymous_id'])
-        Person.objects.create(team=self.team, distinct_ids=['new_distinct_id'])
+        Person.objects.create(team=self.team, distinct_ids=['new_distinct_id'], properties={'email': 'someone@gmail.com'})
 
         response = self.client.get('/e/?data=%s' % json.dumps({
             'event': '$identify',
@@ -213,7 +213,9 @@ class TestAlias(TransactionTestCase):
         }), content_type='application/json', HTTP_REFERER='https://localhost')
 
         # self.assertEqual(Event.objects.count(), 0)
-        self.assertEqual(Person.objects.get().distinct_ids, ["anonymous_id", "new_distinct_id"])
+        person = Person.objects.get()
+        self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id"])
+        self.assertEqual(person.properties['email'], 'someone@gmail.com')
 
 
 class TestBatch(BaseTest):
@@ -240,8 +242,11 @@ class TestBatch(BaseTest):
                     "library": "posthog-python",
                     "library_version": "1.3.0b1",
                     "distinct_id":"test_id",
-                    "type":"capture",
-                    "event":"user did something else",
+                    "type":"identify",
+                    "$set": {
+                        "email": "some@gmail.com"
+                    },
+                    "event":"$identify",
                     "messageId":"2b5c5750-46fc-4b21-8aa8-27032e8afb16",
                 }
             ]
@@ -251,9 +256,9 @@ class TestBatch(BaseTest):
         self.assertEqual(events[0].event, 'user signed up')
         self.assertEqual(events[0].properties, {'property1': 'value', 'property2': 'value'})
         self.assertEqual(events[0].timestamp, datetime.datetime(2020, 2, 10, 1, 45, 20, 777210, tzinfo=pytz.UTC))
-        self.assertEqual(events[1].event, 'user did something else')
 
         self.assertEqual(Person.objects.get(persondistinctid__distinct_id='test_id').distinct_ids, ['test_id'])
+        self.assertEqual(Person.objects.get(persondistinctid__distinct_id='test_id').properties['email'], 'some@gmail.com')
 
     def test_batch_alias(self):
         Person.objects.create(team=self.team, distinct_ids=['old_distinct_id'])
