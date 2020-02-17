@@ -34,6 +34,10 @@ if not DEBUG and not TEST:
             integrations=[DjangoIntegration()]
         )
 
+
+if os.environ.get('IS_BEHIND_PROXY', False):
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 
@@ -165,3 +169,7 @@ REST_FRAMEWORK = {
 
 # You can pass a comma deliminated list of domains with which users can sign up to this service
 RESTRICT_SIGNUPS = os.environ.get('RESTRICT_SIGNUPS', False)
+
+if os.environ.get('INCLUDE_DOCS', False):
+    INCLUDE_API_DOCS = True
+    INSTALLED_APPS.append('drf_yasg')

@@ -8,6 +8,7 @@ from django.forms.models import model_to_dict
 from django.utils import timezone
 from typing import List, Tuple, Optional, Any, Union, Dict
 from django.db import transaction
+from sentry_sdk import capture_exception
 
 import secrets
 import re
@@ -314,6 +315,8 @@ class PersonManager(models.Manager):
 class Person(models.Model):
     @property
     def distinct_ids(self) -> List[str]:
+        if hasattr(self, 'distinct_ids_cache'):
+            return [id.distinct_id for id in self.distinct_ids_cache] # type: ignore
         return [id[0] for id in PersonDistinctId.objects.filter(person=self).order_by('id').values_list('distinct_id')]
 
     def add_distinct_id(self, distinct_id: str) -> None:

@@ -1,5 +1,6 @@
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
+from posthog.models import Event
 
 import urllib.parse
 import secrets
@@ -21,6 +22,7 @@ def user(request):
         'distinct_id': request.user.distinct_id,
         'name': request.user.first_name,
         'email': request.user.email,
+        'has_events': Event.objects.filter(team=team).exists(),
         'team': {
             'app_url': team.app_url,
             'api_token': team.api_token

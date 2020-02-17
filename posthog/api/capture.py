@@ -52,9 +52,12 @@ def _alias(distinct_id: str, new_distinct_id: str, team: Team):
         # That can either mean `person` already has that distinct_id, in which case we do nothing
         # OR it means there is _another_ Person with that distinct _id, in which case we want to remove that person
         # and add that distinct ID to `person`
-        deletion = Person.objects.filter(persondistinctid__distinct_id=new_distinct_id).exclude(pk=person.id).delete()
-        if deletion[0] > 0:
+        previous_person = Person.objects.filter(persondistinctid__distinct_id=new_distinct_id).exclude(pk=person.id)
+        if previous_person.exists():
+            person.properties.update(previous_person.first().properties) # type: ignore
+            previous_person.delete()
             person.add_distinct_id(new_distinct_id)
+            person.save()
 
 def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict, timestamp: Optional[str]=None) -> None:
     elements = properties.get('$elements')
@@ -90,7 +93,7 @@ def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict
     except IntegrityError: 
         pass # person already exists, which is fine
 
-def _engage(team: Team, distinct_id: str, properties: Dict):
+def _update_person_properties(team: Team, distinct_id: str, properties: Dict):
     try:
         person = Person.objects.get(team=team, persondistinctid__distinct_id=str(distinct_id))
     except Person.DoesNotExist:
@@ -98,23 +101,8 @@ def _engage(team: Team, distinct_id: str, properties: Dict):
     person.properties.update(properties)
     person.save()
 
-@csrf_exempt
-def get_event(request):
-    data = _load_data(request)
-
-    if not data:
-        return cors_response(request, HttpResponse("1"))
-
-    if request.POST.get('api_key'):
-        token = request.POST['api_key']
-    else:
-        token = data['properties'].pop('token')
-
-    try:
-        team = Team.objects.get(api_token=token)
-    except Team.DoesNotExist:
-        return cors_response(request, JsonResponse({'code': 'validation', 'message': "API key is incorrect. You can find your API key in the /setup page in PostHog."}, status=400))
-
+# this should probably go elsewhere, and have proper types
+def process_event(request, data: dict, team):
     distinct_id = str(data['properties']['distinct_id'])
 
     if data['event'] == '$create_alias':
@@ -126,6 +114,33 @@ def get_event(request):
         return cors_response(request, JsonResponse({'status': 1}))
 
     _capture(request=request, team=team, event=data['event'], distinct_id=distinct_id, properties=data['properties'])
+
+@csrf_exempt
+def get_event(request):
+    data = _load_data(request)
+
+    if not data:
+        return cors_response(request, HttpResponse("1"))
+
+    if request.POST.get('api_key'):
+        token = request.POST['api_key']
+    elif isinstance(data, list) and len(data) > 0:
+        # do this just to take the auth token
+        token = data[0]['properties']['token']
+    else:
+        token = data['properties'].pop('token')
+
+    try:
+        team = Team.objects.get(api_token=token)
+    except Team.DoesNotExist:
+        return cors_response(request, JsonResponse({'code': 'validation', 'message': "API key is incorrect. You can find your API key in the /setup page in PostHog."}, status=400))
+
+    if isinstance(data, list):
+        for i in data:
+            process_event(request, i, team)
+    else:
+        process_event(request, data, team)
+
     return cors_response(request, JsonResponse({'status': 1}))
 
 
@@ -141,6 +156,11 @@ def get_engage(request):
     
     if request.POST.get('api_key'):
         token = request.POST['api_key']
+    elif isinstance(data, list) and len(data) > 0:
+        # do this just to take the auth token, otherwise we need to look at each
+        # item individually
+        # also weirdly, it's called $token here, but token elsewhere 🤔
+        token = data[0].get('$token')
     else:
         token = data.pop('$token')
 
@@ -149,8 +169,13 @@ def get_engage(request):
     except Team.DoesNotExist:
         return cors_response(request, JsonResponse({'code': 'validation', 'message': "API key is incorrect. You can find your API key in the /setup page in PostHog."}, status=400))
 
-    if data.get('$set'):
-        _engage(distinct_id=data['$distinct_id'], properties=data['$set'], team=team)
+    if isinstance(data, list):
+        for i in data:
+            if i.get('$set'):
+                _update_person_properties(distinct_id=i['$distinct_id'], properties=i['$set'], team=team)
+    else:
+        if data.get('$set'):
+            _update_person_properties(distinct_id=data['$distinct_id'], properties=data['$set'], team=team)
 
     return cors_response(request, JsonResponse({'status': 1}))
 
@@ -183,7 +208,7 @@ def batch(request):
                 timestamp=data.get('timestamp', None)
             )
         elif data['type'] == 'identify':
-            _engage(
+            _update_person_properties(
                 distinct_id=data['distinct_id'],
                 properties=data['$set'],
                 team=team

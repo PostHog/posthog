@@ -5,12 +5,18 @@ from django.template.loader import get_template
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.contrib.auth import authenticate, login, views as auth_views, decorators
-
+from django.conf import settings
+from django.views.decorators.csrf import csrf_exempt
 
 from .api import router, capture, user
 from .models import Team, User
 import json
 import posthoganalytics
+
+from rest_framework import permissions
+
+
+
 
 def render_template(template_name: str, request, context=None) -> HttpResponse:
     template = get_template(template_name)
@@ -102,6 +108,40 @@ urlpatterns = [
     path('signup', signup_view, name='signup'),
     path('setup_admin', setup_admin, name='setup_admin'),
 
+
+
     # react frontend
+]
+
+if settings.DEBUG:
+    @csrf_exempt
+    def debug(request):
+        assert False, locals()
+    urlpatterns += [
+        path('debug/', debug)
+    ]
+
+if hasattr(settings, 'INCLUDE_API_DOCS'):
+    from drf_yasg.views import get_schema_view
+    from drf_yasg import openapi
+    schema_view = get_schema_view(
+        openapi.Info(
+            title="PostHog API",
+            default_version='v1',
+            description="PostHog's API allows you to do anything you can do in the PostHog frontend.",
+            contact=openapi.Contact(email="hey@posthog.com"),
+            license=openapi.License(name="MIT License"),
+        ),
+        public=True,
+        permission_classes=(permissions.AllowAny,),
+    )
+    urlpatterns += [
+        re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
+        re_path(r'^swagger/$', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
+        re_path(r'^redoc/$', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
+    ]
+
+
+urlpatterns += [
     re_path(r'^.*', decorators.login_required(home)),
 ]

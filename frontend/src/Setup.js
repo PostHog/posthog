@@ -1,5 +1,6 @@
 import React, { Component } from 'react'
 import api from './Api';
+import { JSSnippet } from './utils';
 
 export default class Setup extends Component {
     constructor(props) {
@@ -28,12 +29,7 @@ export default class Setup extends Component {
                 <br /><br />
                 <h2>Integrate PostHog</h2>
                 To integrate PostHog, copy + paste the following snippet to your website. Ideally, put it just above the <pre style={{display: 'inline'}}>&lt;/head&gt;</pre> tag.
-                <pre className='code'>
-                    {`<script src="${window.location.origin == 'https://app.posthog.com' ? 'https://t.posthog.com' : window.location.origin}/static/array.js"></script>`}<br />
-                    {`<script>`}<br />
-                    {`posthog.init('${this.props.user.team.api_token}')`}<br />
-                    {`</script>`}<br />
-                </pre>
+                <JSSnippet user={this.props.user} />
                 <br /><br />
                 <h2>Identifying users</h2>
                 <p>To be able to link back which users made certain actions, you can pass through your own internal ID. Replace <pre style={{display: 'inline'}}>internal_id</pre> with your users' ID in your system.</p>

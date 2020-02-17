@@ -49,6 +49,7 @@ $body-color:#37352F;
 @import "sidebar";
 @import "toast";
 @import "trends";
+@import "send-events-overlay";
 
 
 .cursor-pointer { cursor: pointer }
@@ -96,7 +97,8 @@ $body-color:#37352F;
     text-align: center;
 
     & > div {
-        height: 60px;
+        display: inline-block;
+        height: 44px;
         width: 40px;
         animation: rotation 1.3s infinite linear;
     }
@@ -120,6 +122,7 @@ pre.code {
     border-radius: 3px;
     color: white;
     margin-top: 2rem;
+    font-size: 15px;
 }
 
 .text-overflow {

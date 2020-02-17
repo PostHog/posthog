@@ -18,7 +18,7 @@ import ActionEvents from "./ActionEvents";
 import Setup from "./Setup";
 import ActionsGraph from "./ActionsGraph";
 import Dashboard from "./Dashboard";
-
+import SendEventsOverlay from "./SendEventsOverlay";
 
 class PrivateRoute extends React.Component {
     constructor(props) {
@@ -32,6 +32,7 @@ class PrivateRoute extends React.Component {
             path={this.props.path}
             exact
             render={props => {
+                posthog.capture('$pageview');
                 if(this.props.user) return (<div>
                     <Component {...this.props} {...props} user={this.props.user} history={props.history} />
                 </div>);
@@ -63,6 +64,7 @@ export default class App extends React.Component {
             }
         }).catch(() => this.setState({user: false}));
     }
+    
     render() {
         return this.state.user != null && (
             <Router>
@@ -72,21 +74,23 @@ export default class App extends React.Component {
                         <div className="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 flex-grow-1 py-3 content">
                             <Topcontent user={this.state.user} />
                             <div style={{marginTop: '3rem'}}>
-                                <PrivateRoute path="/" exact component={Dashboard} user={this.state.user} />
+                                <SendEventsOverlay user={this.state.user} />
+                                {this.state.user.has_events && <div>
+                                    <PrivateRoute path="/" exact component={Dashboard} user={this.state.user} />
+                                    <PrivateRoute path="/actions" exact component={Actions} user={this.state.user} />
+                                    <PrivateRoute path="/actions/trends" exact component={ActionsGraph} user={this.state.user} />
+                                    <PrivateRoute path="/actions/live" component={ActionEvents} user={this.state.user} />
+                                    <PrivateRoute path="/funnel" exact component={Funnels} user={this.state.user} />
+                                </div>}
                                 <PrivateRoute path="/setup" component={Setup} user={this.state.user} onUpdateUser={(user) => this.setState({user})} />
-                                <Route path="/events" component={Events} user={this.state.user} />
-                                <Route exact path="/person_by_id/:id" component={Person} user={this.state.user} />
-                                <Route exact path="/person/:distinct_id" component={Person} user={this.state.user} />
-                                <Route path="/people" component={People} user={this.state.user} />
-                                <PrivateRoute path="/actions" exact component={Actions} user={this.state.user} />
-                                <PrivateRoute path="/actions/trends" exact component={ActionsGraph} user={this.state.user} />
-                                <PrivateRoute path="/actions/live" component={ActionEvents} user={this.state.user} />
+                                <PrivateRoute path="/events" component={Events} user={this.state.user} />
+                                <PrivateRoute exact path="/person_by_id/:id" component={Person} user={this.state.user} />
+                                <PrivateRoute exact path="/person/:distinct_id" component={Person} user={this.state.user} />
+                                <PrivateRoute path="/people" component={People} user={this.state.user} />
                                 <PrivateRoute path="/action/:id" component={Action} user={this.state.user} />
                                 <PrivateRoute path="/action" component={Action} user={this.state.user} />
-                                <Route path="/new-funnel" component={EditFunnel} user={this.state.user} />
-                                <Route path="/funnel/:id" exact component={Funnel} user={this.state.user} />
-                                <Route path="/funnel" exact component={Funnels} user={this.state.user} />
-                                <Route path="/login/:signup_token?" strict={false} render={props => { trackPageView(); return <Login {...props} />}} />
+                                <PrivateRoute path="/new-funnel" component={EditFunnel} user={this.state.user} />
+                                <PrivateRoute path="/funnel/:id" exact component={Funnel} user={this.state.user} />
                             </div>
                         </div>
                         <ToastContainer

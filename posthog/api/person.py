@@ -1,7 +1,7 @@
-from posthog.models import Event, Team, Person
+from posthog.models import Event, Team, Person, PersonDistinctId
 from rest_framework import serializers, viewsets, response
 from rest_framework.decorators import action
-from django.db.models import Q
+from django.db.models import Q, Prefetch
 from .event import EventSerializer
 from typing import Union
 
@@ -16,9 +16,9 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
     def get_last_event(self, person: Person) -> Union[dict, None]:
         if not self.context['request'].GET.get('include_last_event'):
             return None
-        last_event = Event.objects.filter(team_id=person.team_id, properties__distinct_id__contained_by=person.distinct_ids).order_by('-timestamp').first()
+        last_event = Event.objects.filter(team_id=person.team_id, distinct_id__in=person.distinct_ids).order_by('-timestamp').first()
         if last_event:
-            return EventSerializer(last_event).data
+            return {'timestamp': last_event.timestamp}
         else:
             return None
 
@@ -40,6 +40,7 @@ class PersonViewSet(viewsets.ModelViewSet):
             if self.request.GET.get('id'):
                 people = self.request.GET['id'].split(',')
                 queryset = queryset.filter(id__in=people)
+            queryset = queryset.prefetch_related(Prefetch('persondistinctid_set', to_attr='distinct_ids_cache'))
         return queryset.order_by('-id')
 
     @action(methods=['GET'], detail=False)
@@ -48,4 +49,3 @@ class PersonViewSet(viewsets.ModelViewSet):
         person = self.get_queryset().filter(persondistinctid__distinct_id=str(request.GET['distinct_id'])).first()
         
         return response.Response(PersonSerializer(person, context={'request': request}).data)
-

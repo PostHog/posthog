@@ -1,8 +1,37 @@
 # PostHog
 
-PostHog is developer-friendly, self-hosted product analytics. Automate the collection of every event on your website or app, and stay in control of your users’ data.
+PostHog is open source product analytics. Automate the collection of every event on your website or app, and stay in control of your users’ data.
 
-[PostHog docs](https://posthog.com/docs/) explain the functionality in more depth.
+## Quick start
+
+1 click Heroku deploy:
+
+[![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/posthog/posthog)
+
+See [PostHog docs](https://github.com/PostHog/posthog/wiki) for in-depth walk throughs on functionality.
+
+![PostHog dashboard screenshot](https://posthog.com/wp-content/uploads/2020/02/Screenshot-2020-02-13-at-23.14.36-2.png)
+
+## Features
+
+- **Event-based** analytics.
+- **Complete control** over your data -- host it yourself.
+- **Automatically capture** clicks and page views to do analyze what your users are doing **retroactively**. 
+- Libraries for **JS, Python, Ruby** + API for anything else.
+- Beautiful **graphs, funnels and dashboards**.
+- Super easy deploy using **Docker** or **Heroku**.
+
+## Philosophy
+
+We strongly believe 3rd party analytics don't work anymore in a world of Cookie laws, GDPR, CCPA and lots of other 4 letter acronyms. There should be an alternative to sending all of your users' personal information and usage data to 3rd parties.
+
+PostHog gives you full control over all your users' data, while being able to do powerful analytics.
+
+## What's cool about this?
+
+PostHog is the only <strong>product-focused</strong> open source analytics library, with an event and user-driven architecture. That means tracking identifiable (where applicable) user behavior, event funnels, and event autocapture. We are an open source alternative to Mixpanel, Amplitude or Heap.
+
+There are a couple of session-based open source libraries that are nice alternatives to Google Analytics. That's not what we are focused on.
 
 ## One-line docker preview
 
@@ -36,7 +65,7 @@ Using the [posthog/posthog:latest](https://hub.docker.com/r/posthog/posthog) Doc
 
 1. [Install Docker](https://docs.docker.com/installation/ubuntulinux/)
 2. [Install Docker Compose](https://docs.docker.com/compose/install/)
-3.
+3. Run the following:
 ```bash
 sudo apt-get install git
 git clone https://github.com/posthog/posthog.git
@@ -48,7 +77,7 @@ docker-compose up -d
 ### From source
 1. Make sure you have Python >= 3.7 and pip installed
 2. [Install Yarn](https://classic.yarnpkg.com/en/docs/install/#mac-stable)
-3. 
+3. Run the following:
 ```bash
 git clone https://github.com/posthog/posthog.git
 yarn build
@@ -56,6 +85,8 @@ pip install -r requirements.txt
 gunicorn posthog.wsgi --config gunicorn.config.py --log-file -
 ```
 
+### Running behind a proxy?
+Make sure you set the `IS_BEHIND_PROXY` environment variable which will set the HTTP_X_FORWARDED_PROTO header.
 
 # Development
 ## Running backend (Django)
