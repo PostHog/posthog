@@ -10,11 +10,11 @@ services:
     build:
       context: .
       dockerfile: production.Dockerfile
-    command: gunicorn posthog.wsgi --bind 0.0.0.0:5000 --log-file -
+    command: gunicorn posthog.wsgi --bind 0.0.0.0:8000 --log-file -
     volumes:
       - .:/code
     ports:
-      - "5000:5000"
+      - "8000:8000"
     environment:
       IS_DOCKER: "true"
       DATABASE_URL: "postgres://posthog@db:5432/posthog"
