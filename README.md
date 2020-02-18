@@ -121,6 +121,6 @@ If you are working on some changes, please create a new branch, submit it to git
 * And commit with a message `git commit -m "%your feature description%" `
 * When pushing to github make sure you push your branch name and not master! Use `git push origin %your_branch_name%`
 
-## Open source
+# Open source / Paid
 
 This repo is entirely MIT licensed. We charge for things like permissioning, data lake integrations, and support. Please email hey@posthog.com if you have more complex requirements and we can gladly help with your implementation.
