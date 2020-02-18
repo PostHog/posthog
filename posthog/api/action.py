@@ -3,7 +3,7 @@ from rest_framework import request, serializers, viewsets, authentication # type
 from rest_framework.response import Response
 from rest_framework.decorators import action # type: ignore
 from rest_framework.exceptions import AuthenticationFailed
-from django.db.models import Q, F, Count
+from django.db.models import Q, F, Count, Prefetch
 from django.forms.models import model_to_dict
 from typing import Any, List, Dict
 import pandas as pd # type: ignore
@@ -51,6 +51,8 @@ class ActionViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == 'list':
             queryset = queryset.filter(deleted=False)
+
+        queryset = queryset.prefetch_related(Prefetch('steps', queryset=ActionStep.objects.order_by('id')))
         return queryset\
             .filter(team=self.request.user.team_set.get())\
             .order_by('-id')
@@ -109,7 +111,8 @@ class ActionViewSet(viewsets.ModelViewSet):
             actions_list.append({
                 'id': action.pk,
                 'name': action.name,
-                'count': count
+                'count': count,
+                'steps': ActionStepSerializer(action.steps.all(), many=True).data
             })
         actions_list.sort(key=lambda action: action['count'], reverse=True)
         return Response({'results': actions_list})

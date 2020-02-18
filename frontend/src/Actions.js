@@ -85,6 +85,7 @@ export class ActionsTable extends Component {
                         <tr>
                             <th scope="col">Action ID</th>
                             <th scope="col"># of events</th>
+                            <th scope="col">Type</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -96,6 +97,17 @@ export class ActionsTable extends Component {
                                     <Link to={'/action/' + action.id}>{action.name}</Link>
                                 </td>
                                 <td>{action.count}</td>
+                                <td>{action.steps.map((step) =>
+                                    <div key={step.id}>
+                                        {(() => {
+                                            switch (step.event) {
+                                                case '$autocapture':    return 'Autocapture';
+                                                case '$pageview':       return 'URL matches ' + step.url;
+                                                default:                return 'Event: ' + step.event
+                                            }
+                                        })()}
+                                    </div>)}
+                                </td>
                                 <td style={{fontSize: 16}}>
                                     <Link to={'/action/' + action.id}><i className='fi flaticon-edit' /></Link>
                                     <DeleteWithUndo
