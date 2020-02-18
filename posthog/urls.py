@@ -12,14 +12,32 @@ from .api import router, capture, user
 from .models import Team, User
 import json
 import posthoganalytics
+import os
 
 from rest_framework import permissions
 
 
 
 
-def render_template(template_name: str, request, context=None) -> HttpResponse:
+def render_template(template_name: str, request, context={}) -> HttpResponse:
     template = get_template(template_name)
+    try:
+        context.update({
+            'opt_out_capture': request.user.team_set.get().opt_out_capture
+        })
+    except (Team.DoesNotExist, AttributeError):
+        team = Team.objects.all()
+        # if there's one team on the instance, and they've set opt_out
+        # we'll opt out anonymous users too
+        if team.count() == 1:
+            context.update({
+                'opt_out_capture': team.first().opt_out_capture,
+            })
+
+    if os.environ.get('SENTRY_DSN'):
+        context.update({
+            'sentry_dsn': os.environ['SENTRY_DSN']
+        })
     html = template.render(context, request=request)
     return HttpResponse(html.replace('src="/', 'src="/static/').replace('href="/', 'href="/static/'))
 

@@ -2,6 +2,35 @@ import React, { Component } from 'react'
 import api from './Api';
 import { JSSnippet } from './utils';
 
+class OptOutCapture extends Component {
+    constructor(props) {
+        super(props)
+    
+        this.state = {
+        }
+    }
+    
+    render() {
+        return <div>
+            PostHog uses PostHog (unsurprisingly!) to capture information about how people are using the product.
+            We believe that product analytics are the best way to make PostHog more useful for everyone.<br /><br />
+            We also understand there are many reasons why people don't want to or aren't allowed to send this usage data. Just tick the box below to opt out of this.<br /><br />
+
+            <label>
+                <input
+                    type="checkbox"
+                    onChange={(e) => {
+                        api.update('api/user', {team: {opt_out_capture: e.target.checked}}).then(() => this.setState({saved: true}))
+                    }}
+                    defaultChecked={this.props.user.team.opt_out_capture} />
+                &nbsp;Tick this box to <strong>opt-out</strong> of sending usage data to PostHog.
+            </label>
+            {this.state.saved && <p className='text-success'>Preference saved. <a href='/setup'>Refresh the page for the change to take effect.</a></p>}
+            <br /><br />
+        </div>
+    }
+}
+
 export default class Setup extends Component {
     constructor(props) {
         super(props)
@@ -47,6 +76,9 @@ export default class Setup extends Component {
                     {`    "email": user.email`}<br />
                     {`})`}
                 </pre>
+                <br /><br />
+                <h2>Opt out of capturing</h2>
+                <OptOutCapture user={this.props.user} />
             </div>
         )
     }

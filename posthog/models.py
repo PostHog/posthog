@@ -89,6 +89,7 @@ class Team(models.Model):
     api_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     app_url: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    opt_out_capture: models.BooleanField = models.BooleanField(default=False)
 
     def __str__(self):
         if self.name:
