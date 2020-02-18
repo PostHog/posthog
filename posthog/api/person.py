@@ -37,7 +37,6 @@ class PersonViewSet(viewsets.ModelViewSet):
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         if request.GET.get('id'):
-            request.GET.pop('id')
             people = request.GET['id'].split(',')
             queryset = queryset.filter(id__in=people)
         if request.GET.get('search'):
