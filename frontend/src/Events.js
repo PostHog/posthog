@@ -129,7 +129,7 @@ export class EventsTable extends Component {
                 this.setState({filters}, this.fetchEvents);
                 event.stopPropagation();
             }}
-            >{typeof props.value === 'object' ? JSON.stringify(props.value) : props.value.replace(/(^\w+:|^)\/\//, '')}</Link>
+            >{typeof props.value === 'object' ? JSON.stringify(props.value) : (props.value && props.value.replace(/(^\w+:|^)\/\//, ''))}</Link>
     }
     clickNext() {
         let { events } = this.state;

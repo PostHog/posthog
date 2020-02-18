@@ -43,6 +43,10 @@ class TestAction(BaseTest):
         self.assertEqual(steps[0].text, 'sign up NOW')
         self.assertEqual(steps[1].href, '/a-new-link')
 
+        # test queries
+        with self.assertNumQueries(6):
+            response = self.client.get('/api/action/')
+
         # test remove steps
         response = self.client.patch('/api/action/%s/' % action.pk, data={
             'name': 'user signed up 2',

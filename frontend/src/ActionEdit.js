@@ -322,13 +322,13 @@ export class ActionEdit extends Component {
                 }} />
             )}
             <br />
-            {(action.steps.length == 0 || action.steps[0].selection) && <button
+            <button
                 type="button"
                 className='btn btn-secondary btn-sm'
                 onClick={() => {
                     action.steps.push({isNew: uuid()});
                     this.setState({action: action})
-                }}>Add another match group</button>}
+                }}>Add another match group</button>
             <br /><br />
             {(!isEditor || (action.steps.length > 0 && action.steps[0].selection)) && <div className='btn-group'>
                 <button type="submit" onClick={(e) => this.onSubmit(e)} className='btn btn-success btn-sm'>Save action</button>
