@@ -15,20 +15,6 @@ export let fromParams = () => window.location.search != '' ? window.location.sea
 
 export let colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
 export let percentage = (division) => division.toLocaleString(undefined, {style: 'percent', maximumFractionDigits: 2})
-export let debounce = function debounce(func, wait, immediate) {
-	var timeout;
-	return function() {
-		var context = this, args = arguments;
-		var later = function() {
-			timeout = null;
-			if (!immediate) func.apply(context, args);
-		};
-		var callNow = immediate && !timeout;
-		clearTimeout(timeout);
-		timeout = setTimeout(later, wait);
-		if (callNow) func.apply(context, args);
-	};
-};
 
 export function Card(props) {
     return <div {...props} className={'card ' + props.className} style={props.style}>

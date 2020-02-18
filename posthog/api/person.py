@@ -1,7 +1,7 @@
 from posthog.models import Event, Team, Person, PersonDistinctId
 from rest_framework import serializers, viewsets, response, request
 from rest_framework.decorators import action
-from django.db.models import Q, Prefetch, QuerySet
+from django.db.models import Q, Prefetch, QuerySet, Subquery, OuterRef
 from .event import EventSerializer
 from typing import Union
 from .base import CursorPagination
@@ -55,7 +55,8 @@ class PersonViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        queryset = queryset.filter(team=self.request.user.team_set.get())
+        team = self.request.user.team_set.get()
+        queryset = queryset.filter(team=team)
         queryset = self._filter_request(self.request, queryset)
         return queryset.order_by('-id')
 
