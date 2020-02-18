@@ -38,13 +38,18 @@ export default class PropertyFilter extends Component {
             ))
         }
     }
+    componentDidUpdate(prevProps) {
+        if(JSON.stringify(this.props.propertyFilters) != JSON.stringify(prevProps.propertyFilters)) {
+            this.setState({filters: Object.keys(this.props.propertyFilters).map((key) => ({name: key, value: this.props.propertyFilters[key]}))});
+        }
+    }
     update(filters) {
         let dict = {};
         filters.map((item) => dict[item.name] = item.value)
         this.props.onChange(dict);
     }
     set(index, key, value) {
-        let filters = this.state.filters;
+        let filters = [...this.state.filters];
         filters[index][key] = value;
         this.setState({filters})
         if(key == 'value') this.update(filters);

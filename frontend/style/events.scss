@@ -1,6 +1,14 @@
 .events {
     & > .table {
         table-layout: fixed;
+        & > td:nth-child(4) {
+            width: 80px;
+            text-align: center;
+        }
+        & > td:nth-child(5) {
+            width: 80px;
+            text-align: center;
+        }
         .event-row > td {
             width: 25%;
             overflow: hidden;
