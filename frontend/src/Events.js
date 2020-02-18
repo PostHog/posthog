@@ -18,9 +18,33 @@ export class EventDetails extends Component {
     constructor(props) {
         super(props)
         this.state = {selected: 'properties'}
+        this.ShowElements = this.ShowElements.bind(this);
     }
     indent(n) {
         return Array(n).fill().map(() => <span>&nbsp;&nbsp;&nbsp;&nbsp;</span>)
+    }
+    ShowElements(props) {
+        let { elements } = props;
+        return <div>
+            {elements.map((element, index) => (
+                <pre className='code' style={{margin: 0, padding: 0, borderRadius: 0, ...(index == elements.length -1 ? {backgroundColor: 'var(--blue)'} : {})}}>
+                    {this.indent(index)}
+                    &lt;{element.tag_name} 
+
+                    {element.attr_id && ' id="' + element.attr_id + '"'}
+                    {
+                        Object.entries(element.attributes)
+                            .map(([key, value]) => <span> {key.replace('attr__', '')}="{value}"</span>)
+                    }
+                    &gt;{element.text}
+                    {index == elements.length - 1 && <span>&lt;/{element.tag_name}&gt;</span>}
+                </pre>
+            ))}
+            {[...elements].reverse().slice(1).map((element, index) => <pre className='code' style={{margin: 0, padding: 0, borderRadius: 0}}>
+                {this.indent(elements.length - index - 2)}
+                &lt;/{element.tag_name}&gt;
+            </pre>)}
+        </div>
     }
     render() {
         let { event } = this.props;
@@ -33,32 +57,13 @@ export class EventDetails extends Component {
                 </div>
             </div>
             <div className='col-10'>
-                {this.state.selected == 'properties' ? <div className='d-flex flex-wrap flex-column' style={{height: 200}}>
+                {this.state.selected == 'properties' ? <div className='d-flex flex-wrap flex-column'>
                     {Object.keys(event.properties).sort().map((key) =>
                         <div style={{flex: '0 1 '}} key={key}>
                             <strong>{key}:</strong>
                             {this.props.event.properties[key]}
                     </div>)}
-                </div> : <div>
-                    {elements.map((element, index) => (
-                        <pre className='code' style={{margin: 0, padding: 0, borderRadius: 0, ...(index == elements.length -1 ? {backgroundColor: 'var(--blue)'} : {})}}>
-                            {this.indent(index)}
-                            &lt;{element.tag_name} 
-
-                            {element.attr_id && ' id="' + element.attr_id + '"'}
-                            {
-                                Object.entries(element.attributes)
-                                    .map(([key, value]) => <span> {key.replace('attr__', '')}="{value}"</span>)
-                            }
-                            &gt;{element.text}
-                            {index == elements.length - 1 && <span>&lt;/{element.tag_name}&gt;</span>}
-                        </pre>
-                    ))}
-                    {[...elements].reverse().slice(1).map((element, index) => <pre className='code' style={{margin: 0, padding: 0, borderRadius: 0}}>
-                        {this.indent(elements.length - index - 2)}
-                        &lt;/{element.tag_name}&gt;
-                    </pre>)}
-                </div>}
+                </div> : <this.ShowElements elements={elements} />}
             </div>
         </div>
     }
@@ -78,6 +83,7 @@ export class EventsTable extends Component {
         this.FilterLink = this.FilterLink.bind(this);
         this.pollEvents = this.pollEvents.bind(this);
         this.clickNext = this.clickNext.bind(this);
+        this.EventRow = this.EventRow.bind(this);
         this.clickLoadNewEvents = this.clickLoadNewEvents.bind(this);
         this.pollTimeout = 5000;
         this.fetchEvents();
@@ -87,6 +93,11 @@ export class EventsTable extends Component {
             ...this.state.filters,
             ...this.props.fixedFilters
         })
+        this.props.history.push({
+            pathname: this.props.history.location.pathname,
+            search: params
+        });
+        this.setState({loading: true});
         clearTimeout(this.poller)
         api.get('api/event/?' + params).then((events) => {
             this.setState({events: events.results, hasNext: events.next, loading: false});
@@ -113,11 +124,12 @@ export class EventsTable extends Component {
         return <Link
             to={{pathname: this.props.history.pathname, search: toParams(filters)}}
             onClick={(event) => {
-                this.state.filters[props.property] = props.value;
-                this.setState({filters: this.state.filters});
-                this.fetchEvents();
+                let filters = {...this.state.filters}
+                filters[props.property] = props.value;
+                this.setState({filters}, this.fetchEvents);
+                event.stopPropagation();
             }}
-            >{typeof props.value === 'object' ? JSON.stringify(props.value) : props.value}</Link>
+            >{typeof props.value === 'object' ? JSON.stringify(props.value) : props.value.replace(/(^\w+:|^)\/\//, '')}</Link>
     }
     clickNext() {
         let { events } = this.state;
@@ -135,8 +147,32 @@ export class EventsTable extends Component {
         let { newEvents, events } = this.state;
         this.setState({newEvents: [], events: [...newEvents, ...events], highlightEvents: newEvents.map((event) => event.id)})
     }
+    EventRow(props) {
+        let { event } = props;
+        let { highlightEvents, eventSelected } = this.state;
+        let params = ['$current_url', '$lib']
+        return <tr key={event.id} className={'cursor-pointer event-row ' + (highlightEvents.indexOf(event.id) > -1 && 'event-row-new')} onClick={() => this.setState({eventSelected: eventSelected != event.id ? event.id : false})}>
+            <td>
+                {eventNameMap(event)}
+                {event.elements.length > 0 && <pre style={{marginBottom: 0, display: 'inline'}}>&lt;{event.elements[0].tag_name}&gt;</pre>}
+                {event.elements.length > 0 && event.elements[0].text && ' with text "' + event.elements[0].text + '"'}
+            </td>
+            <td><Link to={'/person/' + event.distinct_id}>{event.person}</Link></td>
+            {params.map((param) => <td key={param} title={event.properties[param]}>
+                <this.FilterLink property={param} value={event.properties[param]} />
+            </td>)}
+            <td>{moment(event.timestamp).fromNow()}</td>
+        </tr>
+    }
+    NoItems(props) {
+        if(!props.events || props.events.length > 0) return null;
+        return <tr>
+            <td colSpan="4">
+                You don't have any items here. If you haven't integrated PostHog yet, <Link to='/setup'>click here to set PostHog up on your app</Link>
+            </td>
+        </tr>
+    }
     render() {
-        let params = ['$current_url']
         let { filters, events, loading, hasNext, newEvents, highlightEvents } = this.state;
         return (
             <div className='events'>
@@ -144,33 +180,27 @@ export class EventsTable extends Component {
                 <table className='table' style={{position: 'relative'}}>
                     {loading && <div className='loading-overlay'><div></div></div>}
                     <thead>
-                        <tr><th>Event</th><th>Person</th><th>Path</th><th>When</th></tr>
+                        <tr>
+                            <th>Event</th>
+                            <th>Person</th>
+                            <th>Path</th>
+                            <th>Source</th>
+                            <th>When</th>
+                        </tr>
                     </thead>
                     <tbody>
                         {loading && <div className='loading'><div></div></div>}
-                        {this.state.events && this.state.events.length == 0 && <tr><td colSpan="4">You don't have any items here. If you haven't integrated PostHog yet, <Link to='/setup'>click here to set PostHog up on your app</Link></td></tr>}
                         <tr
                             className={'event-new-events ' + (this.state.newEvents.length > 0 ? 'show' : 'hide')}
                             onClick={this.clickLoadNewEvents}>
-                            <td colSpan="4"><div>There are {newEvents.length} new events. Click here to load them.</div></td>
+                            <td colSpan="5"><div>There are {newEvents.length} new events. Click here to load them.</div></td>
                         </tr>
+                        <this.NoItems events={events} />
                         {this.state.events && this.state.events.map((event, index) => [
-                            index > 0 && !moment(event.timestamp).isSame(this.state.events[index - 1].timestamp, 'day') && <tr key={event.id + '_time'}><td colSpan="4" className='event-day-separator'>{moment(event.timestamp).format('LL')}</td></tr>,
-                            <tr key={event.id} className={'cursor-pointer event-row ' + (highlightEvents.indexOf(event.id) > -1 && 'event-row-new')} onClick={() => this.setState({eventSelected: this.state.eventSelected != event.id ? event.id : false})}>
-                                <td>
-                                    {eventNameMap(event)}
-                                    {event.elements.length > 0 && <pre style={{marginBottom: 0, display: 'inline'}}>&lt;{event.elements[0].tag_name}&gt;</pre>}
-                                    {event.elements.length > 0 && event.elements[0].text && ' with text "' + event.elements[0].text + '"'}
-                                </td>
-                                <td><Link to={'/person/' + event.distinct_id}>{event.person}</Link></td>
-                                {params.map((param) => <td key={param} title={event.properties[param]}>
-                                    <this.FilterLink property={param} value={event.properties[param]} />
-                                </td>)}
-                                <td>{moment(event.timestamp).fromNow()}</td>
-                                {/* <td><pre>{JSON.stringify(event)}</pre></td> */}
-                            </tr>,
+                            index > 0 && !moment(event.timestamp).isSame(events[index - 1].timestamp, 'day') && <tr key={event.id + '_time'}><td colSpan="4" className='event-day-separator'>{moment(event.timestamp).format('LL')}</td></tr>,
+                            <this.EventRow event={event} />,
                             this.state.eventSelected == event.id && <tr key={event.id + '_open'}>
-                                <td colSpan="4">
+                                <td colSpan="5">
                                     <EventDetails event={event} />
                                 </td>
                             </tr>
