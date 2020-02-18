@@ -1,9 +1,10 @@
 from posthog.models import Event, Team, Person, PersonDistinctId
-from rest_framework import serializers, viewsets, response
+from rest_framework import serializers, viewsets, response, request
 from rest_framework.decorators import action
-from django.db.models import Q, Prefetch
+from django.db.models import Q, Prefetch, QuerySet
 from .event import EventSerializer
 from typing import Union
+from .base import CursorPagination
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
     last_event = serializers.SerializerMethodField()
@@ -11,7 +12,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
 
     class Meta:
         model = Person
-        fields = ['id', 'name', 'distinct_ids', 'properties', 'last_event']
+        fields = ['id', 'name', 'distinct_ids', 'properties', 'last_event', 'created_at']
 
     def get_last_event(self, person: Person) -> Union[dict, None]:
         if not self.context['request'].GET.get('include_last_event'):
@@ -32,20 +33,33 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
 class PersonViewSet(viewsets.ModelViewSet):
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
+    pagination_class = CursorPagination
+
+    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
+        if request.GET.get('id'):
+            request.GET.pop('id')
+            people = request.GET['id'].split(',')
+            queryset = queryset.filter(id__in=people)
+        if request.GET.get('search'):
+            parts = request.GET['search'].split(' ')
+            contains = []
+            for part in parts:
+                if ':' in part:
+                    queryset = queryset.filter(properties__has_key=part.split(':')[1])
+                else:
+                    contains.append(part)
+            queryset = queryset.filter(properties__icontains=' '.join(contains))
+
+        queryset = queryset.prefetch_related(Prefetch('persondistinctid_set', to_attr='distinct_ids_cache'))
+        return queryset
 
     def get_queryset(self):
         queryset = super().get_queryset()
         queryset = queryset.filter(team=self.request.user.team_set.get())
-        if self.action == 'list':
-            if self.request.GET.get('id'):
-                people = self.request.GET['id'].split(',')
-                queryset = queryset.filter(id__in=people)
-            queryset = queryset.prefetch_related(Prefetch('persondistinctid_set', to_attr='distinct_ids_cache'))
+        queryset = self._filter_request(self.request, queryset)
         return queryset.order_by('-id')
 
     @action(methods=['GET'], detail=False)
     def by_distinct_id(self, request):
-        # sometimes race condition creates 2
-        person = self.get_queryset().filter(persondistinctid__distinct_id=str(request.GET['distinct_id'])).first()
-        
+        person = self.get_queryset().get(persondistinctid__distinct_id=str(request.GET['distinct_id']))
         return response.Response(PersonSerializer(person, context={'request': request}).data)
