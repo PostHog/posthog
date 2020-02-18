@@ -47,7 +47,7 @@ export default class People extends Component {
                     className='form-control'
                     name='search'
                     autoFocus
-                    onKeyDown={(e) => e.keyCode == "13" && this.debounceFetchPeople(e.target.value)}
+                    onKeyDown={(e) => e.keyCode == "13" && this.fetchPeople(e.target.value)}
                     placeholder={people && "Try " + exampleEmail + " or has:email"} />}<br />
                 <table className='table' style={{position: 'relative'}}>
                     {loading && <div className='loading-overlay'><div></div></div>}
