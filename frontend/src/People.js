@@ -2,7 +2,6 @@ import React, { Component } from 'react'
 import api from './Api';
 import { Link } from 'react-router-dom';
 import moment from 'moment';
-import { debounce } from './utils';
 
 let toParams = (obj) => Object.entries(obj).map(([key, val]) => `${key}=${encodeURIComponent(val)}`).join('&')
 export default class People extends Component {
@@ -12,11 +11,11 @@ export default class People extends Component {
         this.state = {loading: true}
         this.FilterLink = this.FilterLink.bind(this);
         this.fetchPeople = this.fetchPeople.bind(this);
-        this.debounceFetchPeople = debounce(this.fetchPeople.bind(this), 250)
         this.fetchPeople();
         this.clickNext = this.clickNext.bind(this);
     }
     fetchPeople(search) {
+        if(search !== undefined) this.setState({loading: true});
         api.get('api/person/?include_last_event=1&' + (!!search ? 'search=' + search : '')).then((data) => this.setState({people: data.results, hasNext: data.next, loading: false}))
     }
     FilterLink(props) {
@@ -33,7 +32,7 @@ export default class People extends Component {
     }
     clickNext() {
         let { people, hasNext } = this.state;
-        this.setState({hasNext: false})
+        this.setState({hasNext: false, loading: true})
         api.get(hasNext).then((olderPeople) => {
             this.setState({people: [...people, ...olderPeople.results], hasNext: olderPeople.next, loading: false})
         });
@@ -48,9 +47,9 @@ export default class People extends Component {
                     className='form-control'
                     name='search'
                     autoFocus
-                    onKeyDown={(e) => e.keyCode == "13" ? this.fetchPeople(e.target.value) : this.debounceFetchPeople(e.target.value)}
+                    onKeyDown={(e) => e.keyCode == "13" && this.debounceFetchPeople(e.target.value)}
                     placeholder={people && "Try " + exampleEmail + " or has:email"} />}<br />
-                <table className='table'>
+                <table className='table' style={{position: 'relative'}}>
                     {loading && <div className='loading-overlay'><div></div></div>}
                     <tbody>
                         <tr><th>Person</th><th>Last seen</th><th>First seen</th></tr>
