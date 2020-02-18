@@ -32,7 +32,7 @@ class PrivateRoute extends React.Component {
             path={this.props.path}
             exact
             render={props => {
-                posthog.capture('$pageview');
+                if(window.posthog) posthog.capture('$pageview');
                 if(this.props.user) return (<div>
                     <Component {...this.props} {...props} user={this.props.user} history={props.history} />
                 </div>);
@@ -59,8 +59,8 @@ export default class App extends React.Component {
         api.get('api/user').then((user) => {
             this.setState({user: user});
             if(user && user.id) {
-                Sentry.setUser({"email": user.email, "id": user.id});
-                posthog.identify(user.distinct_id);
+                if(window.Sentry) Sentry.setUser({"email": user.email, "id": user.id});
+                if(window.posthog) posthog.identify(user.distinct_id);
             }
         }).catch(() => this.setState({user: false}));
     }

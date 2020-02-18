@@ -4,15 +4,19 @@
     <title>Posthog</title>
     <link rel="icon" href="https://posthog.com/wp-content/uploads/2020/01/cropped-Frame-1-32x32.png" sizes="32x32"/>
   <link rel="icon" href="https://posthog.com/wp-content/uploads/2020/01/cropped-Frame-1-192x192.png" sizes="192x192"/>
-
-
-    <script src="https://t.posthog.com/static/array.js"></script>
-    <script>
-      posthog.init('sTMFPsFhdP1Ssg');
-    </script>
+    {% if not opt_out_capture %}
+        <script src="https://t.posthog.com/static/array.js"></script>
+        <script>
+            posthog.init('sTMFPsFhdP1Ssg');
+        </script>
+    {% endif %}
+    {% if sentry_dsn %}
+        <script src="https://browser.sentry-cdn.com/5.10.1/bundle.min.js" integrity="sha384-sAOze6ZTBIpiWBF3VlUteSInM4rYpjxrejp1wMmmKqA9clRZ1vZJ36Ihmt1ilTrG" crossorigin="anonymous">
+        </script>
+        <script>location.host.indexOf('127.0.0.1') == -1 && Sentry.init({ dsn: '{{sentry_dsn}}' });</script>
+    {% endif %}
 
     <link href="style/style.scss" rel="stylesheet">
-  <script>location.host.indexOf('127.0.0.1') == -1 && Sentry.init({ dsn: 'https://05644c4d24a4496cbff36078f49cf7a6@sentry.io/1847666' });</script>
 <style>
     html,
 body {
