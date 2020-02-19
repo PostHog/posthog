@@ -18,7 +18,8 @@ class TestCreateFunnel(BaseTest):
             'name': 'Whatever',
             'steps': [
                 {'action_id': action_sign_up.pk},
-                {'action_id': action_credit_card.pk}
+                {'action_id': action_credit_card.pk},
+                {}
             ]
         }, content_type='application/json').json()
         funnels = Funnel.objects.get()

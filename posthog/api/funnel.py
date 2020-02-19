@@ -30,7 +30,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             if people == None or len(people) > 0: # type: ignore
                 people = Event.objects.filter_by_action(
                     step.action,
-                    where='({}) AND posthog_persondistinctid.person_id IS NOT NULL' .format(') OR ('.join([
+                    where='({})' .format(') OR ('.join([
                         "posthog_event.id > {} AND posthog_persondistinctid.person_id = {}".format(person.event_id, person.id)
                         for person in people # type: ignore
                     ])) if people else None,
@@ -55,11 +55,12 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
         funnel = Funnel.objects.create(team=request.user.team_set.get(), **validated_data)
         if request.data.get('steps'):
             for index, step in enumerate(request.data['steps']):
-                FunnelStep.objects.create(
-                    funnel=funnel,
-                    action_id=step['action_id'],
-                    order=index
-                )
+                if step.get('action_id'):
+                    FunnelStep.objects.create(
+                        funnel=funnel,
+                        action_id=step['action_id'],
+                        order=index
+                    )
         return funnel
 
     def update(self, funnel: Funnel, validated_data: Any) -> Funnel: # type: ignore
