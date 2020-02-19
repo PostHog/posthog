@@ -5,7 +5,7 @@ from django.views.decorators.csrf import csrf_exempt
 import json
 import base64
 from urllib.parse import urlparse
-from typing import Dict, Union, Optional
+from typing import Dict, Union, Optional, List
 
 
 def get_ip_address(request):
@@ -29,7 +29,10 @@ def cors_response(request, response):
 
 def _load_data(request) -> Union[Dict, None]:
     if request.method == 'POST':
-        data = request.POST.get('data')
+        if request.content_type == 'application/json':
+            data = request.body
+        else:
+            data = request.POST.get('data')
     else:
         data = request.GET.get('data')
     if not data:
@@ -101,34 +104,53 @@ def _update_person_properties(team: Team, distinct_id: str, properties: Dict):
     person.properties.update(properties)
     person.save()
 
-# this should probably go elsewhere, and have proper types
-def process_event(request, data: dict, team):
-    distinct_id = str(data['properties']['distinct_id'])
+def process_event(request, data: dict, team: Team) -> None:
+    try:
+        distinct_id = str(data['properties']['distinct_id'])
+    except KeyError:
+        try:
+            distinct_id = str(data['$distinct_id'])
+        except KeyError:
+            distinct_id = str(data['distinct_id'])
 
     if data['event'] == '$create_alias':
         _alias(distinct_id=distinct_id, new_distinct_id=data['properties']['alias'], team=team)
-        return cors_response(request, JsonResponse({'status': 1}))
 
-    if data['event'] == '$identify' and data['properties'].get('$anon_distinct_id'):
+    if data['event'] == '$identify' and data.get('properties') and data['properties'].get('$anon_distinct_id'):
         _alias(distinct_id=data['properties']['$anon_distinct_id'], new_distinct_id=distinct_id, team=team)
-        return cors_response(request, JsonResponse({'status': 1}))
 
-    _capture(request=request, team=team, event=data['event'], distinct_id=distinct_id, properties=data['properties'])
+    if data['event'] == '$identify' and data.get('$set'):
+        _update_person_properties(team=team, distinct_id=distinct_id, properties=data['$set'])
+
+    _capture(request=request, team=team, event=data['event'], distinct_id=distinct_id, properties=data.get('properties', data.get('$set', {})), timestamp=data.get('timestamp'))
+
+def _get_token(data, request) -> Union[str, bool]:
+    if request.POST.get('api_key'):
+        return request.POST['api_key']
+    if isinstance(data, list) and len(data) > 0:
+        return data[0]['properties']['token'] # Mixpanel Swift SDK
+    if data.get('api_key'):
+        return data['api_key'] # server-side libraries like posthog-python and posthog-ruby
+    if data.get('$token'):
+        return data['$token'] # JS identify call
+    if data.get('properties') and data['properties'].get('token'):
+        return data['properties']['token'] # JS capture call
+    return False
 
 @csrf_exempt
 def get_event(request):
     data = _load_data(request)
-
     if not data:
         return cors_response(request, HttpResponse("1"))
+    token = _get_token(data, request)
+    if not token:
+        return cors_response(request, JsonResponse({'code': 'validation', 'message': "No api_key set. You can find your API key in the /setup page in posthog"}, status=400))
 
-    if request.POST.get('api_key'):
-        token = request.POST['api_key']
-    elif isinstance(data, list) and len(data) > 0:
-        # do this just to take the auth token
-        token = data[0]['properties']['token']
-    else:
-        token = data['properties'].pop('token')
+    if not isinstance(data, list) and data.get('batch'): # posthog-python and posthog-ruby
+        data = data['batch']
+
+    if 'engage' in request.path_info: # JS identify call
+        data['event'] = '$identify' # make sure it has an event name
 
     try:
         team = Team.objects.get(api_token=token)
@@ -137,80 +159,15 @@ def get_event(request):
 
     if isinstance(data, list):
         for i in data:
-            process_event(request, i, team)
+            try:
+                process_event(request=request, data=i, team=team)
+            except KeyError:
+                return cors_response(request, JsonResponse({'code': 'validation', 'message': "You need to set a distinct_id.", "item": data}, status=400))
     else:
-        process_event(request, data, team)
+        process_event(request=request, data=data, team=team)
 
     return cors_response(request, JsonResponse({'status': 1}))
-
 
 @csrf_exempt
 def get_decide(request):
     return cors_response(request, JsonResponse({"config": {"enable_collect_everything": True}}))
-
-@csrf_exempt
-def get_engage(request):
-    data = _load_data(request)
-    if not data:
-        return cors_response(request, HttpResponse("1"))
-    
-    if request.POST.get('api_key'):
-        token = request.POST['api_key']
-    elif isinstance(data, list) and len(data) > 0:
-        # do this just to take the auth token, otherwise we need to look at each
-        # item individually
-        # also weirdly, it's called $token here, but token elsewhere 🤔
-        token = data[0].get('$token')
-    else:
-        token = data.pop('$token')
-
-    try:
-        team = Team.objects.get(api_token=token)
-    except Team.DoesNotExist:
-        return cors_response(request, JsonResponse({'code': 'validation', 'message': "API key is incorrect. You can find your API key in the /setup page in PostHog."}, status=400))
-
-    if isinstance(data, list):
-        for i in data:
-            if i.get('$set'):
-                _update_person_properties(distinct_id=i['$distinct_id'], properties=i['$set'], team=team)
-    else:
-        if data.get('$set'):
-            _update_person_properties(distinct_id=data['$distinct_id'], properties=data['$set'], team=team)
-
-    return cors_response(request, JsonResponse({'status': 1}))
-
-@csrf_exempt
-def batch(request):
-    batch = json.loads(request.body)
-    if not batch.get('api_key'):
-        return cors_response(request, JsonResponse({'code': 'validation', 'message': "No api_key set. You can find your API key in the /setup page in posthog"}, status=400))
-    try:
-        team = Team.objects.get(api_token=batch['api_key'])
-    except Team.DoesNotExist:
-        return cors_response(request, JsonResponse({'message': "API key is incorrect. You can find your API key in the /setup page in PostHog."}, status=400))
-    
-    for data in batch['batch']:
-        if not data.get('distinct_id') and not (data.get('properties') and data['properties'].get('distinct_id')):
-            return cors_response(request, JsonResponse({'code': 'validation', 'message': "You need to set a distinct_id.", "item": data}, status=400))
-        if data['type'] == 'alias':
-            _alias(
-                distinct_id=data['properties']['distinct_id'],
-                new_distinct_id=data['properties']['alias'],
-                team=team
-            )
-        elif data['type'] == 'capture':
-            _capture(
-                team=team,
-                request=request,
-                event=data['event'],
-                distinct_id=data['distinct_id'],
-                properties=data.get('properties', {}),
-                timestamp=data.get('timestamp', None)
-            )
-        elif data['type'] == 'identify':
-            _update_person_properties(
-                distinct_id=data['distinct_id'],
-                properties=data['$set'],
-                team=team
-            )
-    return cors_response(request, JsonResponse({'status': 1}))
