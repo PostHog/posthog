@@ -148,15 +148,6 @@ if hasattr(settings, 'INCLUDE_API_DOCS'):
         re_path(r'^redoc/$', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
     ]
 
-if settings.DEBUG:
-    import debug_toolbar
-    urlpatterns = [
-        path('__debug__/', include(debug_toolbar.urls)),
-
-        # For django versions before 2.0:
-        # url(r'^__debug__/', include(debug_toolbar.urls)),
-
-    ] + urlpatterns
 
 urlpatterns += [
     re_path(r'^.*', decorators.login_required(home)),

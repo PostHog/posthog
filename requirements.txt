@@ -47,4 +47,3 @@ urllib3==1.25.8
 uuid==1.30
 wcwidth==0.1.8
 whitenoise==5.0.1
-django-debug-toolbar
