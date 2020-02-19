@@ -84,7 +84,7 @@ export class ActionsTable extends Component {
                     <thead>
                         <tr>
                             <th scope="col">Action ID</th>
-                            <th scope="col"># of events</th>
+                            <th scope="col">Volume</th>
                             <th scope="col">Type</th>
                             <th></th>
                         </tr>
