@@ -54,6 +54,8 @@ class TestFilterByActions(BaseTest):
         # make sure elements don't get double counted if they're part of the same event
         Element.objects.create(tag_name='div', text='some_other_text', event=event2, nth_child=0, nth_of_type=0, order=1)
 
+        event3 = Event.objects.create(team=self.team, distinct_id="whatever")
+
         action1 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action1, href='/a-url', tag_name='a')
         ActionStep.objects.create(action=action1, href='/a-url-2')
@@ -64,8 +66,8 @@ class TestFilterByActions(BaseTest):
         self.assertEqual(len(events), 2)
 
         # test count
-        events = Event.objects.filter_by_action(action1, count=True)
-        self.assertEqual(events, 2)
+        events = Event.objects.filter_by_action(action1)
+        self.assertEqual(events.count(), 2)
 
     def test_with_class(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
@@ -80,6 +82,20 @@ class TestFilterByActions(BaseTest):
         self.assertEqual(events[0], event1)
         self.assertEqual(len(events), 1)
 
+    def test_with_text(self):
+        Person.objects.create(distinct_ids=['whatever'], team=self.team)
+        event1 = Event.objects.create(team=self.team, distinct_id="whatever")
+        Element.objects.create(event=event1, tag_name='span', text='whatever', order=0)
+
+        event2 = Event.objects.create(team=self.team, distinct_id="whatever")
+        Element.objects.create(event=event2, tag_name='span', text='whatever2', order=0)
+
+        action1 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=action1, text='whatever')
+
+        events = Event.objects.filter_by_action(action1)
+        self.assertEqual(events[0], event1)
+        self.assertEqual(len(events), 1)
 
     def test_page_views(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
@@ -88,7 +104,7 @@ class TestFilterByActions(BaseTest):
         Element.objects.create(tag_name='div', text='some_other_text', event=event2, nth_child=0, nth_of_type=0, order=1)
 
         action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action1, url='/feedback')
+        ActionStep.objects.create(action=action1, url='https://posthog.com/feedback/123')
         ActionStep.objects.create(action=action1, href='/a-url-2')
 
 

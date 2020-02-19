@@ -3,7 +3,7 @@ from rest_framework import request, serializers, viewsets, authentication # type
 from rest_framework.response import Response
 from rest_framework.decorators import action # type: ignore
 from rest_framework.exceptions import AuthenticationFailed
-from django.db.models import Q, F, Count, Prefetch
+from django.db.models import Q, F, Count, Prefetch, functions, QuerySet
 from django.forms.models import model_to_dict
 from typing import Any, List, Dict
 import pandas as pd # type: ignore
@@ -109,18 +109,18 @@ class ActionViewSet(viewsets.ModelViewSet):
         actions = self.get_queryset()
         actions_list = []
         for action in actions:
-            count = Event.objects.filter_by_action(action, count=True)
+            events = Event.objects.filter_by_action(action)
             actions_list.append({
                 'id': action.pk,
                 'name': action.name,
-                'count': count,
+                'count': events.count(),
                 'steps': ActionStepSerializer(action.steps.all(), many=True).data
             })
         actions_list.sort(key=lambda action: action['count'], reverse=True)
         return Response({'results': actions_list})
 
     def _group_events_to_date(self, date_from, aggregates, steps, ):
-        aggregates = pd.DataFrame([{'date': a.day, 'count': a.id} for a in aggregates])
+        aggregates = pd.DataFrame([{'date': a['day'], 'count': a['count']} for a in aggregates])
         aggregates['date'] = aggregates['date'].dt.date
         # create all dates
         time_index = pd.date_range(date_from, periods=steps + 1, freq='D')
@@ -130,20 +130,13 @@ class ActionViewSet(viewsets.ModelViewSet):
         grouped = grouped.fillna(0)
         return grouped
 
-    def _where_query(self, request: request.Request, date_from: datetime.date):
-        ret = []
-
+    def _filter_events(self, events: QuerySet, request: request.Request):
         for key, value in request.GET.items():
             if key != 'days' and key != 'actions' and key != 'display' and key != 'breakdown':
-                ret.append(['(posthog_event.properties -> %s) = %s', [key, '"{}"'.format(value)]])
-        if date_from:
-            ret.append(['posthog_event.timestamp >= %s', [date_from]])
-        return ret
+                events = events.filter(**{'properties__{}'.format(key): value})
+        return events
 
-    def _breakdown(self, action: Action, breakdown_by: str, where: List) -> Dict:
-        events = Event.objects.filter_by_action(action, where=where)
-        events = Event.objects.filter(pk__in=[event.id for event in events])
-
+    def _breakdown(self, events: QuerySet, breakdown_by: str) -> Dict:
         key = "properties__{}".format(breakdown_by)
         events = events\
             .values(key)\
@@ -155,6 +148,7 @@ class ActionViewSet(viewsets.ModelViewSet):
     @action(methods=['GET'], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         actions = self.get_queryset()
+        actions = actions.filter(deleted=False)
         actions_list = []
         steps = int(request.GET.get('days', 7))
         date_from = datetime.date.today() - relativedelta(days=steps)
@@ -169,8 +163,13 @@ class ActionViewSet(viewsets.ModelViewSet):
                 'count': 0,
                 'breakdown': []
             }
-            where = self._where_query(request, date_from)
-            aggregates = Event.objects.filter_by_action(action, count_by='day', where=where)
+            aggregates = self._filter_events(Event.objects.filter_by_action(action), request=request)\
+                .filter(timestamp__gte=date_from)\
+                .annotate(day=functions.TruncDay('timestamp'))\
+                .values('day')\
+                .annotate(count=Count('id'))\
+                .order_by()
+
             if len(aggregates) > 0:
                 dates_filled = self._group_events_to_date(date_from=date_from, aggregates=aggregates, steps=steps)
                 values = [value[0] for key, value in dates_filled.iterrows()]
@@ -178,6 +177,6 @@ class ActionViewSet(viewsets.ModelViewSet):
                 append['data'] = values
                 append['count'] = sum(values)
             if request.GET.get('breakdown'):
-                append['breakdown'] = self._breakdown(action, breakdown_by=request.GET['breakdown'], where=where)
+                append['breakdown'] = self._breakdown(aggregates, breakdown_by=request.GET['breakdown'])
             actions_list.append(append)
         return Response(actions_list)

@@ -1,7 +1,7 @@
 from posthog.models import Funnel, FunnelStep, Action, ActionStep, Event, Funnel, Person
 from rest_framework import request, response, serializers, viewsets # type: ignore
 from rest_framework.decorators import action # type: ignore
-from django.db.models import QuerySet, query, Model
+from django.db.models import QuerySet, query, Model, Q, Max
 from typing import List, Dict, Any
 
 
@@ -24,26 +24,31 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
     def get_steps(self, funnel: Funnel) -> List[Dict[str, Any]]:
         steps = []
         people = None
+        previous_people = None
         db_steps = funnel.steps.all().order_by('order', 'id')
         for step in db_steps:
             count = 0
-            if people == None or len(people) > 0: # type: ignore
-                people = Event.objects.filter_by_action(
-                    step.action,
-                    where='({})' .format(') OR ('.join([
-                        "posthog_event.id > {} AND posthog_persondistinctid.person_id = {}".format(person.event_id, person.id)
-                        for person in people # type: ignore
-                    ])) if people else None,
-                    group_by='person_id',
-                    group_by_table='posthog_persondistinctid')
+            if people != None:
+                previous_people = people
+            if people == None or people.count() > 0: # type: ignore
+                people = Event.objects.filter_by_action(step.action)\
+                    .filter(person_id__isnull=False)\
+                    .values('person_id')\
+                    .annotate(last_event=Max('pk'))\
+                    .order_by()
+                if previous_people:
+                    matches = Q()
+                    for person in previous_people:
+                        matches |= Q(pk__gt=person['last_event'], person_id=person['person_id'])
+                    people = people.filter(matches)
                 if len(people) > 0:
-                    count = len(people)
+                    count = people.count()
             steps.append({
                 'id': step.id,
                 'action_id': step.action.id,
                 'name': step.action.name,
                 'order': step.order,
-                'people': [person.id for person in people] if people else [],
+                'people': [person['person_id'] for person in people] if people else [],
                 'count':  count
             })
         if len(steps) > 0:

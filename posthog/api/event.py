@@ -39,16 +39,11 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
+        if self.action == 'list':
+            queryset = self._filter_request(self.request, queryset)
         return queryset\
             .filter(team=self.request.user.team_set.get())\
             .order_by('-timestamp')
-
-    def _filter_by_action(self, request: request.Request) -> query.RawQuerySet:
-            action = Action.objects.get(pk=request.GET['action_id'], team=request.user.team_set.get())
-            where = None
-            if request.GET.get('after'):
-                where = [['posthog_event.timestamp > %s', [request.GET['after']]]]
-            return Event.objects.filter_by_action(action, limit=101, where=where)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         for key, value in request.GET.items():
@@ -63,28 +58,14 @@ class EventViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(distinct_id__in=person.distinct_ids)
             elif key == 'distinct_id':
                 queryset = queryset.filter(distinct_id=request.GET['distinct_id'])
+            elif key == 'action_id':
+                queryset = queryset.filter_by_action(action=Action.objects.get(pk=value))
             else:
                 key = 'properties__%s' % key
                 params = {}
                 params[key] = value
                 queryset = queryset.filter(**params)
         return queryset
-
-    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        has_next = False
-        if request.GET.get('action_id'):
-            queryset: Union[QuerySet, query.RawQuerySet] = self._filter_by_action(request)
-            has_next = len(queryset) > 100
-        else:
-            queryset = self.get_queryset().prefetch_related(Prefetch('element_set', queryset=Element.objects.order_by('order')))
-            queryset = self._filter_request(request, queryset)
-            has_next = queryset.count() > 100
-
-        events = [EventSerializer(d).data for d in queryset[0: 100]]
-        return response.Response({
-            'next': has_next,
-            'results': events
-        })
 
     @action(methods=['GET'], detail=False)
     def elements(self, request) -> response.Response:
