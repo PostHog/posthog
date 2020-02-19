@@ -39,7 +39,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        if self.action == 'list':
+        if self.action == 'list': # type: ignore
             queryset = self._filter_request(self.request, queryset)
         return queryset\
             .filter(team=self.request.user.team_set.get())\
@@ -59,7 +59,7 @@ class EventViewSet(viewsets.ModelViewSet):
             elif key == 'distinct_id':
                 queryset = queryset.filter(distinct_id=request.GET['distinct_id'])
             elif key == 'action_id':
-                queryset = queryset.filter_by_action(action=Action.objects.get(pk=value))
+                queryset = queryset.filter_by_action(action=Action.objects.get(pk=value)) # type: ignore
             else:
                 key = 'properties__%s' % key
                 params = {}

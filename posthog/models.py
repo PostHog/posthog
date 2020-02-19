@@ -82,7 +82,7 @@ class User(AbstractUser):
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS: List[str] = []
 
-    objects = UserManager() # type: ignore
+    objects: UserManager = UserManager() # type: ignore
 
 
 class Team(models.Model):
@@ -245,7 +245,7 @@ class Event(models.Model):
                     actions.append(step.action)
         return actions
 
-    objects = EventManager.as_manager()
+    objects: EventManager = EventManager.as_manager() # type: ignore
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     distinct_id: models.CharField = models.CharField(max_length=200)

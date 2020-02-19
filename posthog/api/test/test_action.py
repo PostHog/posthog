@@ -96,18 +96,18 @@ class TestAction(BaseTest):
 
         Person.objects.create(team=self.team, distinct_ids=['blabla'])
 
-        with freeze_time('2019-12-24'):
+        with freeze_time('2019-12-24 00:00:00 GMT'):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "value"})
 
-        with freeze_time('2020-01-01'):
+        with freeze_time('2020-01-01 00:00:00 GMT'):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "value"})
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
-        with freeze_time('2020-01-02'):
+        with freeze_time('2020-01-02 00:00:00 GMT'):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "other_value"})
             Event.objects.create(team=self.team, event='no events', distinct_id='blabla')
 
-        with freeze_time('2020-01-04'):
+        with freeze_time('2020-01-04 00:00:00 GMT'):
             with self.assertNumQueries(7):
                 response = self.client.get('/api/action/trends/').json()
 
@@ -117,7 +117,7 @@ class TestAction(BaseTest):
         self.assertEqual(response[0]['data'][5], 1.0)
 
         # test property filtering
-        with freeze_time('2020-01-04'):
+        with freeze_time('2020-01-04 00:00:00 GMT'):
             response = self.client.get('/api/action/trends/?some_property=value').json()
         self.assertEqual(response[0]['labels'][4], '1 January')
         self.assertEqual(response[0]['data'][4], 1.0)
@@ -126,13 +126,13 @@ class TestAction(BaseTest):
         self.assertEqual(response[1]['count'], 0)
 
         # test day filtering
-        with freeze_time('2020-01-04'):
+        with freeze_time('2020-01-04 00:00:00 GMT'):
             response = self.client.get('/api/action/trends/?days=14').json()
         self.assertEqual(response[0]['labels'][3], '24 December')
         self.assertEqual(response[0]['data'][3], 1.0)
 
         # test breakdown filtering
-        with freeze_time('2020-01-04'):
+        with freeze_time('2020-01-04T00:00:00.99Z'):
             response = self.client.get('/api/action/trends/?breakdown=some_property').json()
 
         self.assertEqual(response[0]['breakdown'][0]['name'], 'undefined')

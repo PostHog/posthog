@@ -24,7 +24,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         model = Action
         fields = ['id', 'name', 'steps', 'created_at', 'deleted']
 
-    def get_steps(self, action: Action) -> List:
+    def get_steps(self, action: Action):
         steps = action.steps.all().order_by('id')
         return ActionStepSerializer(steps, many=True).data
 
@@ -136,7 +136,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 events = events.filter(**{'properties__{}'.format(key): value})
         return events
 
-    def _breakdown(self, events: QuerySet, breakdown_by: str) -> Dict:
+    def _breakdown(self, events: QuerySet, breakdown_by: str) -> List[Dict[str, int]]:
         key = "properties__{}".format(breakdown_by)
         events = events\
             .values(key)\
