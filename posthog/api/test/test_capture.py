@@ -153,12 +153,12 @@ class TestCapture(BaseTest):
             },
         }), content_type='application/json', HTTP_REFERER='https://localhost')
 
-        self.assertEqual(Event.objects.count(), 0)
+        self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
 
 class TestAlias(TransactionTestCase):
     def _create_user(self, email, **kwargs) -> User:
-        user: User = User.objects.create_user(email, **kwargs)
+        user: User = User.objects.create_user(email, **kwargs) # type: ignore
         if not hasattr(self, 'team'):
             self.team: Team = Team.objects.create(api_token='token123')
         self.team.users.add(user)
@@ -180,7 +180,7 @@ class TestAlias(TransactionTestCase):
             },
         }), content_type='application/json', HTTP_REFERER='https://localhost')
 
-        self.assertEqual(Event.objects.count(), 0)
+        self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["anonymous_id", "new_distinct_id"])
 
         # check no errors as this call can happen multiple times
@@ -252,10 +252,12 @@ class TestBatch(BaseTest):
             ]
         }, content_type='application/json')
 
-        events = Event.objects.all()
+        events = Event.objects.all().order_by('id')
         self.assertEqual(events[0].event, 'user signed up')
         self.assertEqual(events[0].properties, {'property1': 'value', 'property2': 'value'})
         self.assertEqual(events[0].timestamp, datetime.datetime(2020, 2, 10, 1, 45, 20, 777210, tzinfo=pytz.UTC))
+        self.assertEqual(events[1].event, '$identify')
+        self.assertEqual(events[1].properties['email'], 'some@gmail.com')
 
         self.assertEqual(Person.objects.get(persondistinctid__distinct_id='test_id').distinct_ids, ['test_id'])
         self.assertEqual(Person.objects.get(persondistinctid__distinct_id='test_id').properties['email'], 'some@gmail.com')
@@ -279,7 +281,7 @@ class TestBatch(BaseTest):
             }]
         }, content_type='application/json')
 
-        self.assertEqual(Event.objects.count(), 0)
+        self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
 
     def test_batch_engage(self):
