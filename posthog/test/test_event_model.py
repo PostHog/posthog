@@ -100,12 +100,12 @@ class TestFilterByActions(BaseTest):
     def test_page_views(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
         event1 = Event.objects.create(team=self.team, distinct_id='whatever')
-        event2 = Event.objects.create(team=self.team, distinct_id='whatever', properties={'$current_url': 'https://posthog.com/feedback/123'})
+        event2 = Event.objects.create(event='bla', team=self.team, distinct_id='whatever', properties={'$current_url': 'bla'})
         Element.objects.create(tag_name='div', text='some_other_text', event=event2, nth_child=0, nth_of_type=0, order=1)
 
         action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action1, url='https://posthog.com/feedback/123')
-        ActionStep.objects.create(action=action1, href='/a-url-2')
+        ActionStep.objects.create(action=action1, event='bla')
+        # ActionStep.objects.create(action=action1, href='/a-url-2')
 
 
         events = Event.objects.filter_by_action(action1)

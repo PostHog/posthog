@@ -136,7 +136,7 @@ class EventManager(models.QuerySet):
     def filter_by_url(self, action_step):
         if not action_step.url:
             return self
-        return self.filter(**{'properties__$current_url__icontains': action_step.url})
+        return self.extra(where=["U0.properties ->> %s LIKE %s"], params=["$current_url", "%{}%".format(action_step.url)])
 
     def filter_by_other(self, action_step):
         for key in ['tag_name', 'text', 'href', 'name']:
@@ -155,17 +155,18 @@ class EventManager(models.QuerySet):
         for step in action.steps.all():
             any_step |= Q(Exists(
                 Event.objects.filter(pk=OuterRef('id'))\
+                    .filter_by_url(step)\
                     .filter_by_selector(step)\
                     .filter_by_event(step)\
-                    .filter_by_url(step)\
                     .filter_by_other(step)
             ))
 
         events = self\
+            .filter(team_id=action.team_id)\
             .filter(any_step)\
             .add_person()\
-            .order_by('-id')\
-            .filter(team_id=action.team_id)
+            .order_by('-id')
+        print(events.query)
         return events
 
 
