@@ -113,6 +113,7 @@ class TestGetFunnel(BaseTest):
         self._signup_event('wrong_order')
         self._movie_event('wrong_order')
 
+        self._signup_event('a_user_that_got_deleted_or_doesnt_exist')
 
         with self.assertNumQueries(14):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()

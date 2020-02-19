@@ -30,7 +30,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             if people == None or len(people) > 0: # type: ignore
                 people = Event.objects.filter_by_action(
                     step.action,
-                    where='({})' .format(') OR ('.join([
+                    where='({}) AND posthog_persondistinctid.person_id IS NOT NULL' .format(') OR ('.join([
                         "posthog_event.id > {} AND posthog_persondistinctid.person_id = {}".format(person.event_id, person.id)
                         for person in people # type: ignore
                     ])) if people else None,

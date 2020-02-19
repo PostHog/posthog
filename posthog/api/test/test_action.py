@@ -95,6 +95,7 @@ class TestAction(BaseTest):
         sign_up_action = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=sign_up_action, event='sign up')
 
+        Person.objects.create(team=self.team, distinct_ids=['blabla'])
 
         with freeze_time('2019-12-24'):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "value"})
