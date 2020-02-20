@@ -49,7 +49,7 @@ export default class Setup extends Component {
                     this.props.user.team.app_url = e.target.url.value;
                     this.props.onUpdateUser(this.props.user);
                 }}>
-                    <input defaultValue={this.props.user.team.app_url || "https://"} autoFocus style={{maxWidth: 400}} type="text" className='form-control' name='url' placeholder="https://...." />
+                    <input defaultValue={this.props.user.team.app_url || "https://"} autoFocus style={{maxWidth: 400}} type="url" className='form-control' name='url' placeholder="https://...." />
                     <br />
                     <button className='btn btn-success' type="submit">Save url</button>
                     {this.state.saved && <p className='text-success'>URL saved.</p>}
