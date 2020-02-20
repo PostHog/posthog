@@ -26,6 +26,9 @@ export default class Funnels extends Component {
         return <div>
             <Link to={'/new-funnel'} className='btn btn-outline-success float-right'><i className='fi flaticon-add'/>&nbsp;&nbsp;New funnel</Link>
             <h1>Funnels</h1>
+            <p style={{maxWidth: 600}}><i>
+                If you need your users to carry out a series of actions in a row, funnels are a way of working out where users are dropping off. <a href='https://github.com/PostHog/posthog/wiki/Funnels' target="_blank">See documentation</a>
+            </i></p>
             <table className='table'>
                 <tbody>
                     <tr><th>Funnel name</th><th>Completion rate</th><th>Users top of funnel</th><th>Users bottom of funnel</th><th>Steps in funnel</th><th>Actions</th></tr>

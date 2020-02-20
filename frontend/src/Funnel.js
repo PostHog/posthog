@@ -90,7 +90,7 @@ export class EditFunnel extends Component {
         api.create('api/funnel', data).then((funnel) => this.props.history.push('/funnel/' + funnel.id))
     }
     render() {
-        let { dndLoaded, name, steps } = this.state;
+        let { dndLoaded, name, steps, actions } = this.state;
         return <form onSubmit={this.onSubmit}>
             <label>Name</label>
             <input
@@ -101,6 +101,9 @@ export class EditFunnel extends Component {
                 value={name}
                 onBlur={() => this.onSubmit()}
                 className='form-control' />
+            {actions && actions.length == 0 && <div className='alert alert-warning' style={{marginTop: '1rem'}}>
+                You don't have any actions set up. <Link to='/actions'>Click here to set up an action</Link>
+            </div>}
             <br /><br />
             <div className='row'>
                 <div className='col-10'>
