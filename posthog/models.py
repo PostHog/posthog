@@ -170,6 +170,7 @@ class EventManager(models.Manager):
         SELECT "posthog_event"."id", 
             "posthog_event"."team_id", 
             "posthog_event"."event", 
+            "posthog_event"."distinct_id", 
             "posthog_event"."properties",
             "posthog_event"."elements", 
             "posthog_event"."timestamp", 

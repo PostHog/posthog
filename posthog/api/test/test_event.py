@@ -101,9 +101,9 @@ class TestEvents(BaseTest):
         with self.assertNumQueries(16):
             response = self.client.get('/api/event/actions/').json()
         self.assertEqual(len(response['results']), 4)
+        self.assertEqual(response['results'][3]['event']['id'], event_sign_up_1.pk)
         self.assertEqual(response['results'][3]['action']['id'], action_sign_up.pk)
         self.assertEqual(response['results'][3]['action']['name'], 'signed up')
-        self.assertEqual(response['results'][3]['event']['id'], event_sign_up_1.pk)
 
         self.assertEqual(response['results'][2]['action']['id'], action_sign_up.pk)
         self.assertEqual(response['results'][1]['action']['id'], action_credit_card.pk)

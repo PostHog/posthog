@@ -112,20 +112,14 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(methods=['GET'], detail=False)
     def actions(self, request: request.Request) -> response.Response:
-        events = self.get_queryset().prefetch_related('element_set')
-        events = self._filter_request(request, events)
-
-        action_steps = ActionStep.objects.filter(action__team=request.user.team_set.get()).select_related('action')
+        actions = Action.objects.filter(team=request.user.team_set.get()).prefetch_related(Prefetch('steps', queryset=ActionStep.objects.all()))
         matches = []
-        count = 0
-        for event in events:
-            for action in event.actions:
-                matches.append(self._serialize_actions(event, action))
-                count += 1
-            if count == 50:
-                break
-        return response.Response({'results': matches})
-
+        for action in actions:
+            events = Event.objects.filter_by_action(action, limit=20)
+            for event in events:
+                matches.append({'event': event, 'action': action})
+        matches = sorted(matches, key=lambda match: match['event'].id, reverse=True)
+        return response.Response({'results': [self._serialize_actions(match['event'], match['action']) for match in matches[0: 20]]})
 
     @action(methods=['GET'], detail=False)
     def names(self, request: request.Request) -> response.Response:
