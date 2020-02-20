@@ -14,6 +14,18 @@ See [PostHog docs](https://github.com/PostHog/posthog/wiki) for in-depth walk th
 
 ![PostHog dashboard screenshot](https://posthog.com/wp-content/uploads/2020/02/Screenshot-2020-02-13-at-23.14.36-2.png)
 
+## Action Autocapture
+![autocapture action](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Creating+new+action+with+toolbar.gif)
+
+## Funnel Creation
+![creating a funnel](https://posthog.com/wp-content/uploads/2020/02/Creating-a-funnel.gif)
+
+## Dashboard Creation
+![creating a dashboard](https://posthog.com/wp-content/uploads/2020/02/Creating-Dashboard-gif.gif)
+
+## Unique User Identification
+![users has email](https://posthog.com/wp-content/uploads/2020/02/Has-email-test-users.gif)
+
 ## Features
 
 - **Event-based** analytics at a user level - see which users are doing what in your application.
