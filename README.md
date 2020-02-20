@@ -120,15 +120,6 @@ If at any point, you get "command not found: nvm", you need to install nvm, then
 2) Now run `bin/start-frontend`
 3) Optional: If you're making changes to the editor, you'll need to do `cd frontend && yarn start-editor` to watch changes.
 
-## Create a new branch
-If you are working on some changes, please create a new branch, submit it to github ask for approval and when it gets approved it should automatically ship to Heroku
-
-* Before writing anything run `git pull origin master`
-* Then create your branch `git checkout -b %your_branch_name%` call your branch something that represents what you're planning to do
-* When you're finished add your changes `git add .`
-* And commit with a message `git commit -m "%your feature description%" `
-* When pushing to github make sure you push your branch name and not master! Use `git push origin %your_branch_name%`
-
 # Open source / Paid
 
 This repo is entirely MIT licensed. We charge for things like teams, permissioning, data lake integrations, and support. Please email hey@posthog.com and we will gladly help with your implementation.
