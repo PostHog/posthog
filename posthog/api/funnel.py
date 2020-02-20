@@ -56,7 +56,6 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             .annotate(**annotations)\
             .filter(step_0__isnull=False)
 
-        from ipdb import set_trace; set_trace()
         people = [person for person in people]
 
         steps = []
