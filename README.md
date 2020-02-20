@@ -129,4 +129,4 @@ If you are working on some changes, please create a new branch, submit it to git
 
 # Open source / Paid
 
-This repo is entirely MIT licensed. We charge for things like permissioning, data lake integrations, and support. Please email hey@posthog.com if you have more complex requirements and we can gladly help with your implementation.
+This repo is entirely MIT licensed. We charge for things like teams, permissioning, data lake integrations, and support. Please email hey@posthog.com and we will gladly help with your implementation.
