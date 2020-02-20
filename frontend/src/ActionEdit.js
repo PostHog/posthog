@@ -206,10 +206,6 @@ class ActionStep extends Component {
                 item='href'
                 label='Link href'
                 selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') +'"]'} />}
-            {(!isEditor || step.name) && <this.Option
-                item='name'
-                label='Element name'
-                selector={this.state.element && '[name="' + this.state.element.getAttribute('name') + '"]'} />}
             {(!isEditor || step.text) && <this.Option
                 item='text'
                 label='Text'
