@@ -1,6 +1,8 @@
 # PostHog
 
-PostHog is open source product analytics. Automate the collection of every event on your website or app, and stay in control of your users’ data.
+PostHog helps developers to understand how their applications are used.
+
+PostHog is open source product analytics, built specifically for engineers. Automate the collection of every event on your website or app, with no need to send data to 3rd parties. It's a 1 click to deploy on your own infrastructure, and with full API/SQL access to the underlying data.
 
 ## Quick start
 
@@ -14,7 +16,7 @@ See [PostHog docs](https://github.com/PostHog/posthog/wiki) for in-depth walk th
 
 ## Features
 
-- **Event-based** analytics.
+- **Event-based** analytics at a user level - see which users are doing what in your application.
 - **Complete control** over your data -- host it yourself.
 - **Automatically capture** clicks and page views to do analyze what your users are doing **retroactively**. 
 - Libraries for **JS, Python, Ruby** + API for anything else.
@@ -23,13 +25,17 @@ See [PostHog docs](https://github.com/PostHog/posthog/wiki) for in-depth walk th
 
 ## Philosophy
 
-We strongly believe 3rd party analytics don't work anymore in a world of Cookie laws, GDPR, CCPA and lots of other 4 letter acronyms. There should be an alternative to sending all of your users' personal information and usage data to 3rd parties.
+Many engineers find it tough to work out how their products are being used. This makes design decisions tough. PostHog solves that.
 
-PostHog gives you full control over all your users' data, while being able to do powerful analytics.
+We also strongly believe 3rd party analytics don't work anymore in a world of Cookie laws, GDPR, CCPA and lots of other 4 letter acronyms. There should be an alternative to sending all of your users' personal information and usage data to 3rd parties.
+
+PostHog gives you full control over all your users' data, while letting engineers easily perform powerful analytics.
+
+It means you can know who is using your app, how they're using, and where you lose users in the sign up process.
 
 ## What's cool about this?
 
-PostHog is the only <strong>product-focused</strong> open source analytics library, with an event and user-driven architecture. That means tracking identifiable (where applicable) user behavior, event funnels, and event autocapture. We are an open source alternative to Mixpanel, Amplitude or Heap.
+PostHog is the only <strong>product-focused</strong> open source analytics library, with an event and user-driven architecture. That means tracking identifiable (where applicable) user behavior, and creating user profiles. We are an open source alternative to Mixpanel, Amplitude or Heap, designed to be more developer friendly.
 
 There are a couple of session-based open source libraries that are nice alternatives to Google Analytics. That's not what we are focused on.
 
