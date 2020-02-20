@@ -10,11 +10,11 @@
         <p>Your username and password didn't match. Please try again.</p>
         {% endif %}
         <div class='field'>
-            <input type="email" name='email' id="inputEmail" value="{{ email }}" required autofocus>
+            <input type="email" name='email' id="inputEmail" placeholder="" value="{{ email }}" required autofocus>
             <label for="inputEmail">Email address</label>
         </div>
         <div class='field'>
-            <input type="password" name='password' id="inputPassword" required>
+            <input type="password" name='password' id="inputPassword" placeholder="" required>
             <label for="inputPassword">Password</label>
         </div>
         <button class="btn btn-lg btn-primary btn-block" type="submit">Sign in</button>
