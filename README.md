@@ -72,7 +72,7 @@ We recommend getting at the very least a `hobby-dev` Postgres and Dyno for low v
 
 ### Docker
 
-Using the [posthog/posthog:latest](https://hub.docker.com/r/posthog/posthog) Docker image.
+Using the [posthog/posthog:latest](https://hub.docker.com/r/posthog/posthog) Docker image. You'll need to spin up a separate Postgres docker container. We've included a docker-compose.yml file that does that.
 
 **On Ubuntu**
 
