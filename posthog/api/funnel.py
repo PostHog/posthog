@@ -1,7 +1,8 @@
-from posthog.models import Funnel, FunnelStep, Action, ActionStep, Event, Funnel, Person
+from posthog.models import Funnel, FunnelStep, Action, ActionStep, Event, Funnel, Person, PersonDistinctId
 from rest_framework import request, response, serializers, viewsets # type: ignore
 from rest_framework.decorators import action # type: ignore
-from django.db.models import QuerySet, query, Model, Q, Max, Prefetch
+from django.db.models import QuerySet, query, Model, Q, Max, Prefetch, Exists, OuterRef, Subquery
+from django.db import models
 from typing import List, Dict, Any
 
 
@@ -28,35 +29,45 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
         if hasattr(funnel, 'steps_cache'):
             return
         funnel.steps_cache = True
+
+        funnel_steps = funnel.steps.all().prefetch_related('action')
+        if len(funnel_steps) == 0:
+            return []
+        people = Person.objects.all()
+        annotations = {}
+        for step in funnel_steps:
+            annotations['step_{}'.format(step.order)] = Subquery(
+                Event.objects\
+                    .filter_by_action(step.action)\
+                    .annotate(person_id=OuterRef('id'))
+                    .filter(
+                        distinct_id__in=Subquery(
+                            PersonDistinctId.objects.filter(
+                                person_id=OuterRef('person_id')
+                            ).values('distinct_id')
+                        ),
+                        pk__gt=OuterRef('step_{}'.format(step.order-1)) if step.order > 0 else 0
+                    )\
+                    .order_by('pk')\
+                    .values('pk')[:1]
+            , output_field=models.IntegerField())
+
+        people = people\
+            .annotate(**annotations)\
+            .filter(step_0__isnull=False)
+
+        from ipdb import set_trace; set_trace()
+        people = [person for person in people]
+
         steps = []
-        people = None
-        previous_people = None
-        db_steps = funnel.steps.all().order_by('order', 'id')
-        for step in db_steps:
-            count = 0
-            if people != None:
-                previous_people = people
-            if people == None or len(people) > 0: # type: ignore
-                people = Event.objects.filter_by_action(step.action)\
-                    .filter(person_id__isnull=False)\
-                    .values('person_id')\
-                    .annotate(last_event=Max('pk'))\
-                    .order_by()
-                if previous_people:
-                    matches = Q()
-                    for person in previous_people:
-                        matches |= Q(pk__gt=person['last_event'], person_id=person['person_id'])
-                    people = people.filter(matches)
-                people = [person for person in people] # cache the execution of the query
-                if len(people) > 0:
-                    count = len(people)
+        for step in funnel_steps:
             steps.append({
                 'id': step.id,
                 'action_id': step.action.id,
                 'name': step.action.name,
                 'order': step.order,
-                'people': [person['person_id'] for person in people] if people else [],
-                'count':  count
+                'people': [person.id for person in people if getattr(person, 'step_{}'.format(step.order))],
+                'count': len([person for person in people if getattr(person, 'step_{}'.format(step.order))])
             })
         if len(steps) > 0:
             steps[0]['people'] = self._order_people_in_step(steps, steps[0]['people'])
