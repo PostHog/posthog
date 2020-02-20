@@ -6,9 +6,10 @@ PostHog is open source product analytics, built for developers. Automate the col
 
 ## Quick start
 
-1 click Heroku deploy:
+1-click Heroku deploy:
 
-[![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/posthog/posthog)
+<a href="https://heroku.com/deploy?template=https://github.com/posthog/posthog"><img src="https://www.herokucdn.com/deploy/button.svg" width="250px" /></a>
+
 
 See [PostHog docs](https://github.com/PostHog/posthog/wiki) for in-depth walk throughs on functionality.
 
