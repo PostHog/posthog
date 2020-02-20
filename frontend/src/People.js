@@ -56,7 +56,7 @@ export default class People extends Component {
                         {people && people.length == 0 && <tr><td colSpan="2">We haven't seen any data yet. If you haven't integrated PostHog, <Link to='/setup'>click here to set PostHog up on your app</Link></td></tr>}
                         {people && people.map((person) => [
                             <tr key={person.id} className='cursor-pointer' onClick={() => this.setState({personSelected: person.id})}>
-                                <td><Link to={'/person/' + person.distinct_ids[0]}>{person.name}</Link></td>
+                                <td><Link to={'/person/' + person.distinct_ids[0]} className='ph-no-capture'>{person.name}</Link></td>
                                 <td>{person.last_event && moment(person.last_event.timestamp).fromNow()}</td>
                             </tr>,
                             this.state.personSelected == person.id && <tr key={person.id + '_open'}>

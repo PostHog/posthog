@@ -4,13 +4,13 @@
     <form class="form-signin" method="post" action="/login">
         {% csrf_token %}
         <img class="mb-4" src="/docs/4.4/assets/brand/bootstrap-solid.svg" alt="" width="72" height="72">
-        <h1 class="h3 mb-3 font-weight-normal">Please sign in</h1>
+        <h1 class="h3 mb-3 font-weight-normal">Log in to PostHog</h1>
 
         {% if error %}
         <p>Your username and password didn't match. Please try again.</p>
         {% endif %}
         <div class='field'>
-            <input type="email" name='email' id="inputEmail" placeholder="Email address" value="{{ email }}" required>
+            <input type="email" name='email' id="inputEmail" placeholder="Email address" value="{{ email }}" required autofocus>
             <label for="inputEmail">Email address</label>
         </div>
         <div class='field'>
