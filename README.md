@@ -123,7 +123,7 @@ If at any point, you get "command not found: nvm", you need to install nvm, then
 
 This repo is entirely MIT licensed. We charge for things like teams, permissioning, data lake integrations, and support. Please email hey@posthog.com and we will gladly help with your implementation.
 
-## Thanks
+## Contributors/heros 🦸
 [//]: contributor-faces
 <a href="https://github.com/timgl"><img src="https://avatars1.githubusercontent.com/u/1727427?v=4" title="timgl" width="80" height="80"></a>
 <a href="https://github.com/jamesefhawkins"><img src="https://avatars3.githubusercontent.com/u/47497682?v=4" title="jamesefhawkins" width="80" height="80"></a>
