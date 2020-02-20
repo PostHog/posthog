@@ -330,7 +330,7 @@ export class ActionEdit extends Component {
                     this.setState({action: action})
                 }}>Add another match group</button>
             <br /><br />
-            {(!isEditor || (action.steps.length > 0 && action.steps[0].selection)) && <div className='btn-group'>
+            {(!isEditor || (action.steps.length > 0)) && <div className='btn-group'>
                 <button type="submit" onClick={(e) => this.onSubmit(e)} className='btn btn-success btn-sm'>Save action</button>
                 {this.props.isEditor && <button type="submit" onClick={(e) => this.onSubmit(e, true)} className='btn btn-secondary btn-sm'>Save & new action</button>}
             </div>}
