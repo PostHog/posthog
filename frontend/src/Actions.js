@@ -20,7 +20,7 @@ export class AppEditorLink extends Component {
         return <Modal title={'Set your app url'}>
             <label>What URL will you be using PostHog on?</label>
             <form >
-                <input defaultValue="https://" autoFocus style={{maxWidth: 400}} type="text" className='form-control' name='url' placeholder="https://...." />
+                <input defaultValue="https://" autoFocus style={{maxWidth: 400}} type="url" className='form-control' name='url' placeholder="https://...." />
                 <br />
                 <button onClick={(e) => {
                         event.preventDefault();
