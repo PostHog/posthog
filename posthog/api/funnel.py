@@ -78,18 +78,19 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             steps_to_delete = funnel.steps.exclude(pk__in=[step.get('id') for step in steps if step.get('id') and '-' not in str(step['id'])])
             steps_to_delete.delete()
             for index, step in enumerate(steps):
-                # make sure it's not a uuid, in which case we can just ignore id
-                if step.get('id') and '-' not in str(step['id']):
-                    db_step = FunnelStep.objects.get(funnel=funnel, pk=step['id'])
-                    db_step.action_id = step['action_id']
-                    db_step.order = index
-                    db_step.save()
-                else:
-                    FunnelStep.objects.create(
-                        funnel=funnel,
-                        order=index,
-                        action_id=step['action_id']
-                    )
+                if step.get('action_id'):
+                    # make sure it's not a uuid, in which case we can just ignore id
+                    if step.get('id') and '-' not in str(step['id']):
+                        db_step = FunnelStep.objects.get(funnel=funnel, pk=step['id'])
+                        db_step.action_id = step['action_id']
+                        db_step.order = index
+                        db_step.save()
+                    else:
+                        FunnelStep.objects.create(
+                            funnel=funnel,
+                            order=index,
+                            action_id=step['action_id']
+                        )
         return funnel
 
 class FunnelViewSet(viewsets.ModelViewSet):

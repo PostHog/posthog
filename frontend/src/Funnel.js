@@ -14,8 +14,8 @@ export class EditFunnel extends Component {
         super(props)
     
         this.state = {
-            actions: [],
-            steps: props.funnel && props.funnel.steps || [{id: uuid(), order: 0}],
+            actions: false,
+            steps: props.funnel && (props.funnel.steps.length > 0 ? props.funnel.steps : [{id: uuid(), order: 0}]) || [{id: uuid(), order: 0}],
             name: props.funnel && props.funnel.name,
             id: (props.funnel && props.funnel.id) || props.match.params.id,
         }
@@ -30,14 +30,14 @@ export class EditFunnel extends Component {
         })
     }
     fetchFunnel() {
-        api.get('api/funnel/' + this.state.id).then((funnel) => this.setState({steps: funnel.steps, name: funnel.name}))
+        api.get('api/funnel/' + this.state.id).then((funnel) => this.setState({steps: funnel.steps.length > 0 ? funnel.steps : [{id: uuid(), order: 0}], name: funnel.name}))
     }
     fetchActions() {
         api.get('api/action').then((actions) => this.setState({actions: actions.results}))
     }
     Step(step) {
         let { steps, actions } = this.state;
-        let selectedAction = actions.filter((action) => action.id == step.action_id)[0];
+        let selectedAction = actions && actions.filter((action) => action.id == step.action_id)[0];
         return <this.dnd.Draggable draggableId={step.id.toString()} index={step.order}>
             {(draggableProvider) => (
                 <div
@@ -63,7 +63,7 @@ export class EditFunnel extends Component {
                                     )}, this.onSubmit)
                                 }}
                                 defaultOptions
-                                options={actions.map((action) => ({label: action.name, value: action.id}))}
+                                options={actions && actions.map((action) => ({label: action.name, value: action.id}))}
                                 value={{label: selectedAction && selectedAction.name, value: step.action_id}}
                                 />
                             {step.action_id && <a target='_blank' href={'/action/' + step.action_id}>Edit action</a>}
@@ -97,6 +97,7 @@ export class EditFunnel extends Component {
                 required
                 placeholder='User drop off through signup'
                 type='text'
+                autoFocus
                 onChange={(e) => this.setState({name: e.target.value})}
                 value={name}
                 onBlur={() => this.onSubmit()}
@@ -229,6 +230,7 @@ export default class Funnel extends Component {
     fetchFunnel() {
         api.get('api/funnel/' + this.props.match.params.id).then((funnel) => {
             this.setState({funnel})
+            if(!funnel.steps[0]) return;
             api.get('api/person/?id=' + funnel.steps[0].people.slice(0, 99).join(','))
                 .then((people) => this.setState({people: this.sortPeople(people.results)}))
         })
