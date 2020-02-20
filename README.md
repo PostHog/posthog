@@ -1,3 +1,5 @@
+![PostHog header](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/github-cover.png)
+
 # PostHog
 
 PostHog helps developers to understand how their applications are used.
@@ -25,7 +27,7 @@ See [PostHog docs](https://github.com/PostHog/posthog/wiki) for in-depth walk th
 
 ## Philosophy
 
-Many engineers find it tough to work out how their products are being used. This makes design decisions tough. PostHog solves that.
+Many engineers find it painful to work out how their products are being used. This makes design decisions tough. PostHog solves that.
 
 We also strongly believe 3rd party analytics don't work anymore in a world of Cookie laws, GDPR, CCPA and lots of other 4 letter acronyms. There should be an alternative to sending all of your users' personal information and usage data to 3rd parties.
 
@@ -118,15 +120,6 @@ If at any point, you get "command not found: nvm", you need to install nvm, then
 1) Make sure you are running Django above in a separate terminal
 2) Now run `bin/start-frontend`
 3) Optional: If you're making changes to the editor, you'll need to do `cd frontend && yarn start-editor` to watch changes.
-
-## Create a new branch
-If you are working on some changes, please create a new branch, submit it to github ask for approval and when it gets approved it should automatically ship to Heroku
-
-* Before writing anything run `git pull origin master`
-* Then create your branch `git checkout -b %your_branch_name%` call your branch something that represents what you're planning to do
-* When you're finished add your changes `git add .`
-* And commit with a message `git commit -m "%your feature description%" `
-* When pushing to github make sure you push your branch name and not master! Use `git push origin %your_branch_name%`
 
 # Open source / Paid
 
