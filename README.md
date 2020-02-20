@@ -15,16 +15,17 @@ See [PostHog docs](https://github.com/PostHog/posthog/wiki) for in-depth walk th
 ![PostHog dashboard screenshot](https://posthog.com/wp-content/uploads/2020/02/Screenshot-2020-02-13-at-23.14.36-2.png)
 
 ## Action Autocapture
-![autocapture action](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Creating+new+action+with+toolbar.gif)
+<img src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Creating+new+action+with+toolbar.gif" width="100%" />
+
 
 ## Funnel Creation
-![creating a funnel](https://posthog.com/wp-content/uploads/2020/02/Creating-a-funnel.gif)
+<img src="https://posthog.com/wp-content/uploads/2020/02/Creating-a-funnel.gif" width="100%" />
 
 ## Dashboard Creation
-![creating a dashboard](https://posthog.com/wp-content/uploads/2020/02/Creating-Dashboard-gif.gif)
+<img src="https://posthog.com/wp-content/uploads/2020/02/Creating-Dashboard-gif.gif" width="100%" />
 
 ## Unique User Identification
-![users has email](https://posthog.com/wp-content/uploads/2020/02/Has-email-test-users.gif)
+<img src="https://posthog.com/wp-content/uploads/2020/02/Has-email-test-users.gif" width="100%" />
 
 ## Features
 
