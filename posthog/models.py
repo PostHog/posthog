@@ -136,7 +136,7 @@ class EventManager(models.QuerySet):
     def filter_by_url(self, action_step):
         if not action_step.url:
             return self
-        return self.extra(where=["U0.properties ->> %s LIKE %s"], params=["$current_url", "%{}%".format(action_step.url)])
+        return self.filter(**{'properties__$current_url': action_step.url})
 
     def filter_by_other(self, action_step):
         for key in ['tag_name', 'text', 'href', 'name']:
@@ -146,7 +146,7 @@ class EventManager(models.QuerySet):
 
     def add_person(self):
         return self.annotate(person_id=Subquery(
-            PersonDistinctId.objects.filter(distinct_id=OuterRef('distinct_id')).values('person_id')[:1]
+            PersonDistinctId.objects.filter(distinct_id=OuterRef('distinct_id')).order_by().values('person_id')[:1]
         ))
 
     def filter_by_action(self, action):
@@ -163,10 +163,9 @@ class EventManager(models.QuerySet):
 
         events = self\
             .filter(team_id=action.team_id)\
-            .filter(any_step)\
             .add_person()\
+            .filter(any_step)\
             .order_by('-id')
-        print(events.query)
         return events
 
 

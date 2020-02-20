@@ -1,7 +1,7 @@
 from posthog.models import Funnel, FunnelStep, Action, ActionStep, Event, Funnel, Person
 from rest_framework import request, response, serializers, viewsets # type: ignore
 from rest_framework.decorators import action # type: ignore
-from django.db.models import QuerySet, query, Model, Q, Max
+from django.db.models import QuerySet, query, Model, Q, Max, Prefetch
 from typing import List, Dict, Any
 
 
@@ -22,6 +22,12 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
         return sorted(people, key=order, reverse=True)
 
     def get_steps(self, funnel: Funnel) -> List[Dict[str, Any]]:
+        # for some reason, rest_framework executes SerializerMethodField multiple times,
+        # causing lots of slow queries. 
+        # Seems a known issue: https://stackoverflow.com/questions/55023511/serializer-being-called-multiple-times-django-python
+        if hasattr(funnel, 'steps_cache'):
+            return
+        funnel.steps_cache = True
         steps = []
         people = None
         previous_people = None
@@ -30,7 +36,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             count = 0
             if people != None:
                 previous_people = people
-            if people == None or people.count() > 0: # type: ignore
+            if people == None or len(people) > 0: # type: ignore
                 people = Event.objects.filter_by_action(step.action)\
                     .filter(person_id__isnull=False)\
                     .values('person_id')\
@@ -41,8 +47,9 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
                     for person in previous_people:
                         matches |= Q(pk__gt=person['last_event'], person_id=person['person_id'])
                     people = people.filter(matches)
+                people = [person for person in people] # cache the execution of the query
                 if len(people) > 0:
-                    count = people.count()
+                    count = len(people)
             steps.append({
                 'id': step.id,
                 'action_id': step.action.id,
