@@ -52,13 +52,12 @@ export default class People extends Component {
                 <table className='table' style={{position: 'relative'}}>
                     {loading && <div className='loading-overlay'><div></div></div>}
                     <tbody>
-                        <tr><th>Person</th><th>Last seen</th><th>First seen</th></tr>
+                        <tr><th>Person</th><th>Last seen</th></tr>
                         {people && people.length == 0 && <tr><td colSpan="2">We haven't seen any data yet. If you haven't integrated PostHog, <Link to='/setup'>click here to set PostHog up on your app</Link></td></tr>}
                         {people && people.map((person) => [
                             <tr key={person.id} className='cursor-pointer' onClick={() => this.setState({personSelected: person.id})}>
                                 <td><Link to={'/person/' + person.distinct_ids[0]}>{person.name}</Link></td>
                                 <td>{person.last_event && moment(person.last_event.timestamp).fromNow()}</td>
-                                <td title={person.created_at}>{moment(person.created_at).fromNow()}</td>
                             </tr>,
                             this.state.personSelected == person.id && <tr key={person.id + '_open'}>
                                 <td colSpan="4">
