@@ -106,17 +106,19 @@ class ActionViewSet(viewsets.ModelViewSet):
         return Response(ActionSerializer(action).data)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        actions = self.get_queryset()
         actions_list = []
+        actions = self.get_queryset()
+        include_count = request.GET.get('include_count', False)
         for action in actions:
-            count = Event.objects.filter_by_action(action, count=True)
-            actions_list.append({
+            action_dict = {
                 'id': action.pk,
                 'name': action.name,
-                'count': count,
                 'steps': ActionStepSerializer(action.steps.all(), many=True).data
-            })
-        actions_list.sort(key=lambda action: action['count'], reverse=True)
+            }
+            if include_count:
+                action_dict['count'] = Event.objects.filter_by_action(action, count=True)
+            actions_list.append(action_dict)
+        actions_list.sort(key=lambda action: action.get('count', action['id']), reverse=True)
         return Response({'results': actions_list})
 
     def _group_events_to_date(self, date_from, aggregates, steps, ):

@@ -67,7 +67,7 @@ export class ActionsTable extends Component {
     }
     fetchActions() {
         clearTimeout(this.poller)
-        api.get('api/action').then((actions) => {
+        api.get('api/action/?include_count=1').then((actions) => {
             this.setState({actions: actions.results});
         })
     }
