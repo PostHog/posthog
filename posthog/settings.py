@@ -63,7 +63,8 @@ INSTALLED_APPS = [
     'posthog.apps.PostHogConfig',
     'rest_framework',
     'loginas',
-    'corsheaders'
+    'corsheaders',
+    'debug_toolbar'
 ]
 
 MIDDLEWARE = [
@@ -76,7 +77,9 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'debug_toolbar.middleware.DebugToolbarMiddleware'
 ]
+INTERNAL_IPS = ['127.0.0.1', '10.30.235.17']
 CORS_ORIGIN_ALLOW_ALL = True
 
 ROOT_URLCONF = 'posthog.urls'
