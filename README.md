@@ -94,8 +94,8 @@ gunicorn posthog.wsgi --config gunicorn.config.py --log-file -
 ### Running behind a proxy?
 Make sure you set the `IS_BEHIND_PROXY` environment variable which will set the HTTP_X_FORWARDED_PROTO header.
 
-# Development
-## Running backend (Django)
+## Development
+### Running backend (Django)
 1) Make sure you have python 3 installed `python3 --version`
 2) Make sure you have postgres installed `brew install postgres`
 3) Start postgres, run `brew services start postgresql`
@@ -108,10 +108,10 @@ Make sure you set the `IS_BEHIND_PROXY` environment variable which will set the 
 10) Run `DEBUG=1 python manage.py runserver`
 11) Run the tests and frontend
 
-## Running backend tests
+### Running backend tests
 `bin/tests`
 
-## Running frontend (React)
+### Running frontend (React)
 
 If at any point, you get "command not found: nvm", you need to install nvm, then use that to install node.
 
@@ -119,6 +119,19 @@ If at any point, you get "command not found: nvm", you need to install nvm, then
 2) Now run `bin/start-frontend`
 3) Optional: If you're making changes to the editor, you'll need to do `cd frontend && yarn start-editor` to watch changes.
 
-# Open source / Paid
+## Open source / Paid
 
 This repo is entirely MIT licensed. We charge for things like teams, permissioning, data lake integrations, and support. Please email hey@posthog.com and we will gladly help with your implementation.
+
+## Thanks
+[//]: contributor-faces
+<a href="https://github.com/timgl"><img src="https://avatars1.githubusercontent.com/u/1727427?v=4" title="timgl" width="80" height="80"></a>
+<a href="https://github.com/jamesefhawkins"><img src="https://avatars3.githubusercontent.com/u/47497682?v=4" title="jamesefhawkins" width="80" height="80"></a>
+<a href="https://github.com/apps/dependabot-preview"><img src="https://avatars3.githubusercontent.com/in/2141?v=4" title="dependabot-preview[bot]" width="80" height="80"></a>
+<a href="https://github.com/Tannergoods"><img src="https://avatars1.githubusercontent.com/u/60791437?v=4" title="Tannergoods" width="80" height="80"></a>
+<a href="https://github.com/ellmh"><img src="https://avatars1.githubusercontent.com/u/53315310?v=4" title="ellmh" width="80" height="80"></a>
+<a href="https://github.com/mrkurt"><img src="https://avatars1.githubusercontent.com/u/7724?v=4" title="mrkurt" width="80" height="80"></a>
+<a href="https://github.com/rberrelleza"><img src="https://avatars0.githubusercontent.com/u/475313?v=4" title="rberrelleza" width="80" height="80"></a>
+<a href="https://github.com/mariusandra"><img src="https://avatars0.githubusercontent.com/u/53387?v=4" title="rberrelleza" width="80" height="80"></a>
+
+[//]: contributor-faces

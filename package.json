@@ -10,12 +10,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/timgl/posthog.git"
+    "url": "https://github.com/posthog/posthog.git"
   },
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/timgl/posthog/issues"
+    "url": "https://github.com/posthog/posthog/issues"
   },
-  "homepage": "https://github.com/timgl/posthog#readme"
+  "homepage": "https://github.com/posthog/posthog#readme"
 }
