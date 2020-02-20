@@ -14,19 +14,6 @@ See [PostHog docs](https://github.com/PostHog/posthog/wiki) for in-depth walk th
 
 ![PostHog dashboard screenshot](https://posthog.com/wp-content/uploads/2020/02/Screenshot-2020-02-13-at-23.14.36-2.png)
 
-## Action Autocapture
-<img src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Creating+new+action+with+toolbar.gif" width="100%" />
-
-
-## Funnel Creation
-<img src="https://posthog.com/wp-content/uploads/2020/02/Creating-a-funnel.gif" width="100%" />
-
-## Dashboard Creation
-<img src="https://posthog.com/wp-content/uploads/2020/02/Creating-Dashboard-gif.gif" width="100%" />
-
-## Unique User Identification
-<img src="https://posthog.com/wp-content/uploads/2020/02/Has-email-test-users.gif" width="100%" />
-
 ## Features
 
 - **Event-based** analytics at a user level - see which users are doing what in your application.
@@ -35,6 +22,9 @@ See [PostHog docs](https://github.com/PostHog/posthog/wiki) for in-depth walk th
 - Libraries for **[JS](https://github.com/PostHog/posthog/wiki/JS-integration), [Python](https://github.com/PostHog/posthog/wiki/python-integration), [Ruby](https://github.com/PostHog/posthog/wiki/ruby-integration), [Node](https://github.com/PostHog/posthog/wiki/node-integration)** + API for anything else.
 - Beautiful **graphs, funnels and dashboards**.
 - Super easy deploy using **Docker** or **Heroku**.
+
+## Action Autocapture
+<img src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Creating+new+action+with+toolbar.gif" width="100%" />
 
 ## Philosophy
 
