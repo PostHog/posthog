@@ -106,6 +106,7 @@ Make sure you set the `IS_BEHIND_PROXY` environment variable which will set the 
 8) Run `pip install -r requirements.txt`. If you have problems with this step (TLS/SSL error), then run `~ brew update && brew upgrade` followed by `python3 -m pip install --upgrade pip`, then retry the requirements.txt install.
 9) Run migrations `python manage.py migrate`
 10) Run `DEBUG=1 python manage.py runserver`
+11) Run the tests and frontend
 
 ## Running backend tests
 `bin/tests`
