@@ -2,8 +2,6 @@
 
 # PostHog
 
-PostHog helps developers to understand how their applications are used.
-
 PostHog is open source product analytics, built for developers. Automate the collection of every event on your website or app, with no need to send data to 3rd parties. It's a 1 click to deploy on your own infrastructure, with full API/SQL access to the underlying data.
 
 ## Quick start
@@ -21,7 +19,7 @@ See [PostHog docs](https://github.com/PostHog/posthog/wiki) for in-depth walk th
 - **Event-based** analytics at a user level - see which users are doing what in your application.
 - **Complete control** over your data -- host it yourself.
 - **Automatically capture** clicks and page views to do analyze what your users are doing **retroactively**. 
-- Libraries for **[JS](https://github.com/PostHog/posthog/wiki/JS-integration), [Python](https://github.com/PostHog/posthog/wiki/python-integration), [Ruby](https://github.com/PostHog/posthog/wiki/ruby-integration)** + API for anything else.
+- Libraries for **[JS](https://github.com/PostHog/posthog/wiki/JS-integration), [Python](https://github.com/PostHog/posthog/wiki/python-integration), [Ruby](https://github.com/PostHog/posthog/wiki/ruby-integration), [Node](https://github.com/PostHog/posthog/wiki/node-integration)** + API for anything else.
 - Beautiful **graphs, funnels and dashboards**.
 - Super easy deploy using **Docker** or **Heroku**.
 
