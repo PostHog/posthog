@@ -25,7 +25,7 @@ See [PostHog docs](https://github.com/PostHog/posthog/wiki) for in-depth walk th
 
 ## Philosophy
 
-Many engineers find it tough to work out how their products are being used. This makes design decisions tough. PostHog solves that.
+Many engineers find it painful to work out how their products are being used. This makes design decisions tough. PostHog solves that.
 
 We also strongly believe 3rd party analytics don't work anymore in a world of Cookie laws, GDPR, CCPA and lots of other 4 letter acronyms. There should be an alternative to sending all of your users' personal information and usage data to 3rd parties.
 
