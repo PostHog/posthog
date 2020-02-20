@@ -64,13 +64,13 @@ def login_view(request):
             return render_template('login.html', request=request, context={'email': email, 'error': True})
     return render_template('login.html', request)
 
-def signup_view(request):
+def setup_admin(request):
+    if User.objects.exists():
+        return redirect('/login')
     if request.method == 'GET':
         if request.user.is_authenticated:
             return redirect('/')
-        if not User.objects.exists():
-            return redirect('/setup_admin')
-        return render_template('signup.html', request)
+        return render_template('setup_admin.html', request)
     if request.method == 'POST':
         email = request.POST['email']
         password = request.POST['password']
@@ -79,7 +79,7 @@ def signup_view(request):
         try:
             user = User.objects.create_user(email=email, password=password, first_name=request.POST.get('name'))
         except:
-            return render_template('signup.html', request=request, context={'error': True, 'email': request.POST['email'], 'company_name': request.POST.get('company_name'), 'name': request.POST.get('name')})
+            return render_template('setup_admin.html', request=request, context={'error': True, 'email': request.POST['email'], 'company_name': request.POST.get('company_name'), 'name': request.POST.get('name')})
         team = Team.objects.create(name=company_name)
         team.users.add(user)
         login(request, user)
@@ -91,13 +91,6 @@ def signup_view(request):
         })
         return redirect('/setup')
 
-def setup_admin(request):
-    if User.objects.exists():
-        return redirect('/login')
-    if request.method == 'GET':
-        if request.user.is_authenticated:
-            return redirect('/')
-        return render_template('signup.html', request)
 
 def logout(request):
     return auth_views.logout_then_login(request)
@@ -123,11 +116,7 @@ urlpatterns = [
     path('batch/', capture.get_event),
     path('logout', logout, name='login'),
     path('login', login_view, name='login'),
-    path('signup', signup_view, name='signup'),
     path('setup_admin', setup_admin, name='setup_admin'),
-
-
-
     # react frontend
 ]
 
