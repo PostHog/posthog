@@ -17,7 +17,7 @@ export class AppEditorLink extends Component {
         return '/api/user/redirect_to_site/' + (actionId ? '?actionId=' + actionId : '')
     }
     SetURLModal() {
-        return <Modal title={'Set your app url'}>
+        return <Modal title={'Set your app url'} onDismiss={() => this.setState({openModal: false})}>
             <label>What URL will you be using PostHog on?</label>
             <form >
                 <input defaultValue="https://" autoFocus style={{maxWidth: 400}} type="url" className='form-control' name='url' placeholder="https://...." />
