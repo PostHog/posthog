@@ -2,7 +2,7 @@
 
 PostHog helps developers to understand how their applications are used.
 
-PostHog is open source product analytics, built specifically for engineers. Automate the collection of every event on your website or app, with no need to send data to 3rd parties. It's a 1 click to deploy on your own infrastructure, and with full API/SQL access to the underlying data.
+PostHog is open source product analytics, built specifically for engineers. Automate the collection of every event on your website or app, with no need to send data to 3rd parties. It's a 1 click to deploy on your own infrastructure, with full API/SQL access to the underlying data.
 
 ## Quick start
 
@@ -29,7 +29,7 @@ Many engineers find it tough to work out how their products are being used. This
 
 We also strongly believe 3rd party analytics don't work anymore in a world of Cookie laws, GDPR, CCPA and lots of other 4 letter acronyms. There should be an alternative to sending all of your users' personal information and usage data to 3rd parties.
 
-PostHog gives you full control over all your users' data, while letting engineers easily perform powerful analytics.
+PostHog gives you full control over all your users' data, while letting anyone easily perform powerful analytics.
 
 It means you can know who is using your app, how they're using, and where you lose users in the sign up process.
 
