@@ -52,6 +52,8 @@ class ActionViewSet(viewsets.ModelViewSet):
         if self.action == 'list':
             queryset = queryset.filter(deleted=False)
 
+        if self.request.GET.get('actions'):
+            queryset = queryset.filter(pk__in=self.request.GET['actions'].split(','))
         queryset = queryset.prefetch_related(Prefetch('steps', queryset=ActionStep.objects.order_by('id')))
         return queryset\
             .filter(team=self.request.user.team_set.get())\

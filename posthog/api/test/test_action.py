@@ -88,7 +88,6 @@ class TestAction(BaseTest):
         self.assertEqual(response.status_code, 200, response.json())
 
     def test_trends_per_day(self):
-
         no_events = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=no_events, event='no events')
 
@@ -109,7 +108,8 @@ class TestAction(BaseTest):
             Event.objects.create(team=self.team, event='no events', distinct_id='blabla')
 
         with freeze_time('2020-01-04'):
-            response = self.client.get('/api/action/trends/').json()
+            with self.assertNumQueries(7):
+                response = self.client.get('/api/action/trends/').json()
 
         self.assertEqual(response[0]['labels'][4], '1 January')
         self.assertEqual(response[0]['data'][4], 3.0)
@@ -141,3 +141,8 @@ class TestAction(BaseTest):
         self.assertEqual(response[0]['breakdown'][1]['count'], 1)
         self.assertEqual(response[0]['breakdown'][2]['name'], 'value')
         self.assertEqual(response[0]['breakdown'][2]['count'], 1)
+
+        # test action filtering
+        with freeze_time('2020-01-04'):
+            response = self.client.get('/api/action/trends/?actions=%s' % sign_up_action.pk).json()
+        self.assertEqual(len(response), 1)
