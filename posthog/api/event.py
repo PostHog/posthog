@@ -8,7 +8,7 @@ from typing import Any, Union, Tuple, Dict, List
 import re
 
 class ElementSerializer(serializers.ModelSerializer):
-    event = serializers.CharField() 
+    event = serializers.CharField()
     class Meta:
         model = Element
         fields = ['event', 'text', 'tag_name', 'attr_class', 'href', 'attr_id', 'nth_child', 'nth_of_type', 'attributes', 'order']
@@ -52,7 +52,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         for key, value in request.GET.items():
-            if key == 'event' or key == 'ip':
+            if key in ('event', 'ip'):
                 pass
             elif key == 'after':
                 queryset = queryset.filter(timestamp__gt=request.GET['after'])
@@ -93,7 +93,7 @@ class EventViewSet(viewsets.ModelViewSet):
             .values('tag_name', 'text', 'order')\
             .annotate(count=Count('event'))\
             .order_by('-count')
-        
+
         return response.Response([{
             'name': '%s with text "%s"' % (el['tag_name'], el['text']),
             'count': el['count'],
@@ -128,7 +128,7 @@ class EventViewSet(viewsets.ModelViewSet):
             .values('event')\
             .annotate(count=Count('id'))\
             .order_by('-count')
-        
+
         return response.Response([{'name': event['event'], 'count': event['count']} for event in events])
 
     @action(methods=['GET'], detail=False)

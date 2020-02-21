@@ -1,4 +1,4 @@
-from posthog.models import Funnel, FunnelStep, Action, ActionStep, Event, Funnel, Person
+from posthog.models import FunnelStep, Action, ActionStep, Event, Funnel, Person
 from rest_framework import request, response, serializers, viewsets # type: ignore
 from rest_framework.decorators import action # type: ignore
 from django.db.models import QuerySet, query, Model
@@ -30,10 +30,10 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             if people == None or len(people) > 0: # type: ignore
                 people = Event.objects.filter_by_action(
                     step.action,
-                    where='({})' .format(') OR ('.join([
+                    where='({})' .format(') OR ('.join(
                         "posthog_event.id > {} AND posthog_persondistinctid.person_id = {}".format(person.event_id, person.id)
                         for person in people # type: ignore
-                    ])) if people else None,
+                    )) if people else None,
                     group_by='person_id',
                     group_by_table='posthog_persondistinctid')
                 if len(people) > 0:

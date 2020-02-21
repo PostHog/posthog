@@ -19,7 +19,9 @@ from rest_framework import permissions
 
 
 
-def render_template(template_name: str, request, context={}) -> HttpResponse:
+def render_template(template_name: str, request, context=None) -> HttpResponse:
+    if context is None:
+        context = {}
     template = get_template(template_name)
     try:
         context.update({
