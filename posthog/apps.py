@@ -1,4 +1,5 @@
 from django.apps import AppConfig
+from django.conf import settings
 import posthoganalytics # type: ignore
 
 
@@ -7,4 +8,5 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
-        posthoganalytics.api_key = 'sTMFPsFhdP1Ssg'
+        if not settings.TEST:
+            posthoganalytics.api_key = 'sTMFPsFhdP1Ssg'
