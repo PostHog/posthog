@@ -36,6 +36,7 @@ if not DEBUG and not TEST:
 
 
 if os.environ.get('IS_BEHIND_PROXY', False):
+    USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # Quick-start development settings - unsuitable for production
