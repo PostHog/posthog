@@ -29,7 +29,7 @@ class TestCapture(BaseTest):
                     {'tag_name': 'div', 'nth_child': 1, 'nth_of_type': 2, '$el_text': '💻'}
                 ]
             },
-        }), content_type='application/json', HTTP_REFERER='https://localhost')
+        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
 
         self.assertEqual(response._headers['access-control-allow-origin'][1], 'https://localhost')
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
@@ -52,7 +52,7 @@ class TestCapture(BaseTest):
                 'distinct_id': 'asdfasdfasdf',
                 'token': self.team.api_token,
             },
-        }), content_type='application/json', HTTP_REFERER='https://localhost')
+        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
 
         self.assertEqual(Person.objects.get().distinct_ids, ["asdfasdfasdf"])
         event = Event.objects.get()
@@ -78,7 +78,7 @@ class TestCapture(BaseTest):
             '$distinct_id': 3,
             '$device_id': '16fd4afae9b2d8-0fce8fe900d42b-39637c0e-7e9000-16fd4afae9c395',
             '$user_id': 3
-        }), content_type='application/json', HTTP_REFERER='https://localhost')
+        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
         self.assertEqual(response._headers['access-control-allow-origin'][1], 'https://localhost')
 
         person = Person.objects.get()
@@ -138,7 +138,7 @@ class TestCapture(BaseTest):
         self.assertEqual(response.json()['status'], 1)
 
     def test_ignore_empty_request(self):
-        response = self.client.get('/e/?data=', content_type='application/json', HTTP_REFERER='https://localhost')
+        response = self.client.get('/e/?data=', content_type='application/json', HTTP_ORIGIN='https://localhost')
         self.assertEqual(response.content, b"1")
 
     def test_alias(self):
@@ -151,7 +151,7 @@ class TestCapture(BaseTest):
                 'token': self.team.api_token,
                 'alias': 'new_distinct_id'
             },
-        }), content_type='application/json', HTTP_REFERER='https://localhost')
+        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
 
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
@@ -178,7 +178,7 @@ class TestAlias(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }), content_type='application/json', HTTP_REFERER='https://localhost')
+        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
 
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["anonymous_id", "new_distinct_id"])
@@ -191,7 +191,7 @@ class TestAlias(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }), content_type='application/json', HTTP_REFERER='https://localhost')
+        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
 
     # This case is likely to happen after signup, for example:
     # 1. User browses website with anonymous_id
@@ -210,7 +210,7 @@ class TestAlias(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }), content_type='application/json', HTTP_REFERER='https://localhost')
+        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
 
         # self.assertEqual(Event.objects.count(), 0)
         person = Person.objects.get()
