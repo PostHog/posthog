@@ -6,7 +6,9 @@ loglevel = "error"
 
 def on_starting(server):
     print("""
-\x1b[1;34m
+\x1b[1;34m""" +
+
+r"""
  _____          _   _    _             
 |  __ \        | | | |  | |            
 | |__) |__  ___| |_| |__| | ___   __ _ 
@@ -15,6 +17,9 @@ def on_starting(server):
 |_|   \___/|___/\__|_|  |_|\___/ \__, |
                                   __/ |
                                  |___/ 
+""" +
+
+"""
 \x1b[0m
 """)
     print("Server running on \x1b[4mhttp://127.0.0.1:8000\x1b[0m")
