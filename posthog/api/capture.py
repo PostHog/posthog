@@ -18,9 +18,9 @@ def get_ip_address(request):
     return ip   
 
 def cors_response(request, response):
-    if not request.META.get('HTTP_REFERER'):
+    if not request.META.get('HTTP_ORIGIN'):
         return response
-    url = urlparse(request.META['HTTP_REFERER'])
+    url = urlparse(request.META['HTTP_ORIGIN'])
     response["Access-Control-Allow-Origin"] = "%s://%s" % (url.scheme, url.netloc)
     response["Access-Control-Allow-Credentials"] = 'true'
     response["Access-Control-Allow-Methods"] = 'GET, POST, OPTIONS'
