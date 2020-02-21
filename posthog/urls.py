@@ -89,8 +89,7 @@ def setup_admin(request):
             'company_name': company_name,
             'name': user.first_name
         })
-        return redirect('/setup')
-
+        return redirect('/')
 
 def logout(request):
     return auth_views.logout_then_login(request)

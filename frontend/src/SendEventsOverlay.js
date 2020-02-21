@@ -34,10 +34,12 @@ class SendEventsOverlay extends Component {
                     <h2>Start sending events to PostHog</h2>
                     To get started using PostHog, you'll need to send us some events. By copying the snippet below, you can be up and running in minutes!
                     <JSSnippet user={this.props.user} />
-                    <a href='https://github.com/posthog/posthog-python'>Using Python instead?</a><br /><br />
+                    <a href='https://github.com/PostHog/posthog/wiki/Integrations'>Using Python/Ruby/Node/Go/PHP instead?</a><br /><br />
+
                     {window.location.href.indexOf('127.0.0.1') && <div >
                         <h3>Running locally?</h3>
-                        It's hard to send events to PostHog running locally. The easiest way to get started is by deploying to Heroku.<br /><br />
+                        It's hard to send events to PostHog running locally. If you want to have a play, <a href='/demo' target="_blank">click here for our 'HogFlix' demo environment</a>.<br /><br />
+                        Once you're ready, you can deploy it to a live environment.<br /><br />
                         <a href='https://heroku.com/deploy?template=https://github.com/posthog/posthog'>
                             <img src="https://www.herokucdn.com/deploy/button.svg" />
                         </a><br /><br />
