@@ -34,7 +34,11 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
         # This happens when someone is trying to create actions from the editor on their own website
         if request.headers.get('Origin') and request.headers['Origin'] not in request.build_absolute_uri('/'):
             if not request.GET.get('temporary_token'):
-                raise AuthenticationFailed(detail='No token')
+                raise AuthenticationFailed(detail="""No temporary_token set.
+                    That means your either trying to access this API from a different site,
+                    or it means your proxy isn\'t sending the correct headers.
+                    See https://github.com/PostHog/posthog/wiki/Running-behind-a-proxy for more information.
+                    """)
         if request.GET.get('temporary_token'):
             user = User.objects.filter(temporary_token=request.GET.get('temporary_token'))
             if not user.exists():
