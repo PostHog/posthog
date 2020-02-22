@@ -167,13 +167,13 @@ class EventManager(models.Manager):
         if count:
             return "SELECT COUNT(posthog_event.id) as id FROM posthog_event "
         return """
-        SELECT "posthog_event"."id", 
-            "posthog_event"."team_id", 
-            "posthog_event"."event", 
-            "posthog_event"."distinct_id", 
+        SELECT "posthog_event"."id",
+            "posthog_event"."team_id",
+            "posthog_event"."event",
+            "posthog_event"."distinct_id",
             "posthog_event"."properties",
-            "posthog_event"."elements", 
-            "posthog_event"."timestamp", 
+            "posthog_event"."elements",
+            "posthog_event"."timestamp",
             "posthog_event"."ip",
             "posthog_persondistinctid"."person_id" as person_id
         FROM   "posthog_event" """
@@ -226,7 +226,7 @@ class Event(models.Model):
 
     def _element_matches_selector(self, elements, selector: Dict, order=None):
         for element in elements:
-            if order != None and order != element.order:
+            if order not in (None, element.order):
                 continue
             if selector.get('tag_name') and selector['tag_name'] != element.tag_name:
                 continue

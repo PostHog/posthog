@@ -75,7 +75,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             for step in request.data['steps']:
                 ActionStep.objects.create(
                     action=action,
-                    **{key: value for key, value in step.items() if key != 'isNew' and key != 'selection'}
+                    **{key: value for key, value in step.items() if key not in ('isNew', 'selection')}
                 )
         return Response(ActionSerializer(action).data)
 
@@ -98,7 +98,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 else:
                     ActionStep.objects.create(
                         action=action,
-                        **{key: value for key, value in step.items() if key != 'isNew' and key != 'selection'}
+                        **{key: value for key, value in step.items() if key not in ('isNew', 'selection')}
                     )
 
         serializer = ActionSerializer(action)
@@ -136,7 +136,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         ret = []
 
         for key, value in request.GET.items():
-            if key != 'days' and key != 'actions' and key != 'display' and key != 'breakdown':
+            if key not in ('days', 'actions', 'display', 'breakdown'):
                 ret.append(['(posthog_event.properties -> %s) = %s', [key, '"{}"'.format(value)]])
         if date_from:
             ret.append(['posthog_event.timestamp >= %s', [date_from]])
