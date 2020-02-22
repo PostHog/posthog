@@ -8,5 +8,6 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
-        if not settings.TEST:
-            posthoganalytics.api_key = 'sTMFPsFhdP1Ssg'
+        posthoganalytics.api_key = 'sTMFPsFhdP1Ssg'
+        if settings.TEST:
+            posthoganalytics.disabled = True
