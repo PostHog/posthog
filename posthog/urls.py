@@ -82,7 +82,7 @@ def setup_admin(request):
             user = User.objects.create_user(email=email, password=password, first_name=request.POST.get('name'))
         except:
             return render_template('setup_admin.html', request=request, context={'error': True, 'email': request.POST['email'], 'company_name': request.POST.get('company_name'), 'name': request.POST.get('name')})
-        team = Team.objects.create_with_data(users=[user], name=company_name)
+        Team.objects.create_with_data(users=[user], name=company_name)
         login(request, user)
         posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': is_first_user})
         posthoganalytics.identify(user.distinct_id, properties={

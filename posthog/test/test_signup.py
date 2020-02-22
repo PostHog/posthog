@@ -1,6 +1,5 @@
-from django.test import TestCase
-from posthog.models import User, Team, DashboardItem, Action
-from django.test import Client
+from django.test import TestCase, Client
+from posthog.models import User, DashboardItem, Action
 
 class TestSignup(TestCase):
     def setUp(self):

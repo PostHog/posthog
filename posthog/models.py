@@ -85,17 +85,29 @@ class User(AbstractUser):
 
 
 class TeamManager(models.Manager):
-    def create_with_data(self, users: List[User]=[], **kwargs):
+    def create_with_data(self, users: List[User]=None, **kwargs):
         team = Team.objects.create(**kwargs)
-        team.users.set(users)
+        if users:
+            team.users.set(users)
 
         action = Action.objects.create(team=team, name='Pageviews')
         ActionStep.objects.create(action=action, event='$pageview')
 
         DashboardItem.objects.create(team=team, name='Pageviews this week', type='ActionsLineGraph', filters={'actions': [action.pk]})
-        DashboardItem.objects.create(team=team, name='Most popular browsers this week', type='ActionsTable', filters={'actions': [action.pk], 'display': 'ActionsTable', 'breakdown': '$browser'})
-        DashboardItem.objects.create(team=team, name='All actions', type='ActionsLineGraph', filters={})
+        DashboardItem.objects.create(
+            team=team,
+            name='Most popular browsers this week',
+            type='ActionsTable',
+            filters={'actions': [action.pk], 'display': 'ActionsTable', 'breakdown': '$browser'}
+        )
+        DashboardItem.objects.create(
+            team=team,
+            name='All actions',
+            type='ActionsLineGraph',
+            filters={}
+        )
         return team
+
 
 class Team(models.Model):
     users: models.ManyToManyField = models.ManyToManyField(User, blank=True)
