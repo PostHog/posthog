@@ -84,12 +84,39 @@ class User(AbstractUser):
     objects = UserManager() # type: ignore
 
 
+class TeamManager(models.Manager):
+    def create_with_data(self, users: List[User]=None, **kwargs):
+        team = Team.objects.create(**kwargs)
+        if users:
+            team.users.set(users)
+
+        action = Action.objects.create(team=team, name='Pageviews')
+        ActionStep.objects.create(action=action, event='$pageview')
+
+        DashboardItem.objects.create(team=team, name='Pageviews this week', type='ActionsLineGraph', filters={'actions': [action.pk]})
+        DashboardItem.objects.create(
+            team=team,
+            name='Most popular browsers this week',
+            type='ActionsTable',
+            filters={'actions': [action.pk], 'display': 'ActionsTable', 'breakdown': '$browser'}
+        )
+        DashboardItem.objects.create(
+            team=team,
+            name='All actions',
+            type='ActionsLineGraph',
+            filters={}
+        )
+        return team
+
+
 class Team(models.Model):
     users: models.ManyToManyField = models.ManyToManyField(User, blank=True)
     api_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     app_url: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
+
+    objects = TeamManager()
 
     def __str__(self):
         if self.name:

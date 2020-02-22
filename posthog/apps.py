@@ -1,4 +1,5 @@
 from django.apps import AppConfig
+from django.conf import settings
 import posthoganalytics # type: ignore
 
 
@@ -8,3 +9,5 @@ class PostHogConfig(AppConfig):
 
     def ready(self):
         posthoganalytics.api_key = 'sTMFPsFhdP1Ssg'
+        if settings.TEST:
+            posthoganalytics.disabled = True
