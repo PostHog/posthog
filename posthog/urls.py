@@ -45,7 +45,7 @@ def render_template(template_name: str, request, context=None) -> HttpResponse:
 
 def home(request, **kwargs):
     if request.path.endswith('.map'):
-        return redirect('/static/%s' % request.path)
+        return redirect('/static%s' % request.path)
     return render_template('index.html', request)
 
 def login_view(request):

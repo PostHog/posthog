@@ -17,16 +17,23 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
         model = ActionStep
         fields = ['id', 'event', 'tag_name', 'text', 'href', 'selector', 'url', 'name']
 
+
 class ActionSerializer(serializers.HyperlinkedModelSerializer):
     steps = serializers.SerializerMethodField()
+    count = serializers.SerializerMethodField()
 
     class Meta:
         model = Action
-        fields = ['id', 'name', 'steps', 'created_at', 'deleted']
+        fields = ['id', 'name', 'steps', 'created_at', 'deleted', 'count']
 
     def get_steps(self, action: Action) -> List:
         steps = action.steps.all().order_by('id')
         return ActionStepSerializer(steps, many=True).data
+
+    def get_count(self, action: Action) -> int:
+        if self.context['request'].GET.get('include_count', False):
+            return Event.objects.filter_by_action(action, count=True)
+        return None
 
 class TemporaryTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: request.Request):
@@ -77,7 +84,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     action=action,
                     **{key: value for key, value in step.items() if key not in ('isNew', 'selection')}
                 )
-        return Response(ActionSerializer(action).data)
+        return Response(ActionSerializer(action, context={'request': request}).data)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         action = Action.objects.get(pk=kwargs['pk'], team=request.user.team_set.get())
@@ -101,23 +108,14 @@ class ActionViewSet(viewsets.ModelViewSet):
                         **{key: value for key, value in step.items() if key not in ('isNew', 'selection')}
                     )
 
-        serializer = ActionSerializer(action)
+        serializer = ActionSerializer(action, context={'request': request})
         serializer.update(action, request.data)
-        return Response(ActionSerializer(action).data)
+        return Response(ActionSerializer(action, context={'request': request}).data)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         actions_list = []
         actions = self.get_queryset()
-        include_count = request.GET.get('include_count', False)
-        for action in actions:
-            action_dict = {
-                'id': action.pk,
-                'name': action.name,
-                'steps': ActionStepSerializer(action.steps.all(), many=True).data
-            }
-            if include_count:
-                action_dict['count'] = Event.objects.filter_by_action(action, count=True)
-            actions_list.append(action_dict)
+        actions_list = ActionSerializer(actions, many=True, context={'request': request}).data
         actions_list.sort(key=lambda action: action.get('count', action['id']), reverse=True)
         return Response({'results': actions_list})
 

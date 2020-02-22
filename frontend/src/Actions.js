@@ -28,7 +28,7 @@ export class AppEditorLink extends Component {
                             this.setState({saved: true})
                         })
                         this.props.user.team.app_url = e.target.form.url.value;
-                        window.open(this.appEditorUrl(this.props.actionId), '_blank');
+                        window.location.href = this.appEditorUrl(this.props.actionId);
                         this.props.onUpdateUser(this.props.user);
                     }}
                     className='btn btn-success' type="submit">Save URL & go</button>
@@ -44,7 +44,7 @@ export class AppEditorLink extends Component {
                 e.preventDefault();
                 this.setState({openModal: true})
             }}
-            href={this.appEditorUrl(this.props.actionId)} target="_blank" style={this.props.style} className={this.props.className}>
+            href={this.appEditorUrl(this.props.actionId)} style={this.props.style} className={this.props.className}>
             {this.props.children}
         </a>,
         this.state.openModal && <this.SetURLModal />]
@@ -60,19 +60,22 @@ export class ActionsTable extends Component {
         super(props)
     
         this.state = {
-            newEvents: []
+            newEvents: [],
+            loading: true
         }
         this.fetchActions = this.fetchActions.bind(this);
         this.fetchActions();
     }
     fetchActions() {
         clearTimeout(this.poller)
+        if(!this.state.loading) this.setState({loading: true});
         api.get('api/action/?include_count=1').then((actions) => {
-            this.setState({actions: actions.results});
+            this.setState({actions: actions.results, loading: false});
         })
     }
     
     render() {
+        let { actions, loading } = this.state;
         return (
             <div>
                 <div className='btn-group float-right'>
@@ -86,7 +89,8 @@ export class ActionsTable extends Component {
                     <a href='https://github.com/PostHog/posthog/wiki/Actions' target="_blank">See documentation</a>
                 </i></p>
 
-                <table className='table'>
+                <table className='table' style={{position: 'relative'}}>
+                    {loading && <div className='loading-overlay'><div></div></div>}
                     <thead>
                         <tr>
                             <th scope="col">Action ID</th>
@@ -96,8 +100,8 @@ export class ActionsTable extends Component {
                         </tr>
                     </thead>
                     <tbody>
-                        {this.state.actions && this.state.actions.length == 0 && <tr><td>You don't have any actions yet.</td></tr>}
-                        {this.state.actions && this.state.actions.map((action) => 
+                        {actions && actions.length == 0 && <tr><td>You don't have any actions yet.</td></tr>}
+                        {actions && actions.map((action) => 
                             <tr key={action.id}>
                                 <td>
                                     <Link to={'/action/' + action.id}>{action.name}</Link>

@@ -140,6 +140,7 @@ class ActionStep extends Component {
             this.sendStep(this.props.step);
         }
         return <div className={'form-group ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
+            {props.selector && this.props.isEditor && <small className='form-text text-muted float-right'>Matches {document.querySelectorAll(props.selector).length} elements</small>}
             <label><input
                 type="checkbox"
                 name='selection'
@@ -157,7 +158,6 @@ class ActionStep extends Component {
             {props.item == 'selector' ?
                 <textarea className='form-control' onChange={onChange} value={this.props.step[props.item]} /> :
                 <input className='form-control' onChange={onChange} value={this.props.step[props.item]} />}
-            {props.selector && this.props.isEditor && <small className='form-text text-muted'>Matches {document.querySelectorAll(props.selector).length} elements</small>}
         </div>
     }
     TypeSwitcher() {
@@ -201,7 +201,7 @@ class ActionStep extends Component {
         let { element } = this.state;
         let { step, user, actionId, isEditor } = this.props;
         return <div>
-            {!isEditor && <AppEditorLink user={user} actionId={actionId} style={{marginBottom: '1rem'}} className='btn btn-sm btn-light'>Select element on site <i className='fi flaticon-export' /></AppEditorLink>}
+            {!isEditor && <AppEditorLink user={user} actionId={actionId} style={{margin: '1rem 0'}} className='btn btn-sm btn-light'>Select element on site <i className='fi flaticon-export' /></AppEditorLink>}
             {(!isEditor || step.href) && <this.Option
                 item='href'
                 label='Link href'
@@ -219,15 +219,13 @@ class ActionStep extends Component {
     }
     render() {
         let { step, isEditor } = this.props;
-        return <div style={{borderBottom: '1px solid rgba(0, 0, 0, 0.1)', paddingBottom: '1rem'}}>
+        return <div style={{borderBottom: '1px solid rgba(0, 0, 0, 0.1)', padding: '8px 0'}}>
             {(!isEditor || step.event == '$autocapture') && <button style={{marginTop: -3}} type="button" className="close pull-right" aria-label="Close" onClick={this.props.onDelete}>
                 <span aria-hidden="true">&times;</span>
             </button>}
             {!isEditor && <this.TypeSwitcher />}
-            <div style={{margin: (isEditor ? '0 -12px' : '')}}>
-                <br />
-
-                {this.props.isEditor && <button type="button" className='btn btn-sm btn-secondary' style={{margin: '0 0 1rem 15px'}} onClick={() => this.start()}>
+            <div>
+                {this.props.isEditor && <button type="button" className='btn btn-sm btn-secondary' style={{margin: '0 0 8px'}} onClick={() => this.start()}>
                     Inspect element
                 </button>}
                 {step.event == '$autocapture' && <this.AutocaptureFields />}
@@ -252,29 +250,23 @@ export class ActionEdit extends Component {
         this.state = {
             action: {name: '', steps: []}
         }
-        this.temporaryToken = props.temporaryToken ? '?temporary_token=' + props.temporaryToken : ''
+        this.params = '?include_count=1' + (props.temporaryToken ? '&temporary_token=' + props.temporaryToken : '');
         this.fetchAction.call(this);
         this.onSubmit = this.onSubmit.bind(this);
     }
     fetchAction() {
         if(this.props.actionId) {
-            return api.get(this.props.apiURL + 'api/action/' + this.props.actionId + '/' + this.temporaryToken).then((action) => this.setState({action}))
+            return api.get(this.props.apiURL + 'api/action/' + this.props.actionId + '/' + this.params).then((action) => this.setState({action}))
         }
         // If it's a new action, add an empty step
         this.state.action = {name: '', steps: [{isNew: uuid(), }]}
     }
     onSubmit(event, createNew) {
         if(!event.target.form.checkValidity()) return;
+        let isNew = !this.state.action.id;
         let save = (action) => {
-            if(createNew) {
-                this.setState({error: false, saved: true, action: {name: '', steps: [{isNew: uuid()}]}})
-                if(this.props.isEditor) sessionStorage.removeItem('editorActionId');
-            } else {
-                this.setState({action: {...this.state.action, id: action.id}})
-                if(this.props.isEditor) sessionStorage.setItem('editorActionId', action.id);
-                this.setState({error: false, saved: true})
-            }
-            this.props.onSave && this.props.onSave(action);
+            this.setState({error: false, saved: true, action: {...this.state.action, id: action.id, count: action.count}});
+            if(this.props.onSave) this.props.onSave(action, isNew, createNew)
         }
         let error = (detail) => {
             if(detail.detail == 'action-exists') this.setState({saved: false, error: 'action-exists', error_id: detail.id})
@@ -290,17 +282,17 @@ export class ActionEdit extends Component {
             return data;
         })
         if(this.state.action.id) {
-            return api.update(this.props.apiURL + 'api/action/' + this.state.action.id + '/' + this.temporaryToken, {name: this.state.action.name, steps}).then(save).catch(error)
+            return api.update(this.props.apiURL + 'api/action/' + this.state.action.id + '/' + this.params, {name: this.state.action.name, steps}).then(save).catch(error)
         }
-        api.create(this.props.apiURL + 'api/action/' + this.temporaryToken, {name: this.state.action.name, steps}).then(save).catch(error)
+        api.create(this.props.apiURL + 'api/action/' + this.params, {name: this.state.action.name, steps}).then(save).catch(error)
     }
     render() {
         let action = this.state.action;
         let { isEditor, simmer } = this.props;
-        return <form onSubmit={(e) => e.preventDefault()}>
-            <label>Action name</label>
+        return <form onSubmit={(e) => e.preventDefault()} style={{marginTop: 8}}>
+            {!isEditor && <label>Action name</label>}
             <input autoFocus required className='form-control' placeholder="user signed up" value={action.name} onChange={(e) => this.setState({action: {...action, name: e.target.value}})} />
-            <br />
+            {action.count > -1 && <small className='text-muted '>Matches {action.count} events</small>}
             {action.steps.map((step, index) => <ActionStep
                 key={step.id || step.isNew}
                 step={step}
@@ -317,26 +309,26 @@ export class ActionEdit extends Component {
                     this.setState({action: action});
                 }} />
             )}
-            <br />
             <button
                 type="button"
-                className='btn btn-secondary btn-sm'
+                className='btn btn-light btn-sm'
                 onClick={() => {
                     action.steps.push({isNew: uuid()});
                     this.setState({action: action})
                 }}>Add another match group</button>
             <br /><br />
-            {(!isEditor || (action.steps.length > 0)) && <div className='btn-group'>
-                <button type="submit" onClick={(e) => this.onSubmit(e)} className='btn btn-success btn-sm'>Save action</button>
-                {this.props.isEditor && <button type="submit" onClick={(e) => this.onSubmit(e, true)} className='btn btn-secondary btn-sm'>Save & new action</button>}
-            </div>}
-            {this.state.saved && <p className='text-success'>Action saved. <a href={this.props.apiURL + 'action/' + action.id}>Click here to see all events.</a></p>}
+            {this.state.saved && !isEditor && <p className='text-success'>Action saved.</p>}
             {this.state.error && <p className='text-danger'>Action with this name already exists. <a href={this.props.apiURL + 'action/' + this.state.error_id}>Click here to edit.</a></p>}
+            <div className='btn-group save-buttons'>
+                <button type="submit" onClick={(e) => this.onSubmit(e)} className='btn btn-success btn-sm'>Save action</button>
+                {this.props.isEditor && this.props.showNewActionButton && <button type="submit" onClick={(e) => this.onSubmit(e, true)} className='btn btn-secondary btn-sm'>Save & new action</button>}
+            </div>
         </form>
     }
 }
 ActionEdit.propTypes = {
     user: PropTypes.object,
     isEditor: PropTypes.bool,
-    simmer: PropTypes.func
+    simmer: PropTypes.func,
+    onSave: PropTypes.func
 }
