@@ -13,16 +13,22 @@ from sentry_sdk import capture_exception
 import secrets
 import re
 
+attribute_regex = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
+
 def split_selector_into_parts(selector: str) -> List:
     tags = selector.split(' > ')
     tags.reverse()
     ret: List[Dict[str, Union[str, List]]] = []
     for tag in tags:
         data: Dict[str, Union[str, List]] = {}
-        if 'id=' in tag:
-            id_regex =  r"\[id=\'(.*)']"
-            result = re.match(id_regex, tag)
-            return [{'attr_id': result[1]}] # type: ignore
+        if '[id=' in tag:
+            result = re.search(attribute_regex, tag)
+            data['attr_id'] = result[3] # type: ignore
+            tag = result[1]
+        if '[' in tag:
+            result = re.search(attribute_regex, tag)
+            data['attributes__{}'.format(result[2])] = result[3] # type: ignore
+            tag = result[1]
         if 'nth-child(' in tag:
             parts = tag.split(':nth-child(')
             data['nth_child'] = parts[1].replace(')', '')
@@ -31,7 +37,8 @@ def split_selector_into_parts(selector: str) -> List:
             parts = tag.split('.')
             data['attr_class'] = parts[1:]
             tag = parts[0]
-        data['tag_name'] = tag
+        if tag:
+            data['tag_name'] = tag
         ret.append(data)
     return ret
 
@@ -134,34 +141,26 @@ def create_team_signup_token(sender, instance, created, **kwargs):
             instance.save()
 
 class EventManager(models.Manager):
-    def _handle_nth_child(self, index, item, where, params):
-        where.append("AND E{}.nth_child = %s".format(index))
-        params.append(item)
-
-    def _handle_tag_name(self, index, item, where, params):
-        where.append("AND E{}.tag_name = %s".format(index))
-        params.append(item)
-
-    def _handle_id(self, index, item, where, params):
-        where.append("AND E{}.attr_id = %s".format(index))
-        params.append(item)
-
     def _handle_class(self, index, item, where, params):
         where.append("AND E{}.attr_class @> %s::varchar(200)[]".format(index))
         params.append(item)
+
+    def _handle_attributes(self, index: int, key: str, value: str, where: List[str], params: List[str]):
+        where.append("AND E{}.attributes ->> %s = %s".format(index))
+        params.extend([key.replace('attributes__', ''), value])
 
     def _filter_selector(self, filters, joins, where, params):
         selector = filters.pop('selector')
         parts = split_selector_into_parts(selector)
         for index, tag in enumerate(parts):
-            if tag.get('nth_child'):
-                self._handle_nth_child(index, tag['nth_child'], where=where, params=params)
-            if tag.get('attr_id'):
-                self._handle_id(index, tag['attr_id'], where=where, params=params)
-            if tag.get('attr_class'):
-                self._handle_class(index, tag['attr_class'], where=where, params=params)
-            if tag.get('tag_name'):
-                self._handle_tag_name(index, tag['tag_name'], where=where, params=params)
+            for key, value in tag.items():
+                if key == 'attr_class':
+                    self._handle_class(index, value, where=where, params=params)
+                elif 'attributes__' in key:
+                    self._handle_attributes(index, key, value, where=where, params=params)
+                else:
+                    where.append("AND E{}.{} = %s".format(index, key))
+                    params.append(value)
             if index > 0:
                 joins.append('INNER JOIN posthog_element E{0} ON (posthog_event.id = E{0}.event_id)'.format(index))
                 where.append('AND E{0}.order = (( E{1}.order + 1))'.format(index, index-1))
@@ -262,6 +261,9 @@ class Event(models.Model):
             if selector.get('nth_child') and selector['nth_child'] != element.nth_child:
                 continue
             if selector.get('attr_id') and selector['attr_id'] != element.attr_id:
+                continue
+            attribute_key = [(key.replace('attributes__', ''), selector[key]) for key in selector.keys() if 'attributes__' in key]
+            if len(attribute_key) > 0 and element.attributes.get(attribute_key[0][0]) != attribute_key[0][1]:
                 continue
             return element
         return False
