@@ -80,6 +80,20 @@ class TestFilterByActions(BaseTest):
         self.assertEqual(events[0], event1)
         self.assertEqual(len(events), 1)
 
+    def test_attributes(self):
+        Person.objects.create(distinct_ids=['whatever'], team=self.team)
+        event1 = Event.objects.create(team=self.team, distinct_id="whatever")
+        Element.objects.create(event=event1, tag_name='span', order=0)
+        Element.objects.create(event=event1, tag_name='a', order=1, attributes={'data-id': '123'})
+        event2 = Event.objects.create(team=self.team, distinct_id="whatever")
+        Element.objects.create(event=event2, tag_name='button', order=0, attributes={'data-id': '123'})
+
+        action1 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=action1, selector='a[data-id="123"]')
+
+        events = Event.objects.filter_by_action(action1)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0], event1)
 
     def test_page_views(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
@@ -157,6 +171,16 @@ class TestActions(BaseTest):
         Person.objects.create(distinct_ids=["watched_movie"], team=self.team)
         event = self._movie_event('watched_movie')
         self.assertEqual(event.actions, [action_watch_movie])
+
+    def test_attributes(self):
+        action = Action.objects.create(team=self.team, name='watch movie')
+        ActionStep.objects.create(action=action, selector="a[data-id='whatever']")
+        action2 = Action.objects.create(team=self.team, name='watch movie2')
+        ActionStep.objects.create(action=action2, selector="a[somethingelse='whatever']")
+        Person.objects.create(distinct_ids=["watched_movie"], team=self.team)
+        event = Event.objects.create(team=self.team, distinct_id='whatever')
+        Element.objects.create(event=event, order=0, tag_name='a', attributes={'data-id': 'whatever'})
+        self.assertEqual(event.actions, [action])
 
     def test_event_filter(self):
         action_user_paid = Action.objects.create(team=self.team, name='user paid')
