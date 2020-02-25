@@ -13,7 +13,8 @@ class SendEventsOverlay extends Component {
         '/': 'https://posthog.s3.eu-west-2.amazonaws.com/graphs.png',
         '/actions': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
         '/actions/trends': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-action-trends.png',
-        '/funnel': 'https://posthog.s3.eu-west-2.amazonaws.com/funnel.png'
+        '/funnel': 'https://posthog.s3.eu-west-2.amazonaws.com/funnel.png',
+        '/paths': 'https://posthog.s3.eu-west-2.amazonaws.com/paths.png'
     }
     componentDidMount() {
         setTimeout(() =>this.setState({animate: true}), 1000);

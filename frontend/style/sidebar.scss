@@ -22,6 +22,9 @@
     .active{
         background-color:#E8E7E5;
     }
+    .flaticon-shuffle-1::before {
+        transform: rotate(180deg)
+    }
 
     .posthog-title{
         font-weight:500;
