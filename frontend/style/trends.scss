@@ -2,3 +2,14 @@
 .filter-action:hover {
     .filter-action-only { display: inline }
 }
+.graph-container {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+}
+
+.actions-graph .save-to-dashboard {
+    position: absolute;
+    right: 1.25rem;
+    top: 8px;
+}

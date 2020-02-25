@@ -16,8 +16,10 @@ export let fromParams = () => window.location.search != '' ? window.location.sea
 export let colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
 export let percentage = (division) => division.toLocaleString(undefined, {style: 'percent', maximumFractionDigits: 2})
 
+export let Loading = () => <div className='loading-overlay'><div></div></div>;
+
 export function Card(props) {
-    return <div {...props} className={'card ' + props.className} style={props.style}>
+    return <div {...props} className={'card ' + props.className} style={props.style} title=''>
         {props.title && <div className='card-header'>
             {props.title}
         </div>}

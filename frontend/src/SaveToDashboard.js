@@ -41,7 +41,7 @@ export default class SaveToDashboard extends Component {
 
     }
     render() {
-        return <div>
+        return <div className='save-to-dashboard'>
             {this.state.openModal && <this.Modal />}
             <button onClick={() => this.setState({openModal: true})} className={'btn btn-secondary btn-sm ' + this.props.className}>Add to dashboard</button>
         </div>

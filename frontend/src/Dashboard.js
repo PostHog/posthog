@@ -1,6 +1,6 @@
 import React, { Component } from 'react'
 import api from './Api';
-import { ActionsLineGraph, ActionsTable } from './ActionsGraph';
+import { ActionsLineGraph, ActionsTable, ActionsPie } from './ActionsGraph';
 import { Link } from 'react-router-dom';
 import { Dropdown, toParams, DeleteWithUndo } from './utils';
 import { toast } from 'react-toastify';
@@ -30,6 +30,10 @@ export default class Dashboard extends Component {
                 element: ActionsTable,
                 link: filters => ({pathname: '/actions/trends', search: toParams(filters)})
             },
+            'ActionsPie': {
+                element: ActionsPie,
+                link: filters => ({pathname: '/actions/trends', search: toParams(filters)})
+            },
             'FunnelViz': {
                 element: FunnelViz,
                 link: filters => '/funnel/' + filters.funnel_id
@@ -39,6 +43,7 @@ export default class Dashboard extends Component {
             <div className='row'>
                 {items && items.length > 0 && items.map((item) => {
                     let Panel = typeMap[item.type].element
+                    Panel = <Panel filters={item.filters} />
                     return <div className='col-6' key={item.id}>
                         <div className='card'>
                             <h5 className='card-header'>
@@ -53,8 +58,8 @@ export default class Dashboard extends Component {
                                 </Dropdown>
                                 <Link to={typeMap[item.type].link(item.filters)}>{item.name}</Link>
                             </h5>
-                            <div style={{overflowY: 'scroll', height: '25vh', maxHeight: '30vh'}}>
-                                <Panel filters={item.filters} />
+                            <div style={{overflowY: 'scroll', height: '25vh', maxHeight: '30vh', position: 'relative'}}>
+                                {Panel ? Panel : <div className='loading-overlay'><div></div></div>}
                             </div>
                         </div>
                     </div>

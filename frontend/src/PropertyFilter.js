@@ -18,7 +18,9 @@ export default class PropertyFilter extends Component {
         this.update = this.update.bind(this);
         this.remove = this.remove.bind(this);
         this.loadPropertyValues = this.loadPropertyValues.bind(this);
-        this.fetchProperties.call(this);
+        if(!props.prefetchProperties) {
+            this.fetchProperties.call(this);
+        }
     }
     fetchProperties() {
         api.get('api/event/properties').then((properties) =>
@@ -61,7 +63,7 @@ export default class PropertyFilter extends Component {
         this.update(filters);
     }
     Filter(props) {
-        let { properties } = this.state;
+        let properties = this.state.properties ? this.state.properties : this.props.properties;
         let { index, filter } = props;
         return <div className='row col-6' style={{margin: '1rem -30px'}}>
             <div className='col'>
@@ -101,5 +103,6 @@ export default class PropertyFilter extends Component {
 PropertyFilter.propTypes = {
     history: PropTypes.object.isRequired,
     propertyFilters: PropTypes.objectOf(PropTypes.string).isRequired,
-    onChange: PropTypes.func.isRequired
+    onChange: PropTypes.func.isRequired,
+    properties: PropTypes.array
 }
