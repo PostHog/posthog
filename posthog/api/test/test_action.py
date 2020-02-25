@@ -44,7 +44,7 @@ class TestAction(BaseTest):
         self.assertEqual(steps[1].href, '/a-new-link')
 
         # test queries
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(6):
             response = self.client.get('/api/action/')
 
         # test remove steps

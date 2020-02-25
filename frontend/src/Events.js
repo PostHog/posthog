@@ -197,7 +197,7 @@ export class EventsTable extends Component {
                         </tr>
                         <this.NoItems events={events} />
                         {this.state.events && this.state.events.map((event, index) => [
-                            index > 0 && !moment(event.timestamp).isSame(events[index - 1].timestamp, 'day') && <tr key={event.id + '_time'}><td colSpan="4" className='event-day-separator'>{moment(event.timestamp).format('LL')}</td></tr>,
+                            index > 0 && !moment(event.timestamp).isSame(events[index - 1].timestamp, 'day') && <tr key={event.id + '_time'}><td colSpan="5" className='event-day-separator'>{moment(event.timestamp).format('LL')}</td></tr>,
                             <this.EventRow event={event} />,
                             this.state.eventSelected == event.id && <tr key={event.id + '_open'}>
                                 <td colSpan="5">
