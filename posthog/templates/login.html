@@ -3,7 +3,7 @@
 {% block content %}
     <form class="form-signin" method="post" action="/login">
         {% csrf_token %}
-        <h1 class="h3 mb-3 font-weight-normal">Log in to PostHog</h1>
+        <h1 class="h3 mb-3 font-weight-normal">Log in to <a href='https://posthog.com'>PostHog</a></h1>
 
         {% if error %}
         <p>Your username and password didn't match. Please try again.</p>
