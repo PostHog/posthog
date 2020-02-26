@@ -34,6 +34,8 @@ if not DEBUG and not TEST:
             integrations=[DjangoIntegration()]
         )
 
+if os.environ.get('DISABLE_SECURE_SSL_REDIRECT'):
+    SECURE_SSL_REDIRECT = False
 
 if os.environ.get('IS_BEHIND_PROXY', False):
     USE_X_FORWARDED_HOST = True
