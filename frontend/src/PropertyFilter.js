@@ -67,11 +67,9 @@ export default class PropertyFilters extends Component {
         this.set = this.set.bind(this);
         this.update = this.update.bind(this);
         this.remove = this.remove.bind(this);
-        this.loadPropertyValues = this.loadPropertyValues.bind(this);
         if(!props.prefetchProperties) {
             this.fetchProperties.call(this);
         }
-        this.fetchProperties.call(this);
     }
     fetchProperties() {
         if(this.props.properties) return this.state.properties = this.props.properties;
