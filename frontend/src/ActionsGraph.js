@@ -19,7 +19,6 @@ export class ActionsPie extends Component {
         this.fetchGraph()
     }
     fetchGraph() {
-
         api.get('api/action/trends/?' + toParams(this.props.filters)).then((data) => {
             data = data.sort((a, b) => b.count - a.count)
             data = data
@@ -162,31 +161,50 @@ class BreakdownFilter extends Component {
 }
 
 class ActionFilter extends Component {
-    render() {
+    constructor(props) {
+        super(props)
+        this.state = {}
+        this.Row = this.Row.bind(this);
+        this.fetchActions.call(this);
+    }
+    fetchActions() {
+        api.get('api/action').then(actions => this.setState({actions: actions.results}))
+    }
+    Row(props) {
         let { data, actionFilters } = this.props;
+        let action = props.action;
+        return <div>
+            <label className='cursor-pointer filter-action' style={{marginRight: 8, display: 'block', color: props.count > 0 ? 'inherit' : 'var(--gray)'}} key={action.id}>
+                <input
+                    checked={actionFilters ? actionFilters.indexOf(action.id) > -1 : true}
+                    onChange={(e) => {
+                        if(e.target.checked) {
+                            actionFilters.push(action.id);
+                        } else {
+                            if(!actionFilters) actionFilters = data.map((action) => action.id);
+                            actionFilters = actionFilters.filter((i) => i != action.id);
+                        }
+                        this.props.onChange(actionFilters)
+                    }}
+                    type='checkbox' /> {action.name} {props.count > 0 && '(' + props.count + ')'}
+                    <small className='filter-action-only'><a href='#' className='float-right' onClick={(e) => {e.preventDefault(); this.props.onChange([action.id])}}>only</a></small>
+            </label>
+        </div>
+    }
+    render() {
+        let { data } = this.props;
+        let { actions } = this.state;
         return <div>
             <small>
                 <a href='#' onClick={(e) => {e.preventDefault(); this.props.onChange([])}}>Unselect all</a> /&nbsp;
                 <a href='#' onClick={(e) => {e.preventDefault(); this.props.onChange(false)}}>Select all</a>
             </small><br />
-            {data && data.map((item) => <div>
-                <label className='cursor-pointer filter-action' style={{marginRight: 8, display: 'block', color: item.count > 0 ? 'inherit' : 'var(--gray)'}} key={item.label}>
-                    <input
-                        checked={actionFilters ? actionFilters.indexOf(item.action.id) > -1 : true}
-                        onChange={(e) => {
-                            if(e.target.checked) {
-                                actionFilters.push(item.action.id);
-                            } else {
-                                if(!actionFilters) actionFilters = data.map((item) => item.action.id);
-                                actionFilters = actionFilters.filter((i) => i != item.action.id);
-                            }
-                            this.props.onChange(actionFilters)
-                        }}
-                        type='checkbox' /> {item.action.name} ({item.count})
-                        <small className='filter-action-only'><a href='#' className='float-right' onClick={(e) => {e.preventDefault(); this.props.onChange([item.action.id])}}>only</a></small>
-                </label>
-            </div>
-            )}
+            {data && data.map(item => <this.Row count={item.count} action={item.action} />)}
+            {actions && data && actions
+                .filter(action =>
+                    data.filter(item => item.action.id == action.id).length == 0
+                )
+                .map(action => <this.Row action={action} />)}
         </div>
     }
 }

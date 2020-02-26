@@ -160,7 +160,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     @action(methods=['GET'], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        actions = self.get_queryset()
+        actions = self.get_queryset().filter(deleted=False)
         actions_list = []
         steps = int(request.GET.get('days', 7))
         date_from = datetime.date.today() - relativedelta(days=steps)
