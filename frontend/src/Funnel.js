@@ -1,13 +1,12 @@
 import React, { Component } from 'react'
 import api from './Api';
-import { Card, uuid, percentage } from './utils';
+import { Card, uuid, percentage, Loading } from './utils';
 import PropTypes from 'prop-types';
 import { Link } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import Select from 'react-select';
 import FunnelGraph from 'funnel-graph-js';
 import SaveToDashboard from './SaveToDashboard';
-
 
 export class EditFunnel extends Component {
     constructor(props) {
@@ -177,8 +176,8 @@ export class FunnelViz extends Component {
         }
     }
     buildChart() {
+        if(!this.state.funnel || this.state.funnel.steps.length == 0) return;
         if(this.container.current) this.container.current.innerHTML = '';
-        if(!this.state.funnel) return;
         let graph = new FunnelGraph({
             container: '.funnel-graph',
             data: {
@@ -197,11 +196,11 @@ export class FunnelViz extends Component {
         graph.draw();
     }
     render() {
-
-        return (
-            <div ref={this.container} className='svg-funnel-js' style={{height: '100%', width: '100%'}}>
-            </div>
-        )
+        let { funnel } = this.state;
+        return funnel ? (
+            funnel.steps.length > 0 ? <div ref={this.container} className='svg-funnel-js' style={{height: '100%', width: '100%'}}>
+            </div> : <p style={{margin: '1rem'}}>This funnel doesn't have any steps. <Link to={'/funnel/' + funnel.id}>Click here to add some steps.</Link></p>
+        ) : <Loading />
     }
 }
 FunnelViz.propTypes = {

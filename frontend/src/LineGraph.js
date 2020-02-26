@@ -36,12 +36,12 @@ export default class LineGraph extends Component {
                 labels: labels,
                 datasets: datasets.map((dataset, index) => ({
                     borderColor: getVar(colors[index]),
-                    backgroundColor: this.props.type == 'bar' && getVar(colors[index]),
+                    backgroundColor: (this.props.type == 'bar' || this.props.type == 'doughnut') && getVar(colors[index]),
                     fill: false,
                     borderWidth: 1, ...dataset
                 }))
             },
-            options: {
+            options: this.props.type != 'doughnut' ? {
                 responsive: true,
                 maintainAspectRatio: false,
                 scaleShowHorizontalLines: false,
@@ -85,15 +85,14 @@ export default class LineGraph extends Component {
                         }
                     }]
                 }
-                            
-            }
+            }: {responsive: true, maintainAspectRatio: false, hover: { mode: 'index'}}
         });
 
     }
 
     render() {
         return (
-            <div style={{height: '100%'}}>
+            <div className='graph-container'>
                 <canvas
                     ref={this.chartRef}
                 />
@@ -105,4 +104,5 @@ LineGraph.propTypes = {
     datasets: PropTypes.arrayOf(PropTypes.shape({label: PropTypes.string, count: PropTypes.number})).isRequired,
     labels: PropTypes.array.isRequired,
     options: PropTypes.object,
+    type: PropTypes.string
 }
