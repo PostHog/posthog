@@ -30,7 +30,7 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
             return event.distinct_id
 
     def get_elements(self, event):
-        elements = event.element_set.all()
+        elements = event.element_set.all().order_by('order')
         return ElementSerializer(elements, many=True).data
 
 class EventViewSet(viewsets.ModelViewSet):
