@@ -3,42 +3,81 @@ import PropTypes from 'prop-types'
 import Select from 'react-select'
 import AsyncCreatableSelect from 'react-select/async-creatable'
 import api from './Api';
-import { toParams, fromParams } from './utils';
+import { CloseButton } from './utils';
 
-export default class PropertyFilter extends Component {
+export class PropertyFilter extends Component {
     constructor(props) {
         super(props)
     
         this.state = {
-            filters: Object.keys(props.propertyFilters).map((key) => ({name: key, value: props.propertyFilters[key]})),
-            properties: []
         }
-        this.Filter = this.Filter.bind(this);
+        this.loadPropertyValues = this.loadPropertyValues.bind(this);
+    }
+    loadPropertyValues(key) {
+        return (value, callback) => {
+            api.get('api/' + this.props.endpoint + '/values/?key=' + key + (value ? '&value=' + value : '')).then((propValues) => callback(
+                propValues.map((property) => (
+                    {label: property.name ? property.name : '(empty)', value: property.name}
+                ))
+            ))
+        }
+    }   
+    render() {
+        let { properties, index, filter, onSet, onRemove } = this.props;
+        return <div className='row' style={{margin: '1rem -15px'}}>
+            <div className='col-5'>
+                <Select
+                    options={properties}
+                    style={{width: 200}}
+                    value={[{label: filter.name, value: filter.value}]}
+                    placeholder="Property key"
+                    onChange={(item) => onSet('name', item.value)}
+                    />
+            </div>
+            {filter.name && <div className='col-5'>
+                <AsyncCreatableSelect
+                    loadOptions={this.loadPropertyValues(filter.name)}
+                    defaultOptions
+                    formatCreateLabel={(inputValue) => inputValue}
+                    key={filter.name} // forces a reload of the component when the property changes
+                    placeholder="Property value"
+                    style={{width: 200}}
+                    value={{label: filter.value, value: filter.value}}
+                    onChange={(item) => onSet('value', item.value)}
+                    />
+            </div>}
+            <div className='col-1 cursor-pointer' onClick={() => onRemove(index)}>
+                <CloseButton style={{fontSize: 37, lineHeight: '30px', color: 'hsl(0,0%,80%)'}} />
+            </div>
+        </div>
+    }
+}
+PropertyFilter.propTypes = {
+    properties: PropTypes.array.isRequired,
+    filter: PropTypes.object.isRequired,
+    onSet: PropTypes.func.isRequired
+}
+export default class PropertyFilters extends Component {
+    constructor(props) {
+        super(props)
+    
+        this.state = {
+            filters: Object.keys(props.propertyFilters).map((key) => ({name: key, value: props.propertyFilters[key]}))
+        }
+        this.endpoint = !this.props.endpoint ? 'event' : this.props.endpoint;
         this.set = this.set.bind(this);
         this.update = this.update.bind(this);
         this.remove = this.remove.bind(this);
-        this.loadPropertyValues = this.loadPropertyValues.bind(this);
-        if(!props.prefetchProperties) {
-            this.fetchProperties.call(this);
-        }
+        if(!props.prefetchProperties) this.fetchProperties.call(this);
     }
     fetchProperties() {
-        api.get('api/event/properties').then((properties) =>
+        api.get('api/' + this.endpoint + '/properties').then((properties) =>
             this.setState({
                 properties: properties.map((property) => (
                     {label: property.name, value: property.name}
                 ))
             })
         )
-    }
-    loadPropertyValues(key) {
-        return (value, callback) => {
-            api.get('api/event/values/?key=' + key + (value ? '&value=' + value : '')).then((propValues) => callback(
-                propValues.map((property) => (
-                    {label: property.name, value: property.name}
-                ))
-            ))
-        }
     }
     componentDidUpdate(prevProps) {
         if(JSON.stringify(this.props.propertyFilters) != JSON.stringify(prevProps.propertyFilters)) {
@@ -62,47 +101,26 @@ export default class PropertyFilter extends Component {
         this.setState({filters});
         this.update(filters);
     }
-    Filter(props) {
-        let properties = this.state.properties ? this.state.properties : this.props.properties;
-        let { index, filter } = props;
-        return <div className='row col-6' style={{margin: '1rem -30px'}}>
-            <div className='col'>
-                <Select
-                    options={properties}
-                    style={{width: 200}}
-                    value={[{label: filter.name, value: filter.value}]}
-                    onChange={(item) => this.set(index, 'name', item.value)}
-                    />
-            </div>
-            <div className='col'>
-                {filter.name && <AsyncCreatableSelect
-                    loadOptions={this.loadPropertyValues(filter.name)}
-                    defaultOptions
-                    formatCreateLabel={(inputValue) => inputValue}
-                    key={filter.name} // forces a reload of the component when the property changes
-                    style={{width: 200}}
-                    value={{label: filter.value, value: filter.value}}
-                    onChange={(item) => this.set(index, 'value', item.value)}
-                    />
-                }
-            </div>
-            <div className='col-1 cursor-pointer' onClick={() => this.remove(index)}>
-                <i className='fi flaticon-close' style={{fontSize: 38, lineHeight: 0, color: 'hsl(0,0%,80%)'}} />
-            </div>
-        </div>
-    }
     render() {
-        let { filters, history } = this.state;
-        return <div style={{marginBottom: '2rem'}}>
-            {filters.map((filter, index) => <this.Filter key={index} index={index} filter={filter} />)}
+        let { filters } = this.state;
+        let properties = this.state.properties ? this.state.properties : this.props.properties;
+        return <div className={this.props.className || 'col-6'} style={{marginBottom: '2rem', padding: 0, ...this.props.style}}>
+            {filters.map((filter, index) => <PropertyFilter
+                properties={properties}
+                key={index}
+                onSet={(key, value) => this.set(index, key, value)}
+                onRemove={() => this.remove(index)}
+                endpoint={this.endpoint}
+                filter={filter} />
+            )}
             <button className='btn btn-sm btn-outline-success' onClick={() => this.setState({filters: [...filters, {}]})}>Add event property filter</button>
         </div>
     }
 }
 
-PropertyFilter.propTypes = {
-    history: PropTypes.object.isRequired,
+PropertyFilters.propTypes = {
     propertyFilters: PropTypes.objectOf(PropTypes.string).isRequired,
     onChange: PropTypes.func.isRequired,
+    endpoint: PropTypes.string,
     properties: PropTypes.array
 }

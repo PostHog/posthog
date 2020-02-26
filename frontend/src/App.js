@@ -20,6 +20,7 @@ import ActionsGraph from "./ActionsGraph";
 import Dashboard from "./Dashboard";
 import SendEventsOverlay from "./SendEventsOverlay";
 import Paths from "./Paths";
+import Cohorts from "./Cohorts";
 
 class PrivateRoute extends React.Component {
     constructor(props) {
@@ -89,6 +90,7 @@ export default class App extends React.Component {
                                 <PrivateRoute exact path="/person_by_id/:id" component={Person} user={this.state.user} />
                                 <PrivateRoute exact path="/person/:distinct_id" component={Person} user={this.state.user} />
                                 <PrivateRoute path="/people" component={People} user={this.state.user} />
+                                <PrivateRoute path="/people/cohorts" component={Cohorts} user={this.state.user} />
                                 <PrivateRoute path="/action/:id" component={Action} user={this.state.user} />
                                 <PrivateRoute path="/action" component={Action} user={this.state.user} />
                                 <PrivateRoute path="/new-funnel" component={EditFunnel} user={this.state.user} />

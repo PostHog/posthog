@@ -1,11 +1,12 @@
 import React, { Component } from 'react'
 import LineGraph from './LineGraph';
 import api from './Api';
-import PropertyFilter from './PropertyFilter';
-import { toParams, fromParams, Loading, Card, lightenDarkenColor } from './utils';
+import { toParams, fromParams, Loading, Card } from './utils';
+import { Link } from 'react-router-dom';
 import PropTypes from 'prop-types';
 import Select from 'react-select';
 import SaveToDashboard from './SaveToDashboard';
+import PropertyFilters from './PropertyFilter';
 
 
 let colors = ['blue', 'yellow', 'green', 'red', 'purple', 'gray', 'indigo', 'pink', 'orange', 'teal', 'cyan', 'gray-dark'];
@@ -244,7 +245,7 @@ export default class ActionsGraph extends Component {
         return (
             <div className='actions-graph'>
                 <h1>Action trends</h1>
-                <PropertyFilter properties={properties} prefetchProperties={true} propertyFilters={this.getPropertyFilters(filters)} onChange={(propertyFilters) => this.setFilters({...propertyFilters})} history={this.props.history} />
+                <PropertyFilters properties={properties} prefetchProperties={true} propertyFilters={this.getPropertyFilters(filters)} onChange={(propertyFilters) => this.setFilters({...propertyFilters})} />
                 <select
                     className='float-right form-control'
                     style={{width: 170, marginLeft: 8}}
@@ -274,7 +275,7 @@ export default class ActionsGraph extends Component {
                 <div className='row'>
                     <div className='col-10'>
                         <Card
-                            title={<span><SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} /> Graph</span>}>
+                            title={<span><SaveToDashboard className='float-right' filters={filters} type={filters.display || 'ActionsLineGraph'} /> Graph</span>}>
                             <div className='card-body card-body-graph'>
                                 <div style={{minHeight: 'calc(70vh - 50px)', position: 'relative'}}>
                                     {this.state.loading && <div className='loading-overlay'><div></div></div>}
