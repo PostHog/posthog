@@ -37,7 +37,7 @@ Pygments==2.5.2
 python-dateutil==2.8.1
 pytz==2019.3
 requests==2.22.0
-sentry-sdk==0.14.1
+sentry-sdk==0.14.2
 six==1.14.0
 sqlparse==0.3.0
 traitlets==4.3.3
