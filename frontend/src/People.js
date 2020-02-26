@@ -54,7 +54,7 @@ class CohortGroup extends Component {
                         className=' '
                         onChange={properties => onChange({properties: properties, days: group.days})}
                         properties={properties}
-                        propertyFilters={group.properties}
+                        propertyFilters={group.properties || {}}
                         style={{margin: '1rem 0 0'}}
                     />} 
                     {selected == 'action' && <div style={{marginTop: '1rem', width: 350}}>
@@ -132,7 +132,7 @@ class Cohort extends Component {
                 onClick={() => this.setState({groups: [{}]})}>
                 + new cohort
             </button> :
-            <div className='col-6' style={{margin: 0, padding: 0}}>
+            <div style={{maxWidth: 750}}>
                 <Card title={<span>
                     <CloseButton
                         className='float-right'

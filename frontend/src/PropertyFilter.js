@@ -30,6 +30,7 @@ export class PropertyFilter extends Component {
                     options={properties}
                     style={{width: 200}}
                     value={[{label: filter.name, value: filter.value}]}
+                    placeholder="Property key"
                     onChange={(item) => onSet('name', item.value)}
                     />
             </div>
@@ -39,6 +40,7 @@ export class PropertyFilter extends Component {
                     defaultOptions
                     formatCreateLabel={(inputValue) => inputValue}
                     key={filter.name} // forces a reload of the component when the property changes
+                    placeholder="Property value"
                     style={{width: 200}}
                     value={{label: filter.value, value: filter.value}}
                     onChange={(item) => onSet('value', item.value)}
@@ -60,19 +62,15 @@ export default class PropertyFilters extends Component {
         super(props)
     
         this.state = {
-            filters: Object.keys(props.propertyFilters).map((key) => ({name: key, value: props.propertyFilters[key]})),
-            properties: []
+            filters: Object.keys(props.propertyFilters).map((key) => ({name: key, value: props.propertyFilters[key]}))
         }
         this.endpoint = !this.props.endpoint ? 'event' : this.props.endpoint;
         this.set = this.set.bind(this);
         this.update = this.update.bind(this);
         this.remove = this.remove.bind(this);
-        if(!props.prefetchProperties) {
-            this.fetchProperties.call(this);
-        }
+        if(!props.prefetchProperties) this.fetchProperties.call(this);
     }
     fetchProperties() {
-        if(this.props.properties) return this.state.properties = this.props.properties;
         api.get('api/' + this.endpoint + '/properties').then((properties) =>
             this.setState({
                 properties: properties.map((property) => (
