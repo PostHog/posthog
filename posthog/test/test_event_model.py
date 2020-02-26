@@ -22,7 +22,8 @@ class TestFilterByActions(BaseTest):
 
         # test direct decendant ordering
         action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(event='$autocapture', action=action1, tag_name='a', selector='div > a')
+        ActionStep.objects.create(event='$autocapture', action=action1, selector='div > a')
+        ActionStep.objects.create(event='$autocapture', action=action1, selector='div > a.somethingthatdoesntexist')
 
         events = Event.objects.filter_by_action(action1)
         self.assertEqual(len(events), 1)
@@ -30,7 +31,7 @@ class TestFilterByActions(BaseTest):
 
         # test :nth-child()
         action2 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action2, tag_name='a', selector='div > a:nth-child(2)')
+        ActionStep.objects.create(action=action2, selector='div > a:nth-child(2)')
 
         events = Event.objects.filter_by_action(action2)
         self.assertEqual(len(events), 1)
@@ -102,7 +103,7 @@ class TestFilterByActions(BaseTest):
         Element.objects.create(tag_name='div', text='some_other_text', event=event2, nth_child=0, nth_of_type=0, order=1)
 
         action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action1, url='/feedback')
+        ActionStep.objects.create(action=action1, url='https://posthog.com/feedback/123')
         ActionStep.objects.create(action=action1, href='/a-url-2')
 
 
