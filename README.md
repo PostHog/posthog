@@ -23,7 +23,7 @@ Join the [PostHog Users Slack](https://join.slack.com/t/posthogusers/shared_invi
 - **Complete control** over your data - host it yourself.
 - **Automatically capture** clicks and page views to do analyze what your users are doing **retroactively**. 
 - Libraries for **[JS](https://github.com/PostHog/posthog/wiki/JS-integration), [Python](https://github.com/PostHog/posthog/wiki/python-integration), [Ruby](https://github.com/PostHog/posthog/wiki/ruby-integration), [Node](https://github.com/PostHog/posthog/wiki/node-integration)** + API for anything else.
-- Beautiful **graphs, funnels and dashboards**.
+- Beautiful **graphs, funnels, user cohorts, user paths and dashboards**.
 - Super easy deploy using **Docker** or **Heroku**.
 
 ## Event autocapture
