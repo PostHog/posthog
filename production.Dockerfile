@@ -24,4 +24,4 @@ RUN cd frontend \
 COPY . /code/
 
 EXPOSE 8000
-ENTRYPOINT ["./bin/docker"]
+CMD ["./bin/docker"]
