@@ -34,7 +34,7 @@ class CohortGroup extends Component {
                 {index > 0 && <CloseButton className='float-right' onClick={onRemove} />}
                 <div style={{height: 32}}>
                     User has
-                    {selected == 'action' && ' done an '}
+                    {selected == 'action' && ' done '}
                     <div className='btn-group' style={{margin: '0 8px'}}>
                         <button onClick={() => this.setState({selected: 'action'})} type="button" className={'btn btn-sm ' + (selected == 'action' ? 'btn-secondary' : 'btn-light')}>action</button>
                         <button onClick={() => this.setState({selected: 'property'})} type="button" className={'btn btn-sm ' + (selected == 'property' ? 'btn-secondary' : 'btn-light')}>property</button>
