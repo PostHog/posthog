@@ -4,7 +4,7 @@ import moment from 'moment';
 import { Link } from 'react-router-dom';
 import { toParams, fromParams, colors } from './utils';
 import PropTypes from 'prop-types';
-import PropertyFilter from './PropertyFilter';
+import PropertyFilters from './PropertyFilter';
 
 let eventNameMap = (event) => {
     if(event.properties.$event_type == 'click') return 'clicked ';
@@ -176,7 +176,7 @@ export class EventsTable extends Component {
         let { filters, events, loading, hasNext, newEvents, highlightEvents } = this.state;
         return (
             <div className='events'>
-                <PropertyFilter propertyFilters={filters} onChange={(filters) => this.setState({filters}, this.fetchEvents)} history={this.props.history} />
+                <PropertyFilters propertyFilters={filters} onChange={(filters) => this.setState({filters}, this.fetchEvents)} />
                 <table className='table' style={{position: 'relative'}}>
                     {loading && <div className='loading-overlay'><div></div></div>}
                     <thead>

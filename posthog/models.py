@@ -9,6 +9,7 @@ from django.utils import timezone
 from typing import List, Tuple, Optional, Any, Union, Dict
 from django.db import transaction
 from sentry_sdk import capture_exception
+from dateutil.relativedelta import relativedelta
 
 import secrets
 import re
@@ -423,3 +424,30 @@ class DashboardItem(models.Model):
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
     type: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
+
+class Cohort(models.Model):
+    @property
+    def distinct_ids(self) -> List[str]:
+        return [d for d in PersonDistinctId.objects.filter(team_id=self.team_id, person_id__in=self.person_ids).values_list('distinct_id', flat=True)]
+
+    @property
+    def person_ids(self):
+        person_ids = []
+        for group in self.groups:
+            if group.get('action_id'):
+                date_from = timezone.now() - relativedelta(days=group['days']) if group.get('days') else None
+                person_ids.extend([person.id for person in Event.objects.filter_by_action(
+                    Action.objects.get(pk=group['action_id'], team_id=self.team_id),
+                    where=[['posthog_event.timestamp > %s', [date_from]]] if date_from else None,
+                    group_by='person_id',
+                    group_by_table='posthog_persondistinctid')])
+            elif group.get('properties'):
+                person_ids.extend(
+                    [person_id for person_id in Person.objects.filter(team_id=self.team_id, properties__contains=group['properties']).order_by('-id').values_list('pk', flat=True)]
+                )
+        return person_ids
+
+    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
+    deleted: models.BooleanField = models.BooleanField(default=False)
+    groups: JSONField = JSONField(default=list)

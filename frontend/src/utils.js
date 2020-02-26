@@ -18,8 +18,14 @@ export let percentage = (division) => division.toLocaleString(undefined, {style:
 
 export let Loading = () => <div className='loading-overlay'><div></div></div>;
 
+export let CloseButton = (props) => {
+    return <span {...props} className={'close cursor-pointer ' + props.className} style={{...props.style}}>
+        <span aria-hidden="true">&times;</span>
+    </span>
+}
+
 export function Card(props) {
-    return <div {...props} className={'card ' + props.className} style={props.style} title=''>
+    return <div {...props} className={'card ' + props.className} style={props.style} title="">
         {props.title && <div className='card-header'>
             {props.title}
         </div>}

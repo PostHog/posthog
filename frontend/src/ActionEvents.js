@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import { toParams, fromParams, colors } from './utils';
 import PropTypes from 'prop-types';
 import { EventDetails } from './Events';
-import PropertyFilter from './PropertyFilter'
+import PropertyFilters from './PropertyFilter';
 
 
 export class ActionEventsTable extends Component {
@@ -64,7 +64,7 @@ export class ActionEventsTable extends Component {
         let { propertyFilters, events } = this.state;
         return (
             <div class='events'>
-                <PropertyFilter propertyFilters={propertyFilters} onChange={(propertyFilters) => this.setState({propertyFilters}, this.fetchEvents)} history={this.props.history} />
+                <PropertyFilters propertyFilters={propertyFilters} onChange={(propertyFilters) => this.setState({propertyFilters}, this.fetchEvents)} />
                 <table className='table'>
                     <tbody>
                         <tr>
