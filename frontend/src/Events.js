@@ -138,9 +138,11 @@ export class EventsTable extends Component {
             ...this.props.fixedFilters,
             before: events[events.length - 1].timestamp
         })
+        clearTimeout(this.poller)
         this.setState({hasNext: false})
         api.get('api/event/?' + params).then((olderEvents) => {
             this.setState({events: [...events, ...olderEvents.results], hasNext: olderEvents.next, loading: false})
+            this.poller = setTimeout(this.pollEvents, this.pollTimeout);
         });
     }
     clickLoadNewEvents() {
@@ -151,7 +153,7 @@ export class EventsTable extends Component {
         let { event } = props;
         let { highlightEvents, eventSelected } = this.state;
         let params = ['$current_url', '$lib']
-        return <tr key={event.id} className={'cursor-pointer event-row ' + (highlightEvents.indexOf(event.id) > -1 && 'event-row-new')} onClick={() => this.setState({eventSelected: eventSelected != event.id ? event.id : false})}>
+        return <tr className={'cursor-pointer event-row ' + (highlightEvents.indexOf(event.id) > -1 && 'event-row-new')} onClick={() => this.setState({eventSelected: eventSelected != event.id ? event.id : false})}>
             <td>
                 {eventNameMap(event)}
                 {event.elements.length > 0 && <pre style={{marginBottom: 0, display: 'inline'}}>&lt;{event.elements[0].tag_name}&gt;</pre>}
@@ -198,7 +200,7 @@ export class EventsTable extends Component {
                         <this.NoItems events={events} />
                         {this.state.events && this.state.events.map((event, index) => [
                             index > 0 && !moment(event.timestamp).isSame(events[index - 1].timestamp, 'day') && <tr key={event.id + '_time'}><td colSpan="5" className='event-day-separator'>{moment(event.timestamp).format('LL')}</td></tr>,
-                            <this.EventRow event={event} />,
+                            <this.EventRow event={event} key={event.id} />,
                             this.state.eventSelected == event.id && <tr key={event.id + '_open'}>
                                 <td colSpan="5">
                                     <EventDetails event={event} />

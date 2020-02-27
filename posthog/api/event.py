@@ -48,6 +48,8 @@ class EventViewSet(viewsets.ModelViewSet):
             where = None
             if request.GET.get('after'):
                 where = [['posthog_event.timestamp > %s', [request.GET['after']]]]
+            if request.GET.get('before'):
+                where = [['posthog_event.timestamp < %s', [request.GET['before']]]]
             return Event.objects.filter_by_action(action, limit=101, where=where)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
