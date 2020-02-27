@@ -3,6 +3,7 @@
 !bin/docker
 !requirements.txt
 !posthog
+!staticfiles
 !manage.py
 !frontend/package.json
 !frontend/*.html
