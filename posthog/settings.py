@@ -14,10 +14,19 @@ import os
 import sys
 import dj_database_url
 import sentry_sdk
+from django.core.exceptions import ImproperlyConfigured
 
 from sentry_sdk.integrations.django import DjangoIntegration
 
+
+def get_env(key):
+    try:
+        return os.environ[key]
+    except KeyError:
+        raise ImproperlyConfigured(f'The environment var "{key}" is absolutely required to run this software')
+
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEBUG = os.environ.get("DEBUG", False)
@@ -106,7 +115,7 @@ WSGI_APPLICATION = 'posthog.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
-DATABASE_URL = os.environ.get('DATABASE_URL', 'postgres://localhost:5432/posthog') 
+DATABASE_URL = get_env('DATABASE_URL')
 DATABASES = {
     'default': dj_database_url.config(default=DATABASE_URL, conn_max_age=600)
 }
