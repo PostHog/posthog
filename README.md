@@ -60,48 +60,8 @@ This image has everything you need to try out PostHog locally! It will set up a 
 
 ## Production installation
 
-The preview image has Postgres running locally and runs in debug mode.
+[See wiki for production deployment](https://github.com/PostHog/posthog/wiki/Deployment)
 
-For a production installation you have a few options:
-
-### Deploy to Heroku
-
-Heroku is the quickest way to get a production PostHog environment up-and-running.
-
-We recommend getting at the very least a `hobby-dev` Postgres and Dyno for low volumes of events.
-
-### Docker
-
-Using the [posthog/posthog:latest](https://hub.docker.com/r/posthog/posthog) Docker image. You'll need to spin up a separate Postgres docker container. We've included a docker-compose.yml file that does that.
-
-[Click here](https://github.com/PostHog/posthog/wiki/Upgrading-PostHog) for instructions on upgrading PostHog on Heroku to the latest version.
-
-**On Ubuntu**
-
-1. [Install Docker](https://docs.docker.com/installation/ubuntulinux/)
-2. [Install Docker Compose](https://docs.docker.com/compose/install/)
-3. Run the following:
-```bash
-sudo apt-get install git
-git clone https://github.com/posthog/posthog.git
-cd posthog
-docker-compose build
-docker-compose up -d
-```
-
-### From source
-1. Make sure you have Python >= 3.7 and pip installed
-2. [Install Yarn](https://classic.yarnpkg.com/en/docs/install/#mac-stable)
-3. Run the following:
-```bash
-git clone https://github.com/posthog/posthog.git
-yarn build
-pip install -r requirements.txt
-gunicorn posthog.wsgi --config gunicorn.config.py --log-file -
-```
-
-### Running behind a proxy?
-See [running behind a proxy](https://github.com/PostHog/posthog/wiki/Running-behind-a-proxy)
 
 ## Development
 ### Running backend (Django)
