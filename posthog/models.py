@@ -142,49 +142,61 @@ def create_team_signup_token(sender, instance, created, **kwargs):
             instance.save()
 
 class EventManager(models.Manager):
-    def _handle_class(self, index, item, where, params):
-        where.append("AND E{}.attr_class @> %s::varchar(200)[]".format(index))
+    def _handle_class(self, index, item, params):
         params.append(item)
+        return " AND E{}.attr_class @> %s::varchar(200)[]".format(index)
 
-    def _handle_attributes(self, index: int, key: str, value: str, where: List[str], params: List[str]):
-        where.append("AND E{}.attributes ->> %s = %s".format(index))
+    def _handle_attributes(self, index: int, key: str, value: str, params: List[str]):
         params.extend([key.replace('attributes__', ''), value])
+        return " AND E{}.attributes ->> %s = %s".format(index)
 
-    def _filter_selector(self, filters, joins, where, params):
-        selector = filters.pop('selector')
+    def _filter_selector(self, selector, params):
         parts = split_selector_into_parts(selector)
+        where = ''
+        joins = ''
         for index, tag in enumerate(parts):
             for key, value in tag.items():
                 if key == 'attr_class':
-                    self._handle_class(index, value, where=where, params=params)
+                    where += self._handle_class(index, value, params=params)
                 elif 'attributes__' in key:
-                    self._handle_attributes(index, key, value, where=where, params=params)
+                    where += self._handle_attributes(index, key, value, params=params)
                 else:
-                    where.append("AND E{}.{} = %s".format(index, key))
+                    where += " AND E{}.{} = %s".format(index, key)
                     params.append(value)
             if index > 0:
-                joins.append('INNER JOIN posthog_element E{0} ON (posthog_event.id = E{0}.event_id)'.format(index))
-                where.append('AND E{0}.order = (( E{1}.order + 1))'.format(index, index-1))
+                joins += 'INNER JOIN posthog_element E{0} ON (posthog_event.id = E{0}.event_id)'.format(index)
+                where += ' AND E{0}.order = (( E{1}.order + 1))'.format(index, (index-1))
+        return {'where': where, 'joins': joins}
 
-    def _filters(self, filters, where: List, params: List):
+    def _element_subquery(self, filters: Dict, params: List) -> str:
+        subquery_where = ''
+        subquery_joins = ''
+        if filters['selector']:
+            selector = filters.pop('selector')
+            result = self._filter_selector(selector, params=params)
+            subquery_where += result['where']
+            subquery_joins += result['joins']
         for key, value in filters.items():
-            if key == 'url' and value:
-                where.append('AND posthog_event.properties ->> \'$current_url\' LIKE %s')
-                params.append('%{}%'.format(value))
-            elif key == 'event' and value:
-                where.append('AND posthog_event.event = %s')
-                params.append(value)
-            elif key not in ['action', 'id', 'selector'] and value:
-                where.append('AND E0.{} = %s'.format(key))
+            if key not in ['action', 'selector', 'id', 'url', 'event'] and value:
+                subquery_where += ' AND E0.{} = %s'.format(key)
                 params.append(value)
 
-    def _step(self, step, joins: List, where: List, params: List):
+        if subquery_where != '':
+            return " AND EXISTS (SELECT 1 FROM posthog_element E0 {} WHERE posthog_event.id = E0.event_id {}) ".format(subquery_joins, subquery_where)
+        return ""
+
+    def _step(self, step, where: List, params: List):
         filters = model_to_dict(step)
         where.append(' OR (1=1 ')
-        if filters['selector']:
-            filter_selector = self._filter_selector(filters, joins=joins, where=where, params=params)
-        self._filters(filters, where=where, params=params)
-        where.append(')')
+        if filters['url']:
+            where.append(' AND posthog_event.properties ->> \'$current_url\' = %s')
+            params.append(filters['url'])
+        if filters['event']:
+            where.append(' AND posthog_event.event = %s')
+            params.append(filters['event'])
+
+        where.append(self._element_subquery(filters, params))
+        where.append(' )')
 
     def _select(self, count=None, group_by=None, group_by_table=None, count_by=None):
         if count_by:
@@ -208,17 +220,13 @@ class EventManager(models.Manager):
     def filter_by_action(self, action, count: Optional[bool]=None, group_by: Optional[str]=None, count_by: Optional[str]=None, group_by_table: Optional[str]=None, limit: Optional[int]=None, where: Optional[Union[str, List[Any]]]=None) -> models.query.RawQuerySet:
         query = self._select(count=count, group_by=group_by, group_by_table=group_by_table, count_by=count_by)
 
-        joins: List[str] = [
-            'INNER JOIN posthog_persondistinctid ON (posthog_event.distinct_id = posthog_persondistinctid.distinct_id AND posthog_persondistinctid.team_id = {}) '.format(action.team_id),
-            'LEFT OUTER JOIN posthog_element E0 ON (posthog_event.id = E0.event_id)'
-        ]
         where_list: List[str] = []
         params: List[str] = []
 
         for step in action.steps.all():
-            self._step(step, joins=joins, where=where_list, params=params)
+            self._step(step, where=where_list, params=params)
 
-        query += ' '.join(joins)
+        query += 'INNER JOIN posthog_persondistinctid ON (posthog_event.distinct_id = posthog_persondistinctid.distinct_id AND posthog_persondistinctid.team_id = {}) '.format(action.team_id)
         query += ' WHERE '
         query += ' posthog_event.team_id = {}'.format(action.team_id)
         query += ' AND (1=2 '
