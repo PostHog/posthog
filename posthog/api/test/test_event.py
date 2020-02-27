@@ -1,5 +1,6 @@
 from .base import BaseTest
 from posthog.models import Event, Person, Element, Action, ActionStep
+from freezegun import freeze_time # type: ignore
 
 
 class TestEvents(BaseTest):
@@ -148,3 +149,33 @@ class TestEvents(BaseTest):
         response = self.client.get('/api/event/values/?key=random_prop&value=qw').json()
         self.assertEqual(response[0]['name'], 'qwerty')
         self.assertEqual(response[0]['count'], 1)
+
+    def test_before_and_after(self):
+        user = self._create_user('tim')
+        self.client.force_login(user)
+        person = Person.objects.create(properties={'email': 'tim@posthog.com'}, team=self.team, distinct_ids=["2", 'some-random-uid'])
+
+        with freeze_time("2020-01-10"):
+            event1 = Event.objects.create(team=self.team, event='sign up', distinct_id="2")
+        with freeze_time("2020-01-8"):
+            event2 = Event.objects.create(team=self.team, event='sign up', distinct_id="2")
+
+        action = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=action, event='sign up')
+
+        response = self.client.get('/api/event/?after=2020-01-09&action_id=%s' % action.pk).json()
+        self.assertEqual(len(response['results']), 1)
+        self.assertEqual(response['results'][0]['id'], event1.pk)
+
+        response = self.client.get('/api/event/?before=2020-01-09&action_id=%s' % action.pk).json()
+        self.assertEqual(len(response['results']), 1)
+        self.assertEqual(response['results'][0]['id'], event2.pk)
+
+        # without action
+        response = self.client.get('/api/event/?after=2020-01-09').json()
+        self.assertEqual(len(response['results']), 1)
+        self.assertEqual(response['results'][0]['id'], event1.pk)
+        
+        response = self.client.get('/api/event/?before=2020-01-09').json()
+        self.assertEqual(len(response['results']), 1)
+        self.assertEqual(response['results'][0]['id'], event2.pk)
