@@ -21,6 +21,8 @@ export default class Cohorts extends Component {
         return (
             <div>
                 <h1>Cohorts</h1>
+                <Link to={'/people?new_cohort='} className='btn btn-outline-success btn-sm'>+ new cohort</Link>
+                <br /><br />
                 <table className='table' style={{position: 'relative'}}>
                     {loading && <Loading />}
                     <tbody>
