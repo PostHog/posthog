@@ -8,12 +8,8 @@ services:
       POSTGRES_USER: posthog
       POSTGRES_DB: posthog
   web:
-    build:
-      context: .
-      dockerfile: production.Dockerfile
+    image: posthog/posthog:latest
     container_name: posthog_web
-    volumes:
-      - .:/code
     ports:
       - "8000:8000"
     environment:
