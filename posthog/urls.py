@@ -44,7 +44,7 @@ def render_template(template_name: str, request, context=None) -> HttpResponse:
     return HttpResponse(html.replace('src="/', 'src="/static/').replace('href="/', 'href="/static/'))
 
 def home(request, **kwargs):
-    if request.path.endswith('.map'):
+    if request.path.endswith('.map') or request.path.endswith('.map.js'):
         return redirect('/static%s' % request.path)
     return render_template('index.html', request)
 
