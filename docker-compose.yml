@@ -7,16 +7,13 @@ services:
       POSTGRES_USER: posthog
       POSTGRES_DB: posthog
   web:
-    build:
-      context: .
-      dockerfile: production.Dockerfile
-    volumes:
-      - .:/code
+    image: posthog/posthog:latest
     ports:
       - "8000:8000"
     environment:
       IS_DOCKER: "true"
       DATABASE_URL: "postgres://posthog@db:5432/posthog"
       SECRET_KEY: "<randomly generated secret key>"
+      DEBUG: "true"
     depends_on:
       - db
