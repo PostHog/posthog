@@ -115,7 +115,10 @@ WSGI_APPLICATION = 'posthog.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
-DATABASE_URL = get_env('DATABASE_URL')
+if TEST or DEBUG:
+    DATABASE_URL = os.environ.get('DATABASE_URL', 'postgres://localhost:5432/posthog')
+else:
+    DATABASE_URL = get_env('DATABASE_URL')
 DATABASES = {
     'default': dj_database_url.config(default=DATABASE_URL, conn_max_age=600)
 }

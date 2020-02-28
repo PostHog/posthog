@@ -10,7 +10,6 @@ services:
     build:
       context: .
       dockerfile: production.Dockerfile
-    command: gunicorn posthog.wsgi --bind 0.0.0.0:8000 --log-file -
     volumes:
       - .:/code
     ports:
