@@ -14,6 +14,5 @@ services:
       IS_DOCKER: "true"
       DATABASE_URL: "postgres://posthog@db:5432/posthog"
       SECRET_KEY: "<randomly generated secret key>"
-      DEBUG: "true"
     depends_on:
       - db
