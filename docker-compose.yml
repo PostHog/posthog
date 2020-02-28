@@ -3,11 +3,13 @@ version: '3'
 services:
   db:
     image: postgres:alpine
+    container_name: posthog_db
     environment:
       POSTGRES_USER: posthog
       POSTGRES_DB: posthog
   web:
     image: posthog/posthog:latest
+    container_name: posthog_web
     ports:
       - "8000:8000"
     environment:
@@ -16,3 +18,5 @@ services:
       SECRET_KEY: "<randomly generated secret key>"
     depends_on:
       - db
+    links:
+      - db:db
