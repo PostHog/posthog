@@ -4,7 +4,6 @@ import { ToastContainer, Slide } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import api from "./Api";
 import Events from "./Events";
-import "../style/style.scss";
 import Person from "./Person";
 import Sidebar from "./Sidebar";
 import People from "./People";

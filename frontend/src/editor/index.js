@@ -15,7 +15,7 @@ let styles = `
     .form-control { font-size: 13px }
     .react-draggable .drag-bar { cursor: grab; margin-bottom: 0.75rem; user-select: none }
     .react-draggable-dragging .drag-bar {cursor: grabbing !important }
-    .logo { margin: -15px 15px 0 0 }
+    .logo { margin: -7px 15px 0 0; height: 35px }
     .drag-bar h3 { display: inline-block }
     .save-buttons {
         margin: 0 -12px;
@@ -108,12 +108,12 @@ class App extends Component {
     render() {
         let { actions, openActionId } = this.state;
         return <root.div>
-            <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
+            <link href={this.props.apiURL + "static/style.css"} rel="stylesheet" crossorigin="anonymous" />
             <style>{styles}</style>
             <Draggable handle='.drag-bar'>
                 <div className='box'>
                     <div className='drag-bar'>
-                        <img className="logo" src="https://posthog.com/wp-content/uploads/elementor/thumbs/Instagram-Post-1hedgehog-off-black-ok61e8eds76dma39iqao8cwbeihgdc2a9grtrwy6p4.png" />
+                        <img className="logo" src={this.props.apiURL + "static/posthog-logo.png"} />
                         <h3>PostHog</h3><br />
                     </div>
                     {actions.map((action, index) => (action.id == openActionId) ? <div>

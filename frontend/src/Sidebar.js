@@ -7,7 +7,7 @@ class Sidebar extends Component {
         let matches = (path) => this.props.history.location.pathname.indexOf(path) > -1
         return <div className="sidebar col-sm-3 col-md-2 sidebar flex-shrink-1 bg-light pt-3" style={{minHeight: '100vh'}}>
             <div className="row logo-row">
-              <img className="logo" src="https://posthog.com/wp-content/uploads/elementor/thumbs/Instagram-Post-1hedgehog-off-black-ok61e8eds76dma39iqao8cwbeihgdc2a9grtrwy6p4.png" />
+              <img className="logo" src="/static/posthog-logo.png" />
               <div className="posthog-title">PostHog</div>
             </div>
             <ul className="nav flex-sm-column">
