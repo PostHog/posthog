@@ -49,4 +49,6 @@ jobs:
         env:
           DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
         run: |
+          touch frontend/dist/index.html
+          touch frontend/dist/layout.html
           python manage.py test --keepdb -v 2
