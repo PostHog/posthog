@@ -3,6 +3,7 @@ version: '3'
 services:
   db:
     image: postgres:alpine
+    container_name: posthog_db
     environment:
       POSTGRES_USER: posthog
       POSTGRES_DB: posthog
@@ -10,6 +11,7 @@ services:
     build:
       context: .
       dockerfile: production.Dockerfile
+    container_name: posthog_web
     volumes:
       - .:/code
     ports:
@@ -20,3 +22,5 @@ services:
       SECRET_KEY: "<randomly generated secret key>"
     depends_on:
       - db
+    links:
+      - db:db
