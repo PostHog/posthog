@@ -114,7 +114,10 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(methods=['GET'], detail=False)
     def actions(self, request: request.Request) -> response.Response:
-        actions = Action.objects.filter(team=request.user.team_set.get()).prefetch_related(Prefetch('steps', queryset=ActionStep.objects.all()))
+        actions = Action.objects.filter(
+            deleted=False,
+            team=request.user.team_set.get()
+        ).prefetch_related(Prefetch('steps', queryset=ActionStep.objects.all()))
         matches = []
         for action in actions:
             events = Event.objects.filter_by_action(action, limit=20)

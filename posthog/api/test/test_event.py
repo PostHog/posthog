@@ -93,6 +93,10 @@ class TestEvents(BaseTest):
         self._pay_event('stopped_after_pay')
         self._movie_event('stopped_after_pay')
 
+        # Test filtering of deleted actions
+        deleted_action_watch_movie = Action.objects.create(team=self.team, name='watch movie', deleted=True)
+        ActionStep.objects.create(action=deleted_action_watch_movie, text='Watch now', selector="div > a.watch_movie")
+
         # non matching events
         non_matching = Event.objects.create(distinct_id='stopped_after_pay', properties={'$current_url': 'http://whatever.com'}, team=self.team)
         Element.objects.create(tag_name='blabla', href='/moviedd', event=non_matching, order=0)
