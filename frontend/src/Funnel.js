@@ -109,7 +109,7 @@ export class EditFunnel extends Component {
                 <div className='col-10'>
                     {dndLoaded && <this.dnd.DragDropContext
                         onDragEnd={(result) => {
-                            if(!result.destination) return;
+                            if(!result.destination || result.destination.index == result.source.index) return;
                             steps.splice(result.destination.index, 0, steps.splice(result.source.index, 1)[0])
                             this.setState({steps}, this.onSubmit)
                         }}>
@@ -213,8 +213,11 @@ export default class Funnel extends Component {
         super(props)
     
         this.state = {
+            loadingFunnel: true,
+            loadingPeople: true
         }
-        this.fetchFunnel.call(this);
+        this.fetchFunnel = this.fetchFunnel.bind(this);
+        this.fetchFunnel()
         this.sortPeople = this.sortPeople.bind(this);
     }
     sortPeople(people) {
@@ -227,30 +230,39 @@ export default class Funnel extends Component {
         return people
     }
     fetchFunnel() {
+        let now = new Date();
+        this.currentFunnelFetch = now;
+        this.setState({loadingFunnel: true, loadingPeople: true})
         api.get('api/funnel/' + this.props.match.params.id).then((funnel) => {
-            this.setState({funnel})
+            if(now != this.currentFunnelFetch) return;
+            this.setState({funnel, loadingFunnel: false})
             if(!funnel.steps[0]) return;
             api.get('api/person/?id=' + funnel.steps[0].people.slice(0, 99).join(','))
-                .then((people) => this.setState({people: this.sortPeople(people.results)}))
+                .then((people) => {
+                    if(now != this.currentFunnelFetch) return;
+                    this.setState({people: this.sortPeople(people.results), loadingPeople: false})
+                })
         })
     }
     render() {
-        let { funnel, people } = this.state;
+        let { funnel, people, loadingFunnel, loadingPeople } = this.state;
         return funnel ? (
             <div className='funnel'>
                 <h1>Funnel: {funnel.name}</h1>
-                <EditFunnel funnel={funnel} onChange={(funnel) => this.setState({funnel})} />
+                <EditFunnel funnel={funnel} onChange={(funnel) => this.fetchFunnel()} />
                 <Card title={<span>
                     <SaveToDashboard className='float-right' filters={{funnel_id: funnel.id}} type='FunnelViz' name={funnel.name} />
                     Graph
                 </span>}>
                     <div style={{height: 300}}>
+                        {loadingFunnel && <Loading />}
                         {funnel.steps && <FunnelViz
                             funnel={funnel}
                             />}
                     </div>
                 </Card>
                 <Card title='Per user'>
+                    {loadingPeople && <Loading />}
                     <table className='table table-bordered table-fixed'>
                         <tbody>
                             <tr>
@@ -276,6 +288,6 @@ export default class Funnel extends Component {
                     </table>
                 </Card>
             </div>
-        ) : null;
+        ) : <Loading />;
     }
 }

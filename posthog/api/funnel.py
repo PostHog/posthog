@@ -1,7 +1,8 @@
-from posthog.models import FunnelStep, Action, ActionStep, Event, Funnel, Person
+from posthog.models import FunnelStep, Action, ActionStep, Event, Funnel, Person, PersonDistinctId
 from rest_framework import request, response, serializers, viewsets # type: ignore
 from rest_framework.decorators import action # type: ignore
-from django.db.models import QuerySet, query, Model
+from django.db.models import QuerySet, query, Model, Q, Max, Prefetch, Exists, OuterRef, Subquery
+from django.db import models
 from typing import List, Dict, Any
 
 
@@ -22,37 +23,66 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
         return sorted(people, key=order, reverse=True)
 
     def get_steps(self, funnel: Funnel) -> List[Dict[str, Any]]:
+        # for some reason, rest_framework executes SerializerMethodField multiple times,
+        # causing lots of slow queries. 
+        # Seems a known issue: https://stackoverflow.com/questions/55023511/serializer-being-called-multiple-times-django-python
+        if hasattr(funnel, 'steps_cache'):
+            return {}
+        funnel.steps_cache = True # type: ignore
+
+        funnel_steps = funnel.steps.all().prefetch_related('action')
+        if self.context['view'].action != 'retrieve':
+            return [{
+                'id': step.id,
+                'action_id': step.action.id,
+                'name': step.action.name,
+                'order': step.order
+            } for step in funnel_steps]
+
+        if len(funnel_steps) == 0:
+            return []
+        annotations = {}
+        for step in funnel_steps:
+            annotations['step_{}'.format(step.order)] = Subquery(
+                Event.objects.filter_by_action(step.action) # type: ignore
+                    .annotate(person_id=OuterRef('id'))
+                    .filter(
+                        distinct_id__in=Subquery(
+                            PersonDistinctId.objects.filter(
+                                person_id=OuterRef('person_id')
+                            ).values('distinct_id')
+                        ),
+                        pk__gt=OuterRef('step_{}'.format(step.order-1)) if step.order > 0 else 0
+                    )\
+                    .order_by('pk')\
+                    .values('pk')[:1]
+            , output_field=models.IntegerField())
+
+        people = Person.objects.all()\
+            .annotate(**annotations)\
+            .filter(step_0__isnull=False)
+
+        people = [person for person in people]
+
         steps = []
-        people = None
-        db_steps = funnel.steps.all().order_by('order', 'id')
-        for step in db_steps:
-            count = 0
-            if people == None or len(people) > 0: # type: ignore
-                people = Event.objects.filter_by_action(
-                    step.action,
-                    where='({})' .format(') OR ('.join(
-                        "posthog_event.id > {} AND posthog_persondistinctid.person_id = {}".format(person.event_id, person.id)
-                        for person in people # type: ignore
-                    )) if people else None,
-                    group_by='person_id',
-                    group_by_table='posthog_persondistinctid')
-                if len(people) > 0:
-                    count = len(people)
+        for step in funnel_steps:
+            relevant_people = [person.id for person in people if getattr(person, 'step_{}'.format(step.order))]
             steps.append({
                 'id': step.id,
                 'action_id': step.action.id,
                 'name': step.action.name,
                 'order': step.order,
-                'people': [person.id for person in people] if people else [],
-                'count':  count
+                'people': relevant_people[:100],
+                'count': len(relevant_people)
             })
         if len(steps) > 0:
             steps[0]['people'] = self._order_people_in_step(steps, steps[0]['people'])
         return steps
 
+
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Funnel:
         request = self.context['request']
-        funnel = Funnel.objects.create(team=request.user.team_set.get(), **validated_data)
+        funnel = Funnel.objects.create(team=request.user.team_set.get(), created_by=request.user, **validated_data)
         if request.data.get('steps'):
             for index, step in enumerate(request.data['steps']):
                 if step.get('action_id'):

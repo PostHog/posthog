@@ -39,6 +39,8 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
+        if self.action == 'list':
+            queryset = self._filter_request(self.request, queryset)
         return queryset\
             .filter(team=self.request.user.team_set.get())\
             .order_by('-timestamp')
@@ -65,28 +67,14 @@ class EventViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(distinct_id__in=person.distinct_ids)
             elif key == 'distinct_id':
                 queryset = queryset.filter(distinct_id=request.GET['distinct_id'])
+            elif key == 'action_id':
+                queryset = queryset.filter_by_action(Action.objects.get(pk=value))
             else:
                 key = 'properties__%s' % key
                 params = {}
                 params[key] = value
                 queryset = queryset.filter(**params)
         return queryset
-
-    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        has_next = False
-        if request.GET.get('action_id'):
-            queryset: Union[QuerySet, query.RawQuerySet] = self._filter_by_action(request)
-            has_next = len(queryset) > 100
-        else:
-            queryset = self.get_queryset().prefetch_related(Prefetch('element_set', queryset=Element.objects.order_by('order')))
-            queryset = self._filter_request(request, queryset)
-            has_next = queryset.count() > 100
-
-        events = [EventSerializer(d).data for d in queryset[0: 100]]
-        return response.Response({
-            'next': has_next,
-            'results': events
-        })
 
     @action(methods=['GET'], detail=False)
     def elements(self, request) -> response.Response:
@@ -120,8 +108,8 @@ class EventViewSet(viewsets.ModelViewSet):
         ).prefetch_related(Prefetch('steps', queryset=ActionStep.objects.all()))
         matches = []
         for action in actions:
-            events = Event.objects.filter_by_action(action, limit=20)
-            for event in events:
+            events = Event.objects.filter_by_action(action)
+            for event in events[0: 20]:
                 matches.append({'event': event, 'action': action})
         matches = sorted(matches, key=lambda match: match['event'].id, reverse=True)
         return response.Response({'results': [self._serialize_actions(match['event'], match['action']) for match in matches[0: 20]]})

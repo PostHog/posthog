@@ -1,5 +1,5 @@
 from .base import BaseTest
-from posthog.models import Event, Person, Team, User
+from posthog.models import Event, Person, Team, User, ElementGroup
 from django.test import TransactionTestCase
 import base64
 import json
@@ -35,7 +35,7 @@ class TestCapture(BaseTest):
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
         event = Event.objects.get()
         self.assertEqual(event.event, '$autocapture')
-        elements = event.element_set.all().order_by('order')
+        elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by('order')
         self.assertEqual(elements[0].tag_name, 'a')
         self.assertEqual(elements[0].attr_class, ['btn', 'btn-sm'])
         self.assertEqual(elements[1].order, 1)
@@ -131,7 +131,7 @@ class TestCapture(BaseTest):
 
         self.assertEqual(Person.objects.get().distinct_ids, ["63"])
         event = Event.objects.get()
-        self.assertEqual(event.element_set.all().first().text, '💻 Writing code')
+        self.assertEqual(ElementGroup.objects.get(hash=event.elements_hash).element_set.all().first().text, '💻 Writing code')
 
     def test_incorrect_padding(self):
         response = self.client.get('/e/?data=eyJldmVudCI6IndoYXRldmVmciIsInByb3BlcnRpZXMiOnsidG9rZW4iOiJ0b2tlbjEyMyIsImRpc3RpbmN0X2lkIjoiYXNkZiJ9fQ', content_type='application/json', HTTP_REFERER='https://localhost')
