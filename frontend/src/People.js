@@ -75,7 +75,7 @@ class Cohort extends Component {
     constructor(props) {
         super(props)
         this.state = {
-            groups: [],
+            groups: window.location.search.indexOf('new_cohort') > -1 ? [{}] : [],
             id: fromParams()['cohort']
         }
         this.fetchProperties.call(this);

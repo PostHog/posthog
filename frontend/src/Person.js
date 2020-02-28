@@ -19,7 +19,6 @@ export default class Person extends Component {
         }
         api.get(url).then((person) => this.setState({person}))
     }
-
     Value(props) {
         let value = props.value;
         if(Array.isArray(value)) return <div>
@@ -36,20 +35,20 @@ export default class Person extends Component {
     }
     render() {
         return this.state.person ? <div>
-                <h1>{this.state.person.name}</h1>
-                <div style={{maxWidth: 750}}>
-                    <this.Value value={this.state.person.properties} />
-                    <table className='table'>
-                        <tbody>
-                            <tr>
-                                <td>Distinct IDs</td>
-                                <td>{this.state.person.distinct_ids.map((distinct_id) => <pre style={{margin: 0}}>{distinct_id}</pre>)}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                <EventsTable fixedFilters={{person_id: this.state.person.id}} history={this.props.history} />
+            <h1>{this.state.person.name}</h1>
+            <div style={{maxWidth: 750}}>
+                <this.Value value={this.state.person.properties} />
+                <table className='table'>
+                    <tbody>
+                        <tr>
+                            <td>Distinct IDs</td>
+                            <td>{this.state.person.distinct_ids.map((distinct_id) => <pre style={{margin: 0}}>{distinct_id}</pre>)}</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
+            <EventsTable fixedFilters={{person_id: this.state.person.id}} history={this.props.history} />
+        </div>
         : null;
     }
 }
