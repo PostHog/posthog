@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Exists, OuterRef, Q, Subquery, F
 from django.contrib.postgres.fields import JSONField, ArrayField
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
@@ -13,6 +14,8 @@ from dateutil.relativedelta import relativedelta
 
 import secrets
 import re
+import json
+import hashlib
 
 attribute_regex = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 
@@ -341,6 +344,7 @@ class Event(models.Model):
     elements: JSONField = JSONField(default=list, null=True, blank=True)
     timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
     ip: models.GenericIPAddressField = models.GenericIPAddressField(null=True, blank=True)
+    elements_hash: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
 class PersonManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
@@ -381,6 +385,35 @@ class PersonDistinctId(models.Model):
     person: models.ForeignKey = models.ForeignKey(Person, on_delete=models.CASCADE)
     distinct_id: models.CharField = models.CharField(max_length=400)
 
+class ElementGroupManager(models.Manager):
+    def _hash_elements(self, elements: List) -> List[Dict]:
+        elements_list: List[Dict] = []
+        for element in elements:
+            el_dict = model_to_dict(element)
+            [el_dict.pop(key) for key in ['event', 'id', 'group']]
+            elements_list.append(el_dict)
+        return hashlib.md5(json.dumps(elements_list, sort_keys=True, default=str).encode('utf-8')).hexdigest()
+
+    def create(self, *args: Any, **kwargs: Any):
+        elements = kwargs.pop('elements')
+        with transaction.atomic():
+            kwargs['hash'] = self._hash_elements(elements)
+            try:
+                with transaction.atomic():
+                    group = super().create(*args, **kwargs)
+            except:
+                return ElementGroup.objects.get(hash=kwargs['hash'])
+            for element in elements:
+                element.group = group
+            [setattr(element, 'pk', None) for element in elements]
+            Element.objects.bulk_create(elements)
+            return group
+
+class ElementGroup(models.Model):
+    team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
+    hash: models.CharField = models.CharField(max_length=400, null=True, blank=True, unique=True)
+    objects = ElementGroupManager()
+
 class Element(models.Model):
     USEFUL_ELEMENTS = ['a', 'button', 'input', 'select', 'textarea', 'label']
     text: models.CharField = models.CharField(max_length=400, null=True, blank=True)
@@ -391,8 +424,9 @@ class Element(models.Model):
     nth_child: models.IntegerField = models.IntegerField(null=True, blank=True)
     nth_of_type: models.IntegerField = models.IntegerField(null=True, blank=True)
     attributes: JSONField = JSONField(default=dict)
-    event: models.ForeignKey = models.ForeignKey(Event, on_delete=models.CASCADE)
+    event: models.ForeignKey = models.ForeignKey(Event, on_delete=models.CASCADE, null=True, blank=True)
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
+    group: models.ForeignKey = models.ForeignKey(ElementGroup, on_delete=models.CASCADE, null=True, blank=True)
 
 class Action(models.Model):
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
