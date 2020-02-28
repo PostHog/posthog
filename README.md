@@ -97,7 +97,7 @@ This repo is entirely MIT licensed. We charge for things like teams, permissioni
 <a href="https://github.com/ellmh"><img src="https://avatars1.githubusercontent.com/u/53315310?v=4" title="ellmh" width="80" height="80"></a>
 <a href="https://github.com/mrkurt"><img src="https://avatars1.githubusercontent.com/u/7724?v=4" title="mrkurt" width="80" height="80"></a>
 <a href="https://github.com/rberrelleza"><img src="https://avatars0.githubusercontent.com/u/475313?v=4" title="rberrelleza" width="80" height="80"></a>
-<a href="https://github.com/mariusandra"><img src="https://avatars0.githubusercontent.com/u/53387?v=4" title="rberrelleza" width="80" height="80"></a>
+<a href="https://github.com/mariusandra"><img src="https://avatars0.githubusercontent.com/u/53387?v=4" title="mariusandra" width="80" height="80"></a>
 <a href="https://github.com/timgl"><img src="https://avatars1.githubusercontent.com/u/1727427?v=4" title="timgl" width="80" height="80"></a>
 <a href="https://github.com/jamesefhawkins"><img src="https://avatars3.githubusercontent.com/u/47497682?v=4" title="jamesefhawkins" width="80" height="80"></a>
 <a href="https://github.com/Tannergoods"><img src="https://avatars1.githubusercontent.com/u/60791437?v=4" title="Tannergoods" width="80" height="80"></a>
