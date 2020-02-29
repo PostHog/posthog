@@ -9,7 +9,7 @@
 !frontend/*.html
 !frontend/src
 !frontend/style
-!frontend/style.css
+!frontend/style.scss
 !frontend/font
 !gunicorn.config.py
 !frontend/dist/array.js
