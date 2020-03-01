@@ -15,7 +15,7 @@ See [PostHog docs](https://github.com/PostHog/posthog/wiki) for in-depth walk th
 
 ![PostHog dashboard screenshot](https://posthog.com/wp-content/uploads/2020/02/Screenshot-2020-02-13-at-23.14.36-2.png)
 
-Join the [PostHog Users Slack](https://join.slack.com/t/posthogusers/shared_invite/enQtOTUwNjU1ODc1MjQ5LTU5ZDhlYTRiYmUyMDAxNDZjNzk4MDEwNzZkNTQ2YzMxMjVjY2EzYmIzZjllN2YwYmExODI5M2I3NGNiODFhZmU) if you need help, want to chat, or are thinking of a new feature idea.
+Join the [PostHog Users Slack](https://join.slack.com/t/posthogusers/shared_invite/enQtOTY0MzU5NjAwMDY3LTc2MWQ0OTZlNjhkODk3ZDI3NDVjMDE1YjgxY2I4ZjI4MzJhZmVmNjJkN2NmMGJmMzc2N2U3Yjc3ZjI5NGFlZDQ) if you need help, want to chat, or are thinking of a new feature idea.
 
 ## Features
 
