@@ -38,7 +38,10 @@ class Command(BaseCommand):
                     event.save()
                     elements_count += len(elements)
                     if hash not in hashes_seen:
-                        group = ElementGroup.objects.create(team_id=event.team_id, hash=hash, elements=elements)
+                        try:
+                            group = ElementGroup.objects.get(team_id=event.team_id, hash=hash)
+                        except:
+                            group = ElementGroup.objects.create(team_id=event.team_id, hash=hash, elements=elements)
                         hashes_seen.append(hash)
                     else:
                         elements_saved += len(elements)
