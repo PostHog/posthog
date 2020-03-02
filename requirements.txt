@@ -39,7 +39,7 @@ pytz==2019.3
 requests==2.22.0
 sentry-sdk==0.14.1
 six==1.14.0
-sqlparse==0.3.0
+sqlparse==0.3.1
 traitlets==4.3.3
 typed-ast==1.4.1
 typing-extensions==3.7.4.1
