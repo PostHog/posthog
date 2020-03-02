@@ -4,7 +4,7 @@ backcall==0.1.0
 backoff==1.6.0
 certifi==2019.11.28
 chardet==3.0.4
-decorator==4.4.1
+decorator==4.4.2
 dj-database-url==0.5.0
 Django==3.0.3
 django-cors-headers==3.2.1
