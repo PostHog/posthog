@@ -65,16 +65,19 @@ class TestGetFunnel(BaseTest):
     TESTS_API = True
 
     def _signup_event(self, distinct_id: str):
-        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team)
-        Element.objects.create(tag_name='button', text='Sign up!', event=sign_up)
+        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team, elements=[
+            Element(tag_name='button', text='Sign up!')
+        ])
 
     def _pay_event(self, distinct_id: str):
-        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team)
-        Element.objects.create(tag_name='button', text='Pay $10', event=sign_up)
+        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team, elements=[
+            Element(tag_name='button', text='Pay $10')
+        ])
 
     def _movie_event(self, distinct_id: str):
-        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team)
-        Element.objects.create(tag_name='a', href='/movie', event=sign_up)
+        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team, elements=[
+            Element(tag_name='a', href='/movie')
+        ])
 
     def _basic_funnel(self):
         action_sign_up = Action.objects.create(team=self.team, name='signed up')
@@ -116,7 +119,7 @@ class TestGetFunnel(BaseTest):
 
         self._signup_event('a_user_that_got_deleted_or_doesnt_exist')
 
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(10):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
         self.assertEqual(response['steps'][0]['name'], 'signed up')
         self.assertEqual(response['steps'][0]['count'], 4)
@@ -131,11 +134,11 @@ class TestGetFunnel(BaseTest):
         # make sure it's O(n)
         person_wrong_order = Person.objects.create(distinct_ids=["badalgo"], team=self.team)
         self._signup_event('badalgo')
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(10):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
 
         self._pay_event('badalgo')
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(10):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
 
     def test_funnel_no_events(self):

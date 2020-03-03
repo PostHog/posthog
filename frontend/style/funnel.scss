@@ -28,10 +28,7 @@
 			position: relative;
 
 			.label__value {
-				font-size: 24px;
-				color: $white;
-				line-height: 18px;
-				margin-bottom: 6px;
+                display: none;
 			}
 
 			.label__title {

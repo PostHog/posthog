@@ -64,18 +64,10 @@ def _alias(distinct_id: str, new_distinct_id: str, team: Team):
 
 def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict, timestamp: Optional[str]=None) -> None:
     elements = properties.get('$elements')
+    elements_list = None
     if elements:
         del properties['$elements']
-    db_event = Event.objects.create(
-        event=event,
-        distinct_id=distinct_id,
-        properties=properties,
-        ip=get_ip_address(request),
-        team=team,
-        **({'timestamp': timestamp} if timestamp else {})
-    )
-    if elements: 
-        Element.objects.bulk_create([
+        elements_list = [
             Element(
                 text=el.get('$el_text'),
                 tag_name=el['tag_name'],
@@ -85,10 +77,18 @@ def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict
                 nth_child=el.get('nth_child'),
                 nth_of_type=el.get('nth_of_type'),
                 attributes={key: value for key, value in el.items() if key.startswith('attr__')},
-                event=db_event,
                 order=index
             ) for index, el in enumerate(elements)
-        ])
+        ]
+    db_event = Event.objects.create(
+        event=event,
+        distinct_id=distinct_id,
+        properties=properties,
+        ip=get_ip_address(request),
+        team=team,
+        **({'timestamp': timestamp} if timestamp else {}),
+        **({'elements': elements_list} if elements_list else {})
+    )
 
     # try to create a new person
     try:

@@ -28,11 +28,11 @@ def split_selector_into_parts(selector: str) -> List:
         if '[id=' in tag:
             result = re.search(attribute_regex, tag)
             data['attr_id'] = result[3] # type: ignore
-            tag = result[1]
+            tag = result[1] # type: ignore
         if '[' in tag:
             result = re.search(attribute_regex, tag)
             data['attributes__{}'.format(result[2])] = result[3] # type: ignore
-            tag = result[1]
+            tag = result[1] # type: ignore
         if 'nth-child(' in tag:
             parts = tag.split(':nth-child(')
             data['nth_child'] = parts[1].replace(')', '')
@@ -144,199 +144,82 @@ def create_team_signup_token(sender, instance, created, **kwargs):
             instance.api_token = secrets.token_urlsafe(32)
             instance.save()
 
-class EventManager(models.Manager):
-    def _handle_class(self, index, item, params):
-        params.append(item)
-        return " AND E{}.attr_class @> %s::varchar(200)[]".format(index)
+class EventManager(models.QuerySet):
+    def filter_by_element(self, action_step):
+        groups = ElementGroup.objects.filter(team=action_step.action.team_id)
+        filter = {}
+        for key in ['tag_name', 'text', 'href', 'name']:
+            if getattr(action_step, key):
+                filter['element__{}'.format(key)] = getattr(action_step, key)
 
-    def _handle_attributes(self, index: int, key: str, value: str, params: List[str]):
-        params.extend([key.replace('attributes__', ''), value])
-        return " AND E{}.attributes ->> %s = %s".format(index)
+        if action_step.selector:
+            parts = split_selector_into_parts(action_step.selector)
+            subqueries = {}
+            for index, tag in enumerate(parts):
+                if tag.get('attr_class'):
+                    attr_class = tag.pop('attr_class')
+                    tag['attr_class__contains'] = attr_class
+                subqueries['match_{}'.format(index)] = Subquery(
+                    Element.objects.filter(group_id=OuterRef('pk'), **tag).values('order')[:1]
+                )
+            groups = groups.annotate(**subqueries)
+            for index, _ in enumerate(parts):
+                filter['match_{}__isnull'.format(index)] = False
+                if index > 0:
+                    filter['match_{}__gt'.format(index)] = F('match_{}'.format(index-1)) # make sure the ordering of the elements is correct
 
-    def _filter_selector(self, selector, params):
-        parts = split_selector_into_parts(selector)
-        where = ''
-        joins = ''
-        for index, tag in enumerate(parts):
-            for key, value in tag.items():
-                if key == 'attr_class':
-                    where += self._handle_class(index, value, params=params)
-                elif 'attributes__' in key:
-                    where += self._handle_attributes(index, key, value, params=params)
-                else:
-                    where += " AND E{}.{} = %s".format(index, key)
-                    params.append(value)
-            if index > 0:
-                joins += 'INNER JOIN posthog_element E{0} ON (posthog_event.id = E{0}.event_id)'.format(index)
-                where += ' AND E{0}.order = (( E{1}.order + 1))'.format(index, (index-1))
-        return {'where': where, 'joins': joins}
+        if not filter:
+            return {}
+        groups = groups.filter(**filter)
+        return {'elements_hash__in': groups.values_list('hash', flat=True)}
 
-    def _element_subquery(self, filters: Dict, params: List) -> str:
-        subquery_where = ''
-        subquery_joins = ''
-        if filters['selector']:
-            selector = filters.pop('selector')
-            result = self._filter_selector(selector, params=params)
-            subquery_where += result['where']
-            subquery_joins += result['joins']
-        for key, value in filters.items():
-            if key not in ['action', 'selector', 'id', 'url', 'event'] and value:
-                subquery_where += ' AND E0.{} = %s'.format(key)
-                params.append(value)
+    def filter_by_url(self, action_step):
+        if not action_step.url:
+            return {}
+        return {'properties__$current_url': action_step.url}
 
-        if subquery_where != '':
-            return " AND EXISTS (SELECT 1 FROM posthog_element E0 {} WHERE posthog_event.id = E0.event_id {}) ".format(subquery_joins, subquery_where)
-        return ""
+    def filter_by_event(self, action_step):
+        if not action_step.event:
+            return {}
+        return {'event': action_step.event}
 
-    def _step(self, step, where: List, params: List):
-        filters = model_to_dict(step)
-        where.append(' OR (1=1 ')
-        if filters['url']:
-            where.append(' AND posthog_event.properties ->> \'$current_url\' = %s')
-            params.append(filters['url'])
-        if filters['event']:
-            where.append(' AND posthog_event.event = %s')
-            params.append(filters['event'])
+    def add_person(self):
+        return self.annotate(person_id=Subquery(
+            PersonDistinctId.objects.filter(distinct_id=OuterRef('distinct_id')).order_by().values('person_id')[:1]
+        ))
 
-        where.append(self._element_subquery(filters, params))
-        where.append(' )')
-
-    def _select(self, count=None, group_by=None, group_by_table=None, count_by=None):
-        if count_by:
-            return "SELECT date_trunc('{0}', posthog_event.timestamp) as {0}, COUNT(1) as id FROM posthog_event ".format(count_by)
-        if group_by:
-            return "SELECT DISTINCT ON (posthog_persondistinctid.person_id) {}.{} as id, posthog_event.id as event_id FROM posthog_event ".format(group_by_table, group_by)
-        if count:
-            return "SELECT COUNT(posthog_event.id) as id FROM posthog_event "
-        return """
-        SELECT "posthog_event"."id",
-            "posthog_event"."team_id",
-            "posthog_event"."event",
-            "posthog_event"."distinct_id",
-            "posthog_event"."properties",
-            "posthog_event"."elements",
-            "posthog_event"."timestamp",
-            "posthog_event"."ip",
-            "posthog_persondistinctid"."person_id" as person_id
-        FROM   "posthog_event" """
-
-    def filter_by_action(self, action, count: Optional[bool]=None, group_by: Optional[str]=None, count_by: Optional[str]=None, group_by_table: Optional[str]=None, limit: Optional[int]=None, where: Optional[Union[str, List[Any]]]=None) -> models.query.RawQuerySet:
-        query = self._select(count=count, group_by=group_by, group_by_table=group_by_table, count_by=count_by)
-
-        where_list: List[str] = []
-        params: List[str] = []
-
+    def filter_by_action(self, action):
+        events = self
+        any_step = Q()
         for step in action.steps.all():
-            self._step(step, where=where_list, params=params)
-
-        query += 'INNER JOIN posthog_persondistinctid ON (posthog_event.distinct_id = posthog_persondistinctid.distinct_id AND posthog_persondistinctid.team_id = {}) '.format(action.team_id)
-        query += ' WHERE '
-        query += ' posthog_event.team_id = {}'.format(action.team_id)
-        query += ' AND (1=2 '
-        query += ' '.join(where_list)
-        query += ') '
-        if where:
-            if isinstance(where, list):
-                for w in where:
-                    query += ' AND {}'.format(w[0])
-                    params.extend(w[1])
-            elif where != '':
-                query += ' AND ({})'.format(where)
-
-        if group_by:
-            query += ' GROUP BY {}.{}, posthog_event.id'.format(group_by_table, group_by)
-        if count_by:
-            query += ' GROUP BY day'
-        if not count and not group_by and not count_by:
-            query += ' ORDER BY posthog_event.timestamp DESC'
-        if limit:
-            query += ' LIMIT %s' % limit
-        events = Event.objects.raw(query, params)
-        if count:
-            return events[0].id # bit of a hack to get the total count here
+            any_step |= Q(
+                **self.filter_by_element(step),
+                **self.filter_by_url(step),
+                **self.filter_by_event(step)
+            )
+        events = self\
+            .filter(team_id=action.team_id)\
+            .add_person()\
+            .filter(any_step)\
+            .order_by('-id')
         return events
+
+    def create(self, *args: Any, **kwargs: Any):
+        with transaction.atomic():
+            if kwargs.get('elements'):
+                kwargs['elements_hash'] = ElementGroup.objects.create(team=kwargs['team'], elements=kwargs.pop('elements')).hash
+            return super().create(*args, **kwargs)
 
 
 class Event(models.Model):
+    class Meta:
+        indexes = [models.Index(fields=['elements_hash']),]
+
     @property
     def person(self):
         return Person.objects.get(team_id=self.team_id, persondistinctid__distinct_id=self.distinct_id)
 
-    def _element_matches_selector(self, elements, selector: Dict, order=None):
-        for element in elements:
-            if order not in (None, element.order):
-                continue
-            if selector.get('tag_name') and selector['tag_name'] != element.tag_name:
-                continue
-            if selector.get('attr_class') and (not element.attr_class or not all(name in element.attr_class for name in selector['attr_class'])):
-                continue
-            if selector.get('nth_child') and selector['nth_child'] != element.nth_child:
-                continue
-            if selector.get('attr_id') and selector['attr_id'] != element.attr_id:
-                continue
-            attribute_key = [(key.replace('attributes__', ''), selector[key]) for key in selector.keys() if 'attributes__' in key]
-            if len(attribute_key) > 0 and element.attributes.get(attribute_key[0][0]) != attribute_key[0][1]:
-                continue
-            return element
-        return False
-
-    def _event_matches_selector(self, event, selector: str) -> bool:
-        elements = event.element_set.all()
-        prev = None
-        parts = split_selector_into_parts(selector)
-        for tag in parts:
-            prev = self._element_matches_selector(
-                elements=elements,
-                order=prev.order + 1 if prev else None, # type: ignore
-                selector=tag)
-            if not prev:
-                return False
-        return True
-
-    def _element_matches_step(self, filters: Dict, element) -> bool:
-        match = True
-        for key, value in filters.items():
-            if getattr(element, key) != value:
-                match = False
-        return match
-
-    def _event_matches_step(self, event, step) -> bool:
-        filters = model_to_dict(step)
-        filters.pop('action')
-        filters.pop('id')
-        filters = {key: value for key, value in filters.items() if value}
-
-        if filters.get('url'):
-            if event.properties.get('$current_url') != filters['url']:
-                return False
-            filters.pop('url')
-        if filters.get('event'):
-            if event.event != filters['event']:
-                return False
-            filters.pop('event')
-        if len(filters.keys()) == 0 and event.element_set.count() == 0:
-            # if no more filters to apply, and no elements, means it was a pageview/event filter so can return
-            return True
-        if filters.get('selector'):
-            if not self._event_matches_selector(event, filters['selector']):
-                return False
-            filters.pop('selector')
-        for element in event.element_set.all():
-            if self._element_matches_step(filters, element):
-                return True
-        return False
-
-    @property
-    def actions(self) -> List:
-        action_steps = ActionStep.objects.filter(action__team_id=self.team_id).select_related('action')
-        actions: List[Dict] = []
-        for step in action_steps:
-            if step.action not in actions:
-                if self._event_matches_step(self, step):
-                    actions.append(step.action)
-        return actions
-
-    objects = EventManager()
+    objects: models.Manager = EventManager.as_manager()
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     distinct_id: models.CharField = models.CharField(max_length=200)
@@ -386,7 +269,7 @@ class PersonDistinctId(models.Model):
     distinct_id: models.CharField = models.CharField(max_length=400)
 
 class ElementGroupManager(models.Manager):
-    def _hash_elements(self, elements: List) -> List[Dict]:
+    def _hash_elements(self, elements: List) -> str:
         elements_list: List[Dict] = []
         for element in elements:
             el_dict = model_to_dict(element)
@@ -405,7 +288,8 @@ class ElementGroupManager(models.Manager):
                 return ElementGroup.objects.get(hash=kwargs['hash'])
             for element in elements:
                 element.group = group
-            [setattr(element, 'pk', None) for element in elements]
+            for element in elements:
+                setattr(element, 'pk', None)
             Element.objects.bulk_create(elements)
             return group
 
@@ -477,12 +361,12 @@ class Cohort(models.Model):
         person_ids = []
         for group in self.groups:
             if group.get('action_id'):
-                date_from = timezone.now() - relativedelta(days=group['days']) if group.get('days') else None
-                person_ids.extend([person.id for person in Event.objects.filter_by_action(
+                people = Event.objects.filter_by_action(
                     Action.objects.get(pk=group['action_id'], team_id=self.team_id),
-                    where=[['posthog_event.timestamp > %s', [date_from]]] if date_from else None,
-                    group_by='person_id',
-                    group_by_table='posthog_persondistinctid')])
+                )
+                if group.get('days'):
+                    people = person_ids.filter(timestamp__gt=timezone.now() - relativedelta(days=group['days']))
+                person_ids.extend([person_id for person_id in people.values_list('person_id', flat=True)])
             elif group.get('properties'):
                 person_ids.extend(
                     [person_id for person_id in Person.objects.filter(team_id=self.team_id, properties__contains=group['properties']).order_by('-id').values_list('pk', flat=True)]
