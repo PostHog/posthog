@@ -16,7 +16,7 @@ drf-yasg==1.17.0
 freezegun==0.3.14
 gunicorn==20.0.4
 idna==2.8
-ipdb==0.12.2
+ipdb==0.13.2
 ipython==7.9.0
 ipython-genutils==0.2.0
 jedi==0.16.0
