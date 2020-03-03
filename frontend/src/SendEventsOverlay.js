@@ -34,6 +34,7 @@ class SendEventsOverlay extends Component {
                 <div style={{width: 400}} className='overlay-inner'>
                     <h2>Start sending events to PostHog</h2>
                     To get started using PostHog, you'll need to send us some events. By copying the snippet below into the header, you can be up and running in minutes!
+                    You can put this snippet on any domain, and it'll capture users across.
                     <JSSnippet user={this.props.user} />
                     <a href='https://github.com/PostHog/posthog/wiki/Integrations'>Using Python/Ruby/Node/Go/PHP instead?</a><br /><br />
 
