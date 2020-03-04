@@ -24,6 +24,7 @@
     "prop-types": "^15.7.2",
     "react": ">= 16.8",
     "react-beautiful-dnd": "^12.2.0",
+    "react-datepicker": "^2.13.0",
     "react-dnd": "^10.0.2",
     "react-dom": ">= 16.8",
     "react-draggable": "^4.2.0",
