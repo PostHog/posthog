@@ -2,7 +2,7 @@ import React, { Component } from 'react';
 import api from './Api';
 import moment from 'moment';
 import { Link } from 'react-router-dom';
-import { toParams, fromParams, colors } from './utils';
+import { toParams, fromParams, colors, Loading } from './utils';
 import PropTypes from 'prop-types';
 import { EventDetails } from './Events';
 import PropertyFilters from './PropertyFilter';
@@ -14,7 +14,8 @@ export class ActionEventsTable extends Component {
     
         this.state = {
             propertyFilters: fromParams(),
-            newEvents: []
+            newEvents: [],
+            loading: true
         }
         this.fetchEvents = this.fetchEvents.bind(this);
         this.FilterLink = this.FilterLink.bind(this);
@@ -29,7 +30,7 @@ export class ActionEventsTable extends Component {
         })
         clearTimeout(this.poller)
         api.get('api/event/actions/?' + params).then((events) => {
-            this.setState({events: events.results});
+            this.setState({events: events.results, loading: false});
             this.poller = setTimeout(this.pollEvents, this.pollTimeout);
         })
     }
@@ -61,7 +62,7 @@ export class ActionEventsTable extends Component {
     }
     render() {
         let params = ['$current_url']
-        let { propertyFilters, events } = this.state;
+        let { loading, propertyFilters, events } = this.state;
         return (
             <div class='events'>
                 <PropertyFilters propertyFilters={propertyFilters} onChange={(propertyFilters) => this.setState({propertyFilters}, this.fetchEvents)} />
@@ -73,9 +74,8 @@ export class ActionEventsTable extends Component {
                             <th scope="col">User</th>
                             <th scope="col">Date</th>
                             <th scope="col">Browser</th>
-                            <th scope="col">City</th>
-                            <th scope="col">Country</th>
                         </tr>
+                        {loading && <Loading />}
                         {events && events.length == 0 && <tr><td colSpan="7">We didn't find any events matching any actions. You can either <Link to='/actions'>set up some actions</Link> or <Link to='/setup'>integrate PostHog in your app</Link>.</td></tr>}
                         {events && events.map((action, index) => [
                             index > 0

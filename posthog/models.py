@@ -176,7 +176,9 @@ class EventManager(models.QuerySet):
     def filter_by_url(self, action_step):
         if not action_step.url:
             return {}
-        return {'properties__$current_url': action_step.url}
+        if action_step.url_matching == ActionStep.EXACT:
+            return {'properties__$current_url': action_step.url}
+        return {'properties__$current_url__icontains': action_step.url}
 
     def filter_by_event(self, action_step):
         if not action_step.event:
@@ -323,12 +325,19 @@ class Action(models.Model):
         return self.name
 
 class ActionStep(models.Model):
+    EXACT = 'exact'
+    CONTAINS = 'contains'
+    URL_MATCHING = [
+        (EXACT, EXACT),
+        (CONTAINS, CONTAINS),
+    ]
     action: models.ForeignKey = models.ForeignKey(Action, related_name='steps', on_delete=models.CASCADE)
     tag_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     text: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     href: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     selector: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     url: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    url_matching: models.CharField = models.CharField(max_length=400, choices=URL_MATCHING, default=CONTAINS)
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     event: models.CharField = models.CharField(max_length=400, null=True, blank=True)
 

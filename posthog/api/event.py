@@ -1,8 +1,8 @@
-from posthog.models import Event, Team, Person, Element, Action, ActionStep, PersonDistinctId, ElementGroup
+from posthog.models import Event, Team, Person, Element, Action, PersonDistinctId, ElementGroup
 from rest_framework import request, response, serializers, viewsets # type: ignore
 from rest_framework.decorators import action # type: ignore
 from django.http import HttpResponse, JsonResponse
-from django.db.models import Q, Count, QuerySet, query, Prefetch, F, Func, TextField, functions
+from django.db.models import Q, Count, QuerySet, query, F, Func, functions
 from django.forms.models import model_to_dict
 from typing import Any, Union, Tuple, Dict, List
 import re
@@ -93,7 +93,7 @@ class EventViewSet(viewsets.ModelViewSet):
         actions = Action.objects.filter(
             deleted=False,
             team=request.user.team_set.get()
-        ).prefetch_related(Prefetch('steps', queryset=ActionStep.objects.all()))
+        )
         matches = []
         for action in actions:
             events = Event.objects.filter_by_action(action)

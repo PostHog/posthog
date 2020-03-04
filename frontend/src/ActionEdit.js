@@ -61,6 +61,7 @@ class ActionStep extends Component {
         this.sendStep = this.sendStep.bind(this);
         this.AutocaptureFields = this.AutocaptureFields.bind(this);
         this.TypeSwitcher = this.TypeSwitcher.bind(this);
+        this.URLMatching = this.URLMatching.bind(this);
         this.stop = this.stop.bind(this);
 
         this.box = document.createElement('div');
@@ -154,7 +155,7 @@ class ActionStep extends Component {
                     }
                     this.setState({selection: this.state.selection}, () => this.sendStep(this.props.step))
                 }}
-                /> {props.label}</label>
+                /> {props.label} {props.extra_options}</label>
             {props.item == 'selector' ?
                 <textarea className='form-control' onChange={onChange} value={this.props.step[props.item]} /> :
                 <input className='form-control' onChange={onChange} value={this.props.step[props.item]} />}
@@ -217,6 +218,22 @@ class ActionStep extends Component {
                 />
         </div>
     }
+    URLMatching(step) {
+        return <div className='btn-group' style={{margin: '0 0 0 8px'}}>
+            <button
+                onClick={() => this.sendStep({...step, url_matching: 'contains'})}
+                type="button"
+                className={'btn btn-sm ' + ((!step.url_matching || step.url_matching == 'contains') ? 'btn-secondary' : 'btn-light')}>
+                contains
+            </button>
+            <button
+                onClick={() => this.sendStep({...step, url_matching: 'exact'})}
+                type="button"
+                className={'btn btn-sm ' + (step.url_matching == 'exact' ? 'btn-secondary' : 'btn-light')}>
+                exactly matches
+            </button>
+        </div>
+    }
     render() {
         let { step, isEditor } = this.props;
         return <div style={{borderBottom: '1px solid rgba(0, 0, 0, 0.1)', padding: '8px 0'}}>
@@ -224,15 +241,15 @@ class ActionStep extends Component {
                 <span aria-hidden="true">&times;</span>
             </button>}
             {!isEditor && <this.TypeSwitcher />}
-            <div>
+            <div style={{marginTop: 8}}>
                 {this.props.isEditor && <button type="button" className='btn btn-sm btn-secondary' style={{margin: '0 0 8px'}} onClick={() => this.start()}>
                     Inspect element
                 </button>}
                 {step.event == '$autocapture' && <this.AutocaptureFields />}
                 {(step.event == '$autocapture' || step.event == '$pageview') && <this.Option
                     item='url'
-                    label='Only match if URL contains'
-                    />}
+                    extra_options={<this.URLMatching {...step} />}
+                    label='URL' />}
             </div>
         </div>
     }
@@ -272,7 +289,7 @@ export class ActionEdit extends Component {
             if(detail.detail == 'action-exists') this.setState({saved: false, error: 'action-exists', error_id: detail.id})
         }
         let steps = this.state.action.steps.map((step) => {
-            if(step.event == '$pageview') step.selection = ['url'];
+            if(step.event == '$pageview') step.selection = ['url', 'url_matching'];
             if(step.event != '$pageview' && step.event != '$autocapture') step.selection = [];
             if(!step.selection) return step;
             let data = {};
