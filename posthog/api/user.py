@@ -50,5 +50,4 @@ def redirect_to_site(request):
         'apiURL': request.build_absolute_uri('/')
     }))
 
-    print(request.GET.get('appUrl'))
     return redirect("{}#state={}".format(request.GET.get('appUrl'), state))
