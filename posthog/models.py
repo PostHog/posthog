@@ -129,8 +129,8 @@ class Team(models.Model):
     def __str__(self):
         if self.name:
             return self.name
-        if self.app_url:
-            return self.app_url
+        if self.app_url and self.app_url[0]:
+            return self.app_url.join(', ')
         return str(self.pk)
 
 class EventManager(models.QuerySet):

@@ -8,7 +8,7 @@ import { DeleteWithUndo } from './utils';
 export class AppEditorLink extends Component {
     constructor(props) {
         super(props)
-    
+
         this.state = {
         }
         this.SetURLModal = this.SetURLModal.bind(this);
@@ -24,10 +24,10 @@ export class AppEditorLink extends Component {
                 <br />
                 <button onClick={(e) => {
                         event.preventDefault();
-                        api.update('api/user', {team: {app_url: e.target.form.url.value}}).then(() => {
+                        api.update('api/user', {team: {app_url: [e.target.form.url.value]}}).then(() => {
                             this.setState({saved: true})
                         })
-                        this.props.user.team.app_url = e.target.form.url.value;
+                        this.props.user.team.app_url = [e.target.form.url.value];
                         window.location.href = this.appEditorUrl(this.props.actionId);
                         this.props.onUpdateUser(this.props.user);
                     }}
@@ -58,7 +58,7 @@ AppEditorLink.propTypes = {
 export class ActionsTable extends Component {
     constructor(props) {
         super(props)
-    
+
         this.state = {
             newEvents: [],
             loading: true
@@ -73,7 +73,7 @@ export class ActionsTable extends Component {
             this.setState({actions: actions.results, loading: false});
         })
     }
-    
+
     render() {
         let { actions, loading } = this.state;
         return (
@@ -101,7 +101,7 @@ export class ActionsTable extends Component {
                     </thead>
                     <tbody>
                         {actions && actions.length == 0 && <tr><td>You don't have any actions yet.</td></tr>}
-                        {actions && actions.map((action) => 
+                        {actions && actions.map((action) =>
                             <tr key={action.id}>
                                 <td>
                                     <Link to={'/action/' + action.id}>{action.name}</Link>

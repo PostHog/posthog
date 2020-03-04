@@ -5,11 +5,11 @@ import { JSSnippet } from './utils';
 class OptOutCapture extends Component {
     constructor(props) {
         super(props)
-    
+
         this.state = {
         }
     }
-    
+
     render() {
         return <div>
             PostHog uses PostHog (unsurprisingly!) to capture information about how people are using the product.
@@ -34,7 +34,7 @@ class OptOutCapture extends Component {
 export default class Setup extends Component {
     constructor(props) {
         super(props)
-    
+
         this.state = {
         }
     }
@@ -45,11 +45,11 @@ export default class Setup extends Component {
                 <label>What URL will you be using PostHog on?</label>
                 <form onSubmit={(e) => {
                     event.preventDefault();
-                    api.update('api/user', {team: {app_url: e.target.url.value}}).then(() => this.setState({saved: true}))
-                    this.props.user.team.app_url = e.target.url.value;
+                    api.update('api/user', {team: {app_url: [e.target.url.value]}}).then(() => this.setState({saved: true}))
+                    this.props.user.team.app_url = [e.target.url.value];
                     this.props.onUpdateUser(this.props.user);
                 }}>
-                    <input defaultValue={this.props.user.team.app_url || "https://"} autoFocus style={{maxWidth: 400}} type="url" className='form-control' name='url' placeholder="https://...." />
+                    <input defaultValue={(this.props.user.team.app_url ? this.props.user.team.app_url[0] : null) || "https://"} autoFocus style={{maxWidth: 400}} type="url" className='form-control' name='url' placeholder="https://...." />
                     <br />
                     <button className='btn btn-success' type="submit">Save url</button>
                     {this.state.saved && <p className='text-success'>URL saved.</p>}
