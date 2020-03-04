@@ -12,6 +12,14 @@ def migrate_to_array(apps, schema_editor):
         mm.save()
 
 
+def rollback_to_string(apps, schema_editor):
+
+    Team = apps.get_model('posthog', 'Team')
+
+    for mm in Team.objects.all():
+        mm.app_url_old = mm.app_url[0]
+        mm.save()
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -29,7 +37,7 @@ class Migration(migrations.Migration):
             name='app_url',
             field=django.contrib.postgres.fields.ArrayField(base_field=models.CharField(blank=True, max_length=200, null=True), default=list, size=None),
         ),
-        migrations.RunPython(migrate_to_array),
+        migrations.RunPython(migrate_to_array, rollback_to_string),
         migrations.RemoveField(
             model_name='team',
             name='app_url_old',
