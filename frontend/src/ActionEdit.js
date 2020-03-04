@@ -423,7 +423,7 @@ export class ActionEdit extends Component {
                             type="submit"
                             onClick={(e) => this.onSubmit(e, true)}
                             className='btn btn-secondary btn-sm float-right'>
-                              Save & new action!!
+                              Save & new action
                           </button>
                         )}
                     </div>
