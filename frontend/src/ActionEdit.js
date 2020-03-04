@@ -20,7 +20,7 @@ let getSafeText = (el) => {
 class EventName extends Component {
     constructor(props) {
         super(props)
-    
+
         this.state = {
         }
         this.fetchNames.call(this);
@@ -175,12 +175,12 @@ class ActionStep extends Component {
                 <button
                     type="button"
                     onClick={() => this.sendStep({...step, event: ''})}
-                    className={'btn ' + (step.event &&step.event != '$autocapture' && step.event != '$pageview' ? 'btn-secondary' : 'btn-light')}>
+                    className={'btn ' + (typeof step.event !== 'undefined' && step.event != '$autocapture' && step.event != '$pageview' ? 'btn-secondary' : 'btn-light')}>
                     Match event
                 </button>
                 <button
                     type="button"
-                    onClick={() => { 
+                    onClick={() => {
                         this.setState({selection: ['url']}, () => this.sendStep({
                                 ...step,
                                 event: '$pageview',
@@ -263,7 +263,7 @@ ActionStep.propTypes = {
 export class ActionEdit extends Component {
     constructor(props) {
         super(props)
-    
+
         this.state = {
             action: {name: '', steps: []}
         }
