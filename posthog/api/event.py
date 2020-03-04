@@ -1,4 +1,4 @@
-from posthog.models import Event, Team, Person, Element, Action, ActionStep, PersonDistinctId
+from posthog.models import Event, Team, Person, Element, Action, ActionStep, PersonDistinctId, ElementGroup
 from rest_framework import request, response, serializers, viewsets # type: ignore
 from rest_framework.decorators import action # type: ignore
 from django.http import HttpResponse, JsonResponse
@@ -30,7 +30,9 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
             return event.distinct_id
 
     def get_elements(self, event):
-        elements = event.element_set.all().order_by('order')
+        if not event.elements_hash:
+            return []
+        elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by('order')
         return ElementSerializer(elements, many=True).data
 
 class EventViewSet(viewsets.ModelViewSet):
@@ -75,20 +77,6 @@ class EventViewSet(viewsets.ModelViewSet):
                 params[key] = value
                 queryset = queryset.filter(**params)
         return queryset
-
-    @action(methods=['GET'], detail=False)
-    def elements(self, request) -> response.Response:
-        elements = Element.objects.filter(event__team=request.user.team_set.get())\
-            .filter(tag_name__in=Element.USEFUL_ELEMENTS)\
-            .values('tag_name', 'text', 'order')\
-            .annotate(count=Count('event'))\
-            .order_by('-count')
-
-        return response.Response([{
-            'name': '%s with text "%s"' % (el['tag_name'], el['text']),
-            'count': el['count'],
-            'common': el
-        } for el in elements])
 
     def _serialize_actions(self, event: Event, action: Action) -> Dict:
         return {
