@@ -138,7 +138,14 @@ class ActionStep extends Component {
     Option(props) {
         let onChange = (e) => {
             this.props.step[props.item] = e.target.value;
-            this.sendStep(this.props.step);
+
+            if (e.target.value && this.state.selection.indexOf(props.item) === -1) {
+                this.setState({selection: this.state.selection.concat([props.item])}, () => this.sendStep(this.props.step))
+            } else if (!e.target.value && this.state.selection.indexOf(props.item) > -1) {
+                this.setState({selection: this.state.selection.filter((i) => i !== props.item)}, () => this.sendStep(this.props.step))
+            } else {
+                this.sendStep(this.props.step);
+            }
         }
         return <div className={'form-group ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
             {props.selector && this.props.isEditor && <small className='form-text text-muted float-right'>Matches {document.querySelectorAll(props.selector).length} elements</small>}
@@ -151,14 +158,14 @@ class ActionStep extends Component {
                     if(e.target.checked) {
                         this.state.selection.push(props.item);
                     } else {
-                        this.state.selection = this.state.selection.filter((i) => i != props.item)
+                        this.state.selection = this.state.selection.filter((i) => i !== props.item)
                     }
                     this.setState({selection: this.state.selection}, () => this.sendStep(this.props.step))
                 }}
                 /> {props.label} {props.extra_options}</label>
             {props.item == 'selector' ?
-                <textarea className='form-control' onChange={onChange} value={this.props.step[props.item]} /> :
-                <input className='form-control' onChange={onChange} value={this.props.step[props.item]} />}
+                <textarea className='form-control' onChange={onChange} value={this.props.step[props.item] || ''} /> :
+                <input className='form-control' onChange={onChange} value={this.props.step[props.item] || ''} />}
         </div>
     }
     TypeSwitcher() {
