@@ -120,7 +120,7 @@ class Team(models.Model):
     users: models.ManyToManyField = models.ManyToManyField(User, blank=True)
     api_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    app_url: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    app_url: ArrayField(models.CharField) = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
 
