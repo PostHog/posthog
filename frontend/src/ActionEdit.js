@@ -1,6 +1,6 @@
 import React, { Component } from 'react';
 import api from './Api';
-import { uuid } from './utils';
+import { uuid } from './utils'
 import { AppEditorLink } from "./Actions";
 import PropTypes from 'prop-types';
 import Select from 'react-select';
@@ -20,7 +20,7 @@ let getSafeText = (el) => {
 class EventName extends Component {
     constructor(props) {
         super(props)
-    
+
         this.state = {
         }
         this.fetchNames.call(this);
@@ -180,7 +180,7 @@ class ActionStep extends Component {
                 </button>
                 <button
                     type="button"
-                    onClick={() => { 
+                    onClick={() => {
                         this.setState({selection: ['url']}, () => this.sendStep({
                                 ...step,
                                 event: '$pageview',
@@ -191,11 +191,14 @@ class ActionStep extends Component {
                     Page view
                 </button>
             </div>
-            {step.event != null && step.event != '$autocapture' && step.event != '$pageview' && <div style={{marginTop: '2rem'}}><label>Event name</label>
-                <EventName
-                    value={step.event}
-                    onChange={(item) => this.sendStep({...step, event: item.value})} />
-            </div>}
+            {step.event != null && step.event != '$autocapture' && step.event != '$pageview' && (
+                <div style={{marginTop: '2rem'}}>
+                    <label>Event name</label>
+                    <EventName
+                        value={step.event}
+                        onChange={(item) => this.sendStep({...step, event: item.value})} />
+                </div>
+            )}
         </div>
     }
     AutocaptureFields() {
@@ -218,8 +221,8 @@ class ActionStep extends Component {
                 />
         </div>
     }
-    URLMatching(step) {
-        return <div className='btn-group' style={{margin: '0 0 0 8px'}}>
+    URLMatching({ step, isEditor }) {
+        return <div className='btn-group' style={{margin: isEditor ? '4px 0 0 8px' : '0 0 0 8px'}}>
             <button
                 onClick={() => this.sendStep({...step, url_matching: 'contains'})}
                 type="button"
@@ -236,22 +239,39 @@ class ActionStep extends Component {
     }
     render() {
         let { step, isEditor } = this.props;
-        return <div style={{borderBottom: '1px solid rgba(0, 0, 0, 0.1)', padding: '8px 0'}}>
-            {(!isEditor || step.event == '$autocapture') && <button style={{marginTop: -3}} type="button" className="close pull-right" aria-label="Close" onClick={this.props.onDelete}>
-                <span aria-hidden="true">&times;</span>
-            </button>}
-            {!isEditor && <this.TypeSwitcher />}
-            <div style={{marginTop: 8}}>
-                {this.props.isEditor && <button type="button" className='btn btn-sm btn-secondary' style={{margin: '0 0 8px'}} onClick={() => this.start()}>
-                    Inspect element
-                </button>}
-                {step.event == '$autocapture' && <this.AutocaptureFields />}
-                {(step.event == '$autocapture' || step.event == '$pageview') && <this.Option
-                    item='url'
-                    extra_options={<this.URLMatching {...step} />}
-                    label='URL' />}
+
+        return (
+            <div className={isEditor ? '' : 'card'} style={{ marginBottom: 0, background: isEditor ? 'rgba(0,0,0,0.05)' : '' }}>
+                <div className={isEditor ? '' : 'card-body'}>
+                    {(!isEditor || step.event === '$autocapture' || !step.event) && (
+                        <button
+                            style={{ margin: isEditor ? '12px 12px 0px 0px' : '-3px 0 0 0' }}
+                            type="button"
+                            className="close pull-right"
+                            aria-label="Close"
+                            onClick={this.props.onDelete}>
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    )}
+                    {!isEditor && <this.TypeSwitcher />}
+                    <div style={{ marginTop: step.event === '$pageview' && !isEditor ? 20 : 8 }}>
+                        {isEditor && (
+                            <button type="button" className='btn btn-sm btn-secondary' style={{margin: '10px 0px 10px 12px'}} onClick={() => this.start()}>
+                                Inspect element
+                            </button>
+                        )}
+                        {step.event === '$autocapture' && <this.AutocaptureFields />}
+                        {(step.event === '$autocapture' || step.event === '$pageview') && (
+                            <this.Option
+                                item='url'
+                                extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
+                                label='URL'
+                            />
+                        )}
+                    </div>
+                </div>
             </div>
-        </div>
+        )
     }
 }
 ActionStep.propTypes = {
@@ -263,7 +283,7 @@ ActionStep.propTypes = {
 export class ActionEdit extends Component {
     constructor(props) {
         super(props)
-    
+
         this.state = {
             action: {name: '', steps: []}
         }
@@ -306,41 +326,103 @@ export class ActionEdit extends Component {
     render() {
         let action = this.state.action;
         let { isEditor, simmer } = this.props;
-        return <form onSubmit={(e) => e.preventDefault()} style={{marginTop: 8}}>
-            {!isEditor && <label>Action name</label>}
-            <input autoFocus required className='form-control' placeholder="user signed up" value={action.name} onChange={(e) => this.setState({action: {...action, name: e.target.value}})} />
-            {action.count > -1 && <small className='text-muted '>Matches {action.count} events</small>}
-            {action.steps.map((step, index) => <ActionStep
-                key={step.id || step.isNew}
-                step={step}
-                isEditor={isEditor}
-                actionId={action.id}
-                user={this.props.user}
-                simmer={simmer}
-                onDelete={() => {
-                    action.steps = action.steps.filter((s) => s.id != step.id)
-                    this.setState({action: action});
-                }}
-                onChange={(newStep) => {
-                    action.steps = action.steps.map((s) => ((step.id && s.id == step.id) || (step.isNew && s.isNew == step.isNew)) ? {id: step.id, isNew: step.isNew, ...newStep} : s);
-                    this.setState({action: action});
-                }} />
-            )}
+
+        const addGroup = (
             <button
-                type="button"
-                className='btn btn-light btn-sm'
-                onClick={() => {
-                    action.steps.push({isNew: uuid()});
-                    this.setState({action: action})
-                }}>Add another match group</button>
-            <br /><br />
-            {this.state.saved && !isEditor && <p className='text-success'>Action saved.</p>}
-            {this.state.error && <p className='text-danger'>Action with this name already exists. <a href={this.props.apiURL + 'action/' + this.state.error_id}>Click here to edit.</a></p>}
-            <div className='btn-group save-buttons'>
-                <button type="submit" onClick={(e) => this.onSubmit(e)} className='btn btn-success btn-sm'>Save action</button>
-                {this.props.isEditor && this.props.showNewActionButton && <button type="submit" onClick={(e) => this.onSubmit(e, true)} className='btn btn-secondary btn-sm'>Save & new action</button>}
+              type="button"
+              className='btn btn-outline-success btn-sm'
+              onClick={() => {
+                  action.steps.push({isNew: uuid()});
+                  this.setState({action: action})
+              }}>
+                Add another match group
+            </button>
+        );
+
+        return (
+            <div className={isEditor ? '' : 'card'} style={{ marginTop: isEditor ? 8 : ''}}>
+                <form className={isEditor ? '' : 'card-body'} onSubmit={(e) => e.preventDefault()}>
+                    {!isEditor && <label>Action name</label>}
+
+                    <input
+                        autoFocus
+                        required
+                        className='form-control'
+                        placeholder="For example: user signed up"
+                        value={action.name}
+                        onChange={(e) => this.setState({action: {...action, name: e.target.value}})} />
+
+                    {action.count > -1 && (
+                      <div>
+                          <small className='text-muted'>
+                              Matches {action.count} events
+                          </small>
+                      </div>
+                    )}
+
+                    {!isEditor && <br />}
+
+                    {action.steps.map((step, index) => (
+                        <>
+                            {index > 0 ? (
+                              <div style={{ textAlign: 'center', fontSize: 13, letterSpacing: 1, opacity: 0.7, margin: 8 }}>OR</div>
+                            ) : null}
+                            <ActionStep
+                                key={step.id || step.isNew}
+                                step={step}
+                                isEditor={isEditor}
+                                actionId={action.id}
+                                user={this.props.user}
+                                simmer={simmer}
+                                onDelete={() => {
+                                    action.steps = action.steps.filter((s) => s.id != step.id)
+                                    this.setState({action: action});
+                                }}
+                                onChange={(newStep) => {
+                                    action.steps = action.steps.map((s) => ((step.id && s.id == step.id) || (step.isNew && s.isNew === step.isNew)) ? {id: step.id, isNew: step.isNew, ...newStep} : s);
+                                    this.setState({action: action});
+                                }}
+                            />
+                        </>
+                    ))}
+
+                    <br />
+
+                    {this.state.saved && !isEditor && (
+                      <p className='text-success'>
+                          Action saved.
+                      </p>
+                    )}
+
+                    {this.state.error && (
+                      <p className='text-danger'>
+                          Action with this name already exists. <a href={this.props.apiURL + 'action/' + this.state.error_id}>Click here to edit.</a>
+                      </p>
+                    )}
+
+                    {isEditor ? <div style={{ marginBottom: 20 }}>{addGroup}</div> : null}
+
+                    <div className={isEditor ? 'btn-group save-buttons' : ''}>
+                        {!isEditor ? addGroup : null}
+                        <button
+                          type="submit"
+                          onClick={(e) => this.onSubmit(e)}
+                          className='btn btn-success btn-sm float-right'>
+                            Save action
+                        </button>
+
+                        {this.props.isEditor && this.props.showNewActionButton && (
+                          <button
+                            type="submit"
+                            onClick={(e) => this.onSubmit(e, true)}
+                            className='btn btn-secondary btn-sm float-right'>
+                              Save & new action!!
+                          </button>
+                        )}
+                    </div>
+                </form>
             </div>
-        </form>
+        )
     }
 }
 ActionEdit.propTypes = {

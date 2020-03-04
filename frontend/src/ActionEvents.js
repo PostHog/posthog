@@ -11,7 +11,7 @@ import PropertyFilters from './PropertyFilter';
 export class ActionEventsTable extends Component {
     constructor(props) {
         super(props)
-    
+
         this.state = {
             propertyFilters: fromParams(),
             newEvents: [],
@@ -35,7 +35,7 @@ export class ActionEventsTable extends Component {
         })
     }
     pollEvents() {
-        let params = { 
+        let params = {
             ...this.props.fixedFilters,
             ...this.state.propertyFilters
         }
@@ -64,7 +64,7 @@ export class ActionEventsTable extends Component {
         let params = ['$current_url']
         let { loading, propertyFilters, events } = this.state;
         return (
-            <div class='events'>
+            <div className='events'>
                 <PropertyFilters propertyFilters={propertyFilters} onChange={(propertyFilters) => this.setState({propertyFilters}, this.fetchEvents)} />
                 <table className='table'>
                     <tbody>

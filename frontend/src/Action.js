@@ -6,7 +6,7 @@ import { ActionEdit } from './ActionEdit';
 export default class Action extends Component {
     constructor(props) {
         super(props)
-    
+
         this.state = {
             newEvents: [],
             action: {id: this.props.match.params.id}
@@ -15,13 +15,20 @@ export default class Action extends Component {
     render() {
         return <div>
             <h1>{this.props.match.params.id ? 'Edit action' : 'New action'}</h1>
-            <ActionEdit apiURL='' user={this.props.user} actionId={this.state.action.id} onSave={(action) => {
-                this.setState({action, refresh: new Date()})
-                if(!this.props.match.params.id) this.props.history.push({
-                    pathname: '/action/' + action.id,
-                    state: {id: action.id}
-                })
-            }}/>
+            <ActionEdit
+                apiURL=''
+                user={this.props.user}
+                actionId={this.state.action.id}
+                onSave={(action) => {
+                    this.setState({action, refresh: new Date()})
+                    if(!this.props.match.params.id) {
+                        this.props.history.push({
+                            pathname: '/action/' + action.id,
+                            state: {id: action.id}
+                        })
+                    }
+                }}
+            />
             {this.state.action.id && <div>
                 <br /><br />
 
