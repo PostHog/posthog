@@ -31,8 +31,8 @@ export default class Paths extends Component {
 
         this.state = {
             filter: {
-                startDate: null,
-                endDate: null
+                startDate: moment().add(-7, 'days').startOf('day').toDate(),
+                endDate: moment().toDate()
             },
             paths: {
                 nodes: [],
