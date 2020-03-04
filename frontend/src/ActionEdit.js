@@ -182,7 +182,7 @@ class ActionStep extends Component {
                 <button
                     type="button"
                     onClick={() => this.sendStep({...step, event: ''})}
-                    className={'btn ' + (step.event &&step.event != '$autocapture' && step.event != '$pageview' ? 'btn-secondary' : 'btn-light')}>
+                    className={'btn ' + (typeof step.event !== 'undefined' && step.event != '$autocapture' && step.event != '$pageview' ? 'btn-secondary' : 'btn-light')}>
                     Match event
                 </button>
                 <button
