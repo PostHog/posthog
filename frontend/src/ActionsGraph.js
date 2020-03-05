@@ -1,7 +1,7 @@
 import React, { Component } from 'react'
 import LineGraph from './LineGraph';
 import api from './Api';
-import { toParams, fromParams, Loading, Card } from './utils';
+import { toParams, fromParams, Loading, Card, CloseButton, selectStyle } from './utils';
 import { Link } from 'react-router-dom';
 import PropTypes from 'prop-types';
 import Select from 'react-select';
@@ -147,7 +147,7 @@ ActionsTable.propTypes = {
 
 class BreakdownFilter extends Component {
     render() {
-        return <div style={{width: 200}}>
+        return <div style={{width: 200, display: 'inline-block'}}>
             <Select
                 cacheOptions
                 defaultOptions
@@ -155,6 +155,7 @@ class BreakdownFilter extends Component {
                 placeholder={"Break down by"}
                 value={this.props.breakdown ? {label: this.props.breakdown, value: this.props.breakdown} : null}
                 onChange={(item) => this.props.onChange(item.value)}
+                styles={selectStyle}
                 options={this.props.properties} />
         </div>
     }
@@ -163,49 +164,53 @@ class BreakdownFilter extends Component {
 class ActionFilter extends Component {
     constructor(props) {
         super(props)
-        this.state = {}
+        this.state = {
+            actionFilters: props.actionFilters
+        }
         this.Row = this.Row.bind(this);
-        this.fetchActions.call(this);
     }
-    fetchActions() {
-        api.get('api/action').then(actions => this.setState({actions: actions.results}))
-    }
-    Row(props) {
-        let { data, actionFilters } = this.props;
-        let action = props.action;
+    Row(action) {
+        let { selected, actionFilters } = this.state;
+        let { actions } = this.props;
         return <div>
-            <label className='cursor-pointer filter-action' style={{marginRight: 8, display: 'block', color: props.count > 0 ? 'inherit' : 'var(--gray)'}} key={action.id}>
-                <input
-                    checked={actionFilters ? actionFilters.indexOf(action.id) > -1 : true}
-                    onChange={(e) => {
-                        if(e.target.checked) {
-                            actionFilters.push(action.id);
-                        } else {
-                            if(!actionFilters) actionFilters = data.map((action) => action.id);
-                            actionFilters = actionFilters.filter((i) => i != action.id);
-                        }
-                        this.props.onChange(actionFilters)
-                    }}
-                    type='checkbox' /> {action.name} {props.count > 0 && '(' + props.count + ')'}
-                    <small className='filter-action-only'><a href='#' className='float-right' onClick={(e) => {e.preventDefault(); this.props.onChange([action.id])}}>only</a></small>
+            <label className='cursor-pointer filter-action' key={action.id} onClick={() => this.setState({selected: action.id})} style={{fontWeight: 500, borderBottom: '1.5px dotted var(--blue)'}}>
+                {action.name || 'Select action'}
             </label>
+            <CloseButton onClick={() => {
+                actionFilters.splice(action.index, 1);
+                this.props.onChange(actionFilters)
+            }} style={{float: 'none', marginLeft: 8, position: 'absolute', marginTop: -2}} />
+            {(!action.id, selected == action.id) && <div className='select-box'>
+                {action.id && <a href={'/action/' + action.id} target="_blank">Edit "{action.name}" <i className='fi flaticon-export' /></a>}
+                <Select
+                    onBlur={(e) => {
+                        if(e.relatedTarget && e.relatedTarget.tagName == 'A') return;
+                        this.setState({selected: false})}}
+                    onChange={(item) => {
+                        actionFilters[action.index] = item.value;
+                        this.props.onChange(actionFilters)
+                        this.setState({selected: false})
+                    }}
+                    defaultMenuIsOpen={true}
+                    autoFocus={true}
+                    styles={selectStyle}
+                    options={actions.map(action => ({label: action.name, value: action.id}))} />
+            </div>}
         </div>
+    }
+    componentDidUpdate(prevProps) { 
+        if(prevProps.actionFilters != this.props.actionFilters) this.setState({actionFilters: this.props.actionFilters})
     }
     render() {
-        let { data } = this.props;
-        let { actions } = this.state;
-        return <div>
-            <small>
-                <a href='#' onClick={(e) => {e.preventDefault(); this.props.onChange([])}}>Unselect all</a> /&nbsp;
-                <a href='#' onClick={(e) => {e.preventDefault(); this.props.onChange(false)}}>Select all</a>
-            </small><br />
-            {data && data.map(item => <this.Row count={item.count} action={item.action} />)}
-            {actions && data && actions
-                .filter(action =>
-                    data.filter(item => item.action.id == action.id).length == 0
-                )
-                .map(action => <this.Row action={action} />)}
-        </div>
+        let { actions } = this.props;
+        let { actionFilters } = this.state;
+        return actions ? <div>
+            {actionFilters && actionFilters.map((action_id, index) => {
+                let action = actions.filter(action => action.id == action_id)[0] || {};
+                return <this.Row {...action} key={action.id} index={index} />
+            })}
+            <button className='btn btn-sm btn-outline-success' onClick={() => this.setState({actionFilters: [...actionFilters, null]})}>Add action</button>
+        </div> : null;
     }
 }
 
@@ -223,6 +228,7 @@ export default class ActionsGraph extends Component {
         this.state = {filters};
 
         this.fetchProperties.call(this)
+        this.fetchActions.call(this);
     }
     fetchProperties() {
         api.get('api/event/properties').then((properties) =>
@@ -232,6 +238,12 @@ export default class ActionsGraph extends Component {
                 ))
             })
         )
+    }
+    fetchActions() {
+        api.get('api/action').then(actions => {
+            if(!this.state.filters.actions) this.setFilters({actions: [actions.results[actions.results.length - 1].id]})
+            this.setState({actions: actions.results})
+        })
     }
     setFilters(setState) {
         let filters = {
@@ -259,59 +271,62 @@ export default class ActionsGraph extends Component {
         return data;
     }
     render() {
-        let { filters, data, properties } = this.state;
+        let { actions, filters, properties } = this.state;
         return (
             <div className='actions-graph'>
                 <h1>Action trends</h1>
-                <PropertyFilters properties={properties} prefetchProperties={true} propertyFilters={this.getPropertyFilters(filters)} onChange={(propertyFilters) => this.setFilters({...propertyFilters})} />
-                <select
-                    className='float-right form-control'
-                    style={{width: 170, marginLeft: 8}}
-                    value={filters.days}
-                    onChange={e => {
-                        this.setFilters({days: e.target.value});
-                    }}>
-                    <option value="7">Show last 7 days</option>
-                    <option value="14">Show last 14 days</option>
-                    <option value="30">Show last 30 days</option>
-                    <option value="60">Show last 60 days</option>
-                    <option value="90">Show last 90 days</option>
-                </select>
-                <select
-                    className='float-right form-control'
-                    style={{width: 170}}
-                    value={filters.display}
-                    onChange={e => {
-                        this.setFilters({display: e.target.value});
-                    }}>
-                    <option value="ActionsLineGraph" disabled={filters.breakdown}>Line chart {filters.breakdown && '(Not available with breakdown)'}</option>
-                    <option value="ActionsTable">Table</option>
-                    <option value="ActionsPie" disabled={filters.breakdown}>Pie {filters.breakdown && '(Not available with breakdown)'}</option>
-                </select>
-                <BreakdownFilter properties={properties} breakdown={filters.breakdown} onChange={(breakdown) => this.setFilters({breakdown})} />
-                <br />
-                <div className='row'>
-                    <div className='col-10'>
-                        <Card
-                            title={<span><SaveToDashboard className='float-right' filters={filters} type={filters.display || 'ActionsLineGraph'} /> Graph</span>}>
-                            <div className='card-body card-body-graph'>
-                                <div style={{minHeight: 'calc(70vh - 50px)', position: 'relative'}}>
-                                    {this.state.loading && <div className='loading-overlay'><div></div></div>}
-                                    {(!filters.display || filters.display == 'ActionsLineGraph') && <ActionsLineGraph filters={filters} onData={(data) => this.setState({data, loading: false})} />}
-                                    {filters.display == 'ActionsTable' && <ActionsTable filters={filters} onData={(data) => this.setState({data, loading: false})} />}
-                                    {filters.display == 'ActionsPie' && <ActionsPie filters={filters} onData={(data) => this.setState({data, loading: false})} />}
-                                </div>
-                            </div>
-                        </Card>
+                <Card>
+                    <div className='card-body'>
+                        <h4 className='secondary'>Actions</h4>
+                        <ActionFilter actions={actions} actionFilters={filters.actions} onChange={(actions) => this.setFilters({actions})} />
+                        <hr />
+                        <h4 className='secondary'>Filters</h4>
+                        <PropertyFilters properties={properties} prefetchProperties={true} propertyFilters={this.getPropertyFilters(filters)} onChange={(propertyFilters) => this.setFilters({...propertyFilters})} style={{marginBottom: 0}} />
+                        <hr />
+                        <h4 className='secondary'>Breakdown by</h4>
+                        <div style={{width: 230}}>
+                            <BreakdownFilter properties={properties} breakdown={filters.breakdown} onChange={(breakdown) => this.setFilters({breakdown})} />
+                            {filters.breakdown && <CloseButton onClick={() => this.setFilters({breakdown: false})} style={{marginTop: 6}} />}
+                        </div>
                     </div>
-                    <div className='col-2'>
-                        <Card title='Actions'>
-                            <div className='card-body'>
-                                <ActionFilter actionFilters={filters.actions} data={data} onChange={(actions) => this.setFilters({actions})} />
-                            </div>
-                        </Card>
+                </Card>
+                <Card
+                    title={<span>
+                        <SaveToDashboard className='float-right' filters={filters} type={filters.display || 'ActionsLineGraph'} /> Graph
+                        <select
+                            className='float-right form-control'
+                            style={{width: 170, marginLeft: 8, marginRight: 8}}
+                            value={filters.days}
+                            onChange={e => {
+                                this.setFilters({days: e.target.value});
+                            }}>
+                            <option value="7">Show last 7 days</option>
+                            <option value="14">Show last 14 days</option>
+                            <option value="30">Show last 30 days</option>
+                            <option value="60">Show last 60 days</option>
+                            <option value="90">Show last 90 days</option>
+                        </select>
+                        <select
+                            className='float-right form-control'
+                            style={{width: 170}}
+                            value={filters.display}
+                            onChange={e => {
+                                this.setFilters({display: e.target.value});
+                            }}>
+                            <option value="ActionsLineGraph" disabled={filters.breakdown}>Line chart {filters.breakdown && '(Not available with breakdown)'}</option>
+                            <option value="ActionsTable">Table</option>
+                            <option value="ActionsPie" disabled={filters.breakdown}>Pie {filters.breakdown && '(Not available with breakdown)'}</option>
+                        </select>
+                    </span>}>
+                    <div className='card-body card-body-graph'>
+                        {filters.actions && <div style={{minHeight: 'calc(70vh - 50px)', position: 'relative'}}>
+                            {this.state.loading && <div className='loading-overlay'><div></div></div>}
+                            {(!filters.display || filters.display == 'ActionsLineGraph') && <ActionsLineGraph filters={filters} onData={(data) => this.setState({data, loading: false})} />}
+                            {filters.display == 'ActionsTable' && <ActionsTable filters={filters} onData={(data) => this.setState({data, loading: false})} />}
+                            {filters.display == 'ActionsPie' && <ActionsPie filters={filters} onData={(data) => this.setState({data, loading: false})} />}
+                        </div>}
                     </div>
-                </div>
+                </Card>
             </div>
         )
     }

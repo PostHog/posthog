@@ -8,8 +8,22 @@
     height: 100%;
 }
 
-.actions-graph .save-to-dashboard {
-    position: absolute;
-    right: 1.25rem;
-    top: 8px;
+.actions-graph {
+    hr {
+        margin: 1rem 0;
+    }
+    .select-box {
+        position: absolute;
+        min-width: 260px;
+        box-shadow: 0 0 8px rgba(0, 0, 0, 0.4);
+        padding: 1rem;
+        border-radius: 5px;
+        border: 1px solid rgba(0, 0, 0, 0.1);
+        height: 400px;
+        background: #fff;
+        z-index: 9999;
+    }
+    select {
+        height: 31px;
+    }
 }

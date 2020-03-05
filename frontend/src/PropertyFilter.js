@@ -3,7 +3,7 @@ import PropTypes from 'prop-types'
 import Select from 'react-select'
 import AsyncCreatableSelect from 'react-select/async-creatable'
 import api from './Api';
-import { CloseButton } from './utils';
+import { selectStyle, CloseButton } from './utils';
 
 export class PropertyFilter extends Component {
     constructor(props) {
@@ -32,6 +32,7 @@ export class PropertyFilter extends Component {
                     value={[{label: filter.name, value: filter.value}]}
                     placeholder="Property key"
                     onChange={(item) => onSet('name', item.value)}
+                    styles={selectStyle}
                     />
             </div>
             {filter.name && <div className='col-5'>
@@ -44,10 +45,11 @@ export class PropertyFilter extends Component {
                     style={{width: 200}}
                     value={{label: filter.value, value: filter.value}}
                     onChange={(item) => onSet('value', item.value)}
+                    styles={selectStyle}
                     />
             </div>}
             <div className='col-1 cursor-pointer' onClick={() => onRemove(index)}>
-                <CloseButton style={{fontSize: 37, lineHeight: '30px', color: 'hsl(0,0%,80%)'}} />
+                <CloseButton />
             </div>
         </div>
     }

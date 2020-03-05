@@ -136,3 +136,15 @@ pre.code {
     height: 720px;
     svg { height: 100% !important }
 }
+.secondary {
+    font-size: 13px;
+    letter-spacing: 1px;
+    opacity: 0.7;
+    font-weight: 500;
+    text-transform: uppercase;
+}
+hr { border: 1px solid rgba(0, 0, 0, 0.1); }
+
+.close {
+    color: hsl(0,0%,80%)
+}
