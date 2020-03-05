@@ -10,7 +10,16 @@ export function uuid() {
   }
 
 
-export let toParams = (obj) => Object.entries(obj).filter(([key, val]) => val).map(([key, val]) => `${key}=${encodeURIComponent(val)}`).join('&')
+export let toParams = (obj) => {
+    let handleVal = (val) => {
+        val = typeof val === "object" ? JSON.stringify(val) : val
+        return encodeURIComponent(val)
+    }
+    return Object.entries(obj)
+        .filter(([key, val]) => val)
+        .map(([key, val]) => `${key}=${handleVal(val)}`)
+        .join('&')
+}
 export let fromParams = () => window.location.search != '' ? window.location.search.slice(1).split('&').reduce((a, b) => { b = b.split('='); a[b[0]] = decodeURIComponent(b[1]); return a; }, {}) : {};
 
 export let colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
@@ -83,10 +92,9 @@ export class Dropdown extends Component {
         document.removeEventListener('click', this.close)
     }
     render() {
-      return <div className={"dropdown " + this.props.className} style={{display: 'inline', marginTop: -6}}>
-            <a className='cursor-pointer' style={{fontSize: '2rem', color: 'var(--gray)', lineHeight: '1rem', ...this.props.style}} onClick={this.open}>
-                {this.props.action}
-                &hellip;
+      return <div className={"dropdown " + this.props.className} style={{display: 'inline', marginTop: -6, ...this.props.style}}>
+            <a className={'cursor-pointer ' + this.props.buttonClassName} style={{...this.props.buttonStyle}} onClick={this.open}>
+                {this.props.title || <span>&hellip;</span>}
             </a>
             <div className={"dropdown-menu " + (this.state.menuOpen && 'show')} aria-labelledby="dropdownMenuButton">
                 {this.props.children}
@@ -108,7 +116,7 @@ export let selectStyle = {
     control: base => ({
       ...base,
       height: 31,
-      minHeight: 31
+      minHeight: 31,
     }),
     indicatorsContainer: base => ({
         ...base,
@@ -119,6 +127,11 @@ export let selectStyle = {
         paddingBottom: 0,
         paddingTop: 0,
         margin: 0
+    }),
+    valueContainer: base => ({
+        ...base,
+        padding: '0 8px',
+        marginTop: -2
     }),
     option: base => ({
         ...base,

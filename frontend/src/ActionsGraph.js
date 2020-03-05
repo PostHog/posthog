@@ -1,7 +1,7 @@
 import React, { Component } from 'react'
 import LineGraph from './LineGraph';
 import api from './Api';
-import { toParams, fromParams, Loading, Card, CloseButton, selectStyle } from './utils';
+import { Dropdown, toParams, fromParams, Loading, Card, CloseButton, selectStyle } from './utils';
 import { Link } from 'react-router-dom';
 import PropTypes from 'prop-types';
 import Select from 'react-select';
@@ -21,10 +21,6 @@ export class ActionsPie extends Component {
     fetchGraph() {
         api.get('api/action/trends/?' + toParams(this.props.filters)).then((data) => {
             data = data.sort((a, b) => b.count - a.count)
-            data = data
-                    .filter((item) =>
-                        this.props.filters.actions ? this.props.filters.actions.indexOf(item.action.id) > -1 : true
-                    )
             let color_list = colors.map(color => getColorVar(color));
             this.setState({
                 data: [{
@@ -69,7 +65,7 @@ export class ActionsLineGraph extends Component {
     fetchGraph() {
         api.get('api/action/trends/?' + toParams(this.props.filters)).then((data) => {
             data = data.sort((a, b) => b.count - a.count)
-            this.setState({data: data.filter((item) => this.props.filters.actions ? this.props.filters.actions.indexOf(item.action.id) > -1 : true)})
+            this.setState({data})
             this.props.onData && this.props.onData(data)
         })
     }
@@ -102,7 +98,7 @@ export class ActionsTable extends Component {
     fetchGraph() {
         api.get('api/action/trends/?' + toParams(this.props.filters)).then((data) => {
             data = data.sort((a, b) => b.count - a.count)
-            this.setState({data: data.filter((item) => this.props.filters.actions ? this.props.filters.actions.indexOf(item.action.id) > -1 : true)})
+            this.setState({data})
             this.props.onData && this.props.onData(data)
         })
     }
@@ -168,18 +164,34 @@ class ActionFilter extends Component {
             actionFilters: props.actionFilters
         }
         this.Row = this.Row.bind(this);
+        this.Math = this.Math.bind(this);
     }
-    Row(action) {
+    onMathSelect(index, math) {
+        let { actionFilters } = this.state;
+        actionFilters[index].math = math;
+        this.props.onChange(actionFilters);
+    }
+    Math(props) {
+        let items = ['Total', 'DAU']
+        return <Dropdown title={items[items.map(i => i.toLowerCase()).indexOf(props.math)] || 'Total'} buttonClassName='btn btn-sm btn-light' style={{marginLeft: 32, marginRight: 16}}>
+            <a href='#' className='dropdown-item' onClick={() => this.onMathSelect.call(this, props.index, 'total')}>Total</a>
+            <a href='#' className='dropdown-item' onClick={() => this.onMathSelect.call(this, props.index, 'dau')}>DAU</a>
+        </Dropdown>
+    }
+    Row(props) {
         let { selected, actionFilters } = this.state;
         let { actions } = this.props;
+        let { action, filter, index } = props;
         return <div>
-            <label className='cursor-pointer filter-action' key={action.id} onClick={() => this.setState({selected: action.id})} style={{fontWeight: 500, borderBottom: '1.5px dotted var(--blue)'}}>
+            <label className='cursor-pointer filter-action' onClick={() => this.setState({selected: action.id})} style={{fontWeight: 500, borderBottom: '1.5px dotted var(--blue)'}}>
                 {action.name || 'Select action'}
             </label>
+            <this.Math math={filter.math} index={index} />
+            
             <CloseButton onClick={() => {
                 actionFilters.splice(action.index, 1);
                 this.props.onChange(actionFilters)
-            }} style={{float: 'none', marginLeft: 8, position: 'absolute', marginTop: -2}} />
+            }} style={{float: 'none', marginLeft: 8, position: 'absolute', marginTop: 3}} />
             {(!action.id, selected == action.id) && <div className='select-box'>
                 {action.id && <a href={'/action/' + action.id} target="_blank">Edit "{action.name}" <i className='fi flaticon-export' /></a>}
                 <Select
@@ -187,7 +199,7 @@ class ActionFilter extends Component {
                         if(e.relatedTarget && e.relatedTarget.tagName == 'A') return;
                         this.setState({selected: false})}}
                     onChange={(item) => {
-                        actionFilters[action.index] = item.value;
+                        actionFilters[index] = {id: item.value};
                         this.props.onChange(actionFilters)
                         this.setState({selected: false})
                     }}
@@ -205,11 +217,11 @@ class ActionFilter extends Component {
         let { actions } = this.props;
         let { actionFilters } = this.state;
         return actions ? <div>
-            {actionFilters && actionFilters.map((action_id, index) => {
-                let action = actions.filter(action => action.id == action_id)[0] || {};
-                return <this.Row {...action} key={action.id} index={index} />
+            {actionFilters && actionFilters.map((action_filter, index) => {
+                let action = actions.filter(action => action.id == action_filter.id)[0] || {};
+                return <this.Row action={action} filter={action_filter} key={index} index={index} />
             })}
-            <button className='btn btn-sm btn-outline-success' onClick={() => this.setState({actionFilters: [...actionFilters, null]})}>Add action</button>
+            <button className='btn btn-sm btn-outline-success' onClick={() => this.setState({actionFilters: [...actionFilters, {id: null}]})}>Add action</button>
         </div> : null;
     }
 }
@@ -223,7 +235,8 @@ export default class ActionsGraph extends Component {
             properties: []
         }
         let filters = fromParams()
-        filters.actions = filters.actions && filters.actions.split(',').map((id) => parseInt(id))
+        filters.actions = filters.actions && JSON.parse(filters.actions);
+        filters.actions = Array.isArray(filters.actions) ? filters.actions : undefined;
         if(filters.breakdown) filters.display = 'ActionsTable';
         this.state = {filters};
 
@@ -241,7 +254,7 @@ export default class ActionsGraph extends Component {
     }
     fetchActions() {
         api.get('api/action').then(actions => {
-            if(!this.state.filters.actions) this.setFilters({actions: [actions.results[actions.results.length - 1].id]})
+            if(!this.state.filters.actions) this.setFilters({actions: [{id: actions.results[actions.results.length - 1].id}]});
             this.setState({actions: actions.results})
         })
     }
@@ -256,7 +269,7 @@ export default class ActionsGraph extends Component {
         if(filters.breakdown) filters.display = 'ActionsTable';
         this.props.history.push({
             pathname: this.props.history.location.pathname,
-            search: toParams({...filters, actions: filters.actions ? filters.actions.join(',') : false})
+            search: toParams({...filters, actions: JSON.stringify(filters.actions)})
         })
         this.setState({
             filters,
@@ -283,10 +296,10 @@ export default class ActionsGraph extends Component {
                         <h4 className='secondary'>Filters</h4>
                         <PropertyFilters properties={properties} prefetchProperties={true} propertyFilters={this.getPropertyFilters(filters)} onChange={(propertyFilters) => this.setFilters({...propertyFilters})} style={{marginBottom: 0}} />
                         <hr />
-                        <h4 className='secondary'>Breakdown by</h4>
+                        <h4 className='secondary'>Break down by</h4>
                         <div style={{width: 230}}>
                             <BreakdownFilter properties={properties} breakdown={filters.breakdown} onChange={(breakdown) => this.setFilters({breakdown})} />
-                            {filters.breakdown && <CloseButton onClick={() => this.setFilters({breakdown: false})} style={{marginTop: 6}} />}
+                            {filters.breakdown && <CloseButton onClick={() => this.setFilters({breakdown: false})} style={{marginTop: 1}} />}
                         </div>
                     </div>
                 </Card>

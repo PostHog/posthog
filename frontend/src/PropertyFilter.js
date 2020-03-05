@@ -49,7 +49,7 @@ export class PropertyFilter extends Component {
                     />
             </div>}
             <div className='col-1 cursor-pointer' onClick={() => onRemove(index)}>
-                <CloseButton />
+                <CloseButton style={{float: 'none'}} />
             </div>
         </div>
     }

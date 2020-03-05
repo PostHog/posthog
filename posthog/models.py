@@ -92,7 +92,7 @@ class User(AbstractUser):
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS: List[str] = []
 
-    objects = UserManager() # type: ignore
+    objects: UserManager = UserManager() # type: ignore
 
 
 class TeamManager(models.Manager):
@@ -104,18 +104,12 @@ class TeamManager(models.Manager):
         action = Action.objects.create(team=team, name='Pageviews')
         ActionStep.objects.create(action=action, event='$pageview')
 
-        DashboardItem.objects.create(team=team, name='Pageviews this week', type='ActionsLineGraph', filters={'actions': [action.pk]})
+        DashboardItem.objects.create(team=team, name='Pageviews this week', type='ActionsLineGraph', filters={'actions': [{'id': action.pk}]})
         DashboardItem.objects.create(
             team=team,
             name='Most popular browsers this week',
             type='ActionsTable',
-            filters={'actions': [action.pk], 'display': 'ActionsTable', 'breakdown': '$browser'}
-        )
-        DashboardItem.objects.create(
-            team=team,
-            name='All actions',
-            type='ActionsLineGraph',
-            filters={}
+            filters={'actions': [{'id': action.pk}], 'display': 'ActionsTable', 'breakdown': '$browser'}
         )
         return team
 
@@ -190,7 +184,7 @@ class EventManager(models.QuerySet):
             PersonDistinctId.objects.filter(distinct_id=OuterRef('distinct_id')).order_by().values('person_id')[:1]
         ))
 
-    def filter_by_action(self, action):
+    def filter_by_action(self, action) -> models.QuerySet:
         events = self
         any_step = Q()
         for step in action.steps.all():
@@ -221,7 +215,7 @@ class Event(models.Model):
     def person(self):
         return Person.objects.get(team_id=self.team_id, persondistinctid__distinct_id=self.distinct_id)
 
-    objects: models.Manager = EventManager.as_manager()
+    objects: EventManager = EventManager.as_manager()
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     distinct_id: models.CharField = models.CharField(max_length=200)
