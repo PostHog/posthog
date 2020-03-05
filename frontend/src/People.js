@@ -161,7 +161,7 @@ class Cohort extends Component {
                             }}
                             />).reduce((prev, curr) => [
                                 prev,
-                                <div style={{textAlign: 'center', fontSize: 13, letterSpacing: 1, opacity: 0.7, margin: 8}}> OR </div>,
+                                <div className='secondary' style={{textAlign: 'center', margin: 8}}> OR </div>,
                                 curr
                             ])}
                         <button className='btn btn-outline-success btn-sm' style={{marginTop: '1rem'}} type="button" onClick={() => this.setState({groups: [...groups, {}]})}>New group</button>

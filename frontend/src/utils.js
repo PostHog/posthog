@@ -104,3 +104,24 @@ export let JSSnippet = (props) => {
         {`</script>`}<br />
     </pre>
 }
+export let selectStyle = {
+    control: base => ({
+      ...base,
+      height: 31,
+      minHeight: 31
+    }),
+    indicatorsContainer: base => ({
+        ...base,
+        height: 31
+    }),
+    input: base => ({
+        ...base,
+        paddingBottom: 0,
+        paddingTop: 0,
+        margin: 0
+    }),
+    option: base => ({
+        ...base,
+        padding: '2px 15px',
+    }),
+  };
