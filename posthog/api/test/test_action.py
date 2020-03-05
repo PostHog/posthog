@@ -1,6 +1,8 @@
 from .base import BaseTest
 from posthog.models import Action, ActionStep, Event, Element, Person
 from freezegun import freeze_time # type: ignore
+from urllib import parse
+import json
 
 class TestAction(BaseTest):
     TESTS_API = True
@@ -144,5 +146,13 @@ class TestAction(BaseTest):
 
         # test action filtering
         with freeze_time('2020-01-04'):
-            response = self.client.get('/api/action/trends/?actions=%s' % sign_up_action.pk).json()
+            response = self.client.get('/api/action/trends/?actions=%s' % parse.quote(json.dumps([{'id': sign_up_action.id}]))).json()
         self.assertEqual(len(response), 1)
+
+        # test DAU filtering
+        with freeze_time('2020-01-02'):
+            Event.objects.create(team=self.team, event='sign up', distinct_id='someone_else')
+        with freeze_time('2020-01-04'):
+            response = self.client.get('/api/action/trends/?actions=%s' % parse.quote(json.dumps([{'id': sign_up_action.id, 'math': 'dau'}]))).json()
+        self.assertEqual(response[0]['data'][4], 1)
+        self.assertEqual(response[0]['data'][5], 2)

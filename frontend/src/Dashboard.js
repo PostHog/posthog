@@ -47,7 +47,7 @@ export default class Dashboard extends Component {
                     return <div className='col-6' key={item.id}>
                         <div className='card'>
                             <h5 className='card-header'>
-                                <Dropdown className='float-right'>
+                                <Dropdown className='float-right' buttonStyle={{lineHeight: '1rem', color: 'var(--gray)', fontSize: '2rem'}}>
                                     <Link className='dropdown-item' to={typeMap[item.type].link(item.filters)}>View graph</Link>
                                     <DeleteWithUndo
                                         object={item}

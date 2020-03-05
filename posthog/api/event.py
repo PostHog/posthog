@@ -41,20 +41,11 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        if self.action == 'list':
+        if self.action == 'list': # type: ignore
             queryset = self._filter_request(self.request, queryset)
         return queryset\
             .filter(team=self.request.user.team_set.get())\
             .order_by('-timestamp')
-
-    def _filter_by_action(self, request: request.Request) -> query.RawQuerySet:
-            action = Action.objects.get(pk=request.GET['action_id'], team=request.user.team_set.get())
-            where = None
-            if request.GET.get('after'):
-                where = [['posthog_event.timestamp > %s', [request.GET['after']]]]
-            if request.GET.get('before'):
-                where = [['posthog_event.timestamp < %s', [request.GET['before']]]]
-            return Event.objects.filter_by_action(action, limit=101, where=where)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         for key, value in request.GET.items():
