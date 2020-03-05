@@ -64,7 +64,7 @@ export default class LineGraph extends Component {
                     callbacks: {
                         label: function(tooltipItem, data) {
                             var label = data.datasets[tooltipItem.datasetIndex].label || '';
-                            return label
+                            return label + ' - ' + tooltipItem.yLabel.toLocaleString();
                         }
                     }
                 },
