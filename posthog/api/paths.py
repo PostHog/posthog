@@ -13,14 +13,15 @@ class PathsViewSet(viewsets.ViewSet):
     def _url_subquery(self, event):
         return Event.objects.filter(pk=OuterRef(event)).values('properties__$current_url')[:1]
 
-    def _add_event_and_url_at_position(self, aggregate: QuerySet, team: Team, index: int, date_from, urls: Optional[List[str]]=None) -> QuerySet:
+    def _add_event_and_url_at_position(self, aggregate: QuerySet, team: Team, index: int, date_from, date_to, urls: Optional[List[str]]=None) -> QuerySet:
         event_key = 'event_{}'.format(index)
         # adds event_1, url_1, event_2, url_2 etc for each Person
         return aggregate.annotate(**{
             event_key: Subquery(
                 Event.objects.filter(
                     team=team,
-                    timestamp__gte=date_from, 
+                    timestamp__gte=date_from,
+                    timestamp__lte=date_to,
                     pk__gt=OuterRef('event_{}'.format(index - 1)) if index > 1 else 0,
                     event='$pageview',
                     distinct_id=OuterRef('distinct_id'),
@@ -36,12 +37,22 @@ class PathsViewSet(viewsets.ViewSet):
         team = request.user.team_set.get()
         resp = []
         aggregate = PersonDistinctId.objects.all()
-        date_from = now() - relativedelta(days=7)
-        aggregate = self._add_event_and_url_at_position(aggregate, team, 1, date_from)
+
+        if request.GET.get('timestamp__gte'):
+            date_from = request.GET.get('timestamp__gte')
+        else:
+            date_from = now() - relativedelta(days=7)
+
+        if request.GET.get('timestamp__lte'):
+            date_to = request.GET.get('timestamp__lte')
+        else:
+            date_to = now()
+
+        aggregate = self._add_event_and_url_at_position(aggregate, team, 1, date_from, date_to)
         urls = False
 
         for index in range(1, 4):
-            aggregate = self._add_event_and_url_at_position(aggregate, team, index+1, date_from)
+            aggregate = self._add_event_and_url_at_position(aggregate, team, index+1, date_from, date_to)
             first_url_key = 'url_{}'.format(index)
             second_url_key = 'url_{}'.format(index + 1)
             rows = aggregate\

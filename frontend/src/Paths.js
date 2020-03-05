@@ -1,5 +1,8 @@
 import React, { Component } from 'react'
 import api from './Api';
+import PathFilter from './PathFilter'
+import { toParams } from './utils'
+import moment from 'moment'
 
 let stripHTTP = (url) => url.replace(/(^[0-9]+_\w+:|^)\/\//, '');
 
@@ -25,13 +28,22 @@ function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
 export default class Paths extends Component {
     constructor(props) {
         super(props)
-    
+
         this.state = {
+            filter: {
+                startDate: moment().add(-7, 'days').startOf('day').toDate(),
+                endDate: moment().toDate()
+            },
+            paths: {
+                nodes: [],
+                links: [],
+            },
+            d3Loaded: false,
+            sankeyLoaded: false
         }
         this.fetchPaths = this.fetchPaths.bind(this);
         this.canvas = React.createRef();
 
-        
         this.fetchPaths();
         import('d3').then((d3) => {
             this.d3 = d3;
@@ -42,10 +54,26 @@ export default class Paths extends Component {
             this.setState({sankeyLoaded: true})
         })
     }
-    renderPaths(data) {
+
+    renderPaths = () => {
+        const { paths } = this.state
+
+        if (!this.state.d3Loaded || !this.state.sankeyLoaded) {
+            return
+        }
+
+        const elements = document.querySelectorAll('.paths svg')
+        elements.forEach(node => node.parentNode.removeChild( node ))
+
+        if (paths.nodes.length === 0) {
+            this.setState({rendered: true})
+            return
+        }
+
         this.setState({rendered: true})
         let width = this.canvas.current.offsetWidth;
         let height = this.canvas.current.offsetHeight;
+
         let svg = this.d3.select(this.canvas.current).append('svg')
             .style("background", "#fff")
             .style("width", width)
@@ -60,10 +88,10 @@ export default class Paths extends Component {
         let color = (name) => this.d3.scaleOrdinal(this.d3.interpolateBlues())(name.replace(/ .*/, ''))
 
         const {nodes, links} = sankey({
-            nodes: data.nodes.map(d => Object.assign({}, d)),
-            links: data.links.map(d => Object.assign({}, d))
+            nodes: paths.nodes.map(d => Object.assign({}, d)),
+            links: paths.links.map(d => Object.assign({}, d))
         });
-    
+
         svg.append("g")
         .selectAll("rect")
         .data(nodes)
@@ -109,7 +137,7 @@ export default class Paths extends Component {
             .attr("stroke", d =>  'var(--blue)')
             .attr("opacity", 0.3)
             .style("mix-blend-mode", "multiply");
-    
+
         link.append("path")
             .attr("d", this.sankey.sankeyLinkHorizontal())
             .attr("stroke-width", d => {
@@ -157,25 +185,44 @@ export default class Paths extends Component {
             .text(d => ` ${d.value.toLocaleString()}`);
 
         return svg.node();
-    } 
-    fetchPaths() {
-        api.get('api/paths').then((paths) => {
+    }
+
+    fetchPaths = () => {
+        const { filter } = this.state
+
+        let paramsObject = {}
+        if (filter.startDate) {
+            paramsObject['timestamp__gte'] = moment(filter.startDate).toISOString()
+        }
+        if (filter.endDate) {
+            paramsObject['timestamp__lte'] = moment(filter.endDate).endOf('day').toISOString()
+        }
+
+        const params = toParams(paramsObject)
+
+        api.get(`api/paths${params ? `/?${params}` : ''}`).then((paths) => {
             this.setState({paths: {
                 nodes: [...paths.map((path) => ({name: path.source})), ...paths.map((path) => ({name: path.target}))],
                 links: paths
-            }});
+            }}, this.renderPaths);
+
         })
     }
-    render() {
-        let { paths, d3Loaded, sankeyLoaded, rendered } = this.state;
 
-        if(d3Loaded && sankeyLoaded && paths && paths.nodes.length > 0 && !rendered) this.renderPaths.call(this, paths);
+    updateFilter = (changes) => {
+        this.setState({ filter: { ...this.state.filter, ...changes }, rendered: false }, this.fetchPaths)
+    }
+
+    render () {
+        let { paths, rendered, filter } = this.state;
+
         return (
             <div>
                 <h1>Paths</h1>
+                <PathFilter filter={filter} updateFilter={this.updateFilter} />
                 <div ref={this.canvas} className='paths' style={{height: '90vh'}}>
-                    {(!rendered && (!paths || paths.nodes.length > 0)) && <div className='loading-overlay' style={{paddingTop: '14rem'}}><div></div><br />(This might take a while)</div>}
-                    {paths && paths.nodes.length == 0 && <div>We don't have any data to show here. You might need to send us some frontend (JS) events, as we use the <pre style={{display: 'inline'}}>$current_url</pre> property to calculate paths.</div>}
+                    {!rendered && <div className='loading-overlay' style={{paddingTop: '14rem'}}><div /><br />(This might take a while)</div>}
+                    {rendered && paths && paths.nodes.length === 0 && <div>We don't have any data to show here. You might need to send us some frontend (JS) events, as we use the <pre style={{display: 'inline'}}>$current_url</pre> property to calculate paths.</div>}
                 </div>
             </div>
         );

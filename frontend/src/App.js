@@ -2,6 +2,7 @@ import React from "react";
 import { BrowserRouter as Router, Route, Redirect } from "react-router-dom";
 import { ToastContainer, Slide } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import "react-datepicker/dist/react-datepicker.css";
 import api from "./Api";
 import Events from "./Events";
 import Person from "./Person";
@@ -25,7 +26,7 @@ class PrivateRoute extends React.Component {
     constructor(props) {
         super(props)
     }
-    
+
     render() {
         let Component = this.props.component;
         return this.props.user ? (
@@ -52,7 +53,7 @@ class PrivateRoute extends React.Component {
 export default class App extends React.Component {
     constructor(props) {
         super(props)
-    
+
         this.state = {};
         this.getUser.call(this);
     }
@@ -65,7 +66,7 @@ export default class App extends React.Component {
             }
         }).catch(() => this.setState({user: false}));
     }
-    
+
     render() {
         return this.state.user != null && (
             <Router>
