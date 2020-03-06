@@ -159,7 +159,7 @@ export class EventsTable extends Component {
                 {event.elements.length > 0 && <pre style={{marginBottom: 0, display: 'inline'}}>&lt;{event.elements[0].tag_name}&gt;</pre>}
                 {event.elements.length > 0 && event.elements[0].text && ' with text "' + event.elements[0].text + '"'}
             </td>
-            <td><Link to={'/person/' + event.distinct_id} className='ph-no-capture'>{event.person}</Link></td>
+            <td><Link to={'/person/' + encodeURIComponent(event.distinct_id)} className='ph-no-capture'>{event.person}</Link></td>
             {params.map((param) => <td key={param} title={event.properties[param]}>
                 <this.FilterLink property={param} value={event.properties[param]} />
             </td>)}
