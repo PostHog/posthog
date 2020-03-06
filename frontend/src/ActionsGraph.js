@@ -1,12 +1,15 @@
 import React, { Component } from 'react'
 import LineGraph from './LineGraph';
 import api from './Api';
-import { Dropdown, toParams, fromParams, Loading, Card, CloseButton, selectStyle } from './utils';
+import { toParams, fromParams, Loading, Card, CloseButton, selectStyle } from './utils';
+import { Dropdown } from "./Dropdown";
 import { Link } from 'react-router-dom';
 import PropTypes from 'prop-types';
 import Select from 'react-select';
 import SaveToDashboard from './SaveToDashboard';
 import PropertyFilters from './PropertyFilter';
+import moment from 'moment';
+import DateFilter from './DateFilter';
 
 
 let colors = ['blue', 'yellow', 'green', 'red', 'purple', 'gray', 'indigo', 'pink', 'orange', 'teal', 'cyan', 'gray-dark'];
@@ -43,14 +46,14 @@ export class ActionsPie extends Component {
     }
     render() {
         let { data, total } = this.state;
-        return data ? (data[0] ? <div style={{position: 'absolute', width: '100%', height: '100%'}}>
+        return data ? (data[0].labels ? <div style={{position: 'absolute', width: '100%', height: '100%'}}>
             <h1 style={{position: 'absolute', margin: '0 auto', left: '50%', top: '50%', fontSize: '3rem'}}><div style={{marginLeft: '-50%', marginTop: -30}}>{total}</div></h1>
             <LineGraph
             type='doughnut'
             datasets={data}
             labels={data[0].labels}
             />
-        </div>: <p>We couldn't find any matching elements</p>) : <Loading />;
+        </div>: <p style={{textAlign: 'center', marginTop: '4rem'}}>We couldn't find any matching actions.</p>) : <Loading />;
 
     }
 }
@@ -74,10 +77,10 @@ export class ActionsLineGraph extends Component {
     }
     render() {
         let { data } = this.state;
-        return data ? (data[0] ? <LineGraph
+        return data ? (data[0].labels ? <LineGraph
                             datasets={data}
                             labels={data[0].labels}
-                            /> : <p>We couldn't find any matching elements</p>) : <Loading />;
+                            /> : <p style={{textAlign: 'center', marginTop: '4rem'}}>We couldn't find any matching actions.</p>) : <Loading />;
     }
 }
 
@@ -110,7 +113,7 @@ export class ActionsTable extends Component {
     render() {
         let { data } = this.state;
         let { filters } = this.props;
-        return data ? (data[0] ? <table className='table'>
+        return data ? (data[0].labels ? <table className='table'>
             <tbody>
                 <tr>
                     <th style={{width: 100}}>Action</th>
@@ -133,7 +136,7 @@ export class ActionsTable extends Component {
                     </tr>)
                 ])}
             </tbody>
-        </table> : <p>We couldn't find any matching elements</p>) : <Loading />;
+        </table> : <p style={{textAlign: 'center', marginTop: '4rem'}}>We couldn't find any matching actions.</p>) : <Loading />;
     }
 }
 ActionsTable.propTypes = {
@@ -183,11 +186,10 @@ class ActionFilter extends Component {
         let { actions } = this.props;
         let { action, filter, index } = props;
         return <div>
-            <label className='cursor-pointer filter-action' onClick={() => this.setState({selected: action.id})} style={{fontWeight: 500, borderBottom: '1.5px dotted var(--blue)'}}>
+            <button className='filter-action' onClick={() => this.setState({selected: action.id})} style={{border: 0, padding: 0, fontWeight: 500, borderBottom: '1.5px dotted var(--blue)'}}>
                 {action.name || 'Select action'}
-            </label>
+            </button>
             <this.Math math={filter.math} index={index} />
-            
             <CloseButton onClick={() => {
                 actionFilters.splice(action.index, 1);
                 this.props.onChange(actionFilters)
@@ -239,6 +241,7 @@ export default class ActionsGraph extends Component {
         filters.actions = Array.isArray(filters.actions) ? filters.actions : undefined;
         if(filters.breakdown) filters.display = 'ActionsTable';
         this.state = {filters};
+        this.setDate = this.setDate.bind(this);
 
         this.fetchProperties.call(this)
         this.fetchActions.call(this);
@@ -278,13 +281,22 @@ export default class ActionsGraph extends Component {
     }
     getPropertyFilters(filters) {
         let data = {};
+        let nonPropKeys = ['date_from', 'date_to', 'actions', 'display', 'breakdown'];
         Object.keys(filters).map((key) => {
-            if(key != 'days' && key != 'actions' && key != 'display' && key != 'breakdown') data[key] = filters[key]
+            if(nonPropKeys.indexOf(key) === -1) data[key] = filters[key]
         })
         return data;
     }
+    setDate(date_from, date_to) {
+        this.setFilters({date_from: date_from, date_to: date_to && date_to})
+    }
     render() {
         let { actions, filters, properties } = this.state;
+        let displayMap = {
+            'ActionsLineGraph': 'Line chart',
+            'ActionsTable': 'Table',
+            'ActionsPie': 'Pie',
+        }
         return (
             <div className='actions-graph'>
                 <h1>Action trends</h1>
@@ -305,31 +317,16 @@ export default class ActionsGraph extends Component {
                 </Card>
                 <Card
                     title={<span>
-                        <SaveToDashboard className='float-right' filters={filters} type={filters.display || 'ActionsLineGraph'} /> Graph
-                        <select
-                            className='float-right form-control'
-                            style={{width: 170, marginLeft: 8, marginRight: 8}}
-                            value={filters.days}
-                            onChange={e => {
-                                this.setFilters({days: e.target.value});
-                            }}>
-                            <option value="7">Show last 7 days</option>
-                            <option value="14">Show last 14 days</option>
-                            <option value="30">Show last 30 days</option>
-                            <option value="60">Show last 60 days</option>
-                            <option value="90">Show last 90 days</option>
-                        </select>
-                        <select
-                            className='float-right form-control'
-                            style={{width: 170}}
-                            value={filters.display}
-                            onChange={e => {
-                                this.setFilters({display: e.target.value});
-                            }}>
-                            <option value="ActionsLineGraph" disabled={filters.breakdown}>Line chart {filters.breakdown && '(Not available with breakdown)'}</option>
-                            <option value="ActionsTable">Table</option>
-                            <option value="ActionsPie" disabled={filters.breakdown}>Pie {filters.breakdown && '(Not available with breakdown)'}</option>
-                        </select>
+                        Graph
+                        <div className='float-right'>
+                            <Dropdown title={displayMap[filters.display || 'ActionsLineGraph']} buttonClassName='btn btn-sm btn-light' buttonStyle={{margin: '0 8px'}}>
+                                <a className={'dropdown-item ' + (filters.breakdown && 'disabled')} href='#' onClick={(e) => this.setFilters({display: 'ActionsLineGraph'})}>Line chart {filters.breakdown && '(Not available with breakdown)'}</a>
+                                <a className='dropdown-item' href='#' onClick={(e) => this.setFilters({display: 'ActionsTable'})}>Table</a>
+                                <a className={'dropdown-item ' + (filters.breakdown && 'disabled')} href='#' onClick={(e) => this.setFilters({display: 'ActionsPie'})}>Pie {filters.breakdown && '(Not available with breakdown)'}</a>
+                            </Dropdown>
+                            <DateFilter onChange={this.setDate} dateFrom={filters.date_from} dateTo={filters.date_to} />
+                            <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
+                        </div>
                     </span>}>
                     <div className='card-body card-body-graph'>
                         {filters.actions && <div style={{minHeight: 'calc(70vh - 50px)', position: 'relative'}}>

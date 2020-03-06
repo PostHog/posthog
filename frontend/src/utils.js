@@ -1,4 +1,4 @@
-import React, { Component } from 'react'
+import React from 'react'
 import api from './Api';
 import { toast } from 'react-toastify';
 import PropTypes from 'prop-types';
@@ -12,6 +12,7 @@ export function uuid() {
 
 export let toParams = (obj) => {
     let handleVal = (val) => {
+        if(val._isAMomentObject) return encodeURIComponent(val.format('YYYY-MM-DD'));
         val = typeof val === "object" ? JSON.stringify(val) : val
         return encodeURIComponent(val)
     }
@@ -70,37 +71,6 @@ DeleteWithUndo.propTypes = {
     object: PropTypes.shape({name: PropTypes.string.isRequired, id: PropTypes.number.isRequired}).isRequired,
     className: PropTypes.string,
     style: PropTypes.object
-}
-
-export class Dropdown extends Component {
-    constructor(props) {
-        super(props)
-    
-        this.state = {}
-        this.close = this.close.bind(this);
-        this.open = this.open.bind(this);
-    }
-    close() {
-        this.setState({menuOpen: false})
-        document.removeEventListener('click', this.close)
-    }
-    open() {
-        this.setState({menuOpen: true});
-        document.addEventListener('click', this.close)
-    }
-    componentWillUnmount() {
-        document.removeEventListener('click', this.close)
-    }
-    render() {
-      return <div className={"dropdown " + this.props.className} style={{display: 'inline', marginTop: -6, ...this.props.style}}>
-            <a className={'cursor-pointer ' + this.props.buttonClassName} style={{...this.props.buttonStyle}} onClick={this.open}>
-                {this.props.title || <span>&hellip;</span>}
-            </a>
-            <div className={"dropdown-menu " + (this.state.menuOpen && 'show')} aria-labelledby="dropdownMenuButton">
-                {this.props.children}
-            </div>
-        </div>
-    }
 }
 
 export let JSSnippet = (props) => {

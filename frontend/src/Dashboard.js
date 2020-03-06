@@ -2,10 +2,9 @@ import React, { Component } from 'react'
 import api from './Api';
 import { ActionsLineGraph, ActionsTable, ActionsPie } from './ActionsGraph';
 import { Link } from 'react-router-dom';
-import { Dropdown, toParams, DeleteWithUndo } from './utils';
-import { toast } from 'react-toastify';
+import { toParams, DeleteWithUndo } from './utils';
 import { FunnelViz } from './Funnel';
-import SendEventsOverlay from './SendEventsOverlay';
+import { Dropdown } from './Dropdown';
 
 export default class Dashboard extends Component {
     constructor(props) {
