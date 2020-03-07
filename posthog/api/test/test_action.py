@@ -128,10 +128,18 @@ class TestAction(BaseTest):
         self.assertEqual(response[1]['count'], 0)
 
         # test day filtering
-        with freeze_time('2020-01-04'):
-            response = self.client.get('/api/action/trends/?days=14').json()
+        with freeze_time('2020-01-02'):
+            response = self.client.get('/api/action/trends/?date_from=2019-12-21').json()
         self.assertEqual(response[0]['labels'][3], '24 December')
         self.assertEqual(response[0]['data'][3], 1.0)
+        self.assertEqual(response[0]['data'][12], 1.0)
+
+        # test all filtering
+        # automatically sets first day as first day of any events
+        with freeze_time('2020-01-04'):
+            response = self.client.get('/api/action/trends/?date_from=all').json()
+        self.assertEqual(response[0]['labels'][0], '24 December')
+        self.assertEqual(response[0]['data'][0], 1.0)
 
         # test breakdown filtering
         with freeze_time('2020-01-04'):

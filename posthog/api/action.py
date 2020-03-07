@@ -1,4 +1,5 @@
 from posthog.models import Event, Team, Action, ActionStep, Element, User
+from posthog.utils import relative_date_parse
 from rest_framework import request, serializers, viewsets, authentication # type: ignore
 from rest_framework.response import Response
 from rest_framework.decorators import action # type: ignore
@@ -7,6 +8,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from django.db.models import Q, F, Count, Prefetch, functions, QuerySet
 from django.forms.models import model_to_dict
 from django.utils.decorators import method_decorator
+from django.utils.dateparse import parse_date
 from typing import Any, List, Dict, Optional
 import pandas as pd # type: ignore
 import numpy as np # type: ignore
@@ -131,11 +133,11 @@ class ActionViewSet(viewsets.ModelViewSet):
             actions_list.sort(key=lambda action: action.get('count', action['id']), reverse=True)
         return Response({'results': actions_list})
 
-    def _group_events_to_date(self, date_from, aggregates, steps, ):
+    def _group_events_to_date(self, date_from: datetime.date, date_to: datetime.date, aggregates):
         aggregates = pd.DataFrame([{'date': a['day'], 'count': a['count']} for a in aggregates])
         aggregates['date'] = aggregates['date'].dt.date
         # create all dates
-        time_index = pd.date_range(date_from, periods=steps + 1, freq='D')
+        time_index = pd.date_range(date_from, date_to, freq='D')
         grouped = pd.DataFrame(aggregates.groupby('date').mean(), index=time_index)
 
         # fill gaps
@@ -145,7 +147,7 @@ class ActionViewSet(viewsets.ModelViewSet):
     def _filter_events(self, request: request.Request):
         events = {}
         for key, value in request.GET.items():
-            if key != 'days' and key != 'actions' and key != 'display' and key != 'breakdown' and 'calculation' not in key:
+            if key not in ['date_from', 'date_to', 'actions', 'display', 'breakdown']:
                 events['properties__{}'.format(key)] = value
         return events
 
@@ -158,7 +160,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         return [{'name': item[key] if item[key] else 'undefined', 'count': item['count']} for item in events]
 
-    def _serialize_action(self, action: Action, filters: Dict[Any, Any], request: request.Request, date_from: datetime, date_to: datetime) -> Dict:
+    def _serialize_action(self, action: Action, filters: Dict[Any, Any], request: request.Request, date_from: datetime.date, date_to: datetime.date) -> Dict:
         append = {
             'action': {
                 'id': action.pk,
@@ -170,16 +172,22 @@ class ActionViewSet(viewsets.ModelViewSet):
         }
         aggregates = Event.objects.filter_by_action(action)\
             .filter(**self._filter_events(request))\
-            .filter(timestamp__gte=date_from)\
+            .filter(**{
+                **({'timestamp__gte': date_from} if date_from else {}),
+                **({'timestamp__lte': date_to + relativedelta(days=1)} if date_to else {}),
+            })\
             .annotate(day=functions.TruncDay('timestamp'))\
             .values('day')\
             .annotate(count=Count('id'))\
             .order_by()
+
         if filters.get('math') == 'dau':
             aggregates = aggregates.annotate(count=Count('distinct_id', distinct=True))
 
         if len(aggregates) > 0:
-            dates_filled = self._group_events_to_date(date_from=date_from, aggregates=aggregates, steps=(date_to - date_from).days)
+            if not date_from:
+                date_from = aggregates[0]['day'].date()
+            dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates)
             values = [value[0] for key, value in dates_filled.iterrows()]
             append['labels'] = [key.strftime('%-d %B') for key, value in dates_filled.iterrows()]
             append['data'] = values
@@ -193,9 +201,19 @@ class ActionViewSet(viewsets.ModelViewSet):
         actions = self.get_queryset()
         actions = actions.filter(deleted=False)
         actions_list = []
-        steps = int(request.GET.get('days', 7))
-        date_from = datetime.date.today() - relativedelta(days=steps)
-        date_to = datetime.date.today()
+        if request.GET.get('date_from'):
+            date_from = relative_date_parse(request.GET['date_from'])
+            if request.GET['date_from'] == 'all':
+                date_from = None # type: ignore
+        else:
+            date_from = datetime.date.today() - relativedelta(days=7)
+
+        if request.GET.get('date_to'):
+            date_to = relative_date_parse(request.GET['date_to'])
+        else:
+            date_to = datetime.date.today()
+
+        # steps = (date_to - date_from).days
         parsed_actions = self._parse_actions(request)
         if parsed_actions:
             for filters in parsed_actions:
