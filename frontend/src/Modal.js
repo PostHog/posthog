@@ -27,18 +27,21 @@ export default class Modal extends Component {
             <div className="modal fade show" style={{display: 'block'}} onClick={this.dismiss}>
                 <div className="modal-dialog modal-lg" role="document">
                     <div className="modal-content" onClick={(event) => event.stopPropagation()}>
-                        <div className="modal-header">
+                        {this.props.title && <div className="modal-header">
                             <h5 className="modal-title" style={{width: '100%'}}>{typeof(this.props.title) === 'function' ? this.props.title() : this.props.title}</h5>
                             <button type="button" className="close" onClick={this.dismiss}>
                                 <span style={{display: 'block'}}>×</span>
                             </button>
-                        </div>
+                        </div>}
                         <div className="modal-body" style={{fontSize: 15}}>
+                            {!this.props.title && <button type="button" className="close" onClick={this.dismiss}>
+                                <span style={{display: 'block'}}>×</span>
+                            </button>}
                             {this.props.children}
                         </div>
-                        <div className="modal-footer">
+                        {!this.props.hideFooter && <div className="modal-footer">
                             <button type="button" className="btn btn-outline-success" onClick={this.dismiss} data-dismiss="modal">{this.props.closeButton ? this.props.closeButton : 'Close'}</button>
-                        </div>
+                        </div>}
                     </div>
                 </div>
             </div>
