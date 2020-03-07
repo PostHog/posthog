@@ -27,6 +27,7 @@ def user(request):
         'team': {
             'app_url': team.app_url,
             'api_token': team.api_token,
+            'signup_token': team.signup_token,
             'opt_out_capture': team.opt_out_capture
         }
     })

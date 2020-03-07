@@ -1,0 +1,27 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+    <form class="form-signin" method="post">
+        {% csrf_token %}
+        <h1 class="h3 mb-3 font-weight-normal">Join {{team.name}} on PostHog</h1>
+        {% if error %}
+        <p>That account already exists. <a href='/login'>Try logging in?</a>.</p>
+        {% endif %}
+        <div class='form-signin-inputs'>
+            <div class='field'>
+                <input type="name" name='name' id="inputName" placeholder="" value="{{ name }}" required>
+                <label for="inputName" >Name</label>
+            </div>
+            <div class='field'>
+                <input type="email" name='email' id="inputEmail" value="{{ email }}" placeholder="" required>
+                <label for="inputEmail">Email address</label>
+            </div>
+            <div class='field'>
+                <input type="password" name='password' id="inputPassword" placeholder="" required>
+                <label for="inputPassword">Password</label>
+            </div>
+        </div>
+        <p>Already have an account? <a href='/login'>Log in here.</a></p>
+        <button class="btn btn-lg btn-primary btn-block" type="submit">Sign up</button>
+    </form>
+{% endblock %}

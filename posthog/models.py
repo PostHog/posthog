@@ -97,6 +97,8 @@ class User(AbstractUser):
 
 class TeamManager(models.Manager):
     def create_with_data(self, users: List[User]=None, **kwargs):
+        kwargs['api_token'] = kwargs.get('api_token', secrets.token_urlsafe(32))
+        kwargs['signup_token'] = kwargs.get('signup_token', secrets.token_urlsafe(22))
         team = Team.objects.create(**kwargs)
         if users:
             team.users.set(users)
@@ -117,6 +119,7 @@ class TeamManager(models.Manager):
 class Team(models.Model):
     users: models.ManyToManyField = models.ManyToManyField(User, blank=True)
     api_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     app_url: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
@@ -129,14 +132,6 @@ class Team(models.Model):
         if self.app_url:
             return self.app_url
         return str(self.pk)
-
-@receiver(models.signals.post_save, sender=Team)
-def create_team_signup_token(sender, instance, created, **kwargs):
-    # Don't do this when running tests to speed up
-    if created and not settings.TEST:
-        if not instance.api_token:
-            instance.api_token = secrets.token_urlsafe(32)
-            instance.save()
 
 class EventManager(models.QuerySet):
     def filter_by_element(self, action_step):

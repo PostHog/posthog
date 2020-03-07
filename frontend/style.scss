@@ -27,6 +27,7 @@ $body-color:#37352F;
 @import "node_modules/bootstrap/scss/_reboot";
 @import "node_modules/bootstrap/scss/_buttons";
 @import "node_modules/bootstrap/scss/_button-group";
+@import "node_modules/bootstrap/scss/_input-group";
 @import "node_modules/bootstrap/scss/_tables";
 @import "node_modules/bootstrap/scss/_forms";
 @import "node_modules/bootstrap/scss/_nav";
@@ -142,6 +143,8 @@ pre.code {
     opacity: 0.7;
     font-weight: 500;
     text-transform: uppercase;
+    border: 0;
+    background: none;
 }
 hr { border: 1px solid rgba(0, 0, 0, 0.1); }
 

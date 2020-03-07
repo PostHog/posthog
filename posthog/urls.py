@@ -66,6 +66,32 @@ def login_view(request):
             return render_template('login.html', request=request, context={'email': email, 'error': True})
     return render_template('login.html', request)
 
+def signup_to_team_view(request, token):
+    if request.user.is_authenticated:
+        return redirect('/')
+    if not token:
+        return redirect('/')
+    if not User.objects.exists():
+        return redirect('/setup_admin')
+    try: 
+        team = Team.objects.get(signup_token=token)
+    except Team.DoesNotExist:
+        return redirect('/')
+
+    if request.method == 'POST':
+        email = request.POST['email']
+        password = request.POST['password']
+        try:
+            user = User.objects.create_user(email=email, password=password, first_name=request.POST.get('name'))
+        except:
+            return render_template('signup_to_team.html', request=request, context={'email': email, 'error': True, 'team': team})
+        login(request, user)
+        team.users.add(user)
+        team.save()
+        posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': False})
+        return redirect('/')
+    return render_template('signup_to_team.html', request, context={'team': team})
+
 def setup_admin(request):
     if User.objects.exists():
         return redirect('/login')
@@ -116,6 +142,7 @@ urlpatterns = [
     path('batch/', capture.get_event),
     path('logout', logout, name='login'),
     path('login', login_view, name='login'),
+    path('signup/<str:token>', signup_to_team_view, name='signup'),
     path('setup_admin', setup_admin, name='setup_admin'),
     # react frontend
 ]
