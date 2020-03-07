@@ -1,9 +1,69 @@
-import React, { Component } from 'react';
+import React, { Component, useState } from 'react';
 import api from './Api';
 import { Link } from 'react-router-dom';
 import Modal from './Modal';
 import PropTypes from 'prop-types';
 import { DeleteWithUndo } from './utils';
+
+function appEditorUrl (actionId, appUrl) {
+  return '/api/user/redirect_to_site/' + (actionId ? '?actionId=' + actionId : '') + (appUrl ? `${actionId ? '&' : '?'}appUrl=${encodeURIComponent(appUrl)}` : '')
+}
+
+const defaultUrl = 'https://'
+
+function UrlRow ({ actionId, url }) {
+  const [isEditing, setEditing] = useState(false)
+  const [editedValue, setEditedValue] = useState(url || defaultUrl)
+
+  return (
+      <li className="list-group-item">
+          {isEditing ? (
+              <div key='form' style={{ display: 'flex', width: '100%' }}>
+                <input
+                    value={editedValue}
+                    onChange={(e) => setEditedValue(e.target.value)}
+                    autoFocus
+                    style={{ flex: '1' }}
+                    type="url"
+                    className='form-control'
+                    placeholder={defaultUrl}
+                />
+                <button className='btn btn-primary' style={{ marginLeft: 5 }} onClick={() => setEditing(false)}>Save</button>
+                <button className='btn btn-outline-secondary' style={{ marginLeft: 5 }} onClick={() => { setEditing(false); setEditedValue(url || defaultUrl) }}>Cancel</button>
+              </div>
+          ) : typeof url === 'undefined' ? (
+            <div key='add-new'>
+                <a href='#' onClick={e => {e.preventDefault(); setEditing(true)}}>+ Add Another URL</a>
+            </div>
+          ) : (
+              <div key='list'>
+                  <div style={{ float: 'right' }}>
+                      <button className='no-style' onClick={() => setEditing(true)}>
+                          <i className='fi flaticon-edit text-primary' />
+                      </button>
+                      <button className='no-style text-danger'>
+                          <i className='fi flaticon-basket' />
+                      </button>
+                  </div>
+                  <a href={appEditorUrl(actionId, url)}>{url}</a>
+              </div>
+          )}
+      </li>
+  )
+}
+
+function ChooseURLModal ({ actionId, appUrls, dismissModal }) {
+  return (
+    <Modal title={'Which app URL shall we open?'} onDismiss={dismissModal}>
+        <ul className="list-group">
+            {appUrls.map((url, index) => (
+                <UrlRow key={index} actionId={actionId} url={url} />
+            ))}
+            <UrlRow key='new' actionId={actionId} />
+        </ul>
+    </Modal>
+  )
+}
 
 export class AppEditorLink extends Component {
     constructor(props) {
@@ -12,9 +72,6 @@ export class AppEditorLink extends Component {
         this.state = {
         }
         this.SetURLModal = this.SetURLModal.bind(this);
-    }
-    appEditorUrl(actionId, appUrl) {
-        return '/api/user/redirect_to_site/' + (actionId ? '?actionId=' + actionId : '') + (appUrl ? `${actionId ? '&' : '?'}appUrl=${encodeURIComponent(appUrl)}` : '')
     }
     SetURLModal() {
         return (
@@ -29,26 +86,12 @@ export class AppEditorLink extends Component {
                                 this.setState({saved: true})
                             })
                             this.props.user.team.app_urls = [e.target.form.url.value];
-                            window.location.href = this.appEditorUrl(this.props.actionId, e.target.form.url.value);
+                            window.location.href = appEditorUrl(this.props.actionId, e.target.form.url.value);
                             this.props.onUpdateUser(this.props.user);
                         }}
                         className='btn btn-success' type="submit">Save URL & go</button>
                     {this.state.saved && <p className='text-success'>URL saved</p>}
                 </form>
-            </Modal>
-        )
-    }
-    ChooseURLModal = () => {
-        const { app_urls: appUrls } = this.props.user.team
-
-        return (
-            <Modal title={'Choose the app url'} onDismiss={() => this.setState({openChooseModal: false})}>
-                <label>Which app URL shall we open?</label>
-                {appUrls.map((url, index) => (
-                  <div>
-                      <a href={this.appEditorUrl(this.props.actionId, url)}>{url}</a>
-                  </div>
-                ))}
             </Modal>
         )
     }
@@ -66,11 +109,11 @@ export class AppEditorLink extends Component {
                         this.setState({ openChooseModal: true })
                     }
                 }}
-                    href={this.appEditorUrl(this.props.actionId, appUrls && appUrls[0])} style={this.props.style} className={this.props.className}>
+                    href={appEditorUrl(this.props.actionId, appUrls && appUrls[0])} style={this.props.style} className={this.props.className}>
                     {this.props.children}
                 </a>
                 {this.state.openAddModal && <this.SetURLModal />}
-                {this.state.openChooseModal && <this.ChooseURLModal />}
+                {this.state.openChooseModal && <ChooseURLModal actionId={this.props.actionId} appUrls={appUrls} dismissModal={() => this.setState({openChooseModal: false})} />}
             </>
         )
     }
