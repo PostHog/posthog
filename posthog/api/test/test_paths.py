@@ -44,27 +44,27 @@ class TestPaths(BaseTest):
 
 
         date_from = now() - relativedelta(days=7)
-        response = self.client.get('/api/paths/?timestamp__gte=' + date_from.strftime("%Y-%m-%d %H:%M:%S")).json()
+        response = self.client.get('/api/paths/?date_from=' + date_from.strftime("%Y-%m-%d")).json()
         self.assertEqual(len(response), 4)
 
         date_to = now() + relativedelta(days=7)
-        response = self.client.get('/api/paths/?timestamp__lte=' + date_to.strftime("%Y-%m-%d %H:%M:%S")).json()
+        response = self.client.get('/api/paths/?date_to=' + date_to.strftime("%Y-%m-%d")).json()
         self.assertEqual(len(response), 4)
 
         date_from = now() + relativedelta(days=7)
-        response = self.client.get('/api/paths/?timestamp__gte=' + date_from.strftime("%Y-%m-%d %H:%M:%S")).json()
+        response = self.client.get('/api/paths/?date_from=' + date_from.strftime("%Y-%m-%d")).json()
         self.assertEqual(len(response), 0)
 
         date_to = now() - relativedelta(days=7)
-        response = self.client.get('/api/paths/?timestamp__lte=' + date_to.strftime("%Y-%m-%d %H:%M:%S")).json()
+        response = self.client.get('/api/paths/?date_to=' + date_to.strftime("%Y-%m-%d")).json()
         self.assertEqual(len(response), 0)
 
         date_from = now() - relativedelta(days=7)
         date_to = now() + relativedelta(days=7)
-        response = self.client.get('/api/paths/?timestamp__gte=' + date_from.strftime("%Y-%m-%d %H:%M:%S") + '&timestamp__lte=' + date_to.strftime("%Y-%m-%d %H:%M:%S")).json()
+        response = self.client.get('/api/paths/?date_from=' + date_from.strftime("%Y-%m-%d") + '&date_to=' + date_to.strftime("%Y-%m-%d")).json()
         self.assertEqual(len(response), 4)
 
         date_from = now() + relativedelta(days=7)
         date_to = now() - relativedelta(days=7)
-        response = self.client.get('/api/paths/?timestamp__gte=' + date_from.strftime("%Y-%m-%d %H:%M:%S") + '&timestamp__lte=' + date_to.strftime("%Y-%m-%d %H:%M:%S")).json()
+        response = self.client.get('/api/paths/?date_from=' + date_from.strftime("%Y-%m-%d") + '&date_to=' + date_to.strftime("%Y-%m-%d")).json()
         self.assertEqual(len(response), 0)

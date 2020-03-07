@@ -1,10 +1,12 @@
 from rest_framework import viewsets
 from rest_framework.response import Response
 from posthog.models import Event, PersonDistinctId, Team
+from posthog.utils import relative_date_parse
 from django.db.models import Subquery, OuterRef, Count, QuerySet
 from typing import List, Optional
 from django.utils.timezone import now
 from dateutil.relativedelta import relativedelta
+import datetime
 
 
 # At the moment, paths don't support users changing distinct_ids midway through.
@@ -21,7 +23,7 @@ class PathsViewSet(viewsets.ViewSet):
                 Event.objects.filter(
                     team=team,
                     timestamp__gte=date_from,
-                    timestamp__lte=date_to,
+                    timestamp__lte=date_to + relativedelta(days=1),
                     pk__gt=OuterRef('event_{}'.format(index - 1)) if index > 1 else 0,
                     event='$pageview',
                     distinct_id=OuterRef('distinct_id'),
@@ -38,15 +40,17 @@ class PathsViewSet(viewsets.ViewSet):
         resp = []
         aggregate = PersonDistinctId.objects.filter(team=team)
 
-        if request.GET.get('timestamp__gte'):
-            date_from = request.GET.get('timestamp__gte')
+        if request.GET.get('date_from'):
+            date_from = relative_date_parse(request.GET['date_from'])
+            if request.GET['date_from'] == 'all':
+                date_from = None # type: ignore
         else:
-            date_from = now() - relativedelta(days=7)
+            date_from = datetime.date.today() - relativedelta(days=7)
 
-        if request.GET.get('timestamp__lte'):
-            date_to = request.GET.get('timestamp__lte')
+        if request.GET.get('date_to'):
+            date_to = relative_date_parse(request.GET['date_to'])
         else:
-            date_to = now()
+            date_to = datetime.date.today()
 
         aggregate = self._add_event_and_url_at_position(aggregate, team, 1, date_from, date_to)
         urls = False
