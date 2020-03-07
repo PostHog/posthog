@@ -47,6 +47,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
                 Event.objects.filter_by_action(step.action) # type: ignore
                     .annotate(person_id=OuterRef('id'))
                     .filter(
+                        team_id=funnel.team_id,
                         distinct_id__in=Subquery(
                             PersonDistinctId.objects.filter(
                                 person_id=OuterRef('person_id')
@@ -59,6 +60,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             , output_field=models.IntegerField())
 
         people = Person.objects.all()\
+            .filter(team_id=funnel.team_id)\
             .annotate(**annotations)\
             .filter(step_0__isnull=False)
 
@@ -78,7 +80,6 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
         if len(steps) > 0:
             steps[0]['people'] = self._order_people_in_step(steps, steps[0]['people'])
         return steps
-
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Funnel:
         request = self.context['request']
