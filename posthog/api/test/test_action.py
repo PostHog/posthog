@@ -4,6 +4,9 @@ from freezegun import freeze_time # type: ignore
 from urllib import parse
 import json
 
+def json_to_url(input) -> str:
+    return parse.quote(json.dumps(input))
+
 class TestAction(BaseTest):
     TESTS_API = True
 
@@ -120,7 +123,7 @@ class TestAction(BaseTest):
 
         # test property filtering
         with freeze_time('2020-01-04'):
-            response = self.client.get('/api/action/trends/?some_property=value').json()
+            response = self.client.get('/api/action/trends/?properties=%s' % json_to_url({'some_property': 'value'})).json()
         self.assertEqual(response[0]['labels'][4], '1 January')
         self.assertEqual(response[0]['data'][4], 1.0)
         self.assertEqual(response[0]['labels'][5], '2 January')
@@ -154,13 +157,13 @@ class TestAction(BaseTest):
 
         # test action filtering
         with freeze_time('2020-01-04'):
-            response = self.client.get('/api/action/trends/?actions=%s' % parse.quote(json.dumps([{'id': sign_up_action.id}]))).json()
+            response = self.client.get('/api/action/trends/?actions=%s' % json_to_url([{'id': sign_up_action.id}])).json()
         self.assertEqual(len(response), 1)
 
         # test DAU filtering
         with freeze_time('2020-01-02'):
             Event.objects.create(team=self.team, event='sign up', distinct_id='someone_else')
         with freeze_time('2020-01-04'):
-            response = self.client.get('/api/action/trends/?actions=%s' % parse.quote(json.dumps([{'id': sign_up_action.id, 'math': 'dau'}]))).json()
+            response = self.client.get('/api/action/trends/?actions=%s' % json_to_url([{'id': sign_up_action.id, 'math': 'dau'}])).json()
         self.assertEqual(response[0]['data'][4], 1)
         self.assertEqual(response[0]['data'][5], 2)

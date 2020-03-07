@@ -223,7 +223,9 @@ class ActionFilter extends Component {
                 let action = actions.filter(action => action.id == action_filter.id)[0] || {};
                 return <this.Row action={action} filter={action_filter} key={index} index={index} />
             })}
-            <button className='btn btn-sm btn-outline-success' onClick={() => this.setState({actionFilters: [...actionFilters, {id: null}]})}>Add action</button>
+            <button className='btn btn-sm btn-outline-success' onClick={() => this.setState({actionFilters: [...actionFilters, {id: null}]})} style={{marginTop: '0.5rem'}}>
+                Add action
+            </button>
         </div> : null;
     }
 }
@@ -231,7 +233,6 @@ class ActionFilter extends Component {
 export default class ActionsGraph extends Component {
     constructor(props) {
         super(props)
-    
         this.state = {
             loading: true,
             properties: []
@@ -240,6 +241,7 @@ export default class ActionsGraph extends Component {
         filters.actions = filters.actions && JSON.parse(filters.actions);
         filters.actions = Array.isArray(filters.actions) ? filters.actions : undefined;
         if(filters.breakdown) filters.display = 'ActionsTable';
+        filters.properties = filters.properties ? JSON.parse(filters.properties) : {};
         this.state = {filters};
         this.setDate = this.setDate.bind(this);
 
@@ -263,10 +265,12 @@ export default class ActionsGraph extends Component {
     }
     setFilters(setState) {
         let filters = {
-            days: this.state.filters.days,
             actions: this.state.filters.actions,
             display: this.state.filters.display,
             breakdown: this.state.filters.breakdown,
+            date_from: this.state.filters.date_from,
+            date_to: this.state.filters.date_to,
+            properties: this.state.filters.properties,
             ...setState
         }
         if(filters.breakdown) filters.display = 'ActionsTable';
@@ -278,14 +282,6 @@ export default class ActionsGraph extends Component {
             filters,
             loading: true
         })
-    }
-    getPropertyFilters(filters) {
-        let data = {};
-        let nonPropKeys = ['date_from', 'date_to', 'actions', 'display', 'breakdown'];
-        Object.keys(filters).map((key) => {
-            if(nonPropKeys.indexOf(key) === -1) data[key] = filters[key]
-        })
-        return data;
     }
     setDate(date_from, date_to) {
         this.setFilters({date_from: date_from, date_to: date_to && date_to})
@@ -306,7 +302,7 @@ export default class ActionsGraph extends Component {
                         <ActionFilter actions={actions} actionFilters={filters.actions} onChange={(actions) => this.setFilters({actions})} />
                         <hr />
                         <h4 className='secondary'>Filters</h4>
-                        <PropertyFilters properties={properties} prefetchProperties={true} propertyFilters={this.getPropertyFilters(filters)} onChange={(propertyFilters) => this.setFilters({...propertyFilters})} style={{marginBottom: 0}} />
+                        <PropertyFilters properties={properties} prefetchProperties={true} propertyFilters={filters.properties} onChange={(properties) => this.setFilters({properties})} style={{marginBottom: 0}} />
                         <hr />
                         <h4 className='secondary'>Break down by</h4>
                         <div style={{width: 230}}>

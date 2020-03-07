@@ -96,7 +96,8 @@ export let selectStyle = {
         ...base,
         paddingBottom: 0,
         paddingTop: 0,
-        margin: 0
+        margin: 0,
+        opacity: 1
     }),
     valueContainer: base => ({
         ...base,
