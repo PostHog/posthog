@@ -25,10 +25,10 @@ export class AppEditorLink extends Component {
                     <br />
                     <button onClick={(e) => {
                             event.preventDefault();
-                            api.update('api/user', {team: {app_url: [e.target.form.url.value]}}).then(() => {
+                            api.update('api/user', {team: {app_urls: [e.target.form.url.value]}}).then(() => {
                                 this.setState({saved: true})
                             })
-                            this.props.user.team.app_url = [e.target.form.url.value];
+                            this.props.user.team.app_urls = [e.target.form.url.value];
                             window.location.href = this.appEditorUrl(this.props.actionId, e.target.form.url.value);
                             this.props.onUpdateUser(this.props.user);
                         }}
@@ -39,7 +39,7 @@ export class AppEditorLink extends Component {
         )
     }
     ChooseURLModal = () => {
-        const { app_url: appUrls } = this.props.user.team
+        const { app_urls: appUrls } = this.props.user.team
 
         return (
             <Modal title={'Choose the app url'} onDismiss={() => this.setState({openChooseModal: false})}>
@@ -53,7 +53,7 @@ export class AppEditorLink extends Component {
         )
     }
     render() {
-        const { app_url: appUrls } = this.props.user.team
+        const { app_urls: appUrls } = this.props.user.team
         return (
             <>
                 <a onClick={(e) => {

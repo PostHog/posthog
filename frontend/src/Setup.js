@@ -40,25 +40,25 @@ export default class Setup extends Component {
     }
 
     addUrl = () => {
-      this.props.user.team.app_url.push('https://');
+      this.props.user.team.app_urls.push('https://');
       this.props.onUpdateUser(this.props.user);
     }
 
     removeUrl = (index) => {
-      this.props.user.team.app_url.splice(index, 1);
+      this.props.user.team.app_urls.splice(index, 1);
       this.props.onUpdateUser(this.props.user);
     }
 
     updateUrl = (index, value) => {
-      this.props.user.team.app_url[index] = value;
+      this.props.user.team.app_urls[index] = value;
       this.props.onUpdateUser(this.props.user);
     }
 
     onSubmit = (e) => {
       e.preventDefault();
-      api.update('api/user', {team: { app_url: this.props.user.team.app_url }}).then(response => {
+      api.update('api/user', {team: { app_urls: this.props.user.team.app_urls }}).then(response => {
         this.setState({saved: true})
-        this.props.user.team.app_url = response.team.app_url;
+        this.props.user.team.app_urls = response.team.app_urls;
         this.props.onUpdateUser(this.props.user);
       })
     }
@@ -69,7 +69,7 @@ export default class Setup extends Component {
                 <h1>Setup your PostHog account</h1>
                 <label>What URLs will you be using PostHog on?</label>
                 <form onSubmit={this.onSubmit}>
-                    {(this.props.user.team.app_url || ['https://']).map((url, index) => (
+                    {(this.props.user.team.app_urls || ['https://']).map((url, index) => (
                         <div key={index} style={{ marginBottom: 5 }}>
                             <input
                                 defaultValue={url}
