@@ -23,15 +23,15 @@ export default class Dashboard extends Component {
         let typeMap = {
             'ActionsLineGraph': {
                 element: ActionsLineGraph,
-                link: filters => ({pathname: '/actions/trends', search: toParams(filters)})
+                link: filters => ({pathname: '/trends', search: toParams(filters)})
             },
             'ActionsTable': {
                 element: ActionsTable,
-                link: filters => ({pathname: '/actions/trends', search: toParams(filters)})
+                link: filters => ({pathname: '/trends', search: toParams(filters)})
             },
             'ActionsPie': {
                 element: ActionsPie,
-                link: filters => ({pathname: '/actions/trends', search: toParams(filters)})
+                link: filters => ({pathname: '/trends', search: toParams(filters)})
             },
             'FunnelViz': {
                 element: FunnelViz,
@@ -63,7 +63,7 @@ export default class Dashboard extends Component {
                         </div>
                     </div>
                 })}
-                {items && this.props.user.has_events && items.length == 0 && <p>You don't have any panels set up. <Link to='/actions/trends'>Click here to create one.</Link></p>}
+                {items && this.props.user.has_events && items.length == 0 && <p>You don't have any panels set up. <Link to='/trends'>Click here to create one.</Link></p>}
             </div>
         )
     }
