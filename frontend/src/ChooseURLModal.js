@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react'
 import Modal from './Modal';
 import api from './Api'
 
@@ -51,6 +51,19 @@ function UrlRow ({ actionId, url, saveUrl, deleteUrl }) {
 }
 
 export function ChooseURLModal ({ actionId, appUrls, setAppUrls, dismissModal }) {
+  // We run this effect so that the URLs are the latest ones from the database.
+  // Otherwise if you edit/add an URL, click to it and then click back, you will
+  // see state urls (i.e. without the one you just added)
+  useEffect(() => {
+    api.get('api/user').then(response => {
+      const freshAppUrls = response && response.team && response.team.app_urls
+
+      if (freshAppUrls.join(',') !== appUrls.join(',')) {
+        setAppUrls(freshAppUrls)
+      }
+    })
+  }, []) // run just once
+
   function saveUrl ({ index, value, callback }) {
     const newUrls = typeof index === 'undefined' ? appUrls.concat([value]) : appUrls.map((url, i) => i === index ? value : url)
 
