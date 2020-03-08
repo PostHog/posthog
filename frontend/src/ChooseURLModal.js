@@ -83,9 +83,17 @@ export function ChooseURLModal ({ actionId, appUrls, setAppUrls, dismissModal })
   function saveUrl ({ index, value, callback }) {
     const newUrls = typeof index === 'undefined' ? appUrls.concat([value]) : appUrls.map((url, i) => i === index ? value : url)
 
+    const willRedirect = appUrls.length === 0 && typeof index === 'undefined'
+
     api.update('api/user', { team: { app_urls: newUrls } }).then(() => {
-      setAppUrls(newUrls)
       callback(newUrls)
+
+      // Do not set the app urls when redirecting.
+      // Doing so is bad UX as the screen will flash from the "add first url" dialog to
+      // the "here are all the urls" dialog before the user is redirected away
+      if (!willRedirect) {
+        setAppUrls(newUrls)
+      }
     })
   }
 
@@ -112,7 +120,6 @@ export function ChooseURLModal ({ actionId, appUrls, setAppUrls, dismissModal })
       {appUrls.length === 0 ? (
         <div>
           <label>What URL will you be using PostHog on?</label>
-
           <input value={newValue} onChange={e => setNewValue(e.target.value)} autoFocus style={{ maxWidth: 400 }} type="url" className='form-control' name='url' placeholder={defaultUrl} />
           <br />
           <button
