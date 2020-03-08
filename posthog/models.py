@@ -366,8 +366,11 @@ class Cohort(models.Model):
                     people = person_ids.filter(timestamp__gt=timezone.now() - relativedelta(days=group['days']))
                 person_ids.extend([person_id for person_id in people.values_list('person_id', flat=True)])
             elif group.get('properties'):
+                properties = {
+                    'properties__{}'.format(key): value for key, value in group['properties'].items()
+                }
                 person_ids.extend(
-                    [person_id for person_id in Person.objects.filter(team_id=self.team_id, properties__contains=group['properties']).order_by('-id').values_list('pk', flat=True)]
+                    [person_id for person_id in Person.objects.filter(team_id=self.team_id, **properties).order_by('-id').values_list('pk', flat=True)]
                 )
         return person_ids
 

@@ -17,5 +17,8 @@ class TestCohort(BaseTest):
         cohort = Cohort.objects.create(team=self.team, groups=[{'properties': {'$os': 'Chrome'}}])
         self.assertEqual(cohort.distinct_ids, ['person_2'])
 
+        cohort = Cohort.objects.create(team=self.team, groups=[{'properties': {'$os__icontains': 'Chr'}}])
+        self.assertEqual(cohort.distinct_ids, ['person_2'])
+
         cohort = Cohort.objects.create(team=self.team, groups=[{'action_id': action.pk}, {'properties': {'$os': 'Chrome'}}])
         self.assertCountEqual(cohort.distinct_ids, ['person_1', 'person_2'])

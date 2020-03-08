@@ -12,7 +12,7 @@ class SendEventsOverlay extends Component {
     urlBackgroundMap = {
         '/': 'https://posthog.s3.eu-west-2.amazonaws.com/graphs.png',
         '/actions': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
-        '/actions/trends': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-action-trends.png',
+        '/trends': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-action-trends.png',
         '/funnel': 'https://posthog.s3.eu-west-2.amazonaws.com/funnel.png',
         '/paths': 'https://posthog.s3.eu-west-2.amazonaws.com/paths.png'
     }
@@ -38,7 +38,7 @@ class SendEventsOverlay extends Component {
                     <JSSnippet user={this.props.user} />
                     <a href='https://github.com/PostHog/posthog/wiki/Integrations'>Using Python/Ruby/Node/Go/PHP instead?</a><br /><br />
 
-                    {window.location.href.indexOf('127.0.0.1') && <div >
+                    {window.location.href.indexOf('127.0.0.1') > -1 && <div >
                         <h3>Running locally?</h3>
                         It's hard to send events to PostHog running locally. If you want to have a play, <a href='/demo' target="_blank">click here for our 'HogFlix' demo environment</a>.<br /><br />
                         Once you're ready, you can deploy it to a live environment.<br /><br />

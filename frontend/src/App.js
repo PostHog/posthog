@@ -80,7 +80,7 @@ export default class App extends React.Component {
                                 {this.state.user.has_events && <div>
                                     <PrivateRoute path="/" exact component={Dashboard} user={this.state.user} />
                                     <PrivateRoute path="/actions" exact component={Actions} user={this.state.user} />
-                                    <PrivateRoute path="/actions/trends" exact component={ActionsGraph} user={this.state.user} />
+                                    <PrivateRoute path="/trends" exact component={ActionsGraph} user={this.state.user} />
                                     <PrivateRoute path="/actions/live" component={ActionEvents} user={this.state.user} />
                                     <PrivateRoute path="/funnel" exact component={Funnels} user={this.state.user} />
                                     <PrivateRoute path="/paths" component={Paths} user={this.state.user} />

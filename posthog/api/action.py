@@ -145,10 +145,12 @@ class ActionViewSet(viewsets.ModelViewSet):
         return grouped
 
     def _filter_events(self, request: request.Request):
+        if not request.GET.get('properties'):
+            return {}
         events = {}
-        for key, value in request.GET.items():
-            if key not in ['date_from', 'date_to', 'actions', 'display', 'breakdown']:
-                events['properties__{}'.format(key)] = value
+        parsed = json.loads(request.GET.get('properties', {}))
+        for key, value in parsed.items():
+            events['properties__{}'.format(key)] = value
         return events
 
     def _breakdown(self, events: QuerySet, breakdown_by: str) -> List[Dict[str, int]]:
