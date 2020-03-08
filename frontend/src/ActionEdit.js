@@ -1,7 +1,7 @@
 import React, { Component } from 'react';
 import api from './Api';
 import { uuid } from './utils'
-import { AppEditorLink } from "./Actions";
+import { AppEditorLink }  from "./AppEditorLink";
 import PropTypes from 'prop-types';
 import Select from 'react-select';
 
@@ -210,9 +210,9 @@ class ActionStep extends Component {
     }
     AutocaptureFields() {
         let { element } = this.state;
-        let { step, user, actionId, isEditor } = this.props;
+        let { step, user, actionId, isEditor, onUpdateUser } = this.props;
         return <div>
-            {!isEditor && <AppEditorLink user={user} actionId={actionId} style={{margin: '1rem 0'}} className='btn btn-sm btn-light'>Select element on site <i className='fi flaticon-export' /></AppEditorLink>}
+            {!isEditor && <AppEditorLink onUpdateUser={onUpdateUser} user={user} actionId={actionId} style={{margin: '1rem 0'}} className='btn btn-sm btn-light'>Select element on site <i className='fi flaticon-export' /></AppEditorLink>}
             {(!isEditor || step.href) && <this.Option
                 item='href'
                 label='Link href'
@@ -380,6 +380,7 @@ export class ActionEdit extends Component {
                                 isEditor={isEditor}
                                 actionId={action.id}
                                 user={this.props.user}
+                                onUpdateUser={this.props.onUpdateUser}
                                 simmer={simmer}
                                 onDelete={() => {
                                     action.steps = action.steps.filter((s) => s.id != step.id)
@@ -434,6 +435,7 @@ export class ActionEdit extends Component {
 }
 ActionEdit.propTypes = {
     user: PropTypes.object,
+    onUpdateUser: PropTypes.object,
     isEditor: PropTypes.bool,
     simmer: PropTypes.func,
     onSave: PropTypes.func
