@@ -3,7 +3,7 @@ import React, { Component } from 'react'
 export default class Modal extends Component {
     constructor(props) {
         super(props)
-    
+
         this.state = {dismissed: false};
         this.dismiss = this.dismiss.bind(this)
         this.escFunction = this.escFunction.bind(this);
@@ -40,6 +40,7 @@ export default class Modal extends Component {
                             {this.props.children}
                         </div>
                         {!this.props.hideFooter && <div className="modal-footer">
+                            {this.props.footer}
                             <button type="button" className="btn btn-outline-success" onClick={this.dismiss} data-dismiss="modal">{this.props.closeButton ? this.props.closeButton : 'Close'}</button>
                         </div>}
                     </div>

@@ -9,7 +9,7 @@ export function appEditorUrl (actionId, appUrl) {
 const defaultUrl = 'https://'
 
 function UrlRow ({ actionId, url, saveUrl, deleteUrl }) {
-  const [isEditing, setIsEditing] = useState(false)
+  const [isEditing, setIsEditing] = useState(url === defaultUrl)
   const [savedValue, setSavedValue] = useState(url || defaultUrl)
   const [editedValue, setEditedValue] = useState(url || defaultUrl)
 
@@ -26,8 +26,24 @@ function UrlRow ({ actionId, url, saveUrl, deleteUrl }) {
             className='form-control'
             placeholder={defaultUrl}
           />
-          <button className='btn btn-primary' style={{ marginLeft: 5 }} onClick={() => { saveUrl(editedValue, () => { setIsEditing(false); setSavedValue(editedValue) }) }}>Save</button>
-          <button className='btn btn-outline-secondary' style={{ marginLeft: 5 }} onClick={() => { setIsEditing(false); setEditedValue(savedValue || url || defaultUrl) }}>Cancel</button>
+          <button className='btn btn-primary' style={{ marginLeft: 5 }} onClick={() => {
+            if (editedValue === defaultUrl) {
+              deleteUrl()
+            } else {
+              saveUrl(editedValue, () => {
+                setIsEditing(false);
+                setSavedValue(editedValue)
+              })
+            }
+          }}>Save</button>
+          <button className='btn btn-outline-secondary' style={{ marginLeft: 5 }} onClick={() => {
+            if (url === defaultUrl) {
+              deleteUrl()
+            } else {
+              setIsEditing(false)
+              setEditedValue(savedValue || url || defaultUrl)
+            }
+          }}>Cancel</button>
         </div>
       ) : typeof url === 'undefined' ? (
         <div key='add-new'>
@@ -81,14 +97,45 @@ export function ChooseURLModal ({ actionId, appUrls, setAppUrls, dismissModal })
     })
   }
 
+  function addUrl () {
+    setAppUrls(appUrls.concat([defaultUrl]))
+  }
+
+  const [newValue, setNewValue] = useState(defaultUrl)
+
   return (
-    <Modal title={'Which site shall we open?'} onDismiss={dismissModal}>
-      <ul className="list-group">
-        {appUrls.map((url, index) => (
-          <UrlRow key={`${index},${url}`} actionId={actionId} url={url} saveUrl={(value, callback) => saveUrl({ index, value, callback })} deleteUrl={() => deleteUrl({ index })} />
-        ))}
-        <UrlRow key={`new_${appUrls.length}`} actionId={actionId} saveUrl={(value, callback) => saveUrl({ value, callback })} />
-      </ul>
+    <Modal
+      title={'Which site shall we open?'}
+      footer={appUrls.length > 0 && <div style={{ flex: 1 }}><a href='#' style={{ flex: 1 }} onClick={addUrl}>+ Add Another URL</a></div>}
+      onDismiss={dismissModal}
+    >
+      {appUrls.length === 0 ? (
+        <div>
+          <label>What URL will you be using PostHog on?</label>
+
+          <input value={newValue} onChange={e => setNewValue(e.target.value)} autoFocus style={{ maxWidth: 400 }} type="url" className='form-control' name='url' placeholder={defaultUrl} />
+          <br />
+          <button
+            onClick={() => saveUrl({ value: newValue, callback: () => { window.location.href = appEditorUrl(actionId, newValue) } })}
+            className='btn btn-success'
+            type="button"
+          >
+            Save URL & go
+          </button>
+        </div>
+      ) : (
+        <ul className="list-group">
+          {appUrls.map((url, index) => (
+            <UrlRow
+              key={`${index},${url}`}
+              actionId={actionId}
+              url={url}
+              saveUrl={(value, callback) => saveUrl({ index, value, callback })}
+              deleteUrl={() => deleteUrl({ index })}
+            />
+          ))}
+        </ul>
+      )}
     </Modal>
   )
 }
