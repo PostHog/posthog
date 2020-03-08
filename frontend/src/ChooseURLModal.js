@@ -114,7 +114,7 @@ export function ChooseURLModal ({ actionId, appUrls, setAppUrls, dismissModal })
   return (
     <Modal
       title={'Which site shall we open?'}
-      footer={appUrls.length > 0 && <div style={{ flex: 1 }}><a href='#' style={{ flex: 1 }} onClick={addUrl}>+ Add Another URL</a></div>}
+      footer={appUrls.length > 0 && <div style={{ flex: 1 }}><button className='btn btn-outline-secondary' style={{ flex: 1 }} onClick={addUrl}>+ Add Another URL</button></div>}
       onDismiss={dismissModal}
     >
       {appUrls.length === 0 ? (
