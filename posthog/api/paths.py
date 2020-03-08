@@ -36,7 +36,7 @@ class PathsViewSet(viewsets.ViewSet):
     def list(self, request):
         team = request.user.team_set.get()
         resp = []
-        aggregate = PersonDistinctId.objects.all()
+        aggregate = PersonDistinctId.objects.filter(team=team)
 
         if request.GET.get('timestamp__gte'):
             date_from = request.GET.get('timestamp__gte')
