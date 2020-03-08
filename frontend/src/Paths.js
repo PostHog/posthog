@@ -1,8 +1,9 @@
 import React, { Component } from 'react'
 import api from './Api';
 import PathFilter from './PathFilter'
-import { toParams } from './utils'
+import { toParams, Card } from './utils'
 import moment from 'moment'
+import DateFilter from './DateFilter';
 
 let stripHTTP = (url) => url.replace(/(^[0-9]+_\w+:|^)\/\//, '');
 
@@ -28,11 +29,10 @@ function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
 export default class Paths extends Component {
     constructor(props) {
         super(props)
-
         this.state = {
             filter: {
-                startDate: moment().add(-7, 'days').startOf('day').toDate(),
-                endDate: moment().toDate()
+                dateFrom: null,
+                dateTo: null
             },
             paths: {
                 nodes: [],
@@ -188,17 +188,7 @@ export default class Paths extends Component {
     }
 
     fetchPaths = () => {
-        const { filter } = this.state
-
-        let paramsObject = {}
-        if (filter.startDate) {
-            paramsObject['timestamp__gte'] = moment(filter.startDate).toISOString()
-        }
-        if (filter.endDate) {
-            paramsObject['timestamp__lte'] = moment(filter.endDate).endOf('day').toISOString()
-        }
-
-        const params = toParams(paramsObject)
+        const params = toParams(this.state.filter)
 
         api.get(`api/paths${params ? `/?${params}` : ''}`).then((paths) => {
             this.setState({paths: {
@@ -219,11 +209,17 @@ export default class Paths extends Component {
         return (
             <div>
                 <h1>Paths</h1>
-                <PathFilter filter={filter} updateFilter={this.updateFilter} />
-                <div ref={this.canvas} className='paths' style={{height: '90vh'}}>
-                    {!rendered && <div className='loading-overlay' style={{paddingTop: '14rem'}}><div /><br />(This might take a while)</div>}
-                    {rendered && paths && paths.nodes.length === 0 && <div>We don't have any data to show here. You might need to send us some frontend (JS) events, as we use the <pre style={{display: 'inline'}}>$current_url</pre> property to calculate paths.</div>}
-                </div>
+                <Card
+                    title={<span>
+                        <span className='float-right'>
+                            <DateFilter onChange={(date_from, date_to) => this.updateFilter({date_from, date_to})} dateFrom={filter.date_from} dateTo={filter.date_to} />
+                        </span>
+                    </span>}>
+                        <div ref={this.canvas} className='paths' style={{height: '90vh'}}>
+                            {!rendered && <div className='loading-overlay' style={{paddingTop: '14rem'}}><div /><br />(This might take a while)</div>}
+                            {rendered && paths && paths.nodes.length === 0 && <div>We don't have any data to show here. You might need to send us some frontend (JS) events, as we use the <pre style={{display: 'inline'}}>$current_url</pre> property to calculate paths.</div>}
+                        </div>
+                </Card>
             </div>
         );
     }

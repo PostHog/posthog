@@ -215,7 +215,6 @@ class ActionViewSet(viewsets.ModelViewSet):
         else:
             date_to = datetime.date.today()
 
-        # steps = (date_to - date_from).days
         parsed_actions = self._parse_actions(request)
         if parsed_actions:
             for filters in parsed_actions:
