@@ -18,8 +18,8 @@ $teal:    #20c997;
 $cyan:    #17a2b8;
 
 $badge-font-weight: 400;
-$body-bg:          #FFFEFC; 
-$body-color:#37352F; 
+$body-bg:          #FFFEFC;
+$body-color:#37352F;
 
 // bootstrap components
 @import "node_modules/bootstrap/scss/_root";
@@ -33,6 +33,7 @@ $body-color:#37352F;
 @import "node_modules/bootstrap/scss/_nav";
 @import "node_modules/bootstrap/scss/_badge";
 @import "node_modules/bootstrap/scss/_grid";
+@import "node_modules/bootstrap/scss/_list-group";
 @import "node_modules/bootstrap/scss/_close";
 @import "node_modules/bootstrap/scss/_card";
 @import "node_modules/bootstrap/scss/_modal";
@@ -154,4 +155,12 @@ hr { border: 1px solid rgba(0, 0, 0, 0.1); }
 
 .property-value input {
     opacity: 1 !important;
+}
+
+h5.modal-title {
+    font-size: 120%;
+}
+button.no-style {
+    background: none;
+    border: none;
 }

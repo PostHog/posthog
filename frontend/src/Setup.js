@@ -5,11 +5,11 @@ import { JSSnippet } from './utils';
 class OptOutCapture extends Component {
     constructor(props) {
         super(props)
-    
+
         this.state = {
         }
     }
-    
+
     render() {
         return <div>
             PostHog uses PostHog (unsurprisingly!) to capture information about how people are using the product.
@@ -34,26 +34,61 @@ class OptOutCapture extends Component {
 export default class Setup extends Component {
     constructor(props) {
         super(props)
-    
+
         this.state = {
         }
     }
+
+    addUrl = () => {
+      this.props.user.team.app_urls.push('https://');
+      this.props.onUpdateUser(this.props.user);
+    }
+
+    removeUrl = (index) => {
+      this.props.user.team.app_urls.splice(index, 1);
+      this.props.onUpdateUser(this.props.user);
+    }
+
+    updateUrl = (index, value) => {
+      this.props.user.team.app_urls[index] = value;
+      this.props.onUpdateUser(this.props.user);
+    }
+
+    onSubmit = (e) => {
+      e.preventDefault();
+      api.update('api/user', {team: { app_urls: this.props.user.team.app_urls }}).then(response => {
+        this.setState({saved: true})
+        this.props.user.team.app_urls = response.team.app_urls;
+        this.props.onUpdateUser(this.props.user);
+      })
+    }
+
     render() {
         return (
             <div>
                 <h1>Setup your PostHog account</h1>
-                <label>What URL will you be using PostHog on?</label>
-                <form onSubmit={(e) => {
-                    event.preventDefault();
-                    api.update('api/user', {team: {app_url: e.target.url.value}}).then(() => this.setState({saved: true}))
-                    this.props.user.team.app_url = e.target.url.value;
-                    this.props.onUpdateUser(this.props.user);
-                }}>
-                    <input defaultValue={this.props.user.team.app_url || "https://"} autoFocus style={{maxWidth: 400}} type="url" className='form-control' name='url' placeholder="https://...." />
+                <label>What URLs will you be using PostHog on?</label>
+                <form onSubmit={this.onSubmit}>
+                    {(this.props.user.team.app_urls || ['https://']).map((url, index) => (
+                        <div key={index} style={{ marginBottom: 5 }}>
+                            <input
+                                defaultValue={url}
+                                onChange={(e) => this.updateUrl(index, e.target.value)}
+                                autoFocus
+                                style={{ display: 'inline-block', maxWidth: 400 }}
+                                type="url"
+                                className='form-control'
+                                name={`url${index}`}
+                                placeholder="https://...."
+                            />
+                            {index > 0 ? <button className='btn btn-link' type="button" onClick={() => this.removeUrl(index)}>Remove</button> : null}
+                        </div>
+                    ))}
+                    <button className='btn btn-link' type="button" onClick={this.addUrl} style={{ padding: '5px 0', marginBottom: 15 }}>+ Add Another URL</button>
                     <br />
-                    <button className='btn btn-success' type="submit">Save url</button>
-                    {this.state.saved && <p className='text-success'>URL saved.</p>}
 
+                    <button className='btn btn-success' type="submit">Save URLs</button>
+                    {this.state.saved && <span className='text-success' style={{ marginLeft: 10 }}>URLs saved.</span>}
                 </form>
                 <br /><br />
                 <h2>Integrate PostHog</h2>

@@ -14,7 +14,7 @@ def user(request):
 
     if request.method == 'PATCH':
         data = json.loads(request.body)
-        team.app_url = data['team'].get('app_url', team.app_url)
+        team.app_urls = data['team'].get('app_urls', team.app_urls)
         team.opt_out_capture = data['team'].get('opt_out_capture', team.opt_out_capture)
         team.save()
 
@@ -25,7 +25,7 @@ def user(request):
         'email': request.user.email,
         'has_events': Event.objects.filter(team=team).exists(),
         'team': {
-            'app_url': team.app_url,
+            'app_urls': team.app_urls,
             'api_token': team.api_token,
             'signup_token': team.signup_token,
             'opt_out_capture': team.opt_out_capture
@@ -37,7 +37,9 @@ def redirect_to_site(request):
         return HttpResponse('Unauthorized', status=401)
 
     team = request.user.team_set.get()
-    if not team.app_url:
+    app_url = request.GET.get('appUrl') or (team.app_urls and team.app_urls[0])
+
+    if not app_url:
         return HttpResponse(status=404)
 
     request.user.temporary_token = secrets.token_urlsafe(32)
@@ -50,4 +52,4 @@ def redirect_to_site(request):
         'apiURL': request.build_absolute_uri('/')
     }))
 
-    return redirect("{}#state={}".format(team.app_url, state))
+    return redirect("{}#state={}".format(app_url, state))
