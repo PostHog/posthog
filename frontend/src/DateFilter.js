@@ -48,7 +48,7 @@ export default class DateFilter extends Component {
         return <Dropdown title={this.dateFilterToText(this.props.dateFrom, this.props.dateTo)} buttonClassName='btn btn-sm btn-light' buttonStyle={{margin: '0 8px'}}>
             {!dateRangeOpen ? <span>
                 {Object.entries(dateMapping).map(([key, value]) =>
-                    <a className='dropdown-item' href='#' onClick={e => this.setDate(e, value[0], value[1])}>{key}</a>
+                    <a className='dropdown-item' key={key} href='#' onClick={e => this.setDate(e, value[0], value[1])}>{key}</a>
                 )}
                 <a className='dropdown-item dropdown-no-close' href='#' onClick={e => { e.preventDefault(); this.setState({dateRangeOpen: true})}}>Date range</a>
             </span> : <div className='dropdown-no-close'>
