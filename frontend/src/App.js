@@ -79,7 +79,7 @@ export default class App extends React.Component {
                                 <SendEventsOverlay user={this.state.user} />
                                 {this.state.user.has_events && <div>
                                     <PrivateRoute path="/" exact component={Dashboard} user={this.state.user} />
-                                    <PrivateRoute path="/actions" exact component={Actions} user={this.state.user} />
+                                    <PrivateRoute path="/actions" exact component={Actions} user={this.state.user} onUpdateUser={(user) => this.setState({user})} />
                                     <PrivateRoute path="/trends" exact component={ActionsGraph} user={this.state.user} />
                                     <PrivateRoute path="/actions/live" component={ActionEvents} user={this.state.user} />
                                     <PrivateRoute path="/funnel" exact component={Funnels} user={this.state.user} />
