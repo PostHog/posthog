@@ -113,13 +113,12 @@ export function ChooseURLModal ({ actionId, appUrls, setAppUrls, dismissModal })
 
   return (
     <Modal
-      title={'Which site shall we open?'}
+      title={'On which domain do you want to create an action?'}
       footer={appUrls.length > 0 && <div style={{ flex: 1 }}><button className='btn btn-outline-secondary' style={{ flex: 1 }} onClick={addUrl}>+ Add Another URL</button></div>}
       onDismiss={dismissModal}
     >
       {appUrls.length === 0 ? (
         <div>
-          <label>What URL will you be using PostHog on?</label>
           <input value={newValue} onChange={e => setNewValue(e.target.value)} autoFocus style={{ maxWidth: 400 }} type="url" className='form-control' name='url' placeholder={defaultUrl} />
           <br />
           <button
