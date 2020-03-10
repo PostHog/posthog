@@ -1,149 +1,155 @@
 .funnel {
-    .funnel-success {
-        background-color: lighten( $blue, 20% );
+  .funnel-success {
+    background-color: lighten($blue, 20%);
+  }
+  .funnel-dropped {
+    background-color: $gray-200;
+  }
+  table {
+    table-layout: fixed;
+    border-top: 0;
+    margin-bottom: 0;
+    td {
+      padding: 0 0.75rem;
     }
-    .funnel-dropped {
-        background-color: $gray-200;
-    }
-    table {
-        table-layout: fixed;
-        border-top: 0;
-        margin-bottom: 0;
-        td { padding: 0 0.75rem }
-    }
+  }
 }
 
 .svg-funnel-js {
-	.svg-funnel-js__container {
-		width: 100%;
-		height: 100%;
-	}
+  .svg-funnel-js__container {
+    width: 100%;
+    height: 100%;
+  }
 
-	.svg-funnel-js__labels {
-		width: 100%;
-		box-sizing: border-box;
+  .svg-funnel-js__labels {
+    width: 100%;
+    box-sizing: border-box;
 
-		.svg-funnel-js__label {
-			flex: 1 1 0;
-			position: relative;
+    .svg-funnel-js__label {
+      flex: 1 1 0;
+      position: relative;
 
-			.label__value {
-                display: none;
-			}
+      .label__value {
+        display: none;
+      }
 
-			.label__title {
-                margin-top: 1rem;
-				font-size: 12px;
-                font-weight: 300;
-			}
+      .label__title {
+        margin-top: 1rem;
+        font-size: 12px;
+        font-weight: 300;
+      }
 
-			.label__percentage {
-				font-size: 16px;
-				font-weight: bold;
-			}
+      .label__percentage {
+        font-size: 16px;
+        font-weight: bold;
+      }
 
-			.label__segment-percentages {
-				position: absolute;
-				top: 50%;
-				transform: translateY(-50%);
-				width: 100%;
-				left: 0;
-				padding: 8px 24px;
-				box-sizing: border-box;
-				background-color: $percentage-hover;
-				margin-top: 24px;
-				opacity: 0;
-				transition: opacity 0.1s ease;
-				cursor: default;
+      .label__segment-percentages {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 100%;
+        left: 0;
+        padding: 8px 24px;
+        box-sizing: border-box;
+        background-color: $percentage-hover;
+        margin-top: 24px;
+        opacity: 0;
+        transition: opacity 0.1s ease;
+        cursor: default;
 
-				ul {
-					margin: 0;
-					padding: 0;
-					list-style-type: none;
+        ul {
+          margin: 0;
+          padding: 0;
+          list-style-type: none;
 
-					li {
-						font-size: 13px;
-						line-height: 16px;
-						color: $white;
-						margin: 18px 0;
+          li {
+            font-size: 13px;
+            line-height: 16px;
+            color: $white;
+            margin: 18px 0;
 
-						.percentage__list-label {
-							font-weight: bold;
-							color: $primary;
-						}
-					}
-				}
-			}
+            .percentage__list-label {
+              font-weight: bold;
+              color: $primary;
+            }
+          }
+        }
+      }
 
-			&:hover {
-				.label__segment-percentages {
-					opacity: 1;
-				}
-			}
-		}
-	}
-
-	&:not(.svg-funnel-js--vertical) {
-		padding-top: 64px;
-		padding-bottom: 16px;
-
-		.svg-funnel-js__label {
-			padding-left: 24px;
-
-			&:not(:first-child) {
-                border-left: 1px solid $gray-300;
-			}
-		}
-	}
-
-	&.svg-funnel-js--vertical {
-		padding-left: 120px;
-		padding-right: 16px;
-
-		.svg-funnel-js__label {
-			padding-top: 24px;
-
-			&:not(:first-child) {
-				border-top: 1px solid $secondary;
-			}
-
-			.label__segment-percentages {
-				margin-top: 0;
-				margin-left: 106px;
-				width: calc(100% - 106px);
-
-				.segment-percentage__list {
-					display: flex;
-					justify-content: space-around;
-				}
-			}
-		}
-	}
-
-	.svg-funnel-js__subLabels {
-		display: flex;
-		justify-content: center;
-		margin-top: 24px;
-		position: absolute;
-		width: 100%;
-		left: 0;
-
-		.svg-funnel-js__subLabel {
-			display: flex;
-			font-size: 12px;
-			color: $white;
-			line-height: 16px;
-
-			&:not(:first-child) {
-				margin-left: 16px;
-			}
-
-			.svg-funnel-js__subLabel--color {
-				width: 12px;
-				height: 12px;
-				border-radius: 50%;
-				margin: 2px 8px 2px 0;
-			}
-		}
+      &:hover {
+        .label__segment-percentages {
+          opacity: 1;
+        }
+      }
     }
+  }
+
+  &:not(.svg-funnel-js--vertical) {
+    padding-top: 64px;
+    padding-bottom: 16px;
+
+    .svg-funnel-js__label {
+      padding-left: 24px;
+
+      &:not(:first-child) {
+        border-left: 1px solid $gray-300;
+      }
+    }
+  }
+
+  &.svg-funnel-js--vertical {
+    padding-left: 120px;
+    padding-right: 16px;
+
+    .svg-funnel-js__label {
+      padding-top: 24px;
+
+      &:not(:first-child) {
+        border-top: 1px solid $secondary;
+      }
+
+      .label__segment-percentages {
+        margin-top: 0;
+        margin-left: 106px;
+        width: calc(100% - 106px);
+
+        .segment-percentage__list {
+          display: flex;
+          justify-content: space-around;
+        }
+      }
+    }
+  }
+
+  .svg-funnel-js__subLabels {
+    display: flex;
+    justify-content: center;
+    margin-top: 24px;
+    position: absolute;
+    width: 100%;
+    left: 0;
+
+    .svg-funnel-js__subLabel {
+      display: flex;
+      font-size: 12px;
+      color: $white;
+      line-height: 16px;
+
+      &:not(:first-child) {
+        margin-left: 16px;
+      }
+
+      .svg-funnel-js__subLabel--color {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin: 2px 8px 2px 0;
+      }
+    }
+  }
+}
+
+.card-funnel {
+  min-width: 250px;
 }
