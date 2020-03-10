@@ -1,5 +1,6 @@
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
+from django.conf import settings
 from posthog.models import Event
 
 import urllib.parse
@@ -29,7 +30,8 @@ def user(request):
             'api_token': team.api_token,
             'signup_token': team.signup_token,
             'opt_out_capture': team.opt_out_capture
-        }
+        },
+        'posthog_version': settings.VERSION
     })
 
 def redirect_to_site(request):
