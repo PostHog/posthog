@@ -1,6 +1,7 @@
 import React, { Component } from 'react'
 import api from './Api';
 import { JSSnippet } from './utils';
+import InviteTeam from './InviteTeam';
 
 class OptOutCapture extends Component {
     constructor(props) {
@@ -93,24 +94,17 @@ export default class Setup extends Component {
                 <br /><br />
                 <h2>Integrate PostHog</h2>
                 To integrate PostHog, copy + paste the following snippet to your website. Ideally, put it just above the <pre style={{display: 'inline'}}>&lt;/head&gt;</pre> tag.
+                <a href='https://github.com/PostHog/posthog/wiki/JS-integration'>See docs for instructions on how to identify users.</a><br /><br />
                 <JSSnippet user={this.props.user} />
+                <a href='https://github.com/PostHog/posthog/wiki/Integrations'>Using Python/Ruby/Node/Go/PHP instead?</a><br /><br />
                 <br /><br />
-                <h2>Identifying users</h2>
-                <p>To be able to link back which users made certain actions, you can pass through your own internal ID. Replace <pre style={{display: 'inline'}}>internal_id</pre> with your users' ID in your system.</p>
-                <p>You only have to do this once per page.</p>
-                <pre className='code'>
-                    posthog.identify(internal_id);
-                </pre>
+                <h2>Invite your team</h2>
+                <div className='row'>
+                    <div className='col-lg-6'>
+                        <InviteTeam user={this.props.user} />
+                    </div>
+                </div>
 
-                <br /><br />
-                <h2>Pass user info</h2>
-                <p>To be able to more easily see which user did certain actions, you can pass through properties from your user, like their email or full name.</p>
-                <p>You could do this on each page load, or whenever a user updates their information (after account creation or on a profile update for example).</p>
-                <pre className='code'>
-                    {`posthog.people.set({`}<br />
-                    {`    "email": user.email`}<br />
-                    {`})`}
-                </pre>
                 <br /><br />
                 <h2>Opt out of capturing</h2>
                 <OptOutCapture user={this.props.user} />

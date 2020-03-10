@@ -1,37 +1,13 @@
 import React, { Component } from 'react'
 import { NavLink } from 'react-router-dom';
 import { withRouter } from 'react-router-dom';
+import InviteTeam from './InviteTeam';
 import Modal from './Modal';
-import { toast } from 'react-toastify';
 
 class Sidebar extends Component {
     constructor(props) {
         super(props)
         this.state = {}
-        this.InviteTeamModal = this.InviteTeamModal.bind(this);
-        this.urlRef = React.createRef();
-    }
-    copyToClipboard() {
-        this.urlRef.current.focus();
-        this.urlRef.current.select();
-        document.execCommand('copy');
-        this.urlRef.current.blur();
-        toast('Link copied!');
-    }
-    InviteTeamModal() {
-        let url = window.location.origin == 'https://app.posthog.com' ? 'https://t.posthog.com' : window.location.origin;
-        return <Modal onDismiss={() => this.setState({inviteModalOpen: false})} hideFooter={true}>
-            <br />
-            Send your team the following URL:
-            <br /><br />
-            <div className='input-group'>
-                <input type="text" ref={this.urlRef} className='form-control' value={url + "/signup/" + this.props.user.team.signup_token}/>
-                <div className="input-group-append">
-                    <button className='btn btn-outline-secondary' type="button" onClick={this.copyToClipboard.bind(this)}>Copy to clipboard</button>
-                </div>
-            </div>
-            <br />
-        </Modal>
     }
     render() {
         let matches = (path) => this.props.history.location.pathname.indexOf(path) > -1
@@ -64,7 +40,9 @@ class Sidebar extends Component {
             <div className='col-sm-3 col-md-2 invite-team'>
                 <button className='secondary' onClick={() => this.setState({inviteModalOpen: true})}>Invite your team</button>
             </div>
-            {this.state.inviteModalOpen && <this.InviteTeamModal />}
+            {this.state.inviteModalOpen && <Modal onDismiss={() => this.setState({inviteModalOpen: false})} hideFooter={true}>
+                <InviteTeam user={this.props.user} />
+            </Modal>}
         </div>
     }
 }
