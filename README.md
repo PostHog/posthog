@@ -97,13 +97,17 @@ This repo is entirely [MIT licensed](/LICENSE). We charge for things like teams,
 ## Contributors 🦸
 
 [//]: contributor-faces
-
 <a href="https://github.com/ellmh"><img src="https://avatars1.githubusercontent.com/u/53315310?v=4" title="ellmh" width="80" height="80"></a>
-<a href="https://github.com/mrkurt"><img src="https://avatars1.githubusercontent.com/u/7724?v=4" title="mrkurt" width="80" height="80"></a>
-<a href="https://github.com/rberrelleza"><img src="https://avatars0.githubusercontent.com/u/475313?v=4" title="rberrelleza" width="80" height="80"></a>
-<a href="https://github.com/mariusandra"><img src="https://avatars0.githubusercontent.com/u/53387?v=4" title="mariusandra" width="80" height="80"></a>
 <a href="https://github.com/timgl"><img src="https://avatars1.githubusercontent.com/u/1727427?v=4" title="timgl" width="80" height="80"></a>
 <a href="https://github.com/jamesefhawkins"><img src="https://avatars3.githubusercontent.com/u/47497682?v=4" title="jamesefhawkins" width="80" height="80"></a>
+<a href="https://github.com/mariusandra"><img src="https://avatars2.githubusercontent.com/u/53387?v=4" title="mariusandra" width="80" height="80"></a>
+<a href="https://github.com/iMerica"><img src="https://avatars3.githubusercontent.com/u/487897?v=4" title="iMerica" width="80" height="80"></a>
+<a href="https://github.com/frankcash"><img src="https://avatars1.githubusercontent.com/u/6012231?v=4" title="frankcash" width="80" height="80"></a>
 <a href="https://github.com/Tannergoods"><img src="https://avatars1.githubusercontent.com/u/60791437?v=4" title="Tannergoods" width="80" height="80"></a>
-
-[//]: contributor-faces
+<a href="https://github.com/budnik"><img src="https://avatars0.githubusercontent.com/u/1160699?v=4" title="budnik" width="80" height="80"></a>
+<a href="https://github.com/tirkarthi"><img src="https://avatars3.githubusercontent.com/u/3972343?v=4" title="tirkarthi" width="80" height="80"></a>
+<a href="https://github.com/mrkurt"><img src="https://avatars1.githubusercontent.com/u/7724?v=4" title="mrkurt" width="80" height="80"></a>
+<a href="https://github.com/J0"><img src="https://avatars0.githubusercontent.com/u/8011761?v=4" title="J0" width="80" height="80"></a>
+<a href="https://github.com/pedroapfilho"><img src="https://avatars2.githubusercontent.com/u/13142568?v=4" title="pedroapfilho" width="80" height="80"></a>
+<a href="https://github.com/rberrelleza"><img src="https://avatars0.githubusercontent.com/u/475313?v=4" title="rberrelleza" width="80" height="80"></a>
+<a href="https://github.com/sanketsaurav"><img src="https://avatars2.githubusercontent.com/u/881122?v=4" title="sanketsaurav" width="80" height="80"></a>
