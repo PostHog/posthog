@@ -1,5 +1,5 @@
 import React from "react";
-import { kea, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { BrowserRouter as Router, Route } from "react-router-dom";
 import { ToastContainer, Slide } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -22,39 +22,7 @@ import Dashboard from "./Dashboard";
 import SendEventsOverlay from "./SendEventsOverlay";
 import Paths from "./Paths";
 import Cohorts from "./Cohorts";
-
-export const appLogic = kea({
-    actions: () => ({
-        loadUser: true,
-        setUser: user => ({ user })
-    }),
-
-    reducers: ({ actions }) => ({
-        user: [null, {
-            [actions.setUser]: (_, payload) => payload.user
-        }]
-    }),
-
-    events: ({ actions }) => ({
-       afterMount: actions.loadUser
-    }),
-
-    listeners: ({ actions }) => ({
-        [actions.loadUser]: async () => {
-            try {
-                const user = await api.get('api/user')
-                actions.setUser(user)
-
-                if (user && user.id) {
-                    window.Sentry && window.Sentry.setUser({ email: user.email, id: user.id });
-                    window.posthog && window.posthog.identify(user.distinct_id);
-                }
-            } catch (error) {
-                actions.setUser(null)
-            }
-        }
-    })
-})
+import { userLogic } from './userLogic'
 
 function PrivateRoute ({ component: Component, ...props }) {
     return (
@@ -70,8 +38,8 @@ function PrivateRoute ({ component: Component, ...props }) {
 }
 
 export default function App () {
-    const { user } = useValues(appLogic)
-    const { setUser } = useActions(appLogic)
+    const { user } = useValues(userLogic)
+    const { setUser } = useActions(userLogic)
 
     if (!user) {
         return null
@@ -88,13 +56,13 @@ export default function App () {
                             <SendEventsOverlay user={user} />
                             {user.has_events && <div>
                                 <PrivateRoute path="/" exact component={Dashboard} user={user} />
-                                <PrivateRoute path="/actions" exact component={Actions} user={user} onUpdateUser={user => setUser({ ...user })} />
+                                <PrivateRoute path="/actions" exact component={Actions} user={user} onUpdateUser={setUser} />
                                 <PrivateRoute path="/trends" exact component={ActionsGraph} user={user} />
                                 <PrivateRoute path="/actions/live" component={ActionEvents} user={user} />
                                 <PrivateRoute path="/funnel" exact component={Funnels} user={user} />
                                 <PrivateRoute path="/paths" component={Paths} user={user} />
                             </div>}
-                            <PrivateRoute path="/setup" component={Setup} user={user} onUpdateUser={user => setUser({ ...user })} />
+                            <PrivateRoute path="/setup" component={Setup} user={user} onUpdateUser={setUser} />
                             <PrivateRoute path="/events" component={Events} user={user} />
                             <PrivateRoute exact path="/person_by_id/:id" component={Person} user={user} />
                             <PrivateRoute exact path="/person/:distinct_id" component={Person} user={user} />
