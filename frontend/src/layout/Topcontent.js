@@ -1,6 +1,6 @@
 import React, { Component } from 'react'
 import api from './../lib/api';
-import Modal from '../lib/components/Modal';
+import { Modal } from '../lib/components/Modal';
 
 function ChangelogModal(props) {
     return <Modal onDismiss={props.onDismiss}>
