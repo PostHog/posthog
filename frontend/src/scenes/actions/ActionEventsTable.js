@@ -153,7 +153,7 @@ export class ActionEventsTable extends Component {
                                                 action.event.distinct_id
                                             }
                                         >
-                                            {action.event.distinct_id}
+                                            {action.event.person}
                                         </Link>
                                     </td>
                                     {params.map(param => (

@@ -174,9 +174,9 @@ class EventManager(models.QuerySet):
             return {}
         return {'event': action_step.event}
 
-    def add_person(self):
+    def add_person_id(self, action):
         return self.annotate(person_id=Subquery(
-            PersonDistinctId.objects.filter(distinct_id=OuterRef('distinct_id')).order_by().values('person_id')[:1]
+            PersonDistinctId.objects.filter(team_id=action.team_id, distinct_id=OuterRef('distinct_id')).order_by().values('person_id')[:1]
         ))
 
     def filter_by_action(self, action) -> models.QuerySet:
@@ -190,7 +190,7 @@ class EventManager(models.QuerySet):
             )
         events = self\
             .filter(team_id=action.team_id)\
-            .add_person()\
+            .add_person_id(action)\
             .filter(any_step)\
             .order_by('-id')
         return events
