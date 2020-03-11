@@ -1,9 +1,8 @@
 import React, { Component } from 'react';
-import { EventsTable } from '../events/Events';
+import { EventsTable } from '../events/EventsTable';
 import { ActionEdit } from './ActionEdit';
 
-
-export default class Action extends Component {
+export class Action extends Component {
     constructor(props) {
         super(props)
 

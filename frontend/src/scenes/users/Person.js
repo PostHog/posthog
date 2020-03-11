@@ -1,8 +1,8 @@
 import React, { Component } from 'react'
-import { EventsTable } from './Events';
-import api from './Api';
+import { EventsTable } from '../events/EventsTable'
+import api from '../../lib/api';
 
-export default class Person extends Component {
+export class Person extends Component {
     constructor(props) {
         super(props)
 

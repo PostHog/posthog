@@ -3,7 +3,7 @@ import api from '../../lib/api'
 import { Loading, toParams } from '../../lib/utils'
 import PropTypes from 'prop-types'
 
-export default class ActionsTable extends Component {
+export class ActionsTable extends Component {
   constructor(props) {
     super(props)
 

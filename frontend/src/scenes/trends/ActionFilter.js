@@ -1,9 +1,9 @@
 import React, { Component } from 'react';
 import { CloseButton, selectStyle, Card } from '../../lib/utils';
 import { Dropdown } from "../../lib/components/Dropdown";
-import ActionSelectBox from './ActionSelectBox'
+import { ActionSelectBox } from './ActionSelectBox'
 
-export default class ActionFilter extends Component {
+export class ActionFilter extends Component {
     constructor(props) {
         super(props);
         this.state = {

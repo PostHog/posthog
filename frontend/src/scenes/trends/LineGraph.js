@@ -7,7 +7,7 @@ import PropTypes from 'prop-types';
 Chart.defaults.global.legend.display = false;
 //--Chart Style Options--//
 
-export default class LineGraph extends Component {
+export class LineGraph extends Component {
     chartRef = React.createRef();
 
     componentDidMount() {
@@ -51,11 +51,11 @@ export default class LineGraph extends Component {
                     mode: 'nearest',
                     bodySpacing: 5,
                     yPadding: 10,
-                    xPadding: 10, 
+                    xPadding: 10,
                     caretPadding: 0,
                     displayColors: false,
                     backgroundColor: '#1dc9b7',
-                    titleFontColor: '#ffffff', 
+                    titleFontColor: '#ffffff',
                     labelFontSize: 23,
                     cornerRadius: 4,
                     fontSize: 16,
@@ -76,7 +76,7 @@ export default class LineGraph extends Component {
                         display: true,
                         gridLines: { lineWidth: 0 },
                         ticks: {autoSkip: true},
-            
+
                     }],
                     yAxes: [{
                         display: true,

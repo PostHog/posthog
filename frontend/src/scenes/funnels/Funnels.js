@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { DeleteWithUndo } from '../../lib/utils';
 
-export default class Funnels extends Component {
+export class Funnels extends Component {
     constructor(props) {
         super(props)
 

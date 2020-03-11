@@ -1,8 +1,8 @@
 import React, { Component } from 'react'
 import { NavLink } from 'react-router-dom';
 import { withRouter } from 'react-router-dom';
-import InviteTeam from '../lib/components/InviteTeam';
-import Modal from '../lib/components/Modal';
+import { InviteTeam } from '../lib/components/InviteTeam';
+import { Modal } from '../lib/components/Modal';
 
 class Sidebar extends Component {
     constructor(props) {

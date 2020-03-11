@@ -1,10 +1,10 @@
 import React, { Component } from 'react'
 import api from '../api';
-import Modal from './Modal';
+import { Modal } from './Modal';
 import { toast } from 'react-toastify';
 import { Link } from 'react-router-dom';
 
-export default class SaveToDashboard extends Component {
+export class SaveToDashboard extends Component {
     constructor(props) {
         super(props)
 

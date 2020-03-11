@@ -1,10 +1,10 @@
 import React, { Component } from 'react'
 import Select, { components } from 'react-select'
-import ActionSelectInfo from './ActionSelectInfo'
+import { ActionSelectInfo } from './ActionSelectInfo'
 import { selectStyle } from '../../lib/utils'
 import PropTypes from 'prop-types'
 
-export default class ActionSelectBox extends Component {
+export class ActionSelectBox extends Component {
   constructor(props) {
     super(props)
     this.state = {}

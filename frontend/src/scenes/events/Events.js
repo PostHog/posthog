@@ -1,6 +1,6 @@
 import React from 'react';
-import EventsTable from './EventsTable'
+import { EventsTable } from './EventsTable'
 
-export default function Events (props) {
+export function Events (props) {
     return <EventsTable {...props} />
 }

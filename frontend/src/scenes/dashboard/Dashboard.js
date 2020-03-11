@@ -1,12 +1,14 @@
 import React, { Component } from 'react'
 import api from '../../lib/api';
-import { ActionsLineGraph, ActionsTable, ActionsPie } from '../trends/ActionsGraph';
 import { Link } from 'react-router-dom';
 import { toParams, DeleteWithUndo } from '../../lib/utils';
-import { FunnelViz } from '../funnels/Funnel';
+import { FunnelViz } from '../funnels/FunnelViz'
+import { ActionsLineGraph } from '../trends/ActionsLineGraph'
+import { ActionsTable }  from '../trends/ActionsTable'
+import { ActionsPie }  from '../trends/ActionsPie'
 import { Dropdown } from '../../lib/components/Dropdown';
 
-export default class Dashboard extends Component {
+export class Dashboard extends Component {
     constructor(props) {
         super(props)
 

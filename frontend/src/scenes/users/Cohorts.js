@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { DeleteWithUndo, Loading } from '../../lib/utils';
 import api from "../../lib/api";
 
-export default class Cohorts extends Component {
+export class Cohorts extends Component {
     constructor(props) {
         super(props)
 

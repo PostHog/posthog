@@ -16,8 +16,10 @@ let dateMapping = {
     'Year to date': ['yStart'],
     'All time': ['all'],
 }
+
 let isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/;
-export default class DateFilter extends Component {
+
+export class DateFilter extends Component {
     static propTypes = {
         onChange: PropTypes.func.isRequired
     }
