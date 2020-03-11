@@ -5,7 +5,7 @@ import { ChooseURLModal } from './ChooseURLModal'
 import { appEditorUrl } from './utils'
 import { userLogic } from '../../../scenes/userLogic'
 
-export function AppEditorLink ({ actionId, style, className, children }) {
+export function AppEditorLink({ actionId, style, className, children }) {
     const [modalOpen, setModalOpen] = useState(false)
     const { user } = useValues(userLogic)
     const appUrls = user.team.app_urls
@@ -16,11 +16,19 @@ export function AppEditorLink ({ actionId, style, className, children }) {
                 href={appEditorUrl(actionId, appUrls && appUrls[0])}
                 style={style}
                 className={className}
-                onClick={e => { e.preventDefault(); setModalOpen(true) }}
+                onClick={e => {
+                    e.preventDefault()
+                    setModalOpen(true)
+                }}
             >
                 {children}
             </a>
-            {modalOpen && <ChooseURLModal actionId={actionId} dismissModal={() => setModalOpen(false)} />}
+            {modalOpen && (
+                <ChooseURLModal
+                    actionId={actionId}
+                    dismissModal={() => setModalOpen(false)}
+                />
+            )}
         </>
     )
 }
