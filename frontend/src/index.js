@@ -4,7 +4,7 @@ import { Provider } from 'react-redux';
 import { resetContext, getContext } from 'kea';
 import listenersPlugin from 'kea-listeners'
 
-import App from "./App";
+import App from "./scenes/App";
 
 resetContext({
   createStore: {

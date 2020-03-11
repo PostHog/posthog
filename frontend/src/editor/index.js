@@ -2,7 +2,7 @@ import React, { Component } from "react";
 import ReactDOM from "react-dom";
 import Simmer from 'simmerjs';
 import root from 'react-shadow';
-import { ActionEdit } from "../ActionEdit";
+import { ActionEdit } from "../scenes/actions/ActionEdit";
 import Draggable from 'react-draggable';
 
 window.simmer = new Simmer(window, {depth: 8});
