@@ -1,6 +1,10 @@
-.filter-action-only { display: none }
+.filter-action-only {
+    display: none;
+}
 .filter-action:hover {
-    .filter-action-only { display: inline }
+    .filter-action-only {
+        display: inline;
+    }
 }
 .graph-container {
     position: absolute;
