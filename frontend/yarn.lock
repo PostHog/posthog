@@ -3459,6 +3459,16 @@ json5@^2.1.0:
   dependencies:
     minimist "^1.2.0"
 
+kea-listeners@^0.2.2:
+  version "0.2.2"
+  resolved "https://registry.yarnpkg.com/kea-listeners/-/kea-listeners-0.2.2.tgz#25e2a8fe0d7177d47368379ff868feda96fd62be"
+  integrity sha512-+V/ZfUrkeMDQVLlqghIiOhYY9+Djeaea+avpqqi6qzJTi1NHHHzBsHQN4TEgzvvy4q5ooJJrqTQntfh9Lwt6cA==
+
+kea@^1.0.1:
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-1.0.1.tgz#13b264760a8079a7c4c11930db83fd55fae6118c"
+  integrity sha512-TbAHTYSD+v3jd4IjUMuKvPeOzwUApQCPd0dDFa9eCo7QeZYkrtsai587WX8ANiMErToYFG8UaSJseRYxwEJ6og==
+
 kind-of@^3.0.2, kind-of@^3.0.3, kind-of@^3.2.0:
   version "3.2.2"
   resolved "https://registry.yarnpkg.com/kind-of/-/kind-of-3.2.2.tgz#31ea21a734bab9bbb0f32466d893aea51e4a3c64"
@@ -4957,6 +4967,17 @@ react-redux@^7.1.1:
     prop-types "^15.7.2"
     react-is "^16.9.0"
 
+react-redux@^7.2.0:
+  version "7.2.0"
+  resolved "https://registry.yarnpkg.com/react-redux/-/react-redux-7.2.0.tgz#f970f62192b3981642fec46fd0db18a074fe879d"
+  integrity sha512-EvCAZYGfOLqwV7gh849xy9/pt55rJXPwmYvI4lilPM5rUT/1NxuuN59ipdBksRVSvz0KInbPnp4IfoXJXCqiDA==
+  dependencies:
+    "@babel/runtime" "^7.5.5"
+    hoist-non-react-statics "^3.3.0"
+    loose-envify "^1.4.0"
+    prop-types "^15.7.2"
+    react-is "^16.9.0"
+
 react-router-dom@^5.1.0:
   version "5.1.2"
   resolved "https://registry.yarnpkg.com/react-router-dom/-/react-router-dom-5.1.2.tgz#06701b834352f44d37fbb6311f870f84c76b9c18"
@@ -5107,7 +5128,7 @@ reduce-function-call@^1.0.1:
   dependencies:
     balanced-match "^1.0.0"
 
-redux@^4.0.4:
+redux@^4.0.4, redux@^4.0.5:
   version "4.0.5"
   resolved "https://registry.yarnpkg.com/redux/-/redux-4.0.5.tgz#4db5de5816e17891de8a80c424232d06f051d93f"
   integrity sha512-VSz1uMAH24DM6MF72vcojpYPtrTUu3ByVWfPL1nPfVRb5mZVTve5GnNCUV53QM/BZ66xfWrm0CTWoM+Xlz8V1w==
@@ -5198,6 +5219,11 @@ repeat-string@^1.6.1:
   version "1.6.1"
   resolved "https://registry.yarnpkg.com/repeat-string/-/repeat-string-1.6.1.tgz#8dcae470e1c88abc2d600fff4a776286da75e637"
   integrity sha1-jcrkcOHIirwtYA//Sndihtp15jc=
+
+reselect@^4.0.0:
+  version "4.0.0"
+  resolved "https://registry.yarnpkg.com/reselect/-/reselect-4.0.0.tgz#f2529830e5d3d0e021408b246a206ef4ea4437f7"
+  integrity sha512-qUgANli03jjAyGlnbYVAV5vvnOmJnODyABz51RdBN7M4WaVu8mecZWgyQNkG8Yqe3KRGRt0l4K4B3XVEULC4CA==
 
 resolve-from@^3.0.0:
   version "3.0.0"
