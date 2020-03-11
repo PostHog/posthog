@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { Modal } from '../Modal';
+import { Modal } from '../Modal'
 import api from '../../api'
 import { userLogic } from '../../../scenes/userLogic'
 import { UrlRow } from './UrlRow'
 import { appEditorUrl, defaultUrl } from './utils'
 
-export function ChooseURLModal ({ actionId, dismissModal }) {
+export function ChooseURLModal({ actionId, dismissModal }) {
     const { user } = useValues(userLogic)
     const { setUser, loadUser, userUpdateRequest } = useActions(userLogic)
     const appUrls = user.team.app_urls
@@ -21,10 +21,14 @@ export function ChooseURLModal ({ actionId, dismissModal }) {
         loadUser()
     }, []) // run just once
 
-    function saveUrl ({ index, value, callback }) {
-        const newUrls = typeof index === 'undefined' ? appUrls.concat([value]) : appUrls.map((url, i) => i === index ? value : url)
+    function saveUrl({ index, value, callback }) {
+        const newUrls =
+            typeof index === 'undefined'
+                ? appUrls.concat([value])
+                : appUrls.map((url, i) => (i === index ? value : url))
 
-        const willRedirect = appUrls.length === 0 && typeof index === 'undefined'
+        const willRedirect =
+            appUrls.length === 0 && typeof index === 'undefined'
 
         api.update('api/user', { team: { app_urls: newUrls } }).then(user => {
             callback(newUrls)
@@ -41,7 +45,7 @@ export function ChooseURLModal ({ actionId, dismissModal }) {
         })
     }
 
-    function deleteUrl ({ index }) {
+    function deleteUrl({ index }) {
         const newUrls = appUrls.filter((v, i) => i !== index)
         userUpdateRequest({ team: { app_urls: newUrls } })
     }
@@ -49,16 +53,48 @@ export function ChooseURLModal ({ actionId, dismissModal }) {
     return (
         <Modal
             title={'On which domain do you want to create an action?'}
-            footer={appUrls.length > 0 && !addingNew && <div style={{ flex: 1 }}><button className='btn btn-outline-secondary' style={{ flex: 1 }} onClick={() => setAddingNew(true)}>+ Add Another URL</button></div>}
+            footer={
+                appUrls.length > 0 &&
+                !addingNew && (
+                    <div style={{ flex: 1 }}>
+                        <button
+                            className="btn btn-outline-secondary"
+                            style={{ flex: 1 }}
+                            onClick={() => setAddingNew(true)}
+                        >
+                            + Add Another URL
+                        </button>
+                    </div>
+                )
+            }
             onDismiss={dismissModal}
         >
             {appUrls.length === 0 ? (
                 <div>
-                    <input value={newValue} onChange={e => setNewValue(e.target.value)} autoFocus style={{ maxWidth: 400 }} type="url" className='form-control' name='url' placeholder={defaultUrl} />
+                    <input
+                        value={newValue}
+                        onChange={e => setNewValue(e.target.value)}
+                        autoFocus
+                        style={{ maxWidth: 400 }}
+                        type="url"
+                        className="form-control"
+                        name="url"
+                        placeholder={defaultUrl}
+                    />
                     <br />
                     <button
-                        onClick={() => saveUrl({ value: newValue, callback: () => { window.location.href = appEditorUrl(actionId, newValue) } })}
-                        className='btn btn-success'
+                        onClick={() =>
+                            saveUrl({
+                                value: newValue,
+                                callback: () => {
+                                    window.location.href = appEditorUrl(
+                                        actionId,
+                                        newValue
+                                    )
+                                },
+                            })
+                        }
+                        className="btn btn-success"
                         type="button"
                     >
                         Save URL & go
@@ -71,7 +107,9 @@ export function ChooseURLModal ({ actionId, dismissModal }) {
                             key={`${index},${url}`}
                             actionId={actionId}
                             url={url}
-                            saveUrl={(value, callback) => saveUrl({ index, value, callback })}
+                            saveUrl={(value, callback) =>
+                                saveUrl({ index, value, callback })
+                            }
                             deleteUrl={() => deleteUrl({ index })}
                         />
                     ))}
@@ -79,7 +117,9 @@ export function ChooseURLModal ({ actionId, dismissModal }) {
                         <UrlRow
                             actionId={actionId}
                             url={defaultUrl}
-                            saveUrl={(value, callback) => saveUrl({ value, callback })}
+                            saveUrl={(value, callback) =>
+                                saveUrl({ value, callback })
+                            }
                             deleteUrl={() => setAddingNew(false)}
                         />
                     ) : null}
