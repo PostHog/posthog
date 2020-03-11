@@ -6,7 +6,8 @@
     "start": "parcel watch index.html layout.html style.scss",
     "build": "parcel build index.html layout.html style.scss src/editor/index.js && mv dist/src/editor/index.js dist/editor.js",
     "start-editor": "parcel watch src/editor/index.js --out-file dist/editor.js",
-    "build-editor": "parcel build src/editor/index.js --out-file dist/editor.js"
+    "build-editor": "parcel build src/editor/index.js --out-file dist/editor.js",
+    "prettier": "prettier --write \"./src/**/*.js\""
   },
   "license": "MIT",
   "dependencies": {
