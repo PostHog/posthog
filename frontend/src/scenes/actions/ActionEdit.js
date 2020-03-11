@@ -120,8 +120,6 @@ export class ActionEdit extends Component {
                     className={isEditor ? '' : 'card-body'}
                     onSubmit={e => e.preventDefault()}
                 >
-                    {!isEditor && <label>Action name</label>}
-
                     <input
                         autoFocus
                         required

@@ -202,8 +202,6 @@ export class ActionStep extends Component {
         let { step, isEditor } = this.props
         return (
             <div>
-                <label>Action type</label>
-                <br />
                 <div className="btn-group">
                     <button
                         type="button"
@@ -217,7 +215,7 @@ export class ActionStep extends Component {
                                 : 'btn-light')
                         }
                     >
-                        Match element
+                        Frontend element
                     </button>
                     <button
                         type="button"
@@ -231,7 +229,7 @@ export class ActionStep extends Component {
                                 : 'btn-light')
                         }
                     >
-                        Match event
+                        Custom event
                     </button>
                     <button
                         type="button"
@@ -278,11 +276,10 @@ export class ActionStep extends Component {
             </div>
         )
     }
-    AutocaptureFields() {
-        let { step, actionId, isEditor } = this.props
-        return (
-            <div>
-                {!isEditor && (
+    AutocaptureFields({ step, isEditor, actionId }) {
+        if (!isEditor)
+            return (
+                <span>
                     <AppEditorLink
                         actionId={actionId}
                         style={{ margin: '1rem 0' }}
@@ -291,26 +288,40 @@ export class ActionStep extends Component {
                         Select element on site{' '}
                         <i className="fi flaticon-export" />
                     </AppEditorLink>
-                )}
-                {(!isEditor || step.href) && (
-                    <this.Option
-                        item="href"
-                        label="Link href"
-                        selector={
-                            this.state.element &&
-                            'a[href="' +
-                                this.state.element.getAttribute('href') +
-                                '"]'
-                        }
-                    />
-                )}
-                {(!isEditor || step.text) && (
-                    <this.Option item="text" label="Text" />
-                )}
+                    <br />
+                    <a
+                        href="https://github.com/PostHog/posthog/wiki/Actions"
+                        target="_blank"
+                    >
+                        See documentation
+                    </a>{' '}
+                    on how to set up actions.
+                </span>
+            )
+        return (
+            <div>
+                <this.Option
+                    item="href"
+                    label="Link href"
+                    selector={
+                        this.state.element &&
+                        'a[href="' +
+                            this.state.element.getAttribute('href') +
+                            '"]'
+                    }
+                />
+                <this.Option item="text" label="Text" />
                 <this.Option
                     item="selector"
                     label="Selector"
                     selector={step.selector}
+                />
+                <this.Option
+                    item="url"
+                    extra_options={
+                        <this.URLMatching step={step} isEditor={isEditor} />
+                    }
+                    label="URL"
                 />
             </div>
         )
@@ -353,7 +364,7 @@ export class ActionStep extends Component {
         )
     }
     render() {
-        let { step, isEditor } = this.props
+        let { step, isEditor, actionId } = this.props
 
         return (
             <div
@@ -400,11 +411,15 @@ export class ActionStep extends Component {
                                 Inspect element
                             </button>
                         )}
+
                         {step.event === '$autocapture' && (
-                            <this.AutocaptureFields />
+                            <this.AutocaptureFields
+                                step={step}
+                                isEditor={isEditor}
+                                actionId={actionId}
+                            />
                         )}
-                        {(step.event === '$autocapture' ||
-                            step.event === '$pageview') && (
+                        {step.event === '$pageview' && (
                             <this.Option
                                 item="url"
                                 extra_options={
