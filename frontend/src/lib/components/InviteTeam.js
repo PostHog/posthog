@@ -1,8 +1,7 @@
 import React, { Component } from 'react'
 import { toast } from 'react-toastify';
 
-export default class InviteTeam extends Component {
-
+export class InviteTeam extends Component {
     urlRef = React.createRef()
     copyToClipboard = () => {
         this.urlRef.current.focus();

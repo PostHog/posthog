@@ -1,13 +1,13 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { JSSnippet } from '../../lib/utils';
-import InviteTeam from '../../lib/components/InviteTeam';
-import OptOutCapture from './OptOutCapture'
+import { InviteTeam } from '../../lib/components/InviteTeam';
+import { OptOutCapture } from './OptOutCapture'
+import { SetupAppUrls } from './SetupAppUrls'
 
 import { userLogic } from '../userLogic'
-import SetupAppUrls from './SetupAppUrls'
 
-export default function Setup () {
+export function Setup () {
     const { user } = useValues(userLogic)
 
     return (

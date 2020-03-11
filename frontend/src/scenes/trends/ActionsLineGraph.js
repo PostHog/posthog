@@ -1,10 +1,10 @@
 import React, { Component } from 'react'
 import api from '../../lib/api'
 import { Loading, toParams } from '../../lib/utils'
-import LineGraph from './LineGraph'
+import { LineGraph } from './LineGraph'
 import PropTypes from 'prop-types'
 
-export default class ActionsLineGraph extends Component {
+export class ActionsLineGraph extends Component {
   constructor(props) {
     super(props)
     this.state = {}

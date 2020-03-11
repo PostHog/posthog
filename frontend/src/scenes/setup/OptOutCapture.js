@@ -1,9 +1,9 @@
-import { useValues } from 'kea'
-import { userLogic } from '../userLogic'
 import React, { useState } from 'react'
+import { useValues } from 'kea'
 import api from '../../lib/api'
+import { userLogic } from '../userLogic'
 
-export default function OptOutCapture () {
+export function OptOutCapture () {
   const { user } = useValues(userLogic)
   const [saved, setSaved] = useState(false)
 

@@ -42,7 +42,7 @@ const appUrlsLogic = kea({
   })
 })
 
-export default function SetupAppUrls () {
+export function SetupAppUrls () {
   const { appUrls, isSaved } = useValues(appUrlsLogic)
   const { addUrl, removeUrl, updateUrl, saveAppUrls } = useActions(appUrlsLogic)
 

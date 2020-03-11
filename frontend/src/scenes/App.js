@@ -4,22 +4,23 @@ import { BrowserRouter as Router, Route } from "react-router-dom";
 import { ToastContainer, Slide } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import "react-datepicker/dist/react-datepicker.css";
-import Events from "./events/Events";
-import Person from "./users/Person";
+import { Events } from "./events/Events";
+import { Person } from "./users/Person";
 import Sidebar from "../layout/Sidebar";
-import People from "./users/People";
-import Actions from "./actions/Actions";
-import Action from "./actions/Action";
-import Topcontent from "../layout/Topcontent";
-import Funnel, { EditFunnel } from "./funnels/Funnel";
-import Funnels from "./funnels/Funnels";
-import ActionEvents from "./actions/ActionEvents";
-import Setup from "./setup/Setup";
-import ActionsGraph from "./trends/ActionsGraph";
-import Dashboard from "./dashboard/Dashboard";
+import { People } from "./users/People";
+import { Actions } from "./actions/Actions";
+import { Action } from "./actions/Action";
+import { Topcontent } from "../layout/Topcontent";
+import { Funnel } from "./funnels/Funnel";
+import { EditFunnel } from "./funnels/EditFunnel";
+import { Funnels } from "./funnels/Funnels";
+import { ActionEvents } from "./actions/ActionEvents";
+import { Setup } from "./setup/Setup";
+import { ActionsGraph } from "./trends/ActionsGraph";
+import { Dashboard } from "./dashboard/Dashboard";
 import SendEventsOverlay from "../layout/SendEventsOverlay";
-import Paths from "./paths/Paths";
-import Cohorts from "./users/Cohorts";
+import { Paths } from "./paths/Paths";
+import { Cohorts } from "./users/Cohorts";
 import { userLogic } from './userLogic'
 
 function PrivateRoute ({ component: Component, ...props }) {
@@ -51,14 +52,16 @@ export default function App () {
                         <Topcontent user={user} />
                         <div style={{marginTop: '3rem'}}>
                             <SendEventsOverlay user={user} />
-                            {user.has_events && <div>
-                                <PrivateRoute path="/" exact component={Dashboard} user={user} />
-                                <PrivateRoute path="/actions" exact component={Actions} user={user} />
-                                <PrivateRoute path="/trends" exact component={ActionsGraph} user={user} />
-                                <PrivateRoute path="/actions/live" component={ActionEvents} user={user} />
-                                <PrivateRoute path="/funnel" exact component={Funnels} user={user} />
-                                <PrivateRoute path="/paths" component={Paths} user={user} />
-                            </div>}
+                            {user.has_events && (
+                                <>
+                                    <PrivateRoute path="/" exact component={Dashboard} user={user} />
+                                    <PrivateRoute path="/actions" exact component={Actions} user={user} />
+                                    <PrivateRoute path="/trends" exact component={ActionsGraph} user={user} />
+                                    <PrivateRoute path="/actions/live" component={ActionEvents} user={user} />
+                                    <PrivateRoute path="/funnel" exact component={Funnels} user={user} />
+                                    <PrivateRoute path="/paths" component={Paths} user={user} />
+                                </>
+                            )}
                             <PrivateRoute path="/setup" component={Setup} user={user} />
                             <PrivateRoute path="/events" component={Events} user={user} />
                             <PrivateRoute exact path="/person_by_id/:id" component={Person} user={user} />

@@ -1,9 +1,7 @@
 import React, { Component } from 'react'
 import api from '../../lib/api';
-import PathFilter from './PathFilter'
 import { toParams, Card } from '../../lib/utils'
-import moment from 'moment'
-import DateFilter from '../../lib/components/DateFilter';
+import { DateFilter } from '../../lib/components/DateFilter';
 
 let stripHTTP = (url) => url.replace(/(^[0-9]+_\w+:|^)\/\//, '');
 
@@ -26,7 +24,7 @@ function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     return retval;
 }
 
-export default class Paths extends Component {
+export class Paths extends Component {
     constructor(props) {
         super(props)
         this.state = {

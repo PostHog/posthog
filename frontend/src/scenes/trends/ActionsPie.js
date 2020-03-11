@@ -1,11 +1,11 @@
 import React, { Component } from 'react'
 import api from '../../lib/api'
 import { Loading, toParams } from '../../lib/utils'
-import LineGraph from './LineGraph'
+import { LineGraph } from './LineGraph'
 
 let colors = ['blue', 'yellow', 'green', 'red', 'purple', 'gray', 'indigo', 'pink', 'orange', 'teal', 'cyan', 'gray-dark'];
 let getColorVar = (variable) => getComputedStyle(document.body).getPropertyValue('--' + variable)
-export default class ActionsPie extends Component {
+export class ActionsPie extends Component {
   constructor(props) {
     super(props)
     this.state = {}

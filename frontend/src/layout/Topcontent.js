@@ -1,7 +1,6 @@
 import React, { Component } from 'react'
-import { NavLink } from 'react-router-dom';
-import api from './Api';
-import Modal from './Modal';
+import api from './../lib/api';
+import Modal from '../lib/components/Modal';
 
 function ChangelogModal(props) {
     return <Modal onDismiss={props.onDismiss}>
@@ -11,7 +10,7 @@ function ChangelogModal(props) {
     </Modal>
 }
 
-export default class Topcontent extends Component {
+export class Topcontent extends Component {
     constructor(props) {
         super(props)
         this.state = {};
@@ -21,7 +20,7 @@ export default class Topcontent extends Component {
         api.get('https://update.posthog.com/versions').then(versions => this.setState({latest_version: versions[0]['version']}))
     }
     openChangelog = e => {
-        e.preventDefault(); 
+        e.preventDefault();
         this.setState({openChangelog: true})
     }
     render() {

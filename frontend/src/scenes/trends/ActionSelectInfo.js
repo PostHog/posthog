@@ -1,7 +1,7 @@
 import React, { Component } from 'react'
 import { Card } from '../../lib/utils'
 
-export default class ActionSelectInfo extends Component {
+export class ActionSelectInfo extends Component {
   infoDiv = React.createRef()
   componentDidMount(prevProps) {
     if(!this.infoDiv.current) return;

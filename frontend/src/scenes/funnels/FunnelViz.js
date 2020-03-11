@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom'
 import { Loading } from '../../lib/utils'
 import PropTypes from 'prop-types'
 
-export default class FunnelViz extends Component {
+export class FunnelViz extends Component {
   container = React.createRef();
   graphContainer = React.createRef();
   constructor(props) {

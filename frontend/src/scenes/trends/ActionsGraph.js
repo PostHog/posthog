@@ -2,15 +2,16 @@ import React, { Component } from 'react'
 import api from '../../lib/api';
 import { toParams, fromParams, Card, CloseButton } from '../../lib/utils';
 import { Dropdown } from "../../lib/components/Dropdown";
-import SaveToDashboard from '../../lib/components/SaveToDashboard';
-import PropertyFilters from '../../lib/components/PropertyFilter';
-import DateFilter from '../../lib/components/DateFilter';
-import ActionFilter from './ActionFilter';
-import ActionsPie from './ActionsPie'
-import BreakdownFilter from './BreakdownFilter'
-import ActionsTable from './ActionsTable'
+import { SaveToDashboard } from '../../lib/components/SaveToDashboard';
+import { PropertyFilters } from '../../lib/components/PropertyFilters/PropertyFilters';
+import { DateFilter } from '../../lib/components/DateFilter';
+import { ActionFilter } from './ActionFilter';
+import { ActionsPie } from './ActionsPie'
+import { BreakdownFilter } from './BreakdownFilter'
+import { ActionsTable } from './ActionsTable'
+import { ActionsLineGraph } from './ActionsLineGraph'
 
-export default class ActionsGraph extends Component {
+export class ActionsGraph extends Component {
     constructor(props) {
         super(props)
         this.state = {
