@@ -1,7 +1,7 @@
 import React, { Component } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../lib/api';
-import { percentage, DeleteWithUndo } from '../../lib/utils';
+import { DeleteWithUndo } from '../../lib/utils';
 
 export default class Funnels extends Component {
     constructor(props) {
