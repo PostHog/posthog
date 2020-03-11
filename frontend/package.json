@@ -5,13 +5,16 @@
   "scripts": {
     "start": "parcel watch index.html layout.html style.scss",
     "build": "parcel build index.html layout.html style.scss src/editor/index.js && mv dist/src/editor/index.js dist/editor.js",
+    "build-webpack": "NODE_ENV=production webpack --config webpack.config.js",
+    "start-webpack": "webpack --config webpack.config.js --watch",
     "start-editor": "parcel watch src/editor/index.js --out-file dist/editor.js",
     "build-editor": "parcel build src/editor/index.js --out-file dist/editor.js",
     "prettier": "prettier --write \"./src/**/*.{js,css,scss}\""
   },
   "license": "MIT",
   "dependencies": {
-    "@babel/core": "^7.5.5",
+    "@babel/core": "^7.0.0-0",
+    "@babel/runtime": "^7.8.7",
     "babel-preset-nano-react-app": "^0.1.0",
     "bootstrap": "^4.4.1",
     "chart.js": "^2.9.3",
@@ -23,7 +26,6 @@
     "kea": "^1.0.1",
     "kea-listeners": "^0.2.2",
     "moment": "^2.24.0",
-    "parcel-bundler": "1.11.0",
     "prop-types": "^15.7.2",
     "react": ">= 16.8",
     "react-beautiful-dnd": "^12.2.0",
@@ -39,33 +41,29 @@
     "react-toastify": "^5.5.0",
     "redux": "^4.0.5",
     "reselect": "^4.0.0",
-    "sass": "^1.25.0",
+    "sass": "^1.26.2",
     "simmerjs": "^0.5.6",
     "style.css": "^1.0.0"
   },
-  "babel": {
-    "presets": [
-      "nano-react-app"
-    ],
-    "plugins": [
-      [
-        "@babel/plugin-proposal-class-properties",
-        {
-          "loose": true
-        }
-      ],
-      [
-        "@babel/plugin-transform-react-jsx",
-        {
-          "pragmaFrag": "React.Fragment"
-        }
-      ]
-    ]
-  },
   "devDependencies": {
+    "@babel/plugin-proposal-class-properties": "^7.8.3",
+    "@babel/plugin-transform-react-jsx": "^7.8.3",
+    "@babel/plugin-transform-runtime": "^7.8.3",
+    "@babel/preset-env": "^7.8.7",
+    "autoprefixer": "^9.7.4",
+    "babel-loader": "^8.0.6",
+    "css-loader": "^3.4.2",
+    "cssnano": "^4.1.10",
+    "file-loader": "^5.1.0",
     "husky": ">=4",
     "lint-staged": ">=10",
-    "prettier": "1.19.1"
+    "prettier": "1.19.1",
+    "mini-css-extract-plugin": "^0.9.0",
+    "parcel-bundler": "1.11.0",
+    "postcss-loader": "^3.0.0",
+    "sass-loader": "^8.0.2",
+    "webpack": "^4.42.0",
+    "webpack-cli": "^3.3.11"
   },
   "husky": {
     "hooks": {
