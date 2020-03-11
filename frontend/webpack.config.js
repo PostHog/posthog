@@ -1,12 +1,12 @@
-const path = require('path');
-const MiniCssExtractPlugin = require("mini-css-extract-plugin");
+const path = require('path')
+const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 
 module.exports = {
     mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
     entry: './src/index.js',
     output: {
         path: path.resolve(__dirname, 'dist'),
-        filename: 'posthog.bundle.js'
+        filename: '[name].bundle.js',
     },
     module: {
         rules: [
@@ -14,8 +14,8 @@ module.exports = {
                 test: /\.js$/,
                 exclude: /(node_modules)/,
                 use: {
-                    loader: 'babel-loader'
-                }
+                    loader: 'babel-loader',
+                },
             },
             {
                 // Apply rule for .sass, .scss or .css files
@@ -29,24 +29,24 @@ module.exports = {
                         // After all CSS loaders we use plugin to do his work.
                         // It gets all transformed CSS and extracts it into separate
                         // single bundled file
-                        loader: MiniCssExtractPlugin.loader
+                        loader: MiniCssExtractPlugin.loader,
                     },
                     {
                         // This loader resolves url() and @imports inside CSS
-                        loader: "css-loader",
+                        loader: 'css-loader',
                     },
                     {
                         // Then we apply postCSS fixes like autoprefixer and minifying
-                        loader: "postcss-loader"
+                        loader: 'postcss-loader',
                     },
                     {
                         // First we transform SASS to standard CSS
-                        loader: "sass-loader",
+                        loader: 'sass-loader',
                         options: {
-                            implementation: require("sass")
-                        }
-                    }
-                ]
+                            implementation: require('sass'),
+                        },
+                    },
+                ],
             },
             {
                 // Now we apply rule for images
@@ -54,15 +54,15 @@ module.exports = {
                 use: [
                     {
                         // Using file-loader for these files
-                        loader: "file-loader",
+                        loader: 'file-loader',
 
                         // In options we can set different things like format
                         // and directory to save
                         options: {
-                            outputPath: 'images'
-                        }
-                    }
-                ]
+                            outputPath: 'images',
+                        },
+                    },
+                ],
             },
             {
                 // Apply rule for fonts files
@@ -70,18 +70,18 @@ module.exports = {
                 use: [
                     {
                         // Using file-loader too
-                        loader: "file-loader",
+                        loader: 'file-loader',
                         options: {
-                            outputPath: 'fonts'
-                        }
-                    }
-                ]
-            }
-        ]
+                            outputPath: 'fonts',
+                        },
+                    },
+                ],
+            },
+        ],
     },
     plugins: [
         new MiniCssExtractPlugin({
-            filename: "bundle.css"
-        })
-    ]
-};
+            filename: '[name].css',
+        }),
+    ],
+}

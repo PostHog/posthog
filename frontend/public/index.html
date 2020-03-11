@@ -16,12 +16,11 @@
         <script id="sentry-snippet">location.host.indexOf('127.0.0.1') == -1 && Sentry.init({ dsn: '{{sentry_dsn}}' });</script>
     {% endif %}
   </head>
-  
+
   <body>
     <div id="root"></div>
-    
-    <script src="./src/index.js"></script>
-    <link href="./style.scss" rel="stylesheet" />
 
+    <script src="/main.bundle.js"></script>
+    <link href="/main.css" rel="stylesheet" />
   </body>
 </html>
