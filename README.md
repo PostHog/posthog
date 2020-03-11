@@ -87,8 +87,7 @@ If at any point, you get "command not found: nvm", you need to install nvm, then
 
 1. Make sure you are running Django above in a separate terminal
 2. Now run `bin/start-frontend`
-3. Optional: If you're making changes to the editor, you'll need to do `cd frontend && yarn start-editor` to watch changes.
-4. To see some data on the frontend, you should go to the `http://localhost:8000/demo` and play around with it, so you can see some data on dashboard
+3. To see some data on the frontend, you should go to the `http://localhost:8000/demo` and play around with it, so you can see some data on dashboard
 
 ## Open source / Paid
 

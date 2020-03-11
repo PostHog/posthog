@@ -3,10 +3,13 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 
 module.exports = {
     mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
-    entry: './src/index.js',
+    entry: {
+        main: './src/index.js',
+        editor: './src/editor/index.js',
+    },
     output: {
         path: path.resolve(__dirname, 'dist'),
-        filename: '[name].bundle.js',
+        filename: '[name].js',
     },
     module: {
         rules: [

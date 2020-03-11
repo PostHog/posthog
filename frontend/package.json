@@ -3,12 +3,8 @@
   "version": "0.1.0",
   "description": "",
   "scripts": {
-    "start": "parcel watch index.html layout.html style.scss",
-    "build": "parcel build index.html layout.html style.scss src/editor/index.js && mv dist/src/editor/index.js dist/editor.js",
-    "build-webpack": "NODE_ENV=production webpack --config webpack.config.js && cp -a public/* dist/",
-    "start-webpack": "mkdir -p dist/ && cp -a public/* dist/ && webpack --config webpack.config.js --watch",
-    "start-editor": "parcel watch src/editor/index.js --out-file dist/editor.js",
-    "build-editor": "parcel build src/editor/index.js --out-file dist/editor.js",
+    "start": "mkdir -p dist/ && cp -a public/* dist/ && webpack --config webpack.config.js --watch",
+    "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a public/* dist/",
     "prettier": "prettier --write \"./src/**/*.{js,css,scss}\""
   },
   "license": "MIT",
