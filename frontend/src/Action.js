@@ -17,7 +17,6 @@ export default class Action extends Component {
             <h1>{this.props.match.params.id ? 'Edit action' : 'New action'}</h1>
             <ActionEdit
                 apiURL=''
-                user={this.props.user}
                 actionId={this.state.action.id}
                 onSave={(action) => {
                     this.setState({action, refresh: new Date()})

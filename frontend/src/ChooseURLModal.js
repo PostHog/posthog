@@ -1,6 +1,8 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
+import { useActions, useValues } from 'kea'
 import Modal from './Modal';
 import api from './Api'
+import { userLogic } from './userLogic'
 
 export function appEditorUrl (actionId, appUrl) {
   return '/api/user/redirect_to_site/' + (actionId ? '?actionId=' + actionId : '') + (appUrl ? `${actionId ? '&' : '?'}appUrl=${encodeURIComponent(appUrl)}` : '')
@@ -66,18 +68,19 @@ function UrlRow ({ actionId, url, saveUrl, deleteUrl }) {
   )
 }
 
-export function ChooseURLModal ({ actionId, appUrls, setAppUrls, dismissModal }) {
+export function ChooseURLModal ({ actionId, dismissModal }) {
+  const { user } = useValues(userLogic)
+  const { setUser, loadUser, userUpdateRequest } = useActions(userLogic)
+  const appUrls = user.team.app_urls
+
+  const [newValue, setNewValue] = useState(defaultUrl)
+  const [addingNew, setAddingNew] = useState(false)
+
   // We run this effect so that the URLs are the latest ones from the database.
   // Otherwise if you edit/add an URL, click to it and then click back, you will
   // see state urls (i.e. without the one you just added)
   useEffect(() => {
-    api.get('api/user').then(response => {
-      const freshAppUrls = response && response.team && response.team.app_urls
-
-      if (freshAppUrls.join(',') !== appUrls.join(',')) {
-        setAppUrls(freshAppUrls)
-      }
-    })
+    loadUser()
   }, []) // run just once
 
   function saveUrl ({ index, value, callback }) {
@@ -85,36 +88,30 @@ export function ChooseURLModal ({ actionId, appUrls, setAppUrls, dismissModal })
 
     const willRedirect = appUrls.length === 0 && typeof index === 'undefined'
 
-    api.update('api/user', { team: { app_urls: newUrls } }).then(() => {
+    api.update('api/user', { team: { app_urls: newUrls } }).then(user => {
       callback(newUrls)
 
       // Do not set the app urls when redirecting.
       // Doing so is bad UX as the screen will flash from the "add first url" dialog to
       // the "here are all the urls" dialog before the user is redirected away
       if (!willRedirect) {
-        setAppUrls(newUrls)
+        setUser(user)
+      }
+      if (!index) {
+        setAddingNew(false)
       }
     })
   }
 
   function deleteUrl ({ index }) {
     const newUrls = appUrls.filter((v, i) => i !== index)
-
-    api.update('api/user', { team: { app_urls: newUrls } }).then(() => {
-      setAppUrls(newUrls)
-    })
+    userUpdateRequest({ team: { app_urls: newUrls } })
   }
-
-  function addUrl () {
-    setAppUrls(appUrls.concat([defaultUrl]))
-  }
-
-  const [newValue, setNewValue] = useState(defaultUrl)
 
   return (
     <Modal
       title={'On which domain do you want to create an action?'}
-      footer={appUrls.length > 0 && <div style={{ flex: 1 }}><button className='btn btn-outline-secondary' style={{ flex: 1 }} onClick={addUrl}>+ Add Another URL</button></div>}
+      footer={appUrls.length > 0 && !addingNew && <div style={{ flex: 1 }}><button className='btn btn-outline-secondary' style={{ flex: 1 }} onClick={() => setAddingNew(true)}>+ Add Another URL</button></div>}
       onDismiss={dismissModal}
     >
       {appUrls.length === 0 ? (
@@ -140,6 +137,14 @@ export function ChooseURLModal ({ actionId, appUrls, setAppUrls, dismissModal })
               deleteUrl={() => deleteUrl({ index })}
             />
           ))}
+          {addingNew ? (
+            <UrlRow
+              actionId={actionId}
+              url={defaultUrl}
+              saveUrl={(value, callback) => saveUrl({ value, callback })}
+              deleteUrl={() => setAddingNew(false)}
+            />
+          ) : null}
         </ul>
       )}
     </Modal>
