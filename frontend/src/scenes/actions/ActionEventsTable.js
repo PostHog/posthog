@@ -69,18 +69,18 @@ export class ActionEventsTable extends Component {
                     <tbody>
                     <tr>
                         <th scope="col">Action ID</th>
-                        <th scope="col">Type</th>
                         <th scope="col">User</th>
+                        <th scope="col">Path</th>
                         <th scope="col">Date</th>
                         <th scope="col">Browser</th>
                     </tr>
                     {loading && <Loading />}
-                    {events && events.length == 0 && <tr><td colSpan="7">We didn't find any events matching any actions. You can either <Link to='/actions'>set up some actions</Link> or <Link to='/setup'>integrate PostHog in your app</Link>.</td></tr>}
+                    {events && events.length == 0 && <tr><td colSpan="5">We didn't find any events matching any actions. You can either <Link to='/actions'>set up some actions</Link> or <Link to='/setup'>integrate PostHog in your app</Link>.</td></tr>}
                     {events && events.map((action, index) => [
                         index > 0
                         && !moment(action.event.timestamp).isSame(events[index - 1].event.timestamp, 'day')
                         && <tr key={action.event.id + '_time'}>
-                            <td colSpan="4" className='event-day-separator'>
+                            <td colSpan="5" className='event-day-separator'>
                                 {moment(action.event.timestamp).format('LL')}
                             </td>
                         </tr>,
@@ -94,7 +94,6 @@ export class ActionEventsTable extends Component {
                             </td>)}
                             <td>{moment(action.event.timestamp).fromNow()}</td>
                             <td>{action.event.properties.$browser} {action.event.properties.$browser_version} - {action.event.properties.$os}</td>
-                            {/* <td><pre>{JSON.stringify(event)}</pre></td> */}
                         </tr>,
                         this.state.eventSelected == action.id && <tr key={action.id + '_open'}>
                             <td colSpan="4">

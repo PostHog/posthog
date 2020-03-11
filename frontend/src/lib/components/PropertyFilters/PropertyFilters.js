@@ -1,7 +1,8 @@
 import React, { Component } from 'react'
 import PropTypes from 'prop-types'
 import api from '../../api';
-
+import { PropertyFilter } from './PropertyFilter';
+ 
 export class PropertyFilters extends Component {
     constructor(props) {
         super(props)
