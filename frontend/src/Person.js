@@ -1,6 +1,7 @@
 import React, { Component } from 'react'
 import { EventsTable } from './Events';
 import api from './Api';
+import { toast } from 'react-toastify';
 
 export default class Person extends Component {
     constructor(props) {
@@ -49,6 +50,17 @@ export default class Person extends Component {
                     </tbody>
                 </table>
             </div>
+            <button
+                className='btn btn-outline-danger btn-sm float-right'
+                onClick={e =>
+                    confirm('Are you sure you want to delete this user? This cannot be undone') &&
+                    api.delete('api/person/' + this.state.person.id).then(() => {
+                        toast('Person succesfully deleted.')
+                        this.props.history.push('/people');
+                    })
+                }>
+                Delete all data on this person
+            </button>
             <EventsTable fixedFilters={{person_id: this.state.person.id}} history={this.props.history} />
         </div>
         : null;

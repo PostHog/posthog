@@ -80,7 +80,7 @@ class Api {
       if(!response.ok) {
           return response.json().then((data) => {throw data})
       }
-      return response.json();
+      return response;
     })
   }
 }

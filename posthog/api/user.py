@@ -31,7 +31,7 @@ def user(request):
             'signup_token': team.signup_token,
             'opt_out_capture': team.opt_out_capture
         },
-        'posthog_version': settings.VERSION
+        'posthog_version': settings.VERSION if hasattr(settings, 'VERSION') else None
     })
 
 def redirect_to_site(request):
