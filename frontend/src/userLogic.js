@@ -4,13 +4,16 @@ import api from './Api'
 export const userLogic = kea({
   actions: () => ({
     loadUser: true,
-    updateUser: update => ({ update }),
-    setUser: user => ({ user: { ...user } }) // make and use a copy of user to patch some legacy issues
+    setUser: (user, updateKey) => ({ user: { ...user }, updateKey }), // make and use a copy of user to patch some legacy issues
+    userUpdateRequest: (update, updateKey) => ({ update, updateKey }),
+    userUpdateSuccess: (user, updateKey) => ({ user, updateKey }),
+    userUpdateFailure: (updateKey, error) => ({ updateKey, error })
   }),
 
   reducers: ({ actions }) => ({
     user: [null, {
-      [actions.setUser]: (_, payload) => payload.user
+      [actions.setUser]: (_, payload) => payload.user,
+      [actions.userUpdateSuccess]: (_, payload) => payload.user
     }]
   }),
 
@@ -32,13 +35,12 @@ export const userLogic = kea({
         actions.setUser(null)
       }
     },
-    [actions.updateUser]: async ({ update }) => {
+    [actions.userUpdateRequest]: async ({ update, updateKey }) => {
       try {
         const user = await api.update('api/user', update)
-        actions.setUser(user);
+        actions.userUpdateSuccess(user, updateKey);
       } catch (error) {
-        console.error('TODO! Unhandled error')
-        // actions.setUser(null)
+        actions.userUpdateFailure(updateKey, error);
       }
     }
   })
