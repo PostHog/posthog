@@ -4,36 +4,35 @@ import api from './Api';
 
 import { userLogic } from './userLogic'
 
+const defaultValue = 'https://'
+
 export default function SetupAppUrls () {
   const [saved, setSaved] = useState(false)
   const { user } = useValues(userLogic)
-  const { setUser } = useActions(userLogic)
+  const { updateUser } = useActions(userLogic)
+
+  const [appUrls, setAppUrls] = useState(user.team.app_urls || [defaultValue])
 
   function addUrl () {
-    user.team.app_urls.push('https://');
-    setUser(user);
+    setAppUrls(appUrls.concat([defaultValue]))
   }
 
   function removeUrl (index) {
-    user.team.app_urls.splice(index, 1);
-    setUser(user);
+    const newAppUrls = [...appUrls]
+    newAppUrls.splice(index, 1)
+    setAppUrls(newAppUrls)
   }
 
   function updateUrl (index, value) {
-    user.team.app_urls[index] = value;
-    setUser(user);
+    const newAppUrls = [...appUrls]
+    newAppUrls[index] = value
+    setAppUrls(newAppUrls)
   }
 
   function onSubmit (e) {
     e.preventDefault();
-    api.update('api/user', {team: { app_urls: user.team.app_urls }}).then(response => {
-      setSaved(true)
-      user.team.app_urls = response.team.app_urls;
-      setUser(user);
-    })
+    updateUser({ team: { app_urls: appUrls } })
   }
-
-  const appUrls = user.team.app_urls || ['https://']
 
   return (
     <div>
@@ -42,14 +41,13 @@ export default function SetupAppUrls () {
         {appUrls.map((url, index) => (
           <div key={index} style={{ marginBottom: 5 }}>
             <input
-              defaultValue={url}
+              value={url}
               onChange={(e) => updateUrl(index, e.target.value)}
-              autoFocus
+              autoFocus={appUrls.count === 1 && appUrls[0] === defaultValue}
               style={{ display: 'inline-block', maxWidth: 400 }}
               type="url"
               className='form-control'
-              name={`url${index}`}
-              placeholder="https://...."
+              placeholder={defaultValue}
             />
             {index > 0 ? <button className='btn btn-link' type="button" onClick={() => removeUrl(index)}>Remove</button> : null}
           </div>

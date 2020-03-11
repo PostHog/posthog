@@ -4,6 +4,7 @@ import api from './Api'
 export const userLogic = kea({
   actions: () => ({
     loadUser: true,
+    updateUser: update => ({ update }),
     setUser: user => ({ user: { ...user } }) // make and use a copy of user to patch some legacy issues
   }),
 
@@ -29,6 +30,15 @@ export const userLogic = kea({
         }
       } catch (error) {
         actions.setUser(null)
+      }
+    },
+    [actions.updateUser]: async ({ update }) => {
+      try {
+        const user = await api.update('api/user', update)
+        actions.setUser(user);
+      } catch (error) {
+        console.error('TODO! Unhandled error')
+        // actions.setUser(null)
       }
     }
   })
