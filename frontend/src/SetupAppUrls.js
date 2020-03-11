@@ -1,43 +1,55 @@
-import React, { useState } from 'react'
-import { useActions, useValues } from 'kea'
-import api from './Api';
+import React from 'react'
+import { kea, useActions, useValues } from 'kea'
 
 import { userLogic } from './userLogic'
 
 const defaultValue = 'https://'
 
+const appUrlsLogic = kea({
+  actions: () => ({
+    addUrl: true,
+    removeUrl: index => ({ index }),
+    updateUrl: (index, value ) => ({ index, value }),
+    saveAppUrls: true
+  }),
+
+  defaults: () => ({
+    appUrls: state => userLogic.selectors.user(state).team.app_urls || [defaultValue]
+  }),
+
+  reducers: ({ actions }) => ({
+    appUrls: [[defaultValue], {
+      [actions.addUrl]: (state) => state.concat([defaultValue]),
+      [actions.updateUrl]: (state, { index, value }) => Object.assign([...state], { [index]: value }),
+      [actions.removeUrl]: (state, { index }) => {
+        const newAppUrls = [...state]
+        newAppUrls.splice(index, 1)
+        return newAppUrls
+      }
+    }],
+    isSaved: [false, {
+      [actions.addUrl]: () => false,
+      [actions.removeUrl]: () => false,
+      [actions.updateUrl]: () => false,
+      [userLogic.actions.userUpdateSuccess]: (state, { updateKey }) => updateKey === 'SetupAppUrls' || state
+    }]
+  }),
+
+  listeners: ({ actions, values }) => ({
+    [actions.saveAppUrls]: () => {
+      userLogic.actions.userUpdateRequest({ team: { app_urls: values.appUrls } }, 'SetupAppUrls')
+    }
+  })
+})
+
 export default function SetupAppUrls () {
-  const [saved, setSaved] = useState(false)
-  const { user } = useValues(userLogic)
-  const { updateUser } = useActions(userLogic)
-
-  const [appUrls, setAppUrls] = useState(user.team.app_urls || [defaultValue])
-
-  function addUrl () {
-    setAppUrls(appUrls.concat([defaultValue]))
-  }
-
-  function removeUrl (index) {
-    const newAppUrls = [...appUrls]
-    newAppUrls.splice(index, 1)
-    setAppUrls(newAppUrls)
-  }
-
-  function updateUrl (index, value) {
-    const newAppUrls = [...appUrls]
-    newAppUrls[index] = value
-    setAppUrls(newAppUrls)
-  }
-
-  function onSubmit (e) {
-    e.preventDefault();
-    updateUser({ team: { app_urls: appUrls } })
-  }
+  const { appUrls, isSaved } = useValues(appUrlsLogic)
+  const { addUrl, removeUrl, updateUrl, saveAppUrls } = useActions(appUrlsLogic)
 
   return (
     <div>
       <label>What URLs will you be using PostHog on?</label>
-      <form onSubmit={onSubmit}>
+      <form onSubmit={e => { e.preventDefault(); saveAppUrls() }}>
         {appUrls.map((url, index) => (
           <div key={index} style={{ marginBottom: 5 }}>
             <input
@@ -56,7 +68,7 @@ export default function SetupAppUrls () {
         <br />
 
         <button className='btn btn-success' type="submit">Save URLs</button>
-        {saved && <span className='text-success' style={{ marginLeft: 10 }}>URLs saved.</span>}
+        {isSaved && <span className='text-success' style={{ marginLeft: 10 }}>URLs saved.</span>}
       </form>
     </div>
   )
