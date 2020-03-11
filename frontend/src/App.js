@@ -1,5 +1,5 @@
 import React from "react";
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { BrowserRouter as Router, Route } from "react-router-dom";
 import { ToastContainer, Slide } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -39,7 +39,6 @@ function PrivateRoute ({ component: Component, ...props }) {
 
 export default function App () {
     const { user } = useValues(userLogic)
-    const { setUser } = useActions(userLogic)
 
     if (!user) {
         return null
@@ -56,13 +55,13 @@ export default function App () {
                             <SendEventsOverlay user={user} />
                             {user.has_events && <div>
                                 <PrivateRoute path="/" exact component={Dashboard} user={user} />
-                                <PrivateRoute path="/actions" exact component={Actions} user={user} onUpdateUser={setUser} />
+                                <PrivateRoute path="/actions" exact component={Actions} user={user} />
                                 <PrivateRoute path="/trends" exact component={ActionsGraph} user={user} />
                                 <PrivateRoute path="/actions/live" component={ActionEvents} user={user} />
                                 <PrivateRoute path="/funnel" exact component={Funnels} user={user} />
                                 <PrivateRoute path="/paths" component={Paths} user={user} />
                             </div>}
-                            <PrivateRoute path="/setup" component={Setup} user={user} onUpdateUser={setUser} />
+                            <PrivateRoute path="/setup" component={Setup} user={user} />
                             <PrivateRoute path="/events" component={Events} user={user} />
                             <PrivateRoute exact path="/person_by_id/:id" component={Person} user={user} />
                             <PrivateRoute exact path="/person/:distinct_id" component={Person} user={user} />

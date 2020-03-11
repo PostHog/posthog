@@ -1,45 +1,24 @@
-import React, { Component } from 'react';
-import api from './Api';
-import Modal from './Modal';
-import PropTypes from 'prop-types';
+import React, { useState } from 'react'
 import { ChooseURLModal, appEditorUrl } from './ChooseURLModal'
+import { useValues } from 'kea'
+import { userLogic } from './userLogic'
 
-export class AppEditorLink extends Component {
-  constructor(props) {
-    super(props)
+export function AppEditorLink ({ actionId, style, className, children }) {
+  const [modalOpen, setModalOpen] = useState(false)
+  const { user } = useValues(userLogic)
+  const appUrls = user.team.app_urls
 
-    this.state = {
-    }
-  }
-
-  render() {
-    const { app_urls: appUrls } = this.props.user.team
-    return (
-      <>
-        <a
-            onClick={(e) => {
-                e.preventDefault();
-                this.setState({ openChooseModal: true })
-            }}
-            href={appEditorUrl(this.props.actionId, appUrls && appUrls[0])} style={this.props.style} className={this.props.className}>
-            {this.props.children}
-        </a>
-        {this.state.openChooseModal && (
-            <ChooseURLModal
-                actionId={this.props.actionId}
-                appUrls={appUrls}
-                setAppUrls={(appUrls) => {
-                    this.props.user.team.app_urls = appUrls;
-                    this.props.onUpdateUser && this.props.onUpdateUser({ ...(this.props.user) });
-                }}
-                dismissModal={() => this.setState({openChooseModal: false})}
-            />
-        )}
-      </>
-    )
-  }
-}
-AppEditorLink.propTypes = {
-  user: PropTypes.object.isRequired,
-  actionId: PropTypes.number
+  return (
+    <>
+      <a
+          href={appEditorUrl(actionId, appUrls && appUrls[0])}
+          style={style}
+          className={className}
+          onClick={e => { e.preventDefault(); setModalOpen(true) }}
+      >
+          {children}
+      </a>
+      {modalOpen && <ChooseURLModal actionId={actionId} dismissModal={() => setModalOpen(false)} />}
+    </>
+  )
 }
