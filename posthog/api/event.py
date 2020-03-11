@@ -23,7 +23,10 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
 
     def get_person(self, event: Event) -> Any:
         if hasattr(event, 'person_properties'):
-            return event.person_properties.get('email', event.distinct_id) # type: ignore
+            if event.person_properties:
+                return event.person_properties.get('email', event.distinct_id) # type: ignore
+            else:
+                return event.distinct_id
         try:
             return event.person.properties.get('email', event.distinct_id)
         except:
@@ -32,6 +35,8 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
     def get_elements(self, event):
         if not event.elements_hash:
             return []
+        if hasattr(event, 'elements_group'):
+            return ElementSerializer(event.elements_group.element_set.all(), many=True).data
         elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by('order')
         return ElementSerializer(elements, many=True).data
 
@@ -43,9 +48,10 @@ class EventViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == 'list': # type: ignore
             queryset = self._filter_request(self.request, queryset)
+
         return queryset\
             .filter(team=self.request.user.team_set.get())\
-            .order_by('-timestamp')
+            .order_by('-id')
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         for key, value in request.GET.items():
@@ -78,6 +84,28 @@ class EventViewSet(viewsets.ModelViewSet):
                 'id': action.pk
             }
         }
+
+    def list(self, request: request.Request) -> response.Response:
+        events = self.get_queryset()[0: 100]
+        team = self.request.user.team_set.get()
+        distinct_ids = []
+        hash_ids = []
+        for event in events:
+            distinct_ids.append(event.distinct_id)
+            hash_ids.append(event.elements_hash)
+        people = Person.objects.filter(team=team, persondistinctid__distinct_id__in=distinct_ids)
+        groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related('element_set')
+        for event in events:
+            try:
+                event.person_properties = [person.properties for person in people][0]
+                event.elements_group = [group for group in groups][0]
+            except:
+                event.person_properties = None
+                event.elements_group = None
+        return response.Response({
+            'results': EventSerializer(events, many=True).data
+        })
+
 
     @action(methods=['GET'], detail=False)
     def actions(self, request: request.Request) -> response.Response:
