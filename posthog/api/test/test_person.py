@@ -61,3 +61,13 @@ class TestPerson(BaseTest):
         cohort = Cohort.objects.create(team=self.team, groups=[{'properties': {'$os': 'Chrome'}}])
         response = self.client.get('/api/person/?cohort=%s' % cohort.pk).json()
         self.assertEqual(len(response['results']), 1, response)
+
+    def test_delete_person(self):
+        person = Person.objects.create(team=self.team, distinct_ids=['person_1', 'anonymous_id'], properties={'$os': 'Chrome'})
+        Event.objects.create(team=self.team, distinct_id='person_1')
+        Event.objects.create(team=self.team, distinct_id='anonymous_id')
+        Event.objects.create(team=self.team, distinct_id='someone_else')
+
+        response = self.client.delete('/api/person/%s/' % person.pk)
+        self.assertEqual(Person.objects.count(), 0)
+        self.assertEqual(Event.objects.count(), 1)

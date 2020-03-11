@@ -59,6 +59,14 @@ class PersonViewSet(viewsets.ModelViewSet):
         queryset = queryset.prefetch_related(Prefetch('persondistinctid_set', to_attr='distinct_ids_cache'))
         return queryset
 
+    def destroy(self, request: request.Request, pk=None):
+        team = request.user.team_set.get()
+        person = Person.objects.get(team=team, pk=pk)
+        events = Event.objects.filter(team=team, distinct_id__in=person.distinct_ids)
+        events.delete()
+        person.delete()
+        return response.Response(status=204)
+
     def get_queryset(self):
         queryset = super().get_queryset()
         team = self.request.user.team_set.get()
