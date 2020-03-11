@@ -29,7 +29,6 @@ export class ActionsTable extends Component {
             <div>
                 <div className='btn-group float-right'>
                     <Link to='/action' className='btn btn-light'><i className='fi flaticon-add'/>&nbsp; New action</Link>
-                    <AppEditorLink onUpdateUser={this.props.onUpdateUser} user={this.props.user} className='btn btn-success'><i className='fi flaticon-export' /></AppEditorLink>
                 </div>
                 <h1>Actions</h1>
                 <p style={{maxWidth: 600}}><i>

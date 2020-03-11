@@ -34,14 +34,20 @@ class EventName extends Component {
         }))
     }
     render() {
-        if(this.props.value == '$autocapture' || this.props.value == '$pageview') return <input type="text" disabled value={this.props.value} className='form-control' />;
-        return this.state.names ? <Select
-            options={this.state.names}
+        let { names } = this.state;
+        return <span>
+            <Select
+            options={names}
             isSearchable={true}
             isClearable={true}
             onChange={this.props.onChange}
-            value={this.props.value && this.state.names.filter((item) => this.props.value == item.value)[0]}
-            /> : null;
+            disabled={names && names.length == 0}
+            value={this.props.value && names.filter((item) => this.props.value == item.value)[0]}
+            />
+            <br />
+            {names && names.length === 0 && "You haven't sent any custom events."}
+            <a href='https://github.com/PostHog/posthog/wiki/Integrations' target="_blank">See documentation</a> on how to send custom events in lots of languages.
+        </span>
     }
 }
 EventName.propTypes = {
@@ -171,19 +177,18 @@ class ActionStep extends Component {
     TypeSwitcher() {
         let { step, isEditor } = this.props;
         return <div>
-            <label>Action type</label><br />
             <div className='btn-group'>
                 <button
                     type="button"
                     onClick={() => this.sendStep({...step, event: '$autocapture'})}
                     className={'btn ' + (step.event == '$autocapture' ? 'btn-secondary' : 'btn-light')}>
-                    Match element
+                    Frontend element
                 </button>
                 <button
                     type="button"
                     onClick={() => this.sendStep({...step, event: ''})}
                     className={'btn ' + (typeof step.event !== 'undefined' && step.event != '$autocapture' && step.event != '$pageview' ? 'btn-secondary' : 'btn-light')}>
-                    Match event
+                    Custom event
                 </button>
                 <button
                     type="button"
@@ -209,10 +214,8 @@ class ActionStep extends Component {
         </div>
     }
     AutocaptureFields() {
-        let { element } = this.state;
-        let { step, user, actionId, isEditor, onUpdateUser } = this.props;
+        let { step, isEditor } = this.props;
         return <div>
-            {!isEditor && <AppEditorLink onUpdateUser={onUpdateUser} user={user} actionId={actionId} style={{margin: '1rem 0'}} className='btn btn-sm btn-light'>Select element on site <i className='fi flaticon-export' /></AppEditorLink>}
             {(!isEditor || step.href) && <this.Option
                 item='href'
                 label='Link href'
@@ -226,6 +229,11 @@ class ActionStep extends Component {
                 label='Selector'
                 selector={step.selector}
                 />
+            <this.Option
+                item='url'
+                extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
+                label='URL'
+            />
         </div>
     }
     URLMatching({ step, isEditor }) {
@@ -245,7 +253,7 @@ class ActionStep extends Component {
         </div>
     }
     render() {
-        let { step, isEditor } = this.props;
+        let { step, user, actionId, isEditor, onUpdateUser } = this.props;
 
         return (
             <div className={isEditor ? '' : 'card'} style={{ marginBottom: 0, background: isEditor ? 'rgba(0,0,0,0.05)' : '' }}>
@@ -267,8 +275,14 @@ class ActionStep extends Component {
                                 Inspect element
                             </button>
                         )}
-                        {step.event === '$autocapture' && <this.AutocaptureFields />}
-                        {(step.event === '$autocapture' || step.event === '$pageview') && (
+                        {(isEditor && step.event === '$autocapture') && <this.AutocaptureFields />}
+                        {(!isEditor && step.event === '$autocapture') && <span>
+                            <AppEditorLink onUpdateUser={onUpdateUser} user={user} actionId={actionId} style={{margin: '1rem 0'}} className='btn btn-sm btn-success'>
+                                Select element on site <i className='fi flaticon-export' />
+                            </AppEditorLink><br />
+                            <a href='https://github.com/PostHog/posthog/wiki/Actions' target='_blank'>See documentation</a> on how to set up actions.
+                        </span>}
+                        {step.event === '$pageview' && (
                             <this.Option
                                 item='url'
                                 extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
@@ -349,8 +363,6 @@ export class ActionEdit extends Component {
         return (
             <div className={isEditor ? '' : 'card'} style={{ marginTop: isEditor ? 8 : ''}}>
                 <form className={isEditor ? '' : 'card-body'} onSubmit={(e) => e.preventDefault()}>
-                    {!isEditor && <label>Action name</label>}
-
                     <input
                         autoFocus
                         required

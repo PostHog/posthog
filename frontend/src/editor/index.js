@@ -160,6 +160,7 @@ class App extends Component {
 window.ph_load_editor = function(editorParams) {
     let container = document.createElement('div');
     document.body.appendChild(container);
-
+    console.log(editorParams.apiURL)
+    if(editorParams.apiURL === window.location.origin + '/' && window.location.pathname.indexOf('/demo') === -1) return;
     ReactDOM.render(<App apiURL={editorParams.apiURL} temporaryToken={editorParams.temporaryToken} actionId={editorParams.actionId} />, container);
 }

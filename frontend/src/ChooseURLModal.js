@@ -113,7 +113,7 @@ export function ChooseURLModal ({ actionId, appUrls, setAppUrls, dismissModal })
 
   return (
     <Modal
-      title={'On which domain do you want to create an action?'}
+      title={actionId ? 'Where do you want to edit this action?' : 'On which domain do you want to create an action?'}
       footer={appUrls.length > 0 && <div style={{ flex: 1 }}><button className='btn btn-outline-secondary' style={{ flex: 1 }} onClick={addUrl}>+ Add Another URL</button></div>}
       onDismiss={dismissModal}
     >
