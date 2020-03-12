@@ -40,6 +40,17 @@ function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     return retval
 }
 
+function NoData() {
+    return (
+        <div style={{ padding: '1rem' }}>
+            We don't have enough data to show anything here. You might need to
+            send us some frontend (JS) events, as we use the{' '}
+            <pre style={{ display: 'inline' }}>$current_url</pre> property to
+            calculate paths.
+        </div>
+    )
+}
+
 export class Paths extends Component {
     constructor(props) {
         super(props)
@@ -79,7 +90,7 @@ export class Paths extends Component {
         const elements = document.querySelectorAll('.paths svg')
         elements.forEach(node => node.parentNode.removeChild(node))
 
-        if (paths.nodes.length === 0) {
+        if (!paths || paths.nodes.length === 0) {
             this.setState({ rendered: true })
             return
         }
@@ -170,8 +181,6 @@ export class Paths extends Component {
             .attr('stroke-width', d => {
                 return Math.max(1, d.width)
             })
-        // .attr("stroke", d =>  'var(--info)')
-        // .attr("opacity", 0.5)
 
         link.append('g')
             .append('path')
@@ -263,6 +272,7 @@ export class Paths extends Component {
                         ],
                         links: paths,
                     },
+                    dataLoaded: true,
                 },
                 this.renderPaths
             )
@@ -277,7 +287,7 @@ export class Paths extends Component {
     }
 
     render() {
-        let { paths, rendered, filter } = this.state
+        let { paths, rendered, filter, dataLoaded } = this.state
 
         return (
             <div>
@@ -305,26 +315,19 @@ export class Paths extends Component {
                         className="paths"
                         style={{ height: '90vh' }}
                     >
-                        {!rendered && (
-                            <div
-                                className="loading-overlay"
-                                style={{ paddingTop: '14rem' }}
-                            >
-                                <div />
-                                <br />
-                                (This might take a while)
-                            </div>
-                        )}
-                        {rendered && paths && paths.nodes.length === 0 && (
-                            <div>
-                                We don't have any data to show here. You might
-                                need to send us some frontend (JS) events, as we
-                                use the{' '}
-                                <pre style={{ display: 'inline' }}>
-                                    $current_url
-                                </pre>{' '}
-                                property to calculate paths.
-                            </div>
+                        {dataLoaded && paths && paths.nodes.length === 0 ? (
+                            <NoData />
+                        ) : (
+                            !dataLoaded && (
+                                <div
+                                    className="loading-overlay"
+                                    style={{ paddingTop: '14rem' }}
+                                >
+                                    <div />
+                                    <br />
+                                    (This might take a while)
+                                </div>
+                            )
                         )}
                     </div>
                 </Card>
