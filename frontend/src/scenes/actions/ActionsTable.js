@@ -28,13 +28,10 @@ export class ActionsTable extends Component {
         return (
             <div>
                 <div className="btn-group float-right">
-                    <Link to="/action" className="btn btn-light">
+                    <Link to="/action" className="btn btn-success">
                         <i className="fi flaticon-add" />
                         &nbsp; New action
                     </Link>
-                    <AppEditorLink className="btn btn-success">
-                        <i className="fi flaticon-export" />
-                    </AppEditorLink>
                 </div>
                 <h1>Actions</h1>
                 <p style={{ maxWidth: 600 }}>

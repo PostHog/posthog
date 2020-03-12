@@ -52,7 +52,11 @@ export function ChooseURLModal({ actionId, dismissModal }) {
 
     return (
         <Modal
-            title={'On which domain do you want to create an action?'}
+            title={
+                actionId
+                    ? 'Where do you want to edit this action?'
+                    : 'On which domain do you want to create an action?'
+            }
             footer={
                 appUrls.length > 0 &&
                 !addingNew && (
