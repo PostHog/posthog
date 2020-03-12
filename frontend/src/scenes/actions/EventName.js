@@ -39,6 +39,7 @@ export class EventName extends Component {
                     disabled={names && names.length == 0}
                     value={
                         this.props.value &&
+                        this.state.names &&
                         this.state.names.filter(
                             item => this.props.value == item.value
                         )[0]
