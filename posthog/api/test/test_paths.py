@@ -24,7 +24,6 @@ class TestPaths(BaseTest):
         Event.objects.create(properties={'$current_url': '/'}, distinct_id='person_4', event='$pageview', team=self.team)
         Event.objects.create(properties={'$current_url': '/pricing'}, distinct_id='person_4', event='$pageview', team=self.team)
 
-
         response = self.client.get('/api/paths/').json()
         self.assertEqual(response[0]['source'], '1_/', response)
         self.assertEqual(response[0]['target'], '2_/pricing')
