@@ -16,7 +16,7 @@ class TestEvents(BaseTest):
         Event.objects.create(team=self.team, distinct_id='some-random-uid', ip='8.8.8.8')
         Event.objects.create(team=self.team, distinct_id='some-other-one', ip='8.8.8.8')
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             response = self.client.get('/api/event/?distinct_id=2').json()
         self.assertEqual(response['results'][0]['person'], 'tim@posthog.com')
         self.assertEqual(response['results'][0]['elements'][0]['tag_name'], 'button')
