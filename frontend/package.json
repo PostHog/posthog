@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "description": "",
   "scripts": {
-    "start": "mkdir -p dist/ && cp -a public/* dist/ && webpack --config webpack.config.js --watch",
-    "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a public/* dist/",
+    "start": "mkdir -p dist/ && cp -a public/* dist/ && ./node_modules/.bin/webpack --config webpack.config.js --watch",
+    "build": "NODE_ENV=production ./node_modules/.bin/webpack --config webpack.config.js && cp -a public/* dist/",
     "prettier": "prettier --write \"./src/**/*.{js,css,scss}\""
   },
   "license": "MIT",
