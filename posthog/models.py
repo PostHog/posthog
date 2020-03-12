@@ -359,12 +359,22 @@ class Cohort(models.Model):
         person_ids = []
         for group in self.groups:
             if group.get('action_id'):
-                people = Event.objects.filter_by_action(
-                    Action.objects.get(pk=group['action_id'], team_id=self.team_id),
+                action = Action.objects.get(pk=group['action_id'], team_id=self.team_id)
+                people = Person.objects.filter(
+                    team_id=self.team_id,
+                ).annotate(
+                    has_action=Subquery(
+                        Event.objects.filter_by_action(
+                            action
+                        ).filter(
+                            person_id=OuterRef('id'),
+                            **({'timestamp__gt' : timezone.now() - relativedelta(days=group['days'])} if group.get('days') else {})
+                        ).values('id')[:1]
+                    )
+                ).filter(
+                    has_action__isnull=False
                 )
-                if group.get('days'):
-                    people = person_ids.filter(timestamp__gt=timezone.now() - relativedelta(days=group['days']))
-                person_ids.extend([person_id for person_id in people.values_list('person_id', flat=True)])
+                person_ids.extend([person.id for person in people])
             elif group.get('properties'):
                 properties = {
                     'properties__{}'.format(key): value for key, value in group['properties'].items()

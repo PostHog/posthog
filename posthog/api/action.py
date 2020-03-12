@@ -47,7 +47,7 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
         if request.headers.get('Origin') and request.headers['Origin'] not in request.build_absolute_uri('/'):
             if not request.GET.get('temporary_token'):
                 raise AuthenticationFailed(detail="""No temporary_token set.
-                    That means your either trying to access this API from a different site,
+                    That means you're either trying to access this API from a different site,
                     or it means your proxy isn\'t sending the correct headers.
                     See https://github.com/PostHog/posthog/wiki/Running-behind-a-proxy for more information.
                     """)
