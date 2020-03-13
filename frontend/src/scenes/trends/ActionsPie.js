@@ -60,7 +60,7 @@ export class ActionsPie extends Component {
     render() {
         let { data, total } = this.state
         return data ? (
-            data[0].labels ? (
+            data[0] && data[0].labels ? (
                 <div
                     style={{
                         position: 'absolute',
