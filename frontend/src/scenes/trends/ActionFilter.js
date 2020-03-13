@@ -1,7 +1,8 @@
 import React, { Component } from 'react'
-import { CloseButton, selectStyle, Card } from '../../lib/utils'
+import { CloseButton } from '../../lib/utils'
 import { Dropdown } from '../../lib/components/Dropdown'
 import { ActionSelectBox } from './ActionSelectBox'
+import { Link } from 'react-router-dom'
 
 export class ActionFilter extends Component {
     constructor(props) {
@@ -104,7 +105,7 @@ export class ActionFilter extends Component {
     render() {
         let { actions } = this.props
         let { actionFilters } = this.state
-        return actions ? (
+        return actions && actions.length > 0 ? (
             <div>
                 {actionFilters &&
                     actionFilters.map((action_filter, index) => {
@@ -133,6 +134,11 @@ export class ActionFilter extends Component {
                     Add action
                 </button>
             </div>
-        ) : null
+        ) : (
+            <div>
+                You don't have any actions defined yet.{' '}
+                <Link to="/action">Click here to define an action.</Link>
+            </div>
+        )
     }
 }

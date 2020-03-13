@@ -45,7 +45,7 @@ export class ActionsGraph extends Component {
     }
     fetchActions() {
         api.get('api/action').then(actions => {
-            if (!this.state.filters.actions)
+            if (!this.state.filters.actions && actions.results.length > 0)
                 this.setFilters({
                     actions: [
                         { id: actions.results[actions.results.length - 1].id },
