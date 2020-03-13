@@ -26,7 +26,7 @@ export class ActionsLineGraph extends Component {
     render() {
         let { data } = this.state
         return data ? (
-            data[0].labels ? (
+            data[0] && data[0].labels ? (
                 <LineGraph datasets={data} labels={data[0].labels} />
             ) : (
                 <p style={{ textAlign: 'center', marginTop: '4rem' }}>

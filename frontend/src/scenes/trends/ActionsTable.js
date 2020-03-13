@@ -29,7 +29,7 @@ export class ActionsTable extends Component {
         let { data } = this.state
         let { filters } = this.props
         return data ? (
-            data[0].labels ? (
+            data[0] && data[0].labels ? (
                 <table className="table">
                     <tbody>
                         <tr>
