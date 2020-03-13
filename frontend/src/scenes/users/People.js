@@ -2,7 +2,7 @@ import React, { Component } from 'react'
 import api from '../../lib/api'
 import { Link } from 'react-router-dom'
 import moment from 'moment'
-import { fromParams } from '../../lib/utils'
+import { fromParams, toParams } from '../../lib/utils'
 import { Cohort } from './Cohort'
 
 export class People extends Component {
