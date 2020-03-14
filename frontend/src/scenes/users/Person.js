@@ -1,6 +1,7 @@
 import React, { Component } from 'react'
 import { EventsTable } from '../events/EventsTable'
 import api from '../../lib/api'
+import { toast } from 'react-toastify'
 
 export class Person extends Component {
     constructor(props) {
