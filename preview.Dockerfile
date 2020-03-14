@@ -40,9 +40,10 @@ COPY frontend/ /code/frontend
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && curl -sL https://deb.nodesource.com/setup_12.x  | bash - \
     && apt-get install nodejs -y --no-install-recommends \
-    && npm install \
-    && npm cache clean --force \
-    && npm run build \
+    && npm install -g yarn@1 \
+    && yarn --frozen-lockfile \
+    && yarn build \
+    && npm uninstall -g yarn \
     && apt-get purge -y nodejs curl \
     && rm -rf node_modules \
 	&& rm -rf /var/lib/apt/lists/* \
