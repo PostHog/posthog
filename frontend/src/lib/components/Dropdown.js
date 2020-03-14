@@ -16,7 +16,8 @@ export class Dropdown extends Component {
         this.setState({ menuOpen: false })
         document.removeEventListener('click', this.close)
     }
-    open() {
+    open(e) {
+        e.preventDefault()
         this.setState({ menuOpen: true })
         document.addEventListener('click', this.close)
     }
@@ -37,6 +38,7 @@ export class Dropdown extends Component {
                     className={'cursor-pointer ' + this.props.buttonClassName}
                     style={{ ...this.props.buttonStyle }}
                     onClick={this.open}
+                    href="#"
                 >
                     {this.props.title || <span>&hellip;</span>}
                 </a>

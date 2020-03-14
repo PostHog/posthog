@@ -167,3 +167,33 @@ class TestAction(BaseTest):
             response = self.client.get('/api/action/trends/?actions=%s' % json_to_url([{'id': sign_up_action.id, 'math': 'dau'}])).json()
         self.assertEqual(response[0]['data'][4], 1)
         self.assertEqual(response[0]['data'][5], 2)
+
+    def test_stickiness(self):
+        Person.objects.create(team=self.team, distinct_ids=['person1'])
+        Event.objects.create(team=self.team, event='watched movie', distinct_id='person1', timestamp='2020-01-01T12:00:00Z')
+
+        Person.objects.create(team=self.team, distinct_ids=['person2'])
+        Event.objects.create(team=self.team, event='watched movie', distinct_id='person2', timestamp='2020-01-01T12:00:00Z')
+        Event.objects.create(team=self.team, event='watched movie', distinct_id='person2', timestamp='2020-01-02T12:00:00Z')
+        Event.objects.create(team=self.team, event='watched movie', distinct_id='person2', timestamp='2020-01-02T12:00:00Z') # same day
+
+        Person.objects.create(team=self.team, distinct_ids=['person3'])
+        Event.objects.create(team=self.team, event='watched movie', distinct_id='person3', timestamp='2020-01-01T12:00:00Z')
+        Event.objects.create(team=self.team, event='watched movie', distinct_id='person3', timestamp='2020-01-02T12:00:00Z')
+        Event.objects.create(team=self.team, event='watched movie', distinct_id='person3', timestamp='2020-01-03T12:00:00Z')
+
+        Person.objects.create(team=self.team, distinct_ids=['person4'])
+        Event.objects.create(team=self.team, event='watched movie', distinct_id='person4', timestamp='2020-01-05T12:00:00Z')
+
+        watched_movie = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=watched_movie, event='watched movie')
+        response = self.client.get('/api/action/trends/?shown_as=Stickiness&date_from=2020-01-01&date_to=2020-01-07&actions=%s' % json_to_url([{'id': watched_movie.id}])).json()
+
+        self.assertEqual(response[0]['labels'][0], '1 day')
+        self.assertEqual(response[0]['data'][0], 2)
+        self.assertEqual(response[0]['labels'][1], '2 days')
+        self.assertEqual(response[0]['data'][1], 1)
+        self.assertEqual(response[0]['labels'][2], '3 days')
+        self.assertEqual(response[0]['data'][2], 1)
+        self.assertEqual(response[0]['labels'][6], '7 days')
+        self.assertEqual(response[0]['data'][6], 0)
