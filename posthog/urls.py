@@ -175,7 +175,6 @@ if hasattr(settings, 'INCLUDE_API_DOCS'):
         re_path(r'^redoc/$', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
     ]
 
-
 urlpatterns += [
     re_path(r'^.*', decorators.login_required(home)),
 ]

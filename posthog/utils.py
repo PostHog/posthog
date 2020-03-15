@@ -1,5 +1,7 @@
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
+from django.db.models import Q
+from typing import Dict
 
 import datetime
 import re
@@ -33,3 +35,17 @@ def relative_date_parse(input: str) -> datetime.date:
         if match.group('position') == 'End':
             date = date - relativedelta(month=12, day=31)
     return date.date()
+
+def properties_to_Q(properties: Dict[str, str]) -> Q:
+    filters = Q()
+
+    for key, value in properties.items():
+        if key.endswith('__is_not'):
+            key = key.replace('__is_not', '')
+            filters |= Q(~Q(**{'properties__{}'.format(key): value}) | ~Q(properties__has_key=key))
+        elif key.endswith('__not_icontains'):
+            key = key.replace('__not_icontains', '')
+            filters |= Q(~Q(**{'properties__{}__icontains'.format(key): value}) | ~Q(properties__has_key=key))
+        else:
+            filters |= Q(**{'properties__{}'.format(key): value})
+    return filters

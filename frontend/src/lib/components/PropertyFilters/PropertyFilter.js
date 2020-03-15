@@ -16,17 +16,20 @@ export class PropertyFilter extends Component {
         let value = Object.values(item)[0]
         let operatorMap = {
             null: 'equals',
+            is_not: "doesn't equal",
             icontains: 'contains',
+            not_icontains: "doesn't contain",
             gt: 'greater than',
             lt: 'lower than',
         }
         return (
             <div className="row" style={{ margin: '0.5rem -15px' }}>
-                <div className="col-4" style={{ paddingRight: 0 }}>
+                <div className="col-3" style={{ paddingRight: 0 }}>
                     <Select
                         options={properties}
                         style={{ width: 200 }}
                         value={[{ label: key[0], value: key[0] }]}
+                        isLoading={!properties}
                         placeholder="Property key"
                         onChange={item =>
                             onSet(
@@ -40,14 +43,14 @@ export class PropertyFilter extends Component {
                     />
                 </div>
                 {key[0] && (
-                    <div className="col-2">
+                    <div className="col-3">
                         <Select
-                            options={Object.entries(
-                                operatorMap
-                            ).map(([key, value]) => ({
-                                label: value,
-                                value: key,
-                            }))}
+                            options={Object.entries(operatorMap).map(
+                                ([key, value]) => ({
+                                    label: value,
+                                    value: key,
+                                })
+                            )}
                             style={{ width: 200 }}
                             value={[
                                 {
@@ -91,7 +94,7 @@ export class PropertyFilter extends Component {
     }
 }
 PropertyFilter.propTypes = {
-    properties: PropTypes.array.isRequired,
+    properties: PropTypes.array,
     item: PropTypes.object.isRequired,
     onSet: PropTypes.func.isRequired,
 }

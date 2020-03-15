@@ -89,8 +89,9 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware'
 ]
+INTERNAL_IPS = ['127.0.0.1']
 CORS_ORIGIN_ALLOW_ALL = True
 
 ROOT_URLCONF = 'posthog.urls'

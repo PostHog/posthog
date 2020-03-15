@@ -104,7 +104,6 @@ export class ActionsGraph extends Component {
                         <h4 className="secondary">Filters</h4>
                         <PropertyFilters
                             properties={properties}
-                            prefetchProperties={true}
                             propertyFilters={filters.properties}
                             onChange={properties =>
                                 this.setFilters({ properties })

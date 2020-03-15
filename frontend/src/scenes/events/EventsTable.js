@@ -4,6 +4,7 @@ import api from '../../lib/api'
 import { Link } from 'react-router-dom'
 import moment from 'moment'
 import { PropertyFilters } from '../../lib/components/PropertyFilters/PropertyFilters'
+import { FilterLink } from '../../lib/components/FilterLink'
 import { EventDetails } from './EventDetails'
 import PropTypes from 'prop-types'
 
@@ -18,14 +19,14 @@ export class EventsTable extends Component {
     constructor(props) {
         super(props)
 
+        let params = fromParams()
         this.state = {
-            filters: fromParams(),
+            properties: params.properties ? JSON.parse(params.properties) : {},
             newEvents: [],
             loading: true,
             highlightEvents: [],
         }
         this.fetchEvents = this.fetchEvents.bind(this)
-        this.FilterLink = this.FilterLink.bind(this)
         this.pollEvents = this.pollEvents.bind(this)
         this.clickNext = this.clickNext.bind(this)
         this.EventRow = this.EventRow.bind(this)
@@ -34,16 +35,19 @@ export class EventsTable extends Component {
         this.fetchEvents()
     }
     fetchEvents() {
-        let params = toParams({
-            ...this.state.filters,
-            ...this.props.fixedFilters,
-        })
+        let params = {}
+        if (Object.keys(this.state.properties).length > 0)
+            params.properties = this.state.properties
         this.props.history.push({
             pathname: this.props.history.location.pathname,
-            search: params,
+            search: toParams(params),
         })
-        this.setState({ loading: true })
+        if (!this.state.loading) this.setState({ loading: true })
         clearTimeout(this.poller)
+        params = toParams({
+            ...params,
+            ...this.state.fixedFilters,
+        })
         api.get('api/event/?' + params).then(events => {
             this.setState({
                 events: events.results,
@@ -55,8 +59,8 @@ export class EventsTable extends Component {
     }
     pollEvents() {
         let params = {
-            ...this.state.filters,
-            ...this.props.fixedFilters,
+            properties: this.state.properties,
+            ...this.state.fixedFilters,
         }
         if (this.state.events[0])
             params['after'] = this.state.events[0].timestamp
@@ -70,32 +74,11 @@ export class EventsTable extends Component {
     componentWillUnmount() {
         clearTimeout(this.poller)
     }
-    FilterLink(props) {
-        let filters = { ...this.state.filters }
-        filters[props.property] = props.value
-        return (
-            <Link
-                to={{
-                    pathname: this.props.history.pathname,
-                    search: toParams(filters),
-                }}
-                onClick={event => {
-                    let filters = { ...this.state.filters }
-                    filters[props.property] = props.value
-                    this.setState({ filters }, this.fetchEvents)
-                    event.stopPropagation()
-                }}
-            >
-                {typeof props.value === 'object'
-                    ? JSON.stringify(props.value)
-                    : props.value && props.value.replace(/(^\w+:|^)\/\//, '')}
-            </Link>
-        )
-    }
+
     clickNext() {
         let { events } = this.state
         let params = toParams({
-            ...this.state.filters,
+            properties: this.state.properties,
             ...this.props.fixedFilters,
             before: events[events.length - 1].timestamp,
         })
@@ -120,7 +103,7 @@ export class EventsTable extends Component {
     }
     EventRow(props) {
         let { event } = props
-        let { highlightEvents, eventSelected } = this.state
+        let { highlightEvents, eventSelected, properties } = this.state
         let params = ['$current_url', '$lib']
         return (
             <tr
@@ -156,9 +139,21 @@ export class EventsTable extends Component {
                 </td>
                 {params.map(param => (
                     <td key={param} title={event.properties[param]}>
-                        <this.FilterLink
+                        <FilterLink
                             property={param}
                             value={event.properties[param]}
+                            filters={properties}
+                            onClick={(key, value) =>
+                                this.setState(
+                                    {
+                                        properties: {
+                                            ...properties,
+                                            [key]: value,
+                                        },
+                                    },
+                                    this.fetchEvents
+                                )
+                            }
                         />
                     </td>
                 ))}
@@ -182,7 +177,7 @@ export class EventsTable extends Component {
     }
     render() {
         let {
-            filters,
+            properties,
             events,
             loading,
             hasNext,
@@ -192,9 +187,9 @@ export class EventsTable extends Component {
         return (
             <div className="events">
                 <PropertyFilters
-                    propertyFilters={filters}
-                    onChange={filters =>
-                        this.setState({ filters }, this.fetchEvents)
+                    propertyFilters={properties}
+                    onChange={properties =>
+                        this.setState({ properties }, this.fetchEvents)
                     }
                 />
                 <table className="table" style={{ position: 'relative' }}>

@@ -1,5 +1,5 @@
 from posthog.models import Event, Team, Action, ActionStep, Element, User
-from posthog.utils import relative_date_parse
+from posthog.utils import relative_date_parse, properties_to_Q
 from rest_framework import request, serializers, viewsets, authentication # type: ignore
 from rest_framework.response import Response
 
@@ -160,19 +160,18 @@ class ActionViewSet(viewsets.ModelViewSet):
             date_to = datetime.date.today()
         return date_from, date_to
 
-    def _filter_events(self, request: request.Request) -> Dict:
-        events = {}
+    def _filter_events(self, request: request.Request) -> Q:
+        filters = Q()
         date_from, date_to = self._get_dates_from_request(request=request)
         if date_from:
-            events['timestamp__gte'] = date_from
+            filters &= Q(timestamp__gte=date_from)
         if date_to:
-            events['timestamp__lte'] = date_to + relativedelta(days=1)
+            filters &= Q(timestamp__lte=date_to + relativedelta(days=1))
         if not request.GET.get('properties'):
-            return events
-        parsed = json.loads(request.GET.get('properties', '{}'))
-        for key, value in parsed.items():
-            events['properties__{}'.format(key)] = value
-        return events
+            return filters
+        properties = json.loads(request.GET['properties'])
+        filters &= properties_to_Q(properties)
+        return filters 
 
     def _breakdown(self, events: QuerySet, breakdown_by: str) -> List[Dict[str, int]]:
         key = "properties__{}".format(breakdown_by)
@@ -193,7 +192,7 @@ class ActionViewSet(viewsets.ModelViewSet):
     def _aggregate_by_day(self, action: Action, filters: Dict[Any, Any], request: request.Request):
         append: Dict[str, Any] = {}
         aggregates = Event.objects.filter_by_action(action)\
-            .filter(**self._filter_events(request))\
+            .filter(self._filter_events(request))\
             .annotate(day=functions.TruncDay('timestamp'))\
             .values('day')\
             .annotate(count=Count('id'))\
@@ -208,14 +207,13 @@ class ActionViewSet(viewsets.ModelViewSet):
                 date_from = aggregates[0]['day'].date()
             dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates)
             append = self._append_data(append, dates_filled)
-            
         if request.GET.get('breakdown'):
             append['breakdown'] = self._breakdown(aggregates, breakdown_by=request.GET['breakdown'])
         return append
 
     def _stickiness(self, action: Action, filters: Dict[Any, Any], request: request.Request):
         events = Event.objects.filter_by_action(action)\
-            .filter(**self._filter_events(request))\
+            .filter(self._filter_events(request))\
             .annotate(day=functions.TruncDay('timestamp'))\
             .annotate(distinct_person_day=Concat('person_id', 'day', output_field=TextField()))\
             .order_by('distinct_person_day')\

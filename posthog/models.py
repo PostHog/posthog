@@ -7,6 +7,7 @@ from django.utils.translation import ugettext_lazy as _
 from django.dispatch import receiver
 from django.forms.models import model_to_dict
 from django.utils import timezone
+from posthog.utils import properties_to_Q
 from typing import List, Tuple, Optional, Any, Union, Dict
 from django.db import transaction
 from sentry_sdk import capture_exception
@@ -383,11 +384,9 @@ class Cohort(models.Model):
                 )
                 person_ids.extend([person.id for person in people])
             elif group.get('properties'):
-                properties = {
-                    'properties__{}'.format(key): value for key, value in group['properties'].items()
-                }
+                properties = properties_to_Q(group['properties'])
                 person_ids.extend(
-                    [person_id for person_id in Person.objects.filter(team_id=self.team_id, **properties).order_by('-id').values_list('pk', flat=True)]
+                    [person_id for person_id in Person.objects.filter(properties, team_id=self.team_id).order_by('-id').values_list('pk', flat=True)]
                 )
         return person_ids
 
