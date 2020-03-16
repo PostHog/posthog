@@ -175,3 +175,10 @@ class TestElementGroup(BaseTest):
         group2 = ElementGroup.objects.create(team=self.team, elements=elements)
         self.assertEqual(Element.objects.count(), 2)
         self.assertEqual(group1.hash, group2.hash)
+
+        # Test no team leakage
+        team2 = Team.objects.create()
+        group3 = ElementGroup.objects.create(team=team2, elements=elements)
+        group3_duplicate = ElementGroup.objects.create(team_id=team2.pk, elements=elements)
+        self.assertNotEqual(group2, group3)
+        self.assertEqual(ElementGroup.objects.count(), 2)

@@ -36,7 +36,8 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
         if not event.elements_hash:
             return []
         if hasattr(event, 'elements_group'):
-            return ElementSerializer(event.elements_group.element_set.all().order_by('order'), many=True).data
+            if event.elements_group:
+                return ElementSerializer(event.elements_group.element_set.all().order_by('order'), many=True).data
         elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by('order')
         return ElementSerializer(elements, many=True).data
 

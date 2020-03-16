@@ -276,7 +276,10 @@ class ElementGroupManager(models.Manager):
                 with transaction.atomic():
                     group = super().create(*args, **kwargs)
             except:
-                return ElementGroup.objects.get(hash=kwargs['hash'])
+                return ElementGroup.objects.get(
+                    hash=kwargs['hash'],
+                    team_id=kwargs['team'].pk if kwargs.get('team') else kwargs['team_id']
+                )
             for element in elements:
                 element.group = group
             for element in elements:
@@ -285,8 +288,12 @@ class ElementGroupManager(models.Manager):
             return group
 
 class ElementGroup(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['team', 'hash'], name='unique hash for each team')
+        ]
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-    hash: models.CharField = models.CharField(max_length=400, null=True, blank=True, unique=True)
+    hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     objects = ElementGroupManager()
 
 class Element(models.Model):
