@@ -1,7 +1,7 @@
 import React, { Component } from 'react'
 import { CloseButton } from '../../lib/utils'
 import { Dropdown } from '../../lib/components/Dropdown'
-import { ActionSelectBox } from './ActionSelectBox'
+import { ActionSelectBox } from '../../lib/components/ActionSelectBox'
 import { Link } from 'react-router-dom'
 
 export class ActionFilter extends Component {
@@ -86,13 +86,12 @@ export class ActionFilter extends Component {
                     <ActionSelectBox
                         actions={actions}
                         action={action}
+                        defaultMenuIsOpen={true}
                         onChange={actionId => {
                             actionFilters[index] = { id: actionId }
                             this.props.onChange(actionFilters)
                         }}
-                        index={index}
                         onClose={() => this.setState({ selected: false })}
-                        actionFilters={actionFilters}
                     />
                 )}
             </div>

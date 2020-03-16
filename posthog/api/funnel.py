@@ -31,7 +31,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
         funnel.steps_cache = True # type: ignore
 
         funnel_steps = funnel.steps.all().prefetch_related('action')
-        if self.context['view'].action != 'retrieve':
+        if self.context['view'].action != 'retrieve' or self.context['request'].GET.get('exclude_count'):
             return [{
                 'id': step.id,
                 'action_id': step.action.id,

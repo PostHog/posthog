@@ -153,3 +153,28 @@
 .card-funnel {
     min-width: 250px;
 }
+
+
+.funnel-step {
+    .card {
+        flex-direction: row;
+    }
+    .funnel-step-side {
+        background: rgba(0, 0, 0, 0.03);
+        width: 40px;
+        padding: 11px 12px;
+        text-align: center;
+    }
+    .select-box {
+        display: flex;
+        flex-direction: row-reverse;
+        justify-content: flex-end;
+    }
+    .select-box > a {
+        margin-top: 3px;
+    }
+    .select-box-select {
+        width: 300px;
+        margin-right: 16px;
+    }
+}

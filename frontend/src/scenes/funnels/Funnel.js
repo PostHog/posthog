@@ -13,14 +13,14 @@ export class Funnel extends Component {
         this.state = {
             loadingFunnel: true,
             loadingPeople: true,
+            steps: []
         }
-        this.fetchFunnel = this.fetchFunnel.bind(this)
         this.fetchFunnel()
-        this.sortPeople = this.sortPeople.bind(this)
+        this.fetchFunnelFast()
     }
-    sortPeople(people) {
+    sortPeople = people => {
         let score = person => {
-            return this.state.funnel.steps.reduce(
+            return this.state.steps.reduce(
                 (val, step) =>
                     step.people.indexOf(person.id) > -1 ? val + 1 : val,
                 0
@@ -29,13 +29,18 @@ export class Funnel extends Component {
         people.sort((a, b) => score(b) - score(a))
         return people
     }
-    fetchFunnel() {
+    fetchFunnelFast = () => {
+        api.get(
+            'api/funnel/' + this.props.match.params.id + '/?exclude_count=1'
+        ).then(funnel => this.setState({ funnel }))
+    }
+    fetchFunnel = () => {
         let now = new Date()
         this.currentFunnelFetch = now
         this.setState({ loadingFunnel: true, loadingPeople: true })
         api.get('api/funnel/' + this.props.match.params.id).then(funnel => {
             if (now != this.currentFunnelFetch) return
-            this.setState({ funnel, loadingFunnel: false })
+            this.setState({ steps: funnel.steps, loadingFunnel: false })
             if (!funnel.steps[0]) return
             api.get(
                 'api/person/?id=' +
@@ -50,12 +55,12 @@ export class Funnel extends Component {
         })
     }
     render() {
-        let { funnel, people, loadingFunnel, loadingPeople } = this.state
+        let { funnel, steps, people, loadingFunnel, loadingPeople } = this.state
         return funnel ? (
             <div className="funnel">
                 <h1>Funnel: {funnel.name}</h1>
                 <EditFunnel
-                    funnel={funnel}
+                    funnelId={this.props.match.params.id}
                     onChange={funnel => this.fetchFunnel()}
                 />
                 <Card
@@ -73,7 +78,9 @@ export class Funnel extends Component {
                 >
                     <div style={{ height: 300 }}>
                         {loadingFunnel && <Loading />}
-                        {funnel.steps && <FunnelViz funnel={funnel} />}
+                        {steps[0] && steps[0].count > -1 && (
+                            <FunnelViz funnel={{steps}} />
+                        )}
                     </div>
                 </Card>
                 <Card title="Per user">
@@ -82,7 +89,7 @@ export class Funnel extends Component {
                         <tbody>
                             <tr>
                                 <td></td>
-                                {funnel.steps.map(step => (
+                                {steps.map(step => (
                                     <th key={step.id}>
                                         <Link to={'/action/' + step.action_id}>
                                             {step.name}
@@ -92,11 +99,11 @@ export class Funnel extends Component {
                             </tr>
                             <tr>
                                 <td></td>
-                                {funnel.steps.map(step => (
+                                {steps.map(step => (
                                     <td key={step.id}>
                                         {step.count}&nbsp; (
                                         {percentage(
-                                            step.count / funnel.steps[0].count
+                                            step.count / steps[0].count
                                         )}
                                         )
                                     </td>
@@ -114,7 +121,7 @@ export class Funnel extends Component {
                                                 {person.name}
                                             </Link>
                                         </td>
-                                        {funnel.steps.map(step => (
+                                        {steps.map(step => (
                                             <td
                                                 key={step.id}
                                                 className={
