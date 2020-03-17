@@ -1,6 +1,7 @@
 import React, { Component } from 'react'
 import { EventsTable } from '../events/EventsTable'
 import api from '../../lib/api'
+import { PropertiesTable } from '../../lib/components/PropertiesTable'
 import { toast } from 'react-toastify'
 
 export class Person extends Component {
@@ -22,44 +23,13 @@ export class Person extends Component {
         }
         api.get(url).then(person => this.setState({ person }))
     }
-    Value(props) {
-        let value = props.value
-        if (Array.isArray(value))
-            return (
-                <div>
-                    {value.map(item => (
-                        <span>
-                            <this.Value value={item} />
-                            <br />
-                        </span>
-                    ))}
-                </div>
-            )
-        if (value instanceof Object)
-            return (
-                <table className="table">
-                    <tbody>
-                        {Object.entries(value).map(([key, value]) => (
-                            <tr>
-                                <th>{key}</th>
-                                <td>
-                                    <this.Value value={value} />
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            )
-        if (value === true) return 'true'
-        if (value === false) return 'false'
-        return value
-    }
+
     render() {
         return this.state.person ? (
             <div>
                 <h1>{this.state.person.name}</h1>
                 <div style={{ maxWidth: 750 }}>
-                    <this.Value value={this.state.person.properties} />
+                    <PropertiesTable value={this.state.person.properties} />
                     <table className="table">
                         <tbody>
                             <tr>
