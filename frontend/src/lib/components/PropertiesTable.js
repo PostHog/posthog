@@ -34,7 +34,7 @@ export function PropertiesTable({ properties }) {
         )
     if (properties === true) return 'true'
     if (properties === false) return 'false'
-    return properties
+    return properties ? properties : null
 }
 PropertiesTable.propTypes = {
     properties: PropTypes.any.isRequired,
