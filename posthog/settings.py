@@ -18,7 +18,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 from sentry_sdk.integrations.django import DjangoIntegration
 
-VERSION = '1.0.7'
+VERSION = '1.0.8.1'
 
 def get_env(key):
     try:

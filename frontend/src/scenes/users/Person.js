@@ -10,7 +10,6 @@ export class Person extends Component {
 
         this.state = {}
         this.fetchPerson.call(this)
-        this.Value = this.Value.bind(this)
     }
     fetchPerson() {
         let url = ''
