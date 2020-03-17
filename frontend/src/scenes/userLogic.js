@@ -36,7 +36,12 @@ export const userLogic = kea({
                             email: user.email,
                             id: user.id,
                         })
-                    window.posthog && window.posthog.identify(user.distinct_id)
+                    if (window.posthog) {
+                        window.posthog.identify(user.distinct_id)
+                        window.posthog.register({
+                            posthog_version: user.posthog_version,
+                        })
+                    }
                 }
             } catch (error) {
                 actions.setUser(null)
