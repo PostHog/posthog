@@ -1,4 +1,5 @@
 import React, { Component } from 'react'
+import { PropertiesTable } from '../../lib/components/PropertiesTable'
 
 export class EventDetails extends Component {
     constructor(props) {
@@ -101,15 +102,11 @@ export class EventDetails extends Component {
                 </div>
                 <div className="col-10">
                     {this.state.selected == 'properties' ? (
-                        <div className="d-flex flex-wrap flex-column">
-                            {Object.keys(event.properties)
-                                .sort()
-                                .map(key => (
-                                    <div style={{ flex: '0 1 ' }} key={key}>
-                                        <strong>{key}:</strong>
-                                        {this.props.event.properties[key]}
-                                    </div>
-                                ))}
+                        <div
+                            className="d-flex flex-wrap flex-column"
+                            style={{ maxWidth: '100%', overflow: 'scroll' }}
+                        >
+                            <PropertiesTable properties={event.properties} />
                         </div>
                     ) : (
                         <this.ShowElements elements={elements} />
