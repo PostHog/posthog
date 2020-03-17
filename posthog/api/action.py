@@ -191,7 +191,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 date_from = aggregates[0]['day'].date()
             dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates)
             values = [value[0] for key, value in dates_filled.iterrows()]
-            append['labels'] = [key.strftime('%-d %B') for key, value in dates_filled.iterrows()]
+            append['labels'] = [key.strftime('%a. %-d %B') for key, value in dates_filled.iterrows()]
             append['data'] = values
             append['count'] = sum(values)
         if request.GET.get('breakdown'):
