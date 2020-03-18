@@ -104,7 +104,6 @@ export class ActionsGraph extends Component {
                         <h4 className="secondary">Filters</h4>
                         <PropertyFilters
                             properties={properties}
-                            prefetchProperties={true}
                             propertyFilters={filters.properties}
                             onChange={properties =>
                                 this.setFilters({ properties })
@@ -132,7 +131,9 @@ export class ActionsGraph extends Component {
                         <h4 className="secondary">Shown as</h4>
                         <ShownAsFilter
                             shown_as={filters.shown_as}
-                            onChange={shown_as => this.setFilters({ shown_as })}
+                            onChange={shown_as =>
+                                this.setFilters({ shown_as })
+                            }
                         />
                     </div>
                 </Card>

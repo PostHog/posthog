@@ -112,12 +112,9 @@ class TestEvents(BaseTest):
         Event.objects.create(team=self.team, properties={'random_prop': 'asdf'})
 
         response = self.client.get('/api/event/properties/').json()
-        self.assertEqual(response[0]['name'], 'random_prop')
-        self.assertEqual(response[0]['count'], 2)
+        self.assertEqual(response[0]['name'], '$browser')
         self.assertEqual(response[1]['name'], '$os')
-        self.assertEqual(response[1]['count'], 1)
-        self.assertEqual(response[2]['name'], '$browser')
-        self.assertEqual(response[2]['count'], 1)
+        self.assertEqual(response[2]['name'], 'random_prop')
 
     def test_event_property_values(self):
         Event.objects.create(team=self.team, properties={'random_prop': 'asdf', 'some other prop': 'with some text'})

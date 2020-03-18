@@ -20,7 +20,7 @@ export class PropertyFilters extends Component {
         this.set = this.set.bind(this)
         this.update = this.update.bind(this)
         this.remove = this.remove.bind(this)
-        if (!props.prefetchProperties) this.fetchProperties.call(this)
+        if (props.properties === undefined) this.fetchProperties.call(this)
     }
     fetchProperties() {
         api.get('api/' + this.endpoint + '/properties').then(properties =>
@@ -116,8 +116,7 @@ export class PropertyFilters extends Component {
 }
 
 PropertyFilters.propTypes = {
-    propertyFilters: PropTypes.objectOf(PropTypes.string, PropTypes.number)
-        .isRequired,
+    propertyFilters: PropTypes.object.isRequired,
     onChange: PropTypes.func.isRequired,
     endpoint: PropTypes.string,
     properties: PropTypes.array,

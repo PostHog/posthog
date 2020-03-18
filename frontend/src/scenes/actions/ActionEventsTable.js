@@ -6,25 +6,26 @@ import { PropertyFilters } from '../../lib/components/PropertyFilters/PropertyFi
 import moment from 'moment'
 import { EventDetails } from '../events/EventDetails'
 import PropTypes from 'prop-types'
+import { FilterLink } from '../../lib/components/FilterLink'
 
 export class ActionEventsTable extends Component {
     constructor(props) {
         super(props)
 
+        let params = fromParams()
         this.state = {
-            propertyFilters: fromParams(),
+            properties: params.properties ? JSON.parse(params.properties) : {},
             newEvents: [],
             loading: true,
         }
         this.fetchEvents = this.fetchEvents.bind(this)
-        this.FilterLink = this.FilterLink.bind(this)
         this.pollEvents = this.pollEvents.bind(this)
         this.pollTimeout = 5000
         this.fetchEvents(this)
     }
     fetchEvents() {
         let params = toParams({
-            ...this.state.propertyFilters,
+            properties: this.state.properties,
             ...this.props.fixedFilters,
         })
         clearTimeout(this.poller)
@@ -36,7 +37,7 @@ export class ActionEventsTable extends Component {
     pollEvents() {
         let params = {
             ...this.props.fixedFilters,
-            ...this.state.propertyFilters,
+            properties: this.state.properties,
         }
         if (this.state.events[0])
             params['after'] = this.state.events[0].event.timestamp
@@ -51,36 +52,15 @@ export class ActionEventsTable extends Component {
     componentWillUnmount() {
         clearTimeout(this.poller)
     }
-    FilterLink(props) {
-        let filters = { ...this.state.filters }
-        filters[props.property] = props.value
-        return (
-            <Link
-                to={{
-                    pathname: this.props.history.pathname,
-                    search: toParams(filters),
-                }}
-                onClick={event => {
-                    this.state.filters[props.property] = props.value
-                    this.setState({ filters: this.state.filters })
-                    this.fetchEvents()
-                }}
-            >
-                {typeof props.value === 'object'
-                    ? JSON.stringify(props.value)
-                    : props.value}
-            </Link>
-        )
-    }
     render() {
         let params = ['$current_url']
-        let { loading, propertyFilters, events } = this.state
+        let { loading, properties, events } = this.state
         return (
             <div className="events">
                 <PropertyFilters
-                    propertyFilters={propertyFilters}
-                    onChange={propertyFilters =>
-                        this.setState({ propertyFilters }, this.fetchEvents)
+                    propertyFilters={properties}
+                    onChange={properties =>
+                        this.setState({ properties }, this.fetchEvents)
                     }
                 />
                 <table className="table">
@@ -163,12 +143,24 @@ export class ActionEventsTable extends Component {
                                                 action.event.properties[param]
                                             }
                                         >
-                                            <this.FilterLink
+                                            <FilterLink
                                                 property={param}
                                                 value={
                                                     action.event.properties[
                                                         param
                                                     ]
+                                                }
+                                                filters={properties}
+                                                onClick={(key, value) =>
+                                                    this.setState(
+                                                        {
+                                                            properties: {
+                                                                ...properties,
+                                                                [key]: value,
+                                                            },
+                                                        },
+                                                        this.fetchEvents
+                                                    )
                                                 }
                                             />
                                         </td>

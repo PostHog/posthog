@@ -1,4 +1,5 @@
 from posthog.models import Event, Team, Person, Element, Action, PersonDistinctId, ElementGroup
+from posthog.utils import properties_to_Q
 from rest_framework import request, response, serializers, viewsets # type: ignore
 from rest_framework.decorators import action # type: ignore
 from django.http import HttpResponse, JsonResponse
@@ -6,6 +7,7 @@ from django.db.models import Q, Count, QuerySet, query, F, Func, functions, Pref
 from django.forms.models import model_to_dict
 from typing import Any, Union, Tuple, Dict, List
 import re
+import json
 
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
@@ -69,11 +71,8 @@ class EventViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(distinct_id=request.GET['distinct_id'])
             elif key == 'action_id':
                 queryset = queryset.filter_by_action(Action.objects.get(pk=value)) # type: ignore
-            else:
-                key = 'properties__%s' % key
-                params = {}
-                params[key] = value
-                queryset = queryset.filter(**params)
+            elif key == 'properties':
+                queryset = queryset.filter(properties_to_Q(json.loads(value)))
         return queryset
 
     def _serialize_actions(self, event: Event) -> Dict:
@@ -153,10 +152,10 @@ class EventViewSet(viewsets.ModelViewSet):
         events = events\
             .annotate(keys=JsonKeys('properties'))\
             .values('keys')\
-            .annotate(count=Count('id'))\
-            .order_by('-count')
+            .distinct('keys')\
+            .order_by('keys')
 
-        return response.Response([{'name': event['keys'], 'count': event['count']} for event in events])
+        return response.Response([{'name': event['keys']} for event in events])
 
     @action(methods=['GET'], detail=False)
     def values(self, request: request.Request) -> response.Response:
