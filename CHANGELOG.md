@@ -16,6 +16,10 @@
 
 - Various performance improvements
 
+- Bug fixes
+
+- Turbolinks: Support for navigating between pages with the toolbar open
+
 ### 1.0.7 - Wednesday 10 March 2020
 
 - Added changelog and reminder to update to app.
