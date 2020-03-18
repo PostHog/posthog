@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunSQL(
-            "CREATE INDEX posthog_event_properties_current_url_gin ON posthog_event USING gin (team_id, UPPER(properties->>'$current_url') gin_trgm_ops)",
+            "CREATE INDEX posthog_event_properties_current_url_gin ON posthog_event USING gin (team_id, event, UPPER(properties->>'$current_url') gin_trgm_ops)",
             "DROP INDEX posthog_event_properties_current_url_gin"
         )
     ]
