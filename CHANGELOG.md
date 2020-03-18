@@ -1,5 +1,18 @@
 # Changelog
 
+### 1.0.8 - Wednesday 18 March 2020
+
+- Moved actions into /event submenu
+
+![moved action](https://posthog.com/wp-content/uploads/2020/03/Posthog-3.png)
+- Improved Actions Creation
+![improved actions creation](https://posthog.com/wp-content/uploads/2020/03/newtoolbar.gif)
+
+- Delete user data
+![delete user data](https://posthog.com/wp-content/uploads/2020/03/Posthog-4.png)
+
+- Various performance improvements
+
 ### 1.0.7 - Wednesday 10 March 2020
 
 - Added changelog and reminder to update to app.
