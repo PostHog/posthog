@@ -46,7 +46,7 @@ export class EventsTable extends Component {
         clearTimeout(this.poller)
         params = toParams({
             ...params,
-            ...this.state.fixedFilters,
+            ...this.props.fixedFilters,
         })
         api.get('api/event/?' + params).then(events => {
             this.setState({
@@ -60,7 +60,7 @@ export class EventsTable extends Component {
     pollEvents() {
         let params = {
             properties: this.state.properties,
-            ...this.state.fixedFilters,
+            ...this.props.fixedFilters,
         }
         if (this.state.events[0])
             params['after'] = this.state.events[0].timestamp
