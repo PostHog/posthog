@@ -4,15 +4,13 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-    atomic = False # disable transaction
-
     dependencies = [
         ('posthog', '0034_pg_trgm_and_btree_20200318_1447'),
     ]
 
     operations = [
         migrations.RunSQL(
-            "CREATE INDEX CONCURRENTLY posthog_event_properties_current_url_gin ON posthog_event USING gin (team_id, UPPER(properties->>'$current_url') gin_trgm_ops)",
-            "DROP INDEX CONCURRENTLY posthog_event_properties_current_url_gin"
+            "CREATE INDEX posthog_event_properties_current_url_gin ON posthog_event USING gin (team_id, UPPER(properties->>'$current_url') gin_trgm_ops)",
+            "DROP INDEX posthog_event_properties_current_url_gin"
         )
     ]
