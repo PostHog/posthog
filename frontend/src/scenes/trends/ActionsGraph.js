@@ -10,6 +10,7 @@ import { ActionsPie } from './ActionsPie'
 import { BreakdownFilter } from './BreakdownFilter'
 import { ActionsTable } from './ActionsTable'
 import { ActionsLineGraph } from './ActionsLineGraph'
+import { ShownAsFilter } from './ShownAsFilter'
 
 export class ActionsGraph extends Component {
     constructor(props) {
@@ -62,6 +63,7 @@ export class ActionsGraph extends Component {
             date_from: this.state.filters.date_from,
             date_to: this.state.filters.date_to,
             properties: this.state.filters.properties,
+            shown_as: this.state.filters.shown_as,
             ...setState,
         }
         if (filters.breakdown) filters.display = 'ActionsTable'
@@ -111,23 +113,27 @@ export class ActionsGraph extends Component {
                         />
                         <hr />
                         <h4 className="secondary">Break down by</h4>
-                        <div style={{ width: 230 }}>
-                            <BreakdownFilter
-                                properties={properties}
-                                breakdown={filters.breakdown}
-                                onChange={breakdown =>
-                                    this.setFilters({ breakdown })
+                        <BreakdownFilter
+                            properties={properties}
+                            breakdown={filters.breakdown}
+                            onChange={breakdown =>
+                                this.setFilters({ breakdown })
+                            }
+                        />
+                        {filters.breakdown && (
+                            <CloseButton
+                                onClick={() =>
+                                    this.setFilters({ breakdown: false })
                                 }
+                                style={{ marginTop: 1 }}
                             />
-                            {filters.breakdown && (
-                                <CloseButton
-                                    onClick={() =>
-                                        this.setFilters({ breakdown: false })
-                                    }
-                                    style={{ marginTop: 1 }}
-                                />
-                            )}
-                        </div>
+                        )}
+                        <hr />
+                        <h4 className="secondary">Shown as</h4>
+                        <ShownAsFilter
+                            shown_as={filters.shown_as}
+                            onChange={shown_as => this.setFilters({ shown_as })}
+                        />
                     </div>
                 </Card>
                 <Card

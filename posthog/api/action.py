@@ -2,14 +2,16 @@ from posthog.models import Event, Team, Action, ActionStep, Element, User
 from posthog.utils import relative_date_parse
 from rest_framework import request, serializers, viewsets, authentication # type: ignore
 from rest_framework.response import Response
+
 from rest_framework.decorators import action # type: ignore
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.utils.serializer_helpers import ReturnDict
-from django.db.models import Q, F, Count, Prefetch, functions, QuerySet
+from django.db.models import Q, F, Count, Prefetch, functions, QuerySet, TextField
+from django.db.models.functions import Concat
 from django.forms.models import model_to_dict
 from django.utils.decorators import method_decorator
 from django.utils.dateparse import parse_date
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict, Optional, Tuple
 import pandas as pd # type: ignore
 import numpy as np # type: ignore
 import datetime
@@ -144,11 +146,30 @@ class ActionViewSet(viewsets.ModelViewSet):
         grouped = grouped.fillna(0)
         return grouped
 
-    def _filter_events(self, request: request.Request):
-        if not request.GET.get('properties'):
-            return {}
+    def _get_dates_from_request(self, request: request.Request) -> Tuple[datetime.date, datetime.date]:
+        if request.GET.get('date_from'):
+            date_from = relative_date_parse(request.GET['date_from'])
+            if request.GET['date_from'] == 'all':
+                date_from = None # type: ignore
+        else:
+            date_from = datetime.date.today() - relativedelta(days=7)
+
+        if request.GET.get('date_to'):
+            date_to = relative_date_parse(request.GET['date_to'])
+        else:
+            date_to = datetime.date.today()
+        return date_from, date_to
+
+    def _filter_events(self, request: request.Request) -> Dict:
         events = {}
-        parsed = json.loads(request.GET.get('properties', {}))
+        date_from, date_to = self._get_dates_from_request(request=request)
+        if date_from:
+            events['timestamp__gte'] = date_from
+        if date_to:
+            events['timestamp__lte'] = date_to + relativedelta(days=1)
+        if not request.GET.get('properties'):
+            return events
+        parsed = json.loads(request.GET.get('properties', '{}'))
         for key, value in parsed.items():
             events['properties__{}'.format(key)] = value
         return events
@@ -162,22 +183,17 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         return [{'name': item[key] if item[key] else 'undefined', 'count': item['count']} for item in events]
 
-    def _serialize_action(self, action: Action, filters: Dict[Any, Any], request: request.Request, date_from: datetime.date, date_to: datetime.date) -> Dict:
-        append = {
-            'action': {
-                'id': action.pk,
-                'name': action.name
-            },
-            'label': action.name,
-            'count': 0,
-            'breakdown': []
-        }
+    def _append_data(self, append: Dict, dates_filled: pd.DataFrame) -> Dict:
+        values = [value[0] for key, value in dates_filled.iterrows()]
+        append['labels'] = [key.strftime('%a. %-d %B') for key, value in dates_filled.iterrows()]
+        append['data'] = values
+        append['count'] = sum(values)
+        return append
+
+    def _aggregate_by_day(self, action: Action, filters: Dict[Any, Any], request: request.Request):
+        append: Dict[str, Any] = {}
         aggregates = Event.objects.filter_by_action(action)\
             .filter(**self._filter_events(request))\
-            .filter(**{
-                **({'timestamp__gte': date_from} if date_from else {}),
-                **({'timestamp__lte': date_to + relativedelta(days=1)} if date_to else {}),
-            })\
             .annotate(day=functions.TruncDay('timestamp'))\
             .values('day')\
             .annotate(count=Count('id'))\
@@ -187,15 +203,54 @@ class ActionViewSet(viewsets.ModelViewSet):
             aggregates = aggregates.annotate(count=Count('distinct_id', distinct=True))
 
         if len(aggregates) > 0:
+            date_from, date_to = self._get_dates_from_request(request)
             if not date_from:
                 date_from = aggregates[0]['day'].date()
             dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates)
-            values = [value[0] for key, value in dates_filled.iterrows()]
-            append['labels'] = [key.strftime('%a. %-d %B') for key, value in dates_filled.iterrows()]
-            append['data'] = values
-            append['count'] = sum(values)
+            append = self._append_data(append, dates_filled)
+            
         if request.GET.get('breakdown'):
             append['breakdown'] = self._breakdown(aggregates, breakdown_by=request.GET['breakdown'])
+        return append
+
+    def _stickiness(self, action: Action, filters: Dict[Any, Any], request: request.Request):
+        events = Event.objects.filter_by_action(action)\
+            .filter(**self._filter_events(request))\
+            .annotate(day=functions.TruncDay('timestamp'))\
+            .annotate(distinct_person_day=Concat('person_id', 'day', output_field=TextField()))\
+            .order_by('distinct_person_day')\
+            .distinct('distinct_person_day')
+        date_from, date_to = self._get_dates_from_request(request)
+        people: Dict[int, int] = {}
+        for event in events:
+            if not people.get(event.person_id):
+                people[event.person_id] = 0
+            people[event.person_id] += 1
+        labels = []
+        data = []
+        for day in range(1, (date_to - date_from).days + 2):
+            label = '{} day{}'.format(day, 's' if day > 1 else '')
+            labels.append(label)
+            data.append(len([key for key, value in people.items() if value == day]))
+        return {
+            'labels': labels,
+            'data': data
+        }
+
+    def _serialize_action(self, action: Action, filters: Dict[Any, Any], request: request.Request) -> Dict:
+        append = {
+            'action': {
+                'id': action.pk,
+                'name': action.name
+            },
+            'label': action.name,
+            'count': 0,
+            'breakdown': []
+        }
+        if request.GET.get('shown_as', 'Volume') == 'Volume':
+            append.update(self._aggregate_by_day(action=action, filters=filters, request=request))
+        elif request.GET['shown_as'] == 'Stickiness':
+            append.update(self._stickiness(action=action, filters=filters, request=request))
         return append
 
     @action(methods=['GET'], detail=False)
@@ -203,17 +258,6 @@ class ActionViewSet(viewsets.ModelViewSet):
         actions = self.get_queryset()
         actions = actions.filter(deleted=False)
         actions_list = []
-        if request.GET.get('date_from'):
-            date_from = relative_date_parse(request.GET['date_from'])
-            if request.GET['date_from'] == 'all':
-                date_from = None # type: ignore
-        else:
-            date_from = datetime.date.today() - relativedelta(days=7)
-
-        if request.GET.get('date_to'):
-            date_to = relative_date_parse(request.GET['date_to'])
-        else:
-            date_to = datetime.date.today()
 
         parsed_actions = self._parse_actions(request)
         if parsed_actions:
@@ -223,8 +267,6 @@ class ActionViewSet(viewsets.ModelViewSet):
                     action=db_action,
                     filters=filters,
                     request=request,
-                    date_from=date_from,
-                    date_to=date_to
                 ))
         else:
             for action in actions:
@@ -232,7 +274,5 @@ class ActionViewSet(viewsets.ModelViewSet):
                     action=action,
                     filters={},
                     request=request,
-                    date_from=date_from,
-                    date_to=date_to
                 ))
         return Response(actions_list)
