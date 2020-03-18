@@ -10,6 +10,7 @@ module.exports = {
     output: {
         path: path.resolve(__dirname, 'frontend', 'dist'),
         filename: '[name].js',
+        publicPath: '/static/'
     },
     module: {
         rules: [
