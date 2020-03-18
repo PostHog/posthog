@@ -4581,10 +4581,17 @@ json5@^2.1.0:
   dependencies:
     minimist "^1.2.0"
 
-kea-listeners@^0.2.2:
-  version "0.2.2"
-  resolved "https://registry.yarnpkg.com/kea-listeners/-/kea-listeners-0.2.2.tgz#25e2a8fe0d7177d47368379ff868feda96fd62be"
-  integrity sha512-+V/ZfUrkeMDQVLlqghIiOhYY9+Djeaea+avpqqi6qzJTi1NHHHzBsHQN4TEgzvvy4q5ooJJrqTQntfh9Lwt6cA==
+kea-listeners@^0.2.3:
+  version "0.2.3"
+  resolved "https://registry.yarnpkg.com/kea-listeners/-/kea-listeners-0.2.3.tgz#c6a0599655c184b1d79ff3a215e5949f2ac6c15d"
+  integrity sha512-EMT3b57eHNqsAYcp86myru+KBjw352tAvtu8mBYgH9QsJbgEPZ2mgGXs3Yn8HpYfC7DLxkUPZZCOucd13m3fEw==
+
+kea-router@^0.1.1:
+  version "0.1.1"
+  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-0.1.1.tgz#97daac5cafb16169a487504987ad08301eb389ca"
+  integrity sha512-vbLHbWDbsqAOK3pHGYqtXAMh1dcRINyUtqu+V17jyVP3PBId1XH7MPwOOpzOA0G7wL3BKA5+wH+Zo5b7PEYeLQ==
+  dependencies:
+    url-pattern "^1.0.3"
 
 kea@^1.0.1:
   version "1.0.1"
@@ -7877,6 +7884,11 @@ urix@^0.1.0:
   version "0.1.0"
   resolved "https://registry.yarnpkg.com/urix/-/urix-0.1.0.tgz#da937f7a62e21fec1fd18d49b35c2935067a6c72"
   integrity sha1-2pN/emLiH+wf0Y1Js1wpNQZ6bHI=
+
+url-pattern@^1.0.3:
+  version "1.0.3"
+  resolved "https://registry.yarnpkg.com/url-pattern/-/url-pattern-1.0.3.tgz#0409292471b24f23c50d65a47931793d2b5acfc1"
+  integrity sha1-BAkpJHGyTyPFDWWkeTF5PStaz8E=
 
 url@^0.11.0:
   version "0.11.0"
