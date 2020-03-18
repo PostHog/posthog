@@ -1,21 +1,82 @@
 {
   "name": "posthog",
-  "version": "1.0.0",
-  "scripts": {
-    "heroku-postbuild": "cd frontend && yarn install && yarn run build",
-    "build": "cd frontend && yarn install && yarn run build"
-  },
-  "cacheDirectories": [
-    "frontend/node_modules"
-  ],
+  "description": "",
+  "version": "0.0.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/posthog/posthog.git"
   },
   "author": "",
-  "license": "ISC",
   "bugs": {
     "url": "https://github.com/posthog/posthog/issues"
   },
-  "homepage": "https://github.com/posthog/posthog#readme"
+  "homepage": "https://github.com/posthog/posthog#readme",
+  "scripts": {
+    "start": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && webpack --config webpack.config.js --watch",
+    "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/",
+    "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\""
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@babel/core": "^7.8.7",
+    "@babel/runtime": "^7.8.7",
+    "babel-preset-nano-react-app": "^0.1.0",
+    "bootstrap": "^4.4.1",
+    "chart.js": "^2.9.3",
+    "core-js": "3",
+    "d3": "^5.15.0",
+    "d3-sankey": "^0.12.3",
+    "editor": "^1.0.0",
+    "funnel-graph-js": "^1.4.1",
+    "kea": "^1.0.1",
+    "kea-listeners": "^0.2.2",
+    "moment": "^2.24.0",
+    "prop-types": "^15.7.2",
+    "react": ">= 16.8",
+    "react-beautiful-dnd": "^12.2.0",
+    "react-datepicker": "^2.13.0",
+    "react-dnd": "^10.0.2",
+    "react-dom": ">= 16.8",
+    "react-draggable": "^4.2.0",
+    "react-redux": "^7.2.0",
+    "react-router-dom": "^5.1.0",
+    "react-select": "^3.0.8",
+    "react-shadow": "^17.4.0",
+    "react-stripe-elements": "^6.0.1",
+    "react-toastify": "^5.5.0",
+    "redux": "^4.0.5",
+    "reselect": "^4.0.0",
+    "sass": "^1.26.2",
+    "simmerjs": "^0.5.6",
+    "style.css": "^1.0.0",
+    "styled-components": "^5.0.1"
+  },
+  "devDependencies": {
+    "@babel/plugin-proposal-class-properties": "^7.8.3",
+    "@babel/plugin-transform-react-jsx": "^7.8.3",
+    "@babel/plugin-transform-runtime": "^7.8.3",
+    "@babel/preset-env": "^7.8.7",
+    "autoprefixer": "^9.7.4",
+    "babel-loader": "^8.0.6",
+    "css-loader": "^3.4.2",
+    "cssnano": "^4.1.10",
+    "file-loader": "^5.1.0",
+    "husky": ">=4",
+    "lint-staged": ">=10",
+    "mini-css-extract-plugin": "^0.9.0",
+    "parcel-bundler": "1.11.0",
+    "postcss-loader": "^3.0.0",
+    "prettier": "1.19.1",
+    "sass-loader": "^8.0.2",
+    "webpack": "^4.42.0",
+    "webpack-cli": "^3.3.11"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged"
+    }
+  },
+  "lint-staged": {
+    "!(*array).{js,css,scss}": "prettier --write"
+  }
 }

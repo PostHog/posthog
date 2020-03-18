@@ -114,7 +114,7 @@ class App extends Component {
         return (
             <root.div>
                 <link
-                    href={this.props.apiURL + 'static/style.css'}
+                    href={this.props.apiURL + 'static/main.css'}
                     rel="stylesheet"
                     crossorigin="anonymous"
                 />
