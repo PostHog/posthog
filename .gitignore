@@ -16,3 +16,4 @@ node_modules
 frontend/.cache/
 .mypy_cache
 frontend/dist/*
+.idea
