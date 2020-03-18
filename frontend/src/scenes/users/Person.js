@@ -28,7 +28,7 @@ export class Person extends Component {
             <div>
                 <h1>{this.state.person.name}</h1>
                 <div style={{ maxWidth: 750 }}>
-                    <PropertiesTable value={this.state.person.properties} />
+                    <PropertiesTable properties={this.state.person.properties} />
                     <table className="table">
                         <tbody>
                             <tr>
