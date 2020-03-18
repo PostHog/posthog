@@ -12,7 +12,7 @@ import { ActionsTable } from './ActionsTable'
 import { ActionsLineGraph } from './ActionsLineGraph'
 import { ShownAsFilter } from './ShownAsFilter'
 
-export class ActionsGraph extends Component {
+export class Trends extends Component {
     constructor(props) {
         super(props)
         this.state = {
