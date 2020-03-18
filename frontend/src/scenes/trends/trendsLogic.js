@@ -58,10 +58,6 @@ export const trendsLogic = kea({
 
                     return newFilters
                 },
-                [actions.setDisplay]: (state, { display }) => ({
-                    ...state,
-                    display,
-                }),
             },
         ],
         isLoading: [
@@ -106,6 +102,9 @@ export const trendsLogic = kea({
             } catch (error) {
                 // TODO: show error for loading properties
             }
+        },
+        [actions.setDisplay]: async ({ display }) => {
+            actions.setFilters({ display })
         },
     }),
 
