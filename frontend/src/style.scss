@@ -174,3 +174,10 @@ button.no-style {
 .table td {
     padding: 0.25rem;
 }
+
+.select-with-close {
+    display: inline-block;
+    .close {
+        margin-left: 10px;
+    }
+}

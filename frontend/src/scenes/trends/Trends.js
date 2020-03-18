@@ -112,21 +112,23 @@ export class Trends extends Component {
                         />
                         <hr />
                         <h4 className="secondary">Break down by</h4>
-                        <BreakdownFilter
-                            properties={properties}
-                            breakdown={filters.breakdown}
-                            onChange={breakdown =>
-                                this.setFilters({ breakdown })
-                            }
-                        />
-                        {filters.breakdown && (
-                            <CloseButton
-                                onClick={() =>
-                                    this.setFilters({ breakdown: false })
+                        <div className='select-with-close'>
+                            <BreakdownFilter
+                                properties={properties}
+                                breakdown={filters.breakdown}
+                                onChange={breakdown =>
+                                    this.setFilters({ breakdown })
                                 }
-                                style={{ marginTop: 1 }}
                             />
-                        )}
+                            {filters.breakdown && (
+                                <CloseButton
+                                    onClick={() =>
+                                        this.setFilters({ breakdown: false })
+                                    }
+                                    style={{ marginTop: 1 }}
+                                />
+                            )}
+                        </div>
                         <hr />
                         <h4 className="secondary">Shown as</h4>
                         <ShownAsFilter
