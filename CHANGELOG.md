@@ -7,9 +7,11 @@
 ![moved action](https://posthog.com/wp-content/uploads/2020/03/Posthog-3.png)
 
 - Improved Actions Creation
+
 ![improved actions creation](https://posthog.com/wp-content/uploads/2020/03/newtoolbar.gif)
 
 - Delete user data
+
 ![delete user data](https://posthog.com/wp-content/uploads/2020/03/Posthog-4.png)
 
 - Various performance improvements
