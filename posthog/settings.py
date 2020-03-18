@@ -74,7 +74,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-        'django_extensions',
+    'django_extensions',
     'posthog.apps.PostHogConfig',
     'rest_framework',
     'loginas',
