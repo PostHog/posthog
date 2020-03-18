@@ -1,5 +1,9 @@
 # Changelog
 
+### 1.0.8.2 - Wednesday 18 March 2020
+
+- Fixes bug where events wouldn't be filtered under /person or /action.
+
 ### 1.0.8 - Wednesday 18 March 2020
 
 - Moved actions into /event submenu
