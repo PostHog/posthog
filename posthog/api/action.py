@@ -253,13 +253,14 @@ class ActionViewSet(viewsets.ModelViewSet):
             append.update(self._stickiness(action=action, filters=filters, request=request))
         return append
 
-    def _serialize_people(self, action: Action, people: List[Person], request: request.Request) -> Dict:
+    def _serialize_people(self, action: Action, people: List[Person], request: request.Request, count: Any) -> Dict:
         return {
             'action': {
                 'id': action.pk,
                 'name': action.name
             },
-            'people': map(lambda person: PersonSerializer(person, context={'request': request}).data, people)
+            'people': map(lambda person: PersonSerializer(person, context={'request': request}).data, people),
+            'count': count
         }
 
     @action(methods=['GET'], detail=False)
@@ -299,6 +300,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             actions_list.append(self._serialize_people(
                 action=action,
                 people=people,
+                count=people_ids.count(),
                 request=request
             ))
 
