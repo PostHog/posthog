@@ -1,4 +1,4 @@
-from posthog.models import Event, Team, Action, ActionStep, Element, User
+from posthog.models import Event, Team, Action, ActionStep, Element, User, Person
 from posthog.utils import relative_date_parse, properties_to_Q
 from rest_framework import request, serializers, viewsets, authentication # type: ignore
 from rest_framework.response import Response
@@ -17,7 +17,7 @@ import numpy as np # type: ignore
 import datetime
 import json
 from dateutil.relativedelta import relativedelta
-
+from .person import PersonSerializer
 
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
@@ -253,6 +253,15 @@ class ActionViewSet(viewsets.ModelViewSet):
             append.update(self._stickiness(action=action, filters=filters, request=request))
         return append
 
+    def _serialize_people(self, action: Action, people: List[Person], request: request.Request) -> Dict:
+        return {
+            'action': {
+                'id': action.pk,
+                'name': action.name
+            },
+            'people': map(lambda person: PersonSerializer(person, context={'request': request}).data, people)
+        }
+
     @action(methods=['GET'], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         actions = self.get_queryset()
@@ -275,4 +284,22 @@ class ActionViewSet(viewsets.ModelViewSet):
                     filters={},
                     request=request,
                 ))
+        return Response(actions_list)
+
+    @action(methods=['GET'], detail=False)
+    def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        actions = self.get_queryset()
+        actions = actions.filter(deleted=False)
+        actions_list = []
+
+        for action in actions:
+            people_ids = Event.objects.filter_by_action(action, order_by=None).filter(self._filter_events(request)).values_list('person_id', flat=True).distinct()
+            people = Person.objects.filter(team=self.request.user.team_set.get(), id__in=people_ids[0:100])
+
+            actions_list.append(self._serialize_people(
+                action=action,
+                people=people,
+                request=request
+            ))
+
         return Response(actions_list)
