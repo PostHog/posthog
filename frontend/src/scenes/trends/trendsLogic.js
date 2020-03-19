@@ -28,6 +28,10 @@ export const trendsLogic = kea({
         setFilters: filters => ({ filters }),
         setDisplay: display => ({ display }),
         setData: data => ({ data }),
+
+        showPeople: (action, day) => ({ action, day }),
+        hidePeople: true,
+        setPeople: (people, count) => ({ people, count }),
     }),
 
     reducers: ({ actions }) => ({
@@ -73,6 +77,32 @@ export const trendsLogic = kea({
                 [actions.setData]: () => false,
             },
         ],
+        showingPeople: [
+            false,
+            {
+                [actions.showPeople]: () => true,
+                [actions.hidePeople]: () => false,
+            },
+        ],
+        people: [
+            null,
+            {
+                [actions.showPeople]: () => null,
+                [actions.setPeople]: (_, { people }) => people,
+                [actions.hidePeople]: () => null,
+            },
+        ],
+        peopleMeta: [
+            {},
+            {
+                [actions.showPeople]: (_, { action, day }) => ({ action, day }),
+                [actions.setPeople]: (state, { count }) => ({
+                    ...state,
+                    count,
+                }),
+                [actions.hidePeople]: () => ({}),
+            },
+        ],
     }),
 
     listeners: ({ actions, values }) => ({
@@ -107,6 +137,17 @@ export const trendsLogic = kea({
         },
         [actions.setDisplay]: async ({ display }) => {
             actions.setFilters({ display })
+        },
+        [actions.showPeople]: async ({ action, day }, breakpoint) => {
+            const filterParams = toParams({
+                actions: [{ id: action.id }],
+                ...values.filters,
+            })
+            const url = `api/action/people/?${filterParams}&date_from=${day}&date_to=${day}`
+            const people = await api.get(url)
+            breakpoint()
+
+            actions.setPeople(people[0]?.people, people[0]?.count)
         },
     }),
 

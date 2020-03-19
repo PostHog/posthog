@@ -7,7 +7,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 export function ActionsLineGraph() {
     const { filters, data } = useValues(trendsLogic)
-    const { setData } = useActions(trendsLogic)
+    const { setData, showPeople } = useActions(trendsLogic)
 
     useEffect(() => {
         api.get('api/action/trends/?' + toParams(filters)).then(data => {
@@ -24,9 +24,7 @@ export function ActionsLineGraph() {
                 datasets={data}
                 labels={data[0].labels}
                 onClick={({ dataset: { action }, day }) => {
-                    console.log(action, day)
-
-                    api.get('api/action/people/?' + toParams(filters))
+                    showPeople(action, day)
                 }}
             />
         ) : (

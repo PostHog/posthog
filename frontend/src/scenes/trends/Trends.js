@@ -13,6 +13,7 @@ import { BreakdownFilter } from './BreakdownFilter'
 import { ActionsTable } from './ActionsTable'
 import { ActionsLineGraph } from './ActionsLineGraph'
 import { ShownAsFilter } from './ShownAsFilter'
+import { PeopleModal } from './PeopleModal'
 
 import { trendsLogic } from './trendsLogic'
 
@@ -23,11 +24,18 @@ const displayMap = {
 }
 
 export function Trends() {
-    const { actions, filters, properties, isLoading } = useValues(trendsLogic)
+    const {
+        actions,
+        filters,
+        properties,
+        isLoading,
+        showingPeople,
+    } = useValues(trendsLogic)
     const { setFilters, setData, setDisplay } = useActions(trendsLogic)
 
     return (
         <div className="actions-graph">
+            {showingPeople ? <PeopleModal /> : null}
             <h1>Action trends</h1>
             <Card>
                 <div className="card-body">
