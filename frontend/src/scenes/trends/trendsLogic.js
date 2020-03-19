@@ -43,6 +43,12 @@ export const trendsLogic = kea({
                 [actions.setProperties]: (_, { properties }) => properties,
             },
         ],
+        data: [
+            [],
+            {
+                [actions.setData]: (_, { data }) => data,
+            },
+        ],
         filters: [
             filtersFromParams,
             {
@@ -71,24 +77,20 @@ export const trendsLogic = kea({
 
     listeners: ({ actions, values }) => ({
         [actions.fetchActions]: async () => {
-            try {
-                const allActions = (await api.get('api/action')).results
+            const allActions = (await api.get('api/action')).results
 
-                // autoselect last action if none selected
-                if (!values.filters.actions && allActions.length > 0) {
-                    allActions.setFilters({
-                        actions: [
-                            {
-                                id: allActions[allActions.length - 1].id,
-                            },
-                        ],
-                    })
-                }
-
-                actions.setActions(allActions)
-            } catch (error) {
-                // TODO: show error for loading actions
+            // autoselect last action if none selected
+            if (!values.filters.actions && allActions.length > 0) {
+                actions.setFilters({
+                    actions: [
+                        {
+                            id: allActions[allActions.length - 1].id,
+                        },
+                    ],
+                })
             }
+
+            actions.setActions(allActions)
         },
         [actions.fetchProperties]: async () => {
             try {

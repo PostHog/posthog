@@ -145,10 +145,7 @@ export function Trends() {
                             {isLoading && <Loading />}
                             {(!filters.display ||
                                 filters.display == 'ActionsLineGraph') && (
-                                <ActionsLineGraph
-                                    filters={filters}
-                                    onData={setData}
-                                />
+                                <ActionsLineGraph />
                             )}
                             {filters.display == 'ActionsTable' && (
                                 <ActionsTable
