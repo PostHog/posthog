@@ -171,7 +171,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             return filters
         properties = json.loads(request.GET['properties'])
         filters &= properties_to_Q(properties)
-        return filters 
+        return filters
 
     def _breakdown(self, events: QuerySet, breakdown_by: str) -> List[Dict[str, int]]:
         key = "properties__{}".format(breakdown_by)
@@ -185,6 +185,7 @@ class ActionViewSet(viewsets.ModelViewSet):
     def _append_data(self, append: Dict, dates_filled: pd.DataFrame) -> Dict:
         values = [value[0] for key, value in dates_filled.iterrows()]
         append['labels'] = [key.strftime('%a. %-d %B') for key, value in dates_filled.iterrows()]
+        append['days'] = [key.strftime('%Y-%m-%d') for key, value in dates_filled.iterrows()]
         append['data'] = values
         append['count'] = sum(values)
         return append
@@ -209,6 +210,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             append = self._append_data(append, dates_filled)
         if request.GET.get('breakdown'):
             append['breakdown'] = self._breakdown(aggregates, breakdown_by=request.GET['breakdown'])
+
         return append
 
     def _stickiness(self, action: Action, filters: Dict[Any, Any], request: request.Request):
