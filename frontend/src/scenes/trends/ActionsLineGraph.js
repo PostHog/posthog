@@ -27,7 +27,14 @@ export class ActionsLineGraph extends Component {
         let { data } = this.state
         return data ? (
             data[0] && data[0].labels ? (
-                <LineGraph datasets={data} labels={data[0].labels} />
+                <LineGraph
+                    datasets={data}
+                    labels={data[0].labels}
+                    onClick={({ dataset: { action }, day }) => {
+                        console.log(action, day)
+                        // api.get('api/action/trends/?' + toParams(this.props.filters))
+                    }}
+                />
             ) : (
                 <p style={{ textAlign: 'center', marginTop: '4rem' }}>
                     We couldn't find any matching actions.
