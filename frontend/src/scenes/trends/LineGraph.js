@@ -47,7 +47,7 @@ export class LineGraph extends Component {
                 })),
             },
             options:
-                this.props.type != 'doughnut'
+                this.props.type !== 'doughnut'
                     ? {
                           responsive: true,
                           maintainAspectRatio: false,
@@ -83,7 +83,7 @@ export class LineGraph extends Component {
                               },
                           },
                           hover: {
-                              mode: 'index',
+                              mode: 'nearest',
                           },
                           scales: {
                               xAxes: [
@@ -101,6 +101,31 @@ export class LineGraph extends Component {
                                       },
                                   },
                               ],
+                          },
+                          onClick: (event, [point]) => {
+                              if (point && this.props.onClick) {
+                                  const dataset = datasets[point._datasetIndex]
+                                  this.props.onClick({
+                                      point,
+                                      dataset,
+                                      index: point._index,
+                                      label:
+                                          typeof point._index !== 'undefined' &&
+                                          dataset.labels
+                                              ? dataset.labels[point._index]
+                                              : undefined,
+                                      day:
+                                          typeof point._index !== 'undefined' &&
+                                          dataset.days
+                                              ? dataset.days[point._index]
+                                              : undefined,
+                                      value:
+                                          typeof point._index !== 'undefined' &&
+                                          dataset.data
+                                              ? dataset.data[point._index]
+                                              : undefined,
+                                  })
+                              }
                           },
                       }
                     : {
@@ -126,4 +151,5 @@ LineGraph.propTypes = {
     labels: PropTypes.array.isRequired,
     options: PropTypes.object,
     type: PropTypes.string,
+    onClick: PropTypes.func,
 }
