@@ -6,14 +6,16 @@ import { Modal } from 'lib/components/Modal'
 import { PeopleTable } from 'scenes/users/PeopleTable'
 
 export function PeopleModal() {
-    const { people, peopleCount, peopleAction, peopleDay } = useValues(trendsLogic)
+    const { people, peopleCount, peopleAction, peopleDay, filters } = useValues(trendsLogic)
     const { hidePeople } = useActions(trendsLogic)
 
+    const title =
+        filters.shown_as === 'Stickiness'
+            ? `"${peopleAction?.name || '...'}" stickiness ${peopleDay} day${peopleDay === 1 ? '' : 's'}`
+            : `"${peopleAction?.name || '...'}" on ${peopleDay ? moment(peopleDay).format('ll') : '...'}`
+
     return (
-        <Modal
-            title={`"${peopleAction?.name || '...'}" on ${peopleDay ? moment(peopleDay).format('ll') : '...'}`}
-            onDismiss={hidePeople}
-        >
+        <Modal title={title} onDismiss={hidePeople}>
             {people ? (
                 <p>
                     Found {peopleCount} {peopleCount === 1 ? 'user' : 'users'}

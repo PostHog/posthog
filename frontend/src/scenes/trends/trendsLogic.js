@@ -158,12 +158,19 @@ export const trendsLogic = kea({
             breakpoint()
             actions.setResults(results)
         },
-        [actions.loadPeople]: async ({ day, action }, breakpoint) => {
+        [actions.loadPeople]: async ({ day, action }) => {
             const filterParams = toParams({
                 ...values.filters,
                 actions: [{ id: action }],
-                date_from: day,
-                date_to: day,
+                // can't rely on typeof as input may be a string, so reverting to regexp
+                ...(`${day}`.match(/\A\d{2}-\d{2}-\d{4}\z/)
+                    ? {
+                          date_from: day,
+                          date_to: day,
+                      }
+                    : {
+                          stickiness_days: day,
+                      }),
             })
             const people = await api.get(`api/action/people/?include_last_event=1&${filterParams}`)
 

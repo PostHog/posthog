@@ -234,6 +234,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             data.append(len([key for key, value in people.items() if value == day]))
         return {
             'labels': labels,
+            'days': [day for day in range(1, (date_to - date_from).days + 2)],
             'data': data
         }
 
@@ -294,13 +295,32 @@ class ActionViewSet(viewsets.ModelViewSet):
         actions_list = []
 
         for action in actions:
-            people_ids = Event.objects.filter_by_action(action, order_by=None).filter(self._filter_events(request)).values_list('person_id', flat=True).distinct()
+            base_events = Event.objects.filter_by_action(action, order_by=None).filter(self._filter_events(request))
+            people_ids = []
+
+            if request.GET.get('shown_as', 'Volume') == 'Volume':
+                people_ids = base_events.values_list('person_id', flat=True).distinct()
+            elif request.GET['shown_as'] == 'Stickiness':
+                events = base_events.annotate(day=functions.TruncDay('timestamp')) \
+                    .annotate(distinct_person_day=Concat('person_id', 'day', output_field=TextField())) \
+                    .order_by('distinct_person_day') \
+                    .distinct('distinct_person_day')
+
+                people: Dict[int, int] = {}
+                for event in events:
+                    if not people.get(event.person_id):
+                        people[event.person_id] = 0
+                    people[event.person_id] += 1
+
+                stickiness_days = int(request.GET['stickiness_days'])
+                people_ids = [id for id, days in people.items() if days == stickiness_days]
+
             people = Person.objects.filter(team=self.request.user.team_set.get(), id__in=people_ids[0:100])
 
             actions_list.append(self._serialize_people(
                 action=action,
                 people=people,
-                count=people_ids.count(),
+                count=len(people_ids) if type(people_ids) == list else people_ids.count(),
                 request=request
             ))
 
