@@ -39,12 +39,13 @@ export function PeopleTable({ loading, people, onClickProperty }) {
             ) : (
                 <tbody>
                     <tr>
+                        <th />
                         <th>Person</th>
                         <th>Last seen</th>
                     </tr>
                     {people && people.length === 0 && (
                         <tr>
-                            <td colSpan="2">
+                            <td colSpan={3}>
                                 We haven't seen any data yet. If you haven't integrated PostHog,{' '}
                                 <Link to="/setup">click here to set PostHog up on your app</Link>
                             </td>
@@ -58,6 +59,9 @@ export function PeopleTable({ loading, people, onClickProperty }) {
                                 onClick={() => setPersonSelected(person.id === personSelected ? null : person.id)}
                             >
                                 <td>
+                                    <i className={`fi flaticon-zoom-${person.id === personSelected ? 'out' : 'in'}`} />
+                                </td>
+                                <td>
                                     <Link
                                         to={'/person/' + encodeURIComponent(person.distinct_ids[0])}
                                         className="ph-no-capture"
@@ -69,7 +73,7 @@ export function PeopleTable({ loading, people, onClickProperty }) {
                             </tr>,
                             personSelected === person.id && (
                                 <tr key={person.id + '_open'}>
-                                    <td colSpan="4">
+                                    <td colSpan={3}>
                                         {Object.keys(person.properties).length === 0 &&
                                             'This person has no properties.'}
                                         <div className="d-flex flex-wrap flex-column" style={{ height: 200 }}>
