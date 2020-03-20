@@ -12,7 +12,7 @@ export function PeopleModal() {
         <Modal title={`Users for "${peopleAction?.name || '...'}" on ${peopleDay || '...'}`} onDismiss={hidePeople}>
             {people ? (
                 <p>
-                    Found {peopleCount} unique {peopleCount === 1 ? 'user' : 'users'}
+                    Found {peopleCount} {peopleCount === 1 ? 'user' : 'users'}
                     {peopleCount > 100 ? '. Showing the first 100 below: ' : '.'}
                 </p>
             ) : (
