@@ -7,17 +7,13 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 export function ActionsLineGraph() {
     const { filters, data } = useValues(trendsLogic)
-    const { setData, showPeople } = useActions(trendsLogic)
+    const { loadData, showPeople } = useActions(trendsLogic)
+
+    const { people_action, people_day, ...otherFilters } = filters
 
     useEffect(() => {
-        api.get('api/action/trends/?' + toParams(filters)).then(data => {
-            // Still fetching for this filter or did we already start a new api
-            // call while waiting for this one to finish?
-            if (filters === trendsLogic.values.filters) {
-                setData(data)
-            }
-        })
-    }, [filters])
+        loadData()
+    }, [toParams(otherFilters)])
 
     return data ? (
         data[0] && data[0].labels ? (
