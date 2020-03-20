@@ -24,12 +24,18 @@ export function Setup() {
                 See docs for instructions on how to identify users.
             </a>
             <br />
-            <br />
             <JSSnippet user={user} />
             <a href="https://github.com/PostHog/posthog/wiki/Integrations">
                 Using Python/Ruby/Node/Go/PHP instead?
             </a>
             <br />
+            <br />
+            <br />
+            <h2>API key</h2>
+            You can use this api key in any of our   
+            <a href="https://github.com/PostHog/posthog/wiki/Integrations"> libraries</a>.
+            <pre className='code'>{user.team.api_token}</pre>
+            This key is write-only, in that it can only create new events. It can't read any events or any of your other data stored on PostHog.
             <br />
             <br />
             <br />
