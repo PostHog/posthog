@@ -39,6 +39,7 @@ export class LineGraph extends Component {
                         (this.props.type == 'bar' || this.props.type == 'doughnut') && getVar(colors[index]),
                     fill: false,
                     borderWidth: 1,
+                    pointHitRadius: 8,
                     ...dataset,
                 })),
             },
@@ -73,6 +74,11 @@ export class LineGraph extends Component {
                           },
                           hover: {
                               mode: 'nearest',
+                              onHover: function(e) {
+                                  const point = this.getElementAtEvent(e)
+                                  if (point.length) e.target.style.cursor = 'pointer'
+                                  else e.target.style.cursor = 'default'
+                              },
                           },
                           scales: {
                               xAxes: [
