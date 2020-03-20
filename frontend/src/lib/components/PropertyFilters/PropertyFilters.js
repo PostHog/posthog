@@ -108,7 +108,7 @@ export class PropertyFilters extends Component {
                     onClick={() => this.setState({ filters: [...filters, {}] })}
                     style={{ marginTop: '0.5rem' }}
                 >
-                    Add event property filter
+                    {filters.length == 0 ? 'Filter events by property' : 'Add another filter'}
                 </button>
             </div>
         )
