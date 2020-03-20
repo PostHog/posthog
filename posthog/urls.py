@@ -41,7 +41,7 @@ def render_template(template_name: str, request, context=None) -> HttpResponse:
             'sentry_dsn': os.environ['SENTRY_DSN']
         })
     html = template.render(context, request=request)
-    return HttpResponse(html.replace('src="/', 'src="/static/').replace('href="/', 'href="/static/'))
+    return HttpResponse(html)
 
 def home(request, **kwargs):
     if request.path.endswith('.map') or request.path.endswith('.map.js'):

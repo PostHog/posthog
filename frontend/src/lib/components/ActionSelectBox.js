@@ -1,7 +1,7 @@
 import React, { Component } from 'react'
 import Select, { components } from 'react-select'
-import { ActionSelectInfo } from './ActionSelectInfo'
-import { selectStyle } from '../../lib/utils'
+import { ActionSelectInfo } from '../../scenes/trends/ActionSelectInfo'
+import { selectStyle } from '../utils'
 import PropTypes from 'prop-types'
 
 export class ActionSelectBox extends Component {
@@ -52,7 +52,13 @@ export class ActionSelectBox extends Component {
         return data
     }
     render() {
-        let { action, actions, onClose, onChange } = this.props
+        let {
+            action,
+            actions,
+            onClose,
+            onChange,
+            defaultMenuIsOpen,
+        } = this.props
         return (
             <div className="select-box">
                 {action.id && (
@@ -61,23 +67,32 @@ export class ActionSelectBox extends Component {
                         <i className="fi flaticon-export" />
                     </a>
                 )}
-                <ActionSelectInfo
-                    isOpen={this.state.infoOpen}
-                    boundingRect={this.state.infoBoundingRect}
-                    action={
-                        actions.filter(a => a.id == this.state.infoActionId)[0]
-                    }
-                />
+                {this.state.infoOpen && (
+                    <ActionSelectInfo
+                        isOpen={this.state.infoOpen}
+                        boundingRect={this.state.infoBoundingRect}
+                        action={
+                            actions.filter(
+                                a => a.id == this.state.infoActionId
+                            )[0]
+                        }
+                    />
+                )}
                 <Select
                     onBlur={e => {
                         if (e.relatedTarget && e.relatedTarget.tagName == 'A')
                             return
-                        onClose()
+                        this.setState({ infoOpen: false })
+                        if (onClose) onClose()
                     }}
                     onChange={item => onChange(item.value)}
-                    defaultMenuIsOpen={true}
+                    defaultMenuIsOpen={defaultMenuIsOpen}
                     autoFocus={true}
-                    // menuIsOpen={true}
+                    value={{
+                        label: action.name,
+                        value: action.id,
+                    }}
+                    className="select-box-select"
                     styles={selectStyle}
                     components={{ Option: this.Option }}
                     options={this.groupActions(actions)}
@@ -87,8 +102,9 @@ export class ActionSelectBox extends Component {
     }
 }
 ActionSelectBox.propTypes = {
-    actionFilters: PropTypes.array.isRequired,
     onChange: PropTypes.func.isRequired,
     actions: PropTypes.array.isRequired,
     action: PropTypes.object.isRequired,
+    onClose: PropTypes.func,
+    defaultMenuIsOpen: PropTypes.bool,
 }
