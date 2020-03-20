@@ -24,13 +24,7 @@ const displayMap = {
 }
 
 export function Trends() {
-    const {
-        actions,
-        filters,
-        properties,
-        isLoading,
-        showingPeople,
-    } = useValues(trendsLogic)
+    const { actions, filters, properties, isLoading, showingPeople } = useValues(trendsLogic)
     const { setFilters, setData, setDisplay } = useActions(trendsLogic)
 
     return (
@@ -62,18 +56,12 @@ export function Trends() {
                             onChange={breakdown => setFilters({ breakdown })}
                         />
                         {filters.breakdown && (
-                            <CloseButton
-                                onClick={() => setFilters({ breakdown: false })}
-                                style={{ marginTop: 1 }}
-                            />
+                            <CloseButton onClick={() => setFilters({ breakdown: false })} style={{ marginTop: 1 }} />
                         )}
                     </div>
                     <hr />
                     <h4 className="secondary">Shown as</h4>
-                    <ShownAsFilter
-                        shown_as={filters.shown_as}
-                        onChange={shown_as => setFilters({ shown_as })}
-                    />
+                    <ShownAsFilter shown_as={filters.shown_as} onChange={shown_as => setFilters({ shown_as })} />
                 </div>
             </Card>
             <Card
@@ -82,46 +70,26 @@ export function Trends() {
                         Graph
                         <div className="float-right">
                             <Dropdown
-                                title={
-                                    displayMap[
-                                        filters.display || 'ActionsLineGraph'
-                                    ]
-                                }
+                                title={displayMap[filters.display || 'ActionsLineGraph']}
                                 buttonClassName="btn btn-sm btn-light"
                                 buttonStyle={{ margin: '0 8px' }}
                             >
                                 <a
-                                    className={
-                                        'dropdown-item ' +
-                                        (filters.breakdown && 'disabled')
-                                    }
+                                    className={'dropdown-item ' + (filters.breakdown && 'disabled')}
                                     href="#"
-                                    onClick={() =>
-                                        setDisplay('ActionsLineGraph')
-                                    }
+                                    onClick={() => setDisplay('ActionsLineGraph')}
                                 >
-                                    Line chart{' '}
-                                    {filters.breakdown &&
-                                        '(Not available with breakdown)'}
+                                    Line chart {filters.breakdown && '(Not available with breakdown)'}
                                 </a>
-                                <a
-                                    className="dropdown-item"
-                                    href="#"
-                                    onClick={() => setDisplay('ActionsTable')}
-                                >
+                                <a className="dropdown-item" href="#" onClick={() => setDisplay('ActionsTable')}>
                                     Table
                                 </a>
                                 <a
-                                    className={
-                                        'dropdown-item ' +
-                                        (filters.breakdown && 'disabled')
-                                    }
+                                    className={'dropdown-item ' + (filters.breakdown && 'disabled')}
                                     href="#"
                                     onClick={() => setDisplay('ActionsPie')}
                                 >
-                                    Pie{' '}
-                                    {filters.breakdown &&
-                                        '(Not available with breakdown)'}
+                                    Pie {filters.breakdown && '(Not available with breakdown)'}
                                 </a>
                             </Dropdown>
                             <DateFilter
@@ -134,10 +102,7 @@ export function Trends() {
                                 dateFrom={filters.date_from}
                                 dateTo={filters.date_to}
                             />
-                            <SaveToDashboard
-                                filters={filters}
-                                type={filters.display || 'ActionsLineGraph'}
-                            />
+                            <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
                         </div>
                     </span>
                 }
@@ -151,22 +116,9 @@ export function Trends() {
                             }}
                         >
                             {isLoading && <Loading />}
-                            {(!filters.display ||
-                                filters.display == 'ActionsLineGraph') && (
-                                <ActionsLineGraph />
-                            )}
-                            {filters.display == 'ActionsTable' && (
-                                <ActionsTable
-                                    filters={filters}
-                                    onData={setData}
-                                />
-                            )}
-                            {filters.display == 'ActionsPie' && (
-                                <ActionsPie
-                                    filters={filters}
-                                    onData={setData}
-                                />
-                            )}
+                            {(!filters.display || filters.display == 'ActionsLineGraph') && <ActionsLineGraph />}
+                            {filters.display == 'ActionsTable' && <ActionsTable filters={filters} onData={setData} />}
+                            {filters.display == 'ActionsPie' && <ActionsPie filters={filters} onData={setData} />}
                         </div>
                     )}
                 </div>

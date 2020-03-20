@@ -11,7 +11,8 @@ export function ActionsLineGraph() {
 
     useEffect(() => {
         api.get('api/action/trends/?' + toParams(filters)).then(data => {
-            // if still fetching for this filter
+            // Still fetching for this filter or did we already start a new api
+            // call while waiting for this one to finish?
             if (filters === trendsLogic.values.filters) {
                 setData(data)
             }
@@ -28,9 +29,7 @@ export function ActionsLineGraph() {
                 }}
             />
         ) : (
-            <p style={{ textAlign: 'center', marginTop: '4rem' }}>
-                We couldn't find any matching actions.
-            </p>
+            <p style={{ textAlign: 'center', marginTop: '4rem' }}>We couldn't find any matching actions.</p>
         )
     ) : (
         <Loading />

@@ -6,13 +6,9 @@ import { fromParams, toParams } from 'lib/utils'
 function filtersFromParams() {
     let filters = fromParams()
     filters.actions = filters.actions && JSON.parse(filters.actions)
-    filters.actions = Array.isArray(filters.actions)
-        ? filters.actions
-        : undefined
+    filters.actions = Array.isArray(filters.actions) ? filters.actions : undefined
     if (filters.breakdown) filters.display = 'ActionsTable'
-    filters.properties = filters.properties
-        ? JSON.parse(filters.properties)
-        : {}
+    filters.properties = filters.properties ? JSON.parse(filters.properties) : {}
 
     return filters
 }

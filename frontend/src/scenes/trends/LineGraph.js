@@ -16,7 +16,6 @@ export class LineGraph extends Component {
 
     componentDidUpdate(prevProps) {
         if (prevProps.datasets !== this.props.datasets) {
-            console.log(this.props.datasets !== prevProps.datasets)
             this.buildChart()
         }
     }
@@ -27,8 +26,7 @@ export class LineGraph extends Component {
 
         if (typeof this.myLineChart !== 'undefined') this.myLineChart.destroy()
         let colors = ['blue', 'orange', 'green', 'red', 'purple', 'gray']
-        let getVar = variable =>
-            getComputedStyle(document.body).getPropertyValue('--' + variable)
+        let getVar = variable => getComputedStyle(document.body).getPropertyValue('--' + variable)
 
         this.myLineChart = new Chart(myChartRef, {
             type: this.props.type || 'line',
@@ -38,9 +36,7 @@ export class LineGraph extends Component {
                 datasets: datasets.map((dataset, index) => ({
                     borderColor: getVar(colors[index]),
                     backgroundColor:
-                        (this.props.type == 'bar' ||
-                            this.props.type == 'doughnut') &&
-                        getVar(colors[index]),
+                        (this.props.type == 'bar' || this.props.type == 'doughnut') && getVar(colors[index]),
                     fill: false,
                     borderWidth: 1,
                     ...dataset,
@@ -70,15 +66,8 @@ export class LineGraph extends Component {
                               titleSpacing: 0,
                               callbacks: {
                                   label: function(tooltipItem, data) {
-                                      var label =
-                                          data.datasets[
-                                              tooltipItem.datasetIndex
-                                          ].label || ''
-                                      return (
-                                          label +
-                                          ' - ' +
-                                          tooltipItem.yLabel.toLocaleString()
-                                      )
+                                      var label = data.datasets[tooltipItem.datasetIndex].label || ''
+                                      return label + ' - ' + tooltipItem.yLabel.toLocaleString()
                                   },
                               },
                           },
@@ -110,18 +99,15 @@ export class LineGraph extends Component {
                                       dataset,
                                       index: point._index,
                                       label:
-                                          typeof point._index !== 'undefined' &&
-                                          dataset.labels
+                                          typeof point._index !== 'undefined' && dataset.labels
                                               ? dataset.labels[point._index]
                                               : undefined,
                                       day:
-                                          typeof point._index !== 'undefined' &&
-                                          dataset.days
+                                          typeof point._index !== 'undefined' && dataset.days
                                               ? dataset.days[point._index]
                                               : undefined,
                                       value:
-                                          typeof point._index !== 'undefined' &&
-                                          dataset.data
+                                          typeof point._index !== 'undefined' && dataset.data
                                               ? dataset.data[point._index]
                                               : undefined,
                                   })
@@ -145,9 +131,7 @@ export class LineGraph extends Component {
     }
 }
 LineGraph.propTypes = {
-    datasets: PropTypes.arrayOf(
-        PropTypes.shape({ label: PropTypes.string, count: PropTypes.number })
-    ).isRequired,
+    datasets: PropTypes.arrayOf(PropTypes.shape({ label: PropTypes.string, count: PropTypes.number })).isRequired,
     labels: PropTypes.array.isRequired,
     options: PropTypes.object,
     type: PropTypes.string,

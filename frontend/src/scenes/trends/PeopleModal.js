@@ -12,10 +12,7 @@ export function PeopleModal() {
     const { hidePeople } = useActions(trendsLogic)
 
     return (
-        <Modal
-            title={`People for "${action?.name}" on ${day}`}
-            onDismiss={hidePeople}
-        >
+        <Modal title={`People for "${action?.name}" on ${day}`} onDismiss={hidePeople}>
             {people ? (
                 <div>
                     <div style={{ marginBottom: 10 }}>
