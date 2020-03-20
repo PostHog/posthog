@@ -3,14 +3,24 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { fromParams, toParams } from 'lib/utils'
 
+function cleanFilters(filters) {
+    if (filters.breakdown && filters.display !== 'ActionsTable') {
+        return {
+            ...filters,
+            display: 'ActionsTable',
+        }
+    }
+
+    return filters
+}
+
 function filtersFromParams() {
     let filters = fromParams()
     filters.actions = filters.actions && JSON.parse(filters.actions)
     filters.actions = Array.isArray(filters.actions) ? filters.actions : undefined
-    if (filters.breakdown) filters.display = 'ActionsTable'
     filters.properties = filters.properties ? JSON.parse(filters.properties) : {}
 
-    return filters
+    return cleanFilters(filters)
 }
 
 export const trendsLogic = kea({
@@ -55,18 +65,11 @@ export const trendsLogic = kea({
         filters: [
             {},
             {
-                [actions.setFilters]: (state, { filters, mergeFilters }) => {
-                    const newFilters = {
+                [actions.setFilters]: (state, { filters, mergeFilters }) =>
+                    cleanFilters({
                         ...(mergeFilters ? state : {}),
                         ...filters,
-                    }
-
-                    if (newFilters.breakdown) {
-                        newFilters.display = 'ActionsTable'
-                    }
-
-                    return newFilters
-                },
+                    }),
             },
         ],
         isLoading: [
