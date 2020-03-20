@@ -214,27 +214,30 @@ class ActionViewSet(viewsets.ModelViewSet):
         return append
 
     def _stickiness(self, action: Action, filters: Dict[Any, Any], request: request.Request):
-        events = Event.objects.filter_by_action(action)\
-            .filter(self._filter_events(request))\
-            .annotate(day=functions.TruncDay('timestamp'))\
-            .annotate(distinct_person_day=Concat('person_id', 'day', output_field=TextField()))\
-            .order_by('distinct_person_day')\
-            .distinct('distinct_person_day')
         date_from, date_to = self._get_dates_from_request(request)
+        range_days = (date_to - date_from).days + 2
+
+        events = Event.objects.filter_by_action(action, order_by=None)\
+            .filter(self._filter_events(request))\
+            .values('person_id') \
+            .annotate(day_count=Count(functions.TruncDay('timestamp'), distinct=True))\
+            .filter(day_count__lte=range_days)
+
         people: Dict[int, int] = {}
+
         for event in events:
-            if not people.get(event.person_id):
-                people[event.person_id] = 0
-            people[event.person_id] += 1
+            people[event['person_id']] = event['day_count']
+
         labels = []
         data = []
-        for day in range(1, (date_to - date_from).days + 2):
+
+        for day in range(1, range_days):
             label = '{} day{}'.format(day, 's' if day > 1 else '')
             labels.append(label)
             data.append(len([key for key, value in people.items() if value == day]))
         return {
             'labels': labels,
-            'days': [day for day in range(1, (date_to - date_from).days + 2)],
+            'days': [day for day in range(1, range_days)],
             'data': data
         }
 
