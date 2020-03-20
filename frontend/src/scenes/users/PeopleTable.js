@@ -27,7 +27,7 @@ export function PeopleTable({ loading, people, onClickProperty }) {
     const [personSelected, setPersonSelected] = useState(null)
 
     return (
-        <table className="table" style={{ position: 'relative' }}>
+        <table className="table" style={{ position: 'relative', minHeight: loading ? 140 : 0 }}>
             {loading ? (
                 <tbody>
                     <tr>
