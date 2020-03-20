@@ -17,15 +17,16 @@ export function PeopleModal() {
     return (
         <Modal title={title} onDismiss={hidePeople}>
             {people ? (
-                <p>
-                    Found {peopleCount} {peopleCount === 1 ? 'user' : 'users'}
-                    {peopleCount > 100 ? '. Showing the first 100 below.' : ''}
-                </p>
+                <>
+                    <p>
+                        Found {peopleCount} {peopleCount === 1 ? 'user' : 'users'}
+                        {peopleCount > 100 ? '. Showing the first 100 below.' : ''}
+                    </p>
+                    <PeopleTable loading={!people} people={people} />
+                </>
             ) : (
                 <p>Loading users...</p>
             )}
-
-            <PeopleTable loading={!people} people={people} />
         </Modal>
     )
 }
