@@ -301,26 +301,19 @@ class ActionViewSet(viewsets.ModelViewSet):
             if request.GET.get('shown_as', 'Volume') == 'Volume':
                 people_ids = base_events.values_list('person_id', flat=True).distinct()
             elif request.GET['shown_as'] == 'Stickiness':
-                events = base_events.annotate(day=functions.TruncDay('timestamp')) \
-                    .annotate(distinct_person_day=Concat('person_id', 'day', output_field=TextField())) \
-                    .order_by('distinct_person_day') \
-                    .distinct('distinct_person_day')
-
-                people: Dict[int, int] = {}
-                for event in events:
-                    if not people.get(event.person_id):
-                        people[event.person_id] = 0
-                    people[event.person_id] += 1
-
                 stickiness_days = int(request.GET['stickiness_days'])
-                people_ids = [id for id, days in people.items() if days == stickiness_days]
+                people_ids = base_events\
+                    .values('person_id')\
+                    .annotate(day_count=Count(functions.TruncDay('timestamp'), distinct=True))\
+                    .filter(day_count=stickiness_days)
 
-            people = Person.objects.filter(team=self.request.user.team_set.get(), id__in=people_ids[0:100])
+            people = Person.objects\
+                .filter(team=self.request.user.team_set.get(), id__in=[p['person_id'] for p in people_ids[0:100]])
 
             actions_list.append(self._serialize_people(
                 action=action,
                 people=people,
-                count=len(people_ids) if type(people_ids) == list else people_ids.count(),
+                count=people_ids.count(),
                 request=request
             ))
 
