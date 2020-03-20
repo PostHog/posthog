@@ -77,17 +77,30 @@ export function Trends() {
                                 <a
                                     className={'dropdown-item ' + (filters.breakdown && 'disabled')}
                                     href="#"
-                                    onClick={() => setDisplay('ActionsLineGraph')}
+                                    onClick={e => {
+                                        e.preventDefault()
+                                        setDisplay('ActionsLineGraph')
+                                    }}
                                 >
                                     Line chart {filters.breakdown && '(Not available with breakdown)'}
                                 </a>
-                                <a className="dropdown-item" href="#" onClick={() => setDisplay('ActionsTable')}>
+                                <a
+                                    className="dropdown-item"
+                                    href="#"
+                                    onClick={e => {
+                                        e.preventDefault()
+                                        setDisplay('ActionsTable')
+                                    }}
+                                >
                                     Table
                                 </a>
                                 <a
                                     className={'dropdown-item ' + (filters.breakdown && 'disabled')}
                                     href="#"
-                                    onClick={() => setDisplay('ActionsPie')}
+                                    onClick={e => {
+                                        e.preventDefault()
+                                        setDisplay('ActionsPie')
+                                    }}
                                 >
                                     Pie {filters.breakdown && '(Not available with breakdown)'}
                                 </a>
