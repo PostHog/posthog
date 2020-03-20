@@ -52,7 +52,11 @@ export function PeopleTable({ loading, people, onClickProperty }) {
                     )}
                     {people &&
                         people.map(person => [
-                            <tr key={person.id} className="cursor-pointer" onClick={() => setPersonSelected(person.id)}>
+                            <tr
+                                key={person.id}
+                                className="cursor-pointer"
+                                onClick={() => setPersonSelected(person.id === personSelected ? null : person.id)}
+                            >
                                 <td>
                                     <Link
                                         to={'/person/' + encodeURIComponent(person.distinct_ids[0])}
