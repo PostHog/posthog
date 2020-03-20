@@ -26,6 +26,22 @@ export class Person extends Component {
     render() {
         return this.state.person ? (
             <div>
+                <button
+                    className="btn btn-outline-danger btn-sm float-right"
+                    onClick={e =>
+                        confirm(
+                            'Are you sure you want to delete this user? This cannot be undone'
+                        ) &&
+                        api
+                            .delete('api/person/' + this.state.person.id)
+                            .then(() => {
+                                toast('Person succesfully deleted.')
+                                this.props.history.push('/people')
+                            })
+                    }
+                >
+                    Delete all data on this person
+                </button>
                 <h1>{this.state.person.name}</h1>
                 <div style={{ maxWidth: 750 }}>
                     <PropertiesTable properties={this.state.person.properties} />
@@ -46,22 +62,6 @@ export class Person extends Component {
                         </tbody>
                     </table>
                 </div>
-                <button
-                    className="btn btn-outline-danger btn-sm float-right"
-                    onClick={e =>
-                        confirm(
-                            'Are you sure you want to delete this user? This cannot be undone'
-                        ) &&
-                        api
-                            .delete('api/person/' + this.state.person.id)
-                            .then(() => {
-                                toast('Person succesfully deleted.')
-                                this.props.history.push('/people')
-                            })
-                    }
-                >
-                    Delete all data on this person
-                </button>
                 <EventsTable
                     fixedFilters={{ person_id: this.state.person.id }}
                     history={this.props.history}
