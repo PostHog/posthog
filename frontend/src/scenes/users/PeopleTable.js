@@ -19,7 +19,7 @@ function FilterLink({ property, value, onClick }) {
             </a>
         )
     } else {
-        return <>{label}</>
+        return <span>{label}</span>
     }
 }
 
