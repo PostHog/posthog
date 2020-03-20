@@ -47,11 +47,6 @@ export class PropertyValue extends Component {
                     placeholder="Property value"
                     style={{ width: 200 }}
                     value={{ label: value, value: value }}
-                    // Make it look like normal input
-                    components={{
-                        DropdownIndicator: null,
-                        IndicatorSeparator: null,
-                    }}
                     onChange={out => {
                         onSet(propertyKey, out.value)
                         this.setState({ input: out.value })
