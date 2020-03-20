@@ -25,7 +25,7 @@ const displayMap = {
 
 export function Trends() {
     const { actions, filters, properties, isLoading, showingPeople } = useValues(trendsLogic)
-    const { setFilters, setData, setDisplay } = useActions(trendsLogic)
+    const { setFilters, setDisplay } = useActions(trendsLogic)
 
     return (
         <div className="actions-graph">
@@ -130,8 +130,8 @@ export function Trends() {
                         >
                             {isLoading && <Loading />}
                             {(!filters.display || filters.display == 'ActionsLineGraph') && <ActionsLineGraph />}
-                            {filters.display == 'ActionsTable' && <ActionsTable filters={filters} onData={setData} />}
-                            {filters.display == 'ActionsPie' && <ActionsPie filters={filters} onData={setData} />}
+                            {filters.display == 'ActionsTable' && <ActionsTable filters={filters} />}
+                            {filters.display == 'ActionsPie' && <ActionsPie filters={filters} />}
                         </div>
                     )}
                 </div>

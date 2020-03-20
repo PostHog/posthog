@@ -34,8 +34,8 @@ export const trendsLogic = kea({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: display => ({ display }),
 
-        loadData: true,
-        setData: data => ({ data }),
+        loadResults: true,
+        setResults: results => ({ results }),
 
         showPeople: (action, day) => ({ action, day }),
         loadPeople: (action, day) => ({ action, day }),
@@ -56,10 +56,10 @@ export const trendsLogic = kea({
                 [actions.setProperties]: (_, { properties }) => properties,
             },
         ],
-        data: [
+        results: [
             [],
             {
-                [actions.setData]: (_, { data }) => data,
+                [actions.setResults]: (_, { results }) => results,
             },
         ],
         filters: [
@@ -75,8 +75,8 @@ export const trendsLogic = kea({
         isLoading: [
             true,
             {
-                [actions.loadData]: () => true,
-                [actions.setData]: () => false,
+                [actions.loadResults]: () => true,
+                [actions.setResults]: () => false,
             },
         ],
         people: [
@@ -153,10 +153,10 @@ export const trendsLogic = kea({
                 actions.loadPeople(filters.people_action, filters.people_day)
             }
         },
-        [actions.loadData]: async (_, breakpoint) => {
-            const data = await api.get('api/action/trends/?' + toParams(values.filters))
+        [actions.loadResults]: async (_, breakpoint) => {
+            const results = await api.get('api/action/trends/?' + toParams(values.filters))
             breakpoint()
-            actions.setData(data)
+            actions.setResults(results)
         },
         [actions.loadPeople]: async ({ day, action }, breakpoint) => {
             const filterParams = toParams({

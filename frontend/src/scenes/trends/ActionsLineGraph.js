@@ -6,20 +6,20 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 export function ActionsLineGraph() {
-    const { filters, data } = useValues(trendsLogic)
-    const { loadData, showPeople } = useActions(trendsLogic)
+    const { filters, results } = useValues(trendsLogic)
+    const { loadResults, showPeople } = useActions(trendsLogic)
 
     const { people_action, people_day, ...otherFilters } = filters
 
     useEffect(() => {
-        loadData()
+        loadResults()
     }, [toParams(otherFilters)])
 
-    return data ? (
-        data[0] && data[0].labels ? (
+    return results ? (
+        results[0] && results[0].labels ? (
             <LineGraph
-                datasets={data}
-                labels={data[0].labels}
+                datasets={results}
+                labels={results[0].labels}
                 onClick={({ dataset: { action }, day }) => {
                     showPeople(action, day)
                 }}
