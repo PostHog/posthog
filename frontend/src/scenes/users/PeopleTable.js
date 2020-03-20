@@ -73,10 +73,11 @@ export function PeopleTable({ loading, people, onClickProperty }) {
                             </tr>,
                             personSelected === person.id && (
                                 <tr key={person.id + '_open'}>
-                                    <td colSpan={3}>
+                                    <td />
+                                    <td colSpan={2}>
                                         {Object.keys(person.properties).length === 0 &&
                                             'This person has no properties.'}
-                                        <div className="d-flex flex-wrap flex-column" style={{ height: 200 }}>
+                                        <div className="d-flex flex-wrap flex-column" style={{ maxHeight: 200 }}>
                                             {Object.keys(person.properties)
                                                 .sort()
                                                 .map(key => (
