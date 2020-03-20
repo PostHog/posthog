@@ -47,7 +47,12 @@ def _load_data(request) -> Union[Dict, None]:
     return data
 
 def _alias(distinct_id: str, new_distinct_id: str, team: Team):
-    person = Person.objects.get(team=team, persondistinctid__distinct_id=distinct_id)
+    try:
+        person = Person.objects.get(team=team, persondistinctid__distinct_id=distinct_id)
+    except Person.DoesNotExist:
+        # no reason to alias if it doesn't exist
+        # mostly happens if someone calls identify before the user has done anything
+        return
     try:
         person.add_distinct_id(new_distinct_id)
     except IntegrityError:
@@ -100,7 +105,11 @@ def _update_person_properties(team: Team, distinct_id: str, properties: Dict):
     try:
         person = Person.objects.get(team=team, persondistinctid__distinct_id=str(distinct_id))
     except Person.DoesNotExist:
-        person = Person.objects.create(team=team, distinct_ids=[str(distinct_id)])
+        try:
+            person = Person.objects.create(team=team, distinct_ids=[str(distinct_id)])
+        # Catch race condition where in between getting and creating, another request already created this user.
+        except:
+            person = Person.objects.get(team=team, persondistinctid__distinct_id=str(distinct_id))
     person.properties.update(properties)
     person.save()
 

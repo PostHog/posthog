@@ -156,7 +156,23 @@ class TestCapture(BaseTest):
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
 
-class TestAlias(TransactionTestCase):
+    # This tends to happen when .init and .identify get called right after each other, causing a race condition
+    # in this case the 'anonymous_id' won't have any actions anyway
+    def test_alias_to_non_existent_distinct_id(self):
+        response = self.client.get('/e/?data=%s' % self._dict_to_json({
+            'event': '$identify',
+            'properties': {
+                '$anon_distinct_id': 'doesnt_exist',
+                'token': self.team.api_token,
+                'distinct_id': 'new_distinct_id'
+            },
+        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
+
+        self.assertEqual(Event.objects.count(), 1)
+        self.assertEqual(Person.objects.get().distinct_ids, ['new_distinct_id'])
+
+
+class TestIdentify(TransactionTestCase):
     def _create_user(self, email, **kwargs) -> User:
         user: User = User.objects.create_user(email, **kwargs) # type: ignore
         if not hasattr(self, 'team'):
