@@ -78,7 +78,15 @@ export function People({ history }) {
             )}
             <br />
             <table className="table" style={{ position: 'relative' }}>
-                {loading && <Loading />}
+                {loading && (
+                    <tbody>
+                        <tr>
+                            <td>
+                                <Loading />
+                            </td>
+                        </tr>
+                    </tbody>
+                )}
                 <tbody>
                     <tr>
                         <th>Person</th>
