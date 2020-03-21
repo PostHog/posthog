@@ -19,10 +19,6 @@ function ChangelogModal(props) {
     )
 }
 
-function LogoutButton(props) {
-    return <Button>props.email</Button>
-}
-
 export class Topcontent extends Component {
     constructor(props) {
         super(props)
