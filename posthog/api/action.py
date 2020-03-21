@@ -7,6 +7,7 @@ from rest_framework.decorators import action # type: ignore
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.utils.serializer_helpers import ReturnDict
 from django.db.models import Q, F, Count, Prefetch, functions, QuerySet, TextField
+from django.db import connection
 from django.db.models.functions import Concat
 from django.forms.models import model_to_dict
 from django.utils.decorators import method_decorator
@@ -213,6 +214,11 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         return append
 
+    def _execute_custom_sql(self, query, params):
+        cursor = connection.cursor()
+        cursor.execute(query, params)
+        return cursor.fetchall()
+
     def _stickiness(self, action: Action, filters: Dict[Any, Any], request: request.Request):
         date_from, date_to = self._get_dates_from_request(request)
         range_days = (date_to - date_from).days + 2
@@ -223,10 +229,13 @@ class ActionViewSet(viewsets.ModelViewSet):
             .annotate(day_count=Count(functions.TruncDay('timestamp'), distinct=True))\
             .filter(day_count__lte=range_days)
 
-        people: Dict[int, int] = {}
+        events_sql, events_sql_params = events.query.sql_with_params()
+        aggregated_query = 'select count(v.person_id), v.day_count from ({}) as v group by v.day_count'.format(events_sql)
+        aggregated_counts = self._execute_custom_sql(aggregated_query, events_sql_params)
 
-        for event in events:
-            people[event['person_id']] = event['day_count']
+        response: Dict[int, int] = {}
+        for result in aggregated_counts:
+            response[result[1]] = result[0]
 
         labels = []
         data = []
@@ -234,7 +243,8 @@ class ActionViewSet(viewsets.ModelViewSet):
         for day in range(1, range_days):
             label = '{} day{}'.format(day, 's' if day > 1 else '')
             labels.append(label)
-            data.append(len([key for key, value in people.items() if value == day]))
+            data.append(response[day] if day in response else 0)
+
         return {
             'labels': labels,
             'days': [day for day in range(1, range_days)],
