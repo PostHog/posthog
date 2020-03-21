@@ -44,8 +44,10 @@
     }
     .invite-team {
         position: fixed;
-        bottom: 2rem;
+        bottom: 0rem;
         text-align: center;
         margin-left: -15px;
+        padding: 2rem;
+        background-color: white;
     }
 }
