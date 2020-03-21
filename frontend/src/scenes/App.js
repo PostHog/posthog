@@ -90,6 +90,10 @@ export default function App() {
                                     />
                                 </>
                             )}
+                            <Route
+                                path="/logout"
+                                component={() => window.location.reload()}
+                            />
                             <PrivateRoute
                                 path="/setup"
                                 component={Setup}

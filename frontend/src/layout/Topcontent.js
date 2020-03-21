@@ -1,4 +1,5 @@
 import React, { Component } from 'react'
+import { NavLink } from 'react-router-dom'
 import api from './../lib/api'
 import { Modal } from '../lib/components/Modal'
 
@@ -16,6 +17,10 @@ function ChangelogModal(props) {
             />
         </Modal>
     )
+}
+
+function LogoutButton(props) {
+    return <Button>props.email</Button>
 }
 
 export class Topcontent extends Component {
@@ -39,7 +44,11 @@ export class Topcontent extends Component {
             <div>
                 <div
                     className="right-align"
-                    style={{ display: 'flex', fontSize: 13 }}
+                    style={{
+                        display: 'flex',
+                        fontSize: 13,
+                        alignItems: 'center',
+                    }}
                 >
                     {latest_version && (
                         <span style={{ marginRight: 32 }}>
@@ -68,6 +77,14 @@ export class Topcontent extends Component {
                         </span>
                     )}
                     {this.props.user.email}
+                    <NavLink to="/logout">
+                        <button
+                            className="btn btn-sm btn-outline-success"
+                            style={{ marginLeft: 16 }}
+                        >
+                            Logout
+                        </button>
+                    </NavLink>
                 </div>
                 {openChangelog && (
                     <ChangelogModal
