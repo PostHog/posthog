@@ -91,7 +91,7 @@ If at any point, you get "command not found: nvm", you need to install nvm, then
 
 ## Open source / Paid
 
-This repo is entirely [MIT licensed](/LICENSE). We charge for things like teams, permissioning, data lake integrations, and support. Please email hey@posthog.com and we will gladly help with your implementation.
+This repo is entirely [MIT licensed](/LICENSE). We charge for things like user permissioning and auditability, a/b testing and dedicated support. Please email hey@posthog.com and we will gladly help with your implementation.
 
 ## Contributors 🦸
 
