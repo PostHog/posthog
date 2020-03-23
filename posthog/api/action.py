@@ -267,14 +267,15 @@ class ActionViewSet(viewsets.ModelViewSet):
             append.update(self._stickiness(action=action, filters=filters, request=request))
         return append
 
-    def _serialize_people(self, action: Action, people: List[Person], request: request.Request, count: Any) -> Dict:
+    def _serialize_people(self, action: Action, people: QuerySet, request: request.Request) -> Dict:
+        people_dict = [PersonSerializer(person, context={'request': request}).data for person in  people]
         return {
             'action': {
                 'id': action.pk,
                 'name': action.name
             },
-            'people': map(lambda person: PersonSerializer(person, context={'request': request}).data, people),
-            'count': count
+            'people': people_dict,
+            'count': len(people_dict)
         }
 
     @action(methods=['GET'], detail=False)
@@ -304,29 +305,28 @@ class ActionViewSet(viewsets.ModelViewSet):
     @action(methods=['GET'], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         actions = self.get_queryset()
+
         actions = actions.filter(deleted=False)
         actions_list = []
 
         for action in actions:
-            base_events = Event.objects.filter_by_action(action, order_by=None).filter(self._filter_events(request))
-            people_ids = []
+            events = Event.objects.filter_by_action(action, order_by=None).filter(self._filter_events(request))
 
             if request.GET.get('shown_as', 'Volume') == 'Volume':
-                people_ids = base_events.values_list('person_id', flat=True).distinct()
+                events = events.values('person_id').distinct()
             elif request.GET['shown_as'] == 'Stickiness':
                 stickiness_days = int(request.GET['stickiness_days'])
-                people_ids = base_events\
+                events = events\
                     .values('person_id')\
                     .annotate(day_count=Count(functions.TruncDay('timestamp'), distinct=True))\
                     .filter(day_count=stickiness_days)
 
             people = Person.objects\
-                .filter(team=self.request.user.team_set.get(), id__in=[p['person_id'] for p in people_ids[0:100]])
+                .filter(team=self.request.user.team_set.get(), id__in=[p['person_id'] for p in events[0:100]])
 
             actions_list.append(self._serialize_people(
                 action=action,
                 people=people,
-                count=people_ids.count(),
                 request=request
             ))
 
