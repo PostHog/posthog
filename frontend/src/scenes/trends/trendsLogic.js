@@ -163,7 +163,7 @@ export const trendsLogic = kea({
                 ...values.filters,
                 actions: [{ id: action }],
                 // can't rely on typeof as input may be a string, so reverting to regexp
-                ...(`${day}`.match(/\A\d{2}-\d{2}-\d{4}\z/)
+                ...(`${day}`.match(/^\d{4}-\d{2}-\d{2}$/)
                     ? {
                           date_from: day,
                           date_to: day,
