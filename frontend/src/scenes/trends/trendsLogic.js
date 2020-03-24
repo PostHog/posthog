@@ -14,6 +14,17 @@ function cleanFilters(filters) {
     return filters
 }
 
+function filterClientSideParams(filters) {
+    const {
+        people_day: _skip_this_one,
+        people_action: _skip_this_too,
+        stickiness_days: __and_this,
+        ...newFilters
+    } = filters
+
+    return newFilters
+}
+
 function filtersFromParams() {
     let filters = fromParams()
     filters.actions = filters.actions && JSON.parse(filters.actions)
@@ -154,24 +165,24 @@ export const trendsLogic = kea({
             }
         },
         [actions.loadResults]: async (_, breakpoint) => {
-            const results = await api.get('api/action/trends/?' + toParams(values.filters))
+            const results = await api.get('api/action/trends/?' + toParams(filterClientSideParams(values.filters)))
             breakpoint()
             actions.setResults(results)
         },
         [actions.loadPeople]: async ({ day, action }) => {
-            const filterParams = toParams({
+            const params = filterClientSideParams({
                 ...values.filters,
                 actions: [{ id: action }],
-                // can't rely on typeof as input may be a string, so reverting to regexp
-                ...(`${day}`.match(/^\d{4}-\d{2}-\d{2}$/)
-                    ? {
-                          date_from: day,
-                          date_to: day,
-                      }
-                    : {
-                          stickiness_days: day,
-                      }),
             })
+
+            if (`${day}`.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                params.date_from = day
+                params.date_to = day
+            } else {
+                params.stickiness_days = day
+            }
+
+            const filterParams = toParams(params)
             const people = await api.get(`api/action/people/?include_last_event=1&${filterParams}`)
 
             if (day === values.filters.people_day && action === values.filters.people_action) {
