@@ -164,7 +164,12 @@ export const trendsLogic = kea({
     actionToUrl: ({ actions, values, props }) => ({
         [actions.setFilters]: () => {
             if (!props.dashboardItemId) {
-                return `/trends?${toParams(values.filters)}`
+                const url = `/trends?${toParams(values.filters)}`
+                // temporary check to disable double back button
+                // as react-router and kea-router don't sync super well
+                if (window.location.pathname + window.location.search !== url) {
+                    return url
+                }
             }
         },
     }),
