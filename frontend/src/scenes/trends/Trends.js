@@ -24,8 +24,10 @@ const displayMap = {
 }
 
 export function Trends() {
-    const { actions, filters, properties, isLoading, showingPeople } = useValues(trendsLogic)
-    const { setFilters, setDisplay } = useActions(trendsLogic)
+    const { actions, filters, properties, resultsLoading, showingPeople } = useValues(
+        trendsLogic({ dashboardItemId: null })
+    )
+    const { setFilters, setDisplay } = useActions(trendsLogic({ dashboardItemId: null }))
 
     return (
         <div className="actions-graph">
@@ -128,7 +130,7 @@ export function Trends() {
                                 position: 'relative',
                             }}
                         >
-                            {isLoading && <Loading />}
+                            {resultsLoading && <Loading />}
                             {(!filters.display || filters.display == 'ActionsLineGraph') && <ActionsLineGraph />}
                             {filters.display == 'ActionsTable' && <ActionsTable filters={filters} />}
                             {filters.display == 'ActionsPie' && <ActionsPie filters={filters} />}

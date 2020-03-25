@@ -5,9 +5,9 @@ import { LineGraph } from './LineGraph'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
-export function ActionsLineGraph() {
-    const { filters, results } = useValues(trendsLogic)
-    const { loadResults, showPeople } = useActions(trendsLogic)
+export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam }) {
+    const { filters, results } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
+    const { loadResults, showPeople } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
 
     const { people_action, people_day, ...otherFilters } = filters
 

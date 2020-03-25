@@ -4591,10 +4591,10 @@ kea-loaders@^0.0.4:
   resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.0.4.tgz#7d7fa7d4cfe705bdd0b7dcfc523173d202944917"
   integrity sha512-V/c2Ry5Go58T0Z9/cGRX+phOmFR6z6nxcZMsBg+k9gO+uR2eUJQ2qTFWmbltZ30P8HwLYTMchw/NOeM3btUtoQ==
 
-kea-router@^0.1.1:
-  version "0.1.1"
-  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-0.1.1.tgz#97daac5cafb16169a487504987ad08301eb389ca"
-  integrity sha512-vbLHbWDbsqAOK3pHGYqtXAMh1dcRINyUtqu+V17jyVP3PBId1XH7MPwOOpzOA0G7wL3BKA5+wH+Zo5b7PEYeLQ==
+kea-router@^0.1.2:
+  version "0.1.2"
+  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-0.1.2.tgz#07c52debfd86a82717cfd7d49d12d41dc814feee"
+  integrity sha512-rC05MCJPtc20CCk8QEpe3ktLiGaf5VmjfkZlr6Bz3H6jRq9VsCOekv7kwWPefk9lN0nAJARHRd0cbZRAaXv+sA==
   dependencies:
     url-pattern "^1.0.3"
 

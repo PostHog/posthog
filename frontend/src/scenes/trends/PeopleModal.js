@@ -6,8 +6,8 @@ import { Modal } from 'lib/components/Modal'
 import { PeopleTable } from 'scenes/users/PeopleTable'
 
 export function PeopleModal() {
-    const { people, peopleCount, peopleAction, peopleDay, filters } = useValues(trendsLogic)
-    const { hidePeople } = useActions(trendsLogic)
+    const { people, peopleCount, peopleAction, peopleDay, filters } = useValues(trendsLogic({ id: null }))
+    const { hidePeople } = useActions(trendsLogic({ dashboardItemId: null }))
 
     const title =
         filters.shown_as === 'Stickiness'

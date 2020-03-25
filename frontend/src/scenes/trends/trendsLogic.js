@@ -2,6 +2,8 @@ import { kea } from 'kea'
 
 import api from 'lib/api'
 import { fromParams, toParams } from 'lib/utils'
+import { propertiesModel } from '~/models/propertiesModel'
+import { actionsModel } from '~/models/actionsModel'
 
 function cleanFilters(filters) {
     if (filters.breakdown && filters.display !== 'ActionsTable') {
@@ -35,22 +37,17 @@ function filtersFromParams() {
 }
 
 export const trendsLogic = kea({
-    loaders: () => ({
-        actions: {
-            __default: [],
-            loadActions: async () => {
-                const response = await api.get('api/action')
-                return response.results
-            },
-        },
-        properties: {
-            __default: [],
-            loadProperties: async () => {
-                const properties = await api.get('api/event/properties')
-                return properties.map(property => ({
-                    label: property.name,
-                    value: property.name,
-                }))
+    key: props => props.dashboardItemId || 'all_trends',
+
+    connect: {
+        values: [propertiesModel, ['properties'], actionsModel, ['actions']],
+        actions: [actionsModel, ['loadActionsSuccess']],
+    },
+
+    loaders: ({ values }) => ({
+        results: {
+            loadResults: async () => {
+                return await api.get('api/action/trends/?' + toParams(filterClientSideParams(values.filters)))
             },
         },
     }),
@@ -58,9 +55,7 @@ export const trendsLogic = kea({
     actions: () => ({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: display => ({ display }),
-
-        loadResults: true,
-        setResults: results => ({ results }),
+        setDefaultActionIfEmpty: true,
 
         showPeople: (action, day) => ({ action, day }),
         loadPeople: (action, day) => ({ action, day }),
@@ -69,12 +64,6 @@ export const trendsLogic = kea({
     }),
 
     reducers: ({ actions }) => ({
-        results: [
-            [],
-            {
-                [actions.setResults]: (_, { results }) => results,
-            },
-        ],
         filters: [
             {},
             {
@@ -83,13 +72,6 @@ export const trendsLogic = kea({
                         ...(mergeFilters ? state : {}),
                         ...filters,
                     }),
-            },
-        ],
-        isLoading: [
-            true,
-            {
-                [actions.loadResults]: () => true,
-                [actions.setResults]: () => false,
             },
         ],
         people: [
@@ -118,14 +100,18 @@ export const trendsLogic = kea({
         peopleDay: [() => [selectors.filters], (filters, actions) => filters.people_day],
     }),
 
-    listeners: ({ actions, values }) => ({
-        [actions.loadActionsSuccess]: async ({ actions: allActions }) => {
-            // auto-select last action if none selected
-            if (!values.filters.actions && allActions.length > 0) {
+    listeners: ({ actions, values, props }) => ({
+        [actions.loadActionsSuccess]: () => {
+            if (!props.dashboardItemId) {
+                actions.setDefaultActionIfEmpty()
+            }
+        },
+        [actions.setDefaultActionIfEmpty]: () => {
+            if (!values.filters.actions && values.actions.length > 0) {
                 actions.setFilters({
                     actions: [
                         {
-                            id: allActions[allActions.length - 1].id,
+                            id: values.actions[values.actions.length - 1].id,
                         },
                     ],
                 })
@@ -153,11 +139,6 @@ export const trendsLogic = kea({
                 actions.loadPeople(filters.people_action, filters.people_day)
             }
         },
-        [actions.loadResults]: async (_, breakpoint) => {
-            const results = await api.get('api/action/trends/?' + toParams(filterClientSideParams(values.filters)))
-            breakpoint()
-            actions.setResults(results)
-        },
         [actions.loadPeople]: async ({ day, action }) => {
             const params = filterClientSideParams({
                 ...values.filters,
@@ -180,25 +161,35 @@ export const trendsLogic = kea({
         },
     }),
 
-    actionToUrl: ({ actions, values }) => ({
-        [actions.setFilters]: () => `/trends?${toParams(values.filters)}`,
-    }),
-
-    urlToAction: ({ actions, values }) => ({
-        '/trends': () => {
-            const newFilters = filtersFromParams()
-
-            if (toParams(newFilters) !== toParams(values.filters)) {
-                actions.setFilters(newFilters, false)
+    actionToUrl: ({ actions, values, props }) => ({
+        [actions.setFilters]: () => {
+            if (!props.dashboardItemId) {
+                return `/trends?${toParams(values.filters)}`
             }
         },
     }),
 
-    events: ({ actions }) => ({
+    urlToAction: ({ actions, values, props }) => ({
+        '/trends': () => {
+            if (!props.dashboardItemId) {
+                const newFilters = filtersFromParams()
+
+                if (toParams(newFilters) !== toParams(values.filters)) {
+                    actions.setFilters(newFilters, false)
+                }
+            }
+        },
+    }),
+
+    events: ({ actions, props }) => ({
         afterMount: () => {
-            actions.loadActions()
-            actions.loadProperties()
-            actions.setFilters(filtersFromParams(), false)
+            if (props.dashboardItemId) {
+                // on dashboard
+                actions.setFilters(props.filters, false)
+            } else {
+                actions.setFilters(filtersFromParams(), false)
+                actions.setDefaultActionIfEmpty()
+            }
         },
     }),
 })
