@@ -1,5 +1,5 @@
 from django.test import TestCase, Client
-from posthog.models import User, DashboardItem, Action
+from posthog.models import User, DashboardItem, Action, Person, Event
 
 class TestSignup(TestCase):
     def setUp(self):

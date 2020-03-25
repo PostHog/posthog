@@ -2,9 +2,12 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from django.db.models import Q
 from typing import Dict
+from django.template.loader import get_template
+from django.http import HttpResponse, JsonResponse
 
 import datetime
 import re
+import os
 
 def relative_date_parse(input: str) -> datetime.date:
     try:
@@ -49,3 +52,29 @@ def properties_to_Q(properties: Dict[str, str]) -> Q:
         else:
             filters |= Q(**{'properties__{}'.format(key): value})
     return filters
+
+def render_template(template_name: str, request, context=None) -> HttpResponse:
+    from posthog.models import Team
+    if context is None:
+        context = {}
+    template = get_template(template_name)
+    try:
+        context.update({
+            'opt_out_capture': request.user.team_set.get().opt_out_capture
+        })
+    except (Team.DoesNotExist, AttributeError):
+        team = Team.objects.all()
+        # if there's one team on the instance, and they've set opt_out
+        # we'll opt out anonymous users too
+        if team.count() == 1:
+            context.update({
+                'opt_out_capture': team.first().opt_out_capture,
+            })
+
+    if os.environ.get('SENTRY_DSN'):
+        context.update({
+            'sentry_dsn': os.environ['SENTRY_DSN']
+        })
+    html = template.render(context, request=request)
+    return HttpResponse(html)
+

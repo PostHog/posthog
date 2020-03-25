@@ -6,6 +6,7 @@ import { OptOutCapture } from './OptOutCapture'
 import { SetupAppUrls } from './SetupAppUrls'
 
 import { userLogic } from '../userLogic'
+import { DeleteDemoData } from './DeleteDemoData';
 
 export function Setup() {
     const { user } = useValues(userLogic)
@@ -47,6 +48,13 @@ export function Setup() {
             </div>
             <br />
             <br />
+
+            <h2>Delete HogFlix demo data</h2>
+            <DeleteDemoData />
+            <br />
+            <br />
+            <br />
+
             <h2>Opt out of capturing</h2>
             <OptOutCapture />
         </div>

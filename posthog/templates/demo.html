@@ -13,6 +13,12 @@
     </head>
     <body>
 <div class='container'>
+    <div class='alert alert-warning'>
+        <strong>Welcome to the PostHog demo environment!</strong><br />
+        By going through this demo you can simulate a user going through a signup funnel. <a href='/'>You can explore the data in PostHog</a>.<br /><br />
+        Once you're done, you can delete all the demo data <a href='/setup'>in the setup page</a>.
+    </div>
+
     {% if request.path == '/demo' %}
 
     <h1>Welcome to HogFlix</h1>
@@ -25,9 +31,9 @@
         <h1>HogFlix</h1>
         <form action='/demo/2'>
             <label>Username</label>
-            <input class='form-control' type='text' name='username' required />
+            <input class='form-control' type='text' name='username' />
             <label>Password</label>
-            <input class='form-control' type='password' name='password' required/>
+            <input class='form-control' type='password' name='password' />
             <button type='submit' class='btn btn-success'>Sign up!</button>
         </form>
     {% endif %}
@@ -35,7 +41,7 @@
         <h1>Pay for HogFlix</h1>
         <form action='/demo/3'>
             <label>Credit card number</label>
-            <input class='form-control' type='text' name='creditcard' placeholder='4000 0000 0000 0000' required />
+            <input class='form-control' type='text' name='creditcard' placeholder='4000 0000 0000 0000' />
             <button type='submit' class='btn btn-success'>Pay $10!</button>
         </form>
     {% endif %}
