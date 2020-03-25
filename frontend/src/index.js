@@ -8,12 +8,27 @@ import { routerPlugin } from 'kea-router'
 import { loadersPlugin } from 'kea-loaders'
 
 import App from './scenes/App'
+import { toast } from 'react-toastify'
 
 resetContext({
     createStore: {
         // additional options (e.g. middleware, reducers, ...)
     },
-    plugins: [routerPlugin, loadersPlugin, listenersPlugin],
+    plugins: [
+        routerPlugin,
+        loadersPlugin({
+            onError({ error, reducerKey, actionKey, logic }) {
+                toast.error(
+                    <div>
+                        <h1>Error loading "{reducerKey}".</h1>
+                        <p className="info">Action "{actionKey}" responded with</p>
+                        <p className="error-message">"{error.message}"</p>
+                    </div>
+                )
+            },
+        }),
+        listenersPlugin,
+    ],
 })
 
 ReactDOM.render(

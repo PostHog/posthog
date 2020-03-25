@@ -185,3 +185,25 @@ button.no-style {
 .modal {
     overflow: scroll;
 }
+
+.Toastify__toast--error {
+    background: white !important;
+
+    h1 {
+        font-size: 16px !important;
+        color: red;
+    }
+    p {
+        font-size: 14px;
+        margin-bottom: 8px;
+    }
+    p.info {
+        margin-bottom: 0;
+    }
+    p.error-message {
+        font-style: italic;
+    }
+    .Toastify__progress-bar {
+        background: #ffbcbc;
+    }
+}
