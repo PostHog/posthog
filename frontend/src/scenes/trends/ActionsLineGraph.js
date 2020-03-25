@@ -20,9 +20,13 @@ export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam
             <LineGraph
                 datasets={results}
                 labels={results[0].labels}
-                onClick={({ dataset: { action }, day }) => {
-                    showPeople(action, day)
-                }}
+                onClick={
+                    dashboardItemId
+                        ? null
+                        : ({ dataset: { action }, day }) => {
+                              showPeople(action, day)
+                          }
+                }
             />
         ) : (
             <p style={{ textAlign: 'center', marginTop: '4rem' }}>We couldn't find any matching actions.</p>

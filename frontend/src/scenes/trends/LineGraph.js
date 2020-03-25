@@ -27,6 +27,7 @@ export class LineGraph extends Component {
         if (typeof this.myLineChart !== 'undefined') this.myLineChart.destroy()
         let colors = ['blue', 'orange', 'green', 'red', 'purple', 'gray']
         let getVar = variable => getComputedStyle(document.body).getPropertyValue('--' + variable)
+        const _this = this
 
         this.myLineChart = new Chart(myChartRef, {
             type: this.props.type || 'line',
@@ -74,10 +75,12 @@ export class LineGraph extends Component {
                           },
                           hover: {
                               mode: 'nearest',
-                              onHover: function(e) {
-                                  const point = this.getElementAtEvent(e)
-                                  if (point.length) e.target.style.cursor = 'pointer'
-                                  else e.target.style.cursor = 'default'
+                              onHover(e) {
+                                  if (_this.props.onClick) {
+                                      const point = this.getElementAtEvent(e)
+                                      if (point.length) e.target.style.cursor = 'pointer'
+                                      else e.target.style.cursor = 'default'
+                                  }
                               },
                           },
                           scales: {
