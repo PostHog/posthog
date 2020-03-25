@@ -1,5 +1,32 @@
 # Changelog
 
+### 1.0.9 - Wednesday 25 March 2020
+
+- Stickiness now shown on Trend Graph
+
+![stickiness](https://posthog.com/wp-content/uploads/2020/03/stickiness-gif.gif)
+
+- Funnel builder changes
+
+![funnel builder](https://posthog.com/wp-content/uploads/2020/03/newfunnel.gif)
+
+- Changed 'Add event property filter' to 'Filter events by property'.
+
+- Added drop down to all filters for event properties
+
+![filters](https://posthog.com/wp-content/uploads/2020/03/Posthog-23.png)
+
+- Added '_isnot' and 'does not contain' to properties filters
+
+![doesnotcontain](https://posthog.com/wp-content/uploads/2020/03/isnotdoesnotcontain.gif)
+
+- Moved API key to it's own box
+
+- Various performance updates
+
+- Bug fixes
+
+
 ### 1.0.8.2 - Wednesday 18 March 2020
 
 - Fixes bug where events wouldn't be filtered under /person or /action.
