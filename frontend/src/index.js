@@ -25,6 +25,7 @@ resetContext({
                         <p className="error-message">"{error.message}"</p>
                     </div>
                 )
+                window.Sentry && window.Sentry.captureException(error)
             },
         }),
         listenersPlugin,
