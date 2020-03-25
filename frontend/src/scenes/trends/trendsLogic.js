@@ -35,13 +35,27 @@ function filtersFromParams() {
 }
 
 export const trendsLogic = kea({
+    loaders: () => ({
+        actions: {
+            __default: [],
+            loadActions: async () => {
+                const response = await api.get('api/action')
+                return response.results
+            },
+        },
+        properties: {
+            __default: [],
+            loadProperties: async () => {
+                const properties = await api.get('api/event/properties')
+                return properties.map(property => ({
+                    label: property.name,
+                    value: property.name,
+                }))
+            },
+        },
+    }),
+
     actions: () => ({
-        fetchActions: true,
-        setActions: actions => ({ actions }),
-
-        fetchProperties: true,
-        setProperties: properties => ({ properties }),
-
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: display => ({ display }),
 
@@ -55,18 +69,6 @@ export const trendsLogic = kea({
     }),
 
     reducers: ({ actions }) => ({
-        actions: [
-            [],
-            {
-                [actions.setActions]: (_, { actions }) => actions,
-            },
-        ],
-        properties: [
-            [],
-            {
-                [actions.setProperties]: (_, { properties }) => properties,
-            },
-        ],
         results: [
             [],
             {
@@ -117,10 +119,8 @@ export const trendsLogic = kea({
     }),
 
     listeners: ({ actions, values }) => ({
-        [actions.fetchActions]: async () => {
-            const allActions = (await api.get('api/action')).results
-
-            // autoselect last action if none selected
+        [actions.loadActionsSuccess]: async ({ actions: allActions }) => {
+            // auto-select last action if none selected
             if (!values.filters.actions && allActions.length > 0) {
                 actions.setFilters({
                     actions: [
@@ -130,17 +130,6 @@ export const trendsLogic = kea({
                     ],
                 })
             }
-
-            actions.setActions(allActions)
-        },
-        [actions.fetchProperties]: async () => {
-            const properties = await api.get('api/event/properties')
-            actions.setProperties(
-                properties.map(property => ({
-                    label: property.name,
-                    value: property.name,
-                }))
-            )
         },
         [actions.setDisplay]: async ({ display }) => {
             actions.setFilters({ display })
@@ -207,8 +196,8 @@ export const trendsLogic = kea({
 
     events: ({ actions }) => ({
         afterMount: () => {
-            actions.fetchActions()
-            actions.fetchProperties()
+            actions.loadActions()
+            actions.loadProperties()
             actions.setFilters(filtersFromParams(), false)
         },
     }),

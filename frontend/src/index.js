@@ -5,6 +5,7 @@ import { Provider } from 'react-redux'
 import { resetContext, getContext } from 'kea'
 import listenersPlugin from 'kea-listeners'
 import { routerPlugin } from 'kea-router'
+import { loadersPlugin } from 'kea-loaders'
 
 import App from './scenes/App'
 
@@ -12,7 +13,7 @@ resetContext({
     createStore: {
         // additional options (e.g. middleware, reducers, ...)
     },
-    plugins: [routerPlugin, listenersPlugin],
+    plugins: [routerPlugin, loadersPlugin, listenersPlugin],
 })
 
 ReactDOM.render(
