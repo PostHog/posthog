@@ -3,6 +3,7 @@ from django.apps import apps
 from django.test import TestCase
 from django.db.migrations.executor import MigrationExecutor
 from django.db import connection
+from typing import Optional
 
 
 class TestMigrations(TestCase):
@@ -11,8 +12,8 @@ class TestMigrations(TestCase):
     def app(self):
         return apps.get_containing_app_config(type(self).__module__).name
 
-    migrate_from = None
-    migrate_to = None
+    migrate_from: Optional[str] = None
+    migrate_to: Optional[str] = None
 
     def setUp(self):
         assert self.migrate_from and self.migrate_to, \

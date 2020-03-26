@@ -97,7 +97,7 @@ class EventViewSet(viewsets.ModelViewSet):
         if len(hash_ids) > 0:
             groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related('element_set')
         else:
-            groups = []
+            groups = ElementGroup.objects.none()
         for event in events:
             try:
                 event.person_properties = [person.properties for person in people if event.distinct_id in person.distinct_ids][0] # type: ignore

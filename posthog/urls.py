@@ -12,7 +12,7 @@ from .models import Team, User
 from .utils import render_template
 from posthog.demo import demo, delete_demo_data
 import json
-import posthoganalytics
+import posthoganalytics # type: ignore
 import os
 
 from rest_framework import permissions
