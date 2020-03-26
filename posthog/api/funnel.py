@@ -27,7 +27,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
         # causing lots of slow queries. 
         # Seems a known issue: https://stackoverflow.com/questions/55023511/serializer-being-called-multiple-times-django-python
         if hasattr(funnel, 'steps_cache'):
-            return {}
+            return []
         funnel.steps_cache = True # type: ignore
 
         funnel_steps = funnel.steps.all().prefetch_related('action')
@@ -63,8 +63,6 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             .filter(team_id=funnel.team_id)\
             .annotate(**annotations)\
             .filter(step_0__isnull=False)
-
-        people = [person for person in people]
 
         steps = []
         for step in funnel_steps:

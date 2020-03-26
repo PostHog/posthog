@@ -214,7 +214,7 @@ class Event(models.Model):
     def person(self):
         return Person.objects.get(team_id=self.team_id, persondistinctid__distinct_id=self.distinct_id)
 
-    objects: EventManager = EventManager.as_manager()
+    objects: EventManager = EventManager.as_manager() # type: ignore
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     distinct_id: models.CharField = models.CharField(max_length=200)

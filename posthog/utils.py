@@ -68,7 +68,7 @@ def render_template(template_name: str, request, context=None) -> HttpResponse:
         # we'll opt out anonymous users too
         if team.count() == 1:
             context.update({
-                'opt_out_capture': team.first().opt_out_capture,
+                'opt_out_capture': team.first().opt_out_capture, # type: ignore
             })
 
     if os.environ.get('SENTRY_DSN'):

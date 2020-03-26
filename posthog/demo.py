@@ -14,8 +14,8 @@ import random
 import json
 
 def _create_anonymous_users(team: Team, base_url: str) -> None:
-    with open(Path('posthog/demo_data.json').resolve(), 'r') as demo_data:
-        demo_data = json.load(demo_data)
+    with open(Path('posthog/demo_data.json').resolve(), 'r') as demo_data_file:
+        demo_data = json.load(demo_data_file)
 
     Person.objects.bulk_create([
         Person(team=team, properties={'is_demo': True}) for _ in range(0, 100)
