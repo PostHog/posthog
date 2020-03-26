@@ -1,7 +1,6 @@
 from django.contrib import admin
 from django.urls import path, include, re_path
 from django.views.generic.base import TemplateView
-from django.template.loader import get_template
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.contrib.auth import authenticate, login, views as auth_views, decorators
@@ -10,38 +9,13 @@ from django.views.decorators.csrf import csrf_exempt
 
 from .api import router, capture, user
 from .models import Team, User
+from .utils import render_template
+from posthog.demo import demo, delete_demo_data
 import json
 import posthoganalytics
 import os
 
 from rest_framework import permissions
-
-
-
-
-def render_template(template_name: str, request, context=None) -> HttpResponse:
-    if context is None:
-        context = {}
-    template = get_template(template_name)
-    try:
-        context.update({
-            'opt_out_capture': request.user.team_set.get().opt_out_capture
-        })
-    except (Team.DoesNotExist, AttributeError):
-        team = Team.objects.all()
-        # if there's one team on the instance, and they've set opt_out
-        # we'll opt out anonymous users too
-        if team.count() == 1:
-            context.update({
-                'opt_out_capture': team.first().opt_out_capture,
-            })
-
-    if os.environ.get('SENTRY_DSN'):
-        context.update({
-            'sentry_dsn': os.environ['SENTRY_DSN']
-        })
-    html = template.render(context, request=request)
-    return HttpResponse(html)
 
 def home(request, **kwargs):
     if request.path.endswith('.map') or request.path.endswith('.map.js'):
@@ -121,9 +95,6 @@ def setup_admin(request):
 def logout(request):
     return auth_views.logout_then_login(request)
 
-def demo(request):
-    return render_template('demo.html', request=request, context={'api_token': request.user.team_set.get().api_token})
-
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('admin/', include('loginas.urls')),
@@ -134,7 +105,8 @@ urlpatterns = [
     path('decide/', capture.get_decide),
     path('engage/', capture.get_event),
     path('engage', capture.get_event),
-    re_path(r'demo.*', decorators.login_required(demo)),
+    re_path(r'^demo.*', decorators.login_required(demo)),
+    path('delete_demo_data/', decorators.login_required(delete_demo_data)),
     path('e/', capture.get_event),
     path('track', capture.get_event),
     path('track/', capture.get_event),

@@ -4,6 +4,7 @@ from django.contrib.postgres.fields import JSONField, ArrayField
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.utils.translation import ugettext_lazy as _
+from django.utils.timezone import now
 from django.dispatch import receiver
 from django.forms.models import model_to_dict
 from django.utils import timezone
@@ -17,6 +18,8 @@ import secrets
 import re
 import json
 import hashlib
+import uuid
+import random
 
 attribute_regex = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 
