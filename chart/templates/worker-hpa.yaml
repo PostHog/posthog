@@ -1,0 +1,19 @@
+{{- if .Values.worker.hpa.enabled -}}
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ template "posthog.fullname" . }}-worker
+  labels:
+    app: {{ template "posthog.fullname" . }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+spec:
+  scaleTargetRef:
+    kind: Deployment
+    apiVersion: apps/v1
+    name: {{ template "posthog.fullname" . }}-worker
+  minReplicas: {{ .Values.worker.hpa.minpods }}
+  maxReplicas: {{ .Values.worker.hpa.maxpods }}
+  targetCPUUtilizationPercentage: {{ .Values.worker.hpa.cputhreshold }}
+{{- end }}

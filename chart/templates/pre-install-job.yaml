@@ -1,0 +1,31 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "posthog.fullname" . }}
+  labels:
+    {{- include "posthog.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    checksum/secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+    checksum/configmap: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    tag: {{ .Values.image.tag }}
+spec:
+  activeDeadlineSeconds: 180
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: pre-install-job
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        command: ["./manage.py","migrate"]
+        env:
+          - name: DEBUG
+            value: "False"
+          - name: STATIC_URL
+            value: /
+        envFrom:
+          - secretRef:
+              name: {{ include "posthog.fullname" . }}
+          - configMapRef:
+              name: {{ include "posthog.fullname" . }}
