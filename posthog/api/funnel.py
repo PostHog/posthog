@@ -30,7 +30,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             return []
         funnel.steps_cache = True # type: ignore
 
-        funnel_steps = funnel.steps.all().prefetch_related('action')
+        funnel_steps = funnel.steps.all().order_by('order').prefetch_related('action')
         if self.context['view'].action != 'retrieve' or self.context['request'].GET.get('exclude_count'):
             return [{
                 'id': step.id,
@@ -42,8 +42,8 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
         if len(funnel_steps) == 0:
             return []
         annotations = {}
-        for step in funnel_steps:
-            annotations['step_{}'.format(step.order)] = Subquery(
+        for index, step in enumerate(funnel_steps):
+            annotations['step_{}'.format(index)] = Subquery(
                 Event.objects.filter_by_action(step.action) # type: ignore
                     .annotate(person_id=OuterRef('id'))
                     .filter(
@@ -53,7 +53,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
                                 person_id=OuterRef('person_id')
                             ).values('distinct_id')
                         ),
-                        pk__gt=OuterRef('step_{}'.format(step.order-1)) if step.order > 0 else 0
+                        pk__gt=OuterRef('step_{}'.format(index-1)) if index > 0 else 0
                     )\
                     .order_by('pk')\
                     .values('pk')[:1]
@@ -65,8 +65,8 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             .filter(step_0__isnull=False)
 
         steps = []
-        for step in funnel_steps:
-            relevant_people = [person.id for person in people if getattr(person, 'step_{}'.format(step.order))]
+        for index, step in enumerate(funnel_steps):
+            relevant_people = [person.id for person in people if getattr(person, 'step_{}'.format(index))]
             steps.append({
                 'id': step.id,
                 'action_id': step.action.id,

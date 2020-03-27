@@ -90,7 +90,7 @@ class TestGetFunnel(BaseTest):
         funnel = Funnel.objects.create(team=self.team, name='funnel')
         FunnelStep.objects.create(funnel=funnel, order=0, action=action_sign_up)
         FunnelStep.objects.create(funnel=funnel, order=1, action=action_credit_card)
-        FunnelStep.objects.create(funnel=funnel, order=2, action=action_play_movie)
+        FunnelStep.objects.create(funnel=funnel, order=4, action=action_play_movie) # test if ordering is messed up
         return funnel
 
     def test_funnel_events(self):
