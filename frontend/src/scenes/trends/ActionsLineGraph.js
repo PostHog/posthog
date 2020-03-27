@@ -1,45 +1,37 @@
-import React, { Component } from 'react'
+import React, { useEffect } from 'react'
 import api from '../../lib/api'
 import { Loading, toParams } from '../../lib/utils'
 import { LineGraph } from './LineGraph'
-import PropTypes from 'prop-types'
+import { useActions, useValues } from 'kea'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
-export class ActionsLineGraph extends Component {
-    constructor(props) {
-        super(props)
-        this.state = {}
-        this.fetchGraph = this.fetchGraph.bind(this)
-        this.fetchGraph()
-    }
-    fetchGraph() {
-        api.get('api/action/trends/?' + toParams(this.props.filters)).then(
-            data => {
-                data = data.sort((a, b) => b.count - a.count)
-                this.setState({ data })
-                this.props.onData && this.props.onData(data)
-            }
-        )
-    }
-    componentDidUpdate(prevProps) {
-        if (prevProps.filters !== this.props.filters) this.fetchGraph()
-    }
-    render() {
-        let { data } = this.state
-        return data ? (
-            data[0] && data[0].labels ? (
-                <LineGraph datasets={data} labels={data[0].labels} />
-            ) : (
-                <p style={{ textAlign: 'center', marginTop: '4rem' }}>
-                    We couldn't find any matching actions.
-                </p>
-            )
+export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam }) {
+    const { filters, results } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
+    const { loadResults, showPeople } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
+
+    const { people_action, people_day, ...otherFilters } = filters
+
+    useEffect(() => {
+        loadResults()
+    }, [toParams(otherFilters)])
+
+    return results ? (
+        results[0] && results[0].labels ? (
+            <LineGraph
+                datasets={results}
+                labels={results[0].labels}
+                onClick={
+                    dashboardItemId
+                        ? null
+                        : ({ dataset: { action }, day }) => {
+                              showPeople(action, day)
+                          }
+                }
+            />
         ) : (
-            <Loading />
+            <p style={{ textAlign: 'center', marginTop: '4rem' }}>We couldn't find any matching actions.</p>
         )
-    }
-}
-
-ActionsLineGraph.propTypes = {
-    filters: PropTypes.object.isRequired,
-    onData: PropTypes.func,
+    ) : (
+        <Loading />
+    )
 }

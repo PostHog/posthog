@@ -17,4 +17,4 @@ frontend/.cache/
 .mypy_cache
 frontend/dist/*
 frontend/yarn-error.log
-
+.idea

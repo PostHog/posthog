@@ -183,7 +183,7 @@ class EventManager(models.QuerySet):
             PersonDistinctId.objects.filter(team_id=action.team_id, distinct_id=OuterRef('distinct_id')).order_by().values('person_id')[:1]
         ))
 
-    def filter_by_action(self, action) -> models.QuerySet:
+    def filter_by_action(self, action, order_by='-id') -> models.QuerySet:
         events = self
         any_step = Q()
         for step in action.steps.all():
@@ -195,8 +195,11 @@ class EventManager(models.QuerySet):
         events = self\
             .filter(team_id=action.team_id)\
             .add_person_id(action)\
-            .filter(any_step)\
-            .order_by('-id')
+            .filter(any_step)
+
+        if order_by:
+            events = events.order_by(order_by)
+
         return events
 
     def create(self, *args: Any, **kwargs: Any):

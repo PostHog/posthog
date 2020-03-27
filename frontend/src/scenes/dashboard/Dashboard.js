@@ -17,9 +17,7 @@ export class Dashboard extends Component {
         this.fetchDashboard()
     }
     fetchDashboard() {
-        api.get('api/dashboard').then(items =>
-            this.setState({ items: items.results })
-        )
+        api.get('api/dashboard').then(items => this.setState({ items: items.results }))
     }
     render() {
         let { items } = this.state
@@ -50,13 +48,14 @@ export class Dashboard extends Component {
                 link: filters => '/funnel/' + filters.funnel_id,
             },
         }
+
         return (
             <div className="row">
                 {items &&
                     items.length > 0 &&
                     items.map(item => {
                         let Panel = typeMap[item.type].element
-                        Panel = <Panel filters={item.filters} />
+                        Panel = <Panel dashboardItemId={item.id} filters={item.filters} />
                         return (
                             <div className="col-6" key={item.id}>
                                 <div className="card">
@@ -69,12 +68,7 @@ export class Dashboard extends Component {
                                                 fontSize: '2rem',
                                             }}
                                         >
-                                            <Link
-                                                className="dropdown-item"
-                                                to={typeMap[item.type].link(
-                                                    item.filters
-                                                )}
-                                            >
+                                            <Link className="dropdown-item" to={typeMap[item.type].link(item.filters)}>
                                                 View graph
                                             </Link>
                                             <DeleteWithUndo
@@ -86,13 +80,7 @@ export class Dashboard extends Component {
                                                 Delete panel
                                             </DeleteWithUndo>
                                         </Dropdown>
-                                        <Link
-                                            to={typeMap[item.type].link(
-                                                item.filters
-                                            )}
-                                        >
-                                            {item.name}
-                                        </Link>
+                                        <Link to={typeMap[item.type].link(item.filters)}>{item.name}</Link>
                                     </h5>
                                     <div
                                         style={{
@@ -116,8 +104,7 @@ export class Dashboard extends Component {
                     })}
                 {items && this.props.user.has_events && items.length == 0 && (
                     <p>
-                        You don't have any panels set up.{' '}
-                        <Link to="/trends">Click here to create one.</Link>
+                        You don't have any panels set up. <Link to="/trends">Click here to create one.</Link>
                     </p>
                 )}
             </div>

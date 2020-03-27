@@ -16,7 +16,6 @@ export class LineGraph extends Component {
 
     componentDidUpdate(prevProps) {
         if (prevProps.datasets !== this.props.datasets) {
-            console.log(this.props.datasets !== prevProps.datasets)
             this.buildChart()
         }
     }
@@ -27,8 +26,8 @@ export class LineGraph extends Component {
 
         if (typeof this.myLineChart !== 'undefined') this.myLineChart.destroy()
         let colors = ['blue', 'orange', 'green', 'red', 'purple', 'gray']
-        let getVar = variable =>
-            getComputedStyle(document.body).getPropertyValue('--' + variable)
+        let getVar = variable => getComputedStyle(document.body).getPropertyValue('--' + variable)
+        const _this = this
 
         this.myLineChart = new Chart(myChartRef, {
             type: this.props.type || 'line',
@@ -38,16 +37,15 @@ export class LineGraph extends Component {
                 datasets: datasets.map((dataset, index) => ({
                     borderColor: getVar(colors[index]),
                     backgroundColor:
-                        (this.props.type == 'bar' ||
-                            this.props.type == 'doughnut') &&
-                        getVar(colors[index]),
+                        (this.props.type == 'bar' || this.props.type == 'doughnut') && getVar(colors[index]),
                     fill: false,
                     borderWidth: 1,
+                    pointHitRadius: 8,
                     ...dataset,
                 })),
             },
             options:
-                this.props.type != 'doughnut'
+                this.props.type !== 'doughnut'
                     ? {
                           responsive: true,
                           maintainAspectRatio: false,
@@ -70,20 +68,20 @@ export class LineGraph extends Component {
                               titleSpacing: 0,
                               callbacks: {
                                   label: function(tooltipItem, data) {
-                                      var label =
-                                          data.datasets[
-                                              tooltipItem.datasetIndex
-                                          ].label || ''
-                                      return (
-                                          label +
-                                          ' - ' +
-                                          tooltipItem.yLabel.toLocaleString()
-                                      )
+                                      var label = data.datasets[tooltipItem.datasetIndex].label || ''
+                                      return label + ' - ' + tooltipItem.yLabel.toLocaleString()
                                   },
                               },
                           },
                           hover: {
-                              mode: 'index',
+                              mode: 'nearest',
+                              onHover(e) {
+                                  if (_this.props.onClick) {
+                                      const point = this.getElementAtEvent(e)
+                                      if (point.length) e.target.style.cursor = 'pointer'
+                                      else e.target.style.cursor = 'default'
+                                  }
+                              },
                           },
                           scales: {
                               xAxes: [
@@ -101,6 +99,28 @@ export class LineGraph extends Component {
                                       },
                                   },
                               ],
+                          },
+                          onClick: (event, [point]) => {
+                              if (point && this.props.onClick) {
+                                  const dataset = datasets[point._datasetIndex]
+                                  this.props.onClick({
+                                      point,
+                                      dataset,
+                                      index: point._index,
+                                      label:
+                                          typeof point._index !== 'undefined' && dataset.labels
+                                              ? dataset.labels[point._index]
+                                              : undefined,
+                                      day:
+                                          typeof point._index !== 'undefined' && dataset.days
+                                              ? dataset.days[point._index]
+                                              : undefined,
+                                      value:
+                                          typeof point._index !== 'undefined' && dataset.data
+                                              ? dataset.data[point._index]
+                                              : undefined,
+                                  })
+                              }
                           },
                       }
                     : {
@@ -120,10 +140,9 @@ export class LineGraph extends Component {
     }
 }
 LineGraph.propTypes = {
-    datasets: PropTypes.arrayOf(
-        PropTypes.shape({ label: PropTypes.string, count: PropTypes.number })
-    ).isRequired,
+    datasets: PropTypes.arrayOf(PropTypes.shape({ label: PropTypes.string, count: PropTypes.number })).isRequired,
     labels: PropTypes.array.isRequired,
     options: PropTypes.object,
     type: PropTypes.string,
+    onClick: PropTypes.func,
 }

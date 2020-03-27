@@ -1,4 +1,4 @@
-from posthog.models import Event, Team, Action, ActionStep, Element, User
+from posthog.models import Event, Team, Action, ActionStep, Element, User, Person
 from posthog.utils import relative_date_parse, properties_to_Q
 from rest_framework import request, serializers, viewsets, authentication # type: ignore
 from rest_framework.response import Response
@@ -7,6 +7,7 @@ from rest_framework.decorators import action # type: ignore
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.utils.serializer_helpers import ReturnDict
 from django.db.models import Q, F, Count, Prefetch, functions, QuerySet, TextField
+from django.db import connection
 from django.db.models.functions import Concat
 from django.forms.models import model_to_dict
 from django.utils.decorators import method_decorator
@@ -17,7 +18,7 @@ import numpy as np # type: ignore
 import datetime
 import json
 from dateutil.relativedelta import relativedelta
-
+from .person import PersonSerializer
 
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
@@ -171,7 +172,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             return filters
         properties = json.loads(request.GET['properties'])
         filters &= properties_to_Q(properties)
-        return filters 
+        return filters
 
     def _breakdown(self, events: QuerySet, breakdown_by: str) -> List[Dict[str, int]]:
         key = "properties__{}".format(breakdown_by)
@@ -185,6 +186,7 @@ class ActionViewSet(viewsets.ModelViewSet):
     def _append_data(self, append: Dict, dates_filled: pd.DataFrame) -> Dict:
         values = [value[0] for key, value in dates_filled.iterrows()]
         append['labels'] = [key.strftime('%a. %-d %B') for key, value in dates_filled.iterrows()]
+        append['days'] = [key.strftime('%Y-%m-%d') for key, value in dates_filled.iterrows()]
         append['data'] = values
         append['count'] = sum(values)
         return append
@@ -209,29 +211,43 @@ class ActionViewSet(viewsets.ModelViewSet):
             append = self._append_data(append, dates_filled)
         if request.GET.get('breakdown'):
             append['breakdown'] = self._breakdown(aggregates, breakdown_by=request.GET['breakdown'])
+
         return append
 
+    def _execute_custom_sql(self, query, params):
+        cursor = connection.cursor()
+        cursor.execute(query, params)
+        return cursor.fetchall()
+
     def _stickiness(self, action: Action, filters: Dict[Any, Any], request: request.Request):
-        events = Event.objects.filter_by_action(action)\
-            .filter(self._filter_events(request))\
-            .annotate(day=functions.TruncDay('timestamp'))\
-            .annotate(distinct_person_day=Concat('person_id', 'day', output_field=TextField()))\
-            .order_by('distinct_person_day')\
-            .distinct('distinct_person_day')
         date_from, date_to = self._get_dates_from_request(request)
-        people: Dict[int, int] = {}
-        for event in events:
-            if not people.get(event.person_id):
-                people[event.person_id] = 0
-            people[event.person_id] += 1
+        range_days = (date_to - date_from).days + 2
+
+        events = Event.objects.filter_by_action(action, order_by=None)\
+            .filter(self._filter_events(request))\
+            .values('person_id') \
+            .annotate(day_count=Count(functions.TruncDay('timestamp'), distinct=True))\
+            .filter(day_count__lte=range_days)
+
+        events_sql, events_sql_params = events.query.sql_with_params()
+        aggregated_query = 'select count(v.person_id), v.day_count from ({}) as v group by v.day_count'.format(events_sql)
+        aggregated_counts = self._execute_custom_sql(aggregated_query, events_sql_params)
+
+        response: Dict[int, int] = {}
+        for result in aggregated_counts:
+            response[result[1]] = result[0]
+
         labels = []
         data = []
-        for day in range(1, (date_to - date_from).days + 2):
+
+        for day in range(1, range_days):
             label = '{} day{}'.format(day, 's' if day > 1 else '')
             labels.append(label)
-            data.append(len([key for key, value in people.items() if value == day]))
+            data.append(response[day] if day in response else 0)
+
         return {
             'labels': labels,
+            'days': [day for day in range(1, range_days)],
             'data': data
         }
 
@@ -250,6 +266,17 @@ class ActionViewSet(viewsets.ModelViewSet):
         elif request.GET['shown_as'] == 'Stickiness':
             append.update(self._stickiness(action=action, filters=filters, request=request))
         return append
+
+    def _serialize_people(self, action: Action, people: QuerySet, request: request.Request) -> Dict:
+        people_dict = [PersonSerializer(person, context={'request': request}).data for person in  people]
+        return {
+            'action': {
+                'id': action.pk,
+                'name': action.name
+            },
+            'people': people_dict,
+            'count': len(people_dict)
+        }
 
     @action(methods=['GET'], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -273,4 +300,34 @@ class ActionViewSet(viewsets.ModelViewSet):
                     filters={},
                     request=request,
                 ))
+        return Response(actions_list)
+
+    @action(methods=['GET'], detail=False)
+    def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        actions = self.get_queryset()
+
+        actions = actions.filter(deleted=False)
+        actions_list = []
+
+        for action in actions:
+            events = Event.objects.filter_by_action(action, order_by=None).filter(self._filter_events(request))
+
+            if request.GET.get('shown_as', 'Volume') == 'Volume':
+                events = events.values('person_id').distinct()
+            elif request.GET['shown_as'] == 'Stickiness':
+                stickiness_days = int(request.GET['stickiness_days'])
+                events = events\
+                    .values('person_id')\
+                    .annotate(day_count=Count(functions.TruncDay('timestamp'), distinct=True))\
+                    .filter(day_count=stickiness_days)
+
+            people = Person.objects\
+                .filter(team=self.request.user.team_set.get(), id__in=[p['person_id'] for p in events[0:100]])
+
+            actions_list.append(self._serialize_people(
+                action=action,
+                people=people,
+                request=request
+            ))
+
         return Response(actions_list)

@@ -22,30 +22,18 @@ export class ActionFilter extends Component {
         let items = ['Total', 'DAU']
         return (
             <Dropdown
-                title={
-                    items[
-                        items.map(i => i.toLowerCase()).indexOf(props.math)
-                    ] || 'Total'
-                }
+                title={items[items.map(i => i.toLowerCase()).indexOf(props.math)] || 'Total'}
                 buttonClassName="btn btn-sm btn-light"
                 style={{ marginLeft: 32, marginRight: 16 }}
             >
                 <a
                     href="#"
                     className="dropdown-item"
-                    onClick={() =>
-                        this.onMathSelect.call(this, props.index, 'total')
-                    }
+                    onClick={() => this.onMathSelect.call(this, props.index, 'total')}
                 >
                     Total
                 </a>
-                <a
-                    href="#"
-                    className="dropdown-item"
-                    onClick={() =>
-                        this.onMathSelect.call(this, props.index, 'dau')
-                    }
-                >
+                <a href="#" className="dropdown-item" onClick={() => this.onMathSelect.call(this, props.index, 'dau')}>
                     DAU
                 </a>
             </Dropdown>
@@ -108,24 +96,14 @@ export class ActionFilter extends Component {
             <div>
                 {actionFilters &&
                     actionFilters.map((action_filter, index) => {
-                        let action =
-                            actions.filter(
-                                action => action.id == action_filter.id
-                            )[0] || {}
-                        return (
-                            <this.Row
-                                action={action}
-                                filter={action_filter}
-                                key={index}
-                                index={index}
-                            />
-                        )
+                        let action = actions.filter(action => action.id == action_filter.id)[0] || {}
+                        return <this.Row action={action} filter={action_filter} key={index} index={index} />
                     })}
                 <button
                     className="btn btn-sm btn-outline-success"
                     onClick={() =>
                         this.setState({
-                            actionFilters: [...actionFilters, { id: null }],
+                            actionFilters: [...(actionFilters || []), { id: null }],
                         })
                     }
                     style={{ marginTop: '0.5rem' }}
@@ -135,8 +113,7 @@ export class ActionFilter extends Component {
             </div>
         ) : (
             <div>
-                You don't have any actions defined yet.{' '}
-                <Link to="/action">Click here to define an action.</Link>
+                You don't have any actions defined yet. <Link to="/action">Click here to define an action.</Link>
             </div>
         )
     }

@@ -16,7 +16,7 @@ import { EditFunnel } from './funnels/EditFunnel'
 import { Funnels } from './funnels/Funnels'
 import { ActionEvents } from './actions/ActionEvents'
 import { Setup } from './setup/Setup'
-import { ActionsGraph } from './trends/ActionsGraph'
+import { Trends } from './trends/Trends'
 import { Dashboard } from './dashboard/Dashboard'
 import SendEventsOverlay from '../layout/SendEventsOverlay'
 import { Paths } from './paths/Paths'
@@ -69,7 +69,7 @@ export default function App() {
                                     <PrivateRoute
                                         path="/trends"
                                         exact
-                                        component={ActionsGraph}
+                                        component={Trends}
                                         user={user}
                                     />
                                     <PrivateRoute

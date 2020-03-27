@@ -36,12 +36,14 @@ export class EventsTable extends Component {
     }
     fetchEvents() {
         let params = {}
-        if (Object.keys(this.state.properties).length > 0)
-            params.properties = this.state.properties
-        this.props.history.push({
-            pathname: this.props.history.location.pathname,
-            search: toParams(params),
-        })
+        if (Object.keys(this.state.properties).length > 0) params.properties = this.state.properties
+
+        if (this.props.history.location.search !== toParams(params)) {
+            this.props.history.push({
+                pathname: this.props.history.location.pathname,
+                search: toParams(params),
+            })
+        }
         if (!this.state.loading) this.setState({ loading: true })
         clearTimeout(this.poller)
         params = toParams({
@@ -107,33 +109,24 @@ export class EventsTable extends Component {
         let params = ['$current_url', '$lib']
         return (
             <tr
-                className={
-                    'cursor-pointer event-row ' +
-                    (highlightEvents.indexOf(event.id) > -1 && 'event-row-new')
-                }
+                className={'cursor-pointer event-row ' + (highlightEvents.indexOf(event.id) > -1 && 'event-row-new')}
                 onClick={() =>
                     this.setState({
-                        eventSelected:
-                            eventSelected != event.id ? event.id : false,
+                        eventSelected: eventSelected != event.id ? event.id : false,
                     })
                 }
             >
                 <td>
                     {eventNameMap(event)}
                     {event.elements.length > 0 && (
-                        <pre style={{ marginBottom: 0, display: 'inline' }}>
-                            &lt;{event.elements[0].tag_name}&gt;
-                        </pre>
+                        <pre style={{ marginBottom: 0, display: 'inline' }}>&lt;{event.elements[0].tag_name}&gt;</pre>
                     )}
                     {event.elements.length > 0 &&
                         event.elements[0].text &&
                         ' with text "' + event.elements[0].text + '"'}
                 </td>
                 <td>
-                    <Link
-                        to={'/person/' + encodeURIComponent(event.distinct_id)}
-                        className="ph-no-capture"
-                    >
+                    <Link to={'/person/' + encodeURIComponent(event.distinct_id)} className="ph-no-capture">
                         {event.person}
                     </Link>
                 </td>
@@ -166,31 +159,19 @@ export class EventsTable extends Component {
         return (
             <tr>
                 <td colSpan="4">
-                    You don't have any items here. If you haven't integrated
-                    PostHog yet,{' '}
-                    <Link to="/setup">
-                        click here to set PostHog up on your app
-                    </Link>
+                    You don't have any items here. If you haven't integrated PostHog yet,{' '}
+                    <Link to="/setup">click here to set PostHog up on your app</Link>
                 </td>
             </tr>
         )
     }
     render() {
-        let {
-            properties,
-            events,
-            loading,
-            hasNext,
-            newEvents,
-            highlightEvents,
-        } = this.state
+        let { properties, events, loading, hasNext, newEvents, highlightEvents } = this.state
         return (
             <div className="events">
                 <PropertyFilters
                     propertyFilters={properties}
-                    onChange={properties =>
-                        this.setState({ properties }, this.fetchEvents)
-                    }
+                    onChange={properties => this.setState({ properties }, this.fetchEvents)}
                 />
                 <table className="table" style={{ position: 'relative' }}>
                     {loading && (
@@ -214,40 +195,23 @@ export class EventsTable extends Component {
                             </div>
                         )}
                         <tr
-                            className={
-                                'event-new-events ' +
-                                (this.state.newEvents.length > 0
-                                    ? 'show'
-                                    : 'hide')
-                            }
+                            className={'event-new-events ' + (this.state.newEvents.length > 0 ? 'show' : 'hide')}
                             onClick={this.clickLoadNewEvents}
                         >
                             <td colSpan="5">
-                                <div>
-                                    There are {newEvents.length} new events.
-                                    Click here to load them.
-                                </div>
+                                <div>There are {newEvents.length} new events. Click here to load them.</div>
                             </td>
                         </tr>
                         <this.NoItems events={events} />
                         {this.state.events &&
                             this.state.events.map((event, index) => [
-                                index > 0 &&
-                                    !moment(event.timestamp).isSame(
-                                        events[index - 1].timestamp,
-                                        'day'
-                                    ) && (
-                                        <tr key={event.id + '_time'}>
-                                            <td
-                                                colSpan="5"
-                                                className="event-day-separator"
-                                            >
-                                                {moment(event.timestamp).format(
-                                                    'LL'
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ),
+                                index > 0 && !moment(event.timestamp).isSame(events[index - 1].timestamp, 'day') && (
+                                    <tr key={event.id + '_time'}>
+                                        <td colSpan="5" className="event-day-separator">
+                                            {moment(event.timestamp).format('LL')}
+                                        </td>
+                                    </tr>
+                                ),
                                 <this.EventRow event={event} key={event.id} />,
                                 this.state.eventSelected == event.id && (
                                     <tr key={event.id + '_open'}>
