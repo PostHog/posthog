@@ -1,0 +1,11 @@
+databaseURL: postgres://postgres:posthog@posthog-postgresql/posthog
+
+postgresql:
+  enabled: true
+
+  postgresqlUsername: postgres
+  postgresqlPassword: posthog
+  postgresqlDatabase: posthog
+
+  persistence:
+    enabled: false
