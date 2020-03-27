@@ -126,6 +126,7 @@ class EventViewSet(viewsets.ModelViewSet):
         matches = []
         for action in actions:
             events = Event.objects.filter_by_action(action)
+            events = self._filter_request(request, events)
             for event in events[0: 20]:
                 event.action = action
                 matches.append(event)
