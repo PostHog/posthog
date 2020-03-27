@@ -81,7 +81,7 @@ class TestEvents(BaseTest):
             Element(tag_name='blabla', href='/moviedd', order=0),
             Element(tag_name='blabla', href='/moviedd', order=1)
         ])
-        Event.objects.create(distinct_id='stopped_after_pay', properties={'$current_url': 'http://whatever.com'}, team=self.team)
+        last_event = Event.objects.create(distinct_id='stopped_after_pay', properties={'$current_url': 'http://whatever.com'}, team=self.team)
 
         # with self.assertNumQueries(8):
         response = self.client.get('/api/event/actions/').json()
@@ -94,6 +94,11 @@ class TestEvents(BaseTest):
         self.assertEqual(response['results'][1]['action']['id'], action_credit_card.pk)
 
         self.assertEqual(response['results'][0]['action']['id'], action_watch_movie.pk)
+
+        # test after
+        sign_up_event = self._signup_event('stopped_after_pay')
+        response = self.client.get('/api/event/actions/?after=%s' % last_event.timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')).json()
+        self.assertEqual(len(response['results']), 1)
 
     def test_event_names(self):
         Event.objects.create(team=self.team, event='user login')
