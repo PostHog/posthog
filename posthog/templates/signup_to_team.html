@@ -23,5 +23,8 @@
         </div>
         <p>Already have an account? <a href='/login'>Log in here.</a></p>
         <button class="btn btn-lg btn-primary btn-block" type="submit">Sign up</button>
+        {% if github_auth %}
+        <a href="{% url 'social:begin' 'github' %}">Sign In with Github</a>
+        {% endif %}
     </form>
 {% endblock %}

@@ -75,6 +75,13 @@ def render_template(template_name: str, request, context=None) -> HttpResponse:
         context.update({
             'sentry_dsn': os.environ['SENTRY_DSN']
         })
+
+    attach_social_auth(context)
     html = template.render(context, request=request)
     return HttpResponse(html)
 
+def attach_social_auth(context):
+    if os.environ.get('SOCIAL_AUTH_GITHUB_KEY') and os.environ.get('SOCIAL_AUTH_GITHUB_SECRET'):
+        context.update({
+            'github_auth': True
+        })

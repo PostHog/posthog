@@ -114,6 +114,7 @@ urlpatterns = [
     path('batch/', capture.get_event),
     path('logout', logout, name='login'),
     path('login', login_view, name='login'),
+    path('', include('social_django.urls', namespace='social')),
     path('signup/<str:token>', signup_to_team_view, name='signup'),
     path('setup_admin', setup_admin, name='setup_admin'),
     # react frontend

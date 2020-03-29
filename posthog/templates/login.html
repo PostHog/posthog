@@ -17,5 +17,8 @@
             <label for="inputPassword">Password</label>
         </div>
         <button class="btn btn-lg btn-primary btn-block" type="submit">Sign in</button>
+        {% if github_auth %}
+        <a href="{% url 'social:begin' 'github' %}">Sign In with Github</a>
+        {% endif %}
     </form>
 {% endblock %}

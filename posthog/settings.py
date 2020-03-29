@@ -15,7 +15,6 @@ import sys
 import dj_database_url
 import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
-
 from sentry_sdk.integrations.django import DjangoIntegration
 
 VERSION = '1.0.9'
@@ -121,12 +120,17 @@ WSGI_APPLICATION = 'posthog.wsgi.application'
 # Social Auth
 
 SOCIAL_AUTH_POSTGRES_JSONFIELD = True
+SOCIAL_AUTH_USER_MODEL = 'posthog.User'
 
 AUTHENTICATION_BACKENDS = (
     'social_core.backends.github.GithubOAuth2',
     'django.contrib.auth.backends.ModelBackend',
 )
 
+SOCIAL_AUTH_STRATEGY = 'social_django.strategy.DjangoStrategy'
+SOCIAL_AUTH_STORAGE = 'social_django.models.DjangoStorage'
+
+SOCIAL_AUTH_GITHUB_SCOPE = ['user:email']
 SOCIAL_AUTH_GITHUB_KEY = os.environ.get('SOCIAL_AUTH_GITHUB_KEY', "")
 SOCIAL_AUTH_GITHUB_SECRET = os.environ.get('SOCIAL_AUTH_GITHUB_SECRET', "")
 
