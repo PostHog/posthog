@@ -10,6 +10,7 @@ from django.views.decorators.csrf import csrf_exempt
 from .api import router, capture, user
 from .models import Team, User
 from .utils import render_template
+from .views import health
 from posthog.demo import demo, delete_demo_data
 import json
 import posthoganalytics # type: ignore
@@ -96,6 +97,7 @@ def logout(request):
     return auth_views.logout_then_login(request)
 
 urlpatterns = [
+    path('_health/', health),
     path('admin/', admin.site.urls),
     path('admin/', include('loginas.urls')),
     path('api/', include(router.urls)),
