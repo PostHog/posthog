@@ -124,6 +124,7 @@ SOCIAL_AUTH_USER_MODEL = 'posthog.User'
 
 AUTHENTICATION_BACKENDS = (
     'social_core.backends.github.GithubOAuth2',
+    'social_core.backends.gitlab.GitLabOAuth2',
     'django.contrib.auth.backends.ModelBackend',
 )
 
@@ -133,6 +134,10 @@ SOCIAL_AUTH_STORAGE = 'social_django.models.DjangoStorage'
 SOCIAL_AUTH_GITHUB_SCOPE = ['user:email']
 SOCIAL_AUTH_GITHUB_KEY = os.environ.get('SOCIAL_AUTH_GITHUB_KEY', "")
 SOCIAL_AUTH_GITHUB_SECRET = os.environ.get('SOCIAL_AUTH_GITHUB_SECRET', "")
+
+SOCIAL_AUTH_GITLAB_SCOPE = ['read_user']
+SOCIAL_AUTH_GITLAB_KEY = os.environ.get('SOCIAL_AUTH_GITLAB_KEY', "")
+SOCIAL_AUTH_GITLAB_SECRET = os.environ.get('SOCIAL_AUTH_GITLAB_SECRET', "")
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases

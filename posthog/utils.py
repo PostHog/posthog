@@ -85,3 +85,8 @@ def attach_social_auth(context):
         context.update({
             'github_auth': True
         })
+    if os.environ.get('SOCIAL_AUTH_GITLAB_KEY') and os.environ.get('SOCIAL_AUTH_GITLAB_SECRET'):
+        context.update({
+            'gitlab_auth': True
+        })
+    
