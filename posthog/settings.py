@@ -79,7 +79,8 @@ INSTALLED_APPS = [
     'posthog.apps.PostHogConfig',
     'rest_framework',
     'loginas',
-    'corsheaders'
+    'corsheaders',
+    'social_django'
 ]
 
 MIDDLEWARE = [
@@ -116,6 +117,18 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'posthog.wsgi.application'
 
+
+# Social Auth
+
+SOCIAL_AUTH_POSTGRES_JSONFIELD = True
+
+AUTHENTICATION_BACKENDS = (
+    'social_core.backends.github.GithubOAuth2',
+    'django.contrib.auth.backends.ModelBackend',
+)
+
+SOCIAL_AUTH_GITHUB_KEY = os.environ.get('SOCIAL_AUTH_GITHUB_KEY', "")
+SOCIAL_AUTH_GITHUB_SECRET = os.environ.get('SOCIAL_AUTH_GITHUB_SECRET', "")
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
