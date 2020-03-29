@@ -73,14 +73,13 @@ export class Topcontent extends Component {
                         </span>
                     )}
                     {this.props.user.email}
-                    <NavLink to="/logout">
-                        <button
-                            className="btn btn-sm btn-outline-success"
-                            style={{ marginLeft: 16 }}
-                        >
-                            Logout
-                        </button>
-                    </NavLink>
+                    <a
+                        href="/logout"
+                        className="btn btn-sm btn-outline-success"
+                        style={{ marginLeft: 16 }}
+                    >
+                        Logout
+                    </a>
                 </div>
                 {openChangelog && (
                     <ChangelogModal
