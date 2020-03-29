@@ -60,7 +60,7 @@ def _alias(distinct_id: str, new_distinct_id: str, team: Team):
         # That can either mean `person` already has that distinct_id, in which case we do nothing
         # OR it means there is _another_ Person with that distinct _id, in which case we want to remove that person
         # and add that distinct ID to `person`
-        previous_person = Person.objects.filter(persondistinctid__distinct_id=new_distinct_id).exclude(pk=person.id)
+        previous_person = Person.objects.filter(team=team, persondistinctid__distinct_id=new_distinct_id).exclude(pk=person.id)
         if previous_person.exists():
             person.properties.update(previous_person.first().properties) # type: ignore
             previous_person.delete()
