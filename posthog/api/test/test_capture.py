@@ -233,6 +233,32 @@ class TestIdentify(TransactionTestCase):
         self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id"])
         self.assertEqual(person.properties['email'], 'someone@gmail.com')
 
+    def test_distinct_team_leakage(self):
+        user = self._create_user('tim@something')
+        team2 = Team.objects.create()
+        Person.objects.create(team=team2, distinct_ids=['2'], properties={'email': 'team2@gmail.com'})
+        Person.objects.create(team=self.team, distinct_ids=['1', '2'])
+
+        try:
+            response = self.client.get('/e/?data=%s' % json.dumps({
+                'event': '$identify',
+                'properties': {
+                    '$anon_distinct_id': '1',
+                    'token': self.team.api_token,
+                    'distinct_id': '2'
+                },
+            }), content_type='application/json', HTTP_ORIGIN='https://localhost')
+        except:
+            pass
+
+        people = Person.objects.all()
+        self.assertEqual(people.count(), 2)
+        self.assertEqual(people[1].team, self.team)
+        self.assertEqual(people[1].properties, {})
+        self.assertEqual(people[1].distinct_ids, ["1", "2"])
+        self.assertEqual(people[0].team, team2)
+        self.assertEqual(people[0].distinct_ids, ["2"])
+
 
 class TestBatch(BaseTest):
     TESTS_API = True
