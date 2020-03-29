@@ -18,7 +18,9 @@
         </div>
         <button class="btn btn-lg btn-primary btn-block" type="submit">Sign in</button>
         {% if github_auth %}
-        <a href="{% url 'social:begin' 'github' %}">Sign In with Github</a>
+        <div class="btn-toolbar mt-3 d-flex justify-content-between">
+            <a href="{% url 'social:begin' 'github' %}" class="btn btn-outline-dark m-2">Sign In with Github</a>
+        </div>
         {% endif %}
     </form>
 {% endblock %}
