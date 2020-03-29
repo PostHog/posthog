@@ -57,6 +57,7 @@ class TestEvents(BaseTest):
         ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
         # 2 steps that match same element might trip stuff up
         ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
+
         action_credit_card = Action.objects.create(team=self.team, name='paid')
         ActionStep.objects.create(action=action_credit_card, tag_name='button', text='Pay $10')
 
@@ -75,6 +76,7 @@ class TestEvents(BaseTest):
         # Test filtering of deleted actions
         deleted_action_watch_movie = Action.objects.create(team=self.team, name='watch movie', deleted=True)
         ActionStep.objects.create(action=deleted_action_watch_movie, text='Watch now', selector="div > a.watch_movie")
+        deleted_action_watch_movie.calculate_events()
 
         # non matching events
         non_matching = Event.objects.create(distinct_id='stopped_after_pay', properties={'$current_url': 'http://whatever.com'}, team=self.team, elements=[
@@ -148,6 +150,7 @@ class TestEvents(BaseTest):
 
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action, event='sign up')
+        action.calculate_events()
 
         response = self.client.get('/api/event/?after=2020-01-09&action_id=%s' % action.pk).json()
         self.assertEqual(len(response['results']), 1)

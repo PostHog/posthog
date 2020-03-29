@@ -36,12 +36,12 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         fields = ['id', 'name', 'steps', 'created_at', 'deleted', 'count']
 
     def get_steps(self, action: Action):
-        steps = action.steps.all().order_by('id')
+        steps = action.steps.all()
         return ActionStepSerializer(steps, many=True).data
 
     def get_count(self, action: Action) -> Optional[int]:
-        if self.context['request'].GET.get('include_count', False):
-            return Event.objects.filter_by_action(action).count()
+        if hasattr(action, 'count'):
+            return action.count  # type: ignore
         return None
 
 
@@ -81,6 +81,10 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         if self.request.GET.get('actions'):
             queryset = queryset.filter(pk__in=[action['id'] for action in self._parse_actions(self.request.GET['actions'])])
+
+        if self.request.GET.get('include_count'):
+            queryset = queryset.annotate(count=Count('events'))
+
         queryset = queryset.prefetch_related(Prefetch('steps', queryset=ActionStep.objects.order_by('id')))
         return queryset\
             .filter(team=self.request.user.team_set.get())\
@@ -104,6 +108,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     action=action,
                     **{key: value for key, value in step.items() if key not in ('isNew', 'selection')}
                 )
+        action.calculate_events()
         return Response(ActionSerializer(action, context={'request': request}).data)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -130,6 +135,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         serializer = ActionSerializer(action, context={'request': request})
         serializer.update(action, request.data)
+        action.calculate_events()
         return Response(ActionSerializer(action, context={'request': request}).data)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:

@@ -25,9 +25,10 @@ class TestFilterByActions(BaseTest):
         ])
 
         # test direct decendant ordering
-        action1 = Action.objects.create(team=self.team)
+        action1 = Action.objects.create(team=self.team, name='action1')
         ActionStep.objects.create(event='$autocapture', action=action1, selector='div > a')
         ActionStep.objects.create(event='$autocapture', action=action1, selector='div > a.somethingthatdoesntexist')
+        action1.calculate_events()
 
         events = Event.objects.filter_by_action(action1)
         self.assertEqual(len(events), 1)
@@ -36,6 +37,7 @@ class TestFilterByActions(BaseTest):
         # test :nth-child()
         action2 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action2, selector='div > a:nth-child(2)')
+        action2.calculate_events()
 
         events = Event.objects.filter_by_action(action2)
         self.assertEqual(len(events), 1)
@@ -44,6 +46,7 @@ class TestFilterByActions(BaseTest):
         # test [id='someId'] 
         action3 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action3, selector="[id='someId']")
+        action3.calculate_events()
 
         events = Event.objects.filter_by_action(action3)
         self.assertEqual(len(events), 1)
@@ -51,6 +54,11 @@ class TestFilterByActions(BaseTest):
 
     def test_with_normal_filters(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
+
+        action1 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=action1, href='/a-url', tag_name='a')
+        ActionStep.objects.create(action=action1, href='/a-url-2')
+
         event1 = Event.objects.create(team=self.team, distinct_id="whatever", elements=[
             Element(tag_name='a', href='/a-url', text='some_text', nth_child=0, nth_of_type=0, order=0)
         ])
@@ -61,10 +69,6 @@ class TestFilterByActions(BaseTest):
             Element(tag_name='div', text='some_other_text', nth_child=0, nth_of_type=0, order=1)
         ])
 
-        action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action1, href='/a-url', tag_name='a')
-        ActionStep.objects.create(action=action1, href='/a-url-2')
-
         events = Event.objects.filter_by_action(action1)
         self.assertEqual(events[0], event2)
         self.assertEqual(events[1], event1)
@@ -72,13 +76,12 @@ class TestFilterByActions(BaseTest):
 
     def test_with_class(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
+        action1 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=action1, selector='a.nav-link.active', tag_name='a')
         event1 = Event.objects.create(team=self.team, distinct_id="whatever", elements=[
             Element(tag_name='span', attr_class=None, order=0),
             Element(tag_name='a', attr_class=['active', 'nav-link'], order=1)
         ])
-
-        action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action1, selector='a.nav-link.active', tag_name='a')
 
         events = Event.objects.filter_by_action(action1)
         self.assertEqual(events[0], event1)
@@ -98,6 +101,7 @@ class TestFilterByActions(BaseTest):
 
         action1 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action1, selector='a[data-id="123"]')
+        action1.calculate_events()
 
         events = Event.objects.filter_by_action(action1)
         self.assertEqual(len(events), 1)
@@ -105,16 +109,17 @@ class TestFilterByActions(BaseTest):
 
     def test_filter_events_by_url_exact(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
-        event1 = Event.objects.create(team=self.team, distinct_id='whatever')
-        event2 = Event.objects.create(team=self.team, distinct_id='whatever', properties={'$current_url': 'https://posthog.com/feedback/123'}, elements=[
-            Element(tag_name='div', text='some_other_text', nth_child=0, nth_of_type=0, order=1)
-        ])
         action1 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action1, url='https://posthog.com/feedback/123', url_matching=ActionStep.EXACT)
         ActionStep.objects.create(action=action1, href='/a-url-2')
 
         action2 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action2, url='123', url_matching=ActionStep.CONTAINS)
+
+        event1 = Event.objects.create(team=self.team, distinct_id='whatever')
+        event2 = Event.objects.create(team=self.team, distinct_id='whatever', properties={'$current_url': 'https://posthog.com/feedback/123'}, elements=[
+            Element(tag_name='div', text='some_other_text', nth_child=0, nth_of_type=0, order=1)
+        ])
 
         events = Event.objects.filter_by_action(action1)
         self.assertEqual(events[0], event2)
@@ -182,3 +187,93 @@ class TestElementGroup(BaseTest):
         group3_duplicate = ElementGroup.objects.create(team_id=team2.pk, elements=elements)
         self.assertNotEqual(group2, group3)
         self.assertEqual(ElementGroup.objects.count(), 2)
+
+class TestActions(BaseTest):
+    def _signup_event(self, distinct_id: str):
+        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team, elements=[
+            Element(tag_name='button', text='Sign up!')
+        ])
+        return sign_up
+
+    def _movie_event(self, distinct_id: str):
+        event = Event.objects.create(distinct_id=distinct_id, team=self.team, elements=[
+            Element(tag_name='a', attr_class=['watch_movie', 'play'], text='Watch now', attr_id='something', href='/movie', order=0),
+            Element(tag_name='div', href='/movie', order=1)
+        ])
+        return event
+
+    def test_simple_element_filters(self):
+        action_sign_up = Action.objects.create(team=self.team, name='signed up')
+        ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
+        # 2 steps that match same element might trip stuff up
+        ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
+        action_credit_card = Action.objects.create(team=self.team, name='paid')
+        ActionStep.objects.create(action=action_credit_card, tag_name='button', text='Pay $10')
+
+        # events
+        person_stopped_after_signup = Person.objects.create(distinct_ids=["stopped_after_signup"], team=self.team)
+        event_sign_up_1 = self._signup_event('stopped_after_signup')
+        self.assertEqual(event_sign_up_1.actions, [action_sign_up])
+
+    def test_selector(self):
+        action_watch_movie = Action.objects.create(team=self.team, name='watch movie')
+        ActionStep.objects.create(action=action_watch_movie, text='Watch now', selector="div > a.watch_movie")
+        Person.objects.create(distinct_ids=["watched_movie"], team=self.team)
+        event = self._movie_event('watched_movie')
+        self.assertEqual(event.actions, [action_watch_movie])
+
+    def test_attributes(self):
+        action = Action.objects.create(team=self.team, name='watch movie')
+        ActionStep.objects.create(action=action, selector="a[data-id='whatever']")
+        action2 = Action.objects.create(team=self.team, name='watch movie2')
+        ActionStep.objects.create(action=action2, selector="a[somethingelse='whatever']")
+        Person.objects.create(distinct_ids=["watched_movie"], team=self.team)
+        event = Event.objects.create(team=self.team, distinct_id='whatever', elements=[
+            Element(order=0, tag_name='a', attributes={'data-id': 'whatever'})
+        ])
+        self.assertEqual(event.actions, [action])
+
+    def test_event_filter(self):
+        action_user_paid = Action.objects.create(team=self.team, name='user paid')
+        ActionStep.objects.create(action=action_user_paid, event='user paid')
+        Person.objects.create(distinct_ids=["user_paid"], team=self.team)
+        event = Event.objects.create(event='user paid', distinct_id='user_paid', team=self.team)
+        self.assertEqual(event.actions, [action_user_paid])
+
+    def test_element_class_set_to_none(self):
+        action_user_paid = Action.objects.create(team=self.team, name='user paid')
+        ActionStep.objects.create(action=action_user_paid, selector='a.something')
+        Person.objects.create(distinct_ids=["user_paid"], team=self.team)
+        event = Event.objects.create(event='$autocapture', distinct_id='user_paid', team=self.team, elements=[
+            Element(tag_name='a', attr_class=None, order=0)
+        ])
+        # This would error when attr_class wasn't set.
+        self.assertEqual(event.actions, []) 
+
+class TestPreCalculation(BaseTest):
+    def test_update_or_delete_action_steps(self):
+        user_signed_up = Event.objects.create(event='user signed up', team=self.team)
+        user_logged_in = Event.objects.create(event='user logged in', team=self.team)
+        user_logged_out = Event.objects.create(event='user logged out', team=self.team)
+        action = Action.objects.create(team=self.team, name='combined action')
+        step1 = ActionStep.objects.create(action=action, event='user signed up')
+        step2 = ActionStep.objects.create(action=action, event='user logged in')
+        with self.assertNumQueries(4):
+            action.calculate_events()
+        self.assertEqual([e for e in action.events.all().order_by('id')], [user_signed_up, user_logged_in])
+
+        # update actionstep
+        step2.event = 'user logged out'
+        step2.save()
+        with self.assertNumQueries(4):
+            action.calculate_events()
+        self.assertEqual([e for e in action.events.all().order_by('id')], [user_signed_up, user_logged_out])
+
+        # delete actionstep
+        ActionStep.objects.filter(pk=step2.pk).delete()
+        action.calculate_events()
+        self.assertEqual([e for e in action.events.all().order_by('id')], [user_signed_up])
+
+        ActionStep.objects.all().delete()
+        action.calculate_events()
+        self.assertEqual([e for e in action.events.all().order_by('id')], [])
