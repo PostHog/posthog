@@ -20,6 +20,7 @@ import json
 from dateutil.relativedelta import relativedelta
 from .person import PersonSerializer
 
+
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = ActionStep
@@ -43,6 +44,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
             return Event.objects.filter_by_action(action).count()
         return None
 
+
 class TemporaryTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: request.Request):
         # if the Origin is different, the only authentication method should be temporary_token
@@ -60,6 +62,7 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
                 raise AuthenticationFailed(detail='User doesnt exist')
             return (user.first(), None)
         return None
+
 
 class ActionViewSet(viewsets.ModelViewSet):
     queryset = Action.objects.all()
@@ -285,9 +288,14 @@ class ActionViewSet(viewsets.ModelViewSet):
         actions_list = []
 
         parsed_actions = self._parse_actions(request)
+
         if parsed_actions:
             for filters in parsed_actions:
-                db_action = [a for a in actions if a.id == filters['id']][0]
+                try:
+                    db_action = actions.get(pk=filters['id'])
+                except Action.DoesNotExist:
+                    continue
+
                 actions_list.append(self._serialize_action(
                     action=db_action,
                     filters=filters,
@@ -300,6 +308,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     filters={},
                     request=request,
                 ))
+
         return Response(actions_list)
 
     @action(methods=['GET'], detail=False)
