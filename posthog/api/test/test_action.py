@@ -10,7 +10,7 @@ def json_to_url(input) -> str:
 class TestCreateAction(BaseTest):
     TESTS_API = True
 
-    def test_create_and_update_action(self): 
+    def test_create_and_update_action(self):
         response = self.client.post('/api/action/', data={
             'name': 'user signed up',
             'steps': [{
@@ -171,6 +171,13 @@ class TestTrends(BaseTest):
         with freeze_time('2020-01-04'):
             response = self.client.get('/api/action/trends/?actions=%s' % json_to_url([{'id': sign_up_action.id}])).json()
         self.assertEqual(len(response), 1)
+
+    def test_trends_for_non_existing_action(self):
+        with freeze_time('2020-01-04'):
+            response = self.client.get('/api/action/trends/?actions=%s' % json_to_url([{'id': 4000000}])).json()
+
+        self.assertEqual(len(response), 0)
+
 
     def test_dau_filtering(self):
         sign_up_action, person = self._create_events()
