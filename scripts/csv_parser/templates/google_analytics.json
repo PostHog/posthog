@@ -1,7 +1,0 @@
-{
-  "parsing": {
-      "skiprows": 10,
-      "skipfooter": 1,
-      "engine": "python"
-  }
-}

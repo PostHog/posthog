@@ -18,3 +18,7 @@ frontend/.cache/
 frontend/dist/*
 frontend/yarn-error.log
 .idea
+
+
+*token.pickle
+*client_secrets.json
