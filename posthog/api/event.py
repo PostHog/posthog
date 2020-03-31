@@ -54,7 +54,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
         return queryset\
             .filter(team=self.request.user.team_set.get())\
-            .order_by('-id')
+            .order_by('-timestamp')
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         for key, value in request.GET.items():
