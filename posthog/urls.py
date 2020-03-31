@@ -33,7 +33,7 @@ def login_view(request):
         password = request.POST['password']
         user = authenticate(request, email=email, password=password)
         if user is not None:
-            login(request, user)
+            login(request, user, backend='django.contrib.auth.backends.ModelBackend')
             posthoganalytics.capture(user.distinct_id, 'user logged in')
             return redirect('/')
         else:
@@ -59,7 +59,7 @@ def signup_to_team_view(request, token):
             user = User.objects.create_user(email=email, password=password, first_name=request.POST.get('name'))
         except:
             return render_template('signup_to_team.html', request=request, context={'email': email, 'error': True, 'team': team})
-        login(request, user)
+        login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         team.users.add(user)
         team.save()
         posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': False})
@@ -83,7 +83,7 @@ def setup_admin(request):
         except:
             return render_template('setup_admin.html', request=request, context={'error': True, 'email': request.POST['email'], 'company_name': request.POST.get('company_name'), 'name': request.POST.get('name')})
         Team.objects.create_with_data(users=[user], name=company_name)
-        login(request, user)
+        login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': is_first_user})
         posthoganalytics.identify(user.distinct_id, properties={
             'email': user.email,
