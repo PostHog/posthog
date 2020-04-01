@@ -177,14 +177,16 @@ class ActionViewSet(viewsets.ModelViewSet):
         filters &= properties_to_Q(properties)
         return filters
 
-    def _breakdown(self, append: Dict, action: Action, filters: Dict[Any, Any], breakdown_by: str) -> Dict:
+    def _breakdown(self, append: Dict, action: Action, filters: Dict[Any, Any],request: request.Request, breakdown_by: str) -> Dict:
         key = "properties__{}".format(breakdown_by)
-        events = Event.objects.filter_by_action(action)\
+        events = Event.objects\
+            .filter_by_action(action)\
+            .filter(self._filter_events(request))\
             .values(key)\
             .annotate(count=Count('id'))\
             .order_by('-count')
 
-        events = self._process_filters(events, filters)
+        events = self._process_math(events, filters)
             
         values = [{'name': item[key] if item[key] else 'undefined', 'count': item['count']} for item in events]
         append['breakdown'] = values
@@ -208,7 +210,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             .annotate(count=Count('id'))\
             .order_by()
 
-        aggregates = self._process_filters(aggregates, filters)
+        aggregates = self._process_math(aggregates, filters)
 
         if len(aggregates) > 0:
             date_from, date_to = self._get_dates_from_request(request)
@@ -217,11 +219,11 @@ class ActionViewSet(viewsets.ModelViewSet):
             dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates)
             append = self._append_data(append, dates_filled)
         if request.GET.get('breakdown'):
-            append = self._breakdown(append, action, filters,breakdown_by=request.GET['breakdown'])
+            append = self._breakdown(append, action, filters, request, breakdown_by=request.GET['breakdown'])
 
         return append
 
-    def _process_filters(self, query: QuerySet, filters: Dict[Any, Any]):
+    def _process_math(self, query: QuerySet, filters: Dict[Any, Any]):
         if filters.get('math') == 'dau':
             query = query.annotate(count=Count('distinct_id', distinct=True))
         return query
