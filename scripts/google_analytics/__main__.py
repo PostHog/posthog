@@ -1,7 +1,7 @@
 import json
 import os
 import pickle
-from datetime import date, datetime
+from datetime import datetime
 from typing import Dict, List, Union
 
 import requests
@@ -10,7 +10,6 @@ from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-import posthog
 from scripts.google_analytics.constants import (API_KEY, CREDENTIALS_FILE_PATH,
                                                 DIMENSIONS, END_DATE, EVENT_NAME,
                                                 GA_ID, HOST, METRICS, START_DATE)
@@ -50,14 +49,14 @@ def build_credentials(path: str, scopes: List[str]) -> Credentials:
 
 
 def get_data_from_google_analytics(
-        credentials_file_path: str,
-        scopes: List[str],
-        end_date: str,
-        start_date: str,
-        ga_id: str,
-        metrics: str,
-        dimensions: str,
-    ) -> Dict[str, Union[List[str], str, Dict[str, str]]]:
+    credentials_file_path: str,
+    scopes: List[str],
+    end_date: str,
+    start_date: str,
+    ga_id: str,
+    metrics: str,
+    dimensions: str,
+) -> Dict[str, Union[List[str], str, Dict[str, str]]]:
     """Get data from google analytics using the core reporting api v3
 
     :param credentials_file_path: Path to google created credentials
@@ -74,7 +73,7 @@ def get_data_from_google_analytics(
     :type metrics: str
     :param dimensions: Dimensions to be extracted
     :type dimensions: str
-    :return: Object with response. Detailed here: https://developers.google.com/analytics/devguides/reporting/core/v3/reference#data_response
+    :return: Object with response.
     :rtype: Dict[str, Union[List[str], str, Dict[str, str]]]
     """
     service = build(
@@ -95,9 +94,9 @@ def get_data_from_google_analytics(
 
 
 def transform_data_for_import(
-        result: Dict[str, Union[List[str], str, Dict[str, str]]],
-        event_name: str
-    ) -> List[Dict[str, Union[str, int]]]:
+    _result: Dict[str, Union[List[str], str, Dict[str, str]]],
+    event_name: str
+) -> List[Dict[str, Union[str, int]]]:
     """Prepare data to be ingested by Posthog.
 
     :param result: Result obtained from the google analytics export.
@@ -107,10 +106,10 @@ def transform_data_for_import(
     :return: Data on the Posthog ingestion format.
     :rtype: List[Dict[str, Union[str, int]]
     """
-    column_names = [col['name'] for col in result['columnHeaders']]
+    column_names = [col['name'] for col in _result['columnHeaders']]
     batch_data   = []
 
-    for row in result['rows']:
+    for row in _result['rows']:
         row_dictionary = {}
 
         for index, column in enumerate(column_names):
@@ -129,10 +128,10 @@ def transform_data_for_import(
 
 
 def send_data_to_posthog(
-        data: List[Dict[str, Union[str, int]]],
-        api_key: str,
-        host: str
-    ) -> requests.Response:
+    batch_data: List[Dict[str, Union[str, int]]],
+    api_key: str,
+    host: str
+) -> requests.Response:
     """Send the Google Analytics data to Posthog
 
     :param data: Data prepared for posthog ingestion
@@ -145,12 +144,12 @@ def send_data_to_posthog(
     :rtype: requests.Response
     """
     data = {
-        "api_key": API_KEY,
-        "batch":   data,
+        "api_key": api_key,
+        "batch":   batch_data,
     }
 
     request = requests.post(
-        HOST + "/capture/",
+        host + "/capture/",
         data=json.dumps(data),
         headers={'Content-Type': 'application/json'},
     )
@@ -159,6 +158,14 @@ def send_data_to_posthog(
 
 
 if __name__ == "__main__":
-    result = get_data_from_google_analytics(CREDENTIALS_FILE_PATH, SCOPES, END_DATE, START_DATE, GA_ID, METRICS, DIMENSIONS)
+    result = get_data_from_google_analytics(
+        CREDENTIALS_FILE_PATH,
+        SCOPES,
+        END_DATE,
+        START_DATE,
+        GA_ID,
+        METRICS,
+        DIMENSIONS
+    )
     data = transform_data_for_import(result)
     response = send_data_to_posthog(data, API_KEY, HOST)
