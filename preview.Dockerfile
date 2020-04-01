@@ -50,10 +50,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf frontend/dist/*.map
 
 COPY . /code/
+
+RUN DATABASE_URL='postgres:///' python manage.py collectstatic --noinput
+
 RUN /etc/init.d/postgresql start\
     && DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog python manage.py migrate\
     && /etc/init.d/postgresql stop
-
 
 VOLUME /var/lib/postgresql
 EXPOSE 8000
