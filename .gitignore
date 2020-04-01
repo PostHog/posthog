@@ -19,6 +19,7 @@ frontend/dist/*
 frontend/yarn-error.log
 .idea
 
-
+# Google Analytics Import
 *token.pickle
 *client_secrets.json
+scripts/google_analytics/constants.py
