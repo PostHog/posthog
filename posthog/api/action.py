@@ -177,15 +177,20 @@ class ActionViewSet(viewsets.ModelViewSet):
         filters &= properties_to_Q(properties)
         return filters
 
-    def _breakdown(self, events: QuerySet, breakdown_by: str) -> List[Dict[str, int]]:
+    def _breakdown(self, append: Dict, action: Action, filters: Dict[Any, Any], breakdown_by: str) -> Dict:
         key = "properties__{}".format(breakdown_by)
-        events = events\
+        events = Event.objects.filter_by_action(action)\
             .values(key)\
             .annotate(count=Count('id'))\
             .order_by('-count')
 
-        return [{'name': item[key] if item[key] else 'undefined', 'count': item['count']} for item in events]
-
+        events = self._process_filters(events, filters)
+            
+        values = [{'name': item[key] if item[key] else 'undefined', 'count': item['count']} for item in events]
+        append['breakdown'] = values
+        append['count'] = sum(item['count'] for item in values)
+        return append
+        
     def _append_data(self, append: Dict, dates_filled: pd.DataFrame) -> Dict:
         values = [value[0] for key, value in dates_filled.iterrows()]
         append['labels'] = [key.strftime('%a. %-d %B') for key, value in dates_filled.iterrows()]
@@ -203,8 +208,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             .annotate(count=Count('id'))\
             .order_by()
 
-        if filters.get('math') == 'dau':
-            aggregates = aggregates.annotate(count=Count('distinct_id', distinct=True))
+        aggregates = self._process_filters(aggregates, filters)
 
         if len(aggregates) > 0:
             date_from, date_to = self._get_dates_from_request(request)
@@ -213,9 +217,14 @@ class ActionViewSet(viewsets.ModelViewSet):
             dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates)
             append = self._append_data(append, dates_filled)
         if request.GET.get('breakdown'):
-            append['breakdown'] = self._breakdown(aggregates, breakdown_by=request.GET['breakdown'])
+            append = self._breakdown(append, action, filters,breakdown_by=request.GET['breakdown'])
 
         return append
+
+    def _process_filters(self, query: QuerySet, filters: Dict[Any, Any]):
+        if filters.get('math') == 'dau':
+            query = query.annotate(count=Count('distinct_id', distinct=True))
+        return query
 
     def _execute_custom_sql(self, query, params):
         cursor = connection.cursor()
