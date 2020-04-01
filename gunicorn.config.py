@@ -22,6 +22,6 @@ r"""
 """
 \x1b[0m
 """)
-    print("Server running on \x1b[4mhttp://0.0.0.0:8000\x1b[0m")
+    print("Server running on \x1b[4mhttp://{}:{}\x1b[0m".format(*server.address[0]))
     print("Questions? Please shoot us an email at \x1b[4mhey@posthog.com\x1b[0m")
     print("\nTo stop, press CTRL + C")
