@@ -29,5 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 COPY . /code/
 
+RUN DATABASE_URL='postgres:///' python manage.py collectstatic --noinput
+
 EXPOSE 8000
 CMD ["./bin/docker"]
