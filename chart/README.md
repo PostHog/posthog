@@ -1,6 +1,6 @@
 # PostHog
 
-🦔 [PostHog](https://posthog.io/) is developer-friendly, open-source product analytics.
+🦔 [PostHog](https://posthog.com/) is developer-friendly, open-source product analytics.
 
 ## TL;DR;
 
@@ -11,7 +11,7 @@ $ helm install posthog .
 
 ## Introduction
 
-This chart bootstraps a [PostHog](https://posthog.io/) deployment on a [Kubernetes](http://kubernetes.io) cluster using the [Helm](https://helm.sh) package manager.
+This chart bootstraps a [PostHog](https://posthog.com/) deployment on a [Kubernetes](http://kubernetes.io) cluster using the [Helm](https://helm.sh) package manager.
 
 It also optionally packages [PostgreSQL](https://github.com/kubernetes/charts/tree/master/stable/postgresql) which is required for PostHog.
 

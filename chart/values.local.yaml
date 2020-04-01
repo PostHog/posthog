@@ -6,7 +6,7 @@ env:
   value: 'postgres://postgres:postgres@posthog-posthog-postgresql/posthog'
 
 web:
-  replicacount: 2
+  replicacount: 1
 
 posthogSecret: 'werjawoeifj;avsdfnvas.fklwejfwa;elkfjwalke;fjawklejfawkl;'
 
