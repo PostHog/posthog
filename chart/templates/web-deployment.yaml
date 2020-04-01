@@ -63,6 +63,8 @@ spec:
         ports:
         - containerPort: {{ .Values.service.internalPort }}
         env:
+        - name: DISABLE_SECURE_SSL_REDIRECT
+          value: '1'
         - name: SECRET_KEY
           valueFrom:
             secretKeyRef:
