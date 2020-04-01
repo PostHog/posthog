@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import Dict, List, Union
 
 import requests
+from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
@@ -18,7 +19,7 @@ creds = None
 SCOPES = ['https://www.googleapis.com/auth/analytics.readonly']
 
 
-def build_credentials(path: str, scopes: List[str]) -> google.oauth2.credentials.Credentials:
+def build_credentials(path: str, scopes: List[str]) -> Credentials:
     """Build credentials for google analytics authentication
 
     :param path: path to the local credentials file
@@ -26,7 +27,7 @@ def build_credentials(path: str, scopes: List[str]) -> google.oauth2.credentials
     :param scopes: scopes that will be authorized using OAuth2
     :type scopes: List[str]
     :return: Credentials for google
-    :rtype: google.oauth2.credentials.Credentials
+    :rtype: Credentials
     """
     if os.path.exists('./token.pickle'):
         with open('./token.pickle', 'rb') as token:
@@ -49,14 +50,14 @@ def build_credentials(path: str, scopes: List[str]) -> google.oauth2.credentials
 
 
 def get_data_from_google_analytics(
-    credentials_file_path: str,
-    scopes: List[str],
-    end_date: str,
-    start_date: str,
-    ga_id: str,
-    metrics: str,
-    dimensions: str,
-) -> Dict[str, Union[List[str], str, Dict[str, str]]]:
+        credentials_file_path: str,
+        scopes: List[str],
+        end_date: str,
+        start_date: str,
+        ga_id: str,
+        metrics: str,
+        dimensions: str,
+    ) -> Dict[str, Union[List[str], str, Dict[str, str]]]:
     """Get data from google analytics using the core reporting api v3
 
     :param credentials_file_path: Path to google created credentials
@@ -94,8 +95,8 @@ def get_data_from_google_analytics(
 
 
 def transform_data_for_import(
-    result: Dict[str, Union[List[str], str, Dict[str, str]]]
-) -> List[Dict[str, Union[str, int]]:
+        result: Dict[str, Union[List[str], str, Dict[str, str]]]
+    ) -> List[Dict[str, Union[str, int]]]:
     """Prepare data to be ingested by Posthog.
 
     :param result: Result obtained from the google analytics export.
@@ -118,10 +119,10 @@ def transform_data_for_import(
 
 
 def send_data_to_posthog(
-    data: List[Dict[str, Union[str, int]],
-    api_key: str,
-    host: str
-) -> requests.Response:
+        data: List[Dict[str, Union[str, int]]],
+        api_key: str,
+        host: str
+    ) -> requests.Response:
     """Send the Google Analytics data to Posthog
 
     :param data: Data prepared for posthog ingestion
