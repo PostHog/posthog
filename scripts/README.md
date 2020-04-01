@@ -2,10 +2,10 @@
 
 Utility scripts for Posthog. Will eventually be turned into a cli.
 
-## CSV Parser
+## Google Analytics
 
-To the run the csv parser use:
+To the run the google analytics importer use:
 
 ```bash
-$ python -m scripts.csv_parser "PATH TO CSV"
+$ python -m scripts.google_analytics
 ```
