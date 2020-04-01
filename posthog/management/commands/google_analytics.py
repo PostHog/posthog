@@ -10,9 +10,11 @@ from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-from scripts.google_analytics.constants import (API_KEY, CREDENTIALS_FILE_PATH,
-                                                DIMENSIONS, END_DATE, EVENT_NAME,
-                                                GA_ID, HOST, METRICS, START_DATE)
+from posthog.management.commands.google_analytics.constants import (
+    API_KEY, CREDENTIALS_FILE_PATH,
+    DIMENSIONS, END_DATE, EVENT_NAME,
+    GA_ID, HOST, METRICS, START_DATE
+)
 
 creds = None
 SCOPES = ['https://www.googleapis.com/auth/analytics.readonly']
@@ -110,19 +112,20 @@ def transform_data_for_import(
     batch_data   = []
 
     for row in _result['rows']:
-        row_dictionary = {}
+        for pageviewCount in range(0, int(row[column_names.index('ga:pageviews')])):
+            row_dictionary = {}
+            row_dictionary['properties'] = {}
 
-        for index, column in enumerate(column_names):
-            row_dictionary[column] = row[index]
+            row_dictionary['properties']['$current_url'] = row[column_names.index('ga:pagePath')]
 
-        row_dictionary['event'] = 'pageview'
+            row_dictionary['event'] = 'pageview'
 
-        if 'ga:date' in column_names:
-            row_dictionary['timestamp'] = row[column_names.index('ga:date')]
-        else:
-            row_dictionary['timestamp'] = datetime.now()
+            if 'ga:date' in column_names:
+                row_dictionary['timestamp'] = row[column_names.index('ga:date')]
+            else:
+                row_dictionary['timestamp'] = datetime.now()
 
-        batch_data.append(row_dictionary)
+            batch_data.append(row_dictionary)
 
     return batch_data
 
@@ -167,5 +170,5 @@ if __name__ == "__main__":
         METRICS,
         DIMENSIONS
     )
-    data = transform_data_for_import(result)
+    data = transform_data_for_import(result, EVENT_NAME)
     response = send_data_to_posthog(data, API_KEY, HOST)
