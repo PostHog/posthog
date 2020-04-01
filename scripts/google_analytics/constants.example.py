@@ -5,6 +5,7 @@ from datetime import datetime
 import os
 
 CREDENTIALS_FILE_PATH = os.getcwd() + '/scripts/google_analytics/client_secrets.json'
+EVENT_NAME            = 'pageview'
 END_DATE              = datetime.now().strftime("%Y-%m-%d")
 START_DATE            = '2018-01-01'
 VIEW_ID               = ""

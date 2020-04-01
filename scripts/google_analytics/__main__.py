@@ -12,8 +12,8 @@ from googleapiclient.discovery import build
 
 import posthog
 from scripts.google_analytics.constants import (API_KEY, CREDENTIALS_FILE_PATH,
-                                                DIMENSIONS, END_DATE, GA_ID,
-                                                HOST, METRICS, START_DATE)
+                                                DIMENSIONS, END_DATE, EVENT_NAME,
+                                                GA_ID, HOST, METRICS, START_DATE)
 
 creds = None
 SCOPES = ['https://www.googleapis.com/auth/analytics.readonly']
@@ -95,12 +95,15 @@ def get_data_from_google_analytics(
 
 
 def transform_data_for_import(
-        result: Dict[str, Union[List[str], str, Dict[str, str]]]
+        result: Dict[str, Union[List[str], str, Dict[str, str]]],
+        event_name: str
     ) -> List[Dict[str, Union[str, int]]]:
     """Prepare data to be ingested by Posthog.
 
     :param result: Result obtained from the google analytics export.
     :type result: Dict[str, Union[List[str], str, Dict[str, str]]]
+    :param event_name: Name of the event being saved.
+    : type event_name: str
     :return: Data on the Posthog ingestion format.
     :rtype: List[Dict[str, Union[str, int]]
     """
@@ -112,6 +115,13 @@ def transform_data_for_import(
 
         for index, column in enumerate(column_names):
             row_dictionary[column] = row[index]
+
+        row_dictionary['event'] = 'pageview'
+
+        if 'ga:date' in column_names:
+            row_dictionary['timestamp'] = row[column_names.index('ga:date')]
+        else:
+            row_dictionary['timestamp'] = datetime.now()
 
         batch_data.append(row_dictionary)
 
