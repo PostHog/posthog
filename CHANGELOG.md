@@ -8,13 +8,19 @@
 
 - Added demo data to new instances of /demo
 
-![demo date copy](https://posthog.com/wp-content/uploads/2020/03/HogFlix.png)
+![demo data copy](https://posthog.com/wp-content/uploads/2020/03/HogFlix.png)
 
 - Built a Helm Chart for PostHog 
 
-- Various performance improvements
+- Ordering is now by timestamp instead of id
 
-- Bug fixes
+- Fixed typing errors
+
+- Fixed funnels not working if order was set incorrectly
+
+- Avoided team leakage of person properties
+
+- Fixed live actions error that resulted in opening multiple events
 
 ### 1.0.9 - Wednesday 25 March 2020
 
