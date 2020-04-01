@@ -1,11 +1,12 @@
 # PostHog
 
-[PostHog](https://posthog.io/) is a cross-platform crash reporting and aggregation platform.
+🦔 [PostHog](https://posthog.io/) is developer-friendly, open-source product analytics.
 
 ## TL;DR;
 
 ```console
-$ helm install ./chart
+$ cd chart
+$ helm install posthog .
 ```
 
 ## Introduction
@@ -25,7 +26,7 @@ It also optionally packages [PostgreSQL](https://github.com/kubernetes/charts/tr
 To install the chart with the release name `my-release`:
 
 ```console
-$ helm install --name my-release ./chart
+$ helm install my-release .
 ```
 
 The command deploys PostHog on the Kubernetes cluster in the default configuration. The [configuration](#configuration) section lists the parameters that can be configured during installation.
@@ -134,15 +135,15 @@ Dependent charts can also have values overwritten. Preface values with "postgres
 Specify each parameter using the `--set key=value[,key=value]` argument to `helm install`. For example,
 
 ```console
-$ helm install --name my-release \
+$ helm install \
   --set persistence.enabled=false,email.host=email \
-    ./chart
+  my-release .
 ```
 
 Alternatively, a YAML file that specifies the values for the above parameters can be provided while installing the chart. For example,
 
 ```console
-$ helm install --name my-release -f my-values.yaml ./chart
+$ helm install -f my-values.yaml my-release .
 ```
 
 ## PostgresSQL
