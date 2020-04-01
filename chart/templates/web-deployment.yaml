@@ -111,3 +111,5 @@ spec:
           periodSeconds: {{ .Values.web.readinessProbe.periodSeconds }}
           successThreshold: {{ .Values.web.readinessProbe.successThreshold }}
           timeoutSeconds: {{ .Values.web.readinessProbe.timeoutSeconds }}
+        resources:
+{{ toYaml .Values.web.resources | indent 12 }}
