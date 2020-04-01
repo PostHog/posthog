@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ template "posthog.fullname" . }}-web
+  labels:
+    app: {{ template "posthog.fullname" . }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+spec:
+  selector:
+    matchLabels:
+        app: {{ template "posthog.fullname" . }}
+        release: "{{ .Release.Name }}"
+        role: web
+  replicas: {{ .Values.web.replicacount }}
+  template:
+    metadata:
+      annotations:
+        metrics-enabled: {{ .Values.metrics.enabled | quote }}
+        checksum/secrets.yaml: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+      {{- if .Values.web.podAnnotations }}
+{{ toYaml .Values.web.podAnnotations | indent 8 }}
+      {{- end }}
+      labels:
+        app: {{ template "posthog.fullname" . }}
+        release: "{{ .Release.Name }}"
+        role: web
+        {{- if .Values.web.podLabels }}
+{{ toYaml .Values.web.podLabels | indent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ template "posthog.serviceAccountName" . }}
+      {{- if .Values.web.affinity }}
+      affinity:
+{{ toYaml .Values.web.affinity | indent 8 }}
+      {{- end }}
+      {{- if .Values.web.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.web.nodeSelector | indent 8 }}
+      {{- end }}
+      {{- if .Values.web.tolerations }}
+      tolerations:
+{{ toYaml .Values.web.tolerations | indent 8 }}
+      {{- end }}
+      {{- if .Values.web.schedulerName }}
+      schedulerName: "{{ .Values.web.schedulerName }}"
+      {{- end }}
+      {{- if .Values.image.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml .Values.image.imagePullSecrets | indent 8 }}
+      {{- end }}
+      containers:
+      - name: {{ .Chart.Name }}-web
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        command:
+          - /bin/sh
+          - -c
+          - |
+            python manage.py collectstatic --noinput
+            gunicorn posthog.wsgi --config gunicorn.config.py --bind 0.0.0.0:8000 --log-file -
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.service.internalPort }}
+        env:
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ template "posthog.fullname" . }}
+              key: posthog-secret
+        - name: POSTHOG_DB_USER
+          value: {{ default "posthog" .Values.postgresql.postgresqlUsername | quote }}
+        - name: POSTHOG_DB_NAME
+          value: {{ default "posthog" .Values.postgresql.postgresqlDatabase | quote }}
+        - name: POSTHOG_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+            {{- if .Values.postgresql.existingSecret }}
+              name: {{ .Values.postgresql.existingSecret }}
+            {{- else }}
+              name: {{ template "posthog.postgresql.secret" . }}
+            {{- end }}
+              key: {{ template "posthog.postgresql.secretKey" . }}
+        - name: POSTHOG_POSTGRES_HOST
+          value: {{ template "posthog.postgresql.host" . }}
+        - name: POSTHOG_POSTGRES_PORT
+          value: {{ template "posthog.postgresql.port" . }}
+{{- if .Values.env }}
+{{ toYaml .Values.env | indent 8 }}
+{{- end }}
+{{- if .Values.web.env }}
+{{ toYaml .Values.web.env | indent 8 }}
+{{- end }}
+        livenessProbe:
+          failureThreshold: {{ .Values.web.livenessProbe.failureThreshold }}
+          httpGet:
+            path: /_health/
+            port: {{ .Values.service.internalPort }}
+            scheme: HTTP
+          initialDelaySeconds: {{ .Values.web.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.web.livenessProbe.periodSeconds }}
+          successThreshold: {{ .Values.web.livenessProbe.successThreshold }}
+          timeoutSeconds: {{ .Values.web.livenessProbe.timeoutSeconds }}
+        readinessProbe:
+          failureThreshold: {{ .Values.web.readinessProbe.failureThreshold }}
+          httpGet:
+            path: /_health/
+            port: {{ .Values.service.internalPort }}
+            scheme: HTTP
+          initialDelaySeconds: {{ .Values.web.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.web.readinessProbe.periodSeconds }}
+          successThreshold: {{ .Values.web.readinessProbe.successThreshold }}
+          timeoutSeconds: {{ .Values.web.readinessProbe.timeoutSeconds }}

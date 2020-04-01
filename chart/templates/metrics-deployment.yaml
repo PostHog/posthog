@@ -1,0 +1,77 @@
+{{- if .Values.metrics.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ template "posthog.fullname" . }}-metrics
+  labels:
+    app: {{ template "posthog.fullname" . }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+spec:
+  selector:
+    matchLabels:
+        app: {{ template "posthog.fullname" . }}
+        release: "{{ .Release.Name }}"
+        role: metrics
+  template:
+    metadata:
+      labels:
+        app: {{ template "posthog.fullname" . }}
+        release: "{{ .Release.Name }}"
+        role: metrics
+    spec:
+      {{- if .Values.metrics.affinity }}
+      affinity:
+{{ toYaml .Values.metrics.affinity | indent 8 }}
+      {{- end }}
+      {{- if .Values.metrics.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.metrics.nodeSelector | indent 8 }}
+      {{- end }}
+      {{- if .Values.metrics.tolerations }}
+      tolerations:
+{{ toYaml .Values.metrics.tolerations | indent 8 }}
+      {{- end }}
+      {{- if .Values.metrics.schedulerName }}
+      schedulerName: "{{ .Values.metrics.schedulerName }}"
+      {{- end }}
+      containers:
+      - name: {{ .Chart.Name }}-metrics
+        args: 
+          - "--statsd.listen-udp=:9125"
+          - "--web.listen-address=:9102"
+        image: "{{ .Values.metrics.image.repository }}:{{ .Values.metrics.image.tag }}"
+        imagePullPolicy: {{ .Values.metrics.image.pullPolicy }}
+        ports:
+        - name: statsd
+          containerPort: 9125
+        - name: metrics
+          containerPort: 9102
+{{- if .Values.metrics.livenessProbe.enabled }}
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 9102
+            scheme: HTTP
+          initialDelaySeconds: {{ .Values.metrics.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.metrics.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.metrics.livenessProbe.timeoutSeconds }}
+          successThreshold: {{ .Values.metrics.livenessProbe.successThreshold }}
+          failureThreshold: {{ .Values.metrics.livenessProbe.failureThreshold }}
+{{- end }}
+{{- if .Values.metrics.readinessProbe.enabled }}
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 9102
+            scheme: HTTP
+          initialDelaySeconds: {{ .Values.metrics.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.metrics.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.metrics.readinessProbe.timeoutSeconds }}
+          successThreshold: {{ .Values.metrics.readinessProbe.successThreshold }}
+          failureThreshold: {{ .Values.metrics.readinessProbe.failureThreshold }}
+{{- end }}
+        resources:
+{{ toYaml .Values.metrics.resources | indent 10 }}
+{{- end }} 

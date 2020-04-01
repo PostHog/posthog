@@ -1,0 +1,29 @@
+{{- if .Values.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "posthog.fullname" . }}-metrics
+  labels:
+    app: {{ template "posthog.fullname" . }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+{{- if .Values.metrics.service.labels }}
+{{ toYaml .Values.metrics.service.labels | indent 4 }}
+{{- end }}
+spec:
+  type: {{ .Values.metrics.service.type }}
+  ports:
+  - port: 9102
+    targetPort: 9102
+    protocol: TCP
+    name: metrics
+  - port: 9125
+    targetPort: 9125
+    protocol: UDP
+    name: statsd
+  selector:
+    app: {{ template "posthog.fullname" . }}
+    release: {{ .Release.Name }}
+    role: metrics
+{{- end }} 

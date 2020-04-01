@@ -1,0 +1,75 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "{{ .Release.Name }}-migrate"
+  labels:
+    app: {{ template "posthog.fullname" . }}
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+  annotations:
+    # This is what defines this resource as a hook. Without this line, the
+    # job is considered part of the release.
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-delete-policy": "hook-succeeded,before-hook-creation"
+    "helm.sh/hook-weight": "-5"
+spec:
+  template:
+    metadata:
+      name: "{{ .Release.Name }}-migrate"
+      annotations:
+        checksum/secrets.yaml: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+      labels:
+        app: {{ template "posthog.fullname" . }}
+        release: "{{ .Release.Name }}"
+        {{- if .Values.worker.podLabels }}
+{{ toYaml .Values.worker.podLabels | indent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.hooks.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      restartPolicy: Never
+      {{- if .Values.image.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml .Values.image.imagePullSecrets | indent 8 }}
+      {{- end }}
+      containers:
+      - name: migrate-job
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        command: ["python","manage.py","migrate"]
+        env:
+{{- if .Values.env }}
+{{ toYaml .Values.env | indent 8 }}
+{{- end }}
+{{- if .Values.worker.env }}
+{{ toYaml .Values.worker.env | indent 8 }}
+{{- end }}
+{{- if .Values.hooks.migrate.env }}
+{{ toYaml .Values.hooks.migrate.env | indent 8 }}
+{{- end }}
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ template "posthog.fullname" . }}
+              key: posthog-secret
+        - name: POSTHOG_DB_USER
+          value: {{ default "posthog" .Values.postgresql.postgresqlUsername | quote }}
+        - name: POSTHOG_DB_NAME
+          value: {{ default "posthog" .Values.postgresql.postgresqlDatabase | quote }}
+        - name: POSTHOG_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+            {{- if .Values.postgresql.existingSecret }}
+              name: {{ .Values.postgresql.existingSecret }}
+            {{- else }}
+              name: {{ template "posthog.postgresql.secret" . }}
+            {{- end }}
+              key: {{ template "posthog.postgresql.secretKey" . }}
+        - name: POSTHOG_POSTGRES_HOST
+          value: {{ template "posthog.postgresql.host" . }}
+        - name: POSTHOG_POSTGRES_PORT
+          value: {{ template "posthog.postgresql.port" . }}
+        resources:
+{{ toYaml .Values.hooks.migrate.resources | indent 10 }}

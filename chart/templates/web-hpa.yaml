@@ -2,7 +2,7 @@
 apiVersion: autoscaling/v1
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ template "posthog.fullname" . }}
+  name: {{ template "posthog.fullname" . }}-web
   labels:
     app: {{ template "posthog.fullname" . }}
     chart: "{{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}"
@@ -12,7 +12,7 @@ spec:
   scaleTargetRef:
     kind: Deployment
     apiVersion: apps/v1
-    name: {{ template "posthog.fullname" . }}
+    name: {{ template "posthog.fullname" . }}-web
   minReplicas: {{ .Values.web.hpa.minpods }}
   maxReplicas: {{ .Values.web.hpa.maxpods }}
   targetCPUUtilizationPercentage: {{ .Values.web.hpa.cputhreshold }}
