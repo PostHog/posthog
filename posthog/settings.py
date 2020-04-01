@@ -123,7 +123,7 @@ WSGI_APPLICATION = 'posthog.wsgi.application'
 if TEST or DEBUG:
     DATABASE_URL = os.environ.get('DATABASE_URL', 'postgres://localhost:5432/posthog')
 else:
-    DATABASE_URL = os.environ.get('DATABASE_URL')
+    DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
 if DATABASE_URL:
     DATABASES = {
