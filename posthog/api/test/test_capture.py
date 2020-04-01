@@ -409,3 +409,24 @@ class TestBatch(BaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()['message'], "You need to set a distinct_id.")
+
+class TestDecide(BaseTest):
+    TESTS_API = True
+
+    def test_user_on_own_site(self):
+        self.team.app_urls = ['https://example.com/maybesubdomain']
+        self.team.save()
+        response = self.client.get('/decide/', HTTP_ORIGIN='https://example.com').json()
+        self.assertEqual(response['is_authenticated'], True)
+
+    def test_user_on_evil_site(self):
+        self.team.app_urls = ['https://example.com']
+        self.team.save()
+        response = self.client.get('/decide/', HTTP_ORIGIN='https://evilsite.com').json()
+        self.assertEqual(response['is_authenticated'], False)
+
+    def test_user_on_local_host(self):
+        self.team.app_urls = ['https://example.com']
+        self.team.save()
+        response = self.client.get('/decide/', HTTP_ORIGIN='http://127.0.0.1:8000').json()
+        self.assertEqual(response['is_authenticated'], True)

@@ -3,9 +3,11 @@ from django.http import HttpResponse, JsonResponse
 from django.db import IntegrityError
 from django.views.decorators.csrf import csrf_exempt
 import json
+import secrets
 import base64
 from urllib.parse import urlparse
 from typing import Dict, Union, Optional, List
+from urllib.parse import urlparse
 
 
 def get_ip_address(request):
@@ -177,6 +179,26 @@ def get_event(request):
 
     return cors_response(request, JsonResponse({'status': 1}))
 
+
+def parse_domain(url: str) -> Optional[str]:
+    return urlparse(url).hostname
+
 @csrf_exempt
 def get_decide(request):
-    return cors_response(request, JsonResponse({"config": {"enable_collect_everything": True}}))
+    response = {
+        'config': {'enable_collect_everything': True},
+        'is_authenticated': False
+    }
+
+    if request.user.is_authenticated:
+        team = request.user.team_set.get()
+        permitted_domains = [
+            '127.0.0.1',
+            'localhost',
+        ] + [parse_domain(url) for url in team.app_urls]
+        if parse_domain(request.headers.get('Origin')) in permitted_domains:
+            response['is_authenticated'] = True
+            if not request.user.temporary_token:
+                request.user.temporary_token = secrets.token_urlsafe(32)
+                request.user.save()
+    return cors_response(request, JsonResponse(response))
