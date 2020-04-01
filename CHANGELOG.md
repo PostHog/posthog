@@ -1,5 +1,21 @@
 # Changelog
 
+### 1.0.10 - Wednesday 1 April 2020
+
+- Users can now be identified directly from Trend Graphs
+
+![users in trend graph](https://posthog.com/wp-content/uploads/2020/03/usersintrends.gif)
+
+- Added demo data to new instances of /demo
+
+![demo date copy](https://posthog.com/wp-content/uploads/2020/03/HogFlix.png)
+
+- Built a Helm Chart for PostHog 
+
+- Various performance improvements
+
+- Bug fixes
+
 ### 1.0.9 - Wednesday 25 March 2020
 
 - Stickiness now shown on Trend Graph
