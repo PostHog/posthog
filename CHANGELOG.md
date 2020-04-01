@@ -1,5 +1,27 @@
 # Changelog
 
+### 1.0.10 - Wednesday 1 April 2020
+
+- Users can now be identified directly from Trend Graphs
+
+![users in trend graph](https://posthog.com/wp-content/uploads/2020/03/usersintrends.gif)
+
+- Added demo data to new instances of /demo
+
+![demo data copy](https://posthog.com/wp-content/uploads/2020/03/HogFlix.png)
+
+- Built a Helm Chart for PostHog 
+
+- Ordering is now by timestamp instead of id
+
+- Fixed typing errors
+
+- Fixed funnels not working if order was set incorrectly
+
+- Avoided team leakage of person properties
+
+- Fixed live actions error that resulted in opening multiple events
+
 ### 1.0.9 - Wednesday 25 March 2020
 
 - Stickiness now shown on Trend Graph
