@@ -12,8 +12,8 @@ import datetime
 # At the moment, paths don't support users changing distinct_ids midway through.
 # See: https://github.com/PostHog/posthog/issues/185
 class PathsViewSet(viewsets.ViewSet):
-    def _url_subquery(self, event):
-        return Event.objects.filter(pk=OuterRef(event)).values('properties__$current_url')[:1]
+    def _event_subquery(self, event: str, key: str):
+        return Event.objects.filter(pk=OuterRef(event)).values(key)[:1]
 
     def _add_event_and_url_at_position(self, aggregate: QuerySet, team: Team, index: int, date_from, date_to, urls: Optional[List[str]]=None) -> QuerySet:
         event_key = 'event_{}'.format(index)
@@ -24,15 +24,16 @@ class PathsViewSet(viewsets.ViewSet):
                     team=team,
                     timestamp__gte=date_from,
                     timestamp__lte=date_to + relativedelta(days=1),
-                    pk__gt=OuterRef('event_{}'.format(index - 1)) if index > 1 else 0,
                     event='$pageview',
                     distinct_id=OuterRef('distinct_id'),
-                    **{'properties__$current_url__isnull': False}
+                    **{'properties__$current_url__isnull': False},
+                    **({'timestamp__gt': OuterRef('timestamp_{}'.format(index - 1))} if index > 1 else {})
                 )\
                 .exclude(**({'properties__$current_url': OuterRef('url_{}'.format(index -1))} if index > 1 else {}))\
                 .order_by('id').values('pk')[:1]
             ),
-            'url_{}'.format(index): Subquery(self._url_subquery(event_key))
+            'timestamp_{}'.format(index): self._event_subquery(event_key, 'timestamp'),
+            'url_{}'.format(index): self._event_subquery(event_key, 'properties__$current_url')
         })
 
     def list(self, request):

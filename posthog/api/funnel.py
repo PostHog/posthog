@@ -53,11 +53,10 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
                                 person_id=OuterRef('person_id')
                             ).values('distinct_id')
                         ),
-                        pk__gt=OuterRef('step_{}'.format(index-1)) if index > 0 else 0
+                        **({'timestamp__gt': OuterRef('step_{}'.format(index-1))} if index > 0 else {})
                     )\
-                    .order_by('pk')\
-                    .values('pk')[:1]
-            , output_field=models.IntegerField())
+                    .order_by('timestamp')\
+                    .values('timestamp')[:1])
 
         people = Person.objects.all()\
             .filter(team_id=funnel.team_id)\
