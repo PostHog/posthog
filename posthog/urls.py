@@ -108,16 +108,16 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
     if not fields:
         return
 
-    try:
-        user = strategy.create_user(**fields)
-    except:
-        processed = render_to_string('auth_error.html', {'message': "Account unable to be created. This account may already exist. Please try again or use different credentials!"})
-        return HttpResponse(processed, status=401)
-
     try: 
         team = Team.objects.get(signup_token=signup_token)
     except Team.DoesNotExist:
         processed = render_to_string('auth_error.html', {'message': "We can't find the team associated with this signup token. Please ensure the invite link is provided from an existing team!"})
+        return HttpResponse(processed, status=401)
+
+    try:
+        user = strategy.create_user(**fields)
+    except:
+        processed = render_to_string('auth_error.html', {'message': "Account unable to be created. This account may already exist. Please try again or use different credentials!"})
         return HttpResponse(processed, status=401)
 
     team.users.add(user)
