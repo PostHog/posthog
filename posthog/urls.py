@@ -99,7 +99,7 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
 
     signup_token = strategy.session_get('signup_token')
     if signup_token is None:
-        processed = render_to_string('auth_error.html', {'message': "You're attempting to create an account without a team. Please use an invite link from the team you want to join!"})
+        processed = render_to_string('auth_error.html', {'message': "There is no team associated with this accoun.! Please use an invite link from a team to create an account!"})
         return HttpResponse(processed, status=401)
 
     fields = dict((name, kwargs.get(name, details.get(name)))
@@ -111,13 +111,13 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
     try:
         user = strategy.create_user(**fields)
     except:
-        processed = render_to_string('auth_error.html', {'message': "Account unable to be created. This account may already exist. Please try again or use different credentials"})
+        processed = render_to_string('auth_error.html', {'message': "Account unable to be created. This account may already exist. Please try again or use different credentials!"})
         return HttpResponse(processed, status=401)
-        
+
     try: 
         team = Team.objects.get(signup_token=signup_token)
     except Team.DoesNotExist:
-        processed = render_to_string('auth_error.html', {'message': "The team you're trying to join does not exist! Please ensure the invite link is provided from an existing team"})
+        processed = render_to_string('auth_error.html', {'message': "We can't find the team associated with this signup token. Please ensure the invite link is provided from an existing team!"})
         return HttpResponse(processed, status=401)
 
     team.users.add(user)
