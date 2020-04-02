@@ -28,7 +28,6 @@ export function Trends() {
         trendsLogic({ dashboardItemId: null })
     )
     const { setFilters, setDisplay } = useActions(trendsLogic({ dashboardItemId: null }))
-    console.log(events)
     return (
         <div className="actions-graph">
             {showingPeople ? <PeopleModal /> : null}
