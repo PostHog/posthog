@@ -108,8 +108,18 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
     if not fields:
         return
 
-    user = strategy.create_user(**fields)
-    team = Team.objects.get(signup_token=signup_token)
+    try:
+        user = strategy.create_user(**fields)
+    except:
+        processed = render_to_string('auth_error.html', {'message': "Account unable to be created. This account may already exist. Please try again or use different credentials"})
+        return HttpResponse(processed, status=401)
+        
+    try: 
+        team = Team.objects.get(signup_token=signup_token)
+    except Team.DoesNotExist:
+        processed = render_to_string('auth_error.html', {'message': "The team you're trying to join does not exist! Please ensure the invite link is provided from an existing team"})
+        return HttpResponse(processed, status=401)
+
     team.users.add(user)
     team.save()
     posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': False})
