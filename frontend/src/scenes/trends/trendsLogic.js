@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { fromParams, toParams } from 'lib/utils'
 import { propertiesModel } from '~/models/propertiesModel'
 import { actionsModel } from '~/models/actionsModel'
+import { eventsModel } from '~/models/eventsModel'
 
 function cleanFilters(filters) {
     if (filters.breakdown && filters.display !== 'ActionsTable') {
@@ -40,7 +41,7 @@ export const trendsLogic = kea({
     key: props => props.dashboardItemId || 'all_trends',
 
     connect: {
-        values: [propertiesModel, ['properties'], actionsModel, ['actions']],
+        values: [propertiesModel, ['properties'], actionsModel, ['actions'], eventsModel, ['events']],
         actions: [actionsModel, ['loadActionsSuccess']],
     },
 

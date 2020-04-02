@@ -24,11 +24,11 @@ const displayMap = {
 }
 
 export function Trends() {
-    const { actions, filters, properties, resultsLoading, showingPeople } = useValues(
+    const { actions, events, filters, properties, resultsLoading, showingPeople } = useValues(
         trendsLogic({ dashboardItemId: null })
     )
     const { setFilters, setDisplay } = useActions(trendsLogic({ dashboardItemId: null }))
-
+    console.log(actions)
     return (
         <div className="actions-graph">
             {showingPeople ? <PeopleModal /> : null}
