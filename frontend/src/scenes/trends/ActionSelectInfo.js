@@ -20,7 +20,7 @@ export class ActionSelectInfo extends Component {
             <div
                 className="select-box-info"
                 ref={this.infoDiv}
-                style={{ opacity: isOpen ? 1 : 0 }}
+                style={{ opacity: isOpen ? 1 : 0 , backgroundColor: "black"}}
             >
                 <div style={{ marginBottom: '0.5rem' }}>{action.name}</div>
                 {action.steps.map((step, index) => (

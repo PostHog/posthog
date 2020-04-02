@@ -7,7 +7,9 @@ import PropTypes from 'prop-types'
 export class ActionSelectBox extends Component {
     constructor(props) {
         super(props)
-        this.state = {}
+        this.state = {
+            entityType: 0
+        }
     }
     actionContains(action, event) {
         return action.steps.filter(step => step.event == event).length > 0
@@ -51,6 +53,9 @@ export class ActionSelectBox extends Component {
         })
         return data
     }
+
+    chooseEntityType = (type) => this.setState({entityType: type})
+
     render() {
         let {
             action,
@@ -59,48 +64,53 @@ export class ActionSelectBox extends Component {
             onChange,
             defaultMenuIsOpen,
         } = this.props
+        let {
+            entityType
+        } = this.state
         return (
-            <div className="select-box">
-                <ul class="nav nav-pills">
-                    <li>Actions</li>
-                    <li>Events</li>
-                </ul>
-                {action.id && (
-                    <a href={'/action/' + action.id} target="_blank">
-                        Edit "{action.name}"{' '}
-                        <i className="fi flaticon-export" />
-                    </a>
-                )}
-                {this.state.infoOpen && (
-                    <ActionSelectInfo
-                        isOpen={this.state.infoOpen}
-                        boundingRect={this.state.infoBoundingRect}
-                        action={
-                            actions.filter(
-                                a => a.id == this.state.infoActionId
-                            )[0]
-                        }
+            <div className="select-box" style={{padding: 0}}>
+                <div style={{display: 'flex', flexDirection: 'row', height: '25px', borderBottom: "1px solid #cccccc"}}>
+                    <div style={{backgroundColor: entityType == 0 ? 'white' : '#eeeeee', flex: 1, display:'flex', justifyContent: 'center'}} onClick={() => this.chooseEntityType(0)}>Action</div>
+                    <div style={{backgroundColor: entityType == 1 ? 'white' : '#eeeeee', flex: 1, display:'flex', justifyContent: 'center'}} onClick={() => this.chooseEntityType(1)}>Event</div>
+                </div>
+                <div style={{padding: '1rem'}}>
+                    {action.id && (
+                        <a href={'/action/' + action.id} target="_blank">
+                            Edit "{action.name}"{' '}
+                            <i className="fi flaticon-export" />
+                        </a>
+                    )}
+                    {this.state.infoOpen && (
+                        <ActionSelectInfo
+                            isOpen={this.state.infoOpen}
+                            boundingRect={this.state.infoBoundingRect}
+                            action={
+                                actions.filter(
+                                    a => a.id == this.state.infoActionId
+                                )[0]
+                            }
+                        />
+                    )}
+                    <Select
+                        onBlur={e => {
+                            if (e.relatedTarget && e.relatedTarget.tagName == 'A')
+                                return
+                            this.setState({ infoOpen: false })
+                            if (onClose) onClose()
+                        }}
+                        onChange={item => onChange(item.value)}
+                        defaultMenuIsOpen={defaultMenuIsOpen}
+                        autoFocus={true}
+                        value={{
+                            label: action.name,
+                            value: action.id,
+                        }}
+                        className="select-box-select"
+                        styles={selectStyle}
+                        components={{ Option: this.Option }}
+                        options={this.groupActions(actions)}
                     />
-                )}
-                <Select
-                    onBlur={e => {
-                        if (e.relatedTarget && e.relatedTarget.tagName == 'A')
-                            return
-                        this.setState({ infoOpen: false })
-                        if (onClose) onClose()
-                    }}
-                    onChange={item => onChange(item.value)}
-                    defaultMenuIsOpen={defaultMenuIsOpen}
-                    autoFocus={true}
-                    value={{
-                        label: action.name,
-                        value: action.id,
-                    }}
-                    className="select-box-select"
-                    styles={selectStyle}
-                    components={{ Option: this.Option }}
-                    options={this.groupActions(actions)}
-                />
+                </div>
             </div>
         )
     }
