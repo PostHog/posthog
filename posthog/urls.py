@@ -93,17 +93,6 @@ def setup_admin(request):
         })
         return redirect('/')
 
-# def check_team(strategy, details, backend, user=None, *args, **kwargs):
-#     if user is None:
-#          return
-
-#     teams = user.team_set.all()
-#     # if there is no associated team with this user, abort
-#     if not teams:
-#         return redirect(login_view)
-
-#     return
-
 def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
     if user:
         return {'is_new': False}
