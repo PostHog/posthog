@@ -188,6 +188,20 @@ class TestTrends(BaseTest):
         self.assertEqual(response[0]['data'][4], 1)
         self.assertEqual(response[0]['data'][5], 2)
 
+    def test_dau_with_breakdown_filtering(self):
+        sign_up_action, person = self._create_events()
+        with freeze_time('2020-01-02'):
+            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "other_value"})
+        with freeze_time('2020-01-04'):
+            response = self.client.get('/api/action/trends/?breakdown=some_property&actions=%s' % json_to_url([{'id': sign_up_action.id, 'math': 'dau'}])).json()
+
+        self.assertEqual(response[0]['breakdown'][0]['name'], 'other_value')
+        self.assertEqual(response[0]['breakdown'][0]['count'], 1)
+        self.assertEqual(response[0]['breakdown'][1]['name'], 'value')
+        self.assertEqual(response[0]['breakdown'][1]['count'], 1)
+        self.assertEqual(response[0]['breakdown'][2]['name'], 'undefined')
+        self.assertEqual(response[0]['breakdown'][2]['count'], 1)
+
     def test_people_endpoint(self):
         sign_up_action, person = self._create_events()
         person1 = Person.objects.create(team=self.team, distinct_ids=['person1'])
