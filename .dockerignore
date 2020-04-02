@@ -1,6 +1,7 @@
 *
 !bin/docker-preview
 !bin/docker
+!bin/docker-server
 !requirements.txt
 !posthog
 !staticfiles
