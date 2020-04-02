@@ -60,7 +60,7 @@ export class ActionFilter extends Component {
                 <this.Math math={filter.math} index={index} />
                 <CloseButton
                     onClick={() => {
-                        actionFilters.splice(action.index, 1)
+                        actionFilters.splice(index, 1)
                         this.props.onChange(actionFilters)
                     }}
                     style={{

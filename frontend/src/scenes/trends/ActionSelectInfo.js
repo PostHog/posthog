@@ -24,7 +24,7 @@ export class ActionSelectInfo extends Component {
             >
                 <div style={{ marginBottom: '0.5rem' }}>{action.name}</div>
                 {action.steps.map((step, index) => (
-                    <div>
+                    <div key={step.id}>
                         <Card key={step.id} style={{ marginBottom: 0 }}>
                             <div className="card-body">
                                 <strong>

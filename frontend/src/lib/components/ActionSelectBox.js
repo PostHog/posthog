@@ -61,6 +61,10 @@ export class ActionSelectBox extends Component {
         } = this.props
         return (
             <div className="select-box">
+                <ul class="nav nav-pills">
+                    <li>Actions</li>
+                    <li>Events</li>
+                </ul>
                 {action.id && (
                     <a href={'/action/' + action.id} target="_blank">
                         Edit "{action.name}"{' '}

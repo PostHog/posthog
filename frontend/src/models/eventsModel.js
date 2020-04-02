@@ -7,8 +7,7 @@ export const eventsModel = kea({
             __default: [],
             loadEvents: async () => {
                 const response = await api.get('api/event/names')
-                console.log(response)
-                return response.results
+                return response
             },
         },
     }),
