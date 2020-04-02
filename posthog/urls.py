@@ -6,6 +6,7 @@ from django.shortcuts import redirect
 from django.contrib.auth import authenticate, login, views as auth_views, decorators
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
+from django.template.loader import render_to_string
 
 from .api import router, capture, user
 from .models import Team, User
@@ -109,7 +110,8 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
 
     signup_token = strategy.session_get('signup_token')
     if signup_token is None:
-        return HttpResponse('Unauthorized', status=401)
+        processed = render_to_string('auth_error.html', {'message': "You're attempting to create an account without a team. Please use an invite link from the team you want to join!"})
+        return HttpResponse(processed, status=401)
 
     fields = dict((name, kwargs.get(name, details.get(name)))
                    for name in backend.setting('USER_FIELDS', ['email']))
