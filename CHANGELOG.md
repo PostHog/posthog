@@ -1,5 +1,9 @@
 # Changelog
 
+### 1.0.10.1 - Wednesday 1 April 2020
+
+- Fixes for Helm charts
+
 ### 1.0.10 - Wednesday 1 April 2020
 
 - Users can now be identified directly from Trend Graphs
