@@ -58,13 +58,13 @@ def signup_to_team_view(request, token):
         try:
             user = User.objects.create_user(email=email, password=password, first_name=request.POST.get('name'))
         except:
-            return render_template('signup_to_team.html', request=request, context={'email': email, 'error': True, 'team': team})
+            return render_template('signup_to_team.html', request=request, context={'email': email, 'error': True, 'team': team, 'signup_token': token})
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         team.users.add(user)
         team.save()
         posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': False})
         return redirect('/')
-    return render_template('signup_to_team.html', request, context={'team': team})
+    return render_template('signup_to_team.html', request, context={'team': team, 'signup_token': token})
 
 def setup_admin(request):
     if User.objects.exists():
@@ -92,16 +92,41 @@ def setup_admin(request):
         })
         return redirect('/')
 
-def check_team(strategy, details, backend, user=None, *args, **kwargs):
-    if user is None:
-         return
+# def check_team(strategy, details, backend, user=None, *args, **kwargs):
+#     if user is None:
+#          return
 
-    teams = user.team_set.all()
-    # if there is no associated team with this user, abort
-    if not teams:
-        return redirect(login_view)
+#     teams = user.team_set.all()
+#     # if there is no associated team with this user, abort
+#     if not teams:
+#         return redirect(login_view)
 
-    return
+#     return
+
+def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
+    if user:
+        return {'is_new': False}
+
+    signup_token = strategy.session_get('signup_token')
+    if signup_token is None:
+        return HttpResponse('Unauthorized', status=401)
+
+    fields = dict((name, kwargs.get(name, details.get(name)))
+                   for name in backend.setting('USER_FIELDS', ['email']))
+    
+    if not fields:
+        return
+
+    user = strategy.create_user(**fields)
+    team = Team.objects.get(signup_token=signup_token)
+    team.users.add(user)
+    team.save()
+    posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': False})
+
+    return {
+        'is_new': True,
+        'user': user
+    }
 
 def logout(request):
     return auth_views.logout_then_login(request)
