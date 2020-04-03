@@ -155,7 +155,6 @@ export const trendsLogic = kea({
 
             const filterParams = toParams(params)
             const people = await api.get(`api/action/people/?include_last_event=1&${filterParams}`)
-
             if (day === values.filters.people_day && action === values.filters.people_action) {
                 actions.setPeople(people[0]?.people, people[0]?.count)
             }

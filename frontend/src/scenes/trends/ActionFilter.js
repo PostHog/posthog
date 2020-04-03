@@ -47,7 +47,7 @@ export class ActionFilter extends Component {
             <div>
                 <button
                     className="filter-action"
-                    onClick={() => this.setState({ selected: action.id })}
+                    onClick={() => this.setState({ selected: this.state.selected ? false : action.id })}
                     style={{
                         border: 0,
                         padding: 0,
@@ -80,6 +80,7 @@ export class ActionFilter extends Component {
                             this.props.onChange(actionFilters)
                         }}
                         onClose={() => this.setState({ selected: false })}
+                        multipleEntityTypes={true}
                     />
                 )}
             </div>

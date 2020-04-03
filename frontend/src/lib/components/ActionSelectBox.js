@@ -3,6 +3,7 @@ import Select, { components } from 'react-select'
 import { ActionSelectInfo } from '../../scenes/trends/ActionSelectInfo'
 import { selectStyle } from '../utils'
 import PropTypes from 'prop-types'
+import ActionSelectTab from './ActionSelectTab'
 
 export class ActionSelectBox extends Component {
     constructor(props) {
@@ -36,7 +37,7 @@ export class ActionSelectBox extends Component {
     groupActions = actions => {
         let data = [
             { label: 'Autocapture', options: [] },
-            { label: 'Event', options: [] },
+            { label: 'Captured Events', options: [] },
             { label: 'Pageview', options: [] },
         ]
         actions.map(action => {
@@ -63,16 +64,14 @@ export class ActionSelectBox extends Component {
             onClose,
             onChange,
             defaultMenuIsOpen,
+            multipleEntityTypes
         } = this.props
         let {
             entityType
         } = this.state
         return (
             <div className="select-box" style={{padding: 0}}>
-                <div style={{display: 'flex', flexDirection: 'row', height: '25px', borderBottom: "1px solid #cccccc"}}>
-                    <div style={{backgroundColor: entityType == 0 ? 'white' : '#eeeeee', flex: 1, display:'flex', justifyContent: 'center'}} onClick={() => this.chooseEntityType(0)}>Action</div>
-                    <div style={{backgroundColor: entityType == 1 ? 'white' : '#eeeeee', flex: 1, display:'flex', justifyContent: 'center'}} onClick={() => this.chooseEntityType(1)}>Event</div>
-                </div>
+                {multipleEntityTypes && <ActionSelectTab entityType={entityType} chooseEntityType={(index) => this.chooseEntityType(index)}></ActionSelectTab>}
                 <div style={{padding: '1rem'}}>
                     {action.id && (
                         <a href={'/action/' + action.id} target="_blank">
@@ -96,7 +95,7 @@ export class ActionSelectBox extends Component {
                             if (e.relatedTarget && e.relatedTarget.tagName == 'A')
                                 return
                             this.setState({ infoOpen: false })
-                            if (onClose) onClose()
+                            // if (onClose) onClose()
                         }}
                         onChange={item => onChange(item.value)}
                         defaultMenuIsOpen={defaultMenuIsOpen}
@@ -121,4 +120,9 @@ ActionSelectBox.propTypes = {
     action: PropTypes.object.isRequired,
     onClose: PropTypes.func,
     defaultMenuIsOpen: PropTypes.bool,
+    multipleEntityTypes: PropTypes.bool
+}
+
+ActionSelectBox.defaultProps = {
+    multipleEntityTypes: false
 }
