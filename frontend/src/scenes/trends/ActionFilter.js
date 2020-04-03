@@ -3,6 +3,7 @@ import { CloseButton, groupActions, groupEvents } from '../../lib/utils'
 import { Dropdown } from '../../lib/components/Dropdown'
 import { ActionSelectPanel, ActionSelectTabs } from '../../lib/components/ActionSelectBox'
 import { Link } from 'react-router-dom'
+import {EntityTypes} from './Trends'
 
 export function ActionFilterRow(props) {
     let { math, index, name, dropDownCondition, onClick, onClose, onMathSelect } = props
@@ -54,97 +55,194 @@ export function MathSelector(props) {
 }
 
 export class ActionFilter extends Component {
-    constructor(props) {
-        super(props)
-        this.state = {
-            actionFilters: props.actionFilters,
-            eventFilters: props.eventFilters,
+    
+    state = {
+        newFilters: [],
+    }
+
+    _renderRow(filter, type, index) {
+        let { entities } = this.props
+        let { selected } = this.state
+
+        let entity, dropDownCondition, onClick, onClose, onMathSelect, name, value, math, options, dropDownOnSelect, dropDownOnHover, active, redirect
+        onClose = () => {
+            entities[type].filters.splice(index, 1)
+            this.props.onChange({[type]: entities[type].filters})
         }
-    }
+        onMathSelect = (index, math) => {
+            entities[type].filters[index].math = math
+            this.props.onChange({[type]: entities[type].filters})
+        }
 
-    componentDidUpdate(prevProps) {
-        if (prevProps.actionFilters != this.props.actionFilters)
-            this.setState({ actionFilters: this.props.actionFilters })
-    }
-
-    _renderRow(action_filter, index) {
-        let { actions } = this.props
-        let { actionFilters, selected } = this.state
-
-        let action = actions.filter(action => action.id == action_filter.id)[0] || {}
-        let dropDownCondition = () => this.state.selected == action.id
-        let onClick = () => {
-            if (selected == action.id) {
+        if(type == "new") {
+            name = null
+            value = null
+            dropDownCondition= () => this.state.selected == type + index
+            onClick = () => {
+                if (selected == type + index) {
+                    this.setState({
+                        selected: null,
+                    })
+                } else {
+                    this.setState({
+                        selected: type + index,
+                    })
+                }
+            }
+            active = null
+            redirect = null
+            onClose = () => {
+                let newfilters = this.state.newFilters.splice(index, 1)
                 this.setState({
-                    selected: null,
-                })
-            } else {
-                this.setState({
-                    selected: action.id,
+                    newfilters
                 })
             }
-        }
-        let onClose = () => {
-            actionFilters.splice(index, 1)
-            this.props.onChange(actionFilters)
-        }
-        let onMathSelect = (index, math) => {
-            let { actionFilters } = this.state
-            actionFilters[index].math = math
-            this.props.onChange(actionFilters)
+        } else if(type == EntityTypes.ACTIONS) {
+            entity = entities[type].data.filter(action => action.id == filter.id)[0] || {}
+            dropDownCondition = () => this.state.selected == entity.id
+            name = entity.name
+            value = entity.id
+            math = filter.math
+            onClick = () => {
+                if (selected == entity.id) {
+                    this.setState({
+                        selected: null,
+                    })
+                } else {
+                    this.setState({
+                        selected: entity.id,
+                    })
+                }
+            }
+            active = {
+                label: entity.name,
+                value: entity.id,
+            }
+            redirect = entity.id
+        } else if(type == EntityTypes.EVENTS) {
+            entity = entities[type].data.filter(event => event.name == filter.name)[0] || {}
+            dropDownCondition = () => this.state.selected == entity.name
+            name = entity.name
+            value = entity.name
+            math = filter.math
+            onClick = () => {
+                if (selected == entity.name) {
+                    this.setState({
+                        selected: null,
+                    })
+                } else {
+                    this.setState({
+                        selected: entity.name,
+                    })
+                }
+            }
+            active = {
+                label: entity.name,
+                value: entity.name,
+            }
+            redirect = false
         }
         return (
             <ActionFilterRow
-                name={action.name}
-                value={action.id}
+                name={name}
+                value={value}
                 dropDownCondition={dropDownCondition}
                 onClick={onClick}
                 onClose={onClose}
                 onMathSelect={onMathSelect}
-                math={action_filter.math}
+                math={math}
                 key={index}
                 index={index}
             >
                 <ActionSelectTabs>
-                    <ActionSelectPanel
-                        title="Actions"
-                        options={groupActions(actions)}
-                        defaultMenuIsOpen={true}
-                        onSelect={item => {
-                            actionFilters[index] = { id: item.value }
-                            this.props.onChange(actionFilters)
-                        }}
-                        onHover={value => actions.filter(a => a.id == value)[0]}
-                        active={{
-                            label: action.name,
-                            value: action.id,
-                        }}
-                    >
-                        {action.id && (
-                            <a href={'/action/' + action.id} target="_blank">
-                                Edit "{action.name}" <i className="fi flaticon-export" />
-                            </a>
-                        )}
-                    </ActionSelectPanel>
+                    {Object.entries(entities).map((item, panelIndex) => {
+                        return this._renderPanels(type, item[0], index, item[1], panelIndex, active, redirect,)
+                    })}
                 </ActionSelectTabs>
             </ActionFilterRow>
         )
     }
 
+    _renderPanels = (rowType, entityType, entityIndex, entities, panelIndex, active, redirect) => {
+        let dropDownOnSelect, dropDownOnHover, options
+
+        if(rowType == "new") {
+            dropDownOnSelect = item => {
+                entities.filters.push({ id: item.value })
+                this.props.onChange({[entityType]: entities.filters})
+            }
+        } else {
+            dropDownOnSelect = item => {
+                entities.filters[panelIndex] = { id: item.value }
+                this.props.onChange({[entityType]: entities.filters})
+            }
+            
+        }
+        dropDownOnHover = value => entities.data.filter(a => a.name == value)[0]
+
+        if(entityType == EntityTypes.ACTIONS){
+            options = groupActions(entities.data)
+        } else if (entityType == EntityTypes.EVENTS){
+
+            options = groupEvents(entities.data)
+        }
+
+        return (
+            <ActionSelectPanel
+                key={panelIndex}
+                title={entityType}
+                options={options}
+                defaultMenuIsOpen={true}
+                onSelect={dropDownOnSelect}
+                onHover={dropDownOnHover}
+                active={active}
+            >
+                {redirect && (
+                    <a href={'/action/' + active.value} target="_blank">
+                        Edit "{name}" <i className="fi flaticon-export" />
+                    </a>
+                )}
+            </ActionSelectPanel>
+        )
+
+    }
+
+    entitiesExist = () => {
+        if (this.props.entities == null) {
+            return false
+        }
+        Object.entries(this.props.entities).forEach((item, index) => {
+            let val = item[1]
+            if(Array.isArray(val.data)){
+                return true
+            }
+        })
+        return false
+    }
+
     render() {
-        let { actions } = this.props
-        let { actionFilters, selected } = this.state
-        return actions && actions.length > 0 ? (
+        let { newFilters } = this.state
+        return !this.entitiesExist() ? (
             <div>
-                {actionFilters &&
-                    actionFilters.map((action_filter, index) => {
-                        return this._renderRow(action_filter, index)
+                {Object.entries(this.props.entities).map((item, index) => {
+                    let key = item[0]
+                    let val = item[1]
+                    if(Array.isArray(val.filters) && Array.isArray(val.data)){
+                        return val.filters.map((filter, index) => {
+                            return this._renderRow(filter, key, index)
+                        })
+                    }
+                })}
+                {newFilters &&
+                    newFilters.map((action_filter, index) => {
+                        let filter = {}
+                        return this._renderRow(filter, "new", index)
                     })}
                 <button
                     className="btn btn-sm btn-outline-success"
                     onClick={() =>
                         this.setState({
-                            actionFilters: [...(actionFilters || []), { id: -1 }],
+                            newFilters: [...(newFilters || []), { id: -1 }],
                         })
                     }
                     style={{ marginTop: '0.5rem' }}

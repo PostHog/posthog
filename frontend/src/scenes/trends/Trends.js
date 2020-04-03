@@ -23,6 +23,11 @@ const displayMap = {
     ActionsPie: 'Pie',
 }
 
+export const EntityTypes = {
+    ACTIONS: "Actions",
+    EVENTS: "Events"
+}
+
 export function Trends() {
     const { actions, events, filters, properties, resultsLoading, showingPeople } = useValues(
         trendsLogic({ dashboardItemId: null })
@@ -36,12 +41,22 @@ export function Trends() {
                 <div className="card-body">
                     <h4 className="secondary">Actions</h4>
                     <ActionFilter
+                        entities={{
+                            [EntityTypes.ACTIONS]: {
+                                'filters': filters.actions,
+                                'data': actions
+                            },
+                            [EntityTypes.EVENTS]: {
+                                'filters': filters.events,
+                                'data': events
+                            }
+                        }}
                         actions={actions}
                         events={events}
                         actionFilters={filters.actions}
                         eventFilters={filters.events}
                         onChange={actions => {
-                            setFilters({ actions })
+                            setFilters({...actions, events: [{name: "movie played"}]})
                         }}
                     />
                     <hr />
