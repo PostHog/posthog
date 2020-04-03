@@ -46,7 +46,7 @@ export default function App() {
     return (
         <Router>
             <div className="container-fluid flex-grow-1 d-flex">
-                <div className="row flex-fill flex-column flex-sm-row">
+                <div className="row flex-fill flex-column flex-sm-row layout-container">
                     <Sidebar user={user} />
                     <div className="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 flex-grow-1 py-3 content">
                         <Topcontent user={user} />
@@ -54,102 +54,27 @@ export default function App() {
                             <SendEventsOverlay user={user} />
                             {user.has_events && (
                                 <>
-                                    <PrivateRoute
-                                        path="/"
-                                        exact
-                                        component={Dashboard}
-                                        user={user}
-                                    />
-                                    <PrivateRoute
-                                        path="/actions"
-                                        exact
-                                        component={Actions}
-                                        user={user}
-                                    />
-                                    <PrivateRoute
-                                        path="/trends"
-                                        exact
-                                        component={Trends}
-                                        user={user}
-                                    />
-                                    <PrivateRoute
-                                        path="/actions/live"
-                                        component={ActionEvents}
-                                        user={user}
-                                    />
-                                    <PrivateRoute
-                                        path="/funnel"
-                                        exact
-                                        component={Funnels}
-                                        user={user}
-                                    />
-                                    <PrivateRoute
-                                        path="/paths"
-                                        component={Paths}
-                                        user={user}
-                                    />
+                                    <PrivateRoute path="/" exact component={Dashboard} user={user} />
+                                    <PrivateRoute path="/actions" exact component={Actions} user={user} />
+                                    <PrivateRoute path="/trends" exact component={Trends} user={user} />
+                                    <PrivateRoute path="/actions/live" component={ActionEvents} user={user} />
+                                    <PrivateRoute path="/funnel" exact component={Funnels} user={user} />
+                                    <PrivateRoute path="/paths" component={Paths} user={user} />
                                 </>
                             )}
-                            <PrivateRoute
-                                path="/setup"
-                                component={Setup}
-                                user={user}
-                            />
-                            <PrivateRoute
-                                path="/events"
-                                component={Events}
-                                user={user}
-                            />
-                            <PrivateRoute
-                                exact
-                                path="/person_by_id/:id"
-                                component={Person}
-                                user={user}
-                            />
-                            <PrivateRoute
-                                exact
-                                path="/person/:distinct_id"
-                                component={Person}
-                                user={user}
-                            />
-                            <PrivateRoute
-                                path="/people"
-                                component={People}
-                                user={user}
-                            />
-                            <PrivateRoute
-                                path="/people/cohorts"
-                                component={Cohorts}
-                                user={user}
-                            />
-                            <PrivateRoute
-                                path="/action/:id"
-                                component={Action}
-                                user={user}
-                            />
-                            <PrivateRoute
-                                path="/action"
-                                component={Action}
-                                user={user}
-                            />
-                            <PrivateRoute
-                                path="/new-funnel"
-                                component={EditFunnel}
-                                user={user}
-                            />
-                            <PrivateRoute
-                                path="/funnel/:id"
-                                exact
-                                component={Funnel}
-                                user={user}
-                            />
+                            <PrivateRoute path="/setup" component={Setup} user={user} />
+                            <PrivateRoute path="/events" component={Events} user={user} />
+                            <PrivateRoute exact path="/person_by_id/:id" component={Person} user={user} />
+                            <PrivateRoute exact path="/person/:distinct_id" component={Person} user={user} />
+                            <PrivateRoute path="/people" component={People} user={user} />
+                            <PrivateRoute path="/people/cohorts" component={Cohorts} user={user} />
+                            <PrivateRoute path="/action/:id" component={Action} user={user} />
+                            <PrivateRoute path="/action" component={Action} user={user} />
+                            <PrivateRoute path="/new-funnel" component={EditFunnel} user={user} />
+                            <PrivateRoute path="/funnel/:id" exact component={Funnel} user={user} />
                         </div>
                     </div>
-                    <ToastContainer
-                        autoClose={8000}
-                        transition={Slide}
-                        position="bottom-center"
-                    />
+                    <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
                 </div>
             </div>
         </Router>
