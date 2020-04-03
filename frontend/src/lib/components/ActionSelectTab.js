@@ -2,11 +2,12 @@ import React, {Component} from 'react'
 
 export default class ActionSelectTab extends Component {
     render(){
-        let {entityType, chooseEntityType} = this.props
+        let {entityType, chooseEntityType, allTypes} = this.props
         return (
             <div style={{display: 'flex', flexDirection: 'row', height: '25px', borderBottom: "1px solid #cccccc"}}>
-                <div style={{backgroundColor: entityType == 0 ? 'white' : '#eeeeee', flex: 1, display:'flex', justifyContent: 'center', borderTopLeftRadius: '5px'}} onClick={() => chooseEntityType(0)}>Action</div>
-                <div style={{backgroundColor: entityType == 1 ? 'white' : '#eeeeee', flex: 1, display:'flex', justifyContent: 'center', borderTopRightRadius: '5px'}} onClick={() => chooseEntityType(1)}>Event</div>
+                {
+                    allTypes.map((type, index) => <div key={index} style={{backgroundColor: entityType == type ? 'white' : '#eeeeee', flex: 1, display:'flex', justifyContent: 'center', borderTopLeftRadius: '5px'}} onClick={() => chooseEntityType(type)}>{type}</div>)
+                }
             </div>
         )
     }

@@ -37,8 +37,12 @@ export function Trends() {
                     <h4 className="secondary">Actions</h4>
                     <ActionFilter
                         actions={actions}
+                        events={events}
                         actionFilters={filters.actions}
-                        onChange={actions => setFilters({ actions })}
+                        eventFilters={filters.events}
+                        onChange={actions => {
+                            setFilters({ actions })
+                        }}
                     />
                     <hr />
                     <h4 className="secondary">Filters</h4>

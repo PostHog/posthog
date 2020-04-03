@@ -1,7 +1,7 @@
 import React, { Component } from 'react'
 import { CloseButton } from '../../lib/utils'
 import { Dropdown } from '../../lib/components/Dropdown'
-import { ActionSelectBox } from '../../lib/components/ActionSelectBox'
+import { ActionSelectPanel, ActionSelectTabs } from '../../lib/components/ActionSelectBox'
 import { Link } from 'react-router-dom'
 
 export class ActionFilter extends Component {
@@ -9,6 +9,8 @@ export class ActionFilter extends Component {
         super(props)
         this.state = {
             actionFilters: props.actionFilters,
+            eventFilters: props.eventFilters,
+            activeTab: 'actions',
         }
         this.Row = this.Row.bind(this)
         this.Math = this.Math.bind(this)
@@ -39,10 +41,41 @@ export class ActionFilter extends Component {
             </Dropdown>
         )
     }
+
+    actionContains(action, event) {
+        return action.steps.filter(step => step.event == event).length > 0
+    }
+
+    groupActions = actions => {
+        let data = [
+            { label: 'Autocapture', options: [] },
+            { label: 'Captured Events', options: [] },
+            { label: 'Pageview', options: [] },
+        ]
+        actions.map(action => {
+            let format = { label: action.name, value: action.id }
+            if (this.actionContains(action, '$autocapture')) data[0].options.push(format)
+            if (this.actionContains(action, '$pageview')) data[2].options.push(format)
+            if (!this.actionContains(action, '$autocapture') && !this.actionContains(action, '$pageview'))
+                data[1].options.push(format)
+        })
+        return data
+    }
+
+    groupEvents = events => {
+        let data = [{ label: 'All Events', options: [] }]
+
+        events.map(event => {
+            let format = { label: event.name, value: event.name }
+            data[0].options.push(format)
+        })
+        return data
+    }
+
     Row(props) {
-        let { selected, actionFilters } = this.state
-        let { actions } = this.props
-        let { action, filter, index } = props
+        let { selected, actionFilters, activeTab } = this.state
+        let { actions, events } = this.props
+        let { action, event, filter, index } = props
         return (
             <div>
                 <button
@@ -71,17 +104,32 @@ export class ActionFilter extends Component {
                     }}
                 />
                 {(!action.id, selected == action.id) && (
-                    <ActionSelectBox
-                        actions={actions}
-                        action={action}
-                        defaultMenuIsOpen={true}
-                        onChange={actionId => {
-                            actionFilters[index] = { id: actionId }
-                            this.props.onChange(actionFilters)
-                        }}
-                        onClose={() => this.setState({ selected: false })}
-                        multipleEntityTypes={true}
-                    />
+                    <ActionSelectTabs>
+                        <ActionSelectPanel
+                            title="Actions"
+                            options={this.groupActions(actions)}
+                            defaultMenuIsOpen={true}
+                            onSelect={value => {
+                                actionFilters[index] = { id: value }
+                                this.props.onChange(actionFilters)
+                            }}
+                            onHover={value => actions.filter(
+                                a => a.id == value
+                            )[0]}
+                        ></ActionSelectPanel>
+                        <ActionSelectPanel
+                            title="Events"
+                            options={this.groupEvents(events)}
+                            defaultMenuIsOpen={true}
+                            onSelect={value => {
+                                actionFilters[index] = { id: value }
+                                this.props.onChange(actionFilters)
+                            }}
+                            onHover={value => events.filter(
+                                e => e.name == value
+                            )[0]}
+                        ></ActionSelectPanel>
+                    </ActionSelectTabs>
                 )}
             </div>
         )

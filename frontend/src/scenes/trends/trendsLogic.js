@@ -32,6 +32,8 @@ function filtersFromParams() {
     let filters = fromParams()
     filters.actions = filters.actions && JSON.parse(filters.actions)
     filters.actions = Array.isArray(filters.actions) ? filters.actions : undefined
+    filters.events = filters.events && JSON.parse(filters.events)
+    filters.events = Array.isArray(filters.events) ? filters.events : undefined
     filters.properties = filters.properties ? JSON.parse(filters.properties) : {}
 
     return cleanFilters(filters)
@@ -68,11 +70,12 @@ export const trendsLogic = kea({
         filters: [
             {},
             {
-                [actions.setFilters]: (state, { filters, mergeFilters }) =>
-                    cleanFilters({
+                [actions.setFilters]: (state, { filters, mergeFilters }) => {
+                    return cleanFilters({
                         ...(mergeFilters ? state : {}),
                         ...filters,
-                    }),
+                    })
+                },
             },
         ],
         people: [
