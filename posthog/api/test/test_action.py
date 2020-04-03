@@ -11,6 +11,10 @@ class TestCreateAction(BaseTest):
     TESTS_API = True
 
     def test_create_and_update_action(self):
+        event = Event.objects.create(team=self.team, event='$autocapture', elements=[
+            Element(tag_name='button', order=0, text='sign up NOW'),
+            Element(tag_name='div', order=1),
+        ])
         response = self.client.post('/api/action/', data={
             'name': 'user signed up',
             'steps': [{
@@ -40,6 +44,7 @@ class TestCreateAction(BaseTest):
                 "isNew": "asdf",
                 "text": "sign up NOW",
                 "selector": "div > button",
+                "url": None,
             }, {'href': '/a-new-link'}]
         }, content_type='application/json', HTTP_ORIGIN='http://testserver').json()
         action = Action.objects.get()
@@ -47,9 +52,10 @@ class TestCreateAction(BaseTest):
         self.assertEqual(action.name, 'user signed up 2')
         self.assertEqual(steps[0].text, 'sign up NOW')
         self.assertEqual(steps[1].href, '/a-new-link')
+        self.assertEqual(action.events.count(), 1)
 
         # test queries
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(5):
             response = self.client.get('/api/action/')
 
         # test remove steps
@@ -231,6 +237,7 @@ class TestTrends(BaseTest):
 
         watched_movie = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=watched_movie, event='watched movie')
+        watched_movie.calculate_events()
         response = self.client.get('/api/action/trends/?shown_as=Stickiness&date_from=2020-01-01&date_to=2020-01-07&actions=%s' % json_to_url([{'id': watched_movie.id}])).json()
 
         self.assertEqual(response[0]['labels'][0], '1 day')

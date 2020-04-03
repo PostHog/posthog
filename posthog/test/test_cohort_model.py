@@ -7,6 +7,7 @@ class TestCohort(BaseTest):
         event1 = Event.objects.create(event='user signed up', team=self.team, distinct_id='person_1')
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action, event='user signed up')
+        action.calculate_events()
 
 
         Person.objects.create(distinct_ids=['person_2'], team=self.team, properties={'$os': 'Chrome'})
@@ -14,7 +15,7 @@ class TestCohort(BaseTest):
         Person.objects.create(distinct_ids=['person_4'], team=self.team)
 
         cohort = Cohort.objects.create(team=self.team, groups=[{'action_id': action.pk, 'days': 7}])
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3):
             self.assertEqual(cohort.distinct_ids, ['person_1'])
 
         cohort = Cohort.objects.create(team=self.team, groups=[{'properties': {'$os': 'Chrome'}}])
