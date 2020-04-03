@@ -57,9 +57,9 @@ This image has everything you need to try out PostHog locally! It will set up a 
 
 [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/posthog/posthog)
 
-## Production installation
+## Production deployment
 
-[See wiki for production deployment](https://github.com/PostHog/posthog/wiki/Deployment)
+[See docs for production deployment](https://docs.posthog.com/#/deployment)
 
 ## Development
 
