@@ -1,6 +1,8 @@
 from posthog.models import Event, Team, Person, PersonDistinctId, Cohort
 from rest_framework import serializers, viewsets, response, request
 from rest_framework.decorators import action
+from rest_framework.settings import api_settings
+from rest_framework_csv import renderers as csvrenderers
 from django.db.models import Q, Prefetch, QuerySet, Subquery, OuterRef, Count, Func
 from .event import EventSerializer
 from typing import Union
@@ -30,7 +32,18 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             return person.distinct_ids[-1]
         return person.pk
 
+class PersonCsvRenderer (csvrenderers.PaginatedCSVRenderer):
+    header = ['id', 'name', 'properties.email', 'properties.name.first', 'properties.name.last', 'properties.phone', 'created_at'] # controls column ordering in returned csv
+    labels = {
+        'team_id': 'Team',
+        'properties.email': 'Person',
+        'properties.name.first' : 'FirstName',
+        'properties.name.last' : 'LastName',
+        'properties.phone' : 'Phone'
+    } # controls column labels in returned csv
+
 class PersonViewSet(viewsets.ModelViewSet):
+    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (PersonCsvRenderer, )
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = CursorPagination
