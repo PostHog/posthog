@@ -14,6 +14,8 @@ class TestCreateFunnel(BaseTest):
         ActionStep.objects.create(action=action_play_movie, tag_name='a', href='/movie')
         action_logout = Action.objects.create(team=self.team, name='user logged out')
 
+        [action.calculate_events() for action in Action.objects.all()]
+
         response = self.client.post('/api/funnel/', data={
             'name': 'Whatever',
             'steps': [
@@ -119,7 +121,7 @@ class TestGetFunnel(BaseTest):
 
         self._signup_event('a_user_that_got_deleted_or_doesnt_exist')
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(7):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
         self.assertEqual(response['steps'][0]['name'], 'signed up')
         self.assertEqual(response['steps'][0]['count'], 4)
@@ -134,17 +136,17 @@ class TestGetFunnel(BaseTest):
         # make sure it's O(n)
         person_wrong_order = Person.objects.create(distinct_ids=["badalgo"], team=self.team)
         self._signup_event('badalgo')
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(7):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
 
         self._pay_event('badalgo')
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(7):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
 
     def test_funnel_no_events(self):
         funnel = self._basic_funnel()
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(7):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
 
     def test_funnel_skipped_step(self):

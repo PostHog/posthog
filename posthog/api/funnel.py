@@ -50,6 +50,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
                         team_id=funnel.team_id,
                         distinct_id__in=Subquery(
                             PersonDistinctId.objects.filter(
+                                team_id=funnel.team_id,
                                 person_id=OuterRef('person_id')
                             ).values('distinct_id')
                         ),
@@ -59,9 +60,10 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
                     .values('timestamp')[:1])
 
         people = Person.objects.all()\
-            .filter(team_id=funnel.team_id)\
+            .filter(team_id=funnel.team_id, persondistinctid__distinct_id__isnull=False)\
             .annotate(**annotations)\
-            .filter(step_0__isnull=False)
+            .filter(step_0__isnull=False)\
+            .distinct('pk')
 
         steps = []
         for index, step in enumerate(funnel_steps):
