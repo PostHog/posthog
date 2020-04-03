@@ -1,5 +1,5 @@
 import React, { Component } from 'react'
-import { CloseButton } from '../../lib/utils'
+import { CloseButton, groupActions, groupEvents } from '../../lib/utils'
 import { Dropdown } from '../../lib/components/Dropdown'
 import { ActionSelectPanel, ActionSelectTabs } from '../../lib/components/ActionSelectBox'
 import { Link } from 'react-router-dom'
@@ -46,32 +46,6 @@ export class ActionFilter extends Component {
         return action.steps.filter(step => step.event == event).length > 0
     }
 
-    groupActions = actions => {
-        let data = [
-            { label: 'Autocapture', options: [] },
-            { label: 'Captured Events', options: [] },
-            { label: 'Pageview', options: [] },
-        ]
-        actions.map(action => {
-            let format = { label: action.name, value: action.id }
-            if (this.actionContains(action, '$autocapture')) data[0].options.push(format)
-            if (this.actionContains(action, '$pageview')) data[2].options.push(format)
-            if (!this.actionContains(action, '$autocapture') && !this.actionContains(action, '$pageview'))
-                data[1].options.push(format)
-        })
-        return data
-    }
-
-    groupEvents = events => {
-        let data = [{ label: 'All Events', options: [] }]
-
-        events.map(event => {
-            let format = { label: event.name, value: event.name }
-            data[0].options.push(format)
-        })
-        return data
-    }
-
     Row(props) {
         let { selected, actionFilters, activeTab } = this.state
         let { actions, events } = this.props
@@ -107,7 +81,7 @@ export class ActionFilter extends Component {
                     <ActionSelectTabs>
                         <ActionSelectPanel
                             title="Actions"
-                            options={this.groupActions(actions)}
+                            options={groupActions(actions)}
                             defaultMenuIsOpen={true}
                             onSelect={value => {
                                 actionFilters[index] = { id: value }
@@ -116,8 +90,15 @@ export class ActionFilter extends Component {
                             onHover={value => actions.filter(
                                 a => a.id == value
                             )[0]}
-                        ></ActionSelectPanel>
-                        <ActionSelectPanel
+                        >
+                            {action.id && (
+                                <a href={'/action/' + action.id} target="_blank">
+                                    Edit "{action.name}"{' '}
+                                    <i className="fi flaticon-export" />
+                                </a>
+                            )}
+                        </ActionSelectPanel>
+                        {/* <ActionSelectPanel
                             title="Events"
                             options={this.groupEvents(events)}
                             defaultMenuIsOpen={true}
@@ -128,7 +109,7 @@ export class ActionFilter extends Component {
                             onHover={value => events.filter(
                                 e => e.name == value
                             )[0]}
-                        ></ActionSelectPanel>
+                        ></ActionSelectPanel> */}
                     </ActionSelectTabs>
                 )}
             </div>

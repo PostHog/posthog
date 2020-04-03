@@ -6,19 +6,21 @@ import PropTypes from 'prop-types'
 import ActionSelectTab from './ActionSelectTab'
 
 export function ActionSelectTabs(props) {
-    let [activeTab, setActiveTab] = useState(props.children[0].props.title)
-    let [labels] = useState(props.children.map(child => child.props.title))
+    let [activeTab, setActiveTab] = useState(Array.isArray(props.children) ? props.children[0].props.title: props.children.props.title)
+    let [labels] = useState(Array.isArray(props.children) ? props.children.map(child => child.props.title): [props.children.props.title])
     return (
         <div className="select-box" style={{ padding: 0 }}>
-            <ActionSelectTab
+            {labels.length > 1 && <ActionSelectTab
                 entityType={activeTab}
                 allTypes={labels}
                 chooseEntityType={setActiveTab}
-            ></ActionSelectTab>
-            {props.children.map(child => {
+            ></ActionSelectTab>}
+            {Array.isArray(props.children) ? props.children.map(child => {
                 if (child.props.title !== activeTab) return undefined
                 return child
-            })}
+            }) : 
+                props.children
+            }
         </div>
     )
 }
@@ -50,12 +52,7 @@ export class ActionSelectPanel extends Component {
     render() {
         return (
             <div style={{ padding: '1rem' }}>
-                {/* {action.id && (
-                        <a href={'/action/' + action.id} target="_blank">
-                            Edit "{action.name}"{' '}
-                            <i className="fi flaticon-export" />
-                        </a>
-                    )} */}
+                {this.props.children}
                 {this.state.infoOpen && (
                     <ActionSelectInfo
                         isOpen={this.state.infoOpen}
@@ -89,92 +86,4 @@ ActionSelectPanel.propTypes = {
     onSelect: PropTypes.func.isRequired,
     title: PropTypes.string.isRequired,
     onHover: PropTypes.func.isRequired,
-}
-
-export class ActionSelectBox extends Component {
-    constructor(props) {
-        super(props)
-        this.state = {}
-    }
-    actionContains(action, event) {
-        return action.steps.filter(step => step.event == event).length > 0
-    }
-
-    Option = props => {
-        return (
-            <div
-                onMouseOver={e =>
-                    this.setState({
-                        infoOpen: true,
-                        infoBoundingRect: e.target.getBoundingClientRect(),
-                        infoActionId: props.value,
-                    })
-                }
-                onMouseOut={e => {
-                    this.setState({ infoOpen: false })
-                }}
-            >
-                <components.Option {...props} />
-            </div>
-        )
-    }
-    groupActions = actions => {
-        let data = [
-            { label: 'Autocapture', options: [] },
-            { label: 'Event', options: [] },
-            { label: 'Pageview', options: [] },
-        ]
-        actions.map(action => {
-            let format = { label: action.name, value: action.id }
-            if (this.actionContains(action, '$autocapture')) data[0].options.push(format)
-            if (this.actionContains(action, '$pageview')) data[2].options.push(format)
-            if (!this.actionContains(action, '$autocapture') && !this.actionContains(action, '$pageview'))
-                data[1].options.push(format)
-        })
-        return data
-    }
-    render() {
-        let { action, actions, onClose, onChange, defaultMenuIsOpen } = this.props
-        return (
-            <div className="select-box">
-                {action.id && (
-                    <a href={'/action/' + action.id} target="_blank">
-                        Edit "{action.name}" <i className="fi flaticon-export" />
-                    </a>
-                )}
-                {this.state.infoOpen && (
-                    <ActionSelectInfo
-                        isOpen={this.state.infoOpen}
-                        boundingRect={this.state.infoBoundingRect}
-                        action={actions.filter(a => a.id == this.state.infoActionId)[0]}
-                    />
-                )}
-                <Select
-                    onBlur={e => {
-                        if (e.relatedTarget && e.relatedTarget.tagName == 'A') return
-                        this.setState({ infoOpen: false })
-                        if (onClose) onClose()
-                    }}
-                    onChange={item => onChange(item.value)}
-                    defaultMenuIsOpen={defaultMenuIsOpen}
-                    autoFocus={true}
-                    value={{
-                        label: action.name,
-                        value: action.id,
-                    }}
-                    className="select-box-select"
-                    styles={selectStyle}
-                    components={{ Option: this.Option }}
-                    options={this.groupActions(actions)}
-                />
-            </div>
-        )
-    }
-}
-ActionSelectBox.propTypes = {
-    onChange: PropTypes.func.isRequired,
-    actions: PropTypes.array.isRequired,
-    action: PropTypes.object.isRequired,
-    onClose: PropTypes.func,
-    defaultMenuIsOpen: PropTypes.bool,
 }
