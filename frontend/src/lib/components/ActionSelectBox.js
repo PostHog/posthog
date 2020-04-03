@@ -69,7 +69,7 @@ export class ActionSelectPanel extends Component {
                     onChange={this.props.onSelect}
                     defaultMenuIsOpen={this.props.defaultMenuIsOpen}
                     autoFocus={true}
-                    value={null}
+                    value={this.props.active}
                     className="select-box-select"
                     styles={selectStyle}
                     components={{ Option: this.Option }}
