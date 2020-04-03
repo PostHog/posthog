@@ -1,5 +1,10 @@
 # Changelog
 
+### 1.0.10.2 - Friday 3 April 2020
+
+- Precalculate Actions to speed up everything (dashboards/actions overview etcetera)
+- Fix error running Docker file
+
 ### 1.0.10.1 - Wednesday 1 April 2020
 
 - Fixes for Helm charts
