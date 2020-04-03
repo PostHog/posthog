@@ -1,42 +1,26 @@
-import React, { Component } from 'react'
+import React, { Component, useState } from 'react'
 import Select, { components } from 'react-select'
 import { ActionSelectInfo } from '../../scenes/trends/ActionSelectInfo'
 import { selectStyle } from '../utils'
 import PropTypes from 'prop-types'
 import ActionSelectTab from './ActionSelectTab'
 
-export class ActionSelectTabs extends Component {
-    constructor(props) {
-        super(props)
-        this.state = {
-            activeTab: props.children[0].props.title,
-            labels: props.children.map(child => child.props.title),
-        }
-    }
-
-    onTabSelect = tab => {
-        this.setState({
-            activeTab: tab,
-        })
-    }
-
-    render() {
-        let { activeTab, labels } = this.state
-        let { children } = this.props
-        return (
-            <div className="select-box" style={{ padding: 0 }}>
-                <ActionSelectTab
-                    entityType={activeTab}
-                    allTypes={labels}
-                    chooseEntityType={this.onTabSelect}
-                ></ActionSelectTab>
-                {children.map(child => {
-                    if (child.props.title !== activeTab) return undefined
-                    return child
-                })}
-            </div>
-        )
-    }
+export function ActionSelectTabs(props) {
+    let [activeTab, setActiveTab] = useState(props.children[0].props.title)
+    let [labels] = useState(props.children.map(child => child.props.title))
+    return (
+        <div className="select-box" style={{ padding: 0 }}>
+            <ActionSelectTab
+                entityType={activeTab}
+                allTypes={labels}
+                chooseEntityType={setActiveTab}
+            ></ActionSelectTab>
+            {props.children.map(child => {
+                if (child.props.title !== activeTab) return undefined
+                return child
+            })}
+        </div>
+    )
 }
 
 export class ActionSelectPanel extends Component {
