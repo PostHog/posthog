@@ -170,6 +170,10 @@ export class ActionFilter extends Component {
             dropDownOnSelect = item => {
                 entities.filters.push({ id: item.value })
                 this.props.onChange({[entityType]: entities.filters})
+                let newfilters = this.state.newFilters.splice(entityIndex, 1)
+                this.setState({
+                    newfilters
+                })
             }
         } else {
             dropDownOnSelect = item => {
