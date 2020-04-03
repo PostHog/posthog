@@ -5,17 +5,13 @@ import PropTypes from 'prop-types'
 
 export function uuid() {
     return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
-        (
-            c ^
-            (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))
-        ).toString(16)
+        (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16)
     )
 }
 
 export let toParams = obj => {
     let handleVal = val => {
-        if (val._isAMomentObject)
-            return encodeURIComponent(val.format('YYYY-MM-DD'))
+        if (val._isAMomentObject) return encodeURIComponent(val.format('YYYY-MM-DD'))
         val = typeof val === 'object' ? JSON.stringify(val) : val
         return encodeURIComponent(val)
     }
@@ -36,16 +32,7 @@ export let fromParams = () =>
               }, {})
         : {}
 
-export let colors = [
-    'success',
-    'secondary',
-    'warning',
-    'primary',
-    'danger',
-    'info',
-    'dark',
-    'light',
-]
+export let colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
 export let percentage = division =>
     division.toLocaleString(undefined, {
         style: 'percent',
@@ -60,11 +47,7 @@ export let Loading = () => (
 
 export let CloseButton = props => {
     return (
-        <span
-            {...props}
-            className={'close cursor-pointer ' + props.className}
-            style={{ ...props.style }}
-        >
+        <span {...props} className={'close cursor-pointer ' + props.className} style={{ ...props.style }}>
             <span aria-hidden="true">&times;</span>
         </span>
     )
@@ -72,12 +55,7 @@ export let CloseButton = props => {
 
 export function Card(props) {
     return (
-        <div
-            {...props}
-            className={'card ' + props.className}
-            style={props.style}
-            title=""
-        >
+        <div {...props} className={'card ' + props.className} style={props.style} title="">
             {props.title && <div className="card-header">{props.title}</div>}
             {props.children}
         </div>
@@ -140,17 +118,14 @@ DeleteWithUndo.propTypes = {
 }
 
 export let JSSnippet = props => {
-    let url =
-        window.location.origin == 'https://app.posthog.com'
-            ? 'https://t.posthog.com'
-            : window.location.origin
+    let url = window.location.origin
     return (
-        <pre className="code">
-            {`<script src="${url}/static/array.js"></script>`}
-            <br />
+        <pre className="code scrolling-code">
             {`<script>`}
             <br />
-            {`posthog.init('${props.user.team.api_token}', {api_host: '${url}'})`}
+            {`  !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){var c=s.api_host||"${url}";function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.async=!0,p.src=c+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_captureing has_opted_out_captureing opt_in_captureing opt_out_capturing has_opted_out_capturing opt_in_capturing reset".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);`}
+            <br />
+            {`  posthog.init('${props.user.team.api_token}', {api_host: '${url}'})`}
             <br />
             {`</script>`}
             <br />

@@ -52,6 +52,10 @@ $body-color: #37352f;
 @import 'style/trends';
 @import 'style/send-events-overlay';
 
+.layout-container {
+    max-width: 100vw;
+}
+
 .cursor-pointer {
     cursor: pointer;
 }
@@ -127,6 +131,10 @@ pre.code {
     color: white;
     margin-top: 2rem;
     font-size: 15px;
+    &.scrolling-code {
+        white-space: pre;
+        overflow: scroll;
+    }
 }
 
 .text-overflow {
