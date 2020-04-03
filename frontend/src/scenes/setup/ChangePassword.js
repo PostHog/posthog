@@ -20,13 +20,17 @@ export class ChangePassword extends Component {
     save = async event => {
         event.preventDefault()
         try {
-            await api.patch('todo', {
+            await api.update('api/user/change_password', {
                 oldPassword: this.state.oldPassword,
                 newPassword: this.state.newPassword,
             })
             toast.success('Password changed')
-        } catch {
-            toast.error('Password change failed')
+            // Give the user enough time to see the "Password change" toast
+            setTimeout(() => {
+                window.location.reload()
+            }, 2000)
+        } catch (response) {
+            toast.error(response.error)
         } finally {
             this.setState({
                 oldPassword: '',
