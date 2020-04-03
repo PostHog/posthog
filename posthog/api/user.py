@@ -64,7 +64,10 @@ def change_password(request):
     if not request.user.is_authenticated:
         return JsonResponse({}, status=401)
 
-    body = json.loads(request.body)
+    try:
+        body = json.loads(request.body)
+    except:
+        return JsonResponse({'error': 'Cannot parse request body'}, status=400)
 
     old_password = body.get('oldPassword')
     new_password = body.get('newPassword')
