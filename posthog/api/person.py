@@ -2,7 +2,7 @@ from posthog.models import Event, Team, Person, PersonDistinctId, Cohort
 from rest_framework import serializers, viewsets, response, request
 from rest_framework.decorators import action
 from rest_framework.settings import api_settings
-from rest_framework_csv import renderers as csvrenderers
+from rest_framework_csv import renderers as csvrenderers  # type: ignore
 from django.db.models import Q, Prefetch, QuerySet, Subquery, OuterRef, Count, Func
 from .event import EventSerializer
 from typing import Union
