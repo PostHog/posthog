@@ -48,6 +48,12 @@ class PersonViewSet(viewsets.ModelViewSet):
     serializer_class = PersonSerializer
     pagination_class = CursorPagination
 
+    def paginate_queryset(self, queryset, view=None):
+        if 'text/csv' in self.request.accepted_media_type:
+            return None
+        else:
+            return self.paginator.paginate_queryset(queryset, self.request, view=self)
+
     def _filter_cohort(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
         cohort = Cohort.objects.get(team=team, pk=request.GET['cohort'])
         queryset = queryset.filter(pk__in=cohort.person_ids)
