@@ -10,7 +10,7 @@ PostHog is open source product analytics, built for developers. Automate the col
 
 <a href="https://heroku.com/deploy?template=https://github.com/posthog/posthog"><img src="https://www.herokucdn.com/deploy/button.svg" width="250px" /></a>
 
-See [PostHog docs](https://github.com/PostHog/posthog/wiki) for in-depth walk throughs on functionality.
+See [PostHog docs](https://docs.posthog.com) for in-depth walk throughs on functionality.
 
 ![PostHog dashboard screenshot](https://posthog.com/wp-content/uploads/2020/02/Screenshot-2020-02-13-at-23.14.36-2.png)
 
