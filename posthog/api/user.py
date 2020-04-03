@@ -59,14 +59,16 @@ def redirect_to_site(request):
 
     return redirect("{}#state={}".format(app_url, state))
 
+
 @require_http_methods(['PATCH'])
 def change_password(request):
+    """Change the password of a regular User."""
     if not request.user.is_authenticated:
         return JsonResponse({}, status=401)
 
     try:
         body = json.loads(request.body)
-    except:
+    except (TypeError, json.decoder.JSONDecodeError):
         return JsonResponse({'error': 'Cannot parse request body'}, status=400)
 
     old_password = body.get('oldPassword')
