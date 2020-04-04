@@ -296,7 +296,6 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         parsed_actions = self._parse_entities('actions')
         parsed_events = self._parse_entities('events')
-
         def _trend_entity_factory(id, name):
             return {
                 'action': {
@@ -308,13 +307,13 @@ class ActionViewSet(viewsets.ModelViewSet):
                 'breakdown': []
             }
 
-        def _process_trend_entity(entity, filters={}):
-            if type(entity) is Action:
+        def _process_trend_entity(entity, filters={}, entity_type=None):
+            if entity_type == 'action':
                 trend_entity = _trend_entity_factory(entity.pk, entity.name)
                 filtered_events = Event.objects.query_db_by_action(entity)
-            elif type(entity) is Event:
+            elif entity_type == 'event':
                 trend_entity = _trend_entity_factory(entity['id'], entity['id'])
-                filtered_events = Event.objects.filter(event=event['id'], team=self.request.user.team_set.get())
+                filtered_events = Event.objects.filter(event=entity['id'], team=self.request.user.team_set.get())
             else: 
                 return None
 
@@ -327,7 +326,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         if parsed_events:
             for event in parsed_events:
-                trend_entity = _process_trend_entity(event, filters=event)
+                trend_entity = _process_trend_entity(event, filters=event, entity_type='event')
                 if trend_entity is not None:
                     actions_list.append(trend_entity)  
         if parsed_actions:
@@ -336,12 +335,12 @@ class ActionViewSet(viewsets.ModelViewSet):
                     db_action = actions.get(pk=filters['id'])
                 except Action.DoesNotExist:
                     continue
-                trend_entity = _process_trend_entity(db_action, filters=filters)
+                trend_entity = _process_trend_entity(db_action, filters=filters, entity_type='action')
                 if trend_entity is not None:
                     actions_list.append(trend_entity)
         else:
             for action in actions:
-                trend_entity = _process_trend_entity(action)
+                trend_entity = _process_trend_entity(action, entity_type='action')
                 if trend_entity is not None:
                     actions_list.append(trend_entity)
                 
