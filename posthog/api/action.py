@@ -270,40 +270,11 @@ class ActionViewSet(viewsets.ModelViewSet):
             'data': data
         }
 
-    def _serialize_action(self, action: Action, filters: Dict[Any, Any], request: request.Request) -> Dict:
-        append = {
-            'action': {
-                'id': action.pk,
-                'name': action.name
-            },
-            'label': action.name,
-            'count': 0,
-            'breakdown': []
-        }
+    def _serialize_entity(self, append: Dict[str,any], filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request) -> Dict:
         if request.GET.get('shown_as', 'Volume') == 'Volume':
-            filtered_events = Event.objects.filter_by_action(action)
             append.update(self._aggregate_by_day(filtered_events=filtered_events, filters=filters, request=request))
         elif request.GET['shown_as'] == 'Stickiness':
-            filtered_events = Event.objects.filter_by_action(action, order_by=None)
             append.update(self._stickiness(filtered_events=filtered_events, filters=filters, request=request))
-        return append
-
-    def _serialize_event(self, event: Dict[Any, Any], request: request.Request) -> Dict:
-        append = {
-            'action': {
-                'id': event['id'],
-                'name': event['id']
-            },
-            'label': event['id'],
-            'count': 0,
-            'breakdown': []
-        }
-        if request.GET.get('shown_as', 'Volume') == 'Volume':
-            filtered_events = Event.objects.filter(event=event['id'], team=self.request.user.team_set.get())
-            append.update(self._aggregate_by_day(filtered_events=filtered_events, filters=event, request=request))
-        elif request.GET['shown_as'] == 'Stickiness':
-            filtered_events = Event.objects.filter(event=event['id'], team=self.request.user.team_set.get())
-            append.update(self._stickiness(filtered_events=filtered_events, filters=event, request=request))
         return append
 
     def _serialize_people(self, action: Action, people: QuerySet, request: request.Request) -> Dict:
@@ -326,32 +297,54 @@ class ActionViewSet(viewsets.ModelViewSet):
         parsed_actions = self._parse_entities('actions')
         parsed_events = self._parse_entities('events')
 
+        def _trend_entity_factory(id, name):
+            return {
+                'action': {
+                    'id': id,
+                    'name': name
+                },
+                'label': name,
+                'count': 0,
+                'breakdown': []
+            }
+
+        def _process_trend_entity(entity, filters={}):
+            if type(entity) is Action:
+                trend_entity = _trend_entity_factory(entity.pk, entity.name)
+                filtered_events = Event.objects.query_db_by_action(entity)
+            elif type(entity) is Event:
+                trend_entity = _trend_entity_factory(entity['id'], entity['id'])
+                filtered_events = Event.objects.filter(event=event['id'], team=self.request.user.team_set.get())
+            else: 
+                return None
+
+            return self._serialize_entity(
+                append=trend_entity,
+                filtered_events=filtered_events,
+                filters=filters,
+                request=request,
+            )
+
         if parsed_events:
             for event in parsed_events:
-                actions_list.append(self._serialize_event(
-                    event=event,
-                    request=request,
-                ))
-
+                trend_entity = _process_trend_entity(event, filters=event)
+                if trend_entity is not None:
+                    actions_list.append(trend_entity)  
         if parsed_actions:
             for filters in parsed_actions:
                 try:
                     db_action = actions.get(pk=filters['id'])
                 except Action.DoesNotExist:
                     continue
-
-                actions_list.append(self._serialize_action(
-                    action=db_action,
-                    filters=filters,
-                    request=request,
-                ))
+                trend_entity = _process_trend_entity(db_action, filters=filters)
+                if trend_entity is not None:
+                    actions_list.append(trend_entity)
         else:
             for action in actions:
-                actions_list.append(self._serialize_action(
-                    action=action,
-                    filters={},
-                    request=request,
-                ))
+                trend_entity = _process_trend_entity(action)
+                if trend_entity is not None:
+                    actions_list.append(trend_entity)
+                
         return Response(actions_list)
 
     @action(methods=['GET'], detail=False)
