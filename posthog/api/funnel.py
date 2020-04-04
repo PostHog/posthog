@@ -50,19 +50,20 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
                         team_id=funnel.team_id,
                         distinct_id__in=Subquery(
                             PersonDistinctId.objects.filter(
+                                team_id=funnel.team_id,
                                 person_id=OuterRef('person_id')
                             ).values('distinct_id')
                         ),
-                        pk__gt=OuterRef('step_{}'.format(index-1)) if index > 0 else 0
+                        **({'timestamp__gt': OuterRef('step_{}'.format(index-1))} if index > 0 else {})
                     )\
-                    .order_by('pk')\
-                    .values('pk')[:1]
-            , output_field=models.IntegerField())
+                    .order_by('timestamp')\
+                    .values('timestamp')[:1])
 
         people = Person.objects.all()\
-            .filter(team_id=funnel.team_id)\
+            .filter(team_id=funnel.team_id, persondistinctid__distinct_id__isnull=False)\
             .annotate(**annotations)\
-            .filter(step_0__isnull=False)
+            .filter(step_0__isnull=False)\
+            .distinct('pk')
 
         steps = []
         for index, step in enumerate(funnel_steps):

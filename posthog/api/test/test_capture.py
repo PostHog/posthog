@@ -58,7 +58,6 @@ class TestCapture(BaseTest):
         event = Event.objects.get()
         self.assertEqual(event.event, '$pageview')
 
-
     def test_engage(self):
         user = self._create_user('tim')
         self.client.force_login(user)

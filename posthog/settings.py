@@ -17,7 +17,7 @@ import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
 from sentry_sdk.integrations.django import DjangoIntegration
 
-VERSION = '1.0.9'
+VERSION = '1.0.10.2'
 
 def get_env(key):
     try:
@@ -160,10 +160,26 @@ SOCIAL_AUTH_GITLAB_SECRET = os.environ.get('SOCIAL_AUTH_GITLAB_SECRET', "")
 if TEST or DEBUG:
     DATABASE_URL = os.environ.get('DATABASE_URL', 'postgres://localhost:5432/posthog')
 else:
-    DATABASE_URL = get_env('DATABASE_URL')
-DATABASES = {
-    'default': dj_database_url.config(default=DATABASE_URL, conn_max_age=600)
-}
+    DATABASE_URL = os.environ.get('DATABASE_URL', '')
+
+if DATABASE_URL:
+    DATABASES = {
+        'default': dj_database_url.config(default=DATABASE_URL, conn_max_age=600)
+    }
+elif os.environ.get('POSTHOG_DB_NAME'):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql_psycopg2',
+            'NAME': get_env('POSTHOG_DB_NAME'),
+            'USER': os.environ.get('POSTHOG_DB_USER', 'postgres'),
+            'PASSWORD': os.environ.get('POSTHOG_DB_PASSWORD', ''),
+            'HOST': os.environ.get('POSTHOG_POSTGRES_HOST', 'localhost'),
+            'PORT': os.environ.get('POSTHOG_POSTGRES_PORT', '5432'),
+            'CONN_MAX_AGE': 0,
+        }
+    }
+else:
+    raise ImproperlyConfigured(f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software')
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators

@@ -20,6 +20,7 @@ import json
 from dateutil.relativedelta import relativedelta
 from .person import PersonSerializer
 
+
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = ActionStep
@@ -35,13 +36,14 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         fields = ['id', 'name', 'steps', 'created_at', 'deleted', 'count']
 
     def get_steps(self, action: Action):
-        steps = action.steps.all().order_by('id')
+        steps = action.steps.all()
         return ActionStepSerializer(steps, many=True).data
 
     def get_count(self, action: Action) -> Optional[int]:
-        if self.context['request'].GET.get('include_count', False):
-            return Event.objects.filter_by_action(action).count()
+        if hasattr(action, 'count'):
+            return action.count  # type: ignore
         return None
+
 
 class TemporaryTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: request.Request):
@@ -61,6 +63,7 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
             return (user.first(), None)
         return None
 
+
 class ActionViewSet(viewsets.ModelViewSet):
     queryset = Action.objects.all()
     serializer_class = ActionSerializer
@@ -78,6 +81,10 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         if self.request.GET.get('actions'):
             queryset = queryset.filter(pk__in=[action['id'] for action in self._parse_actions(self.request.GET['actions'])])
+
+        if self.request.GET.get('include_count'):
+            queryset = queryset.annotate(count=Count('events'))
+
         queryset = queryset.prefetch_related(Prefetch('steps', queryset=ActionStep.objects.order_by('id')))
         return queryset\
             .filter(team=self.request.user.team_set.get())\
@@ -101,6 +108,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     action=action,
                     **{key: value for key, value in step.items() if key not in ('isNew', 'selection')}
                 )
+        action.calculate_events()
         return Response(ActionSerializer(action, context={'request': request}).data)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -127,6 +135,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         serializer = ActionSerializer(action, context={'request': request})
         serializer.update(action, request.data)
+        action.calculate_events()
         return Response(ActionSerializer(action, context={'request': request}).data)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -174,15 +183,22 @@ class ActionViewSet(viewsets.ModelViewSet):
         filters &= properties_to_Q(properties)
         return filters
 
-    def _breakdown(self, events: QuerySet, breakdown_by: str) -> List[Dict[str, int]]:
+    def _breakdown(self, append: Dict, action: Action, filters: Dict[Any, Any],request: request.Request, breakdown_by: str) -> Dict:
         key = "properties__{}".format(breakdown_by)
-        events = events\
+        events = Event.objects\
+            .filter_by_action(action)\
+            .filter(self._filter_events(request))\
             .values(key)\
             .annotate(count=Count('id'))\
             .order_by('-count')
 
-        return [{'name': item[key] if item[key] else 'undefined', 'count': item['count']} for item in events]
-
+        events = self._process_math(events, filters)
+            
+        values = [{'name': item[key] if item[key] else 'undefined', 'count': item['count']} for item in events]
+        append['breakdown'] = values
+        append['count'] = sum(item['count'] for item in values)
+        return append
+        
     def _append_data(self, append: Dict, dates_filled: pd.DataFrame) -> Dict:
         values = [value[0] for key, value in dates_filled.iterrows()]
         append['labels'] = [key.strftime('%a. %-d %B') for key, value in dates_filled.iterrows()]
@@ -200,8 +216,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             .annotate(count=Count('id'))\
             .order_by()
 
-        if filters.get('math') == 'dau':
-            aggregates = aggregates.annotate(count=Count('distinct_id', distinct=True))
+        aggregates = self._process_math(aggregates, filters)
 
         if len(aggregates) > 0:
             date_from, date_to = self._get_dates_from_request(request)
@@ -210,9 +225,14 @@ class ActionViewSet(viewsets.ModelViewSet):
             dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates)
             append = self._append_data(append, dates_filled)
         if request.GET.get('breakdown'):
-            append['breakdown'] = self._breakdown(aggregates, breakdown_by=request.GET['breakdown'])
+            append = self._breakdown(append, action, filters, request, breakdown_by=request.GET['breakdown'])
 
         return append
+
+    def _process_math(self, query: QuerySet, filters: Dict[Any, Any]):
+        if filters.get('math') == 'dau':
+            query = query.annotate(count=Count('distinct_id', distinct=True))
+        return query
 
     def _execute_custom_sql(self, query, params):
         cursor = connection.cursor()
@@ -285,9 +305,14 @@ class ActionViewSet(viewsets.ModelViewSet):
         actions_list = []
 
         parsed_actions = self._parse_actions(request)
+
         if parsed_actions:
             for filters in parsed_actions:
-                db_action = [a for a in actions if a.id == filters['id']][0]
+                try:
+                    db_action = actions.get(pk=filters['id'])
+                except Action.DoesNotExist:
+                    continue
+
                 actions_list.append(self._serialize_action(
                     action=db_action,
                     filters=filters,
@@ -300,6 +325,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     filters={},
                     request=request,
                 ))
+
         return Response(actions_list)
 
     @action(methods=['GET'], detail=False)

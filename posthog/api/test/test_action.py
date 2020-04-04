@@ -10,7 +10,11 @@ def json_to_url(input) -> str:
 class TestCreateAction(BaseTest):
     TESTS_API = True
 
-    def test_create_and_update_action(self): 
+    def test_create_and_update_action(self):
+        event = Event.objects.create(team=self.team, event='$autocapture', elements=[
+            Element(tag_name='button', order=0, text='sign up NOW'),
+            Element(tag_name='div', order=1),
+        ])
         response = self.client.post('/api/action/', data={
             'name': 'user signed up',
             'steps': [{
@@ -40,6 +44,7 @@ class TestCreateAction(BaseTest):
                 "isNew": "asdf",
                 "text": "sign up NOW",
                 "selector": "div > button",
+                "url": None,
             }, {'href': '/a-new-link'}]
         }, content_type='application/json', HTTP_ORIGIN='http://testserver').json()
         action = Action.objects.get()
@@ -47,9 +52,10 @@ class TestCreateAction(BaseTest):
         self.assertEqual(action.name, 'user signed up 2')
         self.assertEqual(steps[0].text, 'sign up NOW')
         self.assertEqual(steps[1].href, '/a-new-link')
+        self.assertEqual(action.events.count(), 1)
 
         # test queries
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(5):
             response = self.client.get('/api/action/')
 
         # test remove steps
@@ -172,6 +178,13 @@ class TestTrends(BaseTest):
             response = self.client.get('/api/action/trends/?actions=%s' % json_to_url([{'id': sign_up_action.id}])).json()
         self.assertEqual(len(response), 1)
 
+    def test_trends_for_non_existing_action(self):
+        with freeze_time('2020-01-04'):
+            response = self.client.get('/api/action/trends/?actions=%s' % json_to_url([{'id': 4000000}])).json()
+
+        self.assertEqual(len(response), 0)
+
+
     def test_dau_filtering(self):
         sign_up_action, person = self._create_events()
         with freeze_time('2020-01-02'):
@@ -180,6 +193,20 @@ class TestTrends(BaseTest):
             response = self.client.get('/api/action/trends/?actions=%s' % json_to_url([{'id': sign_up_action.id, 'math': 'dau'}])).json()
         self.assertEqual(response[0]['data'][4], 1)
         self.assertEqual(response[0]['data'][5], 2)
+
+    def test_dau_with_breakdown_filtering(self):
+        sign_up_action, person = self._create_events()
+        with freeze_time('2020-01-02'):
+            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "other_value"})
+        with freeze_time('2020-01-04'):
+            response = self.client.get('/api/action/trends/?breakdown=some_property&actions=%s' % json_to_url([{'id': sign_up_action.id, 'math': 'dau'}])).json()
+
+        self.assertEqual(response[0]['breakdown'][0]['name'], 'other_value')
+        self.assertEqual(response[0]['breakdown'][0]['count'], 1)
+        self.assertEqual(response[0]['breakdown'][1]['name'], 'value')
+        self.assertEqual(response[0]['breakdown'][1]['count'], 1)
+        self.assertEqual(response[0]['breakdown'][2]['name'], 'undefined')
+        self.assertEqual(response[0]['breakdown'][2]['count'], 1)
 
     def test_people_endpoint(self):
         sign_up_action, person = self._create_events()
@@ -210,6 +237,7 @@ class TestTrends(BaseTest):
 
         watched_movie = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=watched_movie, event='watched movie')
+        watched_movie.calculate_events()
         response = self.client.get('/api/action/trends/?shown_as=Stickiness&date_from=2020-01-01&date_to=2020-01-07&actions=%s' % json_to_url([{'id': watched_movie.id}])).json()
 
         self.assertEqual(response[0]['labels'][0], '1 day')
