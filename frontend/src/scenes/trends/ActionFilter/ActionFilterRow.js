@@ -8,7 +8,7 @@ import { ActionFilterDropdown } from './ActionFilterDropdown'
 export function ActionFilterRow(props) {
     const { filter, type, index } = props
     const { selectedFilter, entities, formattedFilters } = useValues(entityFilterLogic)
-    const { selectFilter, setFilters, removeFilter } = useActions(entityFilterLogic)
+    const { selectFilter, updateFilterMath, removeFilter } = useActions(entityFilterLogic)
 
     let entity, dropDownCondition, onClick, onClose, onMathSelect, name, value, math
     name = null
@@ -18,8 +18,7 @@ export function ActionFilterRow(props) {
         removeFilter({ value: filter.id, type, index })
     }
     onMathSelect = (index, math) => {
-        formattedFilters[type][index].math = math
-        setFilters({ [type]: entities[type].filters })
+        updateFilterMath({ math, value: filter.id, type })
     }
 
     dropDownCondition = () => selectedFilter && selectedFilter.type == type && selectedFilter.index == index
