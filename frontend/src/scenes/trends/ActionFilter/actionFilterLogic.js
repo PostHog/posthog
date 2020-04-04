@@ -95,7 +95,8 @@ export const entityFilterLogic = kea({
                 // Changing the filter to a different filter type
                 // Delete the currently selected one and add the other one
             } else if (type != values.selectedFilter.type) {
-                actions.removeFilter({ type: values.selectedFilter.type, index: values.selectedFilter.index })
+                console.log(values.selectedFilter)
+                actions.removeFilter({ type: values.selectedFilter.type, value: values.selectedFilter.filter.id })
                 let newFilters = values.filters[type]
 
                 let index = newFilters.findIndex(e => e.id == value)
@@ -114,7 +115,7 @@ export const entityFilterLogic = kea({
             newFilters[target].math = math
             actions.setFilters({ [type]: newFilters })
         },
-        [actions.removeFilter]: ({ type, index, value }) => {
+        [actions.removeFilter]: ({ type, value }) => {
             if (type == EntityTypes.NEW) {
                 actions.removeNewFilter()
                 return
