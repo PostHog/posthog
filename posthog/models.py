@@ -256,7 +256,6 @@ class Event(models.Model):
     properties: JSONField = JSONField(default=dict)
     elements: JSONField = JSONField(default=list, null=True, blank=True)
     timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
-    ip: models.GenericIPAddressField = models.GenericIPAddressField(null=True, blank=True)
     elements_hash: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
 class PersonManager(models.Manager):
