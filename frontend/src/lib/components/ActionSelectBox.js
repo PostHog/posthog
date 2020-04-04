@@ -6,21 +6,27 @@ import PropTypes from 'prop-types'
 import ActionSelectTab from './ActionSelectTab'
 
 export function ActionSelectTabs(props) {
-    let [activeTab, setActiveTab] = useState(Array.isArray(props.children) ? props.children[0].props.title: props.children.props.title)
-    let [labels] = useState(Array.isArray(props.children) ? props.children.map(child => child.props.title): [props.children.props.title])
+    let [activeTab, setActiveTab] = useState(
+        Array.isArray(props.children) ? props.children[0].props.title : props.children.props.title
+    )
+    let [labels] = useState(
+        Array.isArray(props.children) ? props.children.map(child => child.props.title) : [props.children.props.title]
+    )
     return (
         <div className="select-box" style={{ padding: 0 }}>
-            {labels.length > 1 && <ActionSelectTab
-                entityType={activeTab}
-                allTypes={labels}
-                chooseEntityType={setActiveTab}
-            ></ActionSelectTab>}
-            {Array.isArray(props.children) ? props.children.map(child => {
-                if (child.props.title !== activeTab) return undefined
-                return child
-            }) : 
-                props.children
-            }
+            {labels.length > 1 && (
+                <ActionSelectTab
+                    entityType={activeTab}
+                    allTypes={labels}
+                    chooseEntityType={setActiveTab}
+                ></ActionSelectTab>
+            )}
+            {Array.isArray(props.children)
+                ? props.children.map(child => {
+                      if (child.props.title !== activeTab) return undefined
+                      return child
+                  })
+                : props.children}
         </div>
     )
 }

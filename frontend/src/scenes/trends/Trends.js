@@ -7,7 +7,7 @@ import { SaveToDashboard } from 'lib/components/SaveToDashboard'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DateFilter } from 'lib/components/DateFilter'
 
-import { ActionFilter } from './ActionFilter'
+import { ActionFilter } from './ActionFilter/ActionFilter'
 import { ActionsPie } from './ActionsPie'
 import { BreakdownFilter } from './BreakdownFilter'
 import { ActionsTable } from './ActionsTable'
@@ -24,8 +24,8 @@ const displayMap = {
 }
 
 export const EntityTypes = {
-    ACTIONS: "Actions",
-    EVENTS: "Events"
+    ACTIONS: 'Actions',
+    EVENTS: 'Events',
 }
 
 export function Trends() {
@@ -39,26 +39,8 @@ export function Trends() {
             <h1>Action trends</h1>
             <Card>
                 <div className="card-body">
-                    <h4 className="secondary">Actions</h4>
-                    <ActionFilter
-                        entities={{
-                            [EntityTypes.ACTIONS]: {
-                                'filters': filters.actions,
-                                'data': actions
-                            },
-                            [EntityTypes.EVENTS]: {
-                                'filters': filters.events,
-                                'data': events
-                            }
-                        }}
-                        actions={actions}
-                        events={events}
-                        actionFilters={filters.actions}
-                        eventFilters={filters.events}
-                        onChange={actions => {
-                            setFilters({...actions, events: [{name: "movie played"}]})
-                        }}
-                    />
+                    <h4 className="secondary">Elements</h4>
+                    <ActionFilter></ActionFilter>
                     <hr />
                     <h4 className="secondary">Filters</h4>
                     <PropertyFilters
