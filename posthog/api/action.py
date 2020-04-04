@@ -183,10 +183,9 @@ class ActionViewSet(viewsets.ModelViewSet):
         filters &= properties_to_Q(properties)
         return filters
 
-    def _breakdown(self, append: Dict, action: Action, filters: Dict[Any, Any],request: request.Request, breakdown_by: str) -> Dict:
+    def _breakdown(self, append: Dict, filtered_events: QuerySet, filters: Dict[Any, Any],request: request.Request, breakdown_by: str) -> Dict:
         key = "properties__{}".format(breakdown_by)
-        events = Event.objects\
-            .filter_by_action(action)\
+        events = filtered_events\
             .filter(self._filter_events(request))\
             .values(key)\
             .annotate(count=Count('id'))\
@@ -207,9 +206,9 @@ class ActionViewSet(viewsets.ModelViewSet):
         append['count'] = sum(values)
         return append
 
-    def _aggregate_by_day(self, action: Action, filters: Dict[Any, Any], request: request.Request):
+    def _aggregate_by_day(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request):
         append: Dict[str, Any] = {}
-        aggregates = Event.objects.filter_by_action(action)\
+        aggregates = filtered_events\
             .filter(self._filter_events(request))\
             .annotate(day=functions.TruncDay('timestamp'))\
             .values('day')\
@@ -225,7 +224,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates)
             append = self._append_data(append, dates_filled)
         if request.GET.get('breakdown'):
-            append = self._breakdown(append, action, filters, request, breakdown_by=request.GET['breakdown'])
+            append = self._breakdown(append, filtered_events, filters, request, breakdown_by=request.GET['breakdown'])
 
         return append
 
@@ -239,11 +238,11 @@ class ActionViewSet(viewsets.ModelViewSet):
         cursor.execute(query, params)
         return cursor.fetchall()
 
-    def _stickiness(self, action: Action, filters: Dict[Any, Any], request: request.Request):
+    def _stickiness(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request):
         date_from, date_to = self._get_dates_from_request(request)
         range_days = (date_to - date_from).days + 2
 
-        events = Event.objects.filter_by_action(action, order_by=None)\
+        events = filtered_events\
             .filter(self._filter_events(request))\
             .values('person_id') \
             .annotate(day_count=Count(functions.TruncDay('timestamp'), distinct=True))\
@@ -282,9 +281,29 @@ class ActionViewSet(viewsets.ModelViewSet):
             'breakdown': []
         }
         if request.GET.get('shown_as', 'Volume') == 'Volume':
-            append.update(self._aggregate_by_day(action=action, filters=filters, request=request))
+            filtered_events = Event.objects.filter_by_action(action)
+            append.update(self._aggregate_by_day(filtered_events=filtered_events, filters=filters, request=request))
         elif request.GET['shown_as'] == 'Stickiness':
-            append.update(self._stickiness(action=action, filters=filters, request=request))
+            filtered_events = Event.objects.filter_by_action(action, order_by=None)
+            append.update(self._stickiness(filtered_events=filtered_events, filters=filters, request=request))
+        return append
+
+    def _serialize_event(self, event: Dict[Any, Any], request: request.Request) -> Dict:
+        append = {
+            'action': {
+                'id': event['id'],
+                'name': event['id']
+            },
+            'label': event['id'],
+            'count': 0,
+            'breakdown': []
+        }
+        if request.GET.get('shown_as', 'Volume') == 'Volume':
+            filtered_events = Event.objects.filter(event=event['id'], team=self.request.user.team_set.get())
+            append.update(self._aggregate_by_day(filtered_events=filtered_events, filters=event, request=request))
+        elif request.GET['shown_as'] == 'Stickiness':
+            filtered_events = Event.objects.filter(event=event['id'], team=self.request.user.team_set.get())
+            append.update(self._stickiness(filtered_events=filtered_events, filters=event, request=request))
         return append
 
     def _serialize_people(self, action: Action, people: QuerySet, request: request.Request) -> Dict:
@@ -309,7 +328,10 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         if parsed_events:
             for event in parsed_events:
-                print(event)
+                actions_list.append(self._serialize_event(
+                    event=event,
+                    request=request,
+                ))
 
         if parsed_actions:
             for filters in parsed_actions:
@@ -330,7 +352,6 @@ class ActionViewSet(viewsets.ModelViewSet):
                     filters={},
                     request=request,
                 ))
-
         return Response(actions_list)
 
     @action(methods=['GET'], detail=False)
