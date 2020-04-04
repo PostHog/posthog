@@ -99,7 +99,7 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
 
     signup_token = strategy.session_get('signup_token')
     if signup_token is None:
-        processed = render_to_string('auth_error.html', {'message': "There is no team associated with this accoun.! Please use an invite link from a team to create an account!"})
+        processed = render_to_string('auth_error.html', {'message': "There is no team associated with this account! Please use an invite link from a team to create an account!"})
         return HttpResponse(processed, status=401)
 
     fields = dict((name, kwargs.get(name, details.get(name)))
