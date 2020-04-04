@@ -55,9 +55,15 @@ class TagsTestCase(TestMigrations):
         for i in range(default_event_count):
             event = Event.objects.create(team=team, event='$autocapture', ip="127.0.0.1")
 
+        null_ip_event = Event.objects.create(team=team, event='$null_ip')
+
     def test_ip_migrated(self):
         Event = apps.get_model('posthog', 'Event')
 
-        events = Event.objects.all()      
-        self.assertEqual(events[0].properties.get("$ip"), "127.0.0.1")
-        self.assertEqual(events[1].properties.get("$ip"), "127.0.0.1")
+        events = Event.objects.all() 
+        for e in events:
+            if e.event == '$autocapture':     
+                self.assertEqual(e.properties.get("$ip"), "127.0.0.1")
+                self.assertEqual(e.properties.get("$ip"), "127.0.0.1")
+            if e.event == '$null_ip':
+                self.assertEqual(e.properties.get("$ip"), None)
