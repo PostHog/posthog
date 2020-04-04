@@ -8,11 +8,12 @@ from .base import CursorPagination
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
     last_event = serializers.SerializerMethodField()
+    first_event = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
 
     class Meta:
         model = Person
-        fields = ['id', 'name', 'distinct_ids', 'properties', 'last_event', 'created_at']
+        fields = ['id', 'name', 'distinct_ids', 'properties', 'last_event', 'first_event', 'created_at']
 
     def get_last_event(self, person: Person) -> Union[dict, None]:
         if not self.context['request'].GET.get('include_last_event'):
@@ -20,6 +21,15 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         last_event = Event.objects.filter(team_id=person.team_id, distinct_id__in=person.distinct_ids).order_by('-timestamp').first()
         if last_event:
             return {'timestamp': last_event.timestamp}
+        else:
+            return None
+
+    def get_first_event(self, person: Person) -> Union[dict, None]:
+        if not self.context['request'].GET.get('include_last_event'):
+            return None
+        first_event = Event.objects.filter(team_id=person.team_id, distinct_id__in=person.distinct_ids).order_by('timestamp').first()
+        if first_event:
+            return {'timestamp': first_event.timestamp}
         else:
             return None
 

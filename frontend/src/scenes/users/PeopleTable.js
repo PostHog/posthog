@@ -42,6 +42,7 @@ export function PeopleTable({ loading, people, onClickProperty }) {
                         <th />
                         <th>Person</th>
                         <th>Last seen</th>
+                        <th>First seen</th>
                     </tr>
                     {people && people.length === 0 && (
                         <tr>
@@ -70,6 +71,7 @@ export function PeopleTable({ loading, people, onClickProperty }) {
                                     </Link>
                                 </td>
                                 <td>{person.last_event && moment(person.last_event.timestamp).fromNow()}</td>
+                                <td>{person.first_event && moment(person.first_event.timestamp).fromNow()}</td>
                             </tr>,
                             personSelected === person.id && (
                                 <tr key={person.id + '_open'}>
