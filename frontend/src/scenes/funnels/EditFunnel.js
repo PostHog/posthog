@@ -66,7 +66,7 @@ export class EditFunnel extends Component {
                             title="Actions"
                             options={groupActions(actions)}
                             defaultMenuIsOpen={false}
-                            onSelect={action_id => {
+                            onSelect={({value: action_id}) => {
                                 this.setState(
                                     {
                                         steps: this.state.steps.map(s =>
