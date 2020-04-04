@@ -69,10 +69,10 @@ class ActionViewSet(viewsets.ModelViewSet):
     serializer_class = ActionSerializer
     authentication_classes = [TemporaryTokenAuthentication, authentication.SessionAuthentication, authentication.BasicAuthentication]
 
-    def _parse_actions(self, request: request.Request):
-        if not self.request.GET.get('actions'):
+    def _parse_entities(self, entity: str):
+        if not self.request.GET.get(entity):
             return None
-        return json.loads(self.request.GET['actions'])
+        return json.loads(self.request.GET[entity])
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -80,7 +80,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(deleted=False)
 
         if self.request.GET.get('actions'):
-            queryset = queryset.filter(pk__in=[action['id'] for action in self._parse_actions(self.request.GET['actions'])])
+            queryset = queryset.filter(pk__in=[action['id'] for action in self._parse_entities('actions')])
 
         if self.request.GET.get('include_count'):
             queryset = queryset.annotate(count=Count('events'))
@@ -304,7 +304,12 @@ class ActionViewSet(viewsets.ModelViewSet):
         actions = actions.filter(deleted=False)
         actions_list = []
 
-        parsed_actions = self._parse_actions(request)
+        parsed_actions = self._parse_entities('actions')
+        parsed_events = self._parse_entities('events')
+
+        if parsed_events:
+            for event in parsed_events:
+                print(event)
 
         if parsed_actions:
             for filters in parsed_actions:
