@@ -12,6 +12,16 @@ export const EntityTypes = {
     NEW: 'new',
 }
 
+const mirrorValues = (entities, newKey, valueKey) => {
+    let newEntities = entities.map(entity => {
+        return {
+            ...entity,
+            [newKey]: entity[valueKey],
+        }
+    })
+    return newEntities
+}
+
 export const entityFilterLogic = kea({
     connect: {
         values: [eventsModel, ['events'], actionsModel, ['actions'], eventsModel, ['events'], trendsLogic, ['filters']],
@@ -62,7 +72,7 @@ export const entityFilterLogic = kea({
             (events, actions) => {
                 return {
                     [EntityTypes.ACTIONS]: actions,
-                    [EntityTypes.EVENTS]: events,
+                    [EntityTypes.EVENTS]: mirrorValues(events, 'id', 'name'),
                 }
             },
         ],
@@ -95,7 +105,6 @@ export const entityFilterLogic = kea({
                 // Changing the filter to a different filter type
                 // Delete the currently selected one and add the other one
             } else if (type != values.selectedFilter.type) {
-                console.log(values.selectedFilter)
                 actions.removeFilter({ type: values.selectedFilter.type, value: values.selectedFilter.filter.id })
                 let newFilters = values.filters[type]
 

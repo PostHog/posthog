@@ -11,8 +11,6 @@ export function ActionFilterRow(props) {
     const { selectFilter, updateFilterMath, removeFilter } = useActions(entityFilterLogic)
 
     let entity, dropDownCondition, onClick, onClose, onMathSelect, name, value, math
-    name = null
-    value = null
     math = filter.math
     onClose = () => {
         removeFilter({ value: filter.id, type, index })
@@ -28,14 +26,13 @@ export function ActionFilterRow(props) {
         else selectFilter({ filter, type, index })
     }
 
-    if (type == EntityTypes.ACTIONS) {
+    if (type == EntityTypes.NEW) {
+        name = null
+        value = null
+    } else {
         entity = entities[type].filter(action => action.id == filter.id)[0] || {}
         name = entity.name
         value = entity.id
-    } else if (type == EntityTypes.EVENTS) {
-        entity = entities[type].filter(event => event.name == filter.id)[0] || {}
-        name = entity.name
-        value = entity.name
     }
 
     return (
