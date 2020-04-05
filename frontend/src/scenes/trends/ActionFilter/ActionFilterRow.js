@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { entityFilterLogic, EntityTypes } from './actionFilterLogic'
 import { CloseButton } from '~/lib/utils'
@@ -6,6 +6,7 @@ import { Dropdown } from '~/lib/components/Dropdown'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 
 export function ActionFilterRow(props) {
+    const node = useRef()
     const { filter, type, index } = props
     const { selectedFilter, entities, formattedFilters } = useValues(entityFilterLogic)
     const { selectFilter, updateFilterMath, removeFilter } = useActions(entityFilterLogic)
@@ -36,7 +37,7 @@ export function ActionFilterRow(props) {
     }
 
     return (
-        <div>
+        <div ref={node}>
             <button
                 className="filter-action"
                 onClick={onClick}
@@ -59,7 +60,16 @@ export function ActionFilterRow(props) {
                     marginTop: 3,
                 }}
             />
-            {dropDownCondition() && <ActionFilterDropdown></ActionFilterDropdown>}
+            {dropDownCondition() && (
+                <ActionFilterDropdown
+                    onClickOutside={e => {
+                        if (node.current.contains(e.target)) {
+                            return
+                        }
+                        selectFilter(null)
+                    }}
+                ></ActionFilterDropdown>
+            )}
         </div>
     )
 }

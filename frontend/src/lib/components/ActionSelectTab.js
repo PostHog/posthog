@@ -10,11 +10,13 @@ export default class ActionSelectTab extends Component {
                     <div
                         key={index}
                         style={{
-                            backgroundColor: entityType == type ? 'white' : '#eeeeee',
+                            backgroundColor: entityType == type ? '#eeeeee' : 'white',
                             flex: 1,
                             display: 'flex',
                             justifyContent: 'center',
-                            borderTopLeftRadius: '5px',
+                            borderTopLeftRadius: index == 0 ? '5px' : '0px',
+                            borderTopRightRadius: index == allTypes.length - 1 ? '5px' : '0px',
+                            cursor: 'pointer',
                         }}
                         onClick={() => chooseEntityType(type)}
                     >

@@ -5,10 +5,16 @@ import { selectStyle } from '../utils'
 import PropTypes from 'prop-types'
 import ActionSelectTab from './ActionSelectTab'
 
+const determineActiveTab = props => {
+    if (props.selected) {
+        return props.selected
+    } else {
+        return Array.isArray(props.children) ? props.children[0].props.title : props.children.props.title
+    }
+}
+
 export function ActionSelectTabs(props) {
-    let [activeTab, setActiveTab] = useState(
-        Array.isArray(props.children) ? props.children[0].props.title : props.children.props.title
-    )
+    let [activeTab, setActiveTab] = useState(determineActiveTab(props))
     let [labels] = useState(
         Array.isArray(props.children) ? props.children.map(child => child.props.title) : [props.children.props.title]
     )
@@ -70,7 +76,6 @@ export class ActionSelectPanel extends Component {
                     onBlur={e => {
                         if (e.relatedTarget && e.relatedTarget.tagName == 'A') return
                         this.setState({ infoOpen: false })
-                        // if (onClose) onClose()
                     }}
                     onChange={this.props.onSelect}
                     defaultMenuIsOpen={this.props.defaultMenuIsOpen}
