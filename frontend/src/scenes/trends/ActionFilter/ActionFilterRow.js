@@ -16,8 +16,8 @@ export function ActionFilterRow(props) {
     onClose = () => {
         removeFilter({ value: filter.id, type, index })
     }
-    onMathSelect = (index, math) => {
-        updateFilterMath({ math, value: filter.id, type })
+    onMathSelect = (_, math) => {
+        updateFilterMath({ math, value: filter.id, type, index: index })
     }
 
     dropDownCondition = () => selectedFilter && selectedFilter.type == type && selectedFilter.index == index
