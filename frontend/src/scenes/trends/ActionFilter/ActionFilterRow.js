@@ -7,31 +7,31 @@ import { ActionFilterDropdown } from './ActionFilterDropdown'
 
 export function ActionFilterRow(props) {
     const node = useRef()
-    const { filter, type, index } = props
+    const { filter, index } = props
     const { selectedFilter, entities, formattedFilters } = useValues(entityFilterLogic)
     const { selectFilter, updateFilterMath, removeFilter } = useActions(entityFilterLogic)
 
     let entity, dropDownCondition, onClick, onClose, onMathSelect, name, value, math
     math = filter.math
     onClose = () => {
-        removeFilter({ value: filter.id, type, index })
+        removeFilter({ value: filter.id, type: filter.type, index })
     }
     onMathSelect = (_, math) => {
-        updateFilterMath({ math, value: filter.id, type, index: index })
+        updateFilterMath({ math, value: filter.id, type: filter.type, index: index })
     }
 
-    dropDownCondition = () => selectedFilter && selectedFilter.type == type && selectedFilter.index == index
+    dropDownCondition = () => selectedFilter && selectedFilter.type == filter.type && selectedFilter.index == index
 
     onClick = () => {
-        if (selectedFilter && selectedFilter.type == type && selectedFilter.index == index) selectFilter(null)
-        else selectFilter({ filter, type, index })
+        if (selectedFilter && selectedFilter.type == filter.type && selectedFilter.index == index) selectFilter(null)
+        else selectFilter({ filter, type: filter.type, index })
     }
 
-    if (type == EntityTypes.NEW) {
+    if (filter.type == EntityTypes.NEW) {
         name = null
         value = null
     } else {
-        entity = entities[type].filter(action => action.id == filter.id)[0] || {}
+        entity = entities[filter.type].filter(action => action.id == filter.id)[0] || {}
         name = entity.name
         value = entity.id
     }

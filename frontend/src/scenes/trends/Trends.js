@@ -39,7 +39,7 @@ export function Trends() {
             <h1>Action trends</h1>
             <Card>
                 <div className="card-body">
-                    <h4 className="secondary">Elements</h4>
+                    <h4 className="secondary">{'Actions & Events'}</h4>
                     <ActionFilter></ActionFilter>
                     <hr />
                     <h4 className="secondary">Filters</h4>

@@ -22,6 +22,15 @@ const mirrorValues = (entities, newKey, valueKey) => {
     return newEntities
 }
 
+const formatFilters = (filters, type) => {
+    return filters.map(filter => {
+        return {
+            ...filter,
+            type: type,
+        }
+    })
+}
+
 export const entityFilterLogic = kea({
     connect: {
         values: [eventsModel, ['events'], actionsModel, ['actions'], eventsModel, ['events'], trendsLogic, ['filters']],
@@ -39,7 +48,15 @@ export const entityFilterLogic = kea({
         updateFilter: filter => ({ type: filter.type, index: filter.index, value: filter.value }),
         removeFilter: filter => ({ value: filter.value, type: filter.type, index: filter.index }),
         createNewFilter: () => {},
-        removeNewFilter: () => {},
+        setLocalFilters: filters => ({ filters }),
+    }),
+
+    events: ({ actions, values }) => ({
+        afterMount: () =>
+            actions.setLocalFilters([
+                ...formatFilters(values.filters.actions, EntityTypes.ACTIONS),
+                ...formatFilters(values.filters.events, EntityTypes.EVENTS),
+            ]),
     }),
 
     reducers: ({ actions }) => ({
@@ -49,15 +66,11 @@ export const entityFilterLogic = kea({
                 [actions.selectFilter]: (state, { filter }) => filter,
             },
         ],
-        newFilters: [
+        allFilters: [
             [],
             {
-                [actions.createNewFilter]: state => [...state, { id: null }],
-                [actions.removeNewFilter]: state => {
-                    let newState = [...state]
-                    newState.pop()
-                    return newState
-                },
+                [actions.setLocalFilters]: (state, { filters }) => filters,
+                [actions.createNewFilter]: state => [...state, { id: null, type: EntityTypes.NEW }],
             },
         ],
     }),
@@ -92,13 +105,12 @@ export const entityFilterLogic = kea({
         ],
     }),
 
-    listeners: ({ actions, values, props, selectors }) => ({
+    listeners: ({ actions, values }) => ({
         [actions.updateFilter]: ({ type, index, value }) => {
             let newFilters = values.filters[type]
             // handle if the selected filter is a new filter
             if (values.selectedFilter.type == EntityTypes.NEW) {
                 newFilters.push({ id: value })
-                actions.removeNewFilter()
             } else if (type == values.selectedFilter.type) {
                 newFilters[index] = { id: value }
             } else if (type != values.selectedFilter.type) {
@@ -111,21 +123,36 @@ export const entityFilterLogic = kea({
             }
 
             actions.setFilters({ [type]: newFilters })
+
+            let currentfilters = [...values.allFilters]
+            currentfilters[index] = {
+                id: value,
+                type: type,
+            }
+            actions.setLocalFilters(currentfilters)
             actions.selectFilter(null)
         },
         [actions.updateFilterMath]: ({ type, value, math, index }) => {
+            // parent logic change
             let newFilters = [...values.formattedFilters[type]]
-            newFilters[index].math = math
+            let target = newFilters.findIndex(e => e.id == value)
+            newFilters[target].math = math
             actions.setFilters({ [type]: newFilters })
+
+            // local changes
+            let currentfilters = [...values.allFilters]
+            currentfilters[index].math = math
+            actions.setLocalFilters(currentfilters)
         },
         [actions.removeFilter]: ({ type, value, index }) => {
-            if (type == EntityTypes.NEW) {
-                actions.removeNewFilter()
-                return
-            }
             let newFilters = [...values.formattedFilters[type]]
-            newFilters.splice(index, 1)
+            let target = newFilters.findIndex(e => e.id == value)
+            newFilters.splice(target, 1)
             actions.setFilters({ [type]: newFilters })
+
+            let currentfilters = [...values.allFilters]
+            currentfilters.splice(index, 1)
+            actions.setLocalFilters(currentfilters)
         },
     }),
 })

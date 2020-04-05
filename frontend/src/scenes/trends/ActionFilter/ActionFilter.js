@@ -3,41 +3,22 @@ import { useActions, useValues } from 'kea'
 import { entityFilterLogic, EntityTypes } from './actionFilterLogic'
 import { Link } from 'react-router-dom'
 import { ActionFilterRow } from './ActionFilterRow'
-import { capitalizeFirstLetter } from '~/lib/utils'
 
 export function ActionFilter(props) {
-    const { formattedFilters, selectedFilter, newFilters } = useValues(entityFilterLogic)
+    const { formattedFilters, newFilters, allFilters } = useValues(entityFilterLogic)
     const { createNewFilter } = useActions(entityFilterLogic)
     return !filtersExist(formattedFilters) ? (
         <div>
-            {Object.entries(formattedFilters).map((item, index) => {
-                let key = item[0]
-                let filters = item[1]
-                if (Array.isArray(filters)) {
-                    return (
-                        <div>
-                            {filters && filters.length > 0 && (
-                                <p className="mt-3 mb-0 font-weight-bold">{capitalizeFirstLetter(key)}</p>
-                            )}
-                            {filters.map((filter, index) => {
-                                return <ActionFilterRow filter={filter} type={key} index={index}></ActionFilterRow>
-                            })}
-                        </div>
-                    )
-                }
-            })}
-            {newFilters && newFilters.length > 0 && <p className="mt-3 mb-0 font-weight-bold">{'Unspecified'}</p>}
-            {newFilters &&
-                newFilters.map((_, index) => {
-                    let filter = {}
-                    return <ActionFilterRow filter={filter} type={EntityTypes.NEW} index={index}></ActionFilterRow>
+            {allFilters &&
+                allFilters.map((filter, index) => {
+                    return <ActionFilterRow filter={filter} index={index}></ActionFilterRow>
                 })}
             <button
                 className="btn btn-sm btn-outline-success"
                 onClick={() => createNewFilter()}
                 style={{ marginTop: '0.5rem' }}
             >
-                Add action
+                Add Element
             </button>
         </div>
     ) : (
