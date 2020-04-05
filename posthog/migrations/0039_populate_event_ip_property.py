@@ -1,16 +1,20 @@
 from django.db import migrations
 
 def migrate_event_ip_to_property(apps, schema_editor):
-    Event = apps.get_model('posthog', 'Event')
-    batch_size = 10000
-    events_count = Event.objects.count()
-
-    for i in range(0, events_count, batch_size):
-        events = Event.objects.all()[i:i+batch_size]
-        for event in events:
-            if event.ip:
-                event.properties["$ip"] = event.ip
-        Event.objects.bulk_update(events, ['properties'])
+    Event = apps.get_model('posthog' 'Event')
+    chunk = []
+    
+    # Use iterator to save memory
+    for i, event in enumerate(Event.objects.only('properties', 'ip').iterator(chunk_size=10000)):
+        if event.ip:
+            event.properties['$ip'] = event.ip
+            chunk.append(event)
+        # Every 10000 events run bulk_update
+        if i % 10000 == 0 and chunk:
+            Event.objects.bulk_update(chunk, ['properties'])
+            chunk = []
+    if chunk:
+        Event.objects.bulk_update(chunk, ['properties'])
 
 def rollback(apps, schema_editor):
     pass

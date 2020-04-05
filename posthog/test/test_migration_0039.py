@@ -53,7 +53,7 @@ class TagsTestCase(TestMigrations):
         Event = apps.get_model('posthog', 'Event')
         Team = apps.get_model('posthog', 'Team')
         team = Team.objects.create()
-
+        
         Event.objects.bulk_create([
             Event(team=team, event='$autocapture', ip="127.0.0.1")
                 for i in range(default_event_count)], default_batch_size)
