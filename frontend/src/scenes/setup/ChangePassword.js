@@ -25,10 +25,6 @@ export class ChangePassword extends Component {
                 newPassword: this.state.newPassword,
             })
             toast.success('Password changed')
-            // Give the user enough time to see the "Password change" toast
-            setTimeout(() => {
-                window.location.reload()
-            }, 2000)
         } catch (response) {
             toast.error(response.error)
         } finally {

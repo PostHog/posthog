@@ -1,6 +1,7 @@
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth import update_session_auth_hash
 from django.core.exceptions import ValidationError
 from django.shortcuts import redirect
 from django.conf import settings
@@ -87,4 +88,6 @@ def change_password(request):
 
     request.user.set_password(new_password)
     request.user.save()
+    update_session_auth_hash(request, request.user)
+
     return JsonResponse({})
