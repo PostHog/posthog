@@ -1,9 +1,8 @@
 from django.db import migrations
 
 def migrate_event_ip_to_property(apps, schema_editor):
-    Event = apps.get_model('posthog' 'Event')
+    Event = apps.get_model('posthog', 'Event')
     chunk = []
-    
     # Use iterator to save memory
     for i, event in enumerate(Event.objects.only('properties', 'ip').iterator(chunk_size=10000)):
         if event.ip:
