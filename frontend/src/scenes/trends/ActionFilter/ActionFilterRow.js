@@ -37,8 +37,9 @@ export function ActionFilterRow(props) {
     }
 
     return (
-        <div ref={node}>
+        <div>
             <button
+                ref={node}
                 className="filter-action"
                 onClick={onClick}
                 style={{

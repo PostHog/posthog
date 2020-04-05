@@ -4,6 +4,7 @@ import { ActionSelectInfo } from '../../scenes/trends/ActionSelectInfo'
 import { selectStyle } from '../utils'
 import PropTypes from 'prop-types'
 import ActionSelectTab from './ActionSelectTab'
+import { Link } from 'react-router-dom'
 
 const determineActiveTab = props => {
     if (props.selected) {
@@ -63,8 +64,8 @@ export class ActionSelectPanel extends Component {
 
     render() {
         return (
-            <div style={{ padding: '1rem' }}>
-                {this.props.children}
+            <div style={{ padding: '1rem', height: '90%', width: '100%' }}>
+                {this.props.redirect}
                 {this.state.infoOpen && (
                     <ActionSelectInfo
                         isOpen={this.state.infoOpen}
@@ -86,6 +87,7 @@ export class ActionSelectPanel extends Component {
                     components={{ Option: this.Option }}
                     options={this.props.options}
                 />
+                {this.props.message}
             </div>
         )
     }

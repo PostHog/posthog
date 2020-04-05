@@ -46,10 +46,44 @@ export function ActionFilterDropdown(props) {
 
 export function ActionPanelContainer(props) {
     const { entityType, panelIndex, options } = props
-    const { entities, selectedFilter } = useValues(entityFilterLogic)
+    const { entities, selectedFilter, formattedFilters } = useValues(entityFilterLogic)
     const { updateFilter } = useActions(entityFilterLogic)
     let dropDownOnSelect = item => updateFilter({ type: entityType, value: item.value, index: selectedFilter.index })
     let dropDownOnHover = value => entities[entityType].filter(a => a.id == value)[0]
+
+    let redirect = () => {
+        if (selectedFilter && selectedFilter.type == EntityTypes.ACTIONS) {
+            let action = entities[selectedFilter.type].filter(a => a.id == selectedFilter.filter.id)[0]
+            return (
+                <a href={'/action/' + selectedFilter.filter.id} target="_blank">
+                    Edit "{action.name}" <i className="fi flaticon-export" />
+                </a>
+            )
+        } else {
+            return null
+        }
+    }
+
+    let message = () => {
+        if (entityType == EntityTypes.ACTIONS && !formattedFilters[EntityTypes.ACTIONS]) {
+            return (
+                <div
+                    style={{
+                        height: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                    }}
+                >
+                    <p>You don't have any actions defined yet. </p>
+                    <Link to="/action">Click here to define an action.</Link>
+                </div>
+            )
+        } else {
+            return null
+        }
+    }
 
     return (
         <ActionSelectPanel
@@ -60,12 +94,8 @@ export function ActionPanelContainer(props) {
             onSelect={dropDownOnSelect}
             onHover={dropDownOnHover}
             active={null}
-        >
-            {selectedFilter && selectedFilter.type == EntityTypes.ACTIONS && (
-                <a href={'/action/' + selectedFilter.filter.id} target="_blank">
-                    Edit "{selectedFilter.filter.name}" <i className="fi flaticon-export" />
-                </a>
-            )}
-        </ActionSelectPanel>
+            redirect={redirect()}
+            message={message()}
+        ></ActionSelectPanel>
     )
 }
