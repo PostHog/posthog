@@ -4,9 +4,9 @@ def migrate_event_ip_to_property(apps, schema_editor):
     Event = apps.get_model('posthog', 'Event')
     batch_size = 10000
     events_count = Event.objects.count()
-    all_events = Event.objects.all()
+
     for i in range(0, events_count, batch_size):
-        events = all_events[i:i+batch_size]
+        events = Event.objects.all()[i:i+batch_size]
         for event in events:
             if event.ip:
                 event.properties["$ip"] = event.ip
