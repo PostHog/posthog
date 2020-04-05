@@ -46,6 +46,7 @@ export const entityFilterLogic = kea({
             index: filter.index,
         }),
         updateFilter: filter => ({ type: filter.type, index: filter.index, value: filter.value }),
+        removeLocalFilter: filter => ({ value: filter.value, type: filter.type, index: filter.index }),
         removeFilter: filter => ({ value: filter.value, type: filter.type, index: filter.index }),
         createNewFilter: () => {},
         setLocalFilters: filters => ({ filters }),
@@ -108,18 +109,14 @@ export const entityFilterLogic = kea({
     listeners: ({ actions, values }) => ({
         [actions.updateFilter]: ({ type, index, value }) => {
             let newFilters = values.filters[type]
-            // handle if the selected filter is a new filter
-            if (values.selectedFilter.type == EntityTypes.NEW) {
-                newFilters.push({ id: value })
-            } else if (type == values.selectedFilter.type) {
-                newFilters[index] = { id: value }
-            } else if (type != values.selectedFilter.type) {
-                actions.removeFilter({ type: values.selectedFilter.type, value: values.selectedFilter.filter.id })
+            newFilters.push({ id: value })
 
-                let index = newFilters.findIndex(e => e.id == value)
-                if (index >= 0) newFilters[index] = { id: value }
-                else if (newFilters.length > 0) newFilters.push({ id: value })
-                else newFilters = [{ id: value }]
+            // if the types are the same update together otherwise can dispatch to action
+            if (type == values.selectedFilter.type) {
+                let target = newFilters.findIndex(e => e.id == values.selectedFilter.filter.id)
+                newFilters.splice(target, 1)
+            } else {
+                actions.removeFilter({ type: values.selectedFilter.type, value: values.selectedFilter.filter.id })
             }
 
             actions.setFilters({ [type]: newFilters })
@@ -144,15 +141,17 @@ export const entityFilterLogic = kea({
             currentfilters[index].math = math
             actions.setLocalFilters(currentfilters)
         },
-        [actions.removeFilter]: ({ type, value, index }) => {
+        [actions.removeLocalFilter]: ({ type, value, index }) => {
+            actions.removeFilter({ type, value })
+            let currentfilters = [...values.allFilters]
+            currentfilters.splice(index, 1)
+            actions.setLocalFilters(currentfilters)
+        },
+        [actions.removeFilter]: ({ type, value }) => {
             let newFilters = [...values.formattedFilters[type]]
             let target = newFilters.findIndex(e => e.id == value)
             newFilters.splice(target, 1)
             actions.setFilters({ [type]: newFilters })
-
-            let currentfilters = [...values.allFilters]
-            currentfilters.splice(index, 1)
-            actions.setLocalFilters(currentfilters)
         },
     }),
 })

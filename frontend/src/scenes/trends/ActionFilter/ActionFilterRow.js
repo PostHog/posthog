@@ -9,12 +9,12 @@ export function ActionFilterRow(props) {
     const node = useRef()
     const { filter, index } = props
     const { selectedFilter, entities, formattedFilters } = useValues(entityFilterLogic)
-    const { selectFilter, updateFilterMath, removeFilter } = useActions(entityFilterLogic)
+    const { selectFilter, updateFilterMath, removeLocalFilter } = useActions(entityFilterLogic)
 
     let entity, dropDownCondition, onClick, onClose, onMathSelect, name, value, math
     math = filter.math
     onClose = () => {
-        removeFilter({ value: filter.id, type: filter.type, index })
+        removeLocalFilter({ value: filter.id, type: filter.type, index })
     }
     onMathSelect = (_, math) => {
         updateFilterMath({ math, value: filter.id, type: filter.type, index: index })
