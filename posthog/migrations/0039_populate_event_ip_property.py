@@ -7,7 +7,8 @@ def migrate_event_ip_to_property(apps, schema_editor):
     for event in events:
         if event.ip:
             event.properties["$ip"] = event.ip
-            event.save()
+
+    Event.objects.bulk_update(events, ['properties'], 10000)
 
 def rollback(apps, schema_editor):
     pass

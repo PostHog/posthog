@@ -31,7 +31,7 @@ class TestMigrations(TestCase):
         # Run the migration to test
         executor = MigrationExecutor(connection)
         executor.loader.build_graph()  # reload.
-        with self.assertNumQueries(108):
+        with self.assertNumQueries(9):
             executor.migrate(self.migrate_to)
 
         self.apps = executor.loader.project_state(self.migrate_to).apps
@@ -47,13 +47,21 @@ class TagsTestCase(TestMigrations):
 
     def setUpBeforeMigration(self, apps):
         max_event_count = 1000000
+        max_batch_size = 10000
         default_event_count = 100
+        default_batch_size = 10
         Event = apps.get_model('posthog', 'Event')
         Team = apps.get_model('posthog', 'Team')
         team = Team.objects.create()
 
-        for i in range(default_event_count):
-            event = Event.objects.create(team=team, event='$autocapture', ip="127.0.0.1")
+        Event.objects.bulk_create([
+            Event(team=team, event='$autocapture', ip="127.0.0.1")
+                for i in range(default_event_count)], default_batch_size)
+
+        Event.objects.bulk_create([
+            Event(team=team, event='$prefilled_properties', distinct_id="2", 
+            ip="192.2.2.1", properties={"$os": "MacOS"}) 
+                for i in range(default_event_count)], default_batch_size)
 
         null_ip_event = Event.objects.create(team=team, event='$null_ip')
 
@@ -62,6 +70,11 @@ class TagsTestCase(TestMigrations):
 
         events = Event.objects.all() 
         for e in events:
+            if e.event == '$prefilled_properties':     
+                self.assertEqual(e.properties.get("$ip"), "192.2.2.1")
+                self.assertEqual(e.properties.get("$ip"), "192.2.2.1")
+                self.assertEqual(e.properties.get("$os"), "MacOS")
+
             if e.event == '$autocapture':     
                 self.assertEqual(e.properties.get("$ip"), "127.0.0.1")
                 self.assertEqual(e.properties.get("$ip"), "127.0.0.1")
