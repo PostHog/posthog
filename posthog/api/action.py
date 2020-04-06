@@ -313,7 +313,6 @@ class ActionViewSet(viewsets.ModelViewSet):
         actions = actions.filter(deleted=False)
         actions_list = []
 
-        parsed_actions = self._parse_entities('actions')
         parsed_events = self._parse_entities('events')
 
         if parsed_events:
@@ -330,26 +329,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 )
                 if trend_entity is not None:
                     actions_list.append(trend_entity)  
-        if parsed_actions:
-            for filters in parsed_actions:
-                try:
-                    db_action = actions.get(pk=filters['id'])
-                except Action.DoesNotExist:
-                    continue
-                filtered_events = self._process_entity_for_events(db_action, entity_type='action')
-                if filtered_events is None:
-                    continue
-                trend_entity = self._serialize_entity(
-                    id=db_action.id,
-                    name=db_action.name,
-                    filtered_events=filtered_events,
-                    filters=filters,
-                    request=request,
-                )
-                if trend_entity is not None:
-                    actions_list.append(trend_entity)
-        else:
-            for action in actions:
+        for action in actions:
                 filtered_events = self._process_entity_for_events(action, entity_type='action')
                 if filtered_events is None:
                     continue
@@ -367,11 +347,9 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     @action(methods=['GET'], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        actions = self.get_queryset()
-        actions = actions.filter(deleted=False)
-        parsed_events = self._parse_entities('events')
         
-        actions_list = []
+        entityId = request.GET.get('entityId')
+        entityType = request.GET.get('type')
 
         def _calculate_people(id: str, name: str, events: QuerySet):
             if request.GET.get('shown_as', 'Volume') == 'Volume':
@@ -393,14 +371,20 @@ class ActionViewSet(viewsets.ModelViewSet):
                 request=request
             )
 
-        for event in parsed_events:
-            events = Event.objects.filter_by_event_with_people(event=event['id'], team_id=self.request.user.team_set.get().id)\
+        if entityType == 'event':
+            events = Event.objects.filter_by_event_with_people(event=entityId, team_id=self.request.user.team_set.get().id)\
                 .filter(self._filter_events(request))
-            actions_list.append(_calculate_people(id=event['id'], name=event['id'], events=events))
-
-        for action in actions:
+            people = _calculate_people(id=entityId, name=entityId, events=events)
+            return Response([people])
+        elif entityType == 'action':
+            actions = super().get_queryset()
+            actions = actions.filter(deleted=False)
+            try:
+                action = actions.get(pk=entityId)
+            except Action.DoesNotExist:
+                return Response([])
             events = self._process_entity_for_events(action, entity_type='action').filter(self._filter_events(request))
-            actions_list.append(_calculate_people(id=action.id, name=action.name, events=events))
-
-
-        return Response(actions_list)
+            people = _calculate_people(id=action.id, name=action.name, events=events)
+            return Response([people])
+        
+        return Response([])
