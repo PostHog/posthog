@@ -24,6 +24,7 @@ def user(request):
         if 'team' in data:
             team.app_urls = data['team'].get('app_urls', team.app_urls)
             team.opt_out_capture = data['team'].get('opt_out_capture', team.opt_out_capture)
+            team.slack_incoming_webhook = data['team'].get('slack_incoming_webhook', team.slack_incoming_webhook)
             team.save()
 
         if 'user' in data:
@@ -42,7 +43,8 @@ def user(request):
             'app_urls': team.app_urls,
             'api_token': team.api_token,
             'signup_token': team.signup_token,
-            'opt_out_capture': team.opt_out_capture
+            'opt_out_capture': team.opt_out_capture,
+            'slack_incoming_webhook': team.slack_incoming_webhook
         },
         'posthog_version': settings.VERSION if hasattr(settings, 'VERSION') else None
     })

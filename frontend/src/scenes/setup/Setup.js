@@ -8,6 +8,7 @@ import { SetupAppUrls } from './SetupAppUrls'
 
 import { userLogic } from '../userLogic'
 import { DeleteDemoData } from './DeleteDemoData'
+import { SlackIntegration } from 'scenes/setup/SlackIntegration'
 import { ChangePassword } from './ChangePassword'
 
 export function Setup() {
@@ -38,6 +39,10 @@ export function Setup() {
             This key is write-only, in that it can only create new events. It can't read any events or any of your other
             data stored on PostHog.
             <br />
+            <br />
+            <br />
+            <h2>Slack Integration</h2>
+            <SlackIntegration />
             <br />
             <br />
             <h2>Invite your team</h2>
