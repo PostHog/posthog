@@ -153,6 +153,7 @@ SOCIAL_AUTH_GITHUB_SECRET = os.environ.get('SOCIAL_AUTH_GITHUB_SECRET', "")
 SOCIAL_AUTH_GITLAB_SCOPE = ['read_user']
 SOCIAL_AUTH_GITLAB_KEY = os.environ.get('SOCIAL_AUTH_GITLAB_KEY', "")
 SOCIAL_AUTH_GITLAB_SECRET = os.environ.get('SOCIAL_AUTH_GITLAB_SECRET', "")
+SOCIAL_AUTH_GITLAB_API_URL = os.environ.get('SOCIAL_AUTH_GITLAB_API_URL', "https://gitlab.com")
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
