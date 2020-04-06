@@ -1,5 +1,5 @@
 from django.db import models, connection
-from django.db.models import Exists, OuterRef, Q, Subquery, F, signals
+from django.db.models import Exists, OuterRef, Q, Subquery, F, signals, Prefetch
 from django.dispatch import receiver
 from django.contrib.postgres.fields import JSONField, ArrayField
 from django.conf import settings
@@ -218,9 +218,10 @@ class EventManager(models.QuerySet):
             if kwargs.get('elements'):
                 kwargs['elements_hash'] = ElementGroup.objects.create(team=kwargs['team'], elements=kwargs.pop('elements')).hash
             event = super().create(*args, **kwargs)
+            relations = []
             for action in event.actions:
-                action.events.add(event)
-                action.save()
+                relations.append(action.events.through(action_id=action.pk, event=event))
+            Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
             return event
 
 
@@ -237,12 +238,13 @@ class Event(models.Model):
     # the event won't be in the Action-Event relationship yet.
     @property
     def actions(self) -> List:
-        actions = Action.objects.filter(team_id=self.team_id)
+        actions = Action.objects.filter(team_id=self.team_id, steps__event=self.event).distinct('id')\
+            .prefetch_related(Prefetch('steps', queryset=ActionStep.objects.order_by('id')))
         events: models.QuerySet[Any] = Event.objects.filter(pk=self.pk)
         for action in actions:
             events = events.annotate(**{'action_{}'.format(action.pk): Event.objects\
-                .query_db_by_action(action)\
                 .filter(pk=self.pk)\
+                .query_db_by_action(action)\
                 .values('id')[:1]
             })
         event = [event for event in events][0]
