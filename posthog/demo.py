@@ -91,8 +91,8 @@ def _create_funnel(team: Team, base_url: str) -> None:
 def demo(request):
     team = request.user.team_set.get()
     if Event.objects.filter(team=team).count() == 0:
-        _create_anonymous_users(team=team, base_url=request.build_absolute_uri('/demo/'))
         _create_funnel(team=team, base_url=request.build_absolute_uri('/demo/'))
+        _create_anonymous_users(team=team, base_url=request.build_absolute_uri('/demo/'))
     return render_template('demo.html', request=request, context={'api_token': team.api_token})
 
 def delete_demo_data(request):
