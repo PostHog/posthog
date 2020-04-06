@@ -1,12 +1,23 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { entityFilterLogic } from './actionFilterLogic'
-import { Link } from 'react-router-dom'
 import { ActionFilterRow } from './ActionFilterRow'
 
 export function ActionFilter(props) {
-    const { allFilters } = useValues(entityFilterLogic)
-    const { createNewFilter } = useActions(entityFilterLogic)
+    const { allFilters, filters } = useValues(entityFilterLogic)
+    const { createNewFilter, initializeLocalFilters } = useActions(entityFilterLogic)
+
+    useEffect(() => {
+        if (allFilters.length == 0) {
+            let filterscount =
+                (filters.actions ? filters.actions.length : 0) + (filters.events ? filters.events.length : 0)
+            let allfilters = allFilters.filter(f => f.id != null)
+            if (filterscount != allfilters.length) {
+                initializeLocalFilters()
+            }
+        }
+    }, [filters])
+
     return (
         <div>
             {allFilters &&

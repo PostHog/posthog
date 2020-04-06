@@ -23,13 +23,8 @@ const displayMap = {
     ActionsPie: 'Pie',
 }
 
-export const EntityTypes = {
-    ACTIONS: 'Actions',
-    EVENTS: 'Events',
-}
-
 export function Trends() {
-    const { actions, events, filters, properties, resultsLoading, showingPeople } = useValues(
+    const { filters, properties, resultsLoading, showingPeople } = useValues(
         trendsLogic({ dashboardItemId: null })
     )
     const { setFilters, setDisplay } = useActions(trendsLogic({ dashboardItemId: null }))

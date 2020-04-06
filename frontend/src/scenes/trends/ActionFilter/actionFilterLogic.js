@@ -48,9 +48,9 @@ export const entityFilterLogic = kea({
         updateFilter: filter => ({ type: filter.type, index: filter.index, value: filter.value }),
         removeLocalFilter: filter => ({ value: filter.value, type: filter.type, index: filter.index }),
         removeFilter: filter => ({ value: filter.value, type: filter.type, index: filter.index }),
-        createNewFilter: () => {},
+        createNewFilter: true,
         setLocalFilters: filters => ({ filters }),
-        initializeLocalFilters: () => {},
+        initializeLocalFilters: true,
     }),
 
     events: ({ actions }) => ({
@@ -106,8 +106,8 @@ export const entityFilterLogic = kea({
     listeners: ({ actions, values }) => ({
         [actions.initializeLocalFilters]: () => {
             actions.setLocalFilters([
-                ...formatFilters(values.filters.actions, EntityTypes.ACTIONS),
-                ...formatFilters(values.filters.events, EntityTypes.EVENTS),
+                ...formatFilters(values.filters.actions || [], EntityTypes.ACTIONS),
+                ...formatFilters(values.filters.events || [], EntityTypes.EVENTS),
             ])
         },
         [actions.updateFilter]: ({ type, index, value }) => {
