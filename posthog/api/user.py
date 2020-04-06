@@ -10,6 +10,7 @@ from posthog.models import Event
 import urllib.parse
 import secrets
 import json
+import posthoganalytics # type: ignore
 
 def user(request):
     if not request.user.is_authenticated:
@@ -19,9 +20,16 @@ def user(request):
 
     if request.method == 'PATCH':
         data = json.loads(request.body)
-        team.app_urls = data['team'].get('app_urls', team.app_urls)
-        team.opt_out_capture = data['team'].get('opt_out_capture', team.opt_out_capture)
-        team.save()
+
+        if 'team' in data:
+            team.app_urls = data['team'].get('app_urls', team.app_urls)
+            team.opt_out_capture = data['team'].get('opt_out_capture', team.opt_out_capture)
+            team.save()
+
+        if 'user' in data:
+            request.user.email_opt_in = data['user'].get('email_opt_in')
+            posthoganalytics.identify(request.user.distinct_id, {'email_opt_in': request.user.email_opt_in})
+            request.user.save()
 
     return JsonResponse({
         'id': request.user.pk,
@@ -29,6 +37,7 @@ def user(request):
         'name': request.user.first_name,
         'email': request.user.email,
         'has_events': Event.objects.filter(team=team).exists(),
+        'email_opt_in': request.user.email_opt_in,
         'team': {
             'app_urls': team.app_urls,
             'api_token': team.api_token,

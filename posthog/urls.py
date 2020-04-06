@@ -71,8 +71,7 @@ def signup_to_team_view(request, token):
         team.users.add(user)
         team.save()
         posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': False})
-        # TODO: add in the indentify call with distinct id and email opt out
-        # posthoganalytics.identify(user.distinct_id, {'email_opt_out': user.email_opt_out})
+        posthoganalytics.identify(user.distinct_id, {'email_opt_in': user.email_opt_in})
         return redirect('/')
     return render_template('signup_to_team.html', request, context={'team': team, 'signup_token': token})
 
