@@ -93,6 +93,7 @@ class User(AbstractUser):
     email = models.EmailField(_('email address'), unique=True)
     temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    email_opt_in: models.BooleanField = models.BooleanField(default=False, null=False, blank=False)
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS: List[str] = []
