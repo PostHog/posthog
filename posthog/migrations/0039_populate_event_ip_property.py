@@ -7,16 +7,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # migrations.RunPython(migrate_event_ip_to_property, rollback),
         migrations.RunSQL(
             """
             UPDATE "posthog_event"
             SET properties = properties || jsonb_build_object('$ip', ip)
             WHERE ip IS NOT NULL;
-            """,
-            """
-            UPDATE "posthog_event" 
-            SET properties = properties - '$ip'
-            """
+            """, ""
         )
     ]
