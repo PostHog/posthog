@@ -10,11 +10,11 @@ class TestEvents(BaseTest):
     def test_filter_events(self):
         person = Person.objects.create(properties={'email': 'tim@posthog.com'}, team=self.team, distinct_ids=["2", 'some-random-uid'])
 
-        event1 = Event.objects.create(team=self.team, distinct_id="2", ip='8.8.8.8', elements=[
+        event1 = Event.objects.create(team=self.team, distinct_id="2", properties={"$ip": '8.8.8.8'}, elements=[
             Element(tag_name='button', text='something')
         ])
-        Event.objects.create(team=self.team, distinct_id='some-random-uid', ip='8.8.8.8')
-        Event.objects.create(team=self.team, distinct_id='some-other-one', ip='8.8.8.8')
+        Event.objects.create(team=self.team, distinct_id='some-random-uid', properties={"$ip": '8.8.8.8'})
+        Event.objects.create(team=self.team, distinct_id='some-other-one', properties={"$ip": '8.8.8.8'})
 
         with self.assertNumQueries(10):
             response = self.client.get('/api/event/?distinct_id=2').json()
@@ -24,9 +24,9 @@ class TestEvents(BaseTest):
     def test_filter_by_person(self):
         person = Person.objects.create(properties={'email': 'tim@posthog.com'}, distinct_ids=["2", 'some-random-uid'], team=self.team)
 
-        Event.objects.create(team=self.team, distinct_id="2", ip='8.8.8.8')
-        Event.objects.create(team=self.team, distinct_id='some-random-uid', ip='8.8.8.8')
-        Event.objects.create(team=self.team, distinct_id='some-other-one', ip='8.8.8.8')
+        Event.objects.create(team=self.team, distinct_id="2", properties={"$ip": '8.8.8.8'} )
+        Event.objects.create(team=self.team, distinct_id='some-random-uid', properties={"$ip": '8.8.8.8'})
+        Event.objects.create(team=self.team, distinct_id='some-other-one', properties={"$ip": '8.8.8.8'})
 
         response = self.client.get('/api/event/?person_id=%s' % person.pk).json()
         self.assertEqual(len(response['results']), 2)

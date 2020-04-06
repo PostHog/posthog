@@ -268,7 +268,7 @@ class TestBatch(BaseTest):
                 {
                     "properties":{
                         "property1":"value",
-                        "property2":"value"
+                        "property2":"value",
                     },
                     "timestamp":"2020-02-10T01:45:20.777210+00:00",
                     "library": "posthog-python",
@@ -295,7 +295,7 @@ class TestBatch(BaseTest):
 
         events = Event.objects.all().order_by('id')
         self.assertEqual(events[0].event, 'user signed up')
-        self.assertEqual(events[0].properties, {'property1': 'value', 'property2': 'value'})
+        self.assertEqual(events[0].properties, {'property1': 'value', 'property2': 'value', '$ip': '127.0.0.1'})
         self.assertEqual(events[0].timestamp, datetime.datetime(2020, 2, 10, 1, 45, 20, 777210, tzinfo=pytz.UTC))
         self.assertEqual(events[1].event, '$identify')
         self.assertEqual(events[1].properties['email'], 'some@gmail.com')

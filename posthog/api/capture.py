@@ -85,16 +85,18 @@ def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict
                 order=index
             ) for index, el in enumerate(elements)
         ]
+    ip = get_ip_address(request)
+    if ip:
+        properties["$ip"] = ip
+
     db_event = Event.objects.create(
         event=event,
         distinct_id=distinct_id,
         properties=properties,
-        ip=get_ip_address(request),
         team=team,
         **({'timestamp': timestamp} if timestamp else {}),
         **({'elements': elements_list} if elements_list else {})
     )
-
     # try to create a new person
     try:
         Person.objects.create(team=team, distinct_ids=[str(distinct_id)], is_user=request.user if not request.user.is_anonymous else None)
