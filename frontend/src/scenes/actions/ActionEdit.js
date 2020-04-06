@@ -14,6 +14,7 @@ export class ActionEdit extends Component {
             action: { name: '', steps: [] },
             edited: false,
             focus: true,
+            showSlackCheckbox: props.user && props.user.team && props.user.team.slack_incoming_webhook,
         }
         this.params = '?include_count=1' + (props.temporaryToken ? '&temporary_token=' + props.temporaryToken : '')
         this.fetchAction.call(this)
@@ -68,6 +69,7 @@ export class ActionEdit extends Component {
             return api
                 .update(this.props.apiURL + 'api/action/' + this.state.action.id + '/' + this.params, {
                     name: this.state.action.name,
+                    post_to_slack: this.state.action.post_to_slack,
                     steps,
                 })
                 .then(save)
@@ -163,7 +165,22 @@ export class ActionEdit extends Component {
                         </>
                     ))}
 
-                    <br />
+                    {!isEditor && this.state.showSlackCheckbox ? (
+                        <div style={{ marginTop: 20, marginBottom: 15 }}>
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    onChange={e => {
+                                        this.setState({ action: { ...action, post_to_slack: e.target.checked } })
+                                    }}
+                                    checked={action.post_to_slack}
+                                />
+                                &nbsp;Post to Slack when this action is triggered
+                            </label>
+                        </div>
+                    ) : (
+                        <br />
+                    )}
 
                     {this.state.error && (
                         <p className="text-danger">

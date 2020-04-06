@@ -33,7 +33,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
 
     class Meta:
         model = Action
-        fields = ['id', 'name', 'steps', 'created_at', 'deleted', 'count']
+        fields = ['id', 'name', 'post_to_slack', 'steps', 'created_at', 'deleted', 'count']
 
     def get_steps(self, action: Action):
         steps = action.steps.all()
