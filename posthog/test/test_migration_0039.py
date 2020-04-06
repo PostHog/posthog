@@ -31,7 +31,7 @@ class TestMigrations(TestCase):
         # Run the migration to test
         executor = MigrationExecutor(connection)
         executor.loader.build_graph()  # reload.
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(8):
             executor.migrate(self.migrate_to)
 
         self.apps = executor.loader.project_state(self.migrate_to).apps

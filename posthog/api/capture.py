@@ -85,7 +85,7 @@ def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict
                 order=index
             ) for index, el in enumerate(elements)
         ]
-    ip=get_ip_address(request)
+    ip = get_ip_address(request)
     if ip:
         properties["$ip"] = ip
 
