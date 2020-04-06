@@ -1,5 +1,5 @@
 from .base import BaseTest
-from posthog.models import Event, Person, Team, User, ElementGroup
+from posthog.models import Event, Person, Team, User, ElementGroup, Action, ActionStep
 from django.test import TransactionTestCase
 import base64
 import json
@@ -18,18 +18,23 @@ class TestCapture(BaseTest):
 
     def test_capture_new_person(self):
         user = self._create_user('tim')
+        action1 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=action1, selector='a')
+        action2 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=action2, selector='a')
 
-        response = self.client.get('/e/?data=%s' % self._dict_to_json({
-            'event': '$autocapture',
-            'properties': {
-                'distinct_id': 2,
-                'token': self.team.api_token,
-                '$elements': [
-                    {'tag_name': 'a', 'nth_child': 1, 'nth_of_type': 2, 'attr__class': 'btn btn-sm'},
-                    {'tag_name': 'div', 'nth_child': 1, 'nth_of_type': 2, '$el_text': '💻'}
-                ]
-            },
-        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
+        with self.assertNumQueries(18):
+            response = self.client.get('/e/?data=%s' % self._dict_to_json({
+                'event': '$autocapture',
+                'properties': {
+                    'distinct_id': 2,
+                    'token': self.team.api_token,
+                    '$elements': [
+                        {'tag_name': 'a', 'nth_child': 1, 'nth_of_type': 2, 'attr__class': 'btn btn-sm'},
+                        {'tag_name': 'div', 'nth_child': 1, 'nth_of_type': 2, '$el_text': '💻'}
+                    ]
+                },
+            }), content_type='application/json', HTTP_ORIGIN='https://localhost')
 
         self.assertEqual(response._headers['access-control-allow-origin'][1], 'https://localhost')
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])

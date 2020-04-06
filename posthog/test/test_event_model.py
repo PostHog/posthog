@@ -190,13 +190,13 @@ class TestElementGroup(BaseTest):
 
 class TestActions(BaseTest):
     def _signup_event(self, distinct_id: str):
-        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team, elements=[
+        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team, event='$autocapture', elements=[
             Element(tag_name='button', text='Sign up!')
         ])
         return sign_up
 
     def _movie_event(self, distinct_id: str):
-        event = Event.objects.create(distinct_id=distinct_id, team=self.team, elements=[
+        event = Event.objects.create(distinct_id=distinct_id, team=self.team, event='$autocapture', elements=[
             Element(tag_name='a', attr_class=['watch_movie', 'play'], text='Watch now', attr_id='something', href='/movie', order=0),
             Element(tag_name='div', href='/movie', order=1)
         ])
@@ -204,11 +204,11 @@ class TestActions(BaseTest):
 
     def test_simple_element_filters(self):
         action_sign_up = Action.objects.create(team=self.team, name='signed up')
-        ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
+        ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!', event='$autocapture')
         # 2 steps that match same element might trip stuff up
-        ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
+        ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!', event='$autocapture')
         action_credit_card = Action.objects.create(team=self.team, name='paid')
-        ActionStep.objects.create(action=action_credit_card, tag_name='button', text='Pay $10')
+        ActionStep.objects.create(action=action_credit_card, tag_name='button', text='Pay $10', event='$autocapture')
 
         # events
         person_stopped_after_signup = Person.objects.create(distinct_ids=["stopped_after_signup"], team=self.team)
@@ -217,7 +217,7 @@ class TestActions(BaseTest):
 
     def test_selector(self):
         action_watch_movie = Action.objects.create(team=self.team, name='watch movie')
-        ActionStep.objects.create(action=action_watch_movie, text='Watch now', selector="div > a.watch_movie")
+        ActionStep.objects.create(action=action_watch_movie, text='Watch now', selector="div > a.watch_movie", event='$autocapture')
         Person.objects.create(distinct_ids=["watched_movie"], team=self.team)
         event = self._movie_event('watched_movie')
         self.assertEqual(event.actions, [action_watch_movie])
