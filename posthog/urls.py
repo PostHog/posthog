@@ -6,6 +6,7 @@ from django.shortcuts import redirect
 from django.contrib.auth import authenticate, login, views as auth_views, decorators
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
+from django.template.loader import render_to_string
 
 from .api import router, capture, user
 from .models import Team, User
@@ -34,7 +35,7 @@ def login_view(request):
         password = request.POST['password']
         user = authenticate(request, email=email, password=password)
         if user is not None:
-            login(request, user)
+            login(request, user, backend='django.contrib.auth.backends.ModelBackend')
             posthoganalytics.capture(user.distinct_id, 'user logged in')
             return redirect('/')
         else:
@@ -59,13 +60,13 @@ def signup_to_team_view(request, token):
         try:
             user = User.objects.create_user(email=email, password=password, first_name=request.POST.get('name'))
         except:
-            return render_template('signup_to_team.html', request=request, context={'email': email, 'error': True, 'team': team})
-        login(request, user)
+            return render_template('signup_to_team.html', request=request, context={'email': email, 'error': True, 'team': team, 'signup_token': token})
+        login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         team.users.add(user)
         team.save()
         posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': False})
         return redirect('/')
-    return render_template('signup_to_team.html', request, context={'team': team})
+    return render_template('signup_to_team.html', request, context={'team': team, 'signup_token': token})
 
 def setup_admin(request):
     if User.objects.exists():
@@ -84,7 +85,7 @@ def setup_admin(request):
         except:
             return render_template('setup_admin.html', request=request, context={'error': True, 'email': request.POST['email'], 'company_name': request.POST.get('company_name'), 'name': request.POST.get('name')})
         Team.objects.create_with_data(users=[user], name=company_name)
-        login(request, user)
+        login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': is_first_user})
         posthoganalytics.identify(user.distinct_id, properties={
             'email': user.email,
@@ -92,6 +93,42 @@ def setup_admin(request):
             'name': user.first_name
         })
         return redirect('/')
+
+def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
+    if user:
+        return {'is_new': False}
+
+    signup_token = strategy.session_get('signup_token')
+    if signup_token is None:
+        processed = render_to_string('auth_error.html', {'message': "There is no team associated with this account! Please use an invite link from a team to create an account!"})
+        return HttpResponse(processed, status=401)
+
+    fields = dict((name, kwargs.get(name, details.get(name)))
+                   for name in backend.setting('USER_FIELDS', ['email']))
+    
+    if not fields:
+        return
+
+    try: 
+        team = Team.objects.get(signup_token=signup_token)
+    except Team.DoesNotExist:
+        processed = render_to_string('auth_error.html', {'message': "We can't find the team associated with this signup token. Please ensure the invite link is provided from an existing team!"})
+        return HttpResponse(processed, status=401)
+
+    try:
+        user = strategy.create_user(**fields)
+    except:
+        processed = render_to_string('auth_error.html', {'message': "Account unable to be created. This account may already exist. Please try again or use different credentials!"})
+        return HttpResponse(processed, status=401)
+
+    team.users.add(user)
+    team.save()
+    posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': False})
+
+    return {
+        'is_new': True,
+        'user': user
+    }
 
 def logout(request):
     return auth_views.logout_then_login(request)
@@ -119,6 +156,7 @@ urlpatterns = [
     path('batch/', capture.get_event),
     path('logout', logout, name='login'),
     path('login', login_view, name='login'),
+    path('', include('social_django.urls', namespace='social')),
     path('signup/<str:token>', signup_to_team_view, name='signup'),
     path('setup_admin', setup_admin, name='setup_admin'),
     # react frontend
