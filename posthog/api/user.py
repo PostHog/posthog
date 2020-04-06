@@ -1,4 +1,8 @@
 from django.http import HttpResponse, JsonResponse
+from django.views.decorators.http import require_http_methods
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth import update_session_auth_hash
+from django.core.exceptions import ValidationError
 from django.shortcuts import redirect
 from django.conf import settings
 from posthog.models import Event
@@ -55,3 +59,35 @@ def redirect_to_site(request):
     }))
 
     return redirect("{}#state={}".format(app_url, state))
+
+
+@require_http_methods(['PATCH'])
+def change_password(request):
+    """Change the password of a regular User."""
+    if not request.user.is_authenticated:
+        return JsonResponse({}, status=401)
+
+    try:
+        body = json.loads(request.body)
+    except (TypeError, json.decoder.JSONDecodeError):
+        return JsonResponse({'error': 'Cannot parse request body'}, status=400)
+
+    old_password = body.get('oldPassword')
+    new_password = body.get('newPassword')
+
+    if not old_password or not new_password:
+        return JsonResponse({'error': 'Missing payload'}, status=400)
+
+    if not request.user.check_password(old_password):
+        return JsonResponse({'error': 'Incorrect old password'}, status=400)
+
+    try:
+        validate_password(new_password, user)
+    except ValidationError as err:
+        return JsonResponse({'error': err.messages[0]}, status=400)
+
+    request.user.set_password(new_password)
+    request.user.save()
+    update_session_auth_hash(request, request.user)
+
+    return JsonResponse({})

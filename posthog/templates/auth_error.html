@@ -1,0 +1,11 @@
+{% extends 'layout.html' %}
+
+{% block content %}
+    <div class="form-signin">
+        <h1 class="h3 mb-3 font-weight-normal">Ooops! Auth Error</h1>
+        {% if message %}
+            <p>{{ message }}</p>
+        {% endif %}
+        <a class="btn btn-lg btn-primary btn-block" href="/login">Return to Login</a>   
+    </div>
+{% endblock %}
