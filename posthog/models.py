@@ -16,6 +16,7 @@ from django.db import transaction
 from sentry_sdk import capture_exception
 from dateutil.relativedelta import relativedelta
 
+import requests
 import secrets
 import re
 import json
@@ -232,8 +233,12 @@ class EventManager(models.QuerySet):
             for action in event.actions:
                 relations.append(action.events.through(action_id=action.pk, event=event))
             Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
-            return event
+            for action in event.actions:
+                if action.post_to_slack and action.team and action.team.slack_incoming_webhook:
+                    values = {'text': 'Action "{}" triggered!'.format(action.name)}
+                    requests.post(action.team.slack_incoming_webhook, verify=False, json=values)
 
+            return event
 
 class Event(models.Model):
     class Meta:
