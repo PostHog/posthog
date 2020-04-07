@@ -209,7 +209,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         append['count'] = sum(values)
         return append
 
-    def _aggregate_by_day(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request) -> Dict[str, any]:
+    def _aggregate_by_day(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request) -> Dict[str, Any]:
         append: Dict[str, Any] = {}
         aggregates = filtered_events\
             .filter(self._filter_events(request))\
@@ -241,7 +241,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         cursor.execute(query, params)
         return cursor.fetchall()
 
-    def _stickiness(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request) -> Dict[str, any]:
+    def _stickiness(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request) -> Dict[str, Any]:
         date_from, date_to = self._get_dates_from_request(request)
         range_days = (date_to - date_from).days + 2
 
@@ -274,7 +274,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         }
 
     def _serialize_entity(self, id: str, name: str, entity, entity_type: str, filters: Dict[Any, Any], request: request.Request) -> Dict:
-        serialized: Dict[str, any] = {
+        serialized: Dict[str, Any] = {
             'action': {
                 'id': id,
                 'name': name,
@@ -369,7 +369,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         entityId = request.GET.get('entityId')
         entityType = request.GET.get('type')
 
-        def _calculate_people(id: str, name: str, events: QuerySet):
+        def _calculate_people(id, name, events: QuerySet):
             if request.GET.get('shown_as', 'Volume') == 'Volume':
                 events = events.values('person_id').distinct()
             elif request.GET['shown_as'] == 'Stickiness':
