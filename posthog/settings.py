@@ -182,6 +182,15 @@ elif os.environ.get('POSTHOG_DB_NAME'):
 else:
     raise ImproperlyConfigured(f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software')
 
+# Broker
+if TEST or DEBUG:
+    CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://localhost')
+else:
+    CELERY_BROKER_URL = os.environ.get('REDIS_URL', '')
+
+if not CELERY_BROKER_URL:
+    raise ImproperlyConfigured(f'The environment var "REDIS_URL" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-10102')
+
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
 

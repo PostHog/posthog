@@ -14,7 +14,15 @@
       "buildpacks": [
         {"url": "heroku/nodejs"},
         {"url": "https://github.com/timgl/heroku-buildpack-python.git"}
-      ]
+      ],
+      "formation": {
+        "web": {
+          "quantity": 1
+        },
+        "worker": {
+          "quantity": 1
+        }
+      }
     },
     "test": {
       "addons": ["heroku-postgresql:in-dyno"],
@@ -27,15 +35,24 @@
     }
   },
   "buildpacks": [
-        {"url": "heroku/nodejs"},
-        {"url": "https://github.com/timgl/heroku-buildpack-python.git"}
+    {"url": "heroku/nodejs"},
+    {"url": "https://github.com/timgl/heroku-buildpack-python.git"}
   ],
   "addons": [
-      "heroku-postgresql"
+    "heroku-postgresql",
+    "heroku-redis"
   ],
+  "formation": {
+    "web": {
+      "quantity": 1
+    },
+    "worker": {
+      "quantity": 1
+    }
+  },
   "env": {
-      "SECRET_KEY": {
-          "generator": "secret"
-      }
+    "SECRET_KEY": {
+      "generator": "secret"
+    }
   }
 }
