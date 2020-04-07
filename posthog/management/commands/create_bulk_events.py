@@ -2,6 +2,9 @@
 import random
 import json
 import uuid
+import psycopg2
+from urllib.parse import urlparse
+from django.conf import settings
 
 from django.core.management.base import BaseCommand
 from django.utils.timezone import now
@@ -10,6 +13,7 @@ from django.core import serializers
 from dateutil.relativedelta import relativedelta
 from pathlib import Path
 from typing import List
+import time
 
 from posthog.models import Event, Element, Team, Person, PersonDistinctId, Funnel, Action, ActionStep, FunnelStep
 
@@ -26,32 +30,16 @@ class Command(BaseCommand):
                                                     eg. --mode delete
                                                      """
                             )
-                            
-        parser.add_argument('--count', nargs='+', default=['1M'], help="""
-                                                        '1M' for creating about 1 million random events
-                                                        or 
-                                                        '100K' for creating about 100 thousand random events
-                                                        default 1M
-                                                        """
-                            )
 
     def handle(self, *args, **options):
         team_id = options['team_id']
         mode =  options['mode'][0]
-        count = options['count'][0]
 
         if not team_id:
             print ("Please specify the --team id")
             return
 
         team = Team.objects.get(pk=team_id[0])
-
-        if count.lower() == "100k":
-            limit = 1000
-        else:
-            limit = 10000
-            print("This may take a while...")
-
 
         with open(Path('posthog/demo_data.json').resolve(), 'r') as demo_data_file:
             demo_data = json.load(demo_data_file)
@@ -63,41 +51,68 @@ class Command(BaseCommand):
         else:
             self._delete_demo_data(team)
             self._create_funnel(base_url, team)
-            self._create_events(demo_data,team, limit)
+            start_time = time.time()
+            self._create_events(demo_data,team, base_url, team_id[0])
+            print("--- %s seconds ---" % (time.time() - start_time))
         
-    def _create_events(self, demo_data, team, limit):
+    def _create_events(self, demo_data, team, base_url, team_id):           
+        result = urlparse(settings.DATABASE_URL)
+
+        database = result.path[1:]
+        hostname = result.hostname
+        try:
+            conn = psycopg2.connect("dbname='posthog'  host='localhost'")
+        except:
+            print ("I am unable to connect to the database")
+
+
+        conn.autocommit = True
+        cur = conn.cursor()
+
         Person.objects.bulk_create([
         Person(team=team, properties={'is_demo': True}) for _ in range(0, 100)])
 
         distinct_ids: List[PersonDistinctId] = []
-        events: List[Event] = []
-        days_ago = 7
         demo_data_index = 0
- 
-        base_url = '127.0.0.1/bulk_demo/'
 
         for index, person in enumerate(Person.objects.filter(team=team)):
             print (index)
-            if index > 0 and index % 14 == 0:
-                days_ago -= 1
-
             distinct_id = str(uuid.uuid4())
             distinct_ids.append(PersonDistinctId(team=team, person=person, distinct_id=distinct_id))
-            date = now() - relativedelta(days=days_ago)
 
             if index % 3 == 0:
                 person.properties.update(demo_data[demo_data_index])
                 person.save()
                 demo_data_index += 1
 
-                for i in range(3):
-                    Event.objects.bulk_create([Event(
-                        event=random.choice(['$autocapture', '$pageview', '$signup']), team=team, distinct_id=distinct_id, 
-                        properties={'$current_url': base_url + random.choice(['', '1/', '2/']), 
-                        '$browser': random.choice(['Chrome', 'Safari', 'Firefox']), '$lib': 'web'}, timestamp=date + relativedelta(seconds=15),
-                        elements= [serializers.serialize('json', [Element(
-                            tag_name= random.choice(['a', 'button']) , href='/demo/1', attr_class=['btn', 'btn-success'], attr_id='sign-up', text=random.choice(['Sign up', 'Pay $10'])), ])]
-                        ) for _ in range(limit)])
+            event_iter = ({
+                            'event': random.choice(['autocapture', '$pageview', '$hello']),
+                            'properties': json.dumps({
+                                                '$current_url': base_url + random.choice(['', '1/', '2/']), 
+                                                '$browser': random.choice(['Chrome', 'Safari', 'Firefox']), '$lib': 'web'
+                                                }),
+                            'elements': json.dumps({
+                                                'tag_name': random.choice(['a', 'href']), 
+                                                'attr_class':['btn', 'btn-success'],
+                                                'attr_id': random.choice(['sign-up','click']), 
+                                                'text': random.choice(['Sign up', 'Pay $10'])
+                                                }),
+                            'timestamp': now() - relativedelta(days=random.choice(range(7))) + relativedelta(seconds=15),
+                            'team_id': 1, 
+                            'distinct_id': distinct_id
+                        } for _ in range(10000))
+
+            psycopg2.extras.execute_batch(cur, """
+                        INSERT INTO posthog_event 
+                        (event, properties, elements, timestamp, team_id, distinct_id) VALUES (
+                        %(event)s,
+                        %(properties)s,
+                        %(elements)s,
+                        %(timestamp)s,
+                        %(team_id)s,
+                        %(distinct_id)s
+                        );""", 
+                        event_iter, page_size=1000)
             
         PersonDistinctId.objects.bulk_create(distinct_ids)
 
