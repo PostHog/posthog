@@ -43,6 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && npm install -g yarn@1 \
     && yarn --frozen-lockfile \
     && yarn build \
+    && yarn cache clean \
     && npm uninstall -g yarn \
     && apt-get purge -y nodejs curl \
     && rm -rf node_modules \
