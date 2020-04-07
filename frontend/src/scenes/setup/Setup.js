@@ -63,7 +63,7 @@ export function Setup() {
             <br />
             <br />
             <br />
-            <h2>Opt out of email updates</h2>
+            <h2>Security and feature updates</h2>
             <UpdateEmailPreferences />
         </div>
     )
