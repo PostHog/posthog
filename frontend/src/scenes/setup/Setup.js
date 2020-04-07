@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { JSSnippet } from '../../lib/utils'
 import { InviteTeam } from '../../lib/components/InviteTeam'
 import { OptOutCapture } from './OptOutCapture'
+import { UpdateEmailPreferences } from './UpdateEmailPreferences'
 import { SetupAppUrls } from './SetupAppUrls'
 
 import { userLogic } from '../userLogic'
@@ -59,6 +60,11 @@ export function Setup() {
             <br />
             <h2>Opt out of capturing</h2>
             <OptOutCapture />
+            <br />
+            <br />
+            <br />
+            <h2>Security and feature updates</h2>
+            <UpdateEmailPreferences />
         </div>
     )
 }
