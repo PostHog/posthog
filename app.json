@@ -31,7 +31,8 @@
         {"url": "https://github.com/timgl/heroku-buildpack-python.git"}
   ],
   "addons": [
-      "heroku-postgresql"
+      "heroku-postgresql",
+      "heroku-redis"
   ],
   "env": {
       "SECRET_KEY": {

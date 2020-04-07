@@ -76,6 +76,7 @@ This image has everything you need to try out PostHog locally! It will set up a 
 9. Run migrations `DEBUG=1 python3 manage.py migrate`
 10. Run `DEBUG=1 python3 manage.py runserver`
 11. Run the tests and frontend
+12. Start celery to process background jobs `DEBUG=1 celery -A posthog worker --loglevel=info`
 
 ### Running backend tests
 
