@@ -7,7 +7,7 @@ import { SaveToDashboard } from 'lib/components/SaveToDashboard'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DateFilter } from 'lib/components/DateFilter'
 
-import { ActionFilter } from './ActionFilter'
+import { ActionFilter } from './ActionFilter/ActionFilter'
 import { ActionsPie } from './ActionsPie'
 import { BreakdownFilter } from './BreakdownFilter'
 import { ActionsTable } from './ActionsTable'
@@ -24,23 +24,18 @@ const displayMap = {
 }
 
 export function Trends() {
-    const { actions, filters, properties, resultsLoading, showingPeople } = useValues(
+    const { filters, properties, resultsLoading, showingPeople } = useValues(
         trendsLogic({ dashboardItemId: null })
     )
     const { setFilters, setDisplay } = useActions(trendsLogic({ dashboardItemId: null }))
-
     return (
         <div className="actions-graph">
             {showingPeople ? <PeopleModal /> : null}
             <h1>Action trends</h1>
             <Card>
                 <div className="card-body">
-                    <h4 className="secondary">Actions</h4>
-                    <ActionFilter
-                        actions={actions}
-                        actionFilters={filters.actions}
-                        onChange={actions => setFilters({ actions })}
-                    />
+                    <h4 className="secondary">{'Actions & Events'}</h4>
+                    <ActionFilter></ActionFilter>
                     <hr />
                     <h4 className="secondary">Filters</h4>
                     <PropertyFilters
