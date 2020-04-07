@@ -1,6 +1,7 @@
 import React, { Component } from 'react'
 import api from './../lib/api'
 import { Modal } from '../lib/components/Modal'
+import { Dropdown } from '../lib/components/Dropdown'
 
 function ChangelogModal(props) {
     return (
@@ -39,12 +40,17 @@ export class Topcontent extends Component {
             <div>
                 <div
                     className="right-align"
-                    style={{ display: 'flex', fontSize: 13 }}
+                    style={{
+                        display: 'flex',
+                        flexDirection: 'row',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        fontSize: 13,
+                    }}
                 >
                     {latest_version && (
                         <span style={{ marginRight: 32 }}>
-                            {latest_version ==
-                                this.props.user.posthog_version && (
+                            {latest_version == this.props.user.posthog_version && (
                                 <a
                                     href="#"
                                     onClick={this.openChangelog}
@@ -54,8 +60,7 @@ export class Topcontent extends Component {
                                     PostHog up-to-date
                                 </a>
                             )}
-                            {latest_version !=
-                                this.props.user.posthog_version && (
+                            {latest_version != this.props.user.posthog_version && (
                                 <a
                                     href="#"
                                     onClick={this.openChangelog}
@@ -67,15 +72,15 @@ export class Topcontent extends Component {
                             )}
                         </span>
                     )}
-                    {this.props.user.email}
+                    <span>
+                        <Dropdown title={this.props.user.email} buttonClassName="btn btn-sm btn-light">
+                            <a className={'dropdown-item'} href="/logout">
+                                Logout
+                            </a>
+                        </Dropdown>
+                    </span>
                 </div>
-                {openChangelog && (
-                    <ChangelogModal
-                        onDismiss={() =>
-                            this.setState({ openChangelog: false })
-                        }
-                    />
-                )}
+                {openChangelog && <ChangelogModal onDismiss={() => this.setState({ openChangelog: false })} />}
             </div>
         )
     }
