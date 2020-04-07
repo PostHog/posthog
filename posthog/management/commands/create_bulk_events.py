@@ -24,12 +24,11 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--team_id', nargs='+', type=int, help='specify the team id eg. --team_id 1')
         parser.add_argument('--mode', nargs='+', default=['create'], help="""
-                                                    'delete' for deleting bulk demo data 
-                                                    or 'create' for creating bulk demo data;
-                                                    default 'create'
-                                                    eg. --mode delete
-                                                     """
-                            )
+        'delete' for deleting bulk demo data 
+        or 'create' for creating bulk demo data;
+        default 'create'
+        eg. --mode delete
+        """)
 
     def handle(self, *args, **options):
         team_id = options['team_id']
@@ -52,19 +51,18 @@ class Command(BaseCommand):
             self._delete_demo_data(team)
             self._create_funnel(base_url, team)
             start_time = time.time()
-            self._create_events(demo_data,team, base_url, team_id[0])
+            self._create_events(demo_data,team, base_url)
             print("--- %s seconds ---" % (time.time() - start_time))
         
-    def _create_events(self, demo_data, team, base_url, team_id):           
+    def _create_events(self, demo_data, team, base_url):           
         result = urlparse(settings.DATABASE_URL)
 
         database = result.path[1:]
         hostname = result.hostname
         try:
-            conn = psycopg2.connect("dbname='posthog'  host='localhost'")
+            conn = psycopg2.connect(dbname=database,  host=hostname)
         except:
-            print ("I am unable to connect to the database")
-
+            print ("Unable to connect to the database")
 
         conn.autocommit = True
         cur = conn.cursor()
@@ -76,7 +74,6 @@ class Command(BaseCommand):
         demo_data_index = 0
 
         for index, person in enumerate(Person.objects.filter(team=team)):
-            print (index)
             distinct_id = str(uuid.uuid4())
             distinct_ids.append(PersonDistinctId(team=team, person=person, distinct_id=distinct_id))
 
@@ -88,19 +85,19 @@ class Command(BaseCommand):
             event_iter = ({
                             'event': random.choice(['autocapture', '$pageview', '$hello']),
                             'properties': json.dumps({
-                                                '$current_url': base_url + random.choice(['', '1/', '2/']), 
-                                                '$browser': random.choice(['Chrome', 'Safari', 'Firefox']), '$lib': 'web'
-                                                }),
+                                '$current_url': base_url + random.choice(['', '1/', '2/']), 
+                                '$browser': random.choice(['Chrome', 'Safari', 'Firefox']), '$lib': 'web'
+                                }),
                             'elements': json.dumps({
-                                                'tag_name': random.choice(['a', 'href']), 
-                                                'attr_class':['btn', 'btn-success'],
-                                                'attr_id': random.choice(['sign-up','click']), 
-                                                'text': random.choice(['Sign up', 'Pay $10'])
-                                                }),
+                                'tag_name': random.choice(['a', 'href']), 
+                                'attr_class':['btn', 'btn-success'],
+                                'attr_id': random.choice(['sign-up','click']), 
+                                'text': random.choice(['Sign up', 'Pay $10'])
+                                }),
                             'timestamp': now() - relativedelta(days=random.choice(range(7))) + relativedelta(seconds=15),
-                            'team_id': 1, 
+                            'team_id': team.id, 
                             'distinct_id': distinct_id
-                        } for _ in range(10000))
+                        } for _ in range(100))
 
             psycopg2.extras.execute_batch(cur, """
                         INSERT INTO posthog_event 
@@ -115,6 +112,7 @@ class Command(BaseCommand):
                         event_iter, page_size=1000)
             
         PersonDistinctId.objects.bulk_create(distinct_ids)
+        cur.close()
 
     def _delete_demo_data(self,team):
         people = PersonDistinctId.objects.filter(team=team, person__properties__is_demo=True)
