@@ -330,7 +330,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     filters=event,
                     request=request,
                 )
-                if trend_entity is not None:
+                if trend_entity is not None and 'labels' in trend_entity:
                     actions_list.append(trend_entity)  
         if parsed_actions:
             for filters in parsed_actions:
@@ -348,7 +348,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 )
                 if trend_entity is not None:
                     actions_list.append(trend_entity)
-        else:
+        elif parsed_events is None:
             for action in actions:
                 trend_entity = self._serialize_entity(
                     entity=action,
