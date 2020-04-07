@@ -24,7 +24,12 @@ export function SlackIntegration() {
 
     return (
         <div>
-            <label>Enter your slack webhook URL here</label>
+            <label>
+                Enter your Slack webhook URL here.{' '}
+                <a href="https://docs.posthog.com/#/integrations/slack">
+                    Read the docs to find out how to get this value.
+                </a>
+            </label>
             <form
                 onSubmit={e => {
                     e.preventDefault()
@@ -35,7 +40,7 @@ export function SlackIntegration() {
                     <input
                         value={editedWebhook}
                         onChange={e => setEditedWebhook(e.target.value)}
-                        style={{ display: 'inline-block', maxWidth: 400 }}
+                        style={{ display: 'inline-block', maxWidth: 700 }}
                         type="url"
                         className="form-control"
                     />
