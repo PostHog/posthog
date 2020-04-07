@@ -10,6 +10,7 @@ services:
       POSTGRES_PASSWORD: posthog
   redis:
     image: "redis:alpine"
+    container_name: posthog_redis
   web:
     image: posthog/posthog:latest
     container_name: posthog_web
