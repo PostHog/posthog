@@ -56,5 +56,6 @@ jobs:
       - name: Typechecking
         env:
           DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+          REDIS_URL: 'redis://localhost'
         run: |
           mypy posthog
