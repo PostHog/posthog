@@ -215,7 +215,7 @@ class TestTrends(BaseTest):
         Event.objects.create(team=self.team, event='sign up', distinct_id='person1', timestamp='2020-01-04T12:00:00Z')
         Event.objects.create(team=self.team, event='sign up', distinct_id='person2', timestamp='2020-01-05T12:00:00Z')
         # test people
-        response = self.client.get('/api/action/people/?date_from=2020-01-04&date_to=2020-01-04&people_action=%s' % sign_up_action.id).json()
+        response = self.client.get('/api/action/people/?date_from=2020-01-04&date_to=2020-01-04&type=actions&entityId=%s' % sign_up_action.id).json()
         self.assertEqual(response[0]['people'][0]['id'], person1.pk)
 
     def test_stickiness(self):
@@ -239,7 +239,6 @@ class TestTrends(BaseTest):
         ActionStep.objects.create(action=watched_movie, event='watched movie')
         watched_movie.calculate_events()
         response = self.client.get('/api/action/trends/?shown_as=Stickiness&date_from=2020-01-01&date_to=2020-01-07&actions=%s' % json_to_url([{'id': watched_movie.id}])).json()
-
         self.assertEqual(response[0]['labels'][0], '1 day')
         self.assertEqual(response[0]['data'][0], 2)
         self.assertEqual(response[0]['labels'][1], '2 days')
@@ -250,6 +249,5 @@ class TestTrends(BaseTest):
         self.assertEqual(response[0]['data'][6], 0)
 
         # test people
-        response = self.client.get('/api/action/people/?shown_as=Stickiness&stickiness_days=1&date_from=2020-01-01&date_to=2020-01-07&actions=%s' % json_to_url([{'id': watched_movie.id}])).json()
+        response = self.client.get('/api/action/people/?shown_as=Stickiness&stickiness_days=1&date_from=2020-01-01&date_to=2020-01-07&type=actions&entityId=%s' % watched_movie.id).json()
         self.assertEqual(response[0]['people'][0]['id'], person1.pk)
-        self.assertEqual(response[0]['people'][1]['id'], person4.pk)
