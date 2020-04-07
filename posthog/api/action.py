@@ -20,6 +20,9 @@ import json
 from dateutil.relativedelta import relativedelta
 from .person import PersonSerializer
 
+ENTITY_ACTIONS = 'actions'
+ENTITY_EVENTS = 'events'
+
 
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
@@ -79,11 +82,11 @@ class ActionViewSet(viewsets.ModelViewSet):
         if self.action == 'list':
             queryset = queryset.filter(deleted=False)
 
-        if self.request.GET.get('actions'):
-            queryset = queryset.filter(pk__in=[action['id'] for action in self._parse_entities('actions')])
+        if self.request.GET.get(ENTITY_ACTIONS):
+            queryset = queryset.filter(pk__in=[action['id'] for action in self._parse_entities(ENTITY_ACTIONS)])
 
         if self.request.GET.get('include_count'):
-            queryset = queryset.annotate(count=Count('events'))
+            queryset = queryset.annotate(count=Count(ENTITY_EVENTS))
 
         queryset = queryset.prefetch_related(Prefetch('steps', queryset=ActionStep.objects.order_by('id')))
         return queryset\
@@ -300,10 +303,10 @@ class ActionViewSet(viewsets.ModelViewSet):
         }
 
     def _process_entity_for_events(self, entity, entity_type=None):
-        if entity_type == 'action':
+        if entity_type == ENTITY_ACTIONS:
             filtered_events = Event.objects.filter_by_action(action=entity)
             return filtered_events
-        elif entity_type == 'event':
+        elif entity_type == ENTITY_EVENTS:
             filtered_events = Event.objects.filter(event=entity['id'], team=self.request.user.team_set.get())
             return filtered_events
         return None
@@ -314,35 +317,40 @@ class ActionViewSet(viewsets.ModelViewSet):
         actions = actions.filter(deleted=False)
         actions_list = []
 
-        parsed_events = self._parse_entities('events')
+        parsed_actions = self._parse_entities(ENTITY_ACTIONS)
+        parsed_events = self._parse_entities(ENTITY_EVENTS)
+
+        def _calculate_trend(entity, id, name, entity_type, filters):
+            filtered_events = self._process_entity_for_events(entity, entity_type=entity_type)
+            if filtered_events is None:
+                return None
+            trend_entity = self._serialize_entity(
+                id=id,
+                name=name,
+                entity_type=entity_type,
+                filtered_events=filtered_events,
+                filters=filters,
+                request=request,
+            )
+            return trend_entity
 
         if parsed_events:
             for event in parsed_events:
-                filtered_events = self._process_entity_for_events(event, entity_type='event')
-                if filtered_events is None:
-                    continue
-                trend_entity = self._serialize_entity(
-                    id=event['id'],
-                    name=event['id'],
-                    entity_type="events",
-                    filtered_events=filtered_events,
-                    filters=event,
-                    request=request,
-                )
+                trend_entity = _calculate_trend(event, event['id'], event['id'], ENTITY_EVENTS, event)
                 if trend_entity is not None:
                     actions_list.append(trend_entity)  
-        for action in actions:
-                filtered_events = self._process_entity_for_events(action, entity_type='action')
-                if filtered_events is None:
+        if parsed_actions:
+            for filters in parsed_actions:
+                try:
+                    db_action = actions.get(pk=filters['id'])
+                except Action.DoesNotExist:
                     continue
-                trend_entity = self._serialize_entity(
-                    id=action.id,
-                    name=action.name,
-                    entity_type="actions",
-                    filtered_events=filtered_events,
-                    filters={},
-                    request=request,
-                )
+                trend_entity = _calculate_trend(db_action, db_action.id, db_action.name, ENTITY_ACTIONS, filters)
+                if trend_entity is not None:
+                    actions_list.append(trend_entity)
+        else:
+            for action in actions:
+                trend_entity = _calculate_trend(action, action.id, action.name, ENTITY_ACTIONS, {})
                 if trend_entity is not None:
                     actions_list.append(trend_entity)
                 
@@ -374,19 +382,19 @@ class ActionViewSet(viewsets.ModelViewSet):
                 request=request
             )
 
-        if entityType == 'events':
+        if entityType == ENTITY_EVENTS:
             events = Event.objects.filter_by_event_with_people(event=entityId, team_id=self.request.user.team_set.get().id)\
                 .filter(self._filter_events(request))
             people = _calculate_people(id=entityId, name=entityId, events=events)
             return Response([people])
-        elif entityType == 'actions':
+        elif entityType == ENTITY_ACTIONS:
             actions = super().get_queryset()
             actions = actions.filter(deleted=False)
             try:
                 action = actions.get(pk=entityId)
             except Action.DoesNotExist:
                 return Response([])
-            events = self._process_entity_for_events(action, entity_type='action').filter(self._filter_events(request))
+            events = self._process_entity_for_events(action, entity_type=ENTITY_ACTIONS).filter(self._filter_events(request))
             people = _calculate_people(id=action.id, name=action.name, events=events)
             return Response([people])
         
