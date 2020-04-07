@@ -22,7 +22,7 @@ export function Setup() {
             <br />
             <h2>Integrate PostHog</h2>
             To integrate PostHog, copy + paste the following snippet to your website. Ideally, put it just above the{' '}
-            <pre style={{ display: 'inline' }}>&lt;/head&gt;</pre> tag.
+            <pre style={{ display: 'inline' }}>&lt;/head&gt;</pre> tag.{' '}
             <a href="https://docs.posthog.com/#/integrations/js-integration">
                 See docs for instructions on how to identify users.
             </a>
