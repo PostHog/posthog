@@ -1,10 +1,10 @@
 import React, { Component } from 'react'
-import { Card, uuid, Loading } from '../../lib/utils'
+import { Card, uuid, Loading, groupActions } from '../../lib/utils'
 import api from '../../lib/api'
 import { toast } from 'react-toastify'
 import { Link } from 'react-router-dom'
 import PropTypes from 'prop-types'
-import { ActionSelectBox } from '../../lib/components/ActionSelectBox'
+import { ActionSelectPanel, ActionSelectTabs } from '../../lib/components/ActionSelectBox'
 
 export class EditFunnel extends Component {
     constructor(props) {
@@ -60,24 +60,41 @@ export class EditFunnel extends Component {
                     </button>
                 </div>
                 <div className="card-body">
-                    {actions && <ActionSelectBox
-                        onChange={action_id => {
-                            this.setState(
-                                {
-                                    steps: this.state.steps.map(s =>
-                                        s.id == step.id
-                                            ? {
-                                                    ...step,
-                                                    action_id,
-                                                }
-                                            : s
-                                    ),
-                                }
-                            )
-                        }}
-                        actions={actions}
-                        action={selectedAction || {}}
-                    />}
+                    {actions &&
+                        <ActionSelectTabs>
+                        <ActionSelectPanel
+                            title="Actions"
+                            options={groupActions(actions)}
+                            defaultMenuIsOpen={false}
+                            onSelect={({value: action_id}) => {
+                                this.setState(
+                                    {
+                                        steps: this.state.steps.map(s =>
+                                            s.id == step.id
+                                                ? {
+                                                        ...step,
+                                                        action_id,
+                                                    }
+                                                : s
+                                        ),
+                                    }
+                                )
+                            }}
+                            onHover={value => actions.filter(
+                                a => a.id == value
+                            )[0]}
+                            redirect={
+                                selectedAction.id && (
+                                    <a href={'/action/' + selectedAction.id} target="_blank">
+                                        Edit "{selectedAction.name}"{' '}
+                                        <i className="fi flaticon-export" />
+                                    </a>
+                                )
+                            }
+                        >
+                        </ActionSelectPanel>
+                    </ActionSelectTabs>
+                    }
                 </div>
             </Card>
         )

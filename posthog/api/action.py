@@ -20,6 +20,9 @@ import json
 from dateutil.relativedelta import relativedelta
 from .person import PersonSerializer
 
+ENTITY_ACTIONS = 'actions'
+ENTITY_EVENTS = 'events'
+
 
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
@@ -69,21 +72,21 @@ class ActionViewSet(viewsets.ModelViewSet):
     serializer_class = ActionSerializer
     authentication_classes = [TemporaryTokenAuthentication, authentication.SessionAuthentication, authentication.BasicAuthentication]
 
-    def _parse_actions(self, request: request.Request):
-        if not self.request.GET.get('actions'):
+    def _parse_entities(self, entity: str):
+        if not self.request.GET.get(entity):
             return None
-        return json.loads(self.request.GET['actions'])
+        return json.loads(self.request.GET[entity])
 
     def get_queryset(self):
         queryset = super().get_queryset()
         if self.action == 'list':
             queryset = queryset.filter(deleted=False)
 
-        if self.request.GET.get('actions'):
-            queryset = queryset.filter(pk__in=[action['id'] for action in self._parse_actions(self.request.GET['actions'])])
+        if self.request.GET.get(ENTITY_ACTIONS):
+            queryset = queryset.filter(pk__in=[action['id'] for action in self._parse_entities(ENTITY_ACTIONS)])
 
         if self.request.GET.get('include_count'):
-            queryset = queryset.annotate(count=Count('events'))
+            queryset = queryset.annotate(count=Count(ENTITY_EVENTS))
 
         queryset = queryset.prefetch_related(Prefetch('steps', queryset=ActionStep.objects.order_by('id')))
         return queryset\
@@ -183,10 +186,9 @@ class ActionViewSet(viewsets.ModelViewSet):
         filters &= properties_to_Q(properties)
         return filters
 
-    def _breakdown(self, append: Dict, action: Action, filters: Dict[Any, Any],request: request.Request, breakdown_by: str) -> Dict:
+    def _breakdown(self, append: Dict, filtered_events: QuerySet, filters: Dict[Any, Any],request: request.Request, breakdown_by: str) -> Dict:
         key = "properties__{}".format(breakdown_by)
-        events = Event.objects\
-            .filter_by_action(action)\
+        events = filtered_events\
             .filter(self._filter_events(request))\
             .values(key)\
             .annotate(count=Count('id'))\
@@ -207,9 +209,9 @@ class ActionViewSet(viewsets.ModelViewSet):
         append['count'] = sum(values)
         return append
 
-    def _aggregate_by_day(self, action: Action, filters: Dict[Any, Any], request: request.Request):
+    def _aggregate_by_day(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request) -> Dict[str, Any]:
         append: Dict[str, Any] = {}
-        aggregates = Event.objects.filter_by_action(action)\
+        aggregates = filtered_events\
             .filter(self._filter_events(request))\
             .annotate(day=functions.TruncDay('timestamp'))\
             .values('day')\
@@ -225,7 +227,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates)
             append = self._append_data(append, dates_filled)
         if request.GET.get('breakdown'):
-            append = self._breakdown(append, action, filters, request, breakdown_by=request.GET['breakdown'])
+            append = self._breakdown(append, filtered_events, filters, request, breakdown_by=request.GET['breakdown'])
 
         return append
 
@@ -239,11 +241,11 @@ class ActionViewSet(viewsets.ModelViewSet):
         cursor.execute(query, params)
         return cursor.fetchall()
 
-    def _stickiness(self, action: Action, filters: Dict[Any, Any], request: request.Request):
+    def _stickiness(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request) -> Dict[str, Any]:
         date_from, date_to = self._get_dates_from_request(request)
         range_days = (date_to - date_from).days + 2
 
-        events = Event.objects.filter_by_action(action, order_by=None)\
+        events = filtered_events\
             .filter(self._filter_events(request))\
             .values('person_id') \
             .annotate(day_count=Count(functions.TruncDay('timestamp'), distinct=True))\
@@ -271,32 +273,43 @@ class ActionViewSet(viewsets.ModelViewSet):
             'data': data
         }
 
-    def _serialize_action(self, action: Action, filters: Dict[Any, Any], request: request.Request) -> Dict:
-        append = {
+    def _serialize_entity(self, id: str, name: str, entity, entity_type: str, filters: Dict[Any, Any], request: request.Request) -> Dict:
+        serialized: Dict[str, Any] = {
             'action': {
-                'id': action.pk,
-                'name': action.name
+                'id': id,
+                'name': name,
+                'type': entity_type
             },
-            'label': action.name,
+            'label': name,
             'count': 0,
             'breakdown': []
         }
-        if request.GET.get('shown_as', 'Volume') == 'Volume':
-            append.update(self._aggregate_by_day(action=action, filters=filters, request=request))
-        elif request.GET['shown_as'] == 'Stickiness':
-            append.update(self._stickiness(action=action, filters=filters, request=request))
-        return append
 
-    def _serialize_people(self, action: Action, people: QuerySet, request: request.Request) -> Dict:
+        if request.GET.get('shown_as', 'Volume') == 'Volume':
+            filtered_events = self._process_entity_for_events(entity=entity, entity_type=entity_type)
+            serialized.update(self._aggregate_by_day(filtered_events=filtered_events, filters=filters, request=request))
+        elif request.GET['shown_as'] == 'Stickiness':
+            filtered_events = self._process_entity_for_events(entity, entity_type=entity_type, order_by=None)
+            serialized.update(self._stickiness(filtered_events=filtered_events, filters=filters, request=request))
+        return serialized
+
+    def _serialize_people(self, id: str, name: str, people: QuerySet, request: request.Request) -> Dict:
         people_dict = [PersonSerializer(person, context={'request': request}).data for person in  people]
         return {
             'action': {
-                'id': action.pk,
-                'name': action.name
+                'id': id,
+                'name': name
             },
             'people': people_dict,
             'count': len(people_dict)
         }
+
+    def _process_entity_for_events(self, entity, entity_type=None, order_by="-id") -> QuerySet:
+        if entity_type == ENTITY_ACTIONS:
+            return Event.objects.filter_by_action(action=entity, order_by=order_by)
+        elif entity_type == ENTITY_EVENTS:
+            return Event.objects.filter_by_event_with_people(event=entity['id'], team_id=self.request.user.team_set.get().id, order_by=order_by)
+        return QuerySet()
 
     @action(methods=['GET'], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -304,40 +317,59 @@ class ActionViewSet(viewsets.ModelViewSet):
         actions = actions.filter(deleted=False)
         actions_list = []
 
-        parsed_actions = self._parse_actions(request)
+        parsed_actions = self._parse_entities(ENTITY_ACTIONS)
+        parsed_events = self._parse_entities(ENTITY_EVENTS)
 
+        if parsed_events:
+            for event in parsed_events:
+                trend_entity = self._serialize_entity(
+                    entity=event,
+                    id=event['id'],
+                    name=event['id'],
+                    entity_type=ENTITY_EVENTS,
+                    filters=event,
+                    request=request,
+                )
+                if trend_entity is not None and 'labels' in trend_entity:
+                    actions_list.append(trend_entity)  
         if parsed_actions:
             for filters in parsed_actions:
                 try:
                     db_action = actions.get(pk=filters['id'])
                 except Action.DoesNotExist:
                     continue
-
-                actions_list.append(self._serialize_action(
-                    action=db_action,
+                trend_entity = self._serialize_entity(
+                    entity=db_action,
+                    id=db_action.id,
+                    name=db_action.name,
+                    entity_type=ENTITY_ACTIONS,
                     filters=filters,
                     request=request,
-                ))
-        else:
+                )
+                if trend_entity is not None:
+                    actions_list.append(trend_entity)
+        elif parsed_events is None:
             for action in actions:
-                actions_list.append(self._serialize_action(
-                    action=action,
+                trend_entity = self._serialize_entity(
+                    entity=action,
+                    id=action.id,
+                    name=action.name,
+                    entity_type=ENTITY_ACTIONS,
                     filters={},
                     request=request,
-                ))
-
+                )
+                if trend_entity is not None:
+                    actions_list.append(trend_entity)
+                
         return Response(actions_list)
 
     @action(methods=['GET'], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        actions = self.get_queryset()
+        
+        entityId = request.GET.get('entityId')
+        entityType = request.GET.get('type')
 
-        actions = actions.filter(deleted=False)
-        actions_list = []
-
-        for action in actions:
-            events = Event.objects.filter_by_action(action, order_by=None).filter(self._filter_events(request))
-
+        def _calculate_people(id, name, events: QuerySet):
             if request.GET.get('shown_as', 'Volume') == 'Volume':
                 events = events.values('person_id').distinct()
             elif request.GET['shown_as'] == 'Stickiness':
@@ -350,10 +382,27 @@ class ActionViewSet(viewsets.ModelViewSet):
             people = Person.objects\
                 .filter(team=self.request.user.team_set.get(), id__in=[p['person_id'] for p in events[0:100]])
 
-            actions_list.append(self._serialize_people(
-                action=action,
+            return self._serialize_people(
+                id=id,
+                name=name,
                 people=people,
                 request=request
-            ))
+            )
 
-        return Response(actions_list)
+        if entityType == ENTITY_EVENTS:
+            filtered_events =  self._process_entity_for_events({'id': entityId}, entity_type=ENTITY_EVENTS, order_by=None)\
+                .filter(self._filter_events(request))
+            people = _calculate_people(id=entityId, name=entityId, events=filtered_events)
+            return Response([people])
+        elif entityType == ENTITY_ACTIONS:
+            actions = super().get_queryset()
+            actions = actions.filter(deleted=False)
+            try:
+                action = actions.get(pk=entityId)
+            except Action.DoesNotExist:
+                return Response([])
+            filtered_events = self._process_entity_for_events(action, entity_type=ENTITY_ACTIONS, order_by=None).filter(self._filter_events(request))
+            people = _calculate_people(id=action.id, name=action.name, events=filtered_events)
+            return Response([people])
+        
+        return Response([])

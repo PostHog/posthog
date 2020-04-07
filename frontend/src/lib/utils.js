@@ -175,3 +175,37 @@ export let debounce = (func, wait, immediate) => {
         if (callNow) func.apply(context, args)
     }
 }
+
+export const groupActions = actions => {
+    let data = [
+        { label: 'Autocapture', options: [] },
+        { label: 'Event', options: [] },
+        { label: 'Pageview', options: [] },
+    ]
+    actions.map(action => {
+        let format = { label: action.name, value: action.id }
+        if (actionContains(action, '$autocapture')) data[0].options.push(format)
+        if (actionContains(action, '$pageview')) data[2].options.push(format)
+        if (!actionContains(action, '$autocapture') && !actionContains(action, '$pageview'))
+            data[1].options.push(format)
+    })
+    return data
+}
+
+export const actionContains = (action, event) => {
+    return action.steps.filter(step => step.event == event).length > 0
+}
+
+export const groupEvents = events => {
+    let data = [{ label: 'All Events', options: [] }]
+
+    events.map(event => {
+        let format = { label: event.name, value: event.name }
+        data[0].options.push(format)
+    })
+    return data
+}
+
+export const capitalizeFirstLetter = (string) => {
+    return string.charAt(0).toUpperCase() + string.slice(1);
+}

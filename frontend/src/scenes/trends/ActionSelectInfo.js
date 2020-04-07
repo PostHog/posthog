@@ -14,17 +14,17 @@ export class ActionSelectInfo extends Component {
         this.componentDidMount()
     }
     render() {
-        let { action, isOpen } = this.props
-        if (!action) return null
+        let { entity, isOpen } = this.props
+        if (!entity) return null
         return (
             <div
                 className="select-box-info"
                 ref={this.infoDiv}
                 style={{ opacity: isOpen ? 1 : 0 }}
             >
-                <div style={{ marginBottom: '0.5rem' }}>{action.name}</div>
-                {action.steps.map((step, index) => (
-                    <div>
+                <div style={{ marginBottom: '0.5rem' }}>{entity.name}</div>
+                {entity.steps && entity.steps.map((step, index) => (
+                    <div key={step.id}>
                         <Card key={step.id} style={{ marginBottom: 0 }}>
                             <div className="card-body">
                                 <strong>
@@ -69,7 +69,7 @@ export class ActionSelectInfo extends Component {
                                 </ul>
                             </div>
                         </Card>
-                        {index < action.steps.length - 1 && (
+                        {index < entity.steps.length - 1 && (
                             <div
                                 className="secondary"
                                 style={{ textAlign: 'center', margin: '1rem' }}
