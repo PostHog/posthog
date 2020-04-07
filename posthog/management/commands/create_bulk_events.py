@@ -14,9 +14,50 @@ from dateutil.relativedelta import relativedelta
 from pathlib import Path
 from typing import List
 import time
+from typing import Iterator, Optional
+import io
 
 from posthog.models import Event, Element, Team, Person, PersonDistinctId, Funnel, Action, ActionStep, FunnelStep
 
+def clean_csv_value(value: Optional[any]) -> str:
+    if value is None:
+        return r'\N'
+    return str(value).replace('\n', '\\n')
+
+class StringIteratorIO(io.TextIOBase):
+    def __init__(self, iter: Iterator[str]):
+        self._iter = iter
+        self._buff = ''
+
+    def readable(self) -> bool:
+        return True
+
+    def _read1(self, n: Optional[int] = None) -> str:
+        while not self._buff:
+            try:
+                self._buff = next(self._iter)
+            except StopIteration:
+                break
+        ret = self._buff[:n]
+        self._buff = self._buff[len(ret):]
+        return ret
+
+    def read(self, n: Optional[int] = None) -> str:
+        line = []
+        if n is None or n < 0:
+            while True:
+                m = self._read1()
+                if not m:
+                    break
+                line.append(m)
+        else:
+            while n > 0:
+                m = self._read1(n)
+                if not m:
+                    break
+                n -= len(m)
+                line.append(m)
+        return ''.join(line)
 
 class Command(BaseCommand):
     help = 'Create bulk events for testing'
@@ -46,7 +87,9 @@ class Command(BaseCommand):
         base_url = '127.0.0.1/bulk_demo/'
 
         if mode.lower() == 'delete':
+            start_time = time.time()
             self._delete_demo_data(team)
+            print("--- %s seconds ---" % (time.time() - start_time))
         else:
             self._delete_demo_data(team)
             self._create_funnel(base_url, team)
@@ -82,41 +125,50 @@ class Command(BaseCommand):
                 person.save()
                 demo_data_index += 1
 
-            event_iter = ({
-                            'event': random.choice(['autocapture', '$pageview', '$hello']),
-                            'properties': json.dumps({
-                                '$current_url': base_url + random.choice(['', '1/', '2/']), 
-                                '$browser': random.choice(['Chrome', 'Safari', 'Firefox']), '$lib': 'web'
-                                }),
-                            'elements': json.dumps({
-                                'tag_name': random.choice(['a', 'href']), 
-                                'attr_class':['btn', 'btn-success'],
-                                'attr_id': random.choice(['sign-up','click']), 
-                                'text': random.choice(['Sign up', 'Pay $10'])
-                                }),
-                            'timestamp': now() - relativedelta(days=random.choice(range(7))) + relativedelta(seconds=15),
-                            'team_id': team.id, 
-                            'distinct_id': distinct_id
-                        } for _ in range(100))
+            events_string_iterator = StringIteratorIO((
+            '|'.join(map(clean_csv_value, (
+                random.choice(['autocapture', '$pageview', '$hello']),
+                json.dumps({'$current_url': base_url + random.choice(['', '1/', '2/']), 
+                                        '$browser': random.choice(['Chrome', 'Safari', 'Firefox']), 
+                                        '$lib': 'web'}),
+                json.dumps({'tag_name': random.choice(['a', 'href']), 
+                                        'attr_class':['btn', 'btn-success'],
+                                        'attr_id': random.choice(['sign-up','click']), 
+                                        'text': random.choice(['Sign up', 'Pay $10'])}
+                                ),
+                now() - relativedelta(days=random.choice(range(7))) + relativedelta(seconds=15),
+                team.id,
+                distinct_id,
 
-            psycopg2.extras.execute_batch(cur, """
-                        INSERT INTO posthog_event 
-                        (event, properties, elements, timestamp, team_id, distinct_id) VALUES (
-                        %(event)s,
-                        %(properties)s,
-                        %(elements)s,
-                        %(timestamp)s,
-                        %(team_id)s,
-                        %(distinct_id)s
-                        );""", 
-                        event_iter, page_size=1000)
+            ))) + '\n'
+            for _ in range(10000) ))
+
+            cur.copy_from(events_string_iterator, 'posthog_event', sep='|', columns=['event', 'properties', 'elements', 'timestamp',
+                                                                        'team_id', 'distinct_id'])
             
         PersonDistinctId.objects.bulk_create(distinct_ids)
         cur.close()
 
     def _delete_demo_data(self,team):
+        result = urlparse(settings.DATABASE_URL)
+
+        database = result.path[1:]
+        hostname = result.hostname
+        try:
+            conn = psycopg2.connect(dbname=database,  host=hostname)
+        except:
+            print ("Unable to connect to the database")
+
+        conn.autocommit = True
+        cur = conn.cursor()
+
         people = PersonDistinctId.objects.filter(team=team, person__properties__is_demo=True)
-        Event.objects.filter(team=team, distinct_id__in=people.values('distinct_id')).delete()
+        distinct_ids = tuple([item['distinct_id'] for item in list(people.values('distinct_id'))])
+
+        if distinct_ids:
+            query = "DELETE from posthog_event WHERE distinct_id in {}".format(str(distinct_ids))
+            cur.execute(query)
+            cur.close()
         Person.objects.filter(team=team, properties__is_demo=True).delete()
         Funnel.objects.filter(team=team, name__contains="HogFlix").delete()
         Action.objects.filter(team=team, name__contains="HogFlix").delete()
