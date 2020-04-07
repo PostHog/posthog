@@ -307,7 +307,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             filtered_events = Event.objects.filter_by_action(action=entity)
             return filtered_events
         elif entity_type == ENTITY_EVENTS:
-            filtered_events = Event.objects.filter(event=entity['id'], team=self.request.user.team_set.get())
+            filtered_events = Event.objects.filter_by_event_with_people(event=entity['id'], team_id=self.request.user.team_set.get().id)
             return filtered_events
         return None
 
@@ -383,7 +383,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             )
 
         if entityType == ENTITY_EVENTS:
-            events = Event.objects.filter_by_event_with_people(event=entityId, team_id=self.request.user.team_set.get().id)\
+            filtered_events =  self._process_entity_for_events({'id': entityId}, entity_type=ENTITY_EVENTS)\
                 .filter(self._filter_events(request))
             people = _calculate_people(id=entityId, name=entityId, events=events)
             return Response([people])
@@ -394,8 +394,8 @@ class ActionViewSet(viewsets.ModelViewSet):
                 action = actions.get(pk=entityId)
             except Action.DoesNotExist:
                 return Response([])
-            events = self._process_entity_for_events(action, entity_type=ENTITY_ACTIONS).filter(self._filter_events(request))
-            people = _calculate_people(id=action.id, name=action.name, events=events)
+            filtered_events = self._process_entity_for_events(action, entity_type=ENTITY_ACTIONS).filter(self._filter_events(request))
+            people = _calculate_people(id=action.id, name=action.name, events=filtered_events)
             return Response([people])
         
         return Response([])
