@@ -154,12 +154,24 @@ urlpatterns = [
     path('capture/', capture.get_event),
     path('batch', capture.get_event),
     path('batch/', capture.get_event),
+]
+
+if not settings.EMAIL_HOST:
+    urlpatterns.append(path('accounts/password_reset/', TemplateView.as_view(template_name='registration/password_no_smtp.html')))
+
+urlpatterns = urlpatterns + [
+    # auth
     path('logout', logout, name='login'),
     path('login', login_view, name='login'),
-    path('', include('social_django.urls', namespace='social')),
     path('signup/<str:token>', signup_to_team_view, name='signup'),
+    path('', include('social_django.urls', namespace='social')),
     path('setup_admin', setup_admin, name='setup_admin'),
-    # react frontend
+    path('accounts/reset/<uidb64>/<token>/', auth_views.PasswordResetConfirmView.as_view(
+        success_url='/',
+        post_reset_login_backend='django.contrib.auth.backends.ModelBackend',
+        post_reset_login=True,
+    )),
+    path('accounts/', include('django.contrib.auth.urls')),
 ]
 
 if settings.DEBUG:
