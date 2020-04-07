@@ -228,7 +228,9 @@ class EventManager(models.QuerySet):
 
 class Event(models.Model):
     class Meta:
-        indexes = [models.Index(fields=['elements_hash']),]
+        indexes = [
+            models.Index(fields=['elements_hash']),
+        ]
 
     @property
     def person(self):
@@ -425,36 +427,29 @@ class DashboardItem(models.Model):
 
 class Cohort(models.Model):
     @property
-    def distinct_ids(self) -> List[str]:
-        return [d for d in PersonDistinctId.objects.filter(team_id=self.team_id, person_id__in=self.person_ids).values_list('distinct_id', flat=True)]
+    def people(self):
+        return Person.objects.filter(self.people_filter, team=self.team_id)
 
     @property
-    def person_ids(self):
-        person_ids = []
+    def people_filter(self):
+        filters = Q()
         for group in self.groups:
             if group.get('action_id'):
                 action = Action.objects.get(pk=group['action_id'], team_id=self.team_id)
-                people = Person.objects.filter(
+                events = Event.objects.filter_by_action(action).filter(
                     team_id=self.team_id,
-                ).annotate(
-                    has_action=Subquery(
-                        Event.objects.filter_by_action(
-                            action
-                        ).filter(
-                            person_id=OuterRef('id'),
-                            **({'timestamp__gt' : timezone.now() - relativedelta(days=group['days'])} if group.get('days') else {})
-                        ).values('id')[:1]
-                    )
-                ).filter(
-                    has_action__isnull=False
+                    **({'timestamp__gt' : timezone.now() - relativedelta(days=group['days'])} if group.get('days') else {})
+                ).order_by('distinct_id').distinct('distinct_id').values('distinct_id')
+
+                filters |= Q(
+                    persondistinctid__distinct_id__in=events
                 )
-                person_ids.extend([person.id for person in people])
             elif group.get('properties'):
                 properties = properties_to_Q(group['properties'])
-                person_ids.extend(
-                    [person_id for person_id in Person.objects.filter(properties, team_id=self.team_id).order_by('-id').values_list('pk', flat=True)]
+                filters |= Q(
+                    properties
                 )
-        return person_ids
+        return filters 
 
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
