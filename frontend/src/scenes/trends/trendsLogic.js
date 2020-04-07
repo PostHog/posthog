@@ -6,6 +6,12 @@ import { propertiesModel } from '~/models/propertiesModel'
 import { actionsModel } from '~/models/actionsModel'
 import { eventsModel } from '~/models/eventsModel'
 
+export const EntityTypes = {
+    ACTIONS: 'actions',
+    EVENTS: 'events',
+    NEW: 'new',
+}
+
 function cleanFilters(filters) {
     if (filters.breakdown && filters.display !== 'ActionsTable') {
         return {
@@ -31,9 +37,11 @@ function filterClientSideParams(filters) {
 function filtersFromParams() {
     let filters = fromParams()
     filters.actions = filters.actions && JSON.parse(filters.actions)
-    filters.actions = Array.isArray(filters.actions) ? filters.actions : undefined
+    filters.actions = Array.isArray(filters.actions)
+        ? filters.actions.map(f => ({ ...f, type: EntityTypes.ACTIONS }))
+        : undefined
     filters.events = filters.events && JSON.parse(filters.events)
-    filters.events = Array.isArray(filters.events) ? filters.events : []
+    filters.events = Array.isArray(filters.events) ? filters.events.map(f => ({ ...f, type: EntityTypes.EVENTS })) : []
     filters.properties = filters.properties ? JSON.parse(filters.properties) : {}
 
     return cleanFilters(filters)
@@ -128,7 +136,7 @@ export const trendsLogic = kea({
             actions.setFilters({
                 ...values.filters,
                 people_day: day,
-                people_action: action.id,
+                people_action: action,
             })
         },
         [actions.hidePeople]: async () => {
@@ -146,8 +154,8 @@ export const trendsLogic = kea({
         [actions.loadPeople]: async ({ day, action }) => {
             const params = filterClientSideParams({
                 ...values.filters,
-                entityId: action,
-                type: typeof action == 'number' ? 'action' : 'event',
+                entityId: action.id,
+                type: action.type,
             })
 
             if (`${day}`.match(/^\d{4}-\d{2}-\d{2}$/)) {

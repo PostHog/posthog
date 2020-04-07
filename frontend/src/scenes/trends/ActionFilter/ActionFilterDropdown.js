@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { entityFilterLogic, EntityTypes } from './actionFilterLogic'
+import { entityFilterLogic } from './actionFilterLogic'
+import { EntityTypes } from '../trendsLogic'
 import { ActionSelectPanel, ActionSelectTabs } from '~/lib/components/ActionSelectBox'
 
 export function ActionFilterDropdown(props) {
@@ -46,7 +47,7 @@ export function ActionFilterDropdown(props) {
 
 export function ActionPanelContainer(props) {
     const { entityType, panelIndex, options } = props
-    const { entities, selectedFilter, formattedFilters } = useValues(entityFilterLogic)
+    const { entities, selectedFilter, filters } = useValues(entityFilterLogic)
     const { updateFilter } = useActions(entityFilterLogic)
     let dropDownOnSelect = item => updateFilter({ type: entityType, value: item.value, index: selectedFilter.index })
     let dropDownOnHover = value => entities[entityType].filter(a => a.id == value)[0]
@@ -65,7 +66,7 @@ export function ActionPanelContainer(props) {
     }
 
     let message = () => {
-        if (entityType == EntityTypes.ACTIONS && !formattedFilters[EntityTypes.ACTIONS]) {
+        if (entityType == EntityTypes.ACTIONS && !filters[EntityTypes.ACTIONS]) {
             return (
                 <div
                     style={{

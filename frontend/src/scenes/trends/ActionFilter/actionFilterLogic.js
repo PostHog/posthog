@@ -2,15 +2,9 @@ import { kea } from 'kea'
 
 import { actionsModel } from '~/models/actionsModel'
 import { eventsModel } from '~/models/eventsModel'
-import { trendsLogic } from '../trendsLogic'
+import { trendsLogic, EntityTypes } from '../trendsLogic'
 
 import { groupActions, groupEvents } from '~/lib/utils'
-
-export const EntityTypes = {
-    ACTIONS: 'actions',
-    EVENTS: 'events',
-    NEW: 'new',
-}
 
 const mirrorValues = (entities, newKey, valueKey) => {
     let newEntities = entities.map(entity => {
@@ -20,15 +14,6 @@ const mirrorValues = (entities, newKey, valueKey) => {
         }
     })
     return newEntities
-}
-
-const formatFilters = (filters, type) => {
-    return filters.map(filter => {
-        return {
-            ...filter,
-            type: type,
-        }
-    })
 }
 
 export const entityFilterLogic = kea({
@@ -74,15 +59,6 @@ export const entityFilterLogic = kea({
     }),
 
     selectors: ({ selectors }) => ({
-        formattedFilters: [
-            () => [selectors.filters],
-            filters => {
-                return {
-                    [EntityTypes.ACTIONS]: filters.actions,
-                    [EntityTypes.EVENTS]: filters.events,
-                }
-            },
-        ],
         entities: [
             () => [selectors.events, selectors.actions],
             (events, actions) => {
@@ -105,10 +81,7 @@ export const entityFilterLogic = kea({
 
     listeners: ({ actions, values }) => ({
         [actions.initializeLocalFilters]: () => {
-            actions.setLocalFilters([
-                ...formatFilters(values.filters.actions || [], EntityTypes.ACTIONS),
-                ...formatFilters(values.filters.events || [], EntityTypes.EVENTS),
-            ])
+            actions.setLocalFilters([...(values.filters.actions || []), ...(values.filters.events || [])])
         },
         [actions.updateFilter]: ({ type, index, value }) => {
             let newFilters = values.filters[type]
@@ -134,7 +107,7 @@ export const entityFilterLogic = kea({
         },
         [actions.updateFilterMath]: ({ type, value, math, index }) => {
             // parent logic change
-            let newFilters = values.formattedFilters[type] ? [...values.formattedFilters[type]] : []
+            let newFilters = values.filters[type] ? [...values.filters[type]] : []
             let target = newFilters.findIndex(e => e.id == value)
             newFilters[target].math = math
             actions.setFilters({ [type]: newFilters })
@@ -151,7 +124,7 @@ export const entityFilterLogic = kea({
             actions.setLocalFilters(currentfilters)
         },
         [actions.removeFilter]: ({ type, value }) => {
-            let newFilters = values.formattedFilters[type] ? [...values.formattedFilters[type]] : []
+            let newFilters = values.filters[type] ? [...values.filters[type]] : []
             let target = newFilters.findIndex(e => e.id == value)
             newFilters.splice(target, 1)
             actions.setFilters({ [type]: newFilters })

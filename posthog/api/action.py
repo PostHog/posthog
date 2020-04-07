@@ -270,11 +270,12 @@ class ActionViewSet(viewsets.ModelViewSet):
             'data': data
         }
 
-    def _serialize_entity(self, id: str, name: str, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request) -> Dict:
+    def _serialize_entity(self, id: str, name: str, entity_type: str, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request) -> Dict:
         entity: Dict[str, any] = {
             'action': {
                 'id': id,
-                'name': name
+                'name': name,
+                'type': entity_type
             },
             'label': name,
             'count': 0,
@@ -323,6 +324,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 trend_entity = self._serialize_entity(
                     id=event['id'],
                     name=event['id'],
+                    entity_type="events",
                     filtered_events=filtered_events,
                     filters=event,
                     request=request,
@@ -336,6 +338,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 trend_entity = self._serialize_entity(
                     id=action.id,
                     name=action.name,
+                    entity_type="actions",
                     filtered_events=filtered_events,
                     filters={},
                     request=request,
@@ -371,12 +374,12 @@ class ActionViewSet(viewsets.ModelViewSet):
                 request=request
             )
 
-        if entityType == 'event':
+        if entityType == 'events':
             events = Event.objects.filter_by_event_with_people(event=entityId, team_id=self.request.user.team_set.get().id)\
                 .filter(self._filter_events(request))
             people = _calculate_people(id=entityId, name=entityId, events=events)
             return Response([people])
-        elif entityType == 'action':
+        elif entityType == 'actions':
             actions = super().get_queryset()
             actions = actions.filter(deleted=False)
             try:

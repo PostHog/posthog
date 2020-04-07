@@ -1,6 +1,7 @@
 import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { entityFilterLogic, EntityTypes } from './actionFilterLogic'
+import { entityFilterLogic } from './actionFilterLogic'
+import { EntityTypes } from '../trendsLogic'
 import { CloseButton } from '~/lib/utils'
 import { Dropdown } from '~/lib/components/Dropdown'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
@@ -8,7 +9,7 @@ import { ActionFilterDropdown } from './ActionFilterDropdown'
 export function ActionFilterRow(props) {
     const node = useRef()
     const { filter, index } = props
-    const { selectedFilter, entities, formattedFilters } = useValues(entityFilterLogic)
+    const { selectedFilter, entities } = useValues(entityFilterLogic)
     const { selectFilter, updateFilterMath, removeLocalFilter } = useActions(entityFilterLogic)
 
     let entity, dropDownCondition, onClick, onClose, onMathSelect, name, value, math
