@@ -37,11 +37,9 @@ function filterClientSideParams(filters) {
 function filtersFromParams() {
     let filters = fromParams()
     filters.actions = filters.actions && JSON.parse(filters.actions)
-    filters.actions = Array.isArray(filters.actions)
-        ? filters.actions.map(f => ({ ...f, type: EntityTypes.ACTIONS }))
-        : undefined
+    filters.actions = Array.isArray(filters.actions) ? filters.actions : undefined
     filters.events = filters.events && JSON.parse(filters.events)
-    filters.events = Array.isArray(filters.events) ? filters.events.map(f => ({ ...f, type: EntityTypes.EVENTS })) : []
+    filters.events = Array.isArray(filters.events) ? filters.events : []
     filters.properties = filters.properties ? JSON.parse(filters.properties) : {}
 
     return cleanFilters(filters)
@@ -124,6 +122,7 @@ export const trendsLogic = kea({
                     actions: [
                         {
                             id: values.actions[values.actions.length - 1].id,
+                            type: EntityTypes.ACTIONS,
                         },
                     ],
                 })
