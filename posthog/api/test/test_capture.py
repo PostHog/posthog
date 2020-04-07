@@ -1,5 +1,5 @@
 from .base import BaseTest
-from posthog.models import Event, Person, Team, User, ElementGroup
+from posthog.models import Event, Person, Team, User, ElementGroup, Action, ActionStep
 from django.test import TransactionTestCase
 import base64
 import json
@@ -18,18 +18,23 @@ class TestCapture(BaseTest):
 
     def test_capture_new_person(self):
         user = self._create_user('tim')
+        action1 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=action1, selector='a')
+        action2 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=action2, selector='a')
 
-        response = self.client.get('/e/?data=%s' % self._dict_to_json({
-            'event': '$autocapture',
-            'properties': {
-                'distinct_id': 2,
-                'token': self.team.api_token,
-                '$elements': [
-                    {'tag_name': 'a', 'nth_child': 1, 'nth_of_type': 2, 'attr__class': 'btn btn-sm'},
-                    {'tag_name': 'div', 'nth_child': 1, 'nth_of_type': 2, '$el_text': '💻'}
-                ]
-            },
-        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
+        with self.assertNumQueries(18):
+            response = self.client.get('/e/?data=%s' % self._dict_to_json({
+                'event': '$autocapture',
+                'properties': {
+                    'distinct_id': 2,
+                    'token': self.team.api_token,
+                    '$elements': [
+                        {'tag_name': 'a', 'nth_child': 1, 'nth_of_type': 2, 'attr__class': 'btn btn-sm'},
+                        {'tag_name': 'div', 'nth_child': 1, 'nth_of_type': 2, '$el_text': '💻'}
+                    ]
+                },
+            }), content_type='application/json', HTTP_ORIGIN='https://localhost')
 
         self.assertEqual(response._headers['access-control-allow-origin'][1], 'https://localhost')
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
@@ -268,7 +273,7 @@ class TestBatch(BaseTest):
                 {
                     "properties":{
                         "property1":"value",
-                        "property2":"value"
+                        "property2":"value",
                     },
                     "timestamp":"2020-02-10T01:45:20.777210+00:00",
                     "library": "posthog-python",
@@ -295,7 +300,7 @@ class TestBatch(BaseTest):
 
         events = Event.objects.all().order_by('id')
         self.assertEqual(events[0].event, 'user signed up')
-        self.assertEqual(events[0].properties, {'property1': 'value', 'property2': 'value'})
+        self.assertEqual(events[0].properties, {'property1': 'value', 'property2': 'value', '$ip': '127.0.0.1'})
         self.assertEqual(events[0].timestamp, datetime.datetime(2020, 2, 10, 1, 45, 20, 777210, tzinfo=pytz.UTC))
         self.assertEqual(events[1].event, '$identify')
         self.assertEqual(events[1].properties['email'], 'some@gmail.com')

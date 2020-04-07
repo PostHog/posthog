@@ -101,7 +101,7 @@ ROOT_URLCONF = 'posthog.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': ['frontend/dist'],
+        'DIRS': ['frontend/dist', 'posthog/templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -182,6 +182,15 @@ elif os.environ.get('POSTHOG_DB_NAME'):
 else:
     raise ImproperlyConfigured(f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software')
 
+# Broker
+if TEST or DEBUG:
+    CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://localhost')
+else:
+    CELERY_BROKER_URL = os.environ.get('REDIS_URL', '')
+
+if not CELERY_BROKER_URL:
+    raise ImproperlyConfigured(f'The environment var "REDIS_URL" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-10102')
+
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
 
@@ -240,6 +249,16 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ]
 }
+
+# Email
+EMAIL_HOST = os.environ.get('EMAIL_HOST')
+EMAIL_PORT = os.environ.get('EMAIL_PORT')
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', False)
+EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', False)
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'tim@posthog.com')
+
 
 # You can pass a comma deliminated list of domains with which users can sign up to this service
 RESTRICT_SIGNUPS = os.environ.get('RESTRICT_SIGNUPS', False)

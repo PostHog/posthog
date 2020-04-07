@@ -1,5 +1,5 @@
 from django.db import models, connection
-from django.db.models import Exists, OuterRef, Q, Subquery, F, signals
+from django.db.models import Exists, OuterRef, Q, Subquery, F, signals, Prefetch
 from django.dispatch import receiver
 from django.contrib.postgres.fields import JSONField, ArrayField
 from django.conf import settings
@@ -93,6 +93,7 @@ class User(AbstractUser):
     email = models.EmailField(_('email address'), unique=True)
     temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    email_opt_in: models.BooleanField = models.BooleanField(default=False, null=False, blank=False)
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS: List[str] = []
@@ -225,15 +226,18 @@ class EventManager(models.QuerySet):
             if kwargs.get('elements'):
                 kwargs['elements_hash'] = ElementGroup.objects.create(team=kwargs['team'], elements=kwargs.pop('elements')).hash
             event = super().create(*args, **kwargs)
+            relations = []
             for action in event.actions:
-                action.events.add(event)
-                action.save()
+                relations.append(action.events.through(action_id=action.pk, event=event))
+            Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
             return event
 
 
 class Event(models.Model):
     class Meta:
-        indexes = [models.Index(fields=['elements_hash']),]
+        indexes = [
+            models.Index(fields=['elements_hash']),
+        ]
 
     @property
     def person(self):
@@ -244,12 +248,13 @@ class Event(models.Model):
     # the event won't be in the Action-Event relationship yet.
     @property
     def actions(self) -> List:
-        actions = Action.objects.filter(team_id=self.team_id)
+        actions = Action.objects.filter(team_id=self.team_id, steps__event=self.event).distinct('id')\
+            .prefetch_related(Prefetch('steps', queryset=ActionStep.objects.order_by('id')))
         events: models.QuerySet[Any] = Event.objects.filter(pk=self.pk)
         for action in actions:
             events = events.annotate(**{'action_{}'.format(action.pk): Event.objects\
-                .query_db_by_action(action)\
                 .filter(pk=self.pk)\
+                .query_db_by_action(action)\
                 .values('id')[:1]
             })
         event = [event for event in events][0]
@@ -263,7 +268,6 @@ class Event(models.Model):
     properties: JSONField = JSONField(default=dict)
     elements: JSONField = JSONField(default=list, null=True, blank=True)
     timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
-    ip: models.GenericIPAddressField = models.GenericIPAddressField(null=True, blank=True)
     elements_hash: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
 class PersonManager(models.Manager):
@@ -430,36 +434,29 @@ class DashboardItem(models.Model):
 
 class Cohort(models.Model):
     @property
-    def distinct_ids(self) -> List[str]:
-        return [d for d in PersonDistinctId.objects.filter(team_id=self.team_id, person_id__in=self.person_ids).values_list('distinct_id', flat=True)]
+    def people(self):
+        return Person.objects.filter(self.people_filter, team=self.team_id)
 
     @property
-    def person_ids(self):
-        person_ids = []
+    def people_filter(self):
+        filters = Q()
         for group in self.groups:
             if group.get('action_id'):
                 action = Action.objects.get(pk=group['action_id'], team_id=self.team_id)
-                people = Person.objects.filter(
+                events = Event.objects.filter_by_action(action).filter(
                     team_id=self.team_id,
-                ).annotate(
-                    has_action=Subquery(
-                        Event.objects.filter_by_action(
-                            action
-                        ).filter(
-                            person_id=OuterRef('id'),
-                            **({'timestamp__gt' : timezone.now() - relativedelta(days=group['days'])} if group.get('days') else {})
-                        ).values('id')[:1]
-                    )
-                ).filter(
-                    has_action__isnull=False
+                    **({'timestamp__gt' : timezone.now() - relativedelta(days=group['days'])} if group.get('days') else {})
+                ).order_by('distinct_id').distinct('distinct_id').values('distinct_id')
+
+                filters |= Q(
+                    persondistinctid__distinct_id__in=events
                 )
-                person_ids.extend([person.id for person in people])
             elif group.get('properties'):
                 properties = properties_to_Q(group['properties'])
-                person_ids.extend(
-                    [person_id for person_id in Person.objects.filter(properties, team_id=self.team_id).order_by('-id').values_list('pk', flat=True)]
+                filters |= Q(
+                    properties
                 )
-        return person_ids
+        return filters 
 
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)

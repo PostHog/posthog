@@ -7,6 +7,10 @@ services:
     environment:
       POSTGRES_USER: posthog
       POSTGRES_DB: posthog
+      POSTGRES_PASSWORD: posthog
+  redis:
+    image: "redis:alpine"
+    container_name: posthog_redis
   web:
     image: posthog/posthog:latest
     container_name: posthog_web
@@ -14,9 +18,12 @@ services:
       - "8000:8000"
     environment:
       IS_DOCKER: "true"
-      DATABASE_URL: "postgres://posthog@db:5432/posthog"
+      DATABASE_URL: "postgres://posthog:posthog@db:5432/posthog"
+      REDIS_URL: "redis://redis:6379/"
       SECRET_KEY: "<randomly generated secret key>"
     depends_on:
       - db
+      - redis
     links:
       - db:db
+      - redis:redis

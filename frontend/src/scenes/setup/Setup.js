@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { JSSnippet } from '../../lib/utils'
 import { InviteTeam } from '../../lib/components/InviteTeam'
 import { OptOutCapture } from './OptOutCapture'
+import { UpdateEmailPreferences } from './UpdateEmailPreferences'
 import { SetupAppUrls } from './SetupAppUrls'
 
 import { userLogic } from '../userLogic'
@@ -21,18 +22,18 @@ export function Setup() {
             <h2>Integrate PostHog</h2>
             To integrate PostHog, copy + paste the following snippet to your website. Ideally, put it just above the{' '}
             <pre style={{ display: 'inline' }}>&lt;/head&gt;</pre> tag.
-            <a href="https://github.com/PostHog/posthog/wiki/JS-integration">
+            <a href="https://docs.posthog.com/#/integrations/js-integration">
                 See docs for instructions on how to identify users.
             </a>
             <br />
             <JSSnippet user={user} />
-            <a href="https://github.com/PostHog/posthog/wiki/Integrations">Using Python/Ruby/Node/Go/PHP instead?</a>
+            <a href="https://docs.posthog.com/#/integrations">Using Python/Ruby/Node/Go/PHP instead?</a>
             <br />
             <br />
             <br />
             <h2>API key</h2>
             You can use this api key in any of our
-            <a href="https://github.com/PostHog/posthog/wiki/Integrations"> libraries</a>.
+            <a href="https://docs.posthog.com/#/integrations"> libraries</a>.
             <pre className="code">{user.team.api_token}</pre>
             This key is write-only, in that it can only create new events. It can't read any events or any of your other
             data stored on PostHog.
@@ -59,6 +60,11 @@ export function Setup() {
             <br />
             <h2>Opt out of capturing</h2>
             <OptOutCapture />
+            <br />
+            <br />
+            <br />
+            <h2>Security and feature updates</h2>
+            <UpdateEmailPreferences />
         </div>
     )
 }

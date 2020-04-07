@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends gnupg \
     && apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8 \
     && echo "deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update && apt-get install -y --no-install-recommends \
-        postgresql \
+        postgresql redis-server \
     && apt-get purge -y gnupg \
     && rm -rf /var/lib/apt/lists/*
 
@@ -22,6 +22,8 @@ RUN    /etc/init.d/postgresql start &&\
 # END POSGRES
 
 USER root
+
+RUN /etc/init.d/redis-server start
 
 COPY requirements.txt /code/
 # install dependencies but ignore any we don't need for dev environment
@@ -43,6 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && npm install -g yarn@1 \
     && yarn --frozen-lockfile \
     && yarn build \
+    && yarn cache clean \
     && npm uninstall -g yarn \
     && apt-get purge -y nodejs curl \
     && rm -rf node_modules \
@@ -51,10 +54,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 COPY . /code/
 
-RUN DATABASE_URL='postgres:///' python manage.py collectstatic --noinput
+RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 RUN /etc/init.d/postgresql start\
-    && DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog python manage.py migrate\
+    && DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog REDIS_URL='redis:///' python manage.py migrate\
     && /etc/init.d/postgresql stop
 
 VOLUME /var/lib/postgresql

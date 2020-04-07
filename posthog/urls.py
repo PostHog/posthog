@@ -57,14 +57,21 @@ def signup_to_team_view(request, token):
     if request.method == 'POST':
         email = request.POST['email']
         password = request.POST['password']
+        first_name=request.POST.get('name')
+        email_opt_in=request.POST.get('emailOptIn')
+
+        if email_opt_in == 'on':
+            email_opt_in = True
+
         try:
-            user = User.objects.create_user(email=email, password=password, first_name=request.POST.get('name'))
+            user = User.objects.create_user(email=email, password=password, first_name=first_name, email_opt_in=email_opt_in)
         except:
             return render_template('signup_to_team.html', request=request, context={'email': email, 'error': True, 'team': team, 'signup_token': token})
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         team.users.add(user)
         team.save()
         posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': False})
+        posthoganalytics.identify(user.distinct_id, {'email_opt_in': user.email_opt_in})
         return redirect('/')
     return render_template('signup_to_team.html', request, context={'team': team, 'signup_token': token})
 
@@ -154,12 +161,24 @@ urlpatterns = [
     path('capture/', capture.get_event),
     path('batch', capture.get_event),
     path('batch/', capture.get_event),
+]
+
+if not settings.EMAIL_HOST:
+    urlpatterns.append(path('accounts/password_reset/', TemplateView.as_view(template_name='registration/password_no_smtp.html')))
+
+urlpatterns = urlpatterns + [
+    # auth
     path('logout', logout, name='login'),
     path('login', login_view, name='login'),
-    path('', include('social_django.urls', namespace='social')),
     path('signup/<str:token>', signup_to_team_view, name='signup'),
+    path('', include('social_django.urls', namespace='social')),
     path('setup_admin', setup_admin, name='setup_admin'),
-    # react frontend
+    path('accounts/reset/<uidb64>/<token>/', auth_views.PasswordResetConfirmView.as_view(
+        success_url='/',
+        post_reset_login_backend='django.contrib.auth.backends.ModelBackend',
+        post_reset_login=True,
+    )),
+    path('accounts/', include('django.contrib.auth.urls')),
 ]
 
 if settings.DEBUG:

@@ -21,8 +21,8 @@ Join the [PostHog Users Slack](https://join.slack.com/t/posthogusers/shared_invi
 - **Event-based** analytics at a user level - see which users are doing what in your application.
 - **Complete control** over your data - host it yourself.
 - **Automatically capture** clicks and page views to do analyze what your users are doing **retroactively**.
-- Libraries for **[JS](https://github.com/PostHog/posthog/wiki/JS-integration), [Python](https://github.com/PostHog/posthog/wiki/python-integration), [Ruby](https://github.com/PostHog/posthog/wiki/ruby-integration), [Node](https://github.com/PostHog/posthog/wiki/node-integration), [Go](https://github.com/PostHog/posthog/wiki/Go-integration)** + API for anything else.
-- Beautiful **graphs, funnels, user cohorts, user paths and dashboards**.
+- Libraries for **[JS](https://docs.posthog.com/#/integrations/js-integration), [Python](https://docs.posthog.com/#/integrations/python-integration), [Ruby](https://docs.posthog.com/#/integrations/ruby-integration), [Node](https://docs.posthog.com/#/integrations/node-integration), [Go](https://docs.posthog.com/#/integrations/go-integration)** + [API](https://docs.posthog.com/#/integrations/api) for anything else.
+- Beautiful **[graphs](https://docs.posthog.com/#/features/trends), [funnels](https://docs.posthog.com/#/features/funnels), [user cohorts](https://docs.posthog.com/#/features/cohorts), [user paths](https://docs.posthog.com/#/features/paths) and [dashboards](https://docs.posthog.com/#/features/dashboards)**.
 - Super easy deploy using **Docker** or **Heroku**.
 
 ## Event autocapture
@@ -63,31 +63,40 @@ This image has everything you need to try out PostHog locally! It will set up a 
 
 ## Development
 
-### Running backend (Django)
+### Running PostHog
 
 1. Make sure you have python 3 installed `python3 --version`
-2. Make sure you have postgres installed `brew install postgres`
-3. Start postgres, run `brew services start postgresql`
+2. Make sure you have redis installed and running `brew install redis && brew services start redis`
+3. Make sure you have postgres installed and running `brew install postgres && brew services start postgresql`
 4. Create Database `createdb posthog`
 5. Navigate into the correct folder `cd posthog`
 6. Run `python3 -m venv env` (creates virtual environment in current direction called 'env')
 7. Run `source env/bin/activate` (activates virtual environment)
 8. Run `pip install -r requirements.txt`. If you have problems with this step (TLS/SSL error), then run `~ brew update && brew upgrade` followed by `python3 -m pip install --upgrade pip`, then retry the requirements.txt install.
 9. Run migrations `DEBUG=1 python3 manage.py migrate`
-10. Run `DEBUG=1 python3 manage.py runserver`
-11. Run the tests and frontend
+10. Run `DEBUG=1 ./bin/start` to start the backend, worker and frontend simultaneously
 
-### Running backend tests
+Now open [http://localhost:8000](http://localhost:8000) to see the app. 
 
-`bin/tests`
+To see some data on the frontend, you should go to the `http://localhost:8000/demo` and play around with it, so you can see some data on dashboard
 
-### Running frontend (React)
+### Running backend separately (Django)
+
+Run `DEBUG=1 ./bin/start-backend`
+
+### Running background worker separately (Celery)
+
+Run `DEBUG=1 ./bin/start-worker`
+
+### Running frontend separately (React)
 
 If at any point, you get "command not found: nvm", you need to install nvm, then use that to install node.
 
-1. Make sure you are running Django above in a separate terminal
-2. Now run `bin/start-frontend`
-3. To see some data on the frontend, you should go to the `http://localhost:8000/demo` and play around with it, so you can see some data on dashboard
+Run `./bin/start-frontend`
+
+### Running backend tests
+
+Run `./bin/tests`
 
 ## Open source / Paid
 

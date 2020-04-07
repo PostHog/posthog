@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && npm install -g yarn@1 \
     && yarn --frozen-lockfile \
     && yarn build \
+    && yarn cache clean \
     && npm uninstall -g yarn \
     && apt-get purge -y nodejs curl \
     && rm -rf node_modules \
@@ -29,7 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 COPY . /code/
 
-RUN DATABASE_URL='postgres:///' python manage.py collectstatic --noinput
+RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 EXPOSE 8000
 CMD ["./bin/docker"]
