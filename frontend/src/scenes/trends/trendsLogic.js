@@ -19,7 +19,6 @@ function cleanFilters(filters) {
             display: 'ActionsTable',
         }
     }
-
     return filters
 }
 
@@ -36,9 +35,10 @@ function filterClientSideParams(filters) {
 
 function filtersFromParams() {
     let filters = fromParams()
+    filters.interval = filters.interval ? filters.interval : 'day'
     filters.actions = filters.actions && JSON.parse(filters.actions)
     filters.actions = Array.isArray(filters.actions)
-        ? filters.actions.map(f => ({ ...f, type: EntityTypes.ACTIONS }))
+        ? filters.actions.map(f => ({ ...f, type: EntityTypes.ACTIONS, interval: filters.interval }))
         : undefined
     filters.events = filters.events && JSON.parse(filters.events)
     filters.events = Array.isArray(filters.events) ? filters.events.map(f => ({ ...f, type: EntityTypes.EVENTS })) : []
@@ -190,7 +190,6 @@ export const trendsLogic = kea({
         '/trends': () => {
             if (!props.dashboardItemId) {
                 const newFilters = filtersFromParams()
-
                 if (toParams(newFilters) !== toParams(values.filters)) {
                     actions.setFilters(newFilters, false)
                 }

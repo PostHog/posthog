@@ -6,6 +6,7 @@ import { Dropdown } from 'lib/components/Dropdown'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DateFilter } from 'lib/components/DateFilter'
+import { TimeFilter } from 'lib/components/TimeFilter'
 
 import { ActionFilter } from './ActionFilter/ActionFilter'
 import { ActionsPie } from './ActionsPie'
@@ -24,9 +25,7 @@ const displayMap = {
 }
 
 export function Trends() {
-    const { filters, properties, resultsLoading, showingPeople } = useValues(
-        trendsLogic({ dashboardItemId: null })
-    )
+    const { filters, properties, resultsLoading, showingPeople } = useValues(trendsLogic({ dashboardItemId: null }))
     const { setFilters, setDisplay } = useActions(trendsLogic({ dashboardItemId: null }))
     return (
         <div className="actions-graph">
@@ -112,6 +111,7 @@ export function Trends() {
                                 dateFrom={filters.date_from}
                                 dateTo={filters.date_to}
                             />
+                            <TimeFilter setFilters={setFilters} interval={filters.interval} />
                             <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
                         </div>
                     </span>
