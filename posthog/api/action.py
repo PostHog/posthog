@@ -150,7 +150,12 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     def _group_events_to_date(self, date_from: datetime.date, date_to: datetime.date, aggregates, interval):
         aggregates = pd.DataFrame([{'date': a[interval], 'count': a['count']} for a in aggregates])
-        aggregates['date'] = aggregates['date'].dt.date
+        if interval == 'week':
+            aggregates['date'] = aggregates['date'].apply(lambda x: x - pd.offsets.Week(weekday=6)).dt.date
+        elif interval == 'month':
+            aggregates['date'] = aggregates['date'].apply(lambda x: x - pd.offsets.MonthEnd(n=1)).dt.date
+        else:
+            aggregates['date'] = aggregates['date'].dt.tz_localize(None)
         freq_map = {
             'minute': '60S',
             'hour': 'H',
@@ -158,10 +163,9 @@ class ActionViewSet(viewsets.ModelViewSet):
             'week': 'W',
             'month': 'M'
         }
-        # create all dates
         time_index = pd.date_range(date_from, date_to, freq=freq_map[interval])
+        # create all dates
         grouped = pd.DataFrame(aggregates.groupby('date').mean(), index=time_index)
-
         # fill gaps
         grouped = grouped.fillna(0)
         return grouped

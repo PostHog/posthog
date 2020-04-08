@@ -101,7 +101,7 @@ class TestCreateAction(BaseTest):
 class TestTrends(BaseTest):
     TESTS_API = True
 
-    def _create_events(self):
+    def _create_events(self, use_time = False):
         no_events = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=no_events, event='no events')
 
@@ -110,14 +110,21 @@ class TestTrends(BaseTest):
 
         person = Person.objects.create(team=self.team, distinct_ids=['blabla'])
 
-        with freeze_time('2019-12-24'):
+        freeze_without_time = ['2019-12-24', '2020-01-01', '2020-01-02']
+        freeze_with_time = ['2019-12-24 03:45:34', '2020-01-01 00:06:34', '2020-01-02 16:34:34']
+
+        freeze_args = freeze_without_time
+        if use_time:
+            freeze_args = freeze_with_time
+
+        with freeze_time(freeze_args[0]):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "value"})
 
-        with freeze_time('2020-01-01'):
+        with freeze_time(freeze_args[1]):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "value"})
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
-        with freeze_time('2020-01-02'):
+        with freeze_time(freeze_args[2]):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "other_value"})
             Event.objects.create(team=self.team, event='no events', distinct_id='blabla')
         return (sign_up_action, person)
@@ -172,6 +179,39 @@ class TestTrends(BaseTest):
         self.assertEqual(action_response[0]['data'][12], 1.0)
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
+    
+    def test_interval_filtering(self):
+        self._create_events(use_time=True)
+
+        # test minute
+        with freeze_time('2020-01-02'):
+            action_response = self.client.get('/api/action/trends/?date_from=2020-01-01&interval=minute').json()
+        self.assertEqual(action_response[0]['labels'][6], 'Wed. 1 January, 00:06')
+        self.assertEqual(action_response[0]['data'][6], 3.0)
+
+        # test hour
+        with freeze_time('2020-01-02'):
+            action_response = self.client.get('/api/action/trends/?date_from=2019-12-24&interval=hour').json()
+        self.assertEqual(action_response[0]['labels'][3], 'Tue. 24 December, 03:00')
+        self.assertEqual(action_response[0]['data'][3], 1.0)
+        # 217 - 24 - 1
+        self.assertEqual(action_response[0]['data'][192], 3.0)
+
+        # test week
+        with freeze_time('2020-01-02'):
+            action_response = self.client.get('/api/action/trends/?date_from=2019-11-24&interval=week').json()
+        self.assertEqual(action_response[0]['labels'][4], 'Sun. 22 December')
+        self.assertEqual(action_response[0]['data'][4], 1.0)
+        self.assertEqual(action_response[0]['labels'][5], 'Sun. 29 December')
+        self.assertEqual(action_response[0]['data'][5], 4.0)
+
+        # test month
+        with freeze_time('2020-01-02'):
+            action_response = self.client.get('/api/action/trends/?date_from=2019-9-24&interval=month').json()
+        self.assertEqual(action_response[0]['labels'][2], 'Sat. 30 November')
+        self.assertEqual(action_response[0]['data'][2], 1.0)
+        self.assertEqual(action_response[0]['labels'][3], 'Tue. 31 December')
+        self.assertEqual(action_response[0]['data'][3], 4.0)
 
     def test_all_dates_filtering(self):
         self._create_events()
@@ -307,4 +347,3 @@ class TestTrends(BaseTest):
 
         self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
 
-        
