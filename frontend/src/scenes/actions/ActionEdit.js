@@ -11,6 +11,7 @@ export class ActionEdit extends Component {
         this.state = {
             action: { name: '', steps: [] },
             edited: false,
+            focus: true,
         }
         this.params = '?include_count=1' + (props.temporaryToken ? '&temporary_token=' + props.temporaryToken : '')
         this.fetchAction.call(this)
@@ -18,9 +19,10 @@ export class ActionEdit extends Component {
     }
     fetchAction() {
         if (this.props.actionId) {
+            this.state.focus = false
             return api
                 .get(this.props.apiURL + 'api/action/' + this.props.actionId + '/' + this.params)
-                .then((action) => this.setState({ action }))
+                .then(action => this.setState({ action }))
         }
         // If it's a new action, add an empty step
         this.state.action = { name: '', steps: [{ isNew: uuid() }] }
@@ -29,7 +31,7 @@ export class ActionEdit extends Component {
         if (!event.target.form.checkValidity() || !this.state.edited) return
         console.log('foo')
         let isNew = !this.state.action.id
-        let save = (action) => {
+        let save = action => {
             this.setState({
                 error: false,
                 saved: true,
@@ -41,7 +43,7 @@ export class ActionEdit extends Component {
             })
             if (this.props.onSave) this.props.onSave(action, isNew, createNew)
         }
-        let error = (detail) => {
+        let error = detail => {
             if (detail.detail == 'action-exists')
                 this.setState({
                     saved: false,
@@ -49,12 +51,12 @@ export class ActionEdit extends Component {
                     error_id: detail.id,
                 })
         }
-        let steps = this.state.action.steps.map((step) => {
+        let steps = this.state.action.steps.map(step => {
             if (step.event == '$pageview') step.selection = ['url', 'url_matching']
             if (step.event != '$pageview' && step.event != '$autocapture') step.selection = []
             if (!step.selection) return step
             let data = {}
-            Object.keys(step).map((key) => {
+            Object.keys(step).map(key => {
                 data[key] = key == 'id' || key == 'event' || step.selection.indexOf(key) > -1 ? step[key] : null
             })
             return data
@@ -94,13 +96,14 @@ export class ActionEdit extends Component {
 
         return (
             <div className={isEditor ? '' : 'card'} style={{ marginTop: isEditor ? 8 : '' }}>
-                <form className={isEditor ? '' : 'card-body'} onSubmit={(e) => e.preventDefault()}>
+                <form className={isEditor ? '' : 'card-body'} onSubmit={e => e.preventDefault()}>
                     <input
+                        autoFocus={this.state.focus}
                         required
                         className="form-control"
                         placeholder="For example: user signed up"
                         value={action.name}
-                        onChange={(e) =>
+                        onChange={e =>
                             this.setState({
                                 action: { ...action, name: e.target.value },
                                 edited: e.target.value ? true : false,
@@ -138,11 +141,11 @@ export class ActionEdit extends Component {
                                 actionId={action.id}
                                 simmer={simmer}
                                 onDelete={() => {
-                                    action.steps = action.steps.filter((s) => s.id != step.id)
+                                    action.steps = action.steps.filter(s => s.id != step.id)
                                     this.setState({ action: action })
                                 }}
-                                onChange={(newStep) => {
-                                    action.steps = action.steps.map((s) =>
+                                onChange={newStep => {
+                                    action.steps = action.steps.map(s =>
                                         (step.id && s.id == step.id) || (step.isNew && s.isNew === step.isNew)
                                             ? {
                                                   id: step.id,
@@ -175,7 +178,7 @@ export class ActionEdit extends Component {
                         <button
                             type="submit"
                             disabled={!this.state.edited}
-                            onClick={(e) => this.onSubmit(e)}
+                            onClick={e => this.onSubmit(e)}
                             className={
                                 this.state.edited
                                     ? 'btn-success btn btn-sm float-right'
@@ -188,7 +191,7 @@ export class ActionEdit extends Component {
                         {this.props.isEditor && this.props.showNewActionButton && (
                             <button
                                 type="submit"
-                                onClick={(e) => this.onSubmit(e, true)}
+                                onClick={e => this.onSubmit(e, true)}
                                 className="btn btn-secondary btn-sm float-right"
                             >
                                 Save & new action
