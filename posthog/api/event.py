@@ -138,11 +138,13 @@ class EventViewSet(viewsets.ModelViewSet):
     def names(self, request: request.Request) -> response.Response:
         events = self.get_queryset()
         events = events\
+            .exclude(event='$pageview')\
+            .exclude(event='$autocapture')\
+            .distinct('event')\
             .values('event')\
-            .annotate(count=Count('id'))\
-            .order_by('-count')
+            .order_by('event')
 
-        return response.Response([{'name': event['event'], 'count': event['count']} for event in events])
+        return response.Response([{'name': event['event']} for event in events])
 
     @action(methods=['GET'], detail=False)
     def properties(self, request: request.Request) -> response.Response:
