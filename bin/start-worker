@@ -1,4 +1,5 @@
 #!/bin/bash
 set -e
 
-celery -A posthog worker
+# start celery worker with heartbeat (-B)
+celery -A posthog worker -B --scheduler redbeat.RedBeatScheduler

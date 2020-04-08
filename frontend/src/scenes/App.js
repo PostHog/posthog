@@ -10,7 +10,7 @@ import Sidebar from '../layout/Sidebar'
 import { People } from './users/People'
 import { Actions } from './actions/Actions'
 import { Action } from './actions/Action'
-import { Topcontent } from '../layout/Topcontent'
+import { TopContent } from '../layout/TopContent'
 import { Funnel } from './funnels/Funnel'
 import { EditFunnel } from './funnels/EditFunnel'
 import { Funnels } from './funnels/Funnels'
@@ -49,7 +49,7 @@ export default function App() {
                 <div className="row flex-fill flex-column flex-sm-row layout-container">
                     <Sidebar user={user} />
                     <div className="col-sm-9 col-sm-offset-3 col-md-10 col-md-offset-2 flex-grow-1 py-3 content">
-                        <Topcontent user={user} />
+                        <TopContent user={user} />
                         <div style={{ marginTop: '3rem' }}>
                             <SendEventsOverlay user={user} />
                             {user.has_events && (

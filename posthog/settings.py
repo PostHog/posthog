@@ -184,12 +184,26 @@ else:
 
 # Broker
 if TEST or DEBUG:
-    CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://localhost')
+    REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost')
 else:
-    CELERY_BROKER_URL = os.environ.get('REDIS_URL', '')
+    REDIS_URL = os.environ.get('REDIS_URL', '')
 
-if not CELERY_BROKER_URL:
-    raise ImproperlyConfigured(f'The environment var "REDIS_URL" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-10102')
+if not REDIS_URL:
+    print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")
+    print("️⚠️ 🚨🚨🚨 PostHog warning! 🚨🚨🚨")
+    print("⚠️")
+    print("️⚠️ The environment variable REDIS_URL is not configured!")
+    print("⚠️ Redis will be mandatory in the next versions of PostHog (1.1.0+).")
+    print("⚠️ Please configure it now to avoid future surprises!")
+    print("⚠️")
+    print("⚠️ See here for more information!")
+    print("⚠️ --> https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011")
+    print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")
+    # TODO: remove this message and throw an error in PostHog 1.1.0
+    # raise ImproperlyConfigured(f'The environment var "REDIS_URL" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011')
+
+
+CELERY_BROKER_URL = REDIS_URL
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
