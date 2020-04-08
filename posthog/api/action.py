@@ -228,8 +228,8 @@ class ActionViewSet(viewsets.ModelViewSet):
         append['count'] = sum(append['data'])
         return append
     
-    def _get_interval_annotation(self, key: str) -> Dict[str, any]:
-        map: Dict[str, any] = {
+    def _get_interval_annotation(self, key: str) -> Dict[str, Any]:
+        map: Dict[str, Any] = {
             'minute': functions.TruncMinute('timestamp'),
             'hour': functions.TruncHour('timestamp'),
             'day': functions.TruncDay('timestamp'),
@@ -242,7 +242,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         
         return { key: func }
 
-    def _aggregate_by_interval(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request, interval: str) -> Dict[str, any]:
+    def _aggregate_by_interval(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request, interval: str) -> Dict[str, Any]:
         append: Dict[str, Any] = {}
         interval_annotation = self._get_interval_annotation(interval)
         aggregates = filtered_events\

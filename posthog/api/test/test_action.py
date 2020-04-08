@@ -177,7 +177,7 @@ class TestTrends(BaseTest):
         self._create_events()
         # automatically sets first day as first day of any events
         with freeze_time('2020-01-04'):
-            action_response = self.client.get('/api/action/trends/?date_from=all&interval=day').json()
+            action_response = self.client.get('/api/action/trends/?date_from=all').json()
             event_response = self.client.get('/api/action/trends/?date_from=all&events=%s' % json_to_url([{'id': "sign up"}, {'id': "no events"}])).json()
         self.assertEqual(action_response[0]['labels'][0], 'Tue. 24 December')
         self.assertEqual(action_response[0]['data'][0], 1.0)
@@ -306,5 +306,8 @@ class TestTrends(BaseTest):
         self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
 
         self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
+    
+    def test_intervals(self):
+
 
         
