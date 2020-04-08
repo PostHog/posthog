@@ -56,7 +56,7 @@ class SendEventsOverlay extends Component {
                         put this snippet on any domain, and it'll capture users
                         across.
                         <JSSnippet user={this.props.user} />
-                        <a href="https://github.com/PostHog/posthog/wiki/Integrations">
+                        <a href="https://docs.posthog.com/#/integrations">
                             Using Python/Ruby/Node/Go/PHP instead?
                         </a>
                         <br />
