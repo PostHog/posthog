@@ -6,7 +6,7 @@ let intervalMapping = {
     hour: 'Hourly',
     day: 'Daily',
     week: 'Weekly',
-    monthly: 'Monthly',
+    month: 'Monthly',
 }
 
 export function TimeFilter({ interval, setFilters }) {
