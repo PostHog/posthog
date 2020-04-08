@@ -2,6 +2,8 @@
 !bin/docker-preview
 !bin/docker
 !bin/docker-server
+!bin/docker-migrate
+!bin/docker-worker
 !requirements.txt
 !posthog
 !staticfiles

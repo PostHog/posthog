@@ -57,14 +57,21 @@ def signup_to_team_view(request, token):
     if request.method == 'POST':
         email = request.POST['email']
         password = request.POST['password']
+        first_name=request.POST.get('name')
+        email_opt_in=request.POST.get('emailOptIn')
+
+        if email_opt_in == 'on':
+            email_opt_in = True
+
         try:
-            user = User.objects.create_user(email=email, password=password, first_name=request.POST.get('name'))
+            user = User.objects.create_user(email=email, password=password, first_name=first_name, email_opt_in=email_opt_in)
         except:
             return render_template('signup_to_team.html', request=request, context={'email': email, 'error': True, 'team': team, 'signup_token': token})
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         team.users.add(user)
         team.save()
         posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': False})
+        posthoganalytics.identify(user.distinct_id, {'email_opt_in': user.email_opt_in})
         return redirect('/')
     return render_template('signup_to_team.html', request, context={'team': team, 'signup_token': token})
 

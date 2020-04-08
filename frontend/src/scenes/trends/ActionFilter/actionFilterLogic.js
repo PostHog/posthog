@@ -85,7 +85,7 @@ export const entityFilterLogic = kea({
         },
         [actions.updateFilter]: ({ type, index, value }) => {
             let newFilters = values.filters[type]
-            newFilters.push({ id: value })
+            newFilters.push({ id: value, type })
 
             // if the types are the same update together otherwise can dispatch to action
             if (type == values.selectedFilter.type) {
