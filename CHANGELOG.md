@@ -2,6 +2,12 @@
 
 ### 1.0.11 - Wednesday 8 April 2020
 
+Important! We've added Celery workers. We'll move tasks to workers to speed up a lot of actions in PostHog. [See update instructions](https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011) on how to enable workers.
+
+- Users can filter the trends view by any event rather than just actions
+
+![events in trends](https://posthog.com/wp-content/uploads/2020/04/events-in-trends.gif)
+
 - Users can now change password in /setup
 
 ![password change](https://posthog.com/wp-content/uploads/2020/04/Posthog-3.png)
@@ -19,19 +25,19 @@
 
 ![Stickiness explanation](https://posthog.com/wp-content/uploads/2020/04/Posthog-4.png)
 
+- Precalculated events that matched actions, this massively speeds up anything that uses actions
 - Added Celery background workers
 - Added gunicorn workers in docker-server script
 - Added email opt in for PostHog Security and Feature updates
-- Changed wording of GitHub issues to "Feature request" as well as tidied the templates themselves
 - Removed yarn cache in production image
-- Cleaned docker yarch cache
+- Cleaned docker yarcn cache
+- Reduced size of Docker images by ~80MB
 - Set default password for postgres in docker-compose.yml
 - Sped up the event insert by only loading actions that were really necessary
 - Migrated ip field to event property
 - Updated all links to point to new docs domain
 - Added GitLab API url
 - Added Async JS snippet
-- Precalculated events that matched actions
 - Docker and server updates for helm
 
 #### Bug Fixes
