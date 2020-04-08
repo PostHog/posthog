@@ -27,7 +27,7 @@ export function WorkerStats() {
                 <span style={{ color: 'red', cursor: 'pointer' }} onClick={() => setShowErrorModal(true)}>
                     ‼️ Worker OFFLINE ‼️
                 </span>
-            ) : heartbeat > 60 ? (
+            ) : heartbeat > 90 ? (
                 <span style={{ color: 'orange', cursor: 'pointer' }} onClick={() => setShowErrorModal(true)}>
                     ⚠️ Worker delayed
                 </span>
