@@ -84,7 +84,7 @@ export class EditFunnel extends Component {
                                 a => a.id == value
                             )[0]}
                             redirect={
-                                selectedAction.id && (
+                                selectedAction && selectedAction.id && (
                                     <a href={'/action/' + selectedAction.id} target="_blank">
                                         Edit "{selectedAction.name}"{' '}
                                         <i className="fi flaticon-export" />
