@@ -143,7 +143,7 @@ class EventManager(models.QuerySet):
     def filter_by_element(self, action_step):
         groups = ElementGroup.objects.filter(team=action_step.action.team_id)
         filter = {}
-        for key in ['tag_name', 'text', 'href', 'name']:
+        for key in ['tag_name', 'text', 'href']:
             if getattr(action_step, key):
                 filter['element__{}'.format(key)] = getattr(action_step, key)
 
