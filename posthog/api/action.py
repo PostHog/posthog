@@ -1,5 +1,6 @@
 from posthog.models import Event, Team, Action, ActionStep, Element, User, Person
 from posthog.utils import relative_date_parse, properties_to_Q
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from rest_framework import request, serializers, viewsets, authentication # type: ignore
 from rest_framework.response import Response
 
@@ -19,10 +20,6 @@ import datetime
 import json
 from dateutil.relativedelta import relativedelta
 from .person import PersonSerializer
-
-ENTITY_ACTIONS = 'actions'
-ENTITY_EVENTS = 'events'
-
 
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
@@ -82,11 +79,11 @@ class ActionViewSet(viewsets.ModelViewSet):
         if self.action == 'list':
             queryset = queryset.filter(deleted=False)
 
-        if self.request.GET.get(ENTITY_ACTIONS):
-            queryset = queryset.filter(pk__in=[action['id'] for action in self._parse_entities(ENTITY_ACTIONS)])
+        if self.request.GET.get(TREND_FILTER_TYPE_ACTIONS):
+            queryset = queryset.filter(pk__in=[action['id'] for action in self._parse_entities(TREND_FILTER_TYPE_ACTIONS)])
 
         if self.request.GET.get('include_count'):
-            queryset = queryset.annotate(count=Count(ENTITY_EVENTS))
+            queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
 
         queryset = queryset.prefetch_related(Prefetch('steps', queryset=ActionStep.objects.order_by('id')))
         return queryset\
@@ -305,9 +302,9 @@ class ActionViewSet(viewsets.ModelViewSet):
         }
 
     def _process_entity_for_events(self, entity, entity_type=None, order_by="-id") -> QuerySet:
-        if entity_type == ENTITY_ACTIONS:
+        if entity_type == TREND_FILTER_TYPE_ACTIONS:
             return Event.objects.filter_by_action(action=entity, order_by=order_by)
-        elif entity_type == ENTITY_EVENTS:
+        elif entity_type == TREND_FILTER_TYPE_EVENTS:
             return Event.objects.filter_by_event_with_people(event=entity['id'], team_id=self.request.user.team_set.get().id, order_by=order_by)
         return QuerySet()
 
@@ -317,8 +314,8 @@ class ActionViewSet(viewsets.ModelViewSet):
         actions = actions.filter(deleted=False)
         actions_list = []
 
-        parsed_actions = self._parse_entities(ENTITY_ACTIONS)
-        parsed_events = self._parse_entities(ENTITY_EVENTS)
+        parsed_actions = self._parse_entities(TREND_FILTER_TYPE_ACTIONS)
+        parsed_events = self._parse_entities(TREND_FILTER_TYPE_EVENTS)
 
         if parsed_events:
             for event in parsed_events:
@@ -326,7 +323,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     entity=event,
                     id=event['id'],
                     name=event['id'],
-                    entity_type=ENTITY_EVENTS,
+                    entity_type=TREND_FILTER_TYPE_EVENTS,
                     filters=event,
                     request=request,
                 )
@@ -342,7 +339,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     entity=db_action,
                     id=db_action.id,
                     name=db_action.name,
-                    entity_type=ENTITY_ACTIONS,
+                    entity_type=TREND_FILTER_TYPE_ACTIONS,
                     filters=filters,
                     request=request,
                 )
@@ -354,7 +351,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     entity=action,
                     id=action.id,
                     name=action.name,
-                    entity_type=ENTITY_ACTIONS,
+                    entity_type=TREND_FILTER_TYPE_ACTIONS,
                     filters={},
                     request=request,
                 )
@@ -389,19 +386,19 @@ class ActionViewSet(viewsets.ModelViewSet):
                 request=request
             )
 
-        if entityType == ENTITY_EVENTS:
-            filtered_events =  self._process_entity_for_events({'id': entityId}, entity_type=ENTITY_EVENTS, order_by=None)\
+        if entityType == TREND_FILTER_TYPE_EVENTS:
+            filtered_events =  self._process_entity_for_events({'id': entityId}, entity_type=TREND_FILTER_TYPE_EVENTS, order_by=None)\
                 .filter(self._filter_events(request))
             people = _calculate_people(id=entityId, name=entityId, events=filtered_events)
             return Response([people])
-        elif entityType == ENTITY_ACTIONS:
+        elif entityType == TREND_FILTER_TYPE_ACTIONS:
             actions = super().get_queryset()
             actions = actions.filter(deleted=False)
             try:
                 action = actions.get(pk=entityId)
             except Action.DoesNotExist:
                 return Response([])
-            filtered_events = self._process_entity_for_events(action, entity_type=ENTITY_ACTIONS, order_by=None).filter(self._filter_events(request))
+            filtered_events = self._process_entity_for_events(action, entity_type=TREND_FILTER_TYPE_ACTIONS, order_by=None).filter(self._filter_events(request))
             people = _calculate_people(id=action.id, name=action.name, events=filtered_events)
             return Response([people])
         
