@@ -148,15 +148,30 @@ class ActionViewSet(viewsets.ModelViewSet):
             actions_list.sort(key=lambda action: action.get('count', action['id']), reverse=True)
         return Response({'results': actions_list})
 
-    def _group_events_to_date(self, date_from: datetime.date, date_to: datetime.date, aggregates):
-        aggregates = pd.DataFrame([{'date': a['day'], 'count': a['count']} for a in aggregates])
+    def _group_events_to_date(self, date_from: datetime.date, date_to: datetime.date, aggregates, interval):
+        print('the big aggregate:', aggregates)
+        # bladerunner
+        aggregates = pd.DataFrame([{'date': a[interval], 'count': a['count']} for a in aggregates])
+        # print('the aggregates.date:', aggregates['date'].dt.to_datetime())
+        print("the aggregates date:", aggregates)
         aggregates['date'] = aggregates['date'].dt.date
+        freq_map = {
+            'minute': '60S',
+            'hour': 'H',
+            'day': 'D',
+            'week': 'W',
+            'month': 'M'
+        }
         # create all dates
-        time_index = pd.date_range(date_from, date_to, freq='D')
+        time_index = pd.date_range(date_from, date_to, freq=freq_map[interval])
+        print("the time index:", time_index)
         grouped = pd.DataFrame(aggregates.groupby('date').mean(), index=time_index)
+        print("the grouped pre fillna(0):", grouped)
 
         # fill gaps
         grouped = grouped.fillna(0)
+
+        print('the grouped:', grouped)
         return grouped
 
     def _get_dates_from_request(self, request: request.Request) -> Tuple[datetime.date, datetime.date]:
@@ -175,7 +190,10 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     def _filter_events(self, request: request.Request) -> Q:
         filters = Q()
+
+        print("starting filters")
         date_from, date_to = self._get_dates_from_request(request=request)
+        print('the date from and to:', date_from, date_to)
         if date_from:
             filters &= Q(timestamp__gte=date_from)
         if date_to:
@@ -184,6 +202,8 @@ class ActionViewSet(viewsets.ModelViewSet):
             return filters
         properties = json.loads(request.GET['properties'])
         filters &= properties_to_Q(properties)
+
+        print("ending filters:", filters)
         return filters
 
     def _breakdown(self, append: Dict, filtered_events: QuerySet, filters: Dict[Any, Any],request: request.Request, breakdown_by: str) -> Dict:
@@ -201,31 +221,99 @@ class ActionViewSet(viewsets.ModelViewSet):
         append['count'] = sum(item['count'] for item in values)
         return append
         
-    def _append_data(self, append: Dict, dates_filled: pd.DataFrame) -> Dict:
-        values = [value[0] for key, value in dates_filled.iterrows()]
-        append['labels'] = [key.strftime('%a. %-d %B') for key, value in dates_filled.iterrows()]
-        append['days'] = [key.strftime('%Y-%m-%d') for key, value in dates_filled.iterrows()]
-        append['data'] = values
-        append['count'] = sum(values)
+    def _append_data(self, append: Dict, dates_filled: pd.DataFrame, interval: str) -> Dict:
+        append['data'] = []
+        append['labels'] = []
+        append['days'] = []
+
+        labels_format = '%a. %-d %B'
+        days_format = '%Y-%m-%d'
+
+        if interval == 'hour' or interval == 'minute':
+            labels_format += ', %H:%M'
+
+        for key, value in dates_filled.iterrows():
+            append['days'].append(key.strftime(days_format))
+            append['labels'].append(key.strftime(labels_format))
+            append['data'].append(value[0])
+
+        # values = [value[0] for key, value in dates_filled.iterrows()]
+        # append['labels'] = [key.strftime('%a. %-d %B') for key, value in dates_filled.iterrows()]
+        # append['days'] = [key.strftime('%Y-%m-%d') for key, value in dates_filled.iterrows()]
+        append['count'] = sum(append['data'])
         return append
 
-    def _aggregate_by_day(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request) -> Dict[str, any]:
+    # def _aggregate_by_day(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request) -> Dict[str, any]:
+    #     append: Dict[str, Any] = {}
+    #     print("the filters:", filters)
+
+    #     interval_annotation = self._get_interval_annotation('day')
+    #     print("the interval_annotation:", interval_annotation)
+
+    #     #  bladerunner, where the interval is set
+    #     aggregates = filtered_events\
+    #         .filter(self._filter_events(request))\
+    #         .annotate(**interval_annotation)\
+    #         .values('day')\
+    #         .annotate(count=Count('id'))\
+    #         .order_by()
+
+    #     aggregates = self._process_math(aggregates, filters)
+
+    #     if len(aggregates) > 0:
+    #         date_from, date_to = self._get_dates_from_request(request)
+    #         if not date_from:
+    #             date_from = aggregates[0]['day'].date()
+    #         dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates)
+    #         append = self._append_data(append, dates_filled)
+    #     if request.GET.get('breakdown'):
+    #         append = self._breakdown(append, filtered_events, filters, request, breakdown_by=request.GET['breakdown'])
+
+    #     return append
+    
+    def _get_interval_annotation(self, key: str) -> Dict[str, any]:
+        map: Dict[str, any] = {
+            'minute': functions.TruncMinute('timestamp'),
+            'hour': functions.TruncHour('timestamp'),
+            'day': functions.TruncDay('timestamp'),
+            'week': functions.TruncWeek('timestamp'),
+            'month': functions.TruncMonth('timestamp'),
+        }
+        func = map.get(key)
+        if func is None:
+            return {'day': map.get('day')} # default
+        
+        return { key: func }
+
+    
+    def _aggregate_by_interval(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request) -> Dict[str, any]:
         append: Dict[str, Any] = {}
+
+        interval_annotation = self._get_interval_annotation(filters.get('interval'))
+        interval = list(interval_annotation.keys())[0]
+        print("begin aggre3gates")
         aggregates = filtered_events\
             .filter(self._filter_events(request))\
-            .annotate(day=functions.TruncDay('timestamp'))\
-            .values('day')\
+            .annotate(**interval_annotation)\
+            .values(interval)\
             .annotate(count=Count('id'))\
             .order_by()
 
+        print("after aggre3gates", aggregates)
+
         aggregates = self._process_math(aggregates, filters)
+
+        print("after math process...", aggregates)
 
         if len(aggregates) > 0:
             date_from, date_to = self._get_dates_from_request(request)
+            print('date from and to', date_from, date_to)
             if not date_from:
-                date_from = aggregates[0]['day'].date()
-            dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates)
-            append = self._append_data(append, dates_filled)
+                date_from = aggregates[0][interval].date()
+            print('filling dates....')
+            dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates, interval=interval)
+            print('appending filled dates', dates_filled)
+            append = self._append_data(append, dates_filled, interval)
         if request.GET.get('breakdown'):
             append = self._breakdown(append, filtered_events, filters, request, breakdown_by=request.GET['breakdown'])
 
@@ -285,8 +373,11 @@ class ActionViewSet(viewsets.ModelViewSet):
             'breakdown': []
         }
 
+        print("the entity:", entity)
+
         if request.GET.get('shown_as', 'Volume') == 'Volume':
-            entity.update(self._aggregate_by_day(filtered_events=filtered_events, filters=filters, request=request))
+            print("about to aggreagete by interval:", filters)
+            entity.update(self._aggregate_by_interval(filtered_events=filtered_events, filters=filters, request=request))
         elif request.GET['shown_as'] == 'Stickiness':
             entity.update(self._stickiness(filtered_events=filtered_events, filters=filters, request=request))
         return entity
@@ -317,13 +408,23 @@ class ActionViewSet(viewsets.ModelViewSet):
         actions = actions.filter(deleted=False)
         actions_list = []
 
+        print("hello from /trends")
+
         parsed_actions = self._parse_entities(ENTITY_ACTIONS)
         parsed_events = self._parse_entities(ENTITY_EVENTS)
 
+        print("the parsed actions:", parsed_actions)
+        print("the parsed events:", parsed_events)
+
+        # TODO: figure out how to pass down the interval filter
         def _calculate_trend(entity, id, name, entity_type, filters):
+            print('calculating trend')
             filtered_events = self._process_entity_for_events(entity, entity_type=entity_type)
+            print('the filtered events', filtered_events)
             if filtered_events is None:
+                print("returning none")
                 return None
+            print("serializing entity...")
             trend_entity = self._serialize_entity(
                 id=id,
                 name=name,
@@ -332,6 +433,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 filters=filters,
                 request=request,
             )
+            print("the trend entity...", trend_entity)
             return trend_entity
 
         if parsed_events:
@@ -340,12 +442,16 @@ class ActionViewSet(viewsets.ModelViewSet):
                 if trend_entity is not None:
                     actions_list.append(trend_entity)  
         if parsed_actions:
+            print("inside parsed_actions")
             for filters in parsed_actions:
                 try:
                     db_action = actions.get(pk=filters['id'])
+                    print("getting the actions from db:", db_action)
                 except Action.DoesNotExist:
                     continue
+                print("the filters inside parsed action:", filters)
                 trend_entity = _calculate_trend(db_action, db_action.id, db_action.name, ENTITY_ACTIONS, filters)
+                print("the trend_entity", trend_entity)
                 if trend_entity is not None:
                     actions_list.append(trend_entity)
         else:
