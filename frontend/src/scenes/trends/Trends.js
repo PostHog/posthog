@@ -6,7 +6,7 @@ import { Dropdown } from 'lib/components/Dropdown'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DateFilter } from 'lib/components/DateFilter'
-import { TimeFilter } from 'lib/components/TimeFilter'
+import { IntervalFilter } from 'lib/components/IntervalFilter'
 
 import { ActionFilter } from './ActionFilter/ActionFilter'
 import { ActionsPie } from './ActionsPie'
@@ -65,6 +65,7 @@ export function Trends() {
                     <span>
                         Graph
                         <div className="float-right">
+                            <IntervalFilter setFilters={setFilters} filters={filters} />
                             <Dropdown
                                 title={displayMap[filters.display || 'ActionsLineGraph']}
                                 buttonClassName="btn btn-sm btn-light"
@@ -111,7 +112,6 @@ export function Trends() {
                                 dateFrom={filters.date_from}
                                 dateTo={filters.date_to}
                             />
-                            <TimeFilter setFilters={setFilters} interval={filters.interval} />
                             <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
                         </div>
                     </span>

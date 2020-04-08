@@ -12,6 +12,32 @@ export const EntityTypes = {
     NEW: 'new',
 }
 
+export const disableMinuteFor = {
+    dStart: false,
+    '-1d': false,
+    '-7d': true,
+    '-14d': true,
+    '-30d': true,
+    '-90d': true,
+    mStart: true,
+    '-1mStart': true,
+    yStart: true,
+    all: true,
+}
+
+export const disableHourFor = {
+    dStart: false,
+    '-1d': false,
+    '-7d': false,
+    '-14d': false,
+    '-30d': false,
+    '-90d': true,
+    mStart: false,
+    '-1mStart': false,
+    yStart: true,
+    all: true,
+}
+
 function cleanFilters(filters) {
     if (filters.breakdown && filters.display !== 'ActionsTable') {
         return {
@@ -33,10 +59,24 @@ function filterClientSideParams(filters) {
     return newFilters
 }
 
+function autocorrectInterval({ date_from, interval }) {
+    if (!interval) return 'day' // undefined/uninitialized
+
+    const minute_disabled = disableMinuteFor[date_from] && interval === 'minute'
+    const hour_disabled = disableHourFor[date_from] && interval === 'hour'
+
+    if (minute_disabled) {
+        return 'hour'
+    } else if (hour_disabled) {
+        return 'day'
+    } else {
+        return interval
+    }
+}
+
 function filtersFromParams() {
     let filters = fromParams()
-    // TODO: need to make this work
-    filters.interval = filters.interval ? filters.interval : 'day'
+    filters.interval = autocorrectInterval(filters)
     filters.actions = filters.actions && JSON.parse(filters.actions)
     filters.actions = Array.isArray(filters.actions) ? filters.actions : undefined
     filters.events = filters.events && JSON.parse(filters.events)
