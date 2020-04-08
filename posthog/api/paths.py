@@ -1,11 +1,10 @@
 from rest_framework import viewsets
 from rest_framework.response import Response
 from posthog.models import Event, PersonDistinctId, Team
-from posthog.utils import relative_date_parse
+from posthog.utils import request_to_date_query
 from django.db.models import Subquery, OuterRef, Count, QuerySet
-from typing import List, Optional
+from typing import List, Optional, Dict
 from django.utils.timezone import now
-from dateutil.relativedelta import relativedelta
 import datetime
 
 
@@ -15,17 +14,16 @@ class PathsViewSet(viewsets.ViewSet):
     def _event_subquery(self, event: str, key: str):
         return Event.objects.filter(pk=OuterRef(event)).values(key)[:1]
 
-    def _add_event_and_url_at_position(self, aggregate: QuerySet, team: Team, index: int, date_from, date_to, urls: Optional[List[str]]=None) -> QuerySet:
+    def _add_event_and_url_at_position(self, aggregate: QuerySet, team: Team, index: int, date_query: Dict[str, datetime.date], urls: Optional[List[str]]=None) -> QuerySet:
         event_key = 'event_{}'.format(index)
         # adds event_1, url_1, event_2, url_2 etc for each Person
         return aggregate.annotate(**{
             event_key: Subquery(
                 Event.objects.filter(
                     team=team,
-                    timestamp__gte=date_from,
-                    timestamp__lte=date_to + relativedelta(days=1),
                     event='$pageview',
                     distinct_id=OuterRef('distinct_id'),
+                    **date_query,
                     **{'properties__$current_url__isnull': False},
                     **({'timestamp__gt': OuterRef('timestamp_{}'.format(index - 1))} if index > 1 else {})
                 )\
@@ -39,25 +37,14 @@ class PathsViewSet(viewsets.ViewSet):
     def list(self, request):
         team = request.user.team_set.get()
         resp = []
+        date_query = request_to_date_query(request)
         aggregate = PersonDistinctId.objects.filter(team=team)
 
-        if request.GET.get('date_from'):
-            date_from = relative_date_parse(request.GET['date_from'])
-            if request.GET['date_from'] == 'all':
-                date_from = None # type: ignore
-        else:
-            date_from = datetime.date.today() - relativedelta(days=7)
-
-        if request.GET.get('date_to'):
-            date_to = relative_date_parse(request.GET['date_to'])
-        else:
-            date_to = datetime.date.today()
-
-        aggregate = self._add_event_and_url_at_position(aggregate, team, 1, date_from, date_to)
+        aggregate = self._add_event_and_url_at_position(aggregate, team, 1, date_query)
         urls = False
 
         for index in range(1, 4):
-            aggregate = self._add_event_and_url_at_position(aggregate, team, index+1, date_from, date_to)
+            aggregate = self._add_event_and_url_at_position(aggregate, team, index+1, date_query)
             first_url_key = 'url_{}'.format(index)
             second_url_key = 'url_{}'.format(index + 1)
             rows = aggregate\

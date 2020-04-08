@@ -39,6 +39,25 @@ def relative_date_parse(input: str) -> datetime.date:
             date = date - relativedelta(month=12, day=31)
     return date.date()
 
+def request_to_date_query(request) -> Dict[str, datetime.date]:
+    if request.GET.get('date_from'):
+        date_from = relative_date_parse(request.GET['date_from'])
+        if request.GET['date_from'] == 'all':
+            date_from = None # type: ignore
+    else:
+        date_from = datetime.date.today() - relativedelta(days=7)
+
+    date_to = None
+    if request.GET.get('date_to'):
+        date_to = relative_date_parse(request.GET['date_to'])
+
+    resp = {}
+    if date_from:
+        resp['timestamp__gte'] = date_from
+    if date_to:
+        resp['timestamp__lte'] = date_to + relativedelta(days=1)
+    return resp
+
 def properties_to_Q(properties: Dict[str, str]) -> Q:
     filters = Q()
 

@@ -3,7 +3,9 @@ from rest_framework import request, response, serializers, viewsets # type: igno
 from rest_framework.decorators import action # type: ignore
 from django.db.models import QuerySet, query, Model, Q, Max, Prefetch, Exists, OuterRef, Subquery
 from django.db import models
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from posthog.utils import request_to_date_query
+import datetime
 
 
 class FunnelSerializer(serializers.HyperlinkedModelSerializer):
@@ -22,6 +24,38 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             return (score, person)
         return sorted(people, key=order, reverse=True)
 
+
+    def _annotate_steps(self, team_id: int, funnel_steps: QuerySet, date_query: Dict[str, datetime.date]) -> Dict[str, Subquery]:
+        annotations = {}
+        for index, step in enumerate(funnel_steps):
+            annotations['step_{}'.format(index)] = Subquery(
+                Event.objects.filter_by_action(step.action) # type: ignore
+                    .annotate(person_id=OuterRef('id'))
+                    .filter(
+                        team_id=team_id,
+                        distinct_id__in=Subquery(
+                            PersonDistinctId.objects.filter(
+                                team_id=team_id,
+                                person_id=OuterRef('person_id')
+                            ).values('distinct_id')
+                        ),
+                        **({'timestamp__gt': OuterRef('step_{}'.format(index-1))} if index > 0 else {}),
+                        **date_query
+                    )\
+                    .order_by('timestamp')\
+                    .values('timestamp')[:1])
+        return annotations
+
+    def _serialize_step(self, step: FunnelStep, people: Optional[List[int]] = None) -> Dict[str, Any]:
+        return {
+            'id': step.id,
+            'action_id': step.action.id,
+            'name': step.action.name,
+            'order': step.order,
+            'people': people if people else [],
+            'count': len(people) if people else 0
+        }
+
     def get_steps(self, funnel: Funnel) -> List[Dict[str, Any]]:
         # for some reason, rest_framework executes SerializerMethodField multiple times,
         # causing lots of slow queries. 
@@ -32,52 +66,32 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
 
         funnel_steps = funnel.steps.all().order_by('order').prefetch_related('action')
         if self.context['view'].action != 'retrieve' or self.context['request'].GET.get('exclude_count'):
-            return [{
-                'id': step.id,
-                'action_id': step.action.id,
-                'name': step.action.name,
-                'order': step.order
-            } for step in funnel_steps]
+            return [self._serialize_step(step) for step in funnel_steps]
 
         if len(funnel_steps) == 0:
             return []
-        annotations = {}
-        for index, step in enumerate(funnel_steps):
-            annotations['step_{}'.format(index)] = Subquery(
-                Event.objects.filter_by_action(step.action) # type: ignore
-                    .annotate(person_id=OuterRef('id'))
-                    .filter(
-                        team_id=funnel.team_id,
-                        distinct_id__in=Subquery(
-                            PersonDistinctId.objects.filter(
-                                team_id=funnel.team_id,
-                                person_id=OuterRef('person_id')
-                            ).values('distinct_id')
-                        ),
-                        **({'timestamp__gt': OuterRef('step_{}'.format(index-1))} if index > 0 else {})
-                    )\
-                    .order_by('timestamp')\
-                    .values('timestamp')[:1])
 
         people = Person.objects.all()\
-            .filter(team_id=funnel.team_id, persondistinctid__distinct_id__isnull=False)\
-            .annotate(**annotations)\
+            .filter(
+                team_id=funnel.team_id,
+                persondistinctid__distinct_id__isnull=False
+            )\
+            .annotate(**self._annotate_steps(
+                team_id=funnel.team_id,
+                funnel_steps=funnel_steps,
+                date_query=request_to_date_query(self.context['request'])
+            ))\
             .filter(step_0__isnull=False)\
             .distinct('pk')
 
         steps = []
-        for index, step in enumerate(funnel_steps):
+        for index, funnel_step in enumerate(funnel_steps):
             relevant_people = [person.id for person in people if getattr(person, 'step_{}'.format(index))]
-            steps.append({
-                'id': step.id,
-                'action_id': step.action.id,
-                'name': step.action.name,
-                'order': step.order,
-                'people': relevant_people[:100],
-                'count': len(relevant_people)
-            })
+            steps.append(self._serialize_step(funnel_step, relevant_people))
+
         if len(steps) > 0:
-            steps[0]['people'] = self._order_people_in_step(steps, steps[0]['people'])
+            for index, _ in enumerate(steps):
+                steps[index]['people'] = self._order_people_in_step(steps, steps[index]['people'])[0:100]
         return steps
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Funnel:
