@@ -306,8 +306,5 @@ class TestTrends(BaseTest):
         self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
 
         self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
-    
-    def test_intervals(self):
-
 
         
