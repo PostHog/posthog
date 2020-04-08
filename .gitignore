@@ -20,4 +20,5 @@ frontend/yarn-error.log
 .idea
 celerybeat-schedule
 celerybeat.pid
+yarn-error.log
 
