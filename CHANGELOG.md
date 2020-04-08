@@ -1,5 +1,47 @@
 # Changelog
 
+### 1.0.11 - Wednesday 8 April 2020
+
+- Users can now change password in /setup
+
+![password change](https://posthog.com/wp-content/uploads/2020/04/Posthog-3.png)
+
+- Users can also reset password at login screen
+- Added a logout button
+
+![logout button](https://posthog.com/wp-content/uploads/2020/04/logoutbuton.gif)
+
+- Added GitHub / GitLab Social Authorization
+
+![social auth](https://posthog.com/wp-content/uploads/2020/04/Posthog-1.png)
+
+- Added Stickiness explanation in /trends > Shown As > Stickiness
+
+![Stickiness explanation](https://posthog.com/wp-content/uploads/2020/04/Posthog-4.png)
+
+- Added Celery background workers
+- Added gunicorn workers in docker-server script
+- Added email opt in for PostHog Security and Feature updates
+- Changed wording of GitHub issues to "Feature request" as well as tidied the templates themselves
+- Removed yarn cache in production image
+- Cleaned docker yarch cache
+- Set default password for postgres in docker-compose.yml
+- Sped up the event insert by only loading actions that were really necessary
+- Migrated ip field to event property
+- Updated all links to point to new docs domain
+- Added GitLab API url
+- Added Async JS snippet
+- Precalculated events that matched actions
+- Docker and server updates for helm
+
+#### Bug Fixes
+- Fixed some instances of Cohort page hangs
+- Fixed demo actions not being recalculated
+- Fixed breakdown error on DAUs where tables could not be filtered
+- Fixed array.js
+- Fixied ActionStep.url_ so that it can be null
+
+
 ### 1.0.10.2 - Friday 3 April 2020
 
 - Precalculate Actions to speed up everything (dashboards/actions overview etcetera)
