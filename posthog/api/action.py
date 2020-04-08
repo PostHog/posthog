@@ -156,6 +156,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             aggregates['date'] = aggregates['date'].apply(lambda x: x - pd.offsets.MonthEnd(n=1)).dt.date
         else:
             aggregates['date'] = aggregates['date'].dt.tz_localize(None)
+
         freq_map = {
             'minute': '60S',
             'hour': 'H',
@@ -163,6 +164,11 @@ class ActionViewSet(viewsets.ModelViewSet):
             'week': 'W',
             'month': 'M'
         }
+        # handle "today" date range
+        if date_from == date_to:
+            date_from = pd.Timestamp(ts_input=date_from).replace(hour=0)
+            date_to = pd.Timestamp(ts_input=date_to).replace(hour=23)
+
         time_index = pd.date_range(date_from, date_to, freq=freq_map[interval])
         # create all dates
         grouped = pd.DataFrame(aggregates.groupby('date').mean(), index=time_index)
@@ -406,7 +412,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     @action(methods=['GET'], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        
+
         entityId = request.GET.get('entityId')
         entityType = request.GET.get('type')
 
