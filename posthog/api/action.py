@@ -350,12 +350,18 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     @action(methods=['GET'], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        print('hello world', request.GET)
         actions = self.get_queryset()
+        # print("the actions from queryset", actions)
         actions = actions.filter(deleted=False)
         actions_list = []
+        print('the action_list:', actions_list)
 
         parsed_actions = self._parse_entities(ENTITY_ACTIONS)
         parsed_events = self._parse_entities(ENTITY_EVENTS)
+
+        print("after parsing actions", parsed_actions)
+        print("after parsing eevent", parsed_events)
 
         if parsed_events:
             for event in parsed_events:
@@ -386,6 +392,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 if trend_entity is not None:
                     actions_list.append(trend_entity)
         elif parsed_events is None:
+            print('inside is none')
             for action in actions:
                 trend_entity = self._serialize_entity(
                     entity=action,
@@ -397,7 +404,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 )
                 if trend_entity is not None:
                     actions_list.append(trend_entity)
-                
+        print('The response:', actions_list)
         return Response(actions_list)
 
     @action(methods=['GET'], detail=False)

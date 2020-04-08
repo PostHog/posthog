@@ -177,7 +177,7 @@ class TestTrends(BaseTest):
         self._create_events()
         # automatically sets first day as first day of any events
         with freeze_time('2020-01-04'):
-            action_response = self.client.get('/api/action/trends/?date_from=all').json()
+            action_response = self.client.get('/api/action/trends/?date_from=all&interval=day').json()
             event_response = self.client.get('/api/action/trends/?date_from=all&events=%s' % json_to_url([{'id': "sign up"}, {'id': "no events"}])).json()
         self.assertEqual(action_response[0]['labels'][0], 'Tue. 24 December')
         self.assertEqual(action_response[0]['data'][0], 1.0)
