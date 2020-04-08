@@ -23,25 +23,33 @@ export function WorkerStats() {
 
     return heartbeat !== null ? (
         <span style={{ marginRight: 32, marginLeft: -16 }}>
-            {heartbeat === 'offline' || heartbeat === 'error' ? (
-                <span style={{ color: 'red', cursor: 'pointer' }} onClick={() => setShowErrorModal(true)}>
-                    ‼️ Worker OFFLINE ‼️
+            {heartbeat === 'offline' || heartbeat === 'error' || heartbeat > 90 ? (
+                <span
+                    style={{
+                        color: heartbeat === 'offline' || heartbeat === 'error' ? 'red' : 'orange',
+                        cursor: 'pointer',
+                    }}
+                    onClick={() => setShowErrorModal(true)}
+                >
+                    ⚠️ Configuration Error
                 </span>
-            ) : heartbeat > 90 ? (
-                <span style={{ color: 'orange', cursor: 'pointer' }} onClick={() => setShowErrorModal(true)}>
-                    ⚠️ Worker delayed
-                </span>
-            ) : (
-                <span style={{ color: 'green' }}>Worker online!</span>
-            )}
+            ) : null}
             {showErrorModal ? (
                 <Modal onDismiss={() => setShowErrorModal(false)}>
-                    <h2>Worker Error</h2>
+                    <h2>Configuration Issue</h2>
                     <p>
-                        Starting with <strong>version 1.1.0</strong> every installation of PostHog will require a
-                        background worker to work properly.
+                        Starting with <strong>the next version</strong> of PostHog (1.1.0), every installation{' '}
+                        <em>will require</em> a background worker to function properly.
                     </p>
-                    <p>We have detected an error with your worker setup.</p>
+                    <p>
+                        These workers will make PostHog a lot faster and will pave the road for other goodies, such as
+                        slack integration, scheduled reports and free pizzas for everyone!
+                    </p>
+                    <p>
+                        While workers are <em>currently</em> still optional, we <strong>strongly</strong> recommend you
+                        already enable them to make the next upgrade painless.
+                    </p>
+                    <p>We have detected an error in your current worker setup!</p>
                     <p>
                         Please{' '}
                         <a
