@@ -49,7 +49,6 @@ export function WorkerStats() {
                         While workers are <em>currently</em> still optional, we <strong>strongly</strong> recommend you
                         already enable them to make the next upgrade painless.
                     </p>
-                    <p>We have detected an error in your current worker setup!</p>
                     <p>
                         Please{' '}
                         <a
