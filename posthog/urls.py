@@ -11,7 +11,7 @@ from django.template.loader import render_to_string
 from .api import router, capture, user
 from .models import Team, User
 from .utils import render_template
-from .views import health
+from .views import health, stats
 from posthog.demo import demo, delete_demo_data
 import json
 import posthoganalytics # type: ignore
@@ -142,6 +142,7 @@ def logout(request):
 
 urlpatterns = [
     path('_health/', health),
+    path('_stats/', stats),
     path('admin/', admin.site.urls),
     path('admin/', include('loginas.urls')),
     path('api/', include(router.urls)),
