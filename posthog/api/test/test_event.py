@@ -108,10 +108,8 @@ class TestEvents(BaseTest):
         Event.objects.create(team=self.team, event='user sign up')
 
         response = self.client.get('/api/event/names/').json()
-        self.assertEqual(response[0]['name'], 'user sign up')
-        self.assertEqual(response[0]['count'], 2)
-        self.assertEqual(response[1]['name'], 'user login')
-        self.assertEqual(response[1]['count'], 1)
+        self.assertEqual(response[0]['name'], 'user login')
+        self.assertEqual(response[1]['name'], 'user sign up')
 
     def test_event_property_names(self):
         Event.objects.create(team=self.team, properties={'$browser': 'whatever', '$os': 'Mac OS X'})
