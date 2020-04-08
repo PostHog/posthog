@@ -183,10 +183,7 @@ else:
     raise ImproperlyConfigured(f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software')
 
 # Broker
-if TEST or DEBUG:
-    REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost')
-else:
-    REDIS_URL = os.environ.get('REDIS_URL', '')
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost')
 
 if not REDIS_URL:
     print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")
