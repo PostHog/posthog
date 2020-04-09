@@ -217,7 +217,7 @@ class TestTrends(BaseTest):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
         # test today + hourly
         with freeze_time('2020-01-02'):
-            action_response = self.client.get('/api/action/trends/?date_from=2020-01-02&date_to=2020-01-02&interval=hour').json()
+            action_response = self.client.get('/api/action/trends/?date_from=2020-01-02%2023%3A00&date_to=2020-01-02%2023%3A00&interval=hour').json()
         self.assertEqual(action_response[0]['labels'][23], 'Thu. 2 January, 23:00')
         self.assertEqual(action_response[0]['data'][23], 1.0)
 
