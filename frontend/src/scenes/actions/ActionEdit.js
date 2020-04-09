@@ -173,7 +173,10 @@ export class ActionEdit extends Component {
                                 <input
                                     type="checkbox"
                                     onChange={e => {
-                                        this.setState({ action: { ...action, post_to_slack: e.target.checked } })
+                                        this.setState({
+                                            action: { ...action, post_to_slack: e.target.checked },
+                                            edited: true,
+                                        })
                                     }}
                                     checked={action.post_to_slack}
                                     disabled={!this.state.slackEnabled}
