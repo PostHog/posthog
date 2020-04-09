@@ -199,12 +199,16 @@ class ActionViewSet(viewsets.ModelViewSet):
                 relativity = relativedelta(hours=1)
             elif interval == 'minute':
                 relativity = relativedelta(minutes=1)
+            elif interval == 'week':
+                relativity = relativedelta(weeks=1)
+            elif interval == 'month':
+                relativity = relativedelta(months=1) - relativity # go to last day of month instead of first of next
             filters &= Q(timestamp__lte=date_to + relativity)
         if not request.GET.get('properties'):
             return filters
         properties = json.loads(request.GET['properties'])
         filters &= properties_to_Q(properties)
-
+        
         return filters
 
     def _breakdown(self, append: Dict, filtered_events: QuerySet, filters: Dict[Any, Any],request: request.Request, breakdown_by: str) -> Dict:
