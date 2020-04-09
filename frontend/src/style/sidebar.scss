@@ -1,5 +1,6 @@
 .sidebar {
     background-color: #f7f6f3;
+    padding: 0;
 
     li {
         padding: 7px 0;
@@ -46,7 +47,7 @@
         position: fixed;
         bottom: 0rem;
         text-align: center;
-        margin-left: 5px;
+        margin-left: -15px;
         padding: 2rem;
         background-color: white;
     }
