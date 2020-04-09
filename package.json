@@ -12,7 +12,7 @@
   },
   "homepage": "https://github.com/posthog/posthog#readme",
   "scripts": {
-    "copy-array": "cp node_modules/posthog-js/dist/array.js frontend/dist/" ,
+    "copy-array": "cp node_modules/posthog-js/dist/array.js frontend/dist/",
     "start": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack --config webpack.config.js --watch",
     "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-array",
     "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\""
@@ -34,7 +34,7 @@
     "kea-loaders": "^0.0.4",
     "kea-router": "^0.1.2",
     "moment": "^2.24.0",
-    "posthog-js": "1.0.5-beta.2",
+    "posthog-js": "^1.0.6",
     "prop-types": "^15.7.2",
     "react": ">= 16.8",
     "react-beautiful-dnd": "^12.2.0",
