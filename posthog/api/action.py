@@ -148,11 +148,11 @@ class ActionViewSet(viewsets.ModelViewSet):
     def _group_events_to_date(self, date_from: datetime.date, date_to: datetime.date, aggregates, interval):
         aggregates = pd.DataFrame([{'date': a[interval], 'count': a['count']} for a in aggregates])
         if interval == 'week':
-            aggregates['date'] = aggregates['date'].apply(lambda x: x - pd.offsets.Week(weekday=6)).dt.date
+            aggregates['date'] = aggregates['date'].apply(lambda x: x - pd.offsets.Week(weekday=6))
         elif interval == 'month':
-            aggregates['date'] = aggregates['date'].apply(lambda x: x - pd.offsets.MonthEnd(n=1)).dt.date
+            aggregates['date'] = aggregates['date'].apply(lambda x: x - pd.offsets.MonthEnd(n=1))
         else:
-            aggregates['date'] = aggregates['date'].dt.tz_localize(None)
+            aggregates['date'] = aggregates['date']
 
         freq_map = {
             'minute': '60S',
@@ -185,6 +185,10 @@ class ActionViewSet(viewsets.ModelViewSet):
             date_to = relative_date_parse(request.GET['date_to'])
         else:
             date_to = datetime.date.today()
+
+        # UTC is what is set in setting.py
+        date_from = pd.Timestamp(date_from, tz='UTC')
+        date_to = pd.Timestamp(date_to, tz='UTC')
         return date_from, date_to
 
     def _filter_events(self, request: request.Request) -> Q:
