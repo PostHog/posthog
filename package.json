@@ -12,7 +12,7 @@
   },
   "homepage": "https://github.com/posthog/posthog#readme",
   "scripts": {
-    "copy-array": "cp node_modules/posthog-js/dist/array.js frontend/dist/" ,
+    "copy-array": "cp node_modules/posthog-js/dist/array.js frontend/dist/",
     "start": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack --config webpack.config.js --watch",
     "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-array",
     "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\""
@@ -21,6 +21,7 @@
   "dependencies": {
     "@babel/core": "^7.8.7",
     "@babel/runtime": "^7.8.7",
+    "antd": "^4.1.1",
     "babel-preset-nano-react-app": "^0.1.0",
     "bootstrap": "^4.4.1",
     "chart.js": "^2.9.3",

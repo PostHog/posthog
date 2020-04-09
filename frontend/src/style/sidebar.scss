@@ -46,8 +46,17 @@
         position: fixed;
         bottom: 0rem;
         text-align: center;
-        margin-left: -15px;
+        margin-left: 5px;
         padding: 2rem;
         background-color: white;
+    }
+
+    .inner-menu-item {
+        margin-left: 25px;
+    }
+
+    .menu-label {
+        margin-left: 10px;
+        margin-right: 10px;
     }
 }
