@@ -10,6 +10,7 @@ from django.dispatch import receiver
 from django.forms.models import model_to_dict
 from django.utils import timezone
 from posthog.utils import properties_to_Q
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from typing import List, Tuple, Optional, Any, Union, Dict
 from django.db import transaction
 from sentry_sdk import capture_exception
@@ -112,12 +113,12 @@ class TeamManager(models.Manager):
         action = Action.objects.create(team=team, name='Pageviews')
         ActionStep.objects.create(action=action, event='$pageview')
 
-        DashboardItem.objects.create(team=team, name='Pageviews this week', type='ActionsLineGraph', filters={'actions': [{'id': action.pk}]})
+        DashboardItem.objects.create(team=team, name='Pageviews this week', type='ActionsLineGraph', filters={TREND_FILTER_TYPE_ACTIONS: [{'id': action.pk, 'type': TREND_FILTER_TYPE_ACTIONS}]})
         DashboardItem.objects.create(
             team=team,
             name='Most popular browsers this week',
             type='ActionsTable',
-            filters={'actions': [{'id': action.pk}], 'display': 'ActionsTable', 'breakdown': '$browser'}
+            filters={TREND_FILTER_TYPE_ACTIONS: [{'id': action.pk, 'type': TREND_FILTER_TYPE_ACTIONS}], 'display': 'ActionsTable', 'breakdown': '$browser'}
         )
         return team
 

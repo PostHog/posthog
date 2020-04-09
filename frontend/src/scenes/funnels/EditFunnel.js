@@ -13,7 +13,7 @@ export class EditFunnel extends Component {
         this.state = {
             actions: false,
             id: props.funnelId,
-            steps: props.funnelId ? false : [{ id: uuid(), order: 0 }]
+            steps: props.funnelId ? false : [{ id: uuid(), order: 0 }],
         }
         this.Step = this.Step.bind(this)
         this.onSubmit = this.onSubmit.bind(this)
@@ -23,23 +23,17 @@ export class EditFunnel extends Component {
     fetchFunnel() {
         api.get('api/funnel/' + this.state.id + '/?exclude_count=1').then(funnel =>
             this.setState({
-                steps:
-                    funnel.steps.length > 0
-                        ? funnel.steps
-                        : [{ id: uuid(), order: 0 }],
+                steps: funnel.steps.length > 0 ? funnel.steps : [{ id: uuid(), order: 0 }],
                 name: funnel.name,
             })
         )
     }
     fetchActions() {
-        api.get('api/action').then(actions =>
-            this.setState({ actions: actions.results })
-        )
+        api.get('api/action').then(actions => this.setState({ actions: actions.results }))
     }
     Step(step) {
         let { steps, actions } = this.state
-        let selectedAction =
-            actions && actions.filter(action => action.id == step.action_id)[0]
+        let selectedAction = actions && actions.filter(action => action.id == step.action_id)[0]
         return (
             <Card style={{ marginBottom: '1rem' }}>
                 <div className="funnel-step-side">
@@ -50,9 +44,7 @@ export class EditFunnel extends Component {
                         className="close float-right"
                         onClick={() =>
                             this.setState({
-                                steps: steps.filter(
-                                    s => s.id != step.id
-                                ),
+                                steps: steps.filter(s => s.id != step.id),
                             })
                         }
                     >
@@ -60,41 +52,36 @@ export class EditFunnel extends Component {
                     </button>
                 </div>
                 <div className="card-body">
-                    {actions &&
+                    {actions && (
                         <ActionSelectTabs>
-                        <ActionSelectPanel
-                            title="Actions"
-                            options={groupActions(actions)}
-                            defaultMenuIsOpen={false}
-                            onSelect={({value: action_id}) => {
-                                this.setState(
-                                    {
+                            <ActionSelectPanel
+                                title="Actions"
+                                options={groupActions(actions)}
+                                defaultMenuIsOpen={false}
+                                onSelect={({ value: action_id }) => {
+                                    this.setState({
                                         steps: this.state.steps.map(s =>
                                             s.id == step.id
                                                 ? {
-                                                        ...step,
-                                                        action_id,
-                                                    }
+                                                      ...step,
+                                                      action_id,
+                                                  }
                                                 : s
                                         ),
-                                    }
-                                )
-                            }}
-                            onHover={value => actions.filter(
-                                a => a.id == value
-                            )[0]}
-                            redirect={
-                                selectedAction && selectedAction.id && (
-                                    <a href={'/action/' + selectedAction.id} target="_blank">
-                                        Edit "{selectedAction.name}"{' '}
-                                        <i className="fi flaticon-export" />
-                                    </a>
-                                )
-                            }
-                        >
-                        </ActionSelectPanel>
-                    </ActionSelectTabs>
-                    }
+                                    })
+                                }}
+                                onHover={value => actions.filter(a => a.id == value)[0]}
+                                redirect={
+                                    selectedAction &&
+                                    selectedAction.id && (
+                                        <a href={'/action/' + selectedAction.id} target="_blank">
+                                            Edit "{selectedAction.name}" <i className="fi flaticon-export" />
+                                        </a>
+                                    )
+                                }
+                            ></ActionSelectPanel>
+                        </ActionSelectTabs>
+                    )}
                 </div>
             </Card>
         )
@@ -113,81 +100,62 @@ export class EditFunnel extends Component {
         if (this.state.id) {
             return api.update('api/funnel/' + this.state.id, data).then(save)
         }
-        api.create('api/funnel', data).then(funnel =>
-            this.props.history.push('/funnel/' + funnel.id)
-        )
+        api.create('api/funnel', data).then(funnel => this.props.history.push('/funnel/' + funnel.id))
     }
     render() {
-        let { dndLoaded, name, steps, actions } = this.state;
+        let { dndLoaded, name, steps, actions } = this.state
         return (
             <form onSubmit={this.onSubmit}>
                 <Card>
-                    {steps ? <div className="card-body">
-                        <label>Name</label>
-                        <input
-                            required
-                            placeholder="User drop off through signup"
-                            type="text"
-                            autoFocus
-                            onChange={e =>
-                                this.setState({ name: e.target.value })
-                            }
-                            value={name}
-                            className="form-control"
-                        />
-                        {actions && actions.length == 0 && (
-                            <div
-                                className="alert alert-warning"
-                                style={{ marginTop: '1rem' }}
-                            >
-                                You don't have any actions set up.{' '}
-                                <Link to="/actions">
-                                    Click here to set up an action
-                                </Link>
-                            </div>
-                        )}
-                        <br />
-                        <div>
-                            {this.state.steps.map(
-                                (step, index) => (<div className='funnel-step'>
-                                    <this.Step
-                                        key={step.id}
-                                        index={index}
-                                        {...step}
-                                    />
-                                </div>)
+                    {steps ? (
+                        <div className="card-body">
+                            <input
+                                required
+                                placeholder="User drop off through signup"
+                                type="text"
+                                autoFocus
+                                onChange={e => this.setState({ name: e.target.value })}
+                                value={name}
+                                className="form-control"
+                            />
+                            {actions && actions.length == 0 && (
+                                <div className="alert alert-warning" style={{ marginTop: '1rem' }}>
+                                    You don't have any actions set up.{' '}
+                                    <Link to="/actions">Click here to set up an action</Link>
+                                </div>
                             )}
+                            <br />
+                            <div>
+                                {this.state.steps.map((step, index) => (
+                                    <div className="funnel-step">
+                                        <this.Step key={step.id} index={index} {...step} />
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="btn-group">
+                                <button
+                                    className="btn btn-outline-secondary btn-sm"
+                                    type="button"
+                                    onClick={() =>
+                                        this.setState({
+                                            steps: [...steps, { id: uuid(), order: steps.length }],
+                                        })
+                                    }
+                                >
+                                    Add step
+                                </button>
+                                <button className="btn btn-success btn-sm" type="submit">
+                                    Save funnel
+                                </button>
+                            </div>
                         </div>
-                        <div className="btn-group">
-                            <button
-                                className="btn btn-outline-secondary btn-sm"
-                                type="button"
-                                onClick={() =>
-                                    this.setState({
-                                        steps: [
-                                            ...steps,
-                                            { id: uuid(), order: steps.length },
-                                        ],
-                                    })
-                                }
-                            >
-                                Add step
-                            </button>
-                            <button
-                                className="btn btn-success btn-sm"
-                                type="submit"
-                            >
-                                Save funnel
-                            </button>
-                        </div>
-                    </div> : <Loading />}
+                    ) : (
+                        <Loading />
+                    )}
                 </Card>
                 {this.state.saved && (
                     <p className="text-success">
-                        Funnel saved.{' '}
-                        <Link to={'/funnel/' + this.state.id}>
-                            Click here to go back to the funnel.
-                        </Link>
+                        Funnel saved. <Link to={'/funnel/' + this.state.id}>Click here to go back to the funnel.</Link>
                     </p>
                 )}
             </form>
