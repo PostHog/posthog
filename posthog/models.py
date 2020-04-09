@@ -10,6 +10,7 @@ from django.dispatch import receiver
 from django.forms.models import model_to_dict
 from django.utils import timezone
 from posthog.utils import properties_to_Q
+from posthog.tasks import post_event_to_slack
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from typing import List, Tuple, Optional, Any, Union, Dict
 from django.db import transaction
@@ -130,6 +131,7 @@ class Team(models.Model):
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
+    slack_incoming_webhook: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     objects = TeamManager()
 
@@ -227,12 +229,19 @@ class EventManager(models.QuerySet):
             if kwargs.get('elements'):
                 kwargs['elements_hash'] = ElementGroup.objects.create(team=kwargs['team'], elements=kwargs.pop('elements')).hash
             event = super().create(*args, **kwargs)
+            should_post_to_slack = False
             relations = []
             for action in event.actions:
                 relations.append(action.events.through(action_id=action.pk, event=event))
-            Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
-            return event
+                if action.post_to_slack:
+                    should_post_to_slack = True
 
+            Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
+
+            if should_post_to_slack and event.team and event.team.slack_incoming_webhook:
+                post_event_to_slack.delay(event.id)
+
+            return event
 
 class Event(models.Model):
     class Meta:
@@ -391,6 +400,7 @@ class Action(models.Model):
     created_by: models.ForeignKey = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
     events: models.ManyToManyField = models.ManyToManyField(Event, blank=True)
+    post_to_slack: models.BooleanField = models.BooleanField(default=False)
 
     def __str__(self):
         return self.name

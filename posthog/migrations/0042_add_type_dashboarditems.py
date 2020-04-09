@@ -31,7 +31,7 @@ def reverse_filter_types(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0041_merge_20200407_1805'),
+        ('posthog', '0041_slack_webhooks'),
     ]
 
     operations = [

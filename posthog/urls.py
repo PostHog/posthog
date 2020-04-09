@@ -150,6 +150,7 @@ urlpatterns = [
     path('api/user/', user.user),
     path('api/user/redirect_to_site/', user.redirect_to_site),
     path('api/user/change_password/', user.change_password),
+    path('api/user/test_slack_webhook/', user.test_slack_webhook),
     path('decide/', capture.get_decide),
     path('engage/', capture.get_event),
     path('engage', capture.get_event),

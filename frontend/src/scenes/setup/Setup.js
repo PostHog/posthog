@@ -8,20 +8,24 @@ import { SetupAppUrls } from './SetupAppUrls'
 
 import { userLogic } from '../userLogic'
 import { DeleteDemoData } from './DeleteDemoData'
+import { SlackIntegration } from 'scenes/setup/SlackIntegration'
 import { ChangePassword } from './ChangePassword'
+import { useAnchor } from 'lib/hooks/useAnchor'
 
-export function Setup() {
+export function Setup({ history }) {
     const { user } = useValues(userLogic)
+
+    useAnchor(history.location.hash)
 
     return (
         <div>
-            <h1>Setup your PostHog account</h1>
+            <h1 id="urls">Setup your PostHog account</h1>
             <SetupAppUrls />
             <br />
             <br />
-            <h2>Integrate PostHog</h2>
+            <h2 id="snippet">Integrate PostHog</h2>
             To integrate PostHog, copy + paste the following snippet to your website. Ideally, put it just above the{' '}
-            <pre style={{ display: 'inline' }}>&lt;/head&gt;</pre> tag.
+            <pre style={{ display: 'inline' }}>&lt;/head&gt;</pre> tag.{' '}
             <a href="https://docs.posthog.com/#/integrations/js-integration">
                 See docs for instructions on how to identify users.
             </a>
@@ -31,7 +35,7 @@ export function Setup() {
             <br />
             <br />
             <br />
-            <h2>API key</h2>
+            <h2 id="apikey">API key</h2>
             You can use this api key in any of our
             <a href="https://docs.posthog.com/#/integrations"> libraries</a>.
             <pre className="code">{user.team.api_token}</pre>
@@ -40,7 +44,11 @@ export function Setup() {
             <br />
             <br />
             <br />
-            <h2>Invite your team</h2>
+            <h2 id="slack">Slack Integration</h2>
+            <SlackIntegration />
+            <br />
+            <br />
+            <h2 id="invite">Invite your team</h2>
             <div className="row">
                 <div className="col-lg-6">
                     <InviteTeam user={user} />
@@ -48,17 +56,17 @@ export function Setup() {
             </div>
             <br />
             <br />
-            <h2>Delete HogFlix demo data</h2>
+            <h2 id="demodata">Delete HogFlix demo data</h2>
             <DeleteDemoData />
             <br />
             <br />
             <br />
-            <h2>Change Password</h2>
+            <h2 id="password">Change Password</h2>
             <ChangePassword />
             <br />
             <br />
             <br />
-            <h2>Opt out of capturing</h2>
+            <h2 id="optout">Opt out of capturing</h2>
             <OptOutCapture />
             <br />
             <br />

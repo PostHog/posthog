@@ -18,11 +18,7 @@ export class EventName extends Component {
                         value: name.name,
                         label: name.name + ' (' + name.count + ' events)',
                     }))
-                    .filter(
-                        item =>
-                            item.value != '$autocapture' &&
-                            item.value != '$pageview'
-                    ),
+                    .filter(item => item.value != '$autocapture' && item.value != '$pageview'),
             })
         )
     }
@@ -40,19 +36,12 @@ export class EventName extends Component {
                     value={
                         this.props.value &&
                         this.state.names &&
-                        this.state.names.filter(
-                            item => this.props.value == item.value
-                        )[0]
+                        this.state.names.filter(item => this.props.value == item.value)[0]
                     }
                 />
                 <br />
-                {names &&
-                    names.length === 0 &&
-                    "You haven't sent any custom events."}
-                <a
-                    href="https://github.com/PostHog/posthog/wiki/Integrations"
-                    target="_blank"
-                >
+                {names && names.length === 0 && "You haven't sent any custom events."}{' '}
+                <a href="https://github.com/PostHog/posthog/wiki/Integrations" target="_blank">
                     See documentation
                 </a>{' '}
                 on how to send custom events in lots of languages.

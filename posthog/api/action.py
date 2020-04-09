@@ -33,7 +33,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
 
     class Meta:
         model = Action
-        fields = ['id', 'name', 'steps', 'created_at', 'deleted', 'count']
+        fields = ['id', 'name', 'post_to_slack', 'steps', 'created_at', 'deleted', 'count']
 
     def get_steps(self, action: Action):
         steps = action.steps.all()
@@ -93,6 +93,7 @@ class ActionViewSet(viewsets.ModelViewSet):
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         action, created = Action.objects.get_or_create(
             name=request.data['name'],
+            post_to_slack=request.data.get('post_to_slack', False),
             team=request.user.team_set.get(),
             deleted=False,
             defaults={
