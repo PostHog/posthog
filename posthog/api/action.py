@@ -187,7 +187,8 @@ class ActionViewSet(viewsets.ModelViewSet):
             date_to = datetime.date.today()
 
         # UTC is what is set in setting.py
-        date_from = pd.Timestamp(date_from, tz='UTC')
+        if date_from is not None:
+            date_from = pd.Timestamp(date_from, tz='UTC')
         date_to = pd.Timestamp(date_to, tz='UTC')
         return date_from, date_to
 
@@ -212,7 +213,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             return filters
         properties = json.loads(request.GET['properties'])
         filters &= properties_to_Q(properties)
-        
+
         return filters
 
     def _breakdown(self, append: Dict, filtered_events: QuerySet, filters: Dict[Any, Any],request: request.Request, breakdown_by: str) -> Dict:
@@ -279,7 +280,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         if len(aggregates) > 0:
             date_from, date_to = self._get_dates_from_request(request)
             if not date_from:
-                date_from = aggregates[0][interval].date()
+                date_from = pd.Timestamp(aggregates[0][interval])
             dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates, interval=interval)
             append = self._append_data(append, dates_filled, interval)
         if request.GET.get('breakdown'):
