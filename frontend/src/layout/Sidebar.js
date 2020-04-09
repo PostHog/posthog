@@ -24,7 +24,7 @@ class Sidebar extends Component {
                 className="sidebar col-sm-3 col-md-2 no-gutters flex-shrink-1 bg-light pt-3"
                 style={{ minHeight: '100vh' }}
             >
-                <Menu className="h-100" selectedKeys={[this.props.history.location.pathname]} mode="inline">
+                <Menu className="h-100 bg-light" selectedKeys={[this.props.history.location.pathname]} mode="inline">
                     <div className="row logo-row d-flex align-items-center">
                         <img className="logo" src="/static/posthog-logo.png" />
                         <div className="posthog-title">PostHog</div>
