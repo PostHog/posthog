@@ -93,7 +93,7 @@ class ActionViewSet(viewsets.ModelViewSet):
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         action, created = Action.objects.get_or_create(
             name=request.data['name'],
-            post_to_slack=request.data['post_to_slack'],
+            post_to_slack=request.data.get('post_to_slack', False),
             team=request.user.team_set.get(),
             deleted=False,
             defaults={
