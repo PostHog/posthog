@@ -213,6 +213,14 @@ class TestTrends(BaseTest):
         self.assertEqual(action_response[0]['labels'][3], 'Tue. 31 December')
         self.assertEqual(action_response[0]['data'][3], 4.0)
 
+        with freeze_time('2020-01-02 23:30'):
+            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
+        # test today + hourly
+        with freeze_time('2020-01-02'):
+            action_response = self.client.get('/api/action/trends/?date_from=2020-01-02&date_to=2020-01-02&interval=hour').json()
+        self.assertEqual(action_response[0]['labels'][23], 'Thu. 2 January, 23:00')
+        self.assertEqual(action_response[0]['data'][23], 1.0)
+
     def test_all_dates_filtering(self):
         self._create_events()
         # automatically sets first day as first day of any events
