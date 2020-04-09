@@ -45,15 +45,15 @@ class Sidebar extends Component {
                     <NavLink className="nav-link" to="/events"></NavLink>
                 </Menu.Item>
                 {this.showSubgroup(['/events', '/actions', '/actions/live']) && (
-                    <Menu.Item className="inner-menu-item" {...this.props} key="/actions">
-                        <i className="fi flaticon-target" />
+                    <Menu.Item {...this.props} key="/actions">
+                        <i className="fi flaticon-target inner-menu-icon" />
                         <span className="menu-label">Actions</span>
                         <NavLink className="nav-link" to="/actions"></NavLink>
                     </Menu.Item>
                 )}
                 {this.showSubgroup(['/events', '/actions', '/actions/live']) && (
-                    <Menu.Item className="inner-menu-item" {...this.props} key="/actions/live">
-                        <i className="fi flaticon-refresh" />
+                    <Menu.Item {...this.props} key="/actions/live">
+                        <i className="fi flaticon-refresh inner-menu-icon" />
                         <span className="menu-label">Live Actions</span>
                         <NavLink className="nav-link" to="/actions/live"></NavLink>
                     </Menu.Item>
@@ -64,9 +64,9 @@ class Sidebar extends Component {
                     <NavLink className={'nav-link'} to="/people"></NavLink>
                 </Menu.Item>
                 {this.showSubgroup(['/people', '/people/cohorts']) && (
-                    <Menu.Item className="inner-menu-item" {...this.props} key="/people/cohorts">
-                        <i className="fi flaticon-user" />
-                        <span className="menu-label">Cohorts</span>
+                    <Menu.Item {...this.props} key="/people/cohorts">
+                        <i className="fi flaticon-user inner-menu-icon" />
+                        <span className="menu-label ">Cohorts</span>
                         <NavLink className={'nav-link'} to="/people/cohorts"></NavLink>
                     </Menu.Item>
                 )}
