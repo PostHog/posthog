@@ -24,7 +24,6 @@ class Sidebar extends Component {
                 className="sidebar vh-100 col-sm-3 col-md-2 flex-shrink-1 bg-light pt-3"
                 selectedKeys={[this.props.history.location.pathname]}
                 mode="inline"
-                onOpenChange={openKeys => console.log(openKeys)}
             >
                 <div className="row logo-row d-flex align-items-center">
                     <img className="logo" src="/static/posthog-logo.png" />
