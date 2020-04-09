@@ -13,8 +13,8 @@
   "homepage": "https://github.com/posthog/posthog#readme",
   "scripts": {
     "copy-array": "cp node_modules/posthog-js/dist/array.js frontend/dist/" ,
-    "start": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm copy-array && webpack --config webpack.config.js --watch",
-    "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm copy-array",
+    "start": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack --config webpack.config.js --watch",
+    "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-array",
     "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\""
   },
   "license": "MIT",
