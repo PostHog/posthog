@@ -1,26 +1,81 @@
-import React, { useState } from 'react'
-import { kea, useActions, useKea, useValues } from 'kea'
-
+import React from 'react'
+import { kea, useActions, useValues } from 'kea'
 import { userLogic } from '../userLogic'
+import api from 'lib/api'
 
 const logic = kea({
-    reducers: () => ({
+    actions: () => ({
+        setEditedWebhook: webhook => ({ webhook }),
+        saveWebhook: true,
+        testAndSaveWebhook: true,
+        setError: error => ({ error }),
+    }),
+
+    reducers: ({ actions }) => ({
+        editedWebhook: [
+            state => userLogic.selectors.user(state)?.team?.slack_incoming_webhook,
+            {
+                [actions.setEditedWebhook]: (_, { webhook }) => webhook,
+            },
+        ],
+        isSaving: [
+            false,
+            {
+                [actions.saveWebhook]: () => true,
+                [actions.testAndSaveWebhook]: () => true,
+                [actions.setError]: () => false,
+                [userLogic.actions.userUpdateSuccess]: (_, { updateKey }) => (updateKey === 'slack' ? false : state),
+                [userLogic.actions.userUpdateFailure]: (_, { updateKey }) => (updateKey === 'slack' ? false : state),
+            },
+        ],
         isSaved: [
             false,
             {
-                [userLogic.actions.userUpdateRequest]: (_, { updateKey }) => (updateKey === 'slack' ? false : state),
+                [actions.saveWebhook]: () => false,
+                [actions.testAndSaveWebhook]: () => false,
                 [userLogic.actions.userUpdateSuccess]: (_, { updateKey }) => (updateKey === 'slack' ? true : state),
+                [actions.setEditedWebhook]: () => false,
             },
         ],
+        error: [
+            null,
+            {
+                [actions.saveWebhook]: () => null,
+                [actions.testAndSaveWebhook]: () => null,
+                [actions.setError]: (_, { error }) => error,
+                [actions.setEditedWebhook]: () => null,
+            },
+        ],
+    }),
+
+    listeners: ({ actions, values }) => ({
+        [actions.testAndSaveWebhook]: async () => {
+            const { editedWebhook } = values
+            if (editedWebhook) {
+                try {
+                    const response = await api.create('api/user/test_slack_webhook', { webhook: editedWebhook })
+
+                    if (response.success) {
+                        actions.saveWebhook(editedWebhook)
+                    } else {
+                        actions.setError(response.error)
+                    }
+                } catch (error) {
+                    actions.setError(error.message)
+                }
+            } else {
+                actions.saveWebhook(editedWebhook)
+            }
+        },
+        [actions.saveWebhook]: async () => {
+            userLogic.actions.userUpdateRequest({ team: { slack_incoming_webhook: values.editedWebhook } }, 'slack')
+        },
     }),
 })
 
 export function SlackIntegration() {
-    const { user } = useValues(userLogic)
-    const { isSaved } = useValues(logic)
-    const { userUpdateRequest } = useActions(userLogic)
-    const { slack_incoming_webhook: slackIncomingWebhook } = user.team
-    const [editedWebhook, setEditedWebhook] = useState(slackIncomingWebhook || '')
+    const { isSaved, isSaving, error, editedWebhook } = useValues(logic)
+    const { testAndSaveWebhook, setEditedWebhook } = useActions(logic)
 
     return (
         <div>
@@ -33,7 +88,7 @@ export function SlackIntegration() {
             <form
                 onSubmit={e => {
                     e.preventDefault()
-                    userUpdateRequest({ team: { slack_incoming_webhook: editedWebhook } }, 'slack')
+                    testAndSaveWebhook()
                 }}
             >
                 <div style={{ marginBottom: 5 }}>
@@ -47,11 +102,18 @@ export function SlackIntegration() {
                 </div>
 
                 <button className="btn btn-success" type="submit">
-                    Save
+                    {isSaving ? '...' : editedWebhook ? 'Test & Save' : 'Save'}
                 </button>
+
+                {error && (
+                    <span className="text-danger" style={{ marginLeft: 10 }}>
+                        Error: {error}
+                    </span>
+                )}
+
                 {isSaved && (
                     <span className="text-success" style={{ marginLeft: 10 }}>
-                        Webhook updated!
+                        {editedWebhook ? 'All good! You should see a message on Slack!' : 'Slack integration removed!'}
                     </span>
                 )}
             </form>
