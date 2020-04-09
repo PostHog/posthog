@@ -6337,6 +6337,11 @@ postcss@^7.0.14, postcss@^7.0.16, postcss@^7.0.23, postcss@^7.0.26, postcss@^7.0
     source-map "^0.6.1"
     supports-color "^6.1.0"
 
+posthog-js@1.0.5-beta.2:
+  version "1.0.5-beta.2"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.0.5-beta.2.tgz#3428ca6be3521029bec013ae6e6b060f42cee19d"
+  integrity sha512-RVhCoiZ7lfUkhD1EmgTWMTDp/B6K38WEK2qn3LViaTsavIFtD/wlIoj+M11zPwosnriMqLoXO3JgrozAjJaloQ==
+
 posthtml-parser@^0.4.0, posthtml-parser@^0.4.1:
   version "0.4.2"
   resolved "https://registry.yarnpkg.com/posthtml-parser/-/posthtml-parser-0.4.2.tgz#a132bbdf0cd4bc199d34f322f5c1599385d7c6c1"
