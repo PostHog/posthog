@@ -13,7 +13,7 @@ class Sidebar extends Component {
     showSubgroup = keys => {
         let show = false
         keys.forEach(key => {
-            if (this.props.history.location.pathname == key) show = true
+            if (this.props.history.location.pathname.includes(key)) show = true
         })
         return show
     }
@@ -44,14 +44,14 @@ class Sidebar extends Component {
                         <span className="menu-label">Events</span>
                         <NavLink className="nav-link" to="/events"></NavLink>
                     </Menu.Item>
-                    {this.showSubgroup(['/events', '/actions', '/actions/live']) && (
+                    {this.showSubgroup(['/events', '/action']) && (
                         <Menu.Item key="/actions">
                             <i className="fi flaticon-target inner-menu-icon" />
                             <span className="menu-label">Actions</span>
                             <NavLink className="nav-link" to="/actions"></NavLink>
                         </Menu.Item>
                     )}
-                    {this.showSubgroup(['/events', '/actions', '/actions/live']) && (
+                    {this.showSubgroup(['/events', '/actions']) && (
                         <Menu.Item key="/actions/live">
                             <i className="fi flaticon-refresh inner-menu-icon" />
                             <span className="menu-label">Live Actions</span>
@@ -63,7 +63,7 @@ class Sidebar extends Component {
                         <span className="menu-label">Users</span>
                         <NavLink className={'nav-link'} to="/people"></NavLink>
                     </Menu.Item>
-                    {this.showSubgroup(['/people', '/people/cohorts']) && (
+                    {this.showSubgroup(['/people', '/person']) && (
                         <Menu.Item key="/people/cohorts">
                             <i className="fi flaticon-user inner-menu-icon" />
                             <span className="menu-label ">Cohorts</span>

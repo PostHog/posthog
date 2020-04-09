@@ -11,10 +11,7 @@ export class InviteTeam extends Component {
         toast('Link copied!')
     }
     render() {
-        let url =
-            window.location.origin == 'https://app.posthog.com'
-                ? 'https://t.posthog.com'
-                : window.location.origin
+        let url = window.location.origin == 'https://app.posthog.com' ? 'https://t.posthog.com' : window.location.origin
         return (
             <div>
                 <br />
@@ -26,9 +23,8 @@ export class InviteTeam extends Component {
                         type="text"
                         ref={this.urlRef}
                         className="form-control"
-                        value={
-                            url + '/signup/' + this.props.user.team.signup_token
-                        }
+                        value={url + '/signup/' + this.props.user.team.signup_token}
+                        readOnly={true}
                     />
                     <div className="input-group-append">
                         <button
