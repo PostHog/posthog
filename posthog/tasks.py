@@ -18,28 +18,30 @@ def post_event_to_slack(event_id):
     site_url = settings.SITE_URL
 
     if team.slack_incoming_webhook:
-        user_plain = event.distinct_id
-        user_markdown = "<{}/person/{}|{}>".format(site_url, event.distinct_id, event.distinct_id)
+        try:
+            user_name = event.person.properties.get('email', event.distinct_id)
+        except:
+            user_name = event.distinct_id
 
-        actions = event.action_set.all()
-        action_names = []
+        user_markdown = "<{}/person/{}|{}>".format(site_url, event.distinct_id, user_name)
 
-        for action in actions:
-            if action.post_to_slack:
-                action_names.append(action.name)
+        actions = [action for action in event.action_set.all() if action.post_to_slack]
 
-        if action_names:
-            actions_string = ', '.join('"{}"'.format(name) for name in action_names)
-            actions_string = "Action{} {}".format("" if len(action_names) == 1 else "s", actions_string)
+        if actions:
+            action_links = ', '.join('"<{}/action/{}|{}>"'.format(site_url, action.id, action.name) for action in actions)
+            action_names = ', '.join('"{}"'.format(action.name) for action in actions)
+
+            actions_markdown = "Action{} {}".format("" if len(actions) == 1 else "s", action_links)
+            actions_plain = "Action{} {}".format("" if len(actions) == 1 else "s", action_names)
 
             message = {
-                "text": "{} triggered by user {}".format(actions_string, user_plain),
+                "text": "{} triggered by user {}".format(actions_plain, user_name),
                 "blocks": [
                     {
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": "{} triggered by user {}".format(actions_string, user_markdown)
+                            "text": "{} triggered by user {}".format(actions_markdown, user_markdown)
                         }
                     }
                 ]
