@@ -78,6 +78,7 @@ export class ActionEdit extends Component {
         }
         api.create(this.props.apiURL + 'api/action/' + this.params, {
             name: this.state.action.name,
+            post_to_slack: this.state.action.post_to_slack,
             steps,
         })
             .then(save)
