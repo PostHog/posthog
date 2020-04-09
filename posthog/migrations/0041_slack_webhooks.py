@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0040_remove_event_ip'),
+        ('posthog', '0041_merge_20200407_1805'),
     ]
 
     operations = [
