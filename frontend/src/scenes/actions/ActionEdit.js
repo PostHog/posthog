@@ -2,6 +2,8 @@ import React, { Component } from 'react'
 import api from '../../lib/api'
 import { uuid } from '../../lib/utils'
 import PropTypes from 'prop-types'
+import { toast } from 'react-toastify'
+
 import { ActionStep } from './ActionStep'
 
 export class ActionEdit extends Component {
@@ -42,7 +44,7 @@ export class ActionEdit extends Component {
                 edited: false,
             })
             if (this.props.onSave) this.props.onSave(action, isNew, createNew)
-            toast('Action saved')
+            toast('Action Saved', { autoClose: 3000, hideProgressBar: true })
         }
         let error = detail => {
             if (detail.detail == 'action-exists')
@@ -162,8 +164,6 @@ export class ActionEdit extends Component {
                     ))}
 
                     <br />
-
-                    {this.state.saved && !isEditor && <p className="text-success">Action saved.</p>}
 
                     {this.state.error && (
                         <p className="text-danger">
