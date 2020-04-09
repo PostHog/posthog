@@ -34,10 +34,10 @@ export let fromParams = () =>
 
 export let colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
 export let percentage = division =>
-    division.toLocaleString(undefined, {
+    division ? division.toLocaleString(undefined, {
         style: 'percent',
         maximumFractionDigits: 2,
-    })
+    }) : ''
 
 export let Loading = () => (
     <div className="loading-overlay">

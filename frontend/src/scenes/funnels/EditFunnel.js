@@ -109,7 +109,6 @@ export class EditFunnel extends Component {
                 <Card>
                     {steps ? (
                         <div className="card-body">
-                            <label>Name</label>
                             <input
                                 required
                                 placeholder="User drop off through signup"
