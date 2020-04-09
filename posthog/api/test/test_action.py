@@ -314,6 +314,43 @@ class TestTrends(BaseTest):
         self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
         self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
 
+    def test_people_endpoint_with_intervals(self):
+        sign_up_action, person = self._create_events()
+
+        person1 = Person.objects.create(team=self.team, distinct_ids=['person1'])
+        person2 = Person.objects.create(team=self.team, distinct_ids=['person2'])
+        person3 = Person.objects.create(team=self.team, distinct_ids=['person3'])
+        person4 = Person.objects.create(team=self.team, distinct_ids=['person4'])
+        person5 = Person.objects.create(team=self.team, distinct_ids=['person5'])
+
+        Event.objects.create(team=self.team, event='sign up', distinct_id='person1', timestamp='2020-01-04T14:10:00Z') # solo
+        Event.objects.create(team=self.team, event='sign up', distinct_id='person2', timestamp='2020-01-04T16:30:00Z') # group by hour
+        Event.objects.create(team=self.team, event='sign up', distinct_id='person3', timestamp='2020-01-04T16:50:00Z') # group by hour
+        Event.objects.create(team=self.team, event='sign up', distinct_id='person4', timestamp='2020-01-04T19:20:00Z') # group by min
+        Event.objects.create(team=self.team, event='sign up', distinct_id='person5', timestamp='2020-01-04T19:20:00Z') # group by min
+
+        # check solo hour
+        action_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%s&date_to=2020-01-04%s&type=actions&entityId=%s' % (' 14:00', ' 14:00', sign_up_action.id)).json()
+        event_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%2014%3A00&date_to=2020-01-04%2014%3A00&type=events&entityId=sign%20up').json()
+        self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
+        self.assertEqual(len(action_response[0]['people']), 1)
+        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
+
+        # check grouped hour
+        hour_grouped_action_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%s&date_to=2020-01-04%s&type=actions&entityId=%s' % (' 16:00', ' 16:00', sign_up_action.id)).json()
+        hour_grouped_grevent_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%2016%3A00&date_to=2020-01-04%2016%3A00&type=events&entityId=sign%20up').json()
+        self.assertEqual(hour_grouped_action_response[0]['people'][0]['id'], person2.pk)
+        self.assertEqual(hour_grouped_action_response[0]['people'][1]['id'], person3.pk)
+        self.assertEqual(len(hour_grouped_action_response[0]['people']), 2)
+        self.assertTrue(self._compare_entity_response(hour_grouped_action_response, hour_grouped_grevent_response, remove=['action']))
+
+        # check grouped minute
+        min_grouped_action_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%s&date_to=2020-01-04%s&type=actions&entityId=%s' % (' 19:20', ' 19:20', sign_up_action.id)).json()
+        min_grouped_grevent_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%2019%3A20&date_to=2020-01-04%2019%3A20&type=events&entityId=sign%20up').json()
+        self.assertEqual(min_grouped_action_response[0]['people'][0]['id'], person4.pk)
+        self.assertEqual(min_grouped_action_response[0]['people'][1]['id'], person5.pk)
+        self.assertEqual(len(min_grouped_action_response[0]['people']), 2)
+        self.assertTrue(self._compare_entity_response(min_grouped_action_response, min_grouped_grevent_response, remove=['action']))
 
     def test_stickiness(self):
         person1 = Person.objects.create(team=self.team, distinct_ids=['person1'])
