@@ -58,6 +58,30 @@ class TestUserChangePassword(BaseTest):
         })
         self.assertEqual(response.status_code, 200)
 
+
+class TestUserSlackWebhook(BaseTest):
+    TESTS_API = True
+    ENDPOINT:str = '/api/user/test_slack_webhook/'
+
+    def send_request(self, payload):
+        return self.client.post(self.ENDPOINT, payload, content_type='application/json')
+
+    def test_slack_webhook_no_webhook(self):
+        response = self.send_request({})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['error'], 'no webhook')
+
+    def test_slack_webhook_bad_url(self):
+        response = self.send_request({'webhook': 'blabla'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['error'], 'invalid webhook url')
+
+    def test_slack_webhook_bad_url_full(self):
+        response = self.send_request({'webhook': 'http://localhost/bla'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['error'], 'invalid webhook url')
+
+
 class TestLoginViews(BaseTest):
     def test_redirect_to_setup_admin_when_no_users(self):
         User.objects.all().delete()

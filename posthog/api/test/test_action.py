@@ -83,6 +83,13 @@ class TestCreateAction(BaseTest):
         }, content_type='application/json', HTTP_ORIGIN='https://somewebsite.com')
         self.assertEqual(response.status_code, 200)
 
+        response = self.client.post('/api/action/?temporary_token=token123', data={
+            'name': 'user signed up and post to slack',
+            'post_to_slack': True
+        }, content_type='application/json', HTTP_ORIGIN='https://somewebsite.com')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['post_to_slack'], True)
+
         list_response = self.client.get('/api/action/', content_type='application/json', HTTP_ORIGIN='https://evilwebsite.com')
         self.assertEqual(list_response.status_code, 403)
 
