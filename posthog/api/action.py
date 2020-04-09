@@ -193,7 +193,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         if date_from:
             filters &= Q(timestamp__gte=date_from)
         if date_to:
-            interval = request.GET['interval']
+            interval = request.GET.get('interval')
             relativity = relativedelta(days=1)
             if interval == 'hour':
                 relativity = relativedelta(hours=1)
