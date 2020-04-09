@@ -226,6 +226,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         if interval == 'hour' or interval == 'minute':
             labels_format += ', %H:%M'
+            days_format += ' %H:%M:%S'
 
         for key, value in dates_filled.iterrows():
             append['days'].append(key.strftime(days_format))
@@ -409,7 +410,6 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     @action(methods=['GET'], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-
         entityId = request.GET.get('entityId')
         entityType = request.GET.get('type')
 
