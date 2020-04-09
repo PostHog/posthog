@@ -10,13 +10,13 @@ from django.dispatch import receiver
 from django.forms.models import model_to_dict
 from django.utils import timezone
 from posthog.utils import properties_to_Q
+from posthog.tasks import post_event_to_slack
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from typing import List, Tuple, Optional, Any, Union, Dict
 from django.db import transaction
 from sentry_sdk import capture_exception
 from dateutil.relativedelta import relativedelta
 
-import requests
 import secrets
 import re
 import json
@@ -229,14 +229,17 @@ class EventManager(models.QuerySet):
             if kwargs.get('elements'):
                 kwargs['elements_hash'] = ElementGroup.objects.create(team=kwargs['team'], elements=kwargs.pop('elements')).hash
             event = super().create(*args, **kwargs)
+            should_post_to_slack = False
             relations = []
             for action in event.actions:
                 relations.append(action.events.through(action_id=action.pk, event=event))
+                if action.post_to_slack:
+                    should_post_to_slack = True
+
             Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
-            for action in event.actions:
-                if action.post_to_slack and action.team and action.team.slack_incoming_webhook:
-                    values = {'text': 'Action "{}" triggered!'.format(action.name)}
-                    requests.post(action.team.slack_incoming_webhook, verify=False, json=values)
+
+            if should_post_to_slack and event.team and event.team.slack_incoming_webhook:
+                post_event_to_slack.delay(event.id)
 
             return event
 
