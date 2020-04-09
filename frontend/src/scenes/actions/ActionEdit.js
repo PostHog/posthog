@@ -29,7 +29,6 @@ export class ActionEdit extends Component {
     }
     onSubmit(event, createNew) {
         if (!event.target.form.checkValidity() || !this.state.edited) return
-        console.log('foo')
         let isNew = !this.state.action.id
         let save = action => {
             this.setState({
@@ -40,8 +39,10 @@ export class ActionEdit extends Component {
                     id: action.id,
                     count: action.count,
                 },
+                edited: false,
             })
             if (this.props.onSave) this.props.onSave(action, isNew, createNew)
+            toast('Action saved')
         }
         let error = detail => {
             if (detail.detail == 'action-exists')
