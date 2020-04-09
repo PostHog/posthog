@@ -193,7 +193,13 @@ class ActionViewSet(viewsets.ModelViewSet):
         if date_from:
             filters &= Q(timestamp__gte=date_from)
         if date_to:
-            filters &= Q(timestamp__lte=date_to + relativedelta(days=1))
+            interval = request.GET['interval']
+            relativity = relativedelta(days=1)
+            if interval == 'hour':
+                relativity = relativedelta(hours=1)
+            elif interval == 'minute':
+                relativity = relativedelta(minutes=1)
+            filters &= Q(timestamp__lte=date_to + relativity)
         if not request.GET.get('properties'):
             return filters
         properties = json.loads(request.GET['properties'])
