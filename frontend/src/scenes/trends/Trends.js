@@ -2,7 +2,6 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 
 import { Card, CloseButton, Loading } from 'lib/utils'
-import { Dropdown } from 'lib/components/Dropdown'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DateFilter } from 'lib/components/DateFilter'
@@ -15,7 +14,7 @@ import { ActionsTable } from './ActionsTable'
 import { ActionsLineGraph } from './ActionsLineGraph'
 import { ShownAsFilter } from './ShownAsFilter'
 import { PeopleModal } from './PeopleModal'
-
+import { Select } from 'antd'
 import { trendsLogic } from './trendsLogic'
 
 const displayMap = {
@@ -65,43 +64,23 @@ export function Trends() {
                     <span>
                         Graph
                         <div className="float-right">
-                            <IntervalFilter setFilters={setFilters} filters={filters} />
-                            <Dropdown
-                                title={displayMap[filters.display || 'ActionsLineGraph']}
-                                buttonClassName="btn btn-sm btn-light"
-                                buttonStyle={{ margin: '0 8px' }}
+                            <IntervalFilter setFilters={setFilters} filters={filters} />{' '}
+                            <Select
+                                defaultValue={displayMap[filters.display || 'ActionsLineGraph']}
+                                value={displayMap[filters.display || 'ActionsLineGraph']}
+                                onChange={v => {
+                                    setDisplay(v)
+                                }}
+                                style={{ width: 150 }}
                             >
-                                <a
-                                    className={'dropdown-item ' + (filters.breakdown && 'disabled')}
-                                    href="#"
-                                    onClick={e => {
-                                        e.preventDefault()
-                                        setDisplay('ActionsLineGraph')
-                                    }}
-                                >
-                                    Line chart {filters.breakdown && '(Not available with breakdown)'}
-                                </a>
-                                <a
-                                    className="dropdown-item"
-                                    href="#"
-                                    onClick={e => {
-                                        e.preventDefault()
-                                        setDisplay('ActionsTable')
-                                    }}
-                                >
-                                    Table
-                                </a>
-                                <a
-                                    className={'dropdown-item ' + (filters.breakdown && 'disabled')}
-                                    href="#"
-                                    onClick={e => {
-                                        e.preventDefault()
-                                        setDisplay('ActionsPie')
-                                    }}
-                                >
-                                    Pie {filters.breakdown && '(Not available with breakdown)'}
-                                </a>
-                            </Dropdown>
+                                <Select.Option value="ActionsLineGraph" disabled={filters.breakdown}>
+                                    Line chart
+                                </Select.Option>
+                                <Select.Option value="ActionsTable">Table</Select.Option>
+                                <Select.Option value="ActionsPie" disabled={filters.breakdown}>
+                                    Pie
+                                </Select.Option>
+                            </Select>
                             <DateFilter
                                 onChange={(date_from, date_to) =>
                                     setFilters({
