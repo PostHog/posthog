@@ -1,5 +1,4 @@
 import React, { Component } from 'react'
-// import Select from 'react-select'
 import { selectStyle } from '../../lib/utils'
 import { Select } from 'antd'
 
@@ -13,12 +12,11 @@ export class BreakdownFilter extends Component {
                     value={this.props.breakdown ? this.props.breakdown : undefined}
                     onChange={value => this.props.onChange(value)}
                     styles={selectStyle}
-                    options={this.props.properties}
                 >
-                    {Object.entries(this.props.properties).map(([key, value]) => {
+                    {Object.entries(this.props.properties).map(([key, item]) => {
                         return (
-                            <Select.Option key={key} value={key}>
-                                {value}
+                            <Select.Option key={key} value={item.value}>
+                                {item.label}
                             </Select.Option>
                         )
                     })}
