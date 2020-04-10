@@ -1,2 +1,2 @@
-python manage.py test $@ --noinput
-nodemon --ext py --exec "python manage.py test --parallel=1 --keepdb $@; mypy posthog"
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python manage.py test --parallel=4 $@ --noinput
+nodemon --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python manage.py test --parallel=4 --keepdb $@; mypy posthog"

@@ -6,5 +6,6 @@
       "scenes/*": ["./src/scenes/*"],
       "~/*": ["./*"]
     }
-  }
+  },
+  "include": ["frontend/**/*"]
 }
