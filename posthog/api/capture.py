@@ -37,13 +37,14 @@ def _load_data(request) -> Optional[Dict]:
         data = request.GET.get('data')
     if not data:
         return None
-    
+
     #  Is it plain json?
     try:
         data = json.loads(data)
     except json.JSONDecodeError:
         # if not, it's probably base64 encoded from other libraries
         data = json.loads(base64.b64decode(data + "===").decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
+    # FIXME: data can also be an array, function assumes it's either None or a dictionary.
     return data
 
 def _alias(distinct_id: str, new_distinct_id: str, team: Team):
