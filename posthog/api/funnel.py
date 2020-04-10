@@ -1,6 +1,6 @@
 from posthog.models import FunnelStep, Action, ActionStep, Event, Funnel, Person, PersonDistinctId
-from rest_framework import request, response, serializers, viewsets # type: ignore
-from rest_framework.decorators import action # type: ignore
+from rest_framework import request, response, serializers, viewsets
+from rest_framework.decorators import action
 from django.db.models import QuerySet, query, Model, Q, Max, Prefetch, Exists, OuterRef, Subquery
 from django.db import models
 from typing import List, Dict, Any, Optional
@@ -29,7 +29,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
         annotations = {}
         for index, step in enumerate(funnel_steps):
             annotations['step_{}'.format(index)] = Subquery(
-                Event.objects.filter_by_action(step.action) # type: ignore
+                Event.objects.filter_by_action(step.action)
                     .annotate(person_id=OuterRef('id'))
                     .filter(
                         team_id=team_id,

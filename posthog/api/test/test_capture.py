@@ -178,7 +178,7 @@ class TestCapture(BaseTest):
 
 class TestIdentify(TransactionTestCase):
     def _create_user(self, email, **kwargs) -> User:
-        user: User = User.objects.create_user(email, **kwargs) # type: ignore
+        user: User = User.objects.create_user(email, **kwargs)
         if not hasattr(self, 'team'):
             self.team: Team = Team.objects.create(api_token='token123')
         self.team.users.add(user)

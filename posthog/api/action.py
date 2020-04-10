@@ -1,10 +1,10 @@
 from posthog.models import Event, Team, Action, ActionStep, Element, User, Person
 from posthog.utils import relative_date_parse, properties_to_Q
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from rest_framework import request, serializers, viewsets, authentication # type: ignore
+from rest_framework import request, serializers, viewsets, authentication
 from rest_framework.response import Response
 
-from rest_framework.decorators import action # type: ignore
+from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.utils.serializer_helpers import ReturnDict
 from django.db.models import Q, F, Count, Prefetch, functions, QuerySet, TextField
@@ -14,8 +14,8 @@ from django.forms.models import model_to_dict
 from django.utils.decorators import method_decorator
 from django.utils.dateparse import parse_date
 from typing import Any, List, Dict, Optional, Tuple
-import pandas as pd # type: ignore
-import numpy as np # type: ignore
+import pandas as pd
+import numpy as np
 import datetime
 import json
 from dateutil.relativedelta import relativedelta
@@ -211,12 +211,12 @@ class ActionViewSet(viewsets.ModelViewSet):
             .order_by('-count')
 
         events = self._process_math(events, filters)
-            
+
         values = [{'name': item[key] if item[key] else 'undefined', 'count': item['count']} for item in events]
         append['breakdown'] = values
         append['count'] = sum(item['count'] for item in values)
         return append
-        
+
     def _append_data(self, append: Dict, dates_filled: pd.DataFrame, interval: str) -> Dict:
         append['data'] = []
         append['labels'] = []
@@ -235,7 +235,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         append['count'] = sum(append['data'])
         return append
-    
+
     def _get_interval_annotation(self, key: str) -> Dict[str, Any]:
         map: Dict[str, Any] = {
             'minute': functions.TruncMinute('timestamp'),
@@ -247,7 +247,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         func = map.get(key)
         if func is None:
             return {'day': map.get('day')} # default
-        
+
         return { key: func }
 
     def _aggregate_by_interval(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request, interval: str) -> Dict[str, Any]:
@@ -377,7 +377,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     request=request,
                 )
                 if trend_entity is not None and 'labels' in trend_entity:
-                    actions_list.append(trend_entity)  
+                    actions_list.append(trend_entity)
         if parsed_actions:
             for filters in parsed_actions:
                 try:
@@ -449,5 +449,5 @@ class ActionViewSet(viewsets.ModelViewSet):
             filtered_events = self._process_entity_for_events(action, entity_type=TREND_FILTER_TYPE_ACTIONS, order_by=None).filter(self._filter_events(request))
             people = _calculate_people(id=action.id, name=action.name, events=filtered_events)
             return Response([people])
-        
+
         return Response([])

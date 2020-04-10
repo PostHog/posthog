@@ -1,7 +1,7 @@
 from posthog.models import Event, Team, Person, Element, Action, PersonDistinctId, ElementGroup
 from posthog.utils import properties_to_Q
-from rest_framework import request, response, serializers, viewsets # type: ignore
-from rest_framework.decorators import action # type: ignore
+from rest_framework import request, response, serializers, viewsets
+from rest_framework.decorators import action
 from django.http import HttpResponse, JsonResponse
 from django.db.models import Q, Count, QuerySet, query, F, Func, functions, Prefetch
 from django.forms.models import model_to_dict

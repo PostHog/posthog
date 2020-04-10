@@ -1,6 +1,6 @@
 from .base import BaseTest
 from posthog.models import Action, ActionStep, Event, Element, Person
-from freezegun import freeze_time # type: ignore
+from freezegun import freeze_time
 from urllib import parse
 import json
 
