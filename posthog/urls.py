@@ -14,7 +14,7 @@ from .utils import render_template
 from .views import health, stats
 from posthog.demo import demo, delete_demo_data
 import json
-import posthoganalytics # type: ignore
+import posthoganalytics
 import os
 
 from rest_framework import permissions
@@ -193,8 +193,8 @@ if settings.DEBUG:
     ]
 
 if hasattr(settings, 'INCLUDE_API_DOCS'):
-    from drf_yasg.views import get_schema_view # type: ignore
-    from drf_yasg import openapi # type: ignore
+    from drf_yasg.views import get_schema_view
+    from drf_yasg import openapi
     schema_view = get_schema_view(
         openapi.Info(
             title="PostHog API",

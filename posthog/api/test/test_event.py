@@ -1,10 +1,10 @@
 from .base import BaseTest
 from posthog.models import Event, Person, Element, Action, ActionStep
-from freezegun import freeze_time # type: ignore
+from freezegun import freeze_time
 
 
 class TestEvents(BaseTest):
-    TESTS_API = True 
+    TESTS_API = True
     ENDPOINT = 'event'
 
     def test_filter_events(self):

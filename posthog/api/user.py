@@ -11,7 +11,7 @@ import requests
 import urllib.parse
 import secrets
 import json
-import posthoganalytics # type: ignore
+import posthoganalytics
 
 def user(request):
     if not request.user.is_authenticated:

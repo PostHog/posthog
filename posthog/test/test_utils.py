@@ -2,7 +2,7 @@ from django.test import TestCase
 from posthog.models import Event
 from posthog.api.test.base import BaseTest
 from posthog.utils import relative_date_parse, properties_to_Q
-from freezegun import freeze_time # type: ignore
+from freezegun import freeze_time
 
 class TestRelativeDateParse(TestCase):
     @freeze_time('2020-01-31')
