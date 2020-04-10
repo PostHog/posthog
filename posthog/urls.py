@@ -1,3 +1,4 @@
+from typing import cast, Optional
 from django.contrib import admin
 from django.urls import path, include, re_path
 from django.views.generic.base import TemplateView
@@ -33,7 +34,7 @@ def login_view(request):
     if request.method == 'POST':
         email = request.POST['email']
         password = request.POST['password']
-        user = authenticate(request, email=email, password=password)
+        user = cast(Optional[User], authenticate(request, email=email, password=password))
         if user is not None:
             login(request, user, backend='django.contrib.auth.backends.ModelBackend')
             if user.distinct_id:

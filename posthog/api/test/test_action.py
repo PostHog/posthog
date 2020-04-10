@@ -70,6 +70,8 @@ class TestCreateAction(BaseTest):
     # otherwise evil sites could create actions with a users' session.
     # NOTE: Origin header is only set on cross domain request
     def test_create_from_other_domain(self):
+        # FIXME: BaseTest is using Django client to performe calls to a DRF endpoint.
+        # Django HttpResponse does not have an attribute `data`. Better use rest_framework.test.APIClient.
         response = self.client.post('/api/action/', data={
             'name': 'user signed up',
         }, content_type='application/json', HTTP_ORIGIN='https://evilwebsite.com')
