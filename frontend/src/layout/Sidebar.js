@@ -10,20 +10,10 @@ class Sidebar extends Component {
         this.state = {}
     }
 
-    showSubgroup = keys => {
-        let show = false
-        keys.forEach(key => {
-            if (this.props.history.location.pathname.includes(key)) show = true
-        })
-        return show
-    }
-
     render() {
+        let matches = path => this.props.history.location.pathname.indexOf(path) > -1
         return (
-            <div
-                className="sidebar col-sm-3 col-md-2 no-gutters flex-shrink-1 bg-light pt-3"
-                style={{ minHeight: '100vh' }}
-            >
+            <div className="sidebar col-sm-3 col-md-2 flex-shrink-1 bg-light pt-3" style={{ minHeight: '100vh' }}>
                 <Menu className="h-100 bg-light" selectedKeys={[this.props.history.location.pathname]} mode="inline">
                     <div className="row logo-row d-flex align-items-center">
                         <img className="logo" src="/static/posthog-logo.png" />
@@ -44,26 +34,24 @@ class Sidebar extends Component {
                         <span className="menu-label">Events</span>
                         <NavLink className="nav-link" to="/events"></NavLink>
                     </Menu.Item>
-                    {this.showSubgroup(['/events', '/action']) && (
+                    {(matches('/action') || matches('/events')) && [
                         <Menu.Item key="/actions">
                             <i className="fi flaticon-target inner-menu-icon" />
                             <span className="menu-label">Actions</span>
                             <NavLink className="nav-link" to="/actions"></NavLink>
-                        </Menu.Item>
-                    )}
-                    {this.showSubgroup(['/events', '/actions']) && (
+                        </Menu.Item>,
                         <Menu.Item key="/actions/live">
                             <i className="fi flaticon-refresh inner-menu-icon" />
                             <span className="menu-label">Live Actions</span>
                             <NavLink className="nav-link" to="/actions/live"></NavLink>
-                        </Menu.Item>
-                    )}
+                        </Menu.Item>,
+                    ]}
                     <Menu.Item key="/people">
                         <i className="fi flaticon-speech-bubble" />
                         <span className="menu-label">Users</span>
                         <NavLink className={'nav-link'} to="/people"></NavLink>
                     </Menu.Item>
-                    {this.showSubgroup(['/people', '/person']) && (
+                    {matches('/people') && (
                         <Menu.Item key="/people/cohorts">
                             <i className="fi flaticon-user inner-menu-icon" />
                             <span className="menu-label ">Cohorts</span>
