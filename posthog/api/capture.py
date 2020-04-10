@@ -70,7 +70,7 @@ def _alias(distinct_id: str, new_distinct_id: str, team: Team):
             person.add_distinct_id(new_distinct_id)
             person.save()
 
-def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict, timestamp: Optional[str]=None) -> None:
+def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict, timestamp: Union[datetime.datetime, str]) -> None:
     elements = properties.get('$elements')
     elements_list = None
     if elements:
