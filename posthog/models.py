@@ -53,21 +53,40 @@ def split_selector_into_parts(selector: str) -> List:
         ret.append(data)
     return ret
 
+
+def is_email_restricted_from_signup(email: str) -> bool:
+    if not hasattr(settings, 'RESTRICT_SIGNUPS'):
+        return False
+
+    restricted_signups: Union[str, bool] = settings.RESTRICT_SIGNUPS
+    if restricted_signups is False:
+        return False
+
+    domain = email.rsplit('@', 1)[1]
+    whitelisted_domains = str(settings.RESTRICT_SIGNUPS).split(',')
+    if domain in whitelisted_domains:
+        return False
+
+    return True
+
+
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
 
     use_in_migrations = True
 
-    def _create_user(self, email, password, **extra_fields):
+    def _create_user(self, email: Optional[str], password: str, **extra_fields):
         """Create and save a User with the given email and password."""
-        if not email:
+        if email is None:
             raise ValueError('The given email must be set')
+
         email = self.normalize_email(email)
-        if hasattr(settings, 'RESTRICT_SIGNUPS') and settings.RESTRICT_SIGNUPS and email.rsplit('@', 1)[1] not in settings.RESTRICT_SIGNUPS.split(','):
+        if is_email_restricted_from_signup(email):
             raise ValueError("Can't sign up with this email")
+
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
-        user.save(using=self._db)
+        user.save()
         return user
 
     def create_user(self, email, password=None, **extra_fields):
@@ -104,7 +123,8 @@ class User(AbstractUser):
 
 
 class TeamManager(models.Manager):
-    def create_with_data(self, users: List[User]=None, **kwargs):
+
+    def create_with_data(self, users: Optional[List[User]], **kwargs):
         kwargs['api_token'] = kwargs.get('api_token', secrets.token_urlsafe(32))
         kwargs['signup_token'] = kwargs.get('signup_token', secrets.token_urlsafe(22))
         team = Team.objects.create(**kwargs)
