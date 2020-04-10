@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0041_merge_20200407_1805'),
+        ('posthog', '0042_add_type_dashboarditems'),
     ]
 
     operations = [
