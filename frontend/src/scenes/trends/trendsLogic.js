@@ -198,11 +198,11 @@ export const trendsLogic = kea({
                 type: action.type,
             })
 
-            if (`${day}`.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            if (values.filters.shown_as === 'Stickiness') {
+                params.stickiness_days = day
+            } else {
                 params.date_from = day
                 params.date_to = day
-            } else {
-                params.stickiness_days = day
             }
 
             const filterParams = toParams(params)

@@ -14,6 +14,13 @@ def relative_date_parse(input: str) -> datetime.date:
         return datetime.datetime.strptime(input, '%Y-%m-%d').date()
     except ValueError:
         pass
+    
+    # when input also contains the time for intervals "hour" and "minute"
+    # the above try fails. Try one more time from isoformat.
+    try:
+        return datetime.datetime.fromisoformat(input)
+    except ValueError:
+        pass
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)

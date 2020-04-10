@@ -23,7 +23,11 @@ export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam
                 onClick={
                     dashboardItemId
                         ? null
-                        : ({ dataset: { action }, day }) => {
+                        : point => {
+                              const {
+                                  dataset: { action },
+                                  day,
+                              } = point
                               showPeople(action, day)
                           }
                 }
