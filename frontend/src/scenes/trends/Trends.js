@@ -14,7 +14,7 @@ import { ActionsTable } from './ActionsTable'
 import { ActionsLineGraph } from './ActionsLineGraph'
 import { ShownAsFilter } from './ShownAsFilter'
 import { PeopleModal } from './PeopleModal'
-import { Select } from 'antd'
+import { Select, Space } from 'antd'
 import { trendsLogic } from './trendsLogic'
 
 const displayMap = {
@@ -64,34 +64,36 @@ export function Trends() {
                     <span>
                         Graph
                         <div className="float-right">
-                            <IntervalFilter setFilters={setFilters} filters={filters} />{' '}
-                            <Select
-                                defaultValue={displayMap[filters.display || 'ActionsLineGraph']}
-                                value={displayMap[filters.display || 'ActionsLineGraph']}
-                                onChange={v => {
-                                    setDisplay(v)
-                                }}
-                                style={{ width: 150 }}
-                            >
-                                <Select.Option value="ActionsLineGraph" disabled={filters.breakdown}>
-                                    Line chart
-                                </Select.Option>
-                                <Select.Option value="ActionsTable">Table</Select.Option>
-                                <Select.Option value="ActionsPie" disabled={filters.breakdown}>
-                                    Pie
-                                </Select.Option>
-                            </Select>
-                            <DateFilter
-                                onChange={(date_from, date_to) =>
-                                    setFilters({
-                                        date_from: date_from,
-                                        date_to: date_to && date_to,
-                                    })
-                                }
-                                dateFrom={filters.date_from}
-                                dateTo={filters.date_to}
-                            />
-                            <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
+                            <Space>
+                                <IntervalFilter setFilters={setFilters} filters={filters} />
+                                <Select
+                                    defaultValue={displayMap[filters.display || 'ActionsLineGraph']}
+                                    value={displayMap[filters.display || 'ActionsLineGraph']}
+                                    onChange={v => {
+                                        setDisplay(v)
+                                    }}
+                                    style={{ width: 150 }}
+                                >
+                                    <Select.Option value="ActionsLineGraph" disabled={filters.breakdown}>
+                                        Line chart
+                                    </Select.Option>
+                                    <Select.Option value="ActionsTable">Table</Select.Option>
+                                    <Select.Option value="ActionsPie" disabled={filters.breakdown}>
+                                        Pie
+                                    </Select.Option>
+                                </Select>
+                                <DateFilter
+                                    onChange={(date_from, date_to) =>
+                                        setFilters({
+                                            date_from: date_from,
+                                            date_to: date_to && date_to,
+                                        })
+                                    }
+                                    dateFrom={filters.date_from}
+                                    dateTo={filters.date_to}
+                                />
+                                <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
+                            </Space>
                         </div>
                     </span>
                 }
