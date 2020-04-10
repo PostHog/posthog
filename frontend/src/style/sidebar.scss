@@ -1,5 +1,6 @@
 .sidebar {
     background-color: #f7f6f3;
+    padding: 0;
 
     li {
         padding: 7px 0;
@@ -46,8 +47,16 @@
         position: fixed;
         bottom: 0rem;
         text-align: center;
-        margin-left: -15px;
         padding: 2rem;
         background-color: white;
+    }
+
+    .inner-menu-icon {
+        margin-left: 25px;
+    }
+
+    .menu-label {
+        margin-left: 10px;
+        margin-right: 10px;
     }
 }
