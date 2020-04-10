@@ -9,8 +9,6 @@ class BaseTest(TestCase):
 
     def _create_user(self, email, **kwargs) -> User:
         user = User.objects.create_user(email, **kwargs)
-        if not hasattr(self, 'team'):
-            self.team: Team = Team.objects.create(api_token='token123')
         self.team.users.add(user)
         self.team.save()
         return user
