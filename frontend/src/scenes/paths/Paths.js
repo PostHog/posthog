@@ -43,10 +43,8 @@ function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
 function NoData() {
     return (
         <div style={{ padding: '1rem' }}>
-            We don't have enough data to show anything here. You might need to
-            send us some frontend (JS) events, as we use the{' '}
-            <pre style={{ display: 'inline' }}>$current_url</pre> property to
-            calculate paths.
+            We don't have enough data to show anything here. You might need to send us some frontend (JS) events, as we
+            use the <pre style={{ display: 'inline' }}>$current_url</pre> property to calculate paths.
         </div>
     )
 }
@@ -112,10 +110,7 @@ export class Paths extends Component {
             .nodeWidth(15)
             // .nodePadding()
             .size([width, height])
-        let color = name =>
-            this.d3.scaleOrdinal(this.d3.interpolateBlues())(
-                name.replace(/ .*/, '')
-            )
+        let color = name => this.d3.scaleOrdinal(this.d3.interpolateBlues())(name.replace(/ .*/, ''))
 
         const { nodes, links } = sankey({
             nodes: paths.nodes.map(d => Object.assign({}, d)),
@@ -141,9 +136,7 @@ export class Paths extends Component {
                         if (c === undefined) c = link.color
                         else if (c !== link.color) c = null
                     }
-                return (this.d3.color(c) || this.d3.color('#dddddd')).darker(
-                    0.5
-                )
+                return (this.d3.color(c) || this.d3.color('#dddddd')).darker(0.5)
             })
             // .attr("fill", d =>  'var(--blue)')
             .attr('opacity', 0.5)
@@ -189,21 +182,8 @@ export class Paths extends Component {
                 let height =
                     data.source.y1 -
                     data.source.y0 -
-                    data.source.sourceLinks.reduce(
-                        (prev, curr) => prev + curr.width,
-                        0
-                    )
-                return rounded_rect(
-                    0,
-                    0,
-                    30,
-                    height,
-                    Math.min(25, height),
-                    false,
-                    true,
-                    false,
-                    false
-                )
+                    data.source.sourceLinks.reduce((prev, curr) => prev + curr.width, 0)
+                return rounded_rect(0, 0, 30, height, Math.min(25, height), false, true, false, false)
             })
             .attr('fill', 'url(#dropoff-gradient)')
             .attr('stroke-width', 0)
@@ -212,35 +192,19 @@ export class Paths extends Component {
                     'translate(' +
                     Math.round(data.source.x1) +
                     ',' +
-                    Math.round(
-                        data.source.y0 +
-                            data.source.sourceLinks.reduce(
-                                (prev, curr) => prev + curr.width,
-                                0
-                            )
-                    ) +
+                    Math.round(data.source.y0 + data.source.sourceLinks.reduce((prev, curr) => prev + curr.width, 0)) +
                     ')'
                 )
             })
             .append('tspan')
             .text(d => {
-                return (
-                    d.value -
-                    d.source.sourceLinks.reduce(
-                        (prev, curr) => prev + curr.value,
-                        0
-                    )
-                )
+                return d.value - d.source.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
             })
 
-        link.append('title').text(
-            d =>
-                `${d.source.name} → ${
-                    d.target.name
-                }\n${d.value.toLocaleString()}`
-        )
+        link.append('title').text(d => `${d.source.name} → ${d.target.name}\n${d.value.toLocaleString()}`)
 
-        svg.append('g')
+        var textSelection = svg
+            .append('g')
             .style('font-size', '12px')
             .selectAll('text')
             .data(nodes)
@@ -250,13 +214,16 @@ export class Paths extends Component {
             .attr('dy', '0.35em')
             .attr('text-anchor', d => (d.x0 < width / 2 ? 'start' : 'end'))
             .attr('display', d => (d.value > 0 ? 'inherit' : 'none'))
-            .text(d => stripHTTP(d.name))
+            .text(d => stripHTTP(d.name).substring(0, 6) + '...' + stripHTTP(d.name).slice(-6))
 
+        textSelection
             .append('tspan')
             .attr('fill-opacity', 0.7)
             .text(d => ` ${d.value.toLocaleString()}`)
 
-        return svg.node()
+        textSelection.append('title').text(d => stripHTTP(d.name))
+
+        return textSelection.node()
     }
 
     fetchPaths = () => {
@@ -280,10 +247,7 @@ export class Paths extends Component {
     }
 
     updateFilter = changes => {
-        this.setState(
-            { filter: { ...this.state.filter, ...changes }, rendered: false },
-            this.fetchPaths
-        )
+        this.setState({ filter: { ...this.state.filter, ...changes }, rendered: false }, this.fetchPaths)
     }
 
     render() {
@@ -310,19 +274,12 @@ export class Paths extends Component {
                         </span>
                     }
                 >
-                    <div
-                        ref={this.canvas}
-                        className="paths"
-                        style={{ height: '90vh' }}
-                    >
+                    <div ref={this.canvas} className="paths" style={{ height: '90vh' }}>
                         {dataLoaded && paths && paths.nodes.length === 0 ? (
                             <NoData />
                         ) : (
                             !dataLoaded && (
-                                <div
-                                    className="loading-overlay"
-                                    style={{ paddingTop: '14rem' }}
-                                >
+                                <div className="loading-overlay" style={{ paddingTop: '14rem' }}>
                                     <div />
                                     <br />
                                     (This might take a while)
