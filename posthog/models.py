@@ -180,7 +180,7 @@ class EventManager(models.QuerySet):
                 subqueries['match_{}'.format(index)] = Subquery(
                     Element.objects.filter(group_id=OuterRef('pk'), **tag).values('order')[:1]
                 )
-            groups = groups.annotate(**subqueries)
+            groups = groups.annotate(**subqueries)  # type: ignore
             for index, _ in enumerate(parts):
                 filter['match_{}__isnull'.format(index)] = False
                 if index > 0:

@@ -76,7 +76,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if self.action == 'list':
+        if self.action == 'list':  # type: ignore
             queryset = queryset.filter(deleted=False)
 
         if self.request.GET.get(TREND_FILTER_TYPE_ACTIONS):

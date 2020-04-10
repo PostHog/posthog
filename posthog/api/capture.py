@@ -27,7 +27,7 @@ def cors_response(request, response):
     response["Access-Control-Allow-Headers"] = 'X-Requested-With'
     return response
 
-def _load_data(request) -> Union[Dict, None]:
+def _load_data(request) -> Optional[Dict]:
     if request.method == 'POST':
         if request.content_type == 'application/json':
             data = request.body

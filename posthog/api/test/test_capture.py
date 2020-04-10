@@ -36,7 +36,7 @@ class TestCapture(BaseTest):
                 },
             }), content_type='application/json', HTTP_ORIGIN='https://localhost')
 
-        self.assertEqual(response._headers['access-control-allow-origin'][1], 'https://localhost')
+        self.assertEqual(response.get('access-control-allow-origin'), 'https://localhost')
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
         event = Event.objects.get()
         self.assertEqual(event.event, '$autocapture')
@@ -83,7 +83,7 @@ class TestCapture(BaseTest):
             '$device_id': '16fd4afae9b2d8-0fce8fe900d42b-39637c0e-7e9000-16fd4afae9c395',
             '$user_id': 3
         }), content_type='application/json', HTTP_ORIGIN='https://localhost')
-        self.assertEqual(response._headers['access-control-allow-origin'][1], 'https://localhost')
+        self.assertEqual(response.get('access-control-allow-origin'), 'https://localhost')
 
         person = Person.objects.get()
         self.assertEqual(person.properties['whatever'], 'this is')
@@ -135,7 +135,9 @@ class TestCapture(BaseTest):
 
         self.assertEqual(Person.objects.get().distinct_ids, ["63"])
         event = Event.objects.get()
-        self.assertEqual(ElementGroup.objects.get(hash=event.elements_hash).element_set.all().first().text, '💻 Writing code')
+        element = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().first()
+        assert element is not None
+        self.assertEqual(element.text, '💻 Writing code')
 
     def test_incorrect_padding(self):
         response = self.client.get('/e/?data=eyJldmVudCI6IndoYXRldmVmciIsInByb3BlcnRpZXMiOnsidG9rZW4iOiJ0b2tlbjEyMyIsImRpc3RpbmN0X2lkIjoiYXNkZiJ9fQ', content_type='application/json', HTTP_REFERER='https://localhost')

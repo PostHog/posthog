@@ -168,7 +168,7 @@ class TestElementGroup(BaseTest):
             Element(tag_name='div')
         ]
         group1 = ElementGroup.objects.create(team=self.team, elements=elements)
-        elements = Element.objects.all()
+        elements = list(Element.objects.all())
         self.assertEqual(elements[0].tag_name, 'button')
         self.assertEqual(elements[1].tag_name, 'div')
 
@@ -248,7 +248,7 @@ class TestActions(BaseTest):
             Element(tag_name='a', attr_class=None, order=0)
         ])
         # This would error when attr_class wasn't set.
-        self.assertEqual(event.actions, []) 
+        self.assertEqual(event.actions, [])
 
 class TestPreCalculation(BaseTest):
     def test_update_or_delete_action_steps(self):
