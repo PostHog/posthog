@@ -1,6 +1,7 @@
 from .base import BaseTest
 from posthog.models import Event, Person, Team, User, ElementGroup, Action, ActionStep
 from django.test import TransactionTestCase
+from freezegun import freeze_time
 import base64
 import json
 import datetime
@@ -413,3 +414,24 @@ class TestBatch(BaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()['message'], "You need to set a distinct_id.")
+
+    def test_batch_offset(self):
+        Person.objects.create(team=self.team, distinct_ids=['distinct_id'])
+        with freeze_time("2020-01-01T12:00:05.200Z"):
+            response = self.client.post('/batch/', data={
+                "api_key": self.team.api_token,
+                "batch":[{
+                    "offset": 1500,
+                    "event":"$autocapture",
+                    "distinct_id": "distinct_id",
+                },
+                {
+                    "offset": 150,
+                    "event":"$autocapture",
+                    "distinct_id": "distinct_id",
+                }]
+            }, content_type='application/json')
+
+        events = Event.objects.all().order_by('timestamp')
+        self.assertEqual(events[0].timestamp.isoformat(), '2020-01-01T12:00:03.700000+00:00')
+        self.assertEqual(events[1].timestamp.isoformat(), '2020-01-01T12:00:05.050000+00:00')
