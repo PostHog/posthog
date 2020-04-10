@@ -94,7 +94,7 @@ def change_password(request):
         return JsonResponse({'error': 'Incorrect old password'}, status=400)
 
     try:
-        validate_password(new_password, user)
+        validate_password(new_password, request.user)
     except ValidationError as err:
         return JsonResponse({'error': err.messages[0]}, status=400)
 
