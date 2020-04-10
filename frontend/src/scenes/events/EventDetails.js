@@ -1,5 +1,6 @@
 import React, { Component } from 'react'
 import { PropertiesTable } from '../../lib/components/PropertiesTable'
+import moment from 'moment'
 
 export class EventDetails extends Component {
     constructor(props) {
@@ -23,36 +24,27 @@ export class EventDetails extends Component {
                             margin: 0,
                             padding: 0,
                             borderRadius: 0,
-                            ...(index == elements.length - 1
-                                ? { backgroundColor: 'var(--blue)' }
-                                : {}),
+                            ...(index == elements.length - 1 ? { backgroundColor: 'var(--blue)' } : {}),
                         }}
                     >
                         {this.indent(index)}
                         &lt;{element.tag_name}
                         {element.attr_id && ' id="' + element.attr_id + '"'}
-                        {Object.entries(element.attributes).map(
-                            ([key, value]) => (
-                                <span>
-                                    {' '}
-                                    {key.replace('attr__', '')}="{value}"
-                                </span>
-                            )
-                        )}
+                        {Object.entries(element.attributes).map(([key, value]) => (
+                            <span>
+                                {' '}
+                                {key.replace('attr__', '')}="{value}"
+                            </span>
+                        ))}
                         &gt;{element.text}
-                        {index == elements.length - 1 && (
-                            <span>&lt;/{element.tag_name}&gt;</span>
-                        )}
+                        {index == elements.length - 1 && <span>&lt;/{element.tag_name}&gt;</span>}
                     </pre>
                 ))}
                 {[...elements]
                     .reverse()
                     .slice(1)
                     .map((element, index) => (
-                        <pre
-                            className="code"
-                            style={{ margin: 0, padding: 0, borderRadius: 0 }}
-                        >
+                        <pre className="code" style={{ margin: 0, padding: 0, borderRadius: 0 }}>
                             {this.indent(elements.length - index - 2)}
                             &lt;/{element.tag_name}&gt;
                         </pre>
@@ -73,27 +65,15 @@ export class EventDetails extends Component {
                         aria-orientation="vertical"
                     >
                         <a
-                            className={
-                                'cursor-pointer nav-link ' +
-                                (this.state.selected == 'properties' &&
-                                    'active')
-                            }
-                            onClick={() =>
-                                this.setState({ selected: 'properties' })
-                            }
+                            className={'cursor-pointer nav-link ' + (this.state.selected == 'properties' && 'active')}
+                            onClick={() => this.setState({ selected: 'properties' })}
                         >
                             Properties
                         </a>
                         {elements.length > 0 && (
                             <a
-                                className={
-                                    'cursor-pointer nav-link ' +
-                                    (this.state.selected == 'elements' &&
-                                        'active')
-                                }
-                                onClick={() =>
-                                    this.setState({ selected: 'elements' })
-                                }
+                                className={'cursor-pointer nav-link ' + (this.state.selected == 'elements' && 'active')}
+                                onClick={() => this.setState({ selected: 'elements' })}
                             >
                                 Elements
                             </a>
@@ -102,11 +82,13 @@ export class EventDetails extends Component {
                 </div>
                 <div className="col-10">
                     {this.state.selected == 'properties' ? (
-                        <div
-                            className="d-flex flex-wrap flex-column"
-                            style={{ maxWidth: '100%', overflow: 'scroll' }}
-                        >
-                            <PropertiesTable properties={event.properties} />
+                        <div className="d-flex flex-wrap flex-column" style={{ maxWidth: '100%', overflow: 'scroll' }}>
+                            <PropertiesTable
+                                properties={{
+                                    Timestamp: moment(event.timestamp).toISOString(),
+                                    ...event.properties,
+                                }}
+                            />
                         </div>
                     ) : (
                         <this.ShowElements elements={elements} />

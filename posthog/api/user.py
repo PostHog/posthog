@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 from django.shortcuts import redirect
 from django.conf import settings
 from posthog.models import Event
+import requests
 
 import urllib.parse
 import secrets
@@ -24,6 +25,7 @@ def user(request):
         if 'team' in data:
             team.app_urls = data['team'].get('app_urls', team.app_urls)
             team.opt_out_capture = data['team'].get('opt_out_capture', team.opt_out_capture)
+            team.slack_incoming_webhook = data['team'].get('slack_incoming_webhook', team.slack_incoming_webhook)
             team.save()
 
         if 'user' in data:
@@ -42,7 +44,8 @@ def user(request):
             'app_urls': team.app_urls,
             'api_token': team.api_token,
             'signup_token': team.signup_token,
-            'opt_out_capture': team.opt_out_capture
+            'opt_out_capture': team.opt_out_capture,
+            'slack_incoming_webhook': team.slack_incoming_webhook
         },
         'posthog_version': settings.VERSION if hasattr(settings, 'VERSION') else None
     })
@@ -98,5 +101,41 @@ def change_password(request):
     request.user.set_password(new_password)
     request.user.save()
     update_session_auth_hash(request, request.user)
+
+    return JsonResponse({})
+
+
+@require_http_methods(['POST'])
+def test_slack_webhook(request):
+    """Change the password of a regular User."""
+    if not request.user.is_authenticated:
+        return JsonResponse({}, status=401)
+
+    try:
+        body = json.loads(request.body)
+    except (TypeError, json.decoder.JSONDecodeError):
+        return JsonResponse({'error': 'Cannot parse request body'}, status=400)
+
+    webhook = body.get('webhook')
+
+    if webhook:
+        message = {
+            "text": "Greetings from PostHog!"
+        }
+        try:
+            response = requests.post(webhook, verify=False, json=message)
+
+            if response.ok:
+                if response.text == 'ok':
+                    return JsonResponse({'success': True})
+                else:
+                    return JsonResponse({'error': 'invalid webhook url'})
+            else:
+                return JsonResponse({'error': response.text})
+        except:
+            return JsonResponse({'error': 'invalid webhook url'})
+
+    else:
+        return JsonResponse({'error': 'no webhook'})
 
     return JsonResponse({})

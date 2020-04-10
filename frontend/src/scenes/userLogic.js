@@ -40,6 +40,7 @@ export const userLogic = kea({
                         window.posthog.identify(user.distinct_id)
                         window.posthog.register({
                             posthog_version: user.posthog_version,
+                            has_slack_webhook: !!user.team?.slack_incoming_webhook,
                         })
                     }
                 }

@@ -14,12 +14,11 @@ export class Action extends Component {
     render() {
         return (
             <div>
-                <h1>
-                    {this.props.match.params.id ? 'Edit action' : 'New action'}
-                </h1>
+                <h1>{this.props.match.params.id ? 'Edit action' : 'New action'}</h1>
                 <ActionEdit
                     apiURL=""
                     actionId={this.state.action.id}
+                    user={this.props.user}
                     onSave={action => {
                         this.setState({ action, refresh: new Date() })
                         if (!this.props.match.params.id) {

@@ -33,7 +33,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
 
     class Meta:
         model = Action
-        fields = ['id', 'name', 'steps', 'created_at', 'deleted', 'count']
+        fields = ['id', 'name', 'post_to_slack', 'steps', 'created_at', 'deleted', 'count']
 
     def get_steps(self, action: Action):
         steps = action.steps.all()
@@ -93,6 +93,7 @@ class ActionViewSet(viewsets.ModelViewSet):
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         action, created = Action.objects.get_or_create(
             name=request.data['name'],
+            post_to_slack=request.data.get('post_to_slack', False),
             team=request.user.team_set.get(),
             deleted=False,
             defaults={
@@ -148,11 +149,11 @@ class ActionViewSet(viewsets.ModelViewSet):
     def _group_events_to_date(self, date_from: datetime.date, date_to: datetime.date, aggregates, interval):
         aggregates = pd.DataFrame([{'date': a[interval], 'count': a['count']} for a in aggregates])
         if interval == 'week':
-            aggregates['date'] = aggregates['date'].apply(lambda x: x - pd.offsets.Week(weekday=6)).dt.date
+            aggregates['date'] = aggregates['date'].apply(lambda x: x - pd.offsets.Week(weekday=6))
         elif interval == 'month':
-            aggregates['date'] = aggregates['date'].apply(lambda x: x - pd.offsets.MonthEnd(n=1)).dt.date
+            aggregates['date'] = aggregates['date'].apply(lambda x: x - pd.offsets.MonthEnd(n=1))
         else:
-            aggregates['date'] = aggregates['date'].dt.tz_localize(None)
+            aggregates['date'] = aggregates['date']
 
         freq_map = {
             'minute': '60S',
@@ -185,6 +186,11 @@ class ActionViewSet(viewsets.ModelViewSet):
             date_to = relative_date_parse(request.GET['date_to'])
         else:
             date_to = datetime.date.today()
+
+        # UTC is what is set in setting.py
+        if date_from is not None:
+            date_from = pd.Timestamp(date_from, tz='UTC')
+        date_to = pd.Timestamp(date_to, tz='UTC')
         return date_from, date_to
 
     def _filter_events(self, request: request.Request) -> Q:
@@ -193,7 +199,17 @@ class ActionViewSet(viewsets.ModelViewSet):
         if date_from:
             filters &= Q(timestamp__gte=date_from)
         if date_to:
-            filters &= Q(timestamp__lte=date_to + relativedelta(days=1))
+            interval = request.GET.get('interval')
+            relativity = relativedelta(days=1)
+            if interval == 'hour':
+                relativity = relativedelta(hours=1)
+            elif interval == 'minute':
+                relativity = relativedelta(minutes=1)
+            elif interval == 'week':
+                relativity = relativedelta(weeks=1)
+            elif interval == 'month':
+                relativity = relativedelta(months=1) - relativity # go to last day of month instead of first of next
+            filters &= Q(timestamp__lte=date_to + relativity)
         if not request.GET.get('properties'):
             return filters
         properties = json.loads(request.GET['properties'])
@@ -226,6 +242,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         if interval == 'hour' or interval == 'minute':
             labels_format += ', %H:%M'
+            days_format += ' %H:%M:%S'
 
         for key, value in dates_filled.iterrows():
             append['days'].append(key.strftime(days_format))
@@ -264,7 +281,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         if len(aggregates) > 0:
             date_from, date_to = self._get_dates_from_request(request)
             if not date_from:
-                date_from = aggregates[0][interval].date()
+                date_from = pd.Timestamp(aggregates[0][interval])
             dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates, interval=interval)
             append = self._append_data(append, dates_filled, interval)
         if request.GET.get('breakdown'):
@@ -409,7 +426,6 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     @action(methods=['GET'], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-
         entityId = request.GET.get('entityId')
         entityType = request.GET.get('type')
 

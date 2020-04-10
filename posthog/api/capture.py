@@ -1,11 +1,14 @@
-from posthog.models import Event, Team, Person, Element, PersonDistinctId
 from django.http import HttpResponse, JsonResponse
 from django.db import IntegrityError
 from django.views.decorators.csrf import csrf_exempt
+from django.utils import timezone
+from dateutil.relativedelta import relativedelta
+from posthog.models import Event, Team, Person, Element, PersonDistinctId
+from typing import Dict, Union, Optional, List
+from urllib.parse import urlparse
 import json
 import base64
-from urllib.parse import urlparse
-from typing import Dict, Union, Optional, List
+import datetime
 
 
 def get_ip_address(request):
@@ -67,7 +70,7 @@ def _alias(distinct_id: str, new_distinct_id: str, team: Team):
             person.add_distinct_id(new_distinct_id)
             person.save()
 
-def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict, timestamp: Optional[str]=None) -> None:
+def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict, timestamp: Union[datetime.datetime, str]) -> None:
     elements = properties.get('$elements')
     elements_list = None
     if elements:
@@ -115,7 +118,14 @@ def _update_person_properties(team: Team, distinct_id: str, properties: Dict):
     person.properties.update(properties)
     person.save()
 
-def process_event(request, data: dict, team: Team) -> None:
+def _handle_timestamp(data: dict, now: datetime.datetime) -> Union[datetime.datetime, str]:
+    if data.get('timestamp'):
+        return data['timestamp']
+    if data.get('offset'):
+        return now - relativedelta(microseconds=data['offset'] * 1000)
+    return now
+
+def process_event(request, data: dict, team: Team, now: datetime.datetime) -> None:
     try:
         distinct_id = str(data['properties']['distinct_id'])
     except KeyError:
@@ -133,7 +143,14 @@ def process_event(request, data: dict, team: Team) -> None:
     if data['event'] == '$identify' and data.get('$set'):
         _update_person_properties(team=team, distinct_id=distinct_id, properties=data['$set'])
 
-    _capture(request=request, team=team, event=data['event'], distinct_id=distinct_id, properties=data.get('properties', data.get('$set', {})), timestamp=data.get('timestamp'))
+    _capture(
+        request=request,
+        team=team,
+        event=data['event'],
+        distinct_id=distinct_id,
+        properties=data.get('properties', data.get('$set', {})),
+        timestamp=_handle_timestamp(data, now)
+    )
 
 def _get_token(data, request) -> Union[str, bool]:
     if request.POST.get('api_key'):
@@ -150,6 +167,7 @@ def _get_token(data, request) -> Union[str, bool]:
 
 @csrf_exempt
 def get_event(request):
+    now = timezone.now()
     data = _load_data(request)
     if not data:
         return cors_response(request, HttpResponse("1"))
@@ -171,11 +189,11 @@ def get_event(request):
     if isinstance(data, list):
         for i in data:
             try:
-                process_event(request=request, data=i, team=team)
+                process_event(request=request, data=i, team=team, now=now)
             except KeyError:
                 return cors_response(request, JsonResponse({'code': 'validation', 'message': "You need to set a distinct_id.", "item": data}, status=400))
     else:
-        process_event(request=request, data=data, team=team)
+        process_event(request=request, data=data, team=team, now=now)
 
     return cors_response(request, JsonResponse({'status': 1}))
 
