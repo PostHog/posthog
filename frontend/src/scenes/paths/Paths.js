@@ -214,7 +214,11 @@ export class Paths extends Component {
             .attr('dy', '0.35em')
             .attr('text-anchor', d => (d.x0 < width / 2 ? 'start' : 'end'))
             .attr('display', d => (d.value > 0 ? 'inherit' : 'none'))
-            .text(d => stripHTTP(d.name).substring(0, 6) + '...' + stripHTTP(d.name).slice(-6))
+            .text(d =>
+                d.name.length > 35
+                    ? stripHTTP(d.name).substring(0, 6) + '...' + stripHTTP(d.name).slice(-15)
+                    : stripHTTP(d.name)
+            )
 
         textSelection
             .append('tspan')
