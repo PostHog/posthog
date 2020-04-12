@@ -22,14 +22,7 @@ import SendEventsOverlay from '../layout/SendEventsOverlay'
 import { Paths } from './paths/Paths'
 import { Cohorts } from './users/Cohorts'
 import { userLogic } from './userLogic'
-import { Layout, Menu } from 'antd'
-import {
-    MenuUnfoldOutlined,
-    MenuFoldOutlined,
-    UserOutlined,
-    VideoCameraOutlined,
-    UploadOutlined,
-} from '@ant-design/icons'
+import { Layout } from 'antd'
 
 function PrivateRoute({ component: Component, ...props }) {
     return (
@@ -46,7 +39,6 @@ function PrivateRoute({ component: Component, ...props }) {
 
 export default function App() {
     const { user } = useValues(userLogic)
-    const [collapsed, setCollapsed] = useState(false)
 
     if (!user) {
         return null
@@ -55,23 +47,12 @@ export default function App() {
     return (
         <Router>
             <Layout className="bg-white">
-                <Sidebar user={user} onCollapse={(collapsed, type) => setCollapsed(collapsed)} />
-                <Layout
-                    className="bg-white"
-                    style={{ marginLeft: collapsed ? 0 : 200, height: '100vh', width: '220px' }}
-                >
-                    <Layout.Header
-                        className="bg-white"
-                        style={{
-                            background: 'white',
-                            position: 'fixed',
-                            zIndex: 1,
-                            width: collapsed ? '100vw' : 'calc(100vw - 200px',
-                        }}
-                    >
+                <Sidebar user={user} />
+                <Layout className="bg-white" style={{ height: '100vh', width: '220px' }}>
+                    <Layout.Header className="bg-white">
                         <TopContent user={user} />
                     </Layout.Header>
-                    <Layout.Content className="pl-5 pr-5 pt-3" style={{ marginTop: 64 }}>
+                    <Layout.Content className="pl-5 pr-5 pt-3">
                         <SendEventsOverlay user={user} />
                         {user.has_events && (
                             <>

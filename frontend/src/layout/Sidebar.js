@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { useHistory, NavLink } from 'react-router-dom'
 import { InviteTeam } from '../lib/components/InviteTeam'
-
 import { Menu, Layout, Modal } from 'antd'
 import {
     UserOutlined,
@@ -12,21 +11,6 @@ import {
     HomeOutlined,
     PlusOutlined,
 } from '@ant-design/icons'
-
-function MenuItem(props) {
-    return (
-        <Menu.Item
-            key={props.link}
-            style={{ display: 'flex', alignItems: 'center' }}
-            onClick={props.onClick ? props.onClick : null}
-            {...props}
-        >
-            {props.icon}
-            <span>{props.label}</span>
-            <NavLink className={'nav-link'} to={props.link}></NavLink>
-        </Menu.Item>
-    )
-}
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -52,12 +36,6 @@ export default function Sidebar(props) {
             collapsedWidth="0"
             onCollapse={(collapsed, type) => {
                 props.onCollapse(collapsed, type)
-            }}
-            style={{
-                overflow: 'auto',
-                height: '100vh',
-                position: 'fixed',
-                left: 0,
             }}
         >
             <Menu
