@@ -54,10 +54,14 @@ export default function App() {
 
     return (
         <Router>
-            <Layout>
+            <Layout className="bg-white">
                 <Sidebar user={user} onCollapse={(collapsed, type) => setCollapsed(collapsed)} />
-                <Layout style={{ marginLeft: collapsed ? 0 : 200, height: '100vh', width: '220px' }}>
+                <Layout
+                    className="bg-white"
+                    style={{ marginLeft: collapsed ? 0 : 200, height: '100vh', width: '220px' }}
+                >
                     <Layout.Header
+                        className="bg-white"
                         style={{
                             background: 'white',
                             position: 'fixed',
@@ -67,7 +71,7 @@ export default function App() {
                     >
                         <TopContent user={user} />
                     </Layout.Header>
-                    <Layout.Content style={{ marginTop: 64 }}>
+                    <Layout.Content className="pl-5 pr-5 pt-3" style={{ marginTop: 64 }}>
                         <SendEventsOverlay user={user} />
                         {user.has_events && (
                             <>
