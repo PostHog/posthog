@@ -10,6 +10,10 @@ import {
     RiseOutlined,
     HomeOutlined,
     PlusOutlined,
+    SyncOutlined,
+    AimOutlined,
+    UsergroupAddOutlined,
+    ContainerOutlined,
 } from '@ant-design/icons'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
@@ -45,13 +49,7 @@ export default function Sidebar(props) {
     }
 
     return (
-        <Layout.Sider
-            breakpoint="lg"
-            collapsedWidth="0"
-            onCollapse={(collapsed, type) => {
-                props.onCollapse(collapsed, type)
-            }}
-        >
+        <Layout.Sider breakpoint="lg" collapsedWidth="0" className="bg-light">
             <Menu
                 className="h-100 bg-light"
                 selectedKeys={[history.location.pathname]}
@@ -73,24 +71,24 @@ export default function Sidebar(props) {
                     key="events"
                     title={
                         <span style={itemStyle}>
-                            <HomeOutlined />
+                            <ContainerOutlined />
                             <span>{'Events'}</span>
                         </span>
                     }
                     onTitleClick={() => (history.location.pathname != '/events' ? history.push('/events') : null)}
                 >
                     <Menu.Item key={'/events'} style={itemStyle}>
-                        <HomeOutlined />
+                        <ContainerOutlined />
                         <span>{'All Events'}</span>
                         <NavLink className={'nav-link'} to={'/events'}></NavLink>
                     </Menu.Item>
                     <Menu.Item key={'/actions'} style={itemStyle}>
-                        <HomeOutlined />
+                        <AimOutlined />
                         <span>{'Actions'}</span>
                         <NavLink className={'nav-link'} to={'/actions'}></NavLink>
                     </Menu.Item>
                     <Menu.Item key={'/actions/live'} style={itemStyle}>
-                        <HomeOutlined />
+                        <SyncOutlined />
                         <span>{'Live Actions'}</span>
                         <NavLink className={'nav-link'} to={'/actions/live'}></NavLink>
                     </Menu.Item>
@@ -111,7 +109,7 @@ export default function Sidebar(props) {
                         <NavLink className={'nav-link'} to={'/people'}></NavLink>
                     </Menu.Item>
                     <Menu.Item key={'/people/cohorts'} style={itemStyle}>
-                        <UserOutlined />
+                        <UsergroupAddOutlined />
                         <span>{'Cohorts'}</span>
                         <NavLink className={'nav-link'} to={'/people/cohorts'}></NavLink>
                     </Menu.Item>
