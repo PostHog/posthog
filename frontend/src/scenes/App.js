@@ -48,7 +48,7 @@ export default function App() {
         <Router>
             <Layout className="bg-white">
                 <Sidebar user={user} />
-                <Layout className="bg-white" style={{ height: '100vh', width: '220px' }}>
+                <Layout className="bg-white" style={{ height: '100vh' }}>
                     <Layout.Header className="bg-white">
                         <TopContent user={user} />
                     </Layout.Header>

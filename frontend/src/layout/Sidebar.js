@@ -14,6 +14,20 @@ import {
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
+function Logo() {
+    return (
+        <div
+            className="row logo-row d-flex align-items-center justify-content-center"
+            style={{ margin: 16, height: 32 }}
+        >
+            <img className="logo" src="/static/posthog-logo.png" style={{ maxHeight: '100%', marginRight: 10 }} />
+            <div className="posthog-title" style={{ fontSize: 16 }}>
+                PostHog
+            </div>
+        </div>
+    )
+}
+
 export default function Sidebar(props) {
     let [inviteModalOpen, setInviteModalOpen] = useState(false)
     let history = useHistory()
@@ -44,19 +58,7 @@ export default function Sidebar(props) {
                 openKeys={determineSubmenuOpen()}
                 mode="inline"
             >
-                <div
-                    className="row logo-row d-flex align-items-center justify-content-center"
-                    style={{ margin: 16, height: 32 }}
-                >
-                    <img
-                        className="logo"
-                        src="/static/posthog-logo.png"
-                        style={{ maxHeight: '100%', marginRight: 10 }}
-                    />
-                    <div className="posthog-title" style={{ fontSize: 16 }}>
-                        PostHog
-                    </div>
-                </div>
+                <Logo></Logo>
                 <Menu.Item key={'/'} style={itemStyle}>
                     <HomeOutlined />
                     <span>{'Dashboard'}</span>
