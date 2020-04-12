@@ -22,12 +22,10 @@ function Logo() {
     return (
         <div
             className="row logo-row d-flex align-items-center justify-content-center"
-            style={{ margin: 16, height: 32 }}
+            style={{ margin: 16, height: 42 }}
         >
-            <img className="logo" src="/static/posthog-logo.png" style={{ maxHeight: '100%', marginRight: 10 }} />
-            <div className="posthog-title" style={{ fontSize: 16 }}>
-                PostHog
-            </div>
+            <img className="logo" src="/static/posthog-logo.png" style={{ maxHeight: '100%' }} />
+            <div className="posthog-title">PostHog</div>
         </div>
     )
 }
@@ -60,12 +58,12 @@ export default function Sidebar(props) {
                 <Menu.Item key={'/'} style={itemStyle}>
                     <HomeOutlined />
                     <span>{'Dashboard'}</span>
-                    <NavLink className={'nav-link'} to={'/'}></NavLink>
+                    <NavLink to={'/'}></NavLink>
                 </Menu.Item>
                 <Menu.Item key={'/trends'} style={itemStyle}>
                     <RiseOutlined />
                     <span>{'Trends'}</span>
-                    <NavLink className={'nav-link'} to={'/trends'}></NavLink>
+                    <NavLink to={'/trends'}></NavLink>
                 </Menu.Item>
                 <Menu.SubMenu
                     key="events"
@@ -80,17 +78,17 @@ export default function Sidebar(props) {
                     <Menu.Item key={'/events'} style={itemStyle}>
                         <ContainerOutlined />
                         <span>{'All Events'}</span>
-                        <NavLink className={'nav-link'} to={'/events'}></NavLink>
+                        <NavLink to={'/events'}></NavLink>
                     </Menu.Item>
                     <Menu.Item key={'/actions'} style={itemStyle}>
                         <AimOutlined />
                         <span>{'Actions'}</span>
-                        <NavLink className={'nav-link'} to={'/actions'}></NavLink>
+                        <NavLink to={'/actions'}></NavLink>
                     </Menu.Item>
                     <Menu.Item key={'/actions/live'} style={itemStyle}>
                         <SyncOutlined />
                         <span>{'Live Actions'}</span>
-                        <NavLink className={'nav-link'} to={'/actions/live'}></NavLink>
+                        <NavLink to={'/actions/live'}></NavLink>
                     </Menu.Item>
                 </Menu.SubMenu>
                 <Menu.SubMenu
@@ -106,34 +104,30 @@ export default function Sidebar(props) {
                     <Menu.Item key={'/people'} style={itemStyle}>
                         <UserOutlined />
                         <span>{'All Users'}</span>
-                        <NavLink className={'nav-link'} to={'/people'}></NavLink>
+                        <NavLink to={'/people'}></NavLink>
                     </Menu.Item>
                     <Menu.Item key={'/people/cohorts'} style={itemStyle}>
                         <UsergroupAddOutlined />
                         <span>{'Cohorts'}</span>
-                        <NavLink className={'nav-link'} to={'/people/cohorts'}></NavLink>
+                        <NavLink to={'/people/cohorts'}></NavLink>
                     </Menu.Item>
                 </Menu.SubMenu>
                 <Menu.Item key={'/funnel'} style={itemStyle}>
                     <FunnelPlotOutlined />
                     <span>{'Funnels'}</span>
-                    <NavLink className={'nav-link'} to={'/funnel'}></NavLink>
+                    <NavLink to={'/funnel'}></NavLink>
                 </Menu.Item>
                 <Menu.Item key={'/paths'} style={itemStyle}>
                     <ForkOutlined />
                     <span>{'Paths'}</span>
-                    <NavLink className={'nav-link'} to={'/paths'}></NavLink>
+                    <NavLink to={'/paths'}></NavLink>
                 </Menu.Item>
                 <Menu.Item key={'/setup'} style={itemStyle}>
                     <SettingOutlined />
                     <span>{'Setup'}</span>
-                    <NavLink className={'nav-link'} to={'/setup'}></NavLink>
+                    <NavLink to={'/setup'}></NavLink>
                 </Menu.Item>
-                <Menu.Item
-                    key={'invite'}
-                    style={{ display: 'flex', alignItems: 'center' }}
-                    onClick={() => setInviteModalOpen(true)}
-                >
+                <Menu.Item key={'invite'} style={itemStyle} onClick={() => setInviteModalOpen(true)}>
                     <PlusOutlined></PlusOutlined>
                     <span>{'Invite your team'}</span>
                 </Menu.Item>
