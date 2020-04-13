@@ -99,48 +99,47 @@ export class DateFilter extends Component {
     render() {
         let { rangeDateFrom, rangeDateTo } = this.state
         return (
-            <div>
-                <Select
-                    id="daterange_selector"
-                    value={this.dateFilterToText(this.props.dateFrom, this.props.dateTo)}
-                    onChange={this.onChange}
-                    style={{ minWidth: 200 }}
-                    open={this.state.open || this.state.dateRangeOpen}
-                    onBlur={this.onBlur}
-                    onClick={this.onClick}
-                    dropdownRender={menu => {
-                        if (this.state.dateRangeOpen) {
-                            return (
-                                <DatePickerDropdown
-                                    onClick={this.dropdownOnClick}
-                                    onDateFromChange={this.onDateFromChange}
-                                    onDateToChange={this.onDateToChange}
-                                    onApplyClick={this.onApplyClick}
-                                    onClickOutside={this.onClickOutside}
-                                    rangeDateFrom={rangeDateFrom}
-                                    rangeDateTo={rangeDateTo}
-                                ></DatePickerDropdown>
-                            )
-                        } else if (this.state.open) {
-                            return menu
-                        }
-                    }}
-                >
-                    {[
-                        ...Object.entries(dateMapping).map(([key, value]) => {
-                            return (
-                                <Select.Option key={key} value={key}>
-                                    {key}
-                                </Select.Option>
-                            )
-                        }),
+            <Select
+                id="daterange_selector"
+                value={this.dateFilterToText(this.props.dateFrom, this.props.dateTo)}
+                onChange={this.onChange}
+                style={this.props.style}
+                open={this.state.open || this.state.dateRangeOpen}
+                onBlur={this.onBlur}
+                onClick={this.onClick}
+                listHeight={400}
+                dropdownRender={menu => {
+                    if (this.state.dateRangeOpen) {
+                        return (
+                            <DatePickerDropdown
+                                onClick={this.dropdownOnClick}
+                                onDateFromChange={this.onDateFromChange}
+                                onDateToChange={this.onDateToChange}
+                                onApplyClick={this.onApplyClick}
+                                onClickOutside={this.onClickOutside}
+                                rangeDateFrom={rangeDateFrom}
+                                rangeDateTo={rangeDateTo}
+                            ></DatePickerDropdown>
+                        )
+                    } else if (this.state.open) {
+                        return menu
+                    }
+                }}
+            >
+                {[
+                    ...Object.entries(dateMapping).map(([key, value]) => {
+                        return (
+                            <Select.Option key={key} value={key}>
+                                {key}
+                            </Select.Option>
+                        )
+                    }),
 
-                        <Select.Option key={'Date range'} value={'Date range'}>
-                            {'Date range'}
-                        </Select.Option>,
-                    ]}
-                </Select>
-            </div>
+                    <Select.Option key={'Date range'} value={'Date range'}>
+                        {'Date range'}
+                    </Select.Option>,
+                ]}
+            </Select>
         )
     }
 }

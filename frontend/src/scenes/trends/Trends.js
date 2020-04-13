@@ -14,8 +14,8 @@ import { ActionsTable } from './ActionsTable'
 import { ActionsLineGraph } from './ActionsLineGraph'
 import { ShownAsFilter } from './ShownAsFilter'
 import { PeopleModal } from './PeopleModal'
-import { Select, Space } from 'antd'
 import { trendsLogic } from './trendsLogic'
+import { ChartFilter } from 'lib/components/ChartFilter'
 
 const displayMap = {
     ActionsLineGraph: 'Line chart',
@@ -29,7 +29,7 @@ export function Trends() {
     return (
         <div className="actions-graph">
             {showingPeople ? <PeopleModal /> : null}
-            <h1>Action trends</h1>
+            <h1>Trends</h1>
             <Card>
                 <div className="card-body">
                     <h4 className="secondary">{'Actions & Events'}</h4>
@@ -64,36 +64,29 @@ export function Trends() {
                     <span>
                         Graph
                         <div className="float-right">
-                            <Space>
-                                <IntervalFilter setFilters={setFilters} filters={filters} />
-                                <Select
-                                    defaultValue={displayMap[filters.display || 'ActionsLineGraph']}
-                                    value={displayMap[filters.display || 'ActionsLineGraph']}
-                                    onChange={v => {
-                                        setDisplay(v)
-                                    }}
-                                    style={{ width: 150 }}
-                                >
-                                    <Select.Option value="ActionsLineGraph" disabled={filters.breakdown}>
-                                        Line chart
-                                    </Select.Option>
-                                    <Select.Option value="ActionsTable">Table</Select.Option>
-                                    <Select.Option value="ActionsPie" disabled={filters.breakdown}>
-                                        Pie
-                                    </Select.Option>
-                                </Select>
-                                <DateFilter
-                                    onChange={(date_from, date_to) =>
-                                        setFilters({
-                                            date_from: date_from,
-                                            date_to: date_to && date_to,
-                                        })
-                                    }
-                                    dateFrom={filters.date_from}
-                                    dateTo={filters.date_to}
-                                />
-                                <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
-                            </Space>
+                            <IntervalFilter
+                                setFilters={setFilters}
+                                filters={filters}
+                                style={{ width: 100, marginLeft: 4, marginRight: 4 }}
+                            />
+                            <ChartFilter
+                                displayMap={displayMap}
+                                filters={filters}
+                                style={{ width: 150, marginLeft: 4, marginRight: 4 }}
+                                onChange={setDisplay}
+                            ></ChartFilter>
+                            <DateFilter
+                                onChange={(date_from, date_to) =>
+                                    setFilters({
+                                        date_from: date_from,
+                                        date_to: date_to && date_to,
+                                    })
+                                }
+                                dateFrom={filters.date_from}
+                                dateTo={filters.date_to}
+                                style={{ minWidth: 200, marginLeft: 4, marginRight: 4 }}
+                            />
+                            <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
                         </div>
                     </span>
                 }

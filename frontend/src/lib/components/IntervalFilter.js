@@ -1,5 +1,4 @@
 import React from 'react'
-import { Dropdown } from './Dropdown'
 import { disableMinuteFor, disableHourFor } from '../../scenes/trends/trendsLogic'
 import { Select } from 'antd'
 
@@ -11,7 +10,7 @@ let intervalMapping = {
     month: 'Monthly',
 }
 
-export function IntervalFilter({ filters, setFilters }) {
+export function IntervalFilter({ filters, setFilters, style }) {
     const { interval, date_from } = filters
     return (
         <Select
@@ -27,7 +26,7 @@ export function IntervalFilter({ filters, setFilters }) {
 
                 setFilters({ interval: key })
             }}
-            style={{ width: 100 }}
+            style={style}
         >
             {Object.entries(intervalMapping).map(([key, value]) => {
                 return (
