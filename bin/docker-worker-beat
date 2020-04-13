@@ -1,0 +1,4 @@
+#!/bin/bash
+set -e
+
+celery -A posthog beat -S redbeat.RedBeatScheduler
