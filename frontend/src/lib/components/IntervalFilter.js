@@ -10,23 +10,21 @@ let intervalMapping = {
     month: 'Monthly',
 }
 
-export function IntervalFilter({ filters, setFilters, style }) {
+export function IntervalFilter({ filters, setFilters }) {
     const { interval, date_from } = filters
     return (
         <Select
+            bordered={false}
             defaultValue={intervalMapping[interval]}
             value={intervalMapping[interval]}
             onChange={key => {
                 const minute_disabled = key === 'minute' && disableMinuteFor[date_from]
                 const hour_disabled = key === 'hour' && disableHourFor[date_from]
                 if (minute_disabled || hour_disabled) {
-                    console.log('minutes disabled')
                     return false
                 }
-
                 setFilters({ interval: key })
             }}
-            style={{ width: 100, marginLeft: 4, marginRight: 4, ...style }}
         >
             {Object.entries(intervalMapping).map(([key, value]) => {
                 return (

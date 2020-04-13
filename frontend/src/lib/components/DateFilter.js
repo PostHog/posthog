@@ -100,14 +100,19 @@ export class DateFilter extends Component {
         let { rangeDateFrom, rangeDateTo } = this.state
         return (
             <Select
+                bordered={false}
                 id="daterange_selector"
                 value={this.dateFilterToText(this.props.dateFrom, this.props.dateTo)}
                 onChange={this.onChange}
-                style={{ minWidth: 200, marginLeft: 4, marginRight: 8, ...this.props.style }}
+                style={{
+                    marginRight: 4,
+                    ...this.props.style,
+                }}
                 open={this.state.open || this.state.dateRangeOpen}
                 onBlur={this.onBlur}
                 onClick={this.onClick}
                 listHeight={400}
+                dropdownMatchSelectWidth={false}
                 dropdownRender={menu => {
                     if (this.state.dateRangeOpen) {
                         return (
@@ -177,7 +182,9 @@ function DatePickerDropdown(props) {
             <hr style={{ margin: '0.5rem 0' }} />
             <div style={{ padding: '0 1rem' }}>
                 <label className="secondary">From date</label>
+                <br />
                 <DatePicker
+                    popupStyle={{ zIndex: 2000 }}
                     onOpenChange={open => {
                         setCalendarOpen(open)
                     }}
@@ -191,9 +198,11 @@ function DatePickerDropdown(props) {
                     onChange={props.onDateFromChange}
                 />
                 <br />
+                <br />
                 <label className="secondary">To date</label>
                 <br />
                 <DatePicker
+                    popupStyle={{ zIndex: 2000 }}
                     onOpenChange={open => setCalendarOpen(open)}
                     defaultValue={
                         props.rangeDateTo

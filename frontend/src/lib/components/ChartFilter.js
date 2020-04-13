@@ -2,13 +2,13 @@ import React from 'react'
 import { Select } from 'antd'
 
 export function ChartFilter(props) {
-    let { filters, displayMap, style, onChange } = props
+    let { filters, displayMap, onChange } = props
     return (
         <Select
             defaultValue={displayMap[filters.display || 'ActionsLineGraph']}
             value={displayMap[filters.display || 'ActionsLineGraph']}
             onChange={onChange}
-            style={{ minWidth: 200, marginLeft: 4, marginRight: 8, ...style }}
+            bordered={false}
         >
             <Select.Option value="ActionsLineGraph" disabled={filters.breakdown}>
                 Line chart
