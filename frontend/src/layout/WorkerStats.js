@@ -38,8 +38,8 @@ export function WorkerStats() {
                 <Modal onDismiss={() => setShowErrorModal(false)}>
                     <h2>Configuration Issue</h2>
                     <p>
-                        Starting with <strong>the next version</strong> of PostHog (1.1.0), every installation{' '}
-                        <em>will require</em> a background worker to function properly.
+                        Starting with <strong>PostHog 1.1.0</strong>, every installation <em>requires</em> a background
+                        worker to function properly.
                     </p>
                     <p>
                         These workers will make PostHog a lot faster and will pave the road for other goodies, such as
