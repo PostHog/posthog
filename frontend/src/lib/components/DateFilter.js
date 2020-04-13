@@ -103,7 +103,7 @@ export class DateFilter extends Component {
                 id="daterange_selector"
                 value={this.dateFilterToText(this.props.dateFrom, this.props.dateTo)}
                 onChange={this.onChange}
-                style={this.props.style}
+                style={{ minWidth: 200, marginLeft: 4, marginRight: 8, ...this.props.style }}
                 open={this.state.open || this.state.dateRangeOpen}
                 onBlur={this.onBlur}
                 onClick={this.onClick}

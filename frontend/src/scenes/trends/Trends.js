@@ -64,17 +64,8 @@ export function Trends() {
                     <span>
                         Graph
                         <div className="float-right">
-                            <IntervalFilter
-                                setFilters={setFilters}
-                                filters={filters}
-                                style={{ width: 100, marginLeft: 4, marginRight: 4 }}
-                            />
-                            <ChartFilter
-                                displayMap={displayMap}
-                                filters={filters}
-                                style={{ width: 150, marginLeft: 4, marginRight: 4 }}
-                                onChange={setDisplay}
-                            ></ChartFilter>
+                            <IntervalFilter setFilters={setFilters} filters={filters} />
+                            <ChartFilter displayMap={displayMap} filters={filters} onChange={setDisplay}></ChartFilter>
                             <DateFilter
                                 onChange={(date_from, date_to) =>
                                     setFilters({
@@ -84,7 +75,6 @@ export function Trends() {
                                 }
                                 dateFrom={filters.date_from}
                                 dateTo={filters.date_to}
-                                style={{ minWidth: 200, marginLeft: 4, marginRight: 8 }}
                             />
                             <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
                         </div>

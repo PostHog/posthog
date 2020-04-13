@@ -8,7 +8,7 @@ export function ChartFilter(props) {
             defaultValue={displayMap[filters.display || 'ActionsLineGraph']}
             value={displayMap[filters.display || 'ActionsLineGraph']}
             onChange={onChange}
-            style={style}
+            style={{ minWidth: 200, marginLeft: 4, marginRight: 8, ...style }}
         >
             <Select.Option value="ActionsLineGraph" disabled={filters.breakdown}>
                 Line chart

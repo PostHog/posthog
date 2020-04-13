@@ -26,7 +26,7 @@ export function IntervalFilter({ filters, setFilters, style }) {
 
                 setFilters({ interval: key })
             }}
-            style={style}
+            style={{ width: 100, marginLeft: 4, marginRight: 4, ...style }}
         >
             {Object.entries(intervalMapping).map(([key, value]) => {
                 return (
