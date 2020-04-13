@@ -33,7 +33,11 @@ export function Trends() {
             <Card>
                 <div className="card-body">
                     <h4 className="secondary">{'Actions & Events'}</h4>
-                    <ActionFilter></ActionFilter>
+                    <ActionFilter
+                        setFilters={setFilters}
+                        filters={{ actions: filters.actions, events: filters.events }}
+                        showMaths={true}
+                    />
                     <hr />
                     <h4 className="secondary">Filters</h4>
                     <PropertyFilters

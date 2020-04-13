@@ -1,13 +1,15 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { toParams } from 'lib/utils';
-
-
+import { toParams } from 'lib/utils'
 
 export const funnelLogic = kea({
     key: props => props.id,
     actions: () => ({
-        setFilters: filters => ({ filters })
+        setFilters: filters => ({ filters }),
+        setSteps: steps => ({ steps }),
+        funnelUpdateRequest: (funnel, callback) => ({ funnel, callback }),
+        funnelUpdateFailure: (updateKey, error) => ({ updateKey, error }),
+        setFunnel: funnel => ({ funnel }),
     }),
     loaders: ({ props, values }) => ({
         funnel: {
@@ -15,15 +17,15 @@ export const funnelLogic = kea({
                 return await api.get('api/funnel/' + id + '/?exclude_count=1')
             },
         },
-        steps: {
-            loadSteps: async (id = props.id) => {
+        stepsWithCount: {
+            loadStepsWithCount: async (id = props.id) => {
                 return (await api.get('api/funnel/' + id + '/?' + toParams(values.filters))).steps
             },
         },
         people: {
-            loadPeople: async (steps) => {
+            loadPeople: async steps => {
                 return (await api.get('api/person/?id=' + steps[0].people.join(','))).results
-            }
+            },
         },
     }),
     reducers: ({ actions }) => ({
@@ -32,23 +34,36 @@ export const funnelLogic = kea({
             {
                 [actions.setFilters]: (state, { filters }) => ({
                     ...state,
-                    ...filters
-                })
-            }
+                    ...filters,
+                }),
+            },
+        ],
+        funnel: [
+            {},
+            {
+                [actions.setFunnel]: (state, { funnel }) => ({ ...state, ...funnel }),
+                [actions.loadFunnelSuccess]: (state, { funnel }) => funnel,
+            },
         ],
     }),
     listeners: ({ actions, values }) => ({
-        [actions.loadStepsSuccess]: async () => {
-            actions.loadPeople(values.steps)
+        [actions.loadStepsWithCountSuccess]: async () => {
+            actions.loadPeople(values.stepsWithCount)
         },
         [actions.setFilters]: async () => {
-            actions.loadSteps()
+            actions.loadStepsWithCount()
+        },
+        [actions.funnelUpdateRequest]: async ({ funnel, callback }) => {
+            const newFunnel = await api.update('api/funnel/' + funnel.id, funnel)
+            // Question: Can I somehow have the loader plugin catch errors here?
+            actions.loadStepsWithCount()
+            callback(newFunnel)
         },
     }),
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadFunnel()
-            actions.loadSteps()
-        }
+            actions.loadStepsWithCount()
+        },
     }),
 })

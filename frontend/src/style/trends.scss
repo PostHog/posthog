@@ -16,44 +16,4 @@
     hr {
         margin: 1rem 0;
     }
-    .select-box {
-        position: absolute;
-        min-width: 260px;
-        box-shadow: 0 0 8px rgba(0, 0, 0, 0.4);
-        padding: 1rem;
-        border-radius: 2px;
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        height: 400px;
-        background: #fff;
-        z-index: 9999;
-        overflow: visible;
-    }
-    select {
-        height: 31px;
-    }
-}
-.select-box-info {
-    position: fixed;
-    background: #fff;
-    padding: 1rem;
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    box-shadow: 0 0 8px rgba(0, 0, 0, 0.4);
-    z-index: 99999;
-    opacity: 1;
-    pre {
-        max-width: 550px;
-        overflow: scroll;
-        margin-bottom: 0;
-        white-space: pre-wrap;
-    }
-    ul {
-        list-style: none;
-        padding-inline-start: 15px;
-        margin-bottom: 0;
-        li:not(:last-child) {
-            padding-bottom: 0.5rem;
-            margin-bottom: 0.5rem;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.4);
-        }
-    }
 }

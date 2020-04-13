@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { entityFilterLogic } from './actionFilterLogic'
 import { EntityTypes } from '../trendsLogic'
 import { ActionSelectPanel, ActionSelectTabs } from '~/lib/components/ActionSelectBox'
+import { Link } from 'react-router-dom'
 
 export function ActionFilterDropdown(props) {
     const dropdownRef = useRef()
@@ -23,7 +24,7 @@ export function ActionFilterDropdown(props) {
     }, [])
 
     return (
-        <div ref={dropdownRef}>
+        <div ref={dropdownRef} className="action-filter-dropdown">
             <ActionSelectTabs
                 selected={selectedFilter.type && selectedFilter.type != EntityTypes.NEW ? selectedFilter.type : null}
             >

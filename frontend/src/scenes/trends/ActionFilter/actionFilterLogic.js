@@ -2,9 +2,10 @@ import { kea } from 'kea'
 
 import { actionsModel } from '~/models/actionsModel'
 import { eventsModel } from '~/models/eventsModel'
-import { trendsLogic, EntityTypes } from '../trendsLogic'
+import { propertiesModel } from '~/models/propertiesModel'
+import { EntityTypes } from '../trendsLogic'
 
-import { groupActions, groupEvents } from '~/lib/utils'
+import { groupEvents } from '~/lib/utils'
 
 const mirrorValues = (entities, newKey, valueKey) => {
     let newEntities = entities.map(entity => {
@@ -18,10 +19,8 @@ const mirrorValues = (entities, newKey, valueKey) => {
 
 export const entityFilterLogic = kea({
     connect: {
-        values: [eventsModel, ['events'], actionsModel, ['actions'], trendsLogic, ['filters']],
-        actions: [trendsLogic, ['setFilters']],
+        values: [propertiesModel, ['properties'], actionsModel, ['actions', 'actionsGrouped'], eventsModel, ['events']],
     },
-
     actions: () => ({
         selectFilter: filter => ({ filter }),
         updateFilterMath: filter => ({
@@ -36,17 +35,20 @@ export const entityFilterLogic = kea({
         createNewFilter: true,
         setLocalFilters: filters => ({ filters }),
         initializeLocalFilters: true,
+        setFilters: filters => ({ filters }),
     }),
 
-    events: ({ actions }) => ({
-        afterMount: actions.initializeLocalFilters,
-    }),
-
-    reducers: ({ actions }) => ({
+    reducers: ({ actions, props }) => ({
         selectedFilter: [
             null,
             {
                 [actions.selectFilter]: (state, { filter }) => filter,
+            },
+        ],
+        filters: [
+            {},
+            {
+                [actions.setFilters]: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
         allFilters: [
@@ -69,21 +71,22 @@ export const entityFilterLogic = kea({
             },
         ],
         formattedOptions: [
-            () => [selectors.events, selectors.actions],
-            (events, actions) => {
+            () => [selectors.events, selectors.actionsGrouped],
+            (events, actionsGrouped) => {
                 return {
-                    [EntityTypes.ACTIONS]: groupActions(actions),
+                    [EntityTypes.ACTIONS]: actionsGrouped,
                     [EntityTypes.EVENTS]: groupEvents(events),
                 }
             },
         ],
     }),
 
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions, values, props }) => ({
         [actions.initializeLocalFilters]: () => {
             actions.setLocalFilters([...(values.filters.actions || []), ...(values.filters.events || [])])
         },
         [actions.updateFilter]: ({ type, index, value }) => {
+            if (!values.filters[type]) values.filters[type] = []
             let newFilters = values.filters[type]
             newFilters.push({ id: value, type })
 
@@ -128,6 +131,16 @@ export const entityFilterLogic = kea({
             let target = newFilters.findIndex(e => e.id == value)
             newFilters.splice(target, 1)
             actions.setFilters({ [type]: newFilters })
+        },
+        [actions.setFilters]: ({ filters }) => {
+            props.setFilters(values.filters)
+        },
+    }),
+
+    events: ({ actions, props }) => ({
+        afterMount: () => {
+            actions.setFilters({ actions: [], events: [], ...props.defaultFilters })
+            actions.initializeLocalFilters()
         },
     }),
 })

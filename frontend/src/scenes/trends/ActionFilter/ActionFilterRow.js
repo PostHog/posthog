@@ -6,9 +6,8 @@ import { CloseButton } from '~/lib/utils'
 import { Dropdown } from '~/lib/components/Dropdown'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 
-export function ActionFilterRow(props) {
+export function ActionFilterRow({ filter, index, showMaths }) {
     const node = useRef()
-    const { filter, index } = props
     const { selectedFilter, entities } = useValues(entityFilterLogic)
     const { selectFilter, updateFilterMath, removeLocalFilter } = useActions(entityFilterLogic)
 
@@ -42,6 +41,7 @@ export function ActionFilterRow(props) {
             <button
                 ref={node}
                 className="filter-action"
+                type="button"
                 onClick={onClick}
                 style={{
                     border: 0,
@@ -52,7 +52,7 @@ export function ActionFilterRow(props) {
             >
                 {name || 'Select action'}
             </button>
-            <MathSelector math={math} index={index} onMathSelect={onMathSelect} />
+            {showMaths && <MathSelector math={math} index={index} onMathSelect={onMathSelect} />}
             <CloseButton
                 onClick={onClose}
                 style={{
