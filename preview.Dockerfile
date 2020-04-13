@@ -27,7 +27,7 @@ RUN /etc/init.d/redis-server start
 
 COPY requirements.txt /code/
 # install dependencies but ignore any we don't need for dev environment
-RUN pip install $(grep -ivE "drf-yasg|psycopg2|ipdb|mypy|ipython|ipdb|pip|djangorestframework-stubs|django-stubs|ipython-genutils|mypy-extensions|Pygments|typed-ast|jedi" requirements.txt) --no-cache-dir --compile\
+RUN pip install $(grep -ivE "tblib|drf-yasg|psycopg2|ipdb|mypy|ipython|ipdb|pip|djangorestframework-stubs|django-stubs|ipython-genutils|mypy-extensions|Pygments|typed-ast|jedi" requirements.txt) --no-cache-dir --compile\
     && pip install psycopg2-binary --no-cache-dir --compile\
     && pip uninstall ipython-genutils pip -y \
     && rm -rf /usr/local/lib/python3.8/site-packages/numpy/core/tests \
@@ -43,6 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && curl -sL https://deb.nodesource.com/setup_12.x  | bash - \
     && apt-get install nodejs -y --no-install-recommends \
     && npm install -g yarn@1 \
+    && yarn config set network-timeout 300000 \
     && yarn --frozen-lockfile \
     && yarn build \
     && yarn cache clean \
