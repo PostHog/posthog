@@ -63,6 +63,7 @@
     "@babel/preset-env": "^7.8.7",
     "autoprefixer": "^9.7.4",
     "babel-loader": "^8.0.6",
+    "babel-plugin-import": "^1.13.0",
     "css-loader": "^3.4.2",
     "cssnano": "^4.1.10",
     "file-loader": "^5.1.0",
