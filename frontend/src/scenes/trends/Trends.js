@@ -84,7 +84,7 @@ export function Trends() {
                                 }
                                 dateFrom={filters.date_from}
                                 dateTo={filters.date_to}
-                                style={{ minWidth: 200, marginLeft: 4, marginRight: 4 }}
+                                style={{ minWidth: 200, marginLeft: 4, marginRight: 8 }}
                             />
                             <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
                         </div>
