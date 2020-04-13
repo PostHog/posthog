@@ -2,8 +2,8 @@ import React, { Component } from 'react'
 import { withRouter, NavLink } from 'react-router-dom'
 import { InviteTeam } from '../lib/components/InviteTeam'
 import { Modal } from '../lib/components/Modal'
-
 import { Menu } from 'antd'
+
 class Sidebar extends Component {
     constructor(props) {
         super(props)

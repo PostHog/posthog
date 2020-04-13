@@ -1,4 +1,4 @@
 {
-  "plugins": ["@babel/plugin-transform-runtime", "@babel/plugin-transform-react-jsx", "@babel/plugin-proposal-class-properties"],
+  "plugins": ["@babel/plugin-transform-runtime", "@babel/plugin-transform-react-jsx", "@babel/plugin-proposal-class-properties", ["import", { "libraryName": "antd", "libraryDirectory": "es", "style": "css" }]],
   "presets": ["@babel/preset-env"]
 }

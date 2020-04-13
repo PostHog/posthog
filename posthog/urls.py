@@ -36,7 +36,8 @@ def login_view(request):
         user = authenticate(request, email=email, password=password)
         if user is not None:
             login(request, user, backend='django.contrib.auth.backends.ModelBackend')
-            posthoganalytics.capture(user.distinct_id, 'user logged in')
+            if user.distinct_id:
+                posthoganalytics.capture(user.distinct_id, 'user logged in')
             return redirect('/')
         else:
             return render_template('login.html', request=request, context={'email': email, 'error': True})
