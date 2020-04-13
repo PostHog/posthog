@@ -1,7 +1,7 @@
 from .base import BaseTest
 from posthog.models import Event, Person, Team, User, ElementGroup, Action, ActionStep
 from django.test import TransactionTestCase
-from freezegun import freeze_time # type: ignore
+from freezegun import freeze_time
 import base64
 import json
 import datetime

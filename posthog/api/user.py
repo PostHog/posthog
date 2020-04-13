@@ -118,24 +118,20 @@ def test_slack_webhook(request):
 
     webhook = body.get('webhook')
 
-    if webhook:
-        message = {
-            "text": "Greetings from PostHog!"
-        }
-        try:
-            response = requests.post(webhook, verify=False, json=message)
-
-            if response.ok:
-                if response.text == 'ok':
-                    return JsonResponse({'success': True})
-                else:
-                    return JsonResponse({'error': 'invalid webhook url'})
-            else:
-                return JsonResponse({'error': response.text})
-        except:
-            return JsonResponse({'error': 'invalid webhook url'})
-
-    else:
+    if not webhook:
         return JsonResponse({'error': 'no webhook'})
+    message = {
+        "text": "Greetings from PostHog!"
+    }
+    try:
+        response = requests.post(webhook, verify=False, json=message)
 
-    return JsonResponse({})
+        if response.ok:
+            if response.text == 'ok':
+                return JsonResponse({'success': True})
+            else:
+                return JsonResponse({'error': 'invalid webhook url'})
+        else:
+            return JsonResponse({'error': response.text})
+    except:
+        return JsonResponse({'error': 'invalid webhook url'})
