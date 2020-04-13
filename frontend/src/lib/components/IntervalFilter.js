@@ -17,6 +17,7 @@ export function IntervalFilter({ filters, setFilters }) {
             bordered={false}
             defaultValue={intervalMapping[interval]}
             value={intervalMapping[interval]}
+            dropdownMatchSelectWidth={false}
             onChange={key => {
                 const minute_disabled = key === 'minute' && disableMinuteFor[date_from]
                 const hour_disabled = key === 'hour' && disableHourFor[date_from]

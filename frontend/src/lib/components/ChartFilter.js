@@ -9,6 +9,7 @@ export function ChartFilter(props) {
             value={displayMap[filters.display || 'ActionsLineGraph']}
             onChange={onChange}
             bordered={false}
+            dropdownMatchSelectWidth={false}
         >
             <Select.Option value="ActionsLineGraph" disabled={filters.breakdown}>
                 Line chart
