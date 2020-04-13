@@ -183,21 +183,24 @@ else:
     raise ImproperlyConfigured(f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software')
 
 # Broker
-REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost')
+REDIS_URL = os.environ.get('REDIS_URL', '')
+
+if not REDIS_URL and os.environ.get('POSTHOG_REDIS_HOST', ''):
+    REDIS_URL = "redis://:{}@{}:{}/".format(os.environ.get('POSTHOG_REDIS_PASSWORD', ''), os.environ.get('POSTHOG_REDIS_HOST', ''), os.environ.get('POSTHOG_REDIS_PORT', '6379'))
 
 if not REDIS_URL:
     print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")
     print("️⚠️ 🚨🚨🚨 PostHog warning! 🚨🚨🚨")
     print("⚠️")
-    print("️⚠️ The environment variable REDIS_URL is not configured!")
+    print("️⚠️ The environment variable REDIS_URL or POSTHOG_REDIS_HOST is not configured!")
     print("⚠️ Redis will be mandatory in the next versions of PostHog (1.1.0+).")
     print("⚠️ Please configure it now to avoid future surprises!")
     print("⚠️")
     print("⚠️ See here for more information!")
     print("⚠️ --> https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011")
     print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")
-    # TODO: remove this message and throw an error in PostHog 1.1.0
-    # raise ImproperlyConfigured(f'The environment var "REDIS_URL" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011')
+
+    raise ImproperlyConfigured(f'The environment var "REDIS_URL" or "POSTHOG_REDIS_HOST" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011')
 
 
 CELERY_BROKER_URL = REDIS_URL
