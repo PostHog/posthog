@@ -114,7 +114,9 @@ export const entityFilterLogic = kea({
     events: ({ actions, props }) => ({
         afterMount: () => {
             let sort = (a, b) => a.order - b.order
-            actions.setLocalFilters([...props.defaultFilters.actions, ...props.defaultFilters.events].sort(sort))
+            actions.setLocalFilters(
+                [...(props.defaultFilters.actions || []), ...(props.defaultFilters.events || [])].sort(sort)
+            )
         },
     }),
 })

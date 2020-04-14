@@ -15,41 +15,48 @@ export function Funnel({ match }) {
     if (!funnel && funnelLoading) return <Loading />
     return (
         <div className="funnel">
-            <h1>Funnel: {funnel.name}</h1>
+            {funnel.id ? <h1>Funnel: {funnel.name}</h1> : <h1>New funnel</h1>}
             <EditFunnel funnelId={id} />
-            <Card
-                title={
-                    <span>
-                        <span className="float-right">
-                            <DateFilter
-                                onChange={(date_from, date_to) =>
-                                    setFunnel(
-                                        {
-                                            filters: {
-                                                date_from,
-                                                date_to,
+
+            {funnel.id && (
+                <Card
+                    title={
+                        <span>
+                            <span className="float-right">
+                                <DateFilter
+                                    onChange={(date_from, date_to) =>
+                                        setFunnel(
+                                            {
+                                                filters: {
+                                                    date_from,
+                                                    date_to,
+                                                },
                                             },
-                                        },
-                                        true
-                                    )
-                                }
-                                dateFrom={funnel.filters.date_from}
-                                dateTo={funnel.filters.date_to}
-                            />
-                            <SaveToDashboard filters={{ funnel_id: id }} type="FunnelViz" name={funnel.name} />
+                                            true
+                                        )
+                                    }
+                                    dateFrom={funnel.filters.date_from}
+                                    dateTo={funnel.filters.date_to}
+                                />
+                                <SaveToDashboard
+                                    filters={{ funnel_id: funnel.id }}
+                                    type="FunnelViz"
+                                    name={funnel.name}
+                                />
+                            </span>
+                            Graph
                         </span>
-                        Graph
-                    </span>
-                }
-            >
-                <div style={{ height: 300 }}>
-                    {stepsWithCountLoading && <Loading />}
-                    {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 && (
-                        <FunnelViz funnel={{ steps: stepsWithCount }} />
-                    )}
-                </div>
-            </Card>
-            <People match={match} />
+                    }
+                >
+                    <div style={{ height: 300 }}>
+                        {stepsWithCountLoading && <Loading />}
+                        {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 && (
+                            <FunnelViz funnel={{ steps: stepsWithCount }} />
+                        )}
+                    </div>
+                </Card>
+            )}
+            {funnel.id && <People match={match} />}
         </div>
     )
 }

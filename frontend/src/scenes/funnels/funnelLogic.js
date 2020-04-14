@@ -3,7 +3,6 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 
 export const funnelLogic = kea({
-    key: props => props.id,
     actions: () => ({
         setFunnel: (funnel, update) => ({ funnel, update }),
     }),
@@ -14,6 +13,9 @@ export const funnelLogic = kea({
             },
             updateFunnel: async funnel => {
                 return await api.update('api/funnel/' + funnel.id, funnel)
+            },
+            createFunnel: async funnel => {
+                return await api.create('api/funnel', funnel)
             },
         },
         stepsWithCount: {
@@ -37,6 +39,7 @@ export const funnelLogic = kea({
                     filters: { ...state.filters, ...funnel.filters },
                 }),
                 [actions.loadFunnelSuccess]: (state, { funnel }) => funnel,
+                [actions.createFunnelSuccess]: (state, { funnel }) => funnel,
             },
         ],
     }),
@@ -51,6 +54,12 @@ export const funnelLogic = kea({
                 return people.sort((a, b) => score(b) - score(a))
             },
         ],
+        isStepsEmpty: [
+            () => [selectors.funnel],
+            funnel => {
+                return funnel && [...(funnel.filters.actions || []), ...(funnel.filters.events || [])].length == 0
+            },
+        ],
     }),
     listeners: ({ actions, values }) => ({
         [actions.loadStepsWithCountSuccess]: async () => {
@@ -63,9 +72,19 @@ export const funnelLogic = kea({
             actions.loadStepsWithCount()
             toast('Funnel saved!')
         },
+        [actions.createFunnelSuccess]: ({ funnel }) => {
+            actions.loadStepsWithCount(funnel.id)
+            toast('Funnel saved!')
+        },
     }),
-    events: ({ actions }) => ({
+
+    actionToUrl: ({ actions }) => ({
+        [actions.createFunnelSuccess]: ({ funnel }) => '/funnel/' + funnel.id,
+    }),
+
+    events: ({ actions, props }) => ({
         afterMount: () => {
+            if (!props.id) return actions.loadFunnelSuccess({ filters: {} })
             actions.loadFunnel()
             actions.loadStepsWithCount()
         },

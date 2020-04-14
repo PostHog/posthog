@@ -70,7 +70,7 @@ export default function App() {
                             <PrivateRoute path="/people/cohorts" component={Cohorts} user={user} />
                             <PrivateRoute path="/action/:id" component={Action} user={user} />
                             <PrivateRoute path="/action" component={Action} user={user} />
-                            <PrivateRoute path="/new-funnel" component={EditFunnel} user={user} />
+                            <PrivateRoute path="/new-funnel" component={Funnel} user={user} />
                             <PrivateRoute path="/funnel/:id" exact component={Funnel} user={user} />
                         </div>
                     </div>
