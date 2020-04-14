@@ -224,7 +224,7 @@ class TestTrends(BaseTest):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
         # test today + hourly
         with freeze_time('2020-01-02'):
-            action_response = self.client.get('/api/action/trends/?date_from=2020-01-02%2023%3A00&date_to=2020-01-02%2023%3A00&interval=hour').json()
+            action_response = self.client.get('/api/action/trends/?date_from=2020-01-02%2023%3A00%3A00&date_to=2020-01-02%2023%3A00%3A00&interval=hour').json()
         self.assertEqual(action_response[0]['labels'][23], 'Thu. 2 January, 23:00')
         self.assertEqual(action_response[0]['data'][23], 1.0)
 
@@ -341,23 +341,23 @@ class TestTrends(BaseTest):
         Event.objects.create(team=self.team, event='sign up', distinct_id='person7', timestamp='2019-11-07T16:50:00Z') # group by week and month
 
         # check solo hour
-        action_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%s&date_to=2020-01-04%s&type=actions&entityId=%s' % (' 14:00', ' 14:00', sign_up_action.id)).json()
-        event_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%2014%3A00&date_to=2020-01-04%2014%3A00&type=events&entityId=sign%20up').json()
+        action_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%s&date_to=2020-01-04%s&type=actions&entityId=%s' % (' 14:00:00', ' 14:00:00', sign_up_action.id)).json()
+        event_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%2014%3A00%3A00&date_to=2020-01-04%2014%3A00%3A00&type=events&entityId=sign%20up').json()
         self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
         self.assertEqual(len(action_response[0]['people']), 1)
         self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
 
         # check grouped hour
-        hour_grouped_action_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%s&date_to=2020-01-04%s&type=actions&entityId=%s' % (' 16:00', ' 16:00', sign_up_action.id)).json()
-        hour_grouped_grevent_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%2016%3A00&date_to=2020-01-04%2016%3A00&type=events&entityId=sign%20up').json()
+        hour_grouped_action_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%s&date_to=2020-01-04%s&type=actions&entityId=%s' % (' 16:00:00', ' 16:00:00', sign_up_action.id)).json()
+        hour_grouped_grevent_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%2016%3A00%3A00&date_to=2020-01-04%2016%3A00%3A00&type=events&entityId=sign%20up').json()
         self.assertEqual(hour_grouped_action_response[0]['people'][0]['id'], person2.pk)
         self.assertEqual(hour_grouped_action_response[0]['people'][1]['id'], person3.pk)
         self.assertEqual(len(hour_grouped_action_response[0]['people']), 2)
         self.assertTrue(self._compare_entity_response(hour_grouped_action_response, hour_grouped_grevent_response, remove=['action']))
 
         # check grouped minute
-        min_grouped_action_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%s&date_to=2020-01-04%s&type=actions&entityId=%s' % (' 19:20', ' 19:20', sign_up_action.id)).json()
-        min_grouped_grevent_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%2019%3A20&date_to=2020-01-04%2019%3A20&type=events&entityId=sign%20up').json()
+        min_grouped_action_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%s&date_to=2020-01-04%s&type=actions&entityId=%s' % (' 19:20:00', ' 19:20:00', sign_up_action.id)).json()
+        min_grouped_grevent_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%2019%3A20%3A00&date_to=2020-01-04%2019%3A20%3A00&type=events&entityId=sign%20up').json()
         self.assertEqual(min_grouped_action_response[0]['people'][0]['id'], person4.pk)
         self.assertEqual(min_grouped_action_response[0]['people'][1]['id'], person5.pk)
         self.assertEqual(len(min_grouped_action_response[0]['people']), 2)

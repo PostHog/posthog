@@ -4,6 +4,7 @@ from django.db.models import Q
 from typing import Dict
 from django.template.loader import get_template
 from django.http import HttpResponse, JsonResponse
+from dateutil import parser
 
 import datetime
 import re
@@ -18,7 +19,7 @@ def relative_date_parse(input: str) -> datetime.date:
     # when input also contains the time for intervals "hour" and "minute"
     # the above try fails. Try one more time from isoformat.
     try:
-        return datetime.datetime.fromisoformat(input)
+        return parser.isoparse(input)
     except ValueError:
         pass
 
