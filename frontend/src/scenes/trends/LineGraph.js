@@ -57,16 +57,17 @@ export class LineGraph extends Component {
                           return this.processDataset(datasetCopy, index)
                       }),
                       ...datasets.map((dataset, index) => {
-                          let datasetLength = dataset.data.length
-                          dataset.dotted = true
-                          dataset.borderDash = [10, 10]
-                          dataset.data =
-                              dataset.data.length > 2
-                                  ? dataset.data.map((datum, index) =>
+                          let datasetCopy = Object.assign({}, dataset)
+                          let datasetLength = datasetCopy.data.length
+                          datasetCopy.dotted = true
+                          datasetCopy.borderDash = [10, 10]
+                          datasetCopy.data =
+                              datasetCopy.data.length > 2
+                                  ? datasetCopy.data.map((datum, index) =>
                                         index == datasetLength - 1 || index == datasetLength - 2 ? datum : null
                                     )
-                                  : dataset.data
-                          return this.processDataset(dataset, index)
+                                  : datasetCopy.data
+                          return this.processDataset(datasetCopy, index)
                       }),
                   ]
                 : datasets.map((dataset, index) => this.processDataset(dataset, index))
