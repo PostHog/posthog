@@ -239,6 +239,7 @@ export const trendsLogic = kea({
 
     events: ({ actions, props }) => ({
         afterMount: () => {
+            api.get('api/event/sessions')
             if (props.dashboardItemId) {
                 // on dashboard
                 actions.setFilters(props.filters, false)

@@ -3,11 +3,14 @@ from posthog.utils import properties_to_Q
 from rest_framework import request, response, serializers, viewsets # type: ignore
 from rest_framework.decorators import action # type: ignore
 from django.http import HttpResponse, JsonResponse
-from django.db.models import Q, Count, QuerySet, query, F, Func, functions, Prefetch
+from django.db.models import Q, Count, QuerySet, query, F, Func, functions, Prefetch, DurationField, ExpressionWrapper
+from django.db.models.functions import Lag
+from django.db.models.expressions import Window
 from django.forms.models import model_to_dict
 from typing import Any, Union, Tuple, Dict, List
 import re
 import json
+import datetime
 
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
@@ -173,3 +176,18 @@ class EventViewSet(viewsets.ModelViewSet):
             events = events.extra(where=["properties ->> %s LIKE %s"], params=[request.GET['key'], '%{}%'.format(request.GET['value'])])
 
         return response.Response([{'name': event[key], 'count': event['count']} for event in events[:50]])
+
+    @action(methods=['GET'], detail=False)
+    def sessions(self, request: request.Request) -> response.Response:
+        events = self.get_queryset()
+
+        new_events = events.annotate(previous_event=Window(
+            expression=Lag('timestamp', default=None),
+            partition_by=F('distinct_id'),
+            order_by=F('timestamp').asc()
+        ))\
+            .annotate(time_diff=ExpressionWrapper(F('timestamp') - F('previous_event'), output_field=DurationField()))\
+            
+        sessions = events.annotate(time_diff=new_events.values('time_diff')[:1]).filter(time_diff__lte=datetime.timedelta(minutes=30))
+
+        return response.Response([])
