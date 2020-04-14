@@ -184,7 +184,7 @@ function DatePickerDropdown(props) {
                 <label className="secondary">From date</label>
                 <br />
                 <DatePicker
-                    popupStyle={{ zIndex: 2000 }}
+                    popupStyle={{ zIndex: 999999 }}
                     onOpenChange={open => {
                         setCalendarOpen(open)
                     }}
@@ -202,7 +202,7 @@ function DatePickerDropdown(props) {
                 <label className="secondary">To date</label>
                 <br />
                 <DatePicker
-                    popupStyle={{ zIndex: 2000 }}
+                    popupStyle={{ zIndex: 999999 }}
                     onOpenChange={open => setCalendarOpen(open)}
                     defaultValue={
                         props.rangeDateTo
