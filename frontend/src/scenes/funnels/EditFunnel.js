@@ -1,9 +1,6 @@
-import React, { Component } from 'react'
-import { Card, uuid, Loading, groupActions } from '../../lib/utils'
-import api from '../../lib/api'
-import { toast } from 'react-toastify'
+import React from 'react'
+import { Card, Loading } from '../../lib/utils'
 import { Link } from 'react-router-dom'
-import PropTypes from 'prop-types'
 import { actionsModel } from '../../models/actionsModel'
 import { useValues, useActions } from 'kea'
 import { funnelLogic } from './funnelLogic'
@@ -11,16 +8,14 @@ import { ActionFilter } from 'scenes/trends/ActionFilter/ActionFilter'
 import { Button } from 'antd';
 
 export function EditFunnel({ funnelId, onChange }) {
-    const { funnel, funnelLoading } = useValues(funnelLogic({ id: funnelId }))
-    const { setFunnel, funnelUpdateRequest } = useActions(funnelLogic({ id: funnelId }))
+    const { funnel } = useValues(funnelLogic({ id: funnelId }))
+    const { setFunnel, updateFunnel } = useActions(funnelLogic({ id: funnelId }))
     const { actions, actionsLoading } = useValues(actionsModel())
     return (
         <form
             onSubmit={e => {
                 e.preventDefault()
-                funnelUpdateRequest(funnel, () => {
-                    toast('Funnel saved!')
-                })
+                updateFunnel(funnel)
             }}
         >
             <Card>
@@ -42,7 +37,10 @@ export function EditFunnel({ funnelId, onChange }) {
                             </div>
                         )}
                         <br />
-                        <ActionFilter setFilters={filters => setFunnel({ filters })} defaultFilters={funnel.filters} />
+                        <ActionFilter
+                            setFilters={filters => setFunnel({ filters }, false)}
+                            defaultFilters={funnel.filters}
+                        />
                         <br />
                         <Button type="primary" htmlType="submit">
                             Save funnel

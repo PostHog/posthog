@@ -4,15 +4,8 @@ import { funnelLogic } from './funnelLogic'
 import { Link } from 'react-router-dom'
 import { Card, percentage, Loading } from '../../lib/utils'
 
-const sortPeople = (steps, people) => {
-    const score = person => {
-        return steps.reduce((val, step) => (step.people.indexOf(person.id) > -1 ? val + 1 : val), 0)
-    }
-    return people.sort((a, b) => score(b) - score(a))
-}
-
 export function People({ match }) {
-    const { stepsWithCount, people, peopleLoading } = useValues(funnelLogic({ id: match.params.id }))
+    const { stepsWithCount, peopleSorted, peopleLoading } = useValues(funnelLogic({ id: match.params.id }))
 
     return (
         <Card title="Per user">
@@ -37,8 +30,8 @@ export function People({ match }) {
                                 </td>
                             ))}
                     </tr>
-                    {people &&
-                        sortPeople(stepsWithCount, people).map(person => (
+                    {peopleSorted &&
+                        peopleSorted.map(person => (
                             <tr key={person.id}>
                                 <td className="text-overflow">
                                     <Link to={'/person_by_id/' + person.id}>{person.name}</Link>

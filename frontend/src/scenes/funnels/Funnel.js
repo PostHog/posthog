@@ -9,30 +9,34 @@ import { funnelLogic } from './funnelLogic'
 import { useValues, useActions } from 'kea'
 
 export function Funnel({ match }) {
-    const { funnel, funnelLoading, stepsWithCount, stepsWithCountLoading, filters } = useValues(
-        funnelLogic({ id: match.params.id })
-    )
-    const { setFilters } = useActions(funnelLogic({ id: match.params.id }))
-    if (funnelLoading || !funnel) return <Loading />
+    const id = match.params.id
+    const { funnel, funnelLoading, stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic({ id }))
+    const { setFunnel } = useActions(funnelLogic({ id }))
+    if (!funnel && funnelLoading) return <Loading />
     return (
         <div className="funnel">
             <h1>Funnel: {funnel.name}</h1>
-            <EditFunnel funnelId={match.params.id} />
+            <EditFunnel funnelId={id} />
             <Card
                 title={
                     <span>
                         <span className="float-right">
                             <DateFilter
                                 onChange={(date_from, date_to) =>
-                                    setFilters({
-                                        date_from,
-                                        date_to,
-                                    })
+                                    setFunnel(
+                                        {
+                                            filters: {
+                                                date_from,
+                                                date_to,
+                                            },
+                                        },
+                                        true
+                                    )
                                 }
-                                dateFrom={filters.date_from}
-                                dateTo={filters.date_to}
+                                dateFrom={funnel.filters.date_from}
+                                dateTo={funnel.filters.date_to}
                             />
-                            <SaveToDashboard filters={{ funnel_id: funnel.id }} type="FunnelViz" name={funnel.name} />
+                            <SaveToDashboard filters={{ funnel_id: id }} type="FunnelViz" name={funnel.name} />
                         </span>
                         Graph
                     </span>
