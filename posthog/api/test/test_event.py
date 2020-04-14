@@ -109,25 +109,6 @@ class TestEvents(BaseTest):
         response = self.client.get('/api/event/actions/?after=%s' % last_event.timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')).json()
         self.assertEqual(len(response['results']), 1)
 
-    def test_event_names(self):
-        Event.objects.create(team=self.team, event='user login')
-        Event.objects.create(team=self.team, event='user sign up')
-        Event.objects.create(team=self.team, event='user sign up')
-
-        response = self.client.get('/api/event/names/').json()
-        self.assertEqual(response[0]['name'], 'user login')
-        self.assertEqual(response[1]['name'], 'user sign up')
-
-    def test_event_property_names(self):
-        Event.objects.create(team=self.team, properties={'$browser': 'whatever', '$os': 'Mac OS X'})
-        Event.objects.create(team=self.team, properties={'random_prop': 'asdf'})
-        Event.objects.create(team=self.team, properties={'random_prop': 'asdf'})
-
-        response = self.client.get('/api/event/properties/').json()
-        self.assertEqual(response[0]['name'], '$browser')
-        self.assertEqual(response[1]['name'], '$os')
-        self.assertEqual(response[2]['name'], 'random_prop')
-
     def test_event_property_values(self):
         Event.objects.create(team=self.team, properties={'random_prop': 'asdf', 'some other prop': 'with some text'})
         Event.objects.create(team=self.team, properties={'random_prop': 'asdf'})

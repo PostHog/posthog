@@ -135,32 +135,6 @@ class EventViewSet(viewsets.ModelViewSet):
         return response.Response({'results': [self._serialize_actions(event) for event in matches]})
 
     @action(methods=['GET'], detail=False)
-    def names(self, request: request.Request) -> response.Response:
-        events = self.get_queryset()
-        events = events\
-            .exclude(event='$pageview')\
-            .exclude(event='$autocapture')\
-            .distinct('event')\
-            .values('event')\
-            .order_by('event')
-
-        return response.Response([{'name': event['event']} for event in events])
-
-    @action(methods=['GET'], detail=False)
-    def properties(self, request: request.Request) -> response.Response:
-        class JsonKeys(Func):
-            function = 'jsonb_object_keys'
-
-        events = self.get_queryset()
-        events = events\
-            .annotate(keys=JsonKeys('properties'))\
-            .values('keys')\
-            .distinct('keys')\
-            .order_by('keys')
-
-        return response.Response([{'name': event['keys']} for event in events])
-
-    @action(methods=['GET'], detail=False)
     def values(self, request: request.Request) -> response.Response:
         events = self.get_queryset()
         key = "properties__{}".format(request.GET.get('key'))

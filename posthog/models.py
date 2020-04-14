@@ -145,7 +145,6 @@ class TeamManager(models.Manager):
         DashboardItem.objects.create(team=team, name='Daily Active Users', type='ActionsLineGraph', filters={TREND_FILTER_TYPE_ACTIONS: [{'id': action.pk, 'math': 'dau', 'type': TREND_FILTER_TYPE_ACTIONS}]})
         return team
 
-
 class Team(models.Model):
     users: models.ManyToManyField = models.ManyToManyField(User, blank=True)
     api_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
@@ -154,6 +153,8 @@ class Team(models.Model):
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
     slack_incoming_webhook: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    event_names: JSONField = JSONField(default=list)
+    event_properties: JSONField = JSONField(default=list)
 
     objects = TeamManager()
 

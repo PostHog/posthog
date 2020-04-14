@@ -71,6 +71,18 @@ def _alias(distinct_id: str, new_distinct_id: str, team: Team):
             person.add_distinct_id(new_distinct_id)
             person.save()
 
+def _store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
+    save = False
+    if event not in team.event_names:
+        save = True
+        team.event_names.append(event)
+    for key in properties.keys():
+        if key not in team.event_properties:
+            team.event_properties.append(key)
+            save = True
+    if save:
+        team.save()
+
 def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict, timestamp: Union[datetime.datetime, str]) -> None:
     elements = properties.get('$elements')
     elements_list = None
@@ -101,6 +113,7 @@ def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict
         **({'timestamp': timestamp} if timestamp else {}),
         **({'elements': elements_list} if elements_list else {})
     )
+    _store_names_and_properties(team=team, event=event, properties=properties)
     # try to create a new person
     try:
         Person.objects.create(team=team, distinct_ids=[str(distinct_id)], is_user=request.user if not request.user.is_anonymous else None)
