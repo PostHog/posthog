@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0043_slack_webhooks'),
+        ('posthog', '0044_auto_20200413_1936'),
     ]
 
     operations = [
