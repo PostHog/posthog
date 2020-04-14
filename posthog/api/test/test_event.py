@@ -23,9 +23,7 @@ class TestEvents(BaseTest):
 
     def test_filter_events_by_event_name(self):
         person = Person.objects.create(properties={'email': 'tim@posthog.com'}, team=self.team, distinct_ids=["2", 'some-random-uid'])
-        event1 = Event.objects.create(event='event_name',team=self.team, distinct_id="2", properties={"$ip": '8.8.8.8'}, elements=[
-            Element(tag_name='button', text='something')
-        ])
+        event1 = Event.objects.create(event='event_name',team=self.team, distinct_id="2", properties={"$ip": '8.8.8.8'})
         with self.assertNumQueries(10):
             response = self.client.get('/api/event/?event=event_name').json()
         self.assertEqual(response['results'][0]['event'], 'event_name')
