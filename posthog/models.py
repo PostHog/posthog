@@ -467,7 +467,7 @@ class Funnel(models.Model):
         for index, step in enumerate(funnel_steps):
             filter_key = 'event' if step.get('type') == TREND_FILTER_TYPE_EVENTS else 'action__pk'
             annotations['step_{}'.format(index)] = Subquery(
-                Event.objects.all() # type: ignore
+                Event.objects.all()
                     .annotate(person_id=OuterRef('id'))
                     .filter(
                         **{filter_key: step['id']},
