@@ -166,3 +166,17 @@ class TestEvents(BaseTest):
         response = self.client.get('/api/event/?before=2020-01-09').json()
         self.assertEqual(len(response['results']), 1)
         self.assertEqual(response['results'][0]['id'], event2.pk)
+
+    def test_sessions(self):
+        with freeze_time("2012-01-14 03:21:34"):
+            Event.objects.create(team=self.team, event='1st action', distinct_id="1")
+            Event.objects.create(team=self.team, event='1st action', distinct_id="2")
+        with freeze_time("2012-01-14 03:25:34"):
+            Event.objects.create(team=self.team, event='2nd action', distinct_id="1")
+            Event.objects.create(team=self.team, event='2nd action', distinct_id="2")
+        with freeze_time("2012-01-15 03:59:34"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="1")
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
+
+        response = self.client.get('/api/event/sessions/').json()
+        self.assertEqual(len(response), 4)

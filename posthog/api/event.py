@@ -5,7 +5,8 @@ from rest_framework.decorators import action # type: ignore
 from django.http import HttpResponse, JsonResponse
 from django.db.models import Q, Count, QuerySet, query, F, Func, functions, Prefetch, DurationField, ExpressionWrapper
 from django.db.models.functions import Lag
-from django.db.models.expressions import Window
+from django.db import connection
+from django.db.models.expressions import Subquery, Window
 from django.forms.models import model_to_dict
 from typing import Any, Union, Tuple, Dict, List
 import re
@@ -181,7 +182,7 @@ class EventViewSet(viewsets.ModelViewSet):
     def sessions(self, request: request.Request) -> response.Response:
         events = self.get_queryset()
 
-        new_events = events\
+        subq = events\
             .annotate(previous_timestamp=Window(
                 expression=Lag('timestamp', default=None),
                 partition_by=F('distinct_id'),
@@ -193,11 +194,14 @@ class EventViewSet(viewsets.ModelViewSet):
                 order_by=F('timestamp').asc()
             ))\
             .annotate(time_diff=ExpressionWrapper(F('timestamp') - F('previous_timestamp'), output_field=DurationField()))\
-            
-        sessions = events\
-            .annotate(previous_event=new_events.values('previous_event')[:1])\
-            .annotate(time_diff=new_events.values('time_diff')[:1])\
-                .filter(time_diff__lte=datetime.timedelta(minutes=30))\
-                .filter(previous_event='$pageleave')
-                
-        return response.Response([])
+        
+        cursor = connection.cursor()
+        cursor.execute('\
+            SELECT id, event \
+                FROM ({}) AS sessions \
+                    WHERE EXTRACT(\'MINUTE\' FROM time_diff) >= 30 \
+                        OR previous_timestamp IS NULL \
+                        OR previous_event = \'$pageleave\''.format(subq.query.__str__()))
+        sessions = cursor.fetchall()
+        
+        return response.Response(sessions)
