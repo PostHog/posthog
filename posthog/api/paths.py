@@ -40,7 +40,7 @@ class PathsViewSet(viewsets.ViewSet):
     def list(self, request):
         team = request.user.team_set.get()
         resp = []
-        date_query = request_to_date_query(request)
+        date_query = request_to_date_query(request.GET)
         aggregate: QuerySet[PersonDistinctId] = PersonDistinctId.objects.filter(team=team)
 
         aggregate = self._add_event_and_url_at_position(aggregate, team, 1, date_query)

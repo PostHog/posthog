@@ -3,10 +3,11 @@ import { useActions, useValues } from 'kea'
 import { entityFilterLogic } from './actionFilterLogic'
 import { EntityTypes } from '../trendsLogic'
 import { ActionSelectPanel, ActionSelectTabs } from '~/lib/components/ActionSelectBox'
+import { Link } from 'react-router-dom'
 
 export function ActionFilterDropdown(props) {
     const dropdownRef = useRef()
-    const { formattedOptions, selectedFilter } = useValues(entityFilterLogic)
+    const { formattedOptions, selectedFilter } = useValues(entityFilterLogic({ typeKey: props.typeKey }))
 
     const deselect = e => {
         if (dropdownRef.current.contains(e.target)) {
@@ -23,7 +24,7 @@ export function ActionFilterDropdown(props) {
     }, [])
 
     return (
-        <div ref={dropdownRef}>
+        <div ref={dropdownRef} className="action-filter-dropdown">
             <ActionSelectTabs
                 selected={selectedFilter.type && selectedFilter.type != EntityTypes.NEW ? selectedFilter.type : null}
             >
@@ -37,6 +38,7 @@ export function ActionFilterDropdown(props) {
                             entityType={key}
                             options={options}
                             panelIndex={panelIndex}
+                            typeKey={props.typeKey}
                         ></ActionPanelContainer>
                     )
                 })}
@@ -45,10 +47,9 @@ export function ActionFilterDropdown(props) {
     )
 }
 
-export function ActionPanelContainer(props) {
-    const { entityType, panelIndex, options } = props
-    const { entities, selectedFilter, filters } = useValues(entityFilterLogic)
-    const { updateFilter } = useActions(entityFilterLogic)
+export function ActionPanelContainer({ entityType, panelIndex, options, typeKey }) {
+    const { entities, selectedFilter, filters } = useValues(entityFilterLogic({ typeKey }))
+    const { updateFilter } = useActions(entityFilterLogic({ typeKey }))
     let dropDownOnSelect = item => updateFilter({ type: entityType, value: item.value, index: selectedFilter.index })
     let dropDownOnHover = value => entities[entityType].filter(a => a.id == value)[0]
 
