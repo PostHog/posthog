@@ -5,21 +5,8 @@ import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 
 export function ActionFilter({ setFilters, defaultFilters, showMaths, typeKey }) {
-    const { allFilters, filters } = useValues(entityFilterLogic({ setFilters, defaultFilters, typeKey }))
-    const { createNewFilter, initializeLocalFilters } = useActions(
-        entityFilterLogic({ setFilters, defaultFilters, typeKey })
-    )
-
-    useEffect(() => {
-        if (allFilters.length == 0) {
-            let filterscount =
-                (filters.actions ? filters.actions.length : 0) + (filters.events ? filters.events.length : 0)
-            let allfilters = allFilters.filter(f => f.id != null)
-            if (filterscount != allfilters.length) {
-                initializeLocalFilters()
-            }
-        }
-    }, [filters])
+    const { allFilters } = useValues(entityFilterLogic({ setFilters, defaultFilters, typeKey }))
+    const { createNewFilter } = useActions(entityFilterLogic({ setFilters, defaultFilters, typeKey }))
 
     return (
         <div>

@@ -34,7 +34,6 @@ export const entityFilterLogic = kea({
         removeLocalFilter: filter => ({ value: filter.value, type: filter.type, index: filter.index }),
         createNewFilter: true,
         setLocalFilters: filters => ({ filters }),
-        initializeLocalFilters: true,
     }),
 
     reducers: ({ actions, props }) => ({
