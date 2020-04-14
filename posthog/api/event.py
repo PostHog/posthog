@@ -58,8 +58,8 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         for key, value in request.GET.items():
-            if key in ('event', 'ip'):
-                pass
+            if key == 'event':
+                queryset = queryset.filter(event=request.GET['event'])
             elif key == 'after':
                 queryset = queryset.filter(timestamp__gt=request.GET['after'])
             elif key == 'before':
