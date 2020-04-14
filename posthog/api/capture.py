@@ -30,7 +30,7 @@ def cors_response(request, response):
     response["Access-Control-Allow-Headers"] = 'X-Requested-With'
     return response
 
-def _load_data(request) -> Union[Dict, None]:
+def _load_data(request) -> Optional[Union[Dict, List]]:
     if request.method == 'POST':
         if request.content_type == 'application/json':
             data = request.body
@@ -40,13 +40,14 @@ def _load_data(request) -> Union[Dict, None]:
         data = request.GET.get('data')
     if not data:
         return None
-    
+
     #  Is it plain json?
     try:
         data = json.loads(data)
     except json.JSONDecodeError:
         # if not, it's probably base64 encoded from other libraries
         data = json.loads(base64.b64decode(data + "===").decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
+    # FIXME: data can also be an array, function assumes it's either None or a dictionary.
     return data
 
 def _alias(distinct_id: str, new_distinct_id: str, team: Team):
@@ -175,16 +176,17 @@ def get_event(request):
     if not token:
         return cors_response(request, JsonResponse({'code': 'validation', 'message': "No api_key set. You can find your API key in the /setup page in posthog"}, status=400))
 
-    if not isinstance(data, list) and data.get('batch'): # posthog-python and posthog-ruby
-        data = data['batch']
-
-    if 'engage' in request.path_info: # JS identify call
-        data['event'] = '$identify' # make sure it has an event name
-
     try:
         team = Team.objects.get(api_token=token)
     except Team.DoesNotExist:
         return cors_response(request, JsonResponse({'code': 'validation', 'message': "API key is incorrect. You can find your API key in the /setup page in PostHog."}, status=400))
+
+    if isinstance(data, dict):
+        if data.get('batch'): # posthog-python and posthog-ruby
+            data = data['batch']
+            assert data is not None
+        elif 'engage' in request.path_info: # JS identify call
+            data['event'] = '$identify' # make sure it has an event name
 
     if isinstance(data, list):
         for i in data:

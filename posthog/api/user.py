@@ -11,7 +11,7 @@ import requests
 import urllib.parse
 import secrets
 import json
-import posthoganalytics # type: ignore
+import posthoganalytics
 
 def user(request):
     if not request.user.is_authenticated:
@@ -94,7 +94,7 @@ def change_password(request):
         return JsonResponse({'error': 'Incorrect old password'}, status=400)
 
     try:
-        validate_password(new_password, user)
+        validate_password(new_password, request.user)
     except ValidationError as err:
         return JsonResponse({'error': err.messages[0]}, status=400)
 
@@ -118,24 +118,20 @@ def test_slack_webhook(request):
 
     webhook = body.get('webhook')
 
-    if webhook:
-        message = {
-            "text": "Greetings from PostHog!"
-        }
-        try:
-            response = requests.post(webhook, verify=False, json=message)
-
-            if response.ok:
-                if response.text == 'ok':
-                    return JsonResponse({'success': True})
-                else:
-                    return JsonResponse({'error': 'invalid webhook url'})
-            else:
-                return JsonResponse({'error': response.text})
-        except:
-            return JsonResponse({'error': 'invalid webhook url'})
-
-    else:
+    if not webhook:
         return JsonResponse({'error': 'no webhook'})
+    message = {
+        "text": "Greetings from PostHog!"
+    }
+    try:
+        response = requests.post(webhook, verify=False, json=message)
 
-    return JsonResponse({})
+        if response.ok:
+            if response.text == 'ok':
+                return JsonResponse({'success': True})
+            else:
+                return JsonResponse({'error': 'invalid webhook url'})
+        else:
+            return JsonResponse({'error': response.text})
+    except:
+        return JsonResponse({'error': 'invalid webhook url'})

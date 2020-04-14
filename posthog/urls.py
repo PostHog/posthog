@@ -1,3 +1,4 @@
+from typing import cast, Optional
 from django.contrib import admin
 from django.urls import path, include, re_path
 from django.views.generic.base import TemplateView
@@ -14,7 +15,7 @@ from .utils import render_template
 from .views import health, stats
 from posthog.demo import demo, delete_demo_data
 import json
-import posthoganalytics # type: ignore
+import posthoganalytics
 import os
 
 from rest_framework import permissions
@@ -33,7 +34,7 @@ def login_view(request):
     if request.method == 'POST':
         email = request.POST['email']
         password = request.POST['password']
-        user = authenticate(request, email=email, password=password)
+        user = cast(Optional[User], authenticate(request, email=email, password=password))
         if user is not None:
             login(request, user, backend='django.contrib.auth.backends.ModelBackend')
             if user.distinct_id:
@@ -193,8 +194,8 @@ if settings.DEBUG:
     ]
 
 if hasattr(settings, 'INCLUDE_API_DOCS'):
-    from drf_yasg.views import get_schema_view # type: ignore
-    from drf_yasg import openapi # type: ignore
+    from drf_yasg.views import get_schema_view
+    from drf_yasg import openapi
     schema_view = get_schema_view(
         openapi.Info(
             title="PostHog API",

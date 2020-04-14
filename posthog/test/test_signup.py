@@ -1,8 +1,8 @@
 from django.test import TestCase, Client
 from posthog.models import User, DashboardItem, Action, Person, Event, Team
-from social_django.strategy import DjangoStrategy # type: ignore
-from social_django.models import DjangoStorage # type: ignore
-from social_core.utils import module_member # type: ignore
+from social_django.strategy import DjangoStrategy
+from social_django.models import DjangoStorage
+from social_core.utils import module_member
 from posthog.urls import social_create_user
 
 class TestSignup(TestCase):

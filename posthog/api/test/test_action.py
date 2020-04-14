@@ -1,6 +1,6 @@
 from .base import BaseTest
 from posthog.models import Action, ActionStep, Event, Element, Person
-from freezegun import freeze_time # type: ignore
+from freezegun import freeze_time
 from urllib import parse
 import json
 
@@ -70,6 +70,8 @@ class TestCreateAction(BaseTest):
     # otherwise evil sites could create actions with a users' session.
     # NOTE: Origin header is only set on cross domain request
     def test_create_from_other_domain(self):
+        # FIXME: BaseTest is using Django client to performe calls to a DRF endpoint.
+        # Django HttpResponse does not have an attribute `data`. Better use rest_framework.test.APIClient.
         response = self.client.post('/api/action/', data={
             'name': 'user signed up',
         }, content_type='application/json', HTTP_ORIGIN='https://evilwebsite.com')
@@ -88,7 +90,7 @@ class TestCreateAction(BaseTest):
             'post_to_slack': True
         }, content_type='application/json', HTTP_ORIGIN='https://somewebsite.com')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data['post_to_slack'], True)
+        self.assertEqual(response.json()['post_to_slack'], True)
 
         list_response = self.client.get('/api/action/', content_type='application/json', HTTP_ORIGIN='https://evilwebsite.com')
         self.assertEqual(list_response.status_code, 403)
