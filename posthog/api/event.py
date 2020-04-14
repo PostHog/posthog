@@ -181,13 +181,23 @@ class EventViewSet(viewsets.ModelViewSet):
     def sessions(self, request: request.Request) -> response.Response:
         events = self.get_queryset()
 
-        new_events = events.annotate(previous_event=Window(
-            expression=Lag('timestamp', default=None),
-            partition_by=F('distinct_id'),
-            order_by=F('timestamp').asc()
-        ))\
-            .annotate(time_diff=ExpressionWrapper(F('timestamp') - F('previous_event'), output_field=DurationField()))\
+        new_events = events\
+            .annotate(previous_timestamp=Window(
+                expression=Lag('timestamp', default=None),
+                partition_by=F('distinct_id'),
+                order_by=F('timestamp').asc()
+            ))\
+            .annotate(previous_event=Window(
+                expression=Lag('event', default=None),
+                partition_by=F('distinct_id'),
+                order_by=F('timestamp').asc()
+            ))\
+            .annotate(time_diff=ExpressionWrapper(F('timestamp') - F('previous_timestamp'), output_field=DurationField()))\
             
-        sessions = events.annotate(time_diff=new_events.values('time_diff')[:1]).filter(time_diff__lte=datetime.timedelta(minutes=30))
-
+        sessions = events\
+            .annotate(previous_event=new_events.values('previous_event')[:1])\
+            .annotate(time_diff=new_events.values('time_diff')[:1])\
+                .filter(time_diff__lte=datetime.timedelta(minutes=30))\
+                .filter(previous_event='$pageleave')
+                
         return response.Response([])
