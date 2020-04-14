@@ -141,6 +141,7 @@ class TeamManager(models.Manager):
             type='ActionsTable',
             filters={TREND_FILTER_TYPE_ACTIONS: [{'id': action.pk, 'type': TREND_FILTER_TYPE_ACTIONS}], 'display': 'ActionsTable', 'breakdown': '$browser'}
         )
+        DashboardItem.objects.create(team=team, name='Daily Active Users', type='ActionsLineGraph', filters={TREND_FILTER_TYPE_ACTIONS: [{'id': action.pk, 'math': 'dau', 'type': TREND_FILTER_TYPE_ACTIONS}]})
         return team
 
 
