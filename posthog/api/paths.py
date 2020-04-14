@@ -1,4 +1,3 @@
-from __future__ import annotations
 from rest_framework import viewsets
 from rest_framework.response import Response
 from posthog.models import Event, PersonDistinctId, Team
