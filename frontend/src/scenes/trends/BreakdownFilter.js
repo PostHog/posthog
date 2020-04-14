@@ -1,28 +1,26 @@
 import React, { Component } from 'react'
-import Select from 'react-select'
 import { selectStyle } from '../../lib/utils'
+import { Select } from 'antd'
 
 export class BreakdownFilter extends Component {
     render() {
         return (
             <div style={{ width: 200, display: 'inline-block' }}>
                 <Select
-                    cacheOptions
-                    defaultOptions
                     style={{ width: 200 }}
                     placeholder={'Break down by'}
-                    value={
-                        this.props.breakdown
-                            ? {
-                                  label: this.props.breakdown,
-                                  value: this.props.breakdown,
-                              }
-                            : null
-                    }
-                    onChange={item => this.props.onChange(item.value)}
+                    value={this.props.breakdown ? this.props.breakdown : undefined}
+                    onChange={value => this.props.onChange(value)}
                     styles={selectStyle}
-                    options={this.props.properties}
-                />
+                >
+                    {Object.entries(this.props.properties).map(([key, item]) => {
+                        return (
+                            <Select.Option key={key} value={item.value}>
+                                {item.label}
+                            </Select.Option>
+                        )
+                    })}
+                </Select>
             </div>
         )
     }

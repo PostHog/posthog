@@ -23,55 +23,25 @@ export class Modal extends Component {
     }
     render() {
         return !this.state.dismissed ? (
-            <div>
-                <div
-                    className="modal-backdrop fade show"
-                    onClick={this.dismiss}
-                ></div>
-                <div
-                    className="modal fade show"
-                    style={{ display: 'block' }}
-                    onClick={this.dismiss}
-                >
+            <div style={{ position: 'absolute' }}>
+                <div className="modal-backdrop fade show" onClick={this.dismiss}></div>
+                <div className="modal fade show" style={{ display: 'block' }} onClick={this.dismiss}>
                     <div className="modal-dialog modal-lg" role="document">
-                        <div
-                            className="modal-content"
-                            onClick={event => event.stopPropagation()}
-                        >
+                        <div className="modal-content" onClick={event => event.stopPropagation()}>
                             {this.props.title && (
                                 <div className="modal-header">
-                                    <h5
-                                        className="modal-title"
-                                        style={{ width: '100%' }}
-                                    >
-                                        {typeof this.props.title === 'function'
-                                            ? this.props.title()
-                                            : this.props.title}
+                                    <h5 className="modal-title" style={{ width: '100%' }}>
+                                        {typeof this.props.title === 'function' ? this.props.title() : this.props.title}
                                     </h5>
-                                    <button
-                                        type="button"
-                                        className="close"
-                                        onClick={this.dismiss}
-                                    >
-                                        <span style={{ display: 'block' }}>
-                                            ×
-                                        </span>
+                                    <button type="button" className="close" onClick={this.dismiss}>
+                                        <span style={{ display: 'block' }}>×</span>
                                     </button>
                                 </div>
                             )}
-                            <div
-                                className="modal-body"
-                                style={{ fontSize: 15 }}
-                            >
+                            <div className="modal-body" style={{ fontSize: 15 }}>
                                 {!this.props.title && (
-                                    <button
-                                        type="button"
-                                        className="close"
-                                        onClick={this.dismiss}
-                                    >
-                                        <span style={{ display: 'block' }}>
-                                            ×
-                                        </span>
+                                    <button type="button" className="close" onClick={this.dismiss}>
+                                        <span style={{ display: 'block' }}>×</span>
                                     </button>
                                 )}
                                 {this.props.children}
@@ -85,9 +55,7 @@ export class Modal extends Component {
                                         onClick={this.dismiss}
                                         data-dismiss="modal"
                                     >
-                                        {this.props.closeButton
-                                            ? this.props.closeButton
-                                            : 'Close'}
+                                        {this.props.closeButton ? this.props.closeButton : 'Close'}
                                     </button>
                                 </div>
                             )}

@@ -8,11 +8,7 @@ export class Dropdown extends Component {
         this.open = this.open.bind(this)
     }
     close(e) {
-        if (
-            e.target.closest('.dropdown-no-close') ||
-            e.target.closest('.react-datepicker')
-        )
-            return
+        if (e.target.closest('.dropdown-no-close') || e.target.closest('.react-datepicker')) return
         this.setState({ menuOpen: false })
         document.removeEventListener('click', this.close)
     }
@@ -43,9 +39,10 @@ export class Dropdown extends Component {
                     {this.props.title || <span>&hellip;</span>}
                 </a>
                 <div
-                    className={
-                        'dropdown-menu ' + (this.state.menuOpen && 'show')
-                    }
+                    className={'dropdown-menu ' + (this.state.menuOpen && 'show')}
+                    style={{
+                        borderRadius: 2,
+                    }}
                     aria-labelledby="dropdownMenuButton"
                 >
                     {this.props.children}

@@ -1,6 +1,6 @@
 import React from 'react'
-import { Dropdown } from './Dropdown'
 import { disableMinuteFor, disableHourFor } from '../../scenes/trends/trendsLogic'
+import { Select } from 'antd'
 
 let intervalMapping = {
     minute: 'Minute',
@@ -13,38 +13,27 @@ let intervalMapping = {
 export function IntervalFilter({ filters, setFilters }) {
     const { interval, date_from } = filters
     return (
-        <Dropdown
-            title={intervalMapping[interval]}
-            buttonClassName="btn btn-sm btn-light"
-            buttonStyle={{ margin: '0 8px' }}
+        <Select
+            bordered={false}
+            defaultValue={intervalMapping[interval]}
+            value={intervalMapping[interval]}
+            dropdownMatchSelectWidth={false}
+            onChange={key => {
+                const minute_disabled = key === 'minute' && disableMinuteFor[date_from]
+                const hour_disabled = key === 'hour' && disableHourFor[date_from]
+                if (minute_disabled || hour_disabled) {
+                    return false
+                }
+                setFilters({ interval: key })
+            }}
         >
-            <span>
-                {Object.entries(intervalMapping).map(([key, value]) => {
-                    const minute_disabled = key === 'minute' && disableMinuteFor[date_from]
-                    const hour_disabled = key === 'hour' && disableHourFor[date_from]
-                    let className = 'dropdown-item'
-                    if (minute_disabled || hour_disabled) className = 'dropdown-item disabled'
-                    return (
-                        <a
-                            className={className}
-                            key={key}
-                            href="#"
-                            onClick={e => {
-                                e.preventDefault()
-
-                                if (minute_disabled || hour_disabled) {
-                                    console.log('minutes disabled')
-                                    return false
-                                }
-
-                                setFilters({ interval: key })
-                            }}
-                        >
-                            {value}
-                        </a>
-                    )
-                })}
-            </span>
-        </Dropdown>
+            {Object.entries(intervalMapping).map(([key, value]) => {
+                return (
+                    <Select.Option key={key} value={key}>
+                        {value}
+                    </Select.Option>
+                )
+            })}
+        </Select>
     )
 }
