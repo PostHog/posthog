@@ -3,6 +3,7 @@ import api from '../api'
 import { Modal } from './Modal'
 import { toast } from 'react-toastify'
 import { Link } from 'react-router-dom'
+import { Button } from 'antd'
 
 export class SaveToDashboard extends Component {
     constructor(props) {
@@ -33,10 +34,7 @@ export class SaveToDashboard extends Component {
     }
     Modal() {
         return (
-            <Modal
-                title="Add graph to dashboard"
-                onDismiss={() => this.setState({ openModal: false })}
-            >
+            <Modal title="Add graph to dashboard" onDismiss={() => this.setState({ openModal: false })}>
                 <form onSubmit={this.save}>
                     <label>Panel name on dashboard</label>
                     <input
@@ -60,14 +58,9 @@ export class SaveToDashboard extends Component {
         return (
             <span className="save-to-dashboard">
                 {this.state.openModal && <this.Modal />}
-                <button
-                    onClick={() => this.setState({ openModal: true })}
-                    className={
-                        'btn btn-secondary btn-sm ' + this.props.className
-                    }
-                >
+                <Button onClick={() => this.setState({ openModal: true })} type="primary">
                     Add to dashboard
-                </button>
+                </Button>
             </span>
         )
     }

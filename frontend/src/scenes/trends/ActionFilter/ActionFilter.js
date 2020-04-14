@@ -2,6 +2,7 @@ import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { entityFilterLogic } from './actionFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
+import { Button } from 'antd'
 
 export function ActionFilter(props) {
     const { allFilters, filters } = useValues(entityFilterLogic)
@@ -24,13 +25,9 @@ export function ActionFilter(props) {
                 allFilters.map((filter, index) => {
                     return <ActionFilterRow filter={filter} index={index} key={index}></ActionFilterRow>
                 })}
-            <button
-                className="btn btn-sm btn-outline-success"
-                onClick={() => createNewFilter()}
-                style={{ marginTop: '0.5rem' }}
-            >
+            <Button type="primary" onClick={() => createNewFilter()} style={{ marginTop: '0.5rem' }}>
                 Add Element
-            </button>
+            </Button>
         </div>
     )
 }
