@@ -20,57 +20,56 @@ export class LineGraph extends Component {
         }
     }
 
+    processDataset = (dataset, index) => {
+        let colors = ['blue', 'orange', 'green', 'red', 'purple', 'gray']
+        let getVar = variable => getComputedStyle(document.body).getPropertyValue('--' + variable)
+        return {
+            borderColor: getVar(colors[index]),
+            backgroundColor: (this.props.type == 'bar' || this.props.type == 'doughnut') && getVar(colors[index]),
+            fill: false,
+            borderWidth: 1,
+            pointHitRadius: 8,
+            ...dataset,
+        }
+    }
+
     buildChart = () => {
         const myChartRef = this.chartRef.current.getContext('2d')
         let { datasets, labels, options } = this.props
 
         if (typeof this.myLineChart !== 'undefined') this.myLineChart.destroy()
-        let colors = ['blue', 'orange', 'green', 'red', 'purple', 'gray']
-        let getVar = variable => getComputedStyle(document.body).getPropertyValue('--' + variable)
         const _this = this
-        datasets = [
-            ...datasets.map((dataset, index) => {
-                let data = [...dataset['data']]
-                let labels = [...dataset['labels']]
-                let days = [...dataset['days']]
-                data.pop()
-                labels.pop()
-                days.pop()
-                return {
-                    borderColor: getVar(colors[index]),
-                    backgroundColor:
-                        (this.props.type == 'bar' || this.props.type == 'doughnut') && getVar(colors[index]),
-                    fill: false,
-                    borderWidth: 1,
-                    pointHitRadius: 8,
-                    ...dataset,
-                    data,
-                    labels,
-                    days,
-                }
-            }),
-            ...datasets.map((dataset, index) => {
-                let datasetLength = dataset['data'].length
-                let data =
-                    dataset['data'].length > 2
-                        ? dataset['data'].map((datum, index) =>
-                              index == datasetLength - 1 || index == datasetLength - 2 ? datum : null
-                          )
-                        : dataset['data']
-                return {
-                    borderColor: getVar(colors[index]),
-                    backgroundColor:
-                        (this.props.type == 'bar' || this.props.type == 'doughnut') && getVar(colors[index]),
-                    fill: false,
-                    borderDash: [10, 10],
-                    borderWidth: 1,
-                    pointHitRadius: 8,
-                    dotted: true,
-                    ...dataset,
-                    data,
-                }
-            }),
-        ]
+        // if chart is line graph, make duplicate lines and overlay to show dotted lines
+        datasets =
+            !this.props.type || this.props.type == 'line'
+                ? [
+                      ...datasets.map((dataset, index) => {
+                          let datasetCopy = Object.assign({}, dataset)
+                          let data = [...dataset.data]
+                          let labels = [...dataset.labels]
+                          let days = [...dataset.days]
+                          data.pop()
+                          labels.pop()
+                          days.pop()
+                          datasetCopy.data = data
+                          datasetCopy.labels = labels
+                          datasetCopy.days = days
+                          return this.processDataset(datasetCopy, index)
+                      }),
+                      ...datasets.map((dataset, index) => {
+                          let datasetLength = dataset.data.length
+                          dataset.dotted = true
+                          dataset.borderDash = [10, 10]
+                          dataset.data =
+                              dataset.data.length > 2
+                                  ? dataset.data.map((datum, index) =>
+                                        index == datasetLength - 1 || index == datasetLength - 2 ? datum : null
+                                    )
+                                  : dataset.data
+                          return this.processDataset(dataset, index)
+                      }),
+                  ]
+                : datasets.map((dataset, index) => this.processDataset(dataset, index))
 
         this.myLineChart = new Chart(myChartRef, {
             type: this.props.type || 'line',

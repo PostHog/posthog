@@ -18,6 +18,7 @@ export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam
     return results ? (
         results[0] && results[0].labels ? (
             <LineGraph
+                type="line"
                 datasets={results}
                 labels={results[0].labels}
                 onClick={
