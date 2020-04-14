@@ -32,11 +32,9 @@ export const entityFilterLogic = kea({
         }),
         updateFilter: filter => ({ type: filter.type, index: filter.index, value: filter.value }),
         removeLocalFilter: filter => ({ value: filter.value, type: filter.type, index: filter.index }),
-        removeFilter: filter => ({ value: filter.value, type: filter.type, index: filter.index }),
         createNewFilter: true,
         setLocalFilters: filters => ({ filters }),
         initializeLocalFilters: true,
-        setFilters: filters => ({ filters }),
     }),
 
     reducers: ({ actions, props }) => ({
@@ -46,17 +44,15 @@ export const entityFilterLogic = kea({
                 [actions.selectFilter]: (state, { filter }) => filter,
             },
         ],
-        filters: [
-            {},
-            {
-                [actions.setFilters]: (state, { filters }) => ({ ...state, ...filters }),
-            },
-        ],
         allFilters: [
             [],
             {
-                [actions.setLocalFilters]: (state, { filters }) => filters,
-                [actions.createNewFilter]: state => [...state, { id: null, type: EntityTypes.NEW }],
+                [actions.setLocalFilters]: (state, { filters }) =>
+                    filters.map((filter, index) => ({ ...filter, order: index })),
+                [actions.createNewFilter]: state => [
+                    ...state,
+                    { id: null, type: EntityTypes.NEW, order: state.length },
+                ],
             },
         ],
     }),
@@ -80,27 +76,19 @@ export const entityFilterLogic = kea({
                 }
             },
         ],
+        filters: [
+            () => [selectors.allFilters],
+            allFilters => {
+                return {
+                    [EntityTypes.ACTIONS]: allFilters.filter(filter => filter.type == EntityTypes.ACTIONS),
+                    [EntityTypes.EVENTS]: allFilters.filter(filter => filter.type == EntityTypes.EVENTS),
+                }
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
-        [actions.initializeLocalFilters]: () => {
-            actions.setLocalFilters([...(values.filters.actions || []), ...(values.filters.events || [])])
-        },
         [actions.updateFilter]: ({ type, index, value }) => {
-            if (!values.filters[type]) values.filters[type] = []
-            let newFilters = values.filters[type]
-            newFilters.push({ id: value, type })
-
-            // if the types are the same update together otherwise can dispatch to action
-            if (type == values.selectedFilter.type) {
-                let target = newFilters.findIndex(e => e.id == values.selectedFilter.filter.id)
-                newFilters.splice(target, 1)
-            } else {
-                actions.removeFilter({ type: values.selectedFilter.type, value: values.selectedFilter.filter.id })
-            }
-
-            actions.setFilters({ [type]: newFilters })
-
             let currentfilters = values.allFilters ? [...values.allFilters] : []
             currentfilters[index] = {
                 id: value,
@@ -109,39 +97,25 @@ export const entityFilterLogic = kea({
             actions.setLocalFilters(currentfilters)
             actions.selectFilter(null)
         },
-        [actions.updateFilterMath]: ({ type, value, math, index }) => {
-            // parent logic change
-            let newFilters = values.filters[type] ? [...values.filters[type]] : []
-            let target = newFilters.findIndex(e => e.id == value)
-            newFilters[target].math = math
-            actions.setFilters({ [type]: newFilters })
-
-            // local changes
+        [actions.updateFilterMath]: ({ math, index }) => {
             let currentfilters = values.allFilters ? [...values.allFilters] : []
             currentfilters[index].math = math
             actions.setLocalFilters(currentfilters)
         },
-        [actions.removeLocalFilter]: ({ type, value, index }) => {
-            actions.removeFilter({ type, value })
+        [actions.removeLocalFilter]: ({ index }) => {
             let currentfilters = values.allFilters ? [...values.allFilters] : []
             currentfilters.splice(index, 1)
             actions.setLocalFilters(currentfilters)
         },
-        [actions.removeFilter]: ({ type, value }) => {
-            let newFilters = values.filters[type] ? [...values.filters[type]] : []
-            let target = newFilters.findIndex(e => e.id == value)
-            newFilters.splice(target, 1)
-            actions.setFilters({ [type]: newFilters })
-        },
-        [actions.setFilters]: ({ filters }) => {
+        [actions.setLocalFilters]: ({ filters }) => {
             props.setFilters(values.filters)
         },
     }),
 
     events: ({ actions, props }) => ({
         afterMount: () => {
-            actions.setFilters({ actions: [], events: [], ...props.defaultFilters })
-            actions.initializeLocalFilters()
+            let sort = (a, b) => a.order - b.order
+            actions.setLocalFilters([...props.defaultFilters.actions, ...props.defaultFilters.events].sort(sort))
         },
     }),
 })

@@ -500,6 +500,7 @@ class Funnel(models.Model):
 
     def get_steps(self) -> List[Dict[str, Any]]:
         funnel_steps = self.filters.get('actions', []) + self.filters.get('events', [])
+        funnel_steps = sorted(funnel_steps, key=lambda step: step['order'])
         people = Person.objects.all()\
             .filter(
                 team_id=self.team_id,

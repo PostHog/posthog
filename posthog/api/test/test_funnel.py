@@ -19,26 +19,19 @@ class TestCreateFunnel(BaseTest):
         response = self.client.post('/api/funnel/', data={
             'name': 'Whatever',
             'filters': {
+                'events': [
+                    {'id': 'user signed up', 'type': 'events', 'order': 0},
+                ],
                 'actions': [
-                    {'id': action_sign_up.pk, 'type': 'actions'},
-                    {'id': 'user signed up', 'type': 'events'},
+                    {'id': action_sign_up.pk, 'type': 'actions', 'order': 1},
                 ]
             }
         }, content_type='application/json').json()
         funnels = Funnel.objects.get()
         self.assertEqual(funnels.filters['actions'][0]['id'], action_sign_up.pk) 
-        self.assertEqual(funnels.filters['actions'][1]['id'], 'user signed up') 
-
-        del response['filters']['actions'][1]
-        response['filters']['actions'][0]['id'] = action_play_movie.pk
-        response['filters']['actions'].append({'id': action_logout.pk, 'type': 'actions'})
-        response = self.client.patch('/api/funnel/%s/' % response['id'], data=response, content_type='application/json').json()
-        funnel = Funnel.objects.get()
-        self.assertEqual(funnel.filters['actions'][0]['id'], action_play_movie.pk)
-        self.assertEqual(funnel.filters['actions'][1]['id'], action_logout.pk) 
-
-        response['filters']['actions'] = []
-        response = self.client.patch('/api/funnel/%s/' % response['id'], data=response, content_type='application/json').json()
+        self.assertEqual(funnels.filters['events'][0]['id'], 'user signed up') 
+        self.assertEqual(funnels.get_steps()[0]['order'], 0)
+        self.assertEqual(funnels.get_steps()[1]['order'], 1)
 
     def test_delete_funnel(self):
         funnel = Funnel.objects.create(team=self.team)
@@ -85,10 +78,12 @@ class TestGetFunnel(BaseTest):
             team=self.team,
             name='funnel',
             filters={
+                'events': [
+                    {'id': 'user signed up', 'type': 'events', 'order': 0},
+                ],
                 'actions': [
-                    {'id': 'user signed up', 'type': 'events'},
-                    {'id': action_credit_card.pk, 'type': 'actions'},
-                    {'id': action_play_movie.pk, 'type': 'actions'},
+                    {'id': action_credit_card.pk, 'type': 'actions', 'order': 1},
+                    {'id': action_play_movie.pk, 'type': 'actions', 'order': 2},
                 ]
             }
         )
