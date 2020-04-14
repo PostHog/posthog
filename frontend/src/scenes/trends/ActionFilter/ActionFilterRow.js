@@ -6,10 +6,10 @@ import { CloseButton } from '~/lib/utils'
 import { Dropdown } from '~/lib/components/Dropdown'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 
-export function ActionFilterRow({ filter, index, showMaths }) {
+export function ActionFilterRow({ filter, index, showMaths, typeKey }) {
     const node = useRef()
-    const { selectedFilter, entities } = useValues(entityFilterLogic)
-    const { selectFilter, updateFilterMath, removeLocalFilter } = useActions(entityFilterLogic)
+    const { selectedFilter, entities } = useValues(entityFilterLogic({ typeKey }))
+    const { selectFilter, updateFilterMath, removeLocalFilter } = useActions(entityFilterLogic({ typeKey }))
 
     let entity, dropDownCondition, onClick, onClose, onMathSelect, name, value, math
     math = filter.math
@@ -65,6 +65,7 @@ export function ActionFilterRow({ filter, index, showMaths }) {
             />
             {dropDownCondition() && (
                 <ActionFilterDropdown
+                    typeKey={typeKey}
                     onClickOutside={e => {
                         if (node.current.contains(e.target)) {
                             return

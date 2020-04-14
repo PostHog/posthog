@@ -18,6 +18,7 @@ const mirrorValues = (entities, newKey, valueKey) => {
 }
 
 export const entityFilterLogic = kea({
+    key: props => props.typeKey,
     connect: {
         values: [propertiesModel, ['properties'], actionsModel, ['actions', 'actionsGrouped'], eventsModel, ['events']],
     },

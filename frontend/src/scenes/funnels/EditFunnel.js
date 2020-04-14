@@ -40,6 +40,7 @@ export function EditFunnel({ funnelId, onChange }) {
                         <ActionFilter
                             setFilters={filters => setFunnel({ filters }, false)}
                             defaultFilters={funnel.filters}
+                            typeKey="edit-funnel"
                         />
                         <br />
                         <Button type="primary" htmlType="submit">

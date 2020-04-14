@@ -4,9 +4,11 @@ import { entityFilterLogic } from './actionFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 
-export function ActionFilter({ setFilters, defaultFilters, showMaths }) {
-    const { allFilters, filters } = useValues(entityFilterLogic({ setFilters, defaultFilters }))
-    const { createNewFilter, initializeLocalFilters } = useActions(entityFilterLogic({ setFilters, defaultFilters }))
+export function ActionFilter({ setFilters, defaultFilters, showMaths, typeKey }) {
+    const { allFilters, filters } = useValues(entityFilterLogic({ setFilters, defaultFilters, typeKey }))
+    const { createNewFilter, initializeLocalFilters } = useActions(
+        entityFilterLogic({ setFilters, defaultFilters, typeKey })
+    )
 
     useEffect(() => {
         if (allFilters.length == 0) {
@@ -23,7 +25,15 @@ export function ActionFilter({ setFilters, defaultFilters, showMaths }) {
         <div>
             {allFilters &&
                 allFilters.map((filter, index) => {
-                    return <ActionFilterRow filter={filter} index={index} key={index} showMaths={showMaths} />
+                    return (
+                        <ActionFilterRow
+                            filter={filter}
+                            index={index}
+                            key={index}
+                            showMaths={showMaths}
+                            typeKey={typeKey}
+                        />
+                    )
                 })}
             <Button type="primary" onClick={() => createNewFilter()} style={{ marginTop: '0.5rem' }}>
                 Add action/event
