@@ -44,7 +44,7 @@ numpy==1.18.1
 oauthlib==3.1.0
 packaging==20.1
 pandas==1.0.3
-parso==0.6.1
+parso==0.7.0
 pexpect==4.7.0
 pickleshare==0.7.5
 posthoganalytics==1.0.10
