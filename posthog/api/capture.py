@@ -93,22 +93,14 @@ def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict
     if ip:
         properties["$ip"] = ip
 
-    event_kwargs = {
-        'site_url': request.build_absolute_uri('/')[:-1]
-    }
-
-    if elements_list:
-        event_kwargs['elements'] = elements_list
-
-    if timestamp:
-        event_kwargs['timestamp'] = timestamp
-
     db_event = Event.objects.create(
         event=event,
         distinct_id=distinct_id,
         properties=properties,
         team=team,
-        **event_kwargs
+        site_url=request.build_absolute_uri('/')[:-1],
+        **({'timestamp': timestamp} if timestamp else {}),
+        **({'elements': elements_list} if elements_list else {})
     )
     # try to create a new person
     try:
