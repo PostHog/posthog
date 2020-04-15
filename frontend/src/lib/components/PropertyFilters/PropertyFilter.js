@@ -18,9 +18,9 @@ const operatorOptions = Object.entries(operatorMap).map(([key, value]) => ({
     value: key,
 }))
 
-export function PropertyFilter({ index, endpoint, onChange }) {
-    const { properties, filters } = useValues(propertyFilterLogic({ onChange }))
-    const { setFilter, remove } = useActions(propertyFilterLogic({ onChange }))
+export function PropertyFilter({ index, endpoint, onChange, pageKey }) {
+    const { properties, filters } = useValues(propertyFilterLogic({ onChange, pageKey }))
+    const { setFilter, remove } = useActions(propertyFilterLogic({ onChange, pageKey }))
     let item = filters[index]
     let key = Object.keys(item)[0] ? Object.keys(item)[0].split('__') : []
     let value = Object.values(item)[0]

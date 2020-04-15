@@ -16,7 +16,7 @@ export const propertyFilterLogic = kea({
         remove: index => ({ index }),
     }),
 
-    loaders: ({ values }) => ({
+    loaders: () => ({
         properties: {
             loadPeopleProperties: async () => {
                 return await api.get('api/person/properties')
@@ -24,7 +24,7 @@ export const propertyFilterLogic = kea({
         },
     }),
 
-    reducers: ({ actions, values }) => ({
+    reducers: ({ actions, props }) => ({
         properties: [
             [],
             {
@@ -37,7 +37,9 @@ export const propertyFilterLogic = kea({
             },
         ],
         filters: [
-            props.propertyFilters ? Object.entries(filters).map(([key, value]) => ({ [key]: value })) : [],
+            props.propertyFilters
+                ? Object.entries(props.propertyFilters).map(([key, value]) => ({ [key]: value }))
+                : [],
             {
                 [actions.setFilter]: (filters, { index, key, value }) => {
                     const newFilters = [...filters]

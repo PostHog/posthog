@@ -20,7 +20,13 @@ export function PropertyFilters({ endpoint, propertyFilters, className, style, o
             {filters &&
                 filters.map((item, index) => (
                     <span>
-                        <PropertyFilter key={index} index={index} endpoint={endpoint || 'event'} onChange={onChange} />
+                        <PropertyFilter
+                            key={index}
+                            index={index}
+                            endpoint={endpoint || 'event'}
+                            onChange={onChange}
+                            pageKey={pageKey}
+                        />
                         {index != filters.length - 1 && (
                             <div className="row">
                                 <div className="secondary offset-4 col-2" style={{ textAlign: 'center' }}>
