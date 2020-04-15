@@ -48,16 +48,15 @@ export const propertyFilterLogic = kea({
                     })
                 },
                 [actions.set]: (filters, { index, key, value }) => {
-                    filters[index] = {}
-                    filters[index][key] = value
-                    return filters
+                    const newFilters = [...filters]
+                    newFilters[index] = { [key]: value }
+                    return newFilters
                 },
                 [actions.newFilter]: filters => {
                     return [...filters, {}]
                 },
                 [actions.remove]: (filters, { index }) => {
-                    filters.splice(index, 1)
-                    return filters
+                    return filters.filter((_, i) => i !== index)
                 },
             },
         ],
