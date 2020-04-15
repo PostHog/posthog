@@ -55,9 +55,11 @@ export const propertyFilterLogic = kea({
         ],
     }),
     listeners: ({ actions, props, values }) => ({
-        [actions.setFilter]: () => actions.update(),
+        // Only send update if value is set to something
+        [actions.setFilter]: ({ value }) => value && actions.update(),
         [actions.remove]: () => actions.update(),
-        [actions.update]: (_, { filters }) => {
+        [actions.update]: () => {
+            if (values.filters.length == 0) return props.onChange({})
             let dict = values.filters.reduce((result, item) => ({ ...result, ...item }))
             props.onChange(dict)
         },
