@@ -51,7 +51,7 @@ def signup_to_team_view(request, token):
         return redirect('/')
     if not User.objects.exists():
         return redirect('/setup_admin')
-    try: 
+    try:
         team = Team.objects.get(signup_token=token)
     except Team.DoesNotExist:
         return redirect('/')
@@ -114,11 +114,11 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
 
     fields = dict((name, kwargs.get(name, details.get(name)))
                    for name in backend.setting('USER_FIELDS', ['email']))
-    
+
     if not fields:
         return
 
-    try: 
+    try:
         team = Team.objects.get(signup_token=signup_token)
     except Team.DoesNotExist:
         processed = render_to_string('auth_error.html', {'message': "We can't find the team associated with this signup token. Please ensure the invite link is provided from an existing team!"})
@@ -191,26 +191,6 @@ if settings.DEBUG:
         assert False, locals()
     urlpatterns += [
         path('debug/', debug)
-    ]
-
-if hasattr(settings, 'INCLUDE_API_DOCS'):
-    from drf_yasg.views import get_schema_view
-    from drf_yasg import openapi
-    schema_view = get_schema_view(
-        openapi.Info(
-            title="PostHog API",
-            default_version='v1',
-            description="PostHog's API allows you to do anything you can do in the PostHog frontend.",
-            contact=openapi.Contact(email="hey@posthog.com"),
-            license=openapi.License(name="MIT License"),
-        ),
-        public=True,
-        permission_classes=(permissions.AllowAny,),
-    )
-    urlpatterns += [
-        re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
-        re_path(r'^swagger/$', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
-        re_path(r'^redoc/$', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
     ]
 
 urlpatterns += [
