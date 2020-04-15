@@ -250,7 +250,10 @@ class EventManager(models.QuerySet):
     def create(self, site_url: Optional[str] = None, *args: Any, **kwargs: Any):
         with transaction.atomic():
             if kwargs.get('elements'):
-                kwargs['elements_hash'] = ElementGroup.objects.create(team=kwargs['team'], elements=kwargs.pop('elements')).hash
+                if kwargs.get('team'):
+                    kwargs['elements_hash'] = ElementGroup.objects.create(team=kwargs['team'], elements=kwargs.pop('elements')).hash
+                else:
+                    kwargs['elements_hash'] = ElementGroup.objects.create(team_id=kwargs['team_id'], elements=kwargs.pop('elements')).hash
             event = super().create(*args, **kwargs)
             should_post_to_slack = False
             relations = []
