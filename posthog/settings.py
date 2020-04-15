@@ -184,7 +184,7 @@ else:
 
 # Broker
 
-# The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis. 
+# The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or (sys.argv[1] and sys.argv[1] == 'collectstatic'):
     REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost/')
 else:
@@ -283,7 +283,3 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'tim@posthog.com')
 
 # You can pass a comma deliminated list of domains with which users can sign up to this service
 RESTRICT_SIGNUPS = os.environ.get('RESTRICT_SIGNUPS', False)
-
-if os.environ.get('INCLUDE_DOCS', False):
-    INCLUDE_API_DOCS = True
-    INSTALLED_APPS.append('drf_yasg')

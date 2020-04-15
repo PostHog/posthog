@@ -21,6 +21,7 @@ import api from 'lib/api'
 const { TabPane } = Tabs
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { SessionFilter } from 'lib/components/SessionsFilter'
+import { userLogic } from 'scenes/userLogic'
 
 const displayMap = {
     ActionsLineGraph: 'Line chart',
@@ -32,66 +33,46 @@ export function Trends() {
     const { filters, properties, resultsLoading, showingPeople, activeView, session } = useValues(
         trendsLogic({ dashboardItemId: null })
     )
-    const { setFilters, setDisplay, setActiveView, setSessionParams } = useActions(
-        trendsLogic({ dashboardItemId: null })
-    )
-
+    const { setFilters, setDisplay } = useActions(trendsLogic({ dashboardItemId: null }))
+    const { eventProperties } = useValues(userLogic)
     return (
         <div className="actions-graph">
             {showingPeople ? <PeopleModal /> : null}
             <h1>Trends</h1>
             <Card>
                 <div className="card-body">
-                    <Tabs defaultActiveKey={activeView} onChange={key => setActiveView(key)} animated={false}>
-                        <TabPane tab={'Actions & Events'} key={ViewType.FILTERS}>
-                            <ActionFilter
-                                setFilters={setFilters}
-                                defaultFilters={filters}
-                                showMaths={true}
-                                typeKey="trends"
-                            />
-                            <hr />
-                            <h4 className="secondary">Filters</h4>
-                            <PropertyFilters
-                                properties={properties}
-                                propertyFilters={filters.properties || {}}
-                                onChange={properties => setFilters({ properties })}
-                                style={{ marginBottom: 0 }}
-                            />
-                            <hr />
-                            <h4 className="secondary">Break down by</h4>
-                            <div className="select-with-close">
-                                <BreakdownFilter
-                                    properties={properties}
-                                    breakdown={filters.breakdown}
-                                    onChange={breakdown => setFilters({ breakdown })}
-                                />
-                                {filters.breakdown && (
-                                    <CloseButton
-                                        onClick={() => setFilters({ breakdown: false })}
-                                        style={{ marginTop: 1 }}
-                                    />
-                                )}
-                            </div>
-                            <hr />
-                            <h4 className="secondary">Shown as</h4>
-                            <ShownAsFilter
-                                shown_as={filters.shown_as}
-                                onChange={shown_as => setFilters({ shown_as })}
-                            />
-                        </TabPane>
-                        <TabPane tab="Sessions" key={ViewType.SESSIONS}>
-                            <SessionFilter onChange={v => setSessionParams({ math: v })} />
-                            <hr />
-                            <h4 className="secondary">Filters</h4>
-                            <PropertyFilters
-                                properties={properties}
-                                propertyFilters={filters.properties}
-                                onChange={properties => setFilters({ properties })}
-                                style={{ marginBottom: 0 }}
-                            />
-                        </TabPane>
-                    </Tabs>
+                    <h4 className="secondary">{'Actions & Events'}</h4>
+                    <ActionFilter
+                        setDefaultIfEmpty={true}
+                        setFilters={setFilters}
+                        defaultFilters={filters}
+                        showMaths={true}
+                        typeKey="trends"
+                    />
+                    <hr />
+                    <h4 className="secondary">Filters</h4>
+                    <PropertyFilters
+                        pageKey="trends"
+                        properties={eventProperties}
+                        propertyFilters={filters.properties}
+                        onChange={properties => setFilters({ properties })}
+                        style={{ marginBottom: 0 }}
+                    />
+                    <hr />
+                    <h4 className="secondary">Break down by</h4>
+                    <div className="select-with-close">
+                        <BreakdownFilter
+                            properties={eventProperties}
+                            breakdown={filters.breakdown}
+                            onChange={breakdown => setFilters({ breakdown })}
+                        />
+                        {filters.breakdown && (
+                            <CloseButton onClick={() => setFilters({ breakdown: false })} style={{ marginTop: 1 }} />
+                        )}
+                    </div>
+                    <hr />
+                    <h4 className="secondary">Shown as</h4>
+                    <ShownAsFilter shown_as={filters.shown_as} onChange={shown_as => setFilters({ shown_as })} />
                 </div>
             </Card>
             <Card
@@ -145,9 +126,7 @@ export function Trends() {
                             {resultsLoading && <Loading />}
                             {((activeView != ViewType.SESSIONS && !filters.display) ||
                                 filters.display == 'ActionsLineGraph') && <ActionsLineGraph />}
-                            {(filters.display == 'ActionsTable' || activeView == ViewType.SESSIONS) && (
-                                <ActionsTable filters={filters} view={activeView} session={session} />
-                            )}
+                            {filters.display == 'ActionsTable' && <ActionsTable filters={filters} view={activeView} />}
                             {filters.display == 'ActionsPie' && <ActionsPie filters={filters} />}
                         </div>
                     )}

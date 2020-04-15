@@ -45,7 +45,9 @@ def user(request):
             'api_token': team.api_token,
             'signup_token': team.signup_token,
             'opt_out_capture': team.opt_out_capture,
-            'slack_incoming_webhook': team.slack_incoming_webhook
+            'slack_incoming_webhook': team.slack_incoming_webhook,
+            'event_names': team.event_names,
+            'event_properties': team.event_properties
         },
         'posthog_version': settings.VERSION if hasattr(settings, 'VERSION') else None
     })

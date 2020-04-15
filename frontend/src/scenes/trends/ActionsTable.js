@@ -2,7 +2,6 @@ import React, { Component } from 'react'
 import api from '../../lib/api'
 import { Loading, toParams } from '../../lib/utils'
 import PropTypes from 'prop-types'
-import { ViewType } from './trendsLogic'
 
 export class ActionsTable extends Component {
     constructor(props) {
@@ -13,21 +12,16 @@ export class ActionsTable extends Component {
         this.fetchGraph()
     }
     fetchGraph() {
-        if (this.props.view == ViewType.FILTERS) {
-            api.get('api/action/trends/?' + toParams(this.props.filters)).then(data => {
+        api.get('api/action/trends/?' + toParams(this.props.filters)).then(
+            data => {
                 data = data.sort((a, b) => b.count - a.count)
                 this.setState({ data })
                 this.props.onData && this.props.onData(data)
-            })
-        } else if (this.props.view == ViewType.SESSIONS) {
-            api.get('api/event/sessions/?math=' + (this.props.session.math || 'avg')).then(data => {
-                this.setState({ data })
-                this.props.onData && this.props.onData(data)
-            })
-        }
+            }
+        )
     }
     componentDidUpdate(prevProps) {
-        if (prevProps.filters !== this.props.filters || prevProps.session !== this.props.session) {
+        if (prevProps.filters !== this.props.filters) {
             this.fetchGraph()
         }
     }
@@ -35,7 +29,7 @@ export class ActionsTable extends Component {
         let { data } = this.state
         let { filters } = this.props
         return data ? (
-            data[0] && (data[0].labels || this.props.view == ViewType.SESSIONS) ? (
+            data[0] && data[0].labels ? (
                 <table className="table">
                     <tbody>
                         <tr>
@@ -55,13 +49,25 @@ export class ActionsTable extends Component {
                                 .filter(item => item.count > 0)
                                 .map(item => [
                                     <tr key={item.label}>
-                                        <td rowSpan={item.breakdown.length || 1}>{item.label}</td>
-                                        <td className="text-overflow">{item.breakdown[0] && item.breakdown[0].name}</td>
-                                        <td>{item.breakdown[0] && item.breakdown[0].count}</td>
+                                        <td
+                                            rowSpan={item.breakdown.length || 1}
+                                        >
+                                            {item.label}
+                                        </td>
+                                        <td className="text-overflow">
+                                            {item.breakdown[0] &&
+                                                item.breakdown[0].name}
+                                        </td>
+                                        <td>
+                                            {item.breakdown[0] &&
+                                                item.breakdown[0].count}
+                                        </td>
                                     </tr>,
                                     item.breakdown.slice(1).map(i => (
                                         <tr key={i.name}>
-                                            <td className="text-overflow">{i.name}</td>
+                                            <td className="text-overflow">
+                                                {i.name}
+                                            </td>
                                             <td>{i.count}</td>
                                         </tr>
                                     )),
@@ -69,7 +75,9 @@ export class ActionsTable extends Component {
                     </tbody>
                 </table>
             ) : (
-                <p style={{ textAlign: 'center', marginTop: '4rem' }}>We couldn't find any matching actions.</p>
+                <p style={{ textAlign: 'center', marginTop: '4rem' }}>
+                    We couldn't find any matching actions.
+                </p>
             )
         ) : (
             <Loading />
@@ -79,5 +87,4 @@ export class ActionsTable extends Component {
 ActionsTable.propTypes = {
     filters: PropTypes.object.isRequired,
     onData: PropTypes.func,
-    view: PropTypes.string,
 }

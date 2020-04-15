@@ -4,10 +4,14 @@ import { entityFilterLogic } from './actionFilterLogic'
 import { EntityTypes } from '../trendsLogic'
 import { ActionSelectPanel, ActionSelectTabs } from '~/lib/components/ActionSelectBox'
 import { Link } from 'react-router-dom'
+import { userLogic } from 'scenes/userLogic'
+import { actionsModel } from '~/models/actionsModel'
 
 export function ActionFilterDropdown(props) {
     const dropdownRef = useRef()
-    const { formattedOptions, selectedFilter } = useValues(entityFilterLogic({ typeKey: props.typeKey }))
+    const { selectedFilter } = useValues(entityFilterLogic({ typeKey: props.typeKey }))
+    const { eventNamesGrouped } = useValues(userLogic)
+    const { actionsGrouped } = useValues(actionsModel)
 
     const deselect = e => {
         if (dropdownRef.current.contains(e.target)) {
@@ -28,20 +32,20 @@ export function ActionFilterDropdown(props) {
             <ActionSelectTabs
                 selected={selectedFilter.type && selectedFilter.type != EntityTypes.NEW ? selectedFilter.type : null}
             >
-                {Object.entries(formattedOptions).map((item, panelIndex) => {
-                    let key = item[0]
-                    let options = item[1]
-                    return (
-                        <ActionPanelContainer
-                            key={panelIndex}
-                            title={key}
-                            entityType={key}
-                            options={options}
-                            panelIndex={panelIndex}
-                            typeKey={props.typeKey}
-                        ></ActionPanelContainer>
-                    )
-                })}
+                <ActionPanelContainer
+                    title="actions"
+                    entityType={EntityTypes.ACTIONS}
+                    options={actionsGrouped}
+                    panelIndex={0}
+                    typeKey={props.typeKey}
+                />
+                <ActionPanelContainer
+                    title="events"
+                    entityType={EntityTypes.EVENTS}
+                    options={eventNamesGrouped}
+                    panelIndex={1}
+                    typeKey={props.typeKey}
+                />
             </ActionSelectTabs>
         </div>
     )
@@ -54,7 +58,7 @@ export function ActionPanelContainer({ entityType, panelIndex, options, typeKey 
     let dropDownOnHover = value => entities[entityType].filter(a => a.id == value)[0]
 
     let redirect = () => {
-        if (selectedFilter && selectedFilter.type == EntityTypes.ACTIONS) {
+        if (selectedFilter && selectedFilter.type == EntityTypes.ACTIONS && entityType == EntityTypes.ACTIONS) {
             let action = entities[selectedFilter.type].filter(a => a.id == selectedFilter.filter.id)[0]
             return (
                 <a href={'/action/' + selectedFilter.filter.id} target="_blank">

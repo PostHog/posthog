@@ -145,7 +145,6 @@ class TeamManager(models.Manager):
         DashboardItem.objects.create(team=team, name='Daily Active Users', type='ActionsLineGraph', filters={TREND_FILTER_TYPE_ACTIONS: [{'id': action.pk, 'math': 'dau', 'type': TREND_FILTER_TYPE_ACTIONS}]})
         return team
 
-
 class Team(models.Model):
     users: models.ManyToManyField = models.ManyToManyField(User, blank=True)
     api_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
@@ -154,6 +153,8 @@ class Team(models.Model):
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
     slack_incoming_webhook: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    event_names: JSONField = JSONField(default=list)
+    event_properties: JSONField = JSONField(default=list)
 
     objects = TeamManager()
 
@@ -246,7 +247,7 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def create(self, *args: Any, **kwargs: Any):
+    def create(self, site_url: Optional[str] = None, *args: Any, **kwargs: Any):
         with transaction.atomic():
             if kwargs.get('elements'):
                 kwargs['elements_hash'] = ElementGroup.objects.create(team=kwargs['team'], elements=kwargs.pop('elements')).hash
@@ -261,7 +262,7 @@ class EventManager(models.QuerySet):
             Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
 
             if should_post_to_slack and event.team and event.team.slack_incoming_webhook:
-                post_event_to_slack.delay(event.id)
+                post_event_to_slack.delay(event.id, site_url)
 
             return event
 
@@ -269,6 +270,7 @@ class Event(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=['elements_hash']),
+            models.Index(fields=['timestamp']),
         ]
 
     @property

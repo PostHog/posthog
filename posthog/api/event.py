@@ -136,44 +136,34 @@ class EventViewSet(viewsets.ModelViewSet):
         return response.Response({'results': [self._serialize_actions(event) for event in matches]})
 
     @action(methods=['GET'], detail=False)
-    def names(self, request: request.Request) -> response.Response:
-        events = self.get_queryset()
-        events = events\
-            .exclude(event='$pageview')\
-            .exclude(event='$autocapture')\
-            .distinct('event')\
-            .values('event')\
-            .order_by('event')
-
-        return response.Response([{'name': event['event']} for event in events])
-
-    @action(methods=['GET'], detail=False)
-    def properties(self, request: request.Request) -> response.Response:
-        class JsonKeys(Func):
-            function = 'jsonb_object_keys'
-
-        events = self.get_queryset()
-        events = events\
-            .annotate(keys=JsonKeys('properties'))\
-            .values('keys')\
-            .distinct('keys')\
-            .order_by('keys')
-
-        return response.Response([{'name': event['keys']} for event in events])
-
-    @action(methods=['GET'], detail=False)
     def values(self, request: request.Request) -> response.Response:
-        events = self.get_queryset()
-        key = "properties__{}".format(request.GET.get('key'))
-        events = events\
-            .values(key)\
-            .annotate(count=Count('id'))\
-            .order_by('-count')
-
+        key = request.GET.get('key')
+        params = [key, key]
         if request.GET.get('value'):
-            events = events.extra(where=["properties ->> %s LIKE %s"], params=[request.GET['key'], '%{}%'.format(request.GET['value'])])
+            where = " AND properties ->> %s LIKE %s"
+            params.append(key)
+            params.append('%{}%'.format(request.GET['value']))
+        else:
+            where = ''
 
-        return response.Response([{'name': event[key], 'count': event['count']} for event in events[:50]])
+        # This samples a bunch of events with that property, and then orders them by most popular in that sample
+        # This is much quicker than trying to do this over the entire table
+        values = Event.objects.raw("""
+            SELECT
+                value, COUNT(1) as id
+            FROM ( 
+                SELECT
+                    ("posthog_event"."properties" -> %s) as "value"
+                FROM
+                    "posthog_event"
+                WHERE ("posthog_event"."properties" -> %s) IS NOT NULL {} LIMIT 10000
+            ) as "value"
+            GROUP BY value
+            ORDER BY id DESC
+            LIMIT 50;
+        """.format(where), params)
+
+        return response.Response([{'name': value.value} for value in values])
 
     @action(methods=['GET'], detail=False)
     def sessions(self, request: request.Request) -> response.Response:
@@ -243,4 +233,3 @@ class EventViewSet(viewsets.ModelViewSet):
             result = [{'label': dist_labels[index], 'count': calculated[0][index]} for index in range(len(dist_labels))]
         
         return result
-

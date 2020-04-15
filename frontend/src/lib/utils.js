@@ -178,16 +178,6 @@ export let debounce = (func, wait, immediate) => {
     }
 }
 
-export const groupEvents = events => {
-    let data = [{ label: 'All Events', options: [] }]
-
-    events.map(event => {
-        let format = { label: event.name, value: event.name }
-        data[0].options.push(format)
-    })
-    return data
-}
-
 export const capitalizeFirstLetter = string => {
     return string.charAt(0).toUpperCase() + string.slice(1)
 }
