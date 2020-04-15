@@ -63,12 +63,12 @@ export const propertyFilterLogic = kea({
             props.onChange(dict)
         },
     }),
-    events: ({ actions, props, selectors }) => ({
+    events: ({ actions, props, values }) => ({
         afterMount: () => {
             if (props.endpoint == 'person') {
                 actions.loadPeopleProperties()
             } else {
-                actions.setProperties(selectors.eventProperties())
+                actions.setProperties(values.eventProperties)
             }
         },
     }),
