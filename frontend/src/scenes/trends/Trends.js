@@ -45,6 +45,7 @@ export function Trends() {
                     <hr />
                     <h4 className="secondary">Filters</h4>
                     <PropertyFilters
+                        pageKey="trends"
                         properties={eventProperties}
                         propertyFilters={filters.properties}
                         onChange={properties => setFilters({ properties })}

@@ -57,6 +57,7 @@ export class ActionEventsTable extends Component {
         return (
             <div className="events">
                 <PropertyFilters
+                    pageKey="actioneventstable"
                     propertyFilters={properties}
                     onChange={properties => this.setState({ properties }, this.fetchEvents)}
                 />

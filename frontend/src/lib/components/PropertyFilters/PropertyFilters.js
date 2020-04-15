@@ -4,9 +4,9 @@ import { Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 
-export function PropertyFilters({ endpoint, propertyFilters, className, style, onChange }) {
-    const { filters } = useValues(propertyFilterLogic({ propertyFilters, endpoint, onChange }))
-    const { newFilter } = useActions(propertyFilterLogic({ onChange }))
+export function PropertyFilters({ endpoint, propertyFilters, className, style, onChange, pageKey }) {
+    const { filters } = useValues(propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey }))
+    const { newFilter } = useActions(propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey }))
 
     return (
         <div

@@ -70,6 +70,7 @@ export class CohortGroup extends Component {
                             {selected == 'property' && (
                                 <PropertyFilters
                                     endpoint="person"
+                                    pageKey="cohort"
                                     className=" "
                                     onChange={properties =>
                                         onChange({

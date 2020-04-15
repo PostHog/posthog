@@ -3,7 +3,7 @@ import api from '../../../lib/api'
 import { userLogic } from 'scenes/userLogic'
 
 export const propertyFilterLogic = kea({
-    key: props => props.onChange,
+    key: props => props.pageKey,
     connect: {
         values: [userLogic, ['eventProperties']],
     },
@@ -11,7 +11,6 @@ export const propertyFilterLogic = kea({
         loadEventProperties: true,
         setProperties: properties => ({ properties }),
         update: filters => ({ filters }),
-        setInitial: filters => ({ filters }),
         setFilter: (index, key, value) => ({ index, key, value }),
         newFilter: true,
         remove: index => ({ index }),
@@ -38,12 +37,8 @@ export const propertyFilterLogic = kea({
             },
         ],
         filters: [
-            [],
+            props.propertyFilters ? Object.entries(filters).map(([key, value]) => ({ [key]: value })) : [],
             {
-                [actions.setInitial]: (_, { filters }) => {
-                    if (!filters) return []
-                    return Object.entries(filters).map(([key, value]) => ({ [key]: value }))
-                },
                 [actions.setFilter]: (filters, { index, key, value }) => {
                     const newFilters = [...filters]
                     newFilters[index] = { [key]: value }
@@ -68,7 +63,6 @@ export const propertyFilterLogic = kea({
     }),
     events: ({ actions, props, selectors }) => ({
         afterMount: () => {
-            actions.setInitial(props.propertyFilters)
             if (props.endpoint == 'person') {
                 actions.loadPeopleProperties()
             } else {

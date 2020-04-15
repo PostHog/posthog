@@ -173,6 +173,7 @@ export class EventsTable extends Component {
             <div className="events">
                 <PropertyFilters
                     propertyFilters={properties}
+                    pageKey="EventsTable"
                     onChange={properties => this.setState({ properties }, this.fetchEvents)}
                 />
                 <table className="table" style={{ position: 'relative' }}>
