@@ -7,6 +7,8 @@ import { PropertyFilters } from '../../lib/components/PropertyFilters/PropertyFi
 import { FilterLink } from '../../lib/components/FilterLink'
 import { EventDetails } from './EventDetails'
 import PropTypes from 'prop-types'
+import { useValues } from 'kea'
+import { userLogic } from 'scenes/userLogic'
 
 let eventNameMap = event => {
     if (event.properties.$event_type == 'click') return 'clicked '
@@ -171,6 +173,7 @@ export class EventsTable extends Component {
             <div className="events">
                 <PropertyFilters
                     propertyFilters={properties}
+                    pageKey="EventsTable"
                     onChange={properties => this.setState({ properties }, this.fetchEvents)}
                 />
                 <table className="table" style={{ position: 'relative' }}>

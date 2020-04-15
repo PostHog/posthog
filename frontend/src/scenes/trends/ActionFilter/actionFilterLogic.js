@@ -1,17 +1,16 @@
 import { kea } from 'kea'
 
 import { actionsModel } from '~/models/actionsModel'
-import { eventsModel } from '~/models/eventsModel'
-import { propertiesModel } from '~/models/propertiesModel'
 import { EntityTypes } from '../trendsLogic'
 
 import { groupEvents } from '~/lib/utils'
+import { userLogic } from 'scenes/userLogic'
 
-const mirrorValues = (entities, newKey, valueKey) => {
+const mirrorValues = (entities, newKey) => {
     let newEntities = entities.map(entity => {
         return {
             ...entity,
-            [newKey]: entity[valueKey],
+            [newKey]: entity,
         }
     })
     return newEntities
@@ -20,7 +19,7 @@ const mirrorValues = (entities, newKey, valueKey) => {
 export const entityFilterLogic = kea({
     key: props => props.typeKey,
     connect: {
-        values: [propertiesModel, ['properties'], actionsModel, ['actions', 'actionsGrouped'], eventsModel, ['events']],
+        values: [userLogic, ['eventNames'], actionsModel, ['actions']],
     },
     actions: () => ({
         selectFilter: filter => ({ filter }),
@@ -58,20 +57,11 @@ export const entityFilterLogic = kea({
 
     selectors: ({ selectors }) => ({
         entities: [
-            () => [selectors.events, selectors.actions],
+            () => [selectors.eventNames, selectors.actions],
             (events, actions) => {
                 return {
                     [EntityTypes.ACTIONS]: actions,
-                    [EntityTypes.EVENTS]: mirrorValues(events, 'id', 'name'),
-                }
-            },
-        ],
-        formattedOptions: [
-            () => [selectors.events, selectors.actionsGrouped],
-            (events, actionsGrouped) => {
-                return {
-                    [EntityTypes.ACTIONS]: actionsGrouped,
-                    [EntityTypes.EVENTS]: groupEvents(events),
+                    [EntityTypes.EVENTS]: events.map(event => ({ id: event, name: event })),
                 }
             },
         ],
@@ -111,12 +101,21 @@ export const entityFilterLogic = kea({
         },
     }),
 
-    events: ({ actions, props }) => ({
+    events: ({ actions, props, values }) => ({
         afterMount: () => {
             let sort = (a, b) => a.order - b.order
-            actions.setLocalFilters(
-                [...(props.defaultFilters.actions || []), ...(props.defaultFilters.events || [])].sort(sort)
-            )
+            let filters = [...(props.defaultFilters.actions || []), ...(props.defaultFilters.events || [])]
+            actions.setLocalFilters(filters.sort(sort))
+            if (props.setDefaultIfEmpty && filters.length == 0) {
+                let event = values.eventNames.indexOf('$pageview') > -1 ? '$pageview' : values.eventNames[0]
+                actions.setLocalFilters([
+                    {
+                        id: event,
+                        name: event,
+                        type: EntityTypes.EVENTS,
+                    },
+                ])
+            }
         },
     }),
 })

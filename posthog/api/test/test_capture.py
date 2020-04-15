@@ -24,7 +24,7 @@ class TestCapture(BaseTest):
         action2 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action2, selector='a')
 
-        with self.assertNumQueries(18):
+        with self.assertNumQueries(19):
             response = self.client.get('/e/?data=%s' % self._dict_to_json({
                 'event': '$autocapture',
                 'properties': {
@@ -47,6 +47,10 @@ class TestCapture(BaseTest):
         self.assertEqual(elements[1].order, 1)
         self.assertEqual(elements[1].text, '💻')
         self.assertEqual(event.distinct_id, "2")
+
+        team = Team.objects.get()
+        self.assertEqual(team.event_names, ['$autocapture'])
+        self.assertEqual(team.event_properties, ['distinct_id', 'token', '$ip'])
 
     def test_capture_no_element(self):
         user = self._create_user('tim')
