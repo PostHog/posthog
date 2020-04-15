@@ -8,9 +8,7 @@ export class CohortGroup extends Component {
         super(props)
         this.state = {
             days: 1,
-            selected:
-                (props.group.action_id && 'action') ||
-                (props.group.properties && 'property'),
+            selected: (props.group.action_id && 'action') || (props.group.properties && 'property'),
         }
         this.DayChoice = this.DayChoice.bind(this)
     }
@@ -24,65 +22,34 @@ export class CohortGroup extends Component {
                     })
                 }
                 type="button"
-                className={
-                    'btn btn-sm ' +
-                    (this.props.group.days == props.days
-                        ? 'btn-secondary'
-                        : 'btn-light')
-                }
+                className={'btn btn-sm ' + (this.props.group.days == props.days ? 'btn-secondary' : 'btn-light')}
             >
                 {props.name}
             </button>
         )
     }
     render() {
-        let {
-            group,
-            index,
-            properties,
-            actions,
-            onChange,
-            onRemove,
-        } = this.props
+        let { group, index, properties, actions, onChange, onRemove } = this.props
         let { selected } = this.state
         return (
             <Card title={false} style={{ margin: 0 }}>
                 <div className="card-body">
-                    {index > 0 && (
-                        <CloseButton
-                            className="float-right"
-                            onClick={onRemove}
-                        />
-                    )}
+                    {index > 0 && <CloseButton className="float-right" onClick={onRemove} />}
                     <div style={{ height: 32 }}>
                         User has
                         {selected == 'action' && ' done '}
                         <div className="btn-group" style={{ margin: '0 8px' }}>
                             <button
-                                onClick={() =>
-                                    this.setState({ selected: 'action' })
-                                }
+                                onClick={() => this.setState({ selected: 'action' })}
                                 type="button"
-                                className={
-                                    'btn btn-sm ' +
-                                    (selected == 'action'
-                                        ? 'btn-secondary'
-                                        : 'btn-light')
-                                }
+                                className={'btn btn-sm ' + (selected == 'action' ? 'btn-secondary' : 'btn-light')}
                             >
                                 action
                             </button>
                             <button
-                                onClick={() =>
-                                    this.setState({ selected: 'property' })
-                                }
+                                onClick={() => this.setState({ selected: 'property' })}
                                 type="button"
-                                className={
-                                    'btn btn-sm ' +
-                                    (selected == 'property'
-                                        ? 'btn-secondary'
-                                        : 'btn-light')
-                                }
+                                className={'btn btn-sm ' + (selected == 'property' ? 'btn-secondary' : 'btn-light')}
                             >
                                 property
                             </button>
@@ -90,10 +57,7 @@ export class CohortGroup extends Component {
                         {selected == 'action' && (
                             <span>
                                 in the last
-                                <div
-                                    className="btn-group"
-                                    style={{ margin: '0 8px' }}
-                                >
+                                <div className="btn-group" style={{ margin: '0 8px' }}>
                                     <this.DayChoice days={1} name="day" />
                                     <this.DayChoice days={7} name="7 days" />
                                     <this.DayChoice days={30} name="month" />
@@ -113,7 +77,6 @@ export class CohortGroup extends Component {
                                             days: group.days,
                                         })
                                     }
-                                    properties={properties}
                                     propertyFilters={group.properties || {}}
                                     style={{ margin: '1rem 0 0' }}
                                 />
@@ -123,17 +86,8 @@ export class CohortGroup extends Component {
                                     <Select
                                         options={actions}
                                         placeholder="Select action..."
-                                        onChange={item =>
-                                            onChange({ action_id: item.value })
-                                        }
-                                        value={
-                                            actions &&
-                                            actions.filter(
-                                                action =>
-                                                    action.value ==
-                                                    group.action_id
-                                            )
-                                        }
+                                        onChange={item => onChange({ action_id: item.value })}
+                                        value={actions && actions.filter(action => action.value == group.action_id)}
                                     />
                                 </div>
                             )}

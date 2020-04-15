@@ -12,7 +12,7 @@ export const propertyFilterLogic = kea({
         setProperties: properties => ({ properties }),
         update: filters => ({ filters }),
         setInitial: filters => ({ filters }),
-        set: (index, key, value) => ({ index, key, value }),
+        setFilter: (index, key, value) => ({ index, key, value }),
         newFilter: true,
         remove: index => ({ index }),
     }),
@@ -42,13 +42,9 @@ export const propertyFilterLogic = kea({
             {
                 [actions.setInitial]: (_, { filters }) => {
                     if (!filters) return []
-                    return Object.entries(filters).map(([key, value]) => {
-                        let dict = {}
-                        dict[key] = value
-                        return dict
-                    })
+                    return Object.entries(filters).map(([key, value]) => ({ [key]: value }))
                 },
-                [actions.set]: (filters, { index, key, value }) => {
+                [actions.setFilter]: (filters, { index, key, value }) => {
                     const newFilters = [...filters]
                     newFilters[index] = { [key]: value }
                     return newFilters
@@ -63,11 +59,10 @@ export const propertyFilterLogic = kea({
         ],
     }),
     listeners: ({ actions, props, values }) => ({
-        [actions.set]: () => actions.update(),
+        [actions.setFilter]: () => actions.update(),
         [actions.remove]: () => actions.update(),
         [actions.update]: (_, { filters }) => {
-            let dict = {}
-            values.filters.map(item => (dict = { ...dict, ...item }))
+            let dict = values.filters.reduce((result, item) => ({ ...result, ...item }))
             props.onChange(dict)
         },
     }),
