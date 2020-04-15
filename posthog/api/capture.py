@@ -1,11 +1,10 @@
 from django.http import HttpResponse, JsonResponse
-from django.db import IntegrityError
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
-from dateutil.relativedelta import relativedelta
-from posthog.models import Event, Team, Person, Element, PersonDistinctId
+from posthog.models import Team
 from typing import Dict, Union, Optional, List
 from urllib.parse import urlparse
+from posthog.tasks.process_event import process_event
 import json
 import base64
 import datetime
@@ -50,122 +49,6 @@ def _load_data(request) -> Optional[Union[Dict, List]]:
     # FIXME: data can also be an array, function assumes it's either None or a dictionary.
     return data
 
-def _alias(distinct_id: str, new_distinct_id: str, team: Team):
-    try:
-        person = Person.objects.get(team=team, persondistinctid__distinct_id=distinct_id)
-    except Person.DoesNotExist:
-        # no reason to alias if it doesn't exist
-        # mostly happens if someone calls identify before the user has done anything
-        return
-    try:
-        person.add_distinct_id(new_distinct_id)
-    except IntegrityError:
-        # IntegrityError means a person with new_distinct_id already exists
-        # That can either mean `person` already has that distinct_id, in which case we do nothing
-        # OR it means there is _another_ Person with that distinct _id, in which case we want to remove that person
-        # and add that distinct ID to `person`
-        previous_person = Person.objects.filter(team=team, persondistinctid__distinct_id=new_distinct_id).exclude(pk=person.id)
-        if previous_person.exists():
-            person.properties.update(previous_person.first().properties) # type: ignore
-            previous_person.delete()
-            person.add_distinct_id(new_distinct_id)
-            person.save()
-
-def _store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
-    save = False
-    if event not in team.event_names:
-        save = True
-        team.event_names.append(event)
-    for key in properties.keys():
-        if key not in team.event_properties:
-            team.event_properties.append(key)
-            save = True
-    if save:
-        team.save()
-
-def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict, timestamp: Union[datetime.datetime, str]) -> None:
-    elements = properties.get('$elements')
-    elements_list = None
-    if elements:
-        del properties['$elements']
-        elements_list = [
-            Element(
-                text=el.get('$el_text'),
-                tag_name=el['tag_name'],
-                href=el.get('attr__href'),
-                attr_class=el['attr__class'].split(' ') if el.get('attr__class') else None,
-                attr_id=el.get('attr__id'),
-                nth_child=el.get('nth_child'),
-                nth_of_type=el.get('nth_of_type'),
-                attributes={key: value for key, value in el.items() if key.startswith('attr__')},
-                order=index
-            ) for index, el in enumerate(elements)
-        ]
-    ip = get_ip_address(request)
-    if ip:
-        properties["$ip"] = ip
-
-    db_event = Event.objects.create(
-        event=event,
-        distinct_id=distinct_id,
-        properties=properties,
-        team=team,
-        site_url=request.build_absolute_uri('/')[:-1],
-        **({'timestamp': timestamp} if timestamp else {}),
-        **({'elements': elements_list} if elements_list else {})
-    )
-    _store_names_and_properties(team=team, event=event, properties=properties)
-    # try to create a new person
-    try:
-        Person.objects.create(team=team, distinct_ids=[str(distinct_id)], is_user=request.user if not request.user.is_anonymous else None)
-    except IntegrityError: 
-        pass # person already exists, which is fine
-
-def _update_person_properties(team: Team, distinct_id: str, properties: Dict):
-    try:
-        person = Person.objects.get(team=team, persondistinctid__distinct_id=str(distinct_id))
-    except Person.DoesNotExist:
-        try:
-            person = Person.objects.create(team=team, distinct_ids=[str(distinct_id)])
-        # Catch race condition where in between getting and creating, another request already created this user.
-        except:
-            person = Person.objects.get(team=team, persondistinctid__distinct_id=str(distinct_id))
-    person.properties.update(properties)
-    person.save()
-
-def _handle_timestamp(data: dict, now: datetime.datetime) -> Union[datetime.datetime, str]:
-    if data.get('timestamp'):
-        return data['timestamp']
-    if data.get('offset'):
-        return now - relativedelta(microseconds=data['offset'] * 1000)
-    return now
-
-def process_event(request, data: dict, team: Team, now: datetime.datetime) -> None:
-    try:
-        distinct_id = str(data['properties']['distinct_id'])
-    except KeyError:
-        try:
-            distinct_id = str(data['$distinct_id'])
-        except KeyError:
-            distinct_id = str(data['distinct_id'])
-
-    if data['event'] == '$create_alias':
-        _alias(distinct_id=distinct_id, new_distinct_id=data['properties']['alias'], team=team)
-
-    if data['event'] == '$identify' and data.get('properties') and data['properties'].get('$anon_distinct_id'):
-        _alias(distinct_id=data['properties']['$anon_distinct_id'], new_distinct_id=distinct_id, team=team)
-
-    if data['event'] == '$identify' and data.get('$set'):
-        _update_person_properties(team=team, distinct_id=distinct_id, properties=data['$set'])
-
-    _capture(
-        request=request,
-        team=team,
-        event=data['event'],
-        distinct_id=distinct_id,
-        properties=data.get('properties', data.get('$set', {})),
-        timestamp=_handle_timestamp(data, now)
-    )
 
 def _get_token(data, request) -> Union[str, bool]:
     if request.POST.get('api_key'):
@@ -191,7 +74,7 @@ def get_event(request):
         return cors_response(request, JsonResponse({'code': 'validation', 'message': "No api_key set. You can find your API key in the /setup page in posthog"}, status=400))
 
     try:
-        team = Team.objects.get(api_token=token)
+        team = Team.objects.only('pk').get(api_token=token)
     except Team.DoesNotExist:
         return cors_response(request, JsonResponse({'code': 'validation', 'message': "API key is incorrect. You can find your API key in the /setup page in PostHog."}, status=400))
 
@@ -205,11 +88,19 @@ def get_event(request):
     if isinstance(data, list):
         for i in data:
             try:
-                process_event(request=request, data=i, team=team, now=now)
+                process_event.delay(
+                    ip=get_ip_address(request),
+                    site_url=request.build_absolute_uri('/')[:-1],
+                    data=i, team_id=team.pk, now=now)
             except KeyError:
                 return cors_response(request, JsonResponse({'code': 'validation', 'message': "You need to set a distinct_id.", "item": data}, status=400))
     else:
-        process_event(request=request, data=data, team=team, now=now)
+        process_event.delay(
+            ip=get_ip_address(request),
+            site_url=request.build_absolute_uri('/')[:-1],
+            data=data,
+            team_id=team.pk,
+            now=now)
 
     return cors_response(request, JsonResponse({'status': 1}))
 
