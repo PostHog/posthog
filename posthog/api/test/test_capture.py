@@ -1,7 +1,9 @@
 from .base import BaseTest
 from posthog.models import Event, Person, Team, User, ElementGroup, Action, ActionStep
 from django.test import TransactionTestCase
+from django.utils import timezone
 from freezegun import freeze_time
+from unittest.mock import patch, call
 import base64
 import json
 import datetime
@@ -17,97 +19,33 @@ class TestCapture(BaseTest):
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode('utf-8')).decode('utf-8')
 
-    def test_capture_new_person(self):
-        user = self._create_user('tim')
-        action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action1, selector='a')
-        action2 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action2, selector='a')
-
-        with self.assertNumQueries(19):
-            response = self.client.get('/e/?data=%s' % self._dict_to_json({
-                'event': '$autocapture',
-                'properties': {
-                    'distinct_id': 2,
-                    'token': self.team.api_token,
-                    '$elements': [
-                        {'tag_name': 'a', 'nth_child': 1, 'nth_of_type': 2, 'attr__class': 'btn btn-sm'},
-                        {'tag_name': 'div', 'nth_child': 1, 'nth_of_type': 2, '$el_text': '💻'}
-                    ]
-                },
-            }), content_type='application/json', HTTP_ORIGIN='https://localhost')
-
+    @patch('posthog.tasks.process_event.process_event.delay')
+    def test_capture_new_person(self, patch_process_event):
+        properties = {
+            'distinct_id': 2,
+            'token': self.team.api_token,
+            '$elements': [
+                {'tag_name': 'a', 'nth_child': 1, 'nth_of_type': 2, 'attr__class': 'btn btn-sm'},
+                {'tag_name': 'div', 'nth_child': 1, 'nth_of_type': 2, '$el_text': '💻'}
+            ]
+        }
+        now = timezone.now()
+        with freeze_time(now):
+            with self.assertNumQueries(1):
+                response = self.client.get('/e/?data=%s' % self._dict_to_json({
+                    'event': '$autocapture',
+                    'properties': properties,
+                }), content_type='application/json', HTTP_ORIGIN='https://localhost')
         self.assertEqual(response.get('access-control-allow-origin'), 'https://localhost')
-        self.assertEqual(Person.objects.get().distinct_ids, ["2"])
-        event = Event.objects.get()
-        self.assertEqual(event.event, '$autocapture')
-        elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by('order')
-        self.assertEqual(elements[0].tag_name, 'a')
-        self.assertEqual(elements[0].attr_class, ['btn', 'btn-sm'])
-        self.assertEqual(elements[1].order, 1)
-        self.assertEqual(elements[1].text, '💻')
-        self.assertEqual(event.distinct_id, "2")
-
-        team = Team.objects.get()
-        self.assertEqual(team.event_names, ['$autocapture'])
-        self.assertEqual(team.event_properties, ['distinct_id', 'token', '$ip'])
-
-    def test_capture_no_element(self):
-        user = self._create_user('tim')
-        Person.objects.create(team=self.team, distinct_ids=['asdfasdfasdf'])
-
-        response = self.client.get('/e/?data=%s' % self._dict_to_json({
-            'event': '$pageview',
-            'properties': {
-                'distinct_id': 'asdfasdfasdf',
-                'token': self.team.api_token,
-            },
-        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
-
-        self.assertEqual(Person.objects.get().distinct_ids, ["asdfasdfasdf"])
-        event = Event.objects.get()
-        self.assertEqual(event.event, '$pageview')
-
-    def test_engage(self):
-        user = self._create_user('tim')
-        self.client.force_login(user)
-        Person.objects.create(team=self.team, distinct_ids=["3", '455'])
-
-        response = self.client.get('/engage/?data=%s' % self._dict_to_json({
-            '$set': {
-                '$os': 'Mac OS X',
-                '$browser': 'Chrome',
-                '$browser_version': 79,
-                '$initial_referrer': '$direct',
-                '$initial_referring_domain': '$direct',
-                'whatever': 'this is',
-                'asdf': 'asdf'
-            },
-            '$token': 'token123',
-            '$distinct_id': 3,
-            '$device_id': '16fd4afae9b2d8-0fce8fe900d42b-39637c0e-7e9000-16fd4afae9c395',
-            '$user_id': 3
-        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
-        self.assertEqual(response.get('access-control-allow-origin'), 'https://localhost')
-
-        person = Person.objects.get()
-        self.assertEqual(person.properties['whatever'], 'this is')
-
-    def test_python_library(self):
-        response = self.client.post('/track/', data={
-            'data': self._dict_to_b64({
-                'event': '$pageview',
-                'properties': {
-                    'distinct_id': 'eeee',
-                    'token': self.team.api_token,
-                },
-            }),
-            'api_key': self.team.api_token
-        })
-
-        self.assertEqual(Person.objects.get().distinct_ids, ["eeee"])
-        event = Event.objects.get()
-        self.assertEqual(event.event, '$pageview')
+        patch_process_event.assert_has_calls([call(
+            ip='127.0.0.1',
+            site_url='http://testserver',
+            data=properties,
+            event='$autocapture',
+            team_id=self.team.pk,
+            distinct_id=2,
+            timestamp=now
+        )])
 
     def test_multiple_events(self):
         response = self.client.post('/track/', data={
@@ -151,124 +89,6 @@ class TestCapture(BaseTest):
     def test_ignore_empty_request(self):
         response = self.client.get('/e/?data=', content_type='application/json', HTTP_ORIGIN='https://localhost')
         self.assertEqual(response.content, b"1")
-
-    def test_alias(self):
-        Person.objects.create(team=self.team, distinct_ids=['old_distinct_id'])
-
-        response = self.client.get('/e/?data=%s' % self._dict_to_json({
-            'event': '$create_alias',
-            'properties': {
-                'distinct_id': 'old_distinct_id',
-                'token': self.team.api_token,
-                'alias': 'new_distinct_id'
-            },
-        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
-
-        self.assertEqual(Event.objects.count(), 1)
-        self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
-
-    # This tends to happen when .init and .identify get called right after each other, causing a race condition
-    # in this case the 'anonymous_id' won't have any actions anyway
-    def test_alias_to_non_existent_distinct_id(self):
-        response = self.client.get('/e/?data=%s' % self._dict_to_json({
-            'event': '$identify',
-            'properties': {
-                '$anon_distinct_id': 'doesnt_exist',
-                'token': self.team.api_token,
-                'distinct_id': 'new_distinct_id'
-            },
-        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
-
-        self.assertEqual(Event.objects.count(), 1)
-        self.assertEqual(Person.objects.get().distinct_ids, ['new_distinct_id'])
-
-
-class TestIdentify(TransactionTestCase):
-    def _create_user(self, email, **kwargs) -> User:
-        user: User = User.objects.create_user(email, **kwargs)
-        if not hasattr(self, 'team'):
-            self.team: Team = Team.objects.create(api_token='token123')
-        self.team.users.add(user)
-        self.team.save()
-        self.client.force_login(user)
-        return user
-
-
-    def test_distinct_with_anonymous_id(self):
-        user = self._create_user('tim@timsomething.com')
-        Person.objects.create(team=self.team, distinct_ids=['anonymous_id'])
-
-        response = self.client.get('/e/?data=%s' % json.dumps({
-            'event': '$identify',
-            'properties': {
-                '$anon_distinct_id': 'anonymous_id',
-                'token': self.team.api_token,
-                'distinct_id': 'new_distinct_id'
-            },
-        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
-
-        self.assertEqual(Event.objects.count(), 1)
-        self.assertEqual(Person.objects.get().distinct_ids, ["anonymous_id", "new_distinct_id"])
-
-        # check no errors as this call can happen multiple times
-        response = self.client.get('/e/?data=%s' % json.dumps({
-            'event': '$identify',
-            'properties': {
-                '$anon_distinct_id': 'anonymous_id',
-                'token': self.team.api_token,
-                'distinct_id': 'new_distinct_id'
-            },
-        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
-
-    # This case is likely to happen after signup, for example:
-    # 1. User browses website with anonymous_id
-    # 2. User signs up, triggers event with their new_distinct_id (creating a new Person)
-    # 3. In the frontend, try to alias anonymous_id with new_distinct_id
-    # Result should be that we end up with one Person with both ID's
-    def test_distinct_with_anonymous_id_which_was_already_created(self):
-        user = self._create_user('tim@something')
-        Person.objects.create(team=self.team, distinct_ids=['anonymous_id'])
-        Person.objects.create(team=self.team, distinct_ids=['new_distinct_id'], properties={'email': 'someone@gmail.com'})
-
-        response = self.client.get('/e/?data=%s' % json.dumps({
-            'event': '$identify',
-            'properties': {
-                '$anon_distinct_id': 'anonymous_id',
-                'token': self.team.api_token,
-                'distinct_id': 'new_distinct_id'
-            },
-        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
-
-        # self.assertEqual(Event.objects.count(), 0)
-        person = Person.objects.get()
-        self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id"])
-        self.assertEqual(person.properties['email'], 'someone@gmail.com')
-
-    def test_distinct_team_leakage(self):
-        user = self._create_user('tim@something')
-        team2 = Team.objects.create()
-        Person.objects.create(team=team2, distinct_ids=['2'], properties={'email': 'team2@gmail.com'})
-        Person.objects.create(team=self.team, distinct_ids=['1', '2'])
-
-        try:
-            response = self.client.get('/e/?data=%s' % json.dumps({
-                'event': '$identify',
-                'properties': {
-                    '$anon_distinct_id': '1',
-                    'token': self.team.api_token,
-                    'distinct_id': '2'
-                },
-            }), content_type='application/json', HTTP_ORIGIN='https://localhost')
-        except:
-            pass
-
-        people = Person.objects.all()
-        self.assertEqual(people.count(), 2)
-        self.assertEqual(people[1].team, self.team)
-        self.assertEqual(people[1].properties, {})
-        self.assertEqual(people[1].distinct_ids, ["1", "2"])
-        self.assertEqual(people[0].team, team2)
-        self.assertEqual(people[0].distinct_ids, ["2"])
 
 
 class TestBatch(BaseTest):
