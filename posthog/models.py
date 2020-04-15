@@ -1,5 +1,5 @@
 from django.db import models, connection
-from django.db.models import Exists, OuterRef, Q, Subquery, F, signals, Prefetch
+from django.db.models import Exists, OuterRef, Q, Subquery, F, signals, Prefetch, QuerySet
 from django.dispatch import receiver
 from django.contrib.postgres.fields import JSONField, ArrayField
 from django.conf import settings
@@ -9,9 +9,9 @@ from django.utils.timezone import now
 from django.dispatch import receiver
 from django.forms.models import model_to_dict
 from django.utils import timezone
-from posthog.utils import properties_to_Q
+from posthog.utils import properties_to_Q, request_to_date_query
 from posthog.tasks import post_event_to_slack
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from typing import List, Tuple, Optional, Any, Union, Dict
 from django.db import transaction
 from sentry_sdk import capture_exception
@@ -23,6 +23,7 @@ import json
 import hashlib
 import uuid
 import random
+import datetime
 
 attribute_regex = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 
@@ -53,21 +54,40 @@ def split_selector_into_parts(selector: str) -> List:
         ret.append(data)
     return ret
 
+
+def is_email_restricted_from_signup(email: str) -> bool:
+    if not hasattr(settings, 'RESTRICT_SIGNUPS'):
+        return False
+
+    restricted_signups: Union[str, bool] = settings.RESTRICT_SIGNUPS
+    if restricted_signups is False:
+        return False
+
+    domain = email.rsplit('@', 1)[1]
+    whitelisted_domains = str(settings.RESTRICT_SIGNUPS).split(',')
+    if domain in whitelisted_domains:
+        return False
+
+    return True
+
+
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
 
     use_in_migrations = True
 
-    def _create_user(self, email, password, **extra_fields):
+    def _create_user(self, email: Optional[str], password: str, **extra_fields):
         """Create and save a User with the given email and password."""
-        if not email:
+        if email is None:
             raise ValueError('The given email must be set')
+
         email = self.normalize_email(email)
-        if hasattr(settings, 'RESTRICT_SIGNUPS') and settings.RESTRICT_SIGNUPS and email.rsplit('@', 1)[1] not in settings.RESTRICT_SIGNUPS.split(','):
+        if is_email_restricted_from_signup(email):
             raise ValueError("Can't sign up with this email")
+
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
-        user.save(using=self._db)
+        user.save()
         return user
 
     def create_user(self, email, password=None, **extra_fields):
@@ -104,7 +124,8 @@ class User(AbstractUser):
 
 
 class TeamManager(models.Manager):
-    def create_with_data(self, users: List[User]=None, **kwargs):
+
+    def create_with_data(self, users: Optional[List[User]], **kwargs):
         kwargs['api_token'] = kwargs.get('api_token', secrets.token_urlsafe(32))
         kwargs['signup_token'] = kwargs.get('signup_token', secrets.token_urlsafe(22))
         team = Team.objects.create(**kwargs)
@@ -121,6 +142,7 @@ class TeamManager(models.Manager):
             type='ActionsTable',
             filters={TREND_FILTER_TYPE_ACTIONS: [{'id': action.pk, 'type': TREND_FILTER_TYPE_ACTIONS}], 'display': 'ActionsTable', 'breakdown': '$browser'}
         )
+        DashboardItem.objects.create(team=team, name='Daily Active Users', type='ActionsLineGraph', filters={TREND_FILTER_TYPE_ACTIONS: [{'id': action.pk, 'math': 'dau', 'type': TREND_FILTER_TYPE_ACTIONS}]})
         return team
 
 
@@ -160,7 +182,7 @@ class EventManager(models.QuerySet):
                 subqueries['match_{}'.format(index)] = Subquery(
                     Element.objects.filter(group_id=OuterRef('pk'), **tag).values('order')[:1]
                 )
-            groups = groups.annotate(**subqueries)
+            groups = groups.annotate(**subqueries)  # type: ignore
             for index, _ in enumerate(parts):
                 filter['match_{}__isnull'.format(index)] = False
                 if index > 0:
@@ -429,6 +451,78 @@ class Funnel(models.Model):
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     created_by: models.ForeignKey = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
+    filters: JSONField = JSONField(default=dict)
+
+    def _order_people_in_step(self, steps: List[Dict[str, Any]], people: List[int]) -> List[int]:
+        def order(person):
+            score = 0
+            for step in steps:
+                if person in step['people']:
+                    score += 1
+            return (score, person)
+        return sorted(people, key=order, reverse=True)
+
+    def _annotate_steps(self, team_id: int, funnel_steps: QuerySet, date_query: Dict[str, datetime.date]) -> Dict[str, Subquery]:
+        annotations = {}
+        for index, step in enumerate(funnel_steps):
+            filter_key = 'event' if step.get('type') == TREND_FILTER_TYPE_EVENTS else 'action__pk'
+            annotations['step_{}'.format(index)] = Subquery(
+                Event.objects.all()
+                    .annotate(person_id=OuterRef('id'))
+                    .filter(
+                        **{filter_key: step['id']},
+                        team_id=team_id,
+                        distinct_id__in=Subquery(
+                            PersonDistinctId.objects.filter(
+                                team_id=team_id,
+                                person_id=OuterRef('person_id')
+                            ).values('distinct_id')
+                        ),
+                        **({'timestamp__gt': OuterRef('step_{}'.format(index-1))} if index > 0 else {}),
+                        **date_query
+                    )\
+                    .order_by('timestamp')\
+                    .values('timestamp')[:1])
+        return annotations
+
+    def _serialize_step(self, step: Dict[str, Any], people: Optional[List[int]] = None) -> Dict[str, Any]:
+        if step.get('type') == TREND_FILTER_TYPE_ACTIONS:
+            name = Action.objects.get(team=self.team_id, pk=step['id']).name
+        else:
+            name = step['id']
+        return {
+            'action_id': step['id'],
+            'name': name,
+            'order': step.get('order'),
+            'people': people if people else [],
+            'count': len(people) if people else 0
+        }
+
+    def get_steps(self) -> List[Dict[str, Any]]:
+        funnel_steps = self.filters.get('actions', []) + self.filters.get('events', [])
+        funnel_steps = sorted(funnel_steps, key=lambda step: step['order'])
+        people = Person.objects.all()\
+            .filter(
+                team_id=self.team_id,
+                persondistinctid__distinct_id__isnull=False
+            )\
+            .annotate(**self._annotate_steps(
+                team_id=self.team_id,
+                funnel_steps=funnel_steps,
+                date_query=request_to_date_query(self.filters)
+            ))\
+            .filter(step_0__isnull=False)\
+            .distinct('pk')
+
+        steps = []
+        for index, funnel_step in enumerate(funnel_steps):
+            relevant_people = [person.id for person in people if getattr(person, 'step_{}'.format(index))]
+            steps.append(self._serialize_step(funnel_step, relevant_people))
+
+        if len(steps) > 0:
+            for index, _ in enumerate(steps):
+                steps[index]['people'] = self._order_people_in_step(steps, steps[index]['people'])[0:100]
+        return steps
 
 class FunnelStep(models.Model):
     funnel: models.ForeignKey = models.ForeignKey(Funnel, related_name='steps', on_delete=models.CASCADE)

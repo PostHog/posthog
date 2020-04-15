@@ -88,7 +88,7 @@ export class LineGraph extends Component {
                                   {
                                       display: true,
                                       gridLines: { lineWidth: 0 },
-                                      ticks: { autoSkip: true },
+                                      ticks: { autoSkip: true, beginAtZero: true, min: 0 },
                                   },
                               ],
                               yAxes: [
@@ -96,6 +96,8 @@ export class LineGraph extends Component {
                                       display: true,
                                       ticks: {
                                           autoSkip: true,
+                                          beginAtZero: true,
+                                          min: 0,
                                       },
                                   },
                               ],

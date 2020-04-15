@@ -1,4 +1,4 @@
-from rest_framework import request, response, serializers, viewsets # type: ignore
+from rest_framework import request, response, serializers, viewsets
 from posthog.models import DashboardItem
 from typing import Dict, Any
 from django.db.models import QuerySet
@@ -20,7 +20,7 @@ class DashboardViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        if self.action == 'list': # type: ignore
+        if self.action == 'list':  # type: ignore
             queryset = queryset.filter(deleted=False)
         return queryset\
             .filter(team=self.request.user.team_set.get())\

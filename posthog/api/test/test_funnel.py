@@ -18,31 +18,20 @@ class TestCreateFunnel(BaseTest):
 
         response = self.client.post('/api/funnel/', data={
             'name': 'Whatever',
-            'steps': [
-                {'action_id': action_sign_up.pk},
-                {'action_id': action_credit_card.pk},
-                {}
-            ]
+            'filters': {
+                'events': [
+                    {'id': 'user signed up', 'type': 'events', 'order': 0},
+                ],
+                'actions': [
+                    {'id': action_sign_up.pk, 'type': 'actions', 'order': 1},
+                ]
+            }
         }, content_type='application/json').json()
         funnels = Funnel.objects.get()
-        steps = funnels.steps.all()
-        self.assertEqual(steps[0].action, action_sign_up) 
-        self.assertEqual(steps[1].action, action_credit_card) 
-
-        del response['steps'][1]
-        response['steps'][0]['action_id'] = action_play_movie.pk
-        response['steps'].append({'action_id': action_logout.pk, 'id': "8294bfc8-4a20-11ea-b77f-2e728ce8812"})
-        response = self.client.patch('/api/funnel/%s/' % response['id'], data=response, content_type='application/json').json()
-        funnels = Funnel.objects.get()
-        steps = funnels.steps.all()
-        self.assertEqual(steps[0].action, action_play_movie) 
-        self.assertEqual(steps[1].action, action_logout) 
-        self.assertEqual(len(steps), 2) 
-
-
-        response['steps'] = []
-        response = self.client.patch('/api/funnel/%s/' % response['id'], data=response, content_type='application/json').json()
-        self.assertEqual(Funnel.objects.get().steps.count(), 0) 
+        self.assertEqual(funnels.filters['actions'][0]['id'], action_sign_up.pk) 
+        self.assertEqual(funnels.filters['events'][0]['id'], 'user signed up') 
+        self.assertEqual(funnels.get_steps()[0]['order'], 0)
+        self.assertEqual(funnels.get_steps()[1]['order'], 1)
 
     def test_delete_funnel(self):
         funnel = Funnel.objects.create(team=self.team)
@@ -67,9 +56,7 @@ class TestGetFunnel(BaseTest):
     TESTS_API = True
 
     def _signup_event(self, distinct_id: str):
-        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team, elements=[
-            Element(tag_name='button', text='Sign up!')
-        ])
+        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team, event='user signed up')
 
     def _pay_event(self, distinct_id: str):
         sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team, elements=[
@@ -82,17 +69,24 @@ class TestGetFunnel(BaseTest):
         ])
 
     def _basic_funnel(self):
-        action_sign_up = Action.objects.create(team=self.team, name='signed up')
-        ActionStep.objects.create(action=action_sign_up, tag_name='button', text='Sign up!')
         action_credit_card = Action.objects.create(team=self.team, name='paid')
         ActionStep.objects.create(action=action_credit_card, tag_name='button', text='Pay $10')
         action_play_movie = Action.objects.create(team=self.team, name='watched movie')
         ActionStep.objects.create(action=action_play_movie, tag_name='a', href='/movie')
 
-        funnel = Funnel.objects.create(team=self.team, name='funnel')
-        FunnelStep.objects.create(funnel=funnel, order=0, action=action_sign_up)
-        FunnelStep.objects.create(funnel=funnel, order=1, action=action_credit_card)
-        FunnelStep.objects.create(funnel=funnel, order=4, action=action_play_movie) # test if ordering is messed up
+        funnel = Funnel.objects.create(
+            team=self.team,
+            name='funnel',
+            filters={
+                'events': [
+                    {'id': 'user signed up', 'type': 'events', 'order': 0},
+                ],
+                'actions': [
+                    {'id': action_credit_card.pk, 'type': 'actions', 'order': 1},
+                    {'id': action_play_movie.pk, 'type': 'actions', 'order': 2},
+                ]
+            }
+        )
         return funnel
 
     def test_funnel_events(self):
@@ -123,7 +117,7 @@ class TestGetFunnel(BaseTest):
 
         with self.assertNumQueries(7):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
-        self.assertEqual(response['steps'][0]['name'], 'signed up')
+        self.assertEqual(response['steps'][0]['name'], 'user signed up')
         self.assertEqual(response['steps'][0]['count'], 4)
         # check ordering of people in first step
         self.assertEqual(response['steps'][0]['people'], [person_stopped_after_movie.pk, person_stopped_after_pay.pk, person_wrong_order.pk, person_stopped_after_signup.pk])

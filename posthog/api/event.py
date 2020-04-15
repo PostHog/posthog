@@ -1,7 +1,7 @@
 from posthog.models import Event, Team, Person, Element, Action, PersonDistinctId, ElementGroup
 from posthog.utils import properties_to_Q
-from rest_framework import request, response, serializers, viewsets # type: ignore
-from rest_framework.decorators import action # type: ignore
+from rest_framework import request, response, serializers, viewsets
+from rest_framework.decorators import action
 from django.http import HttpResponse, JsonResponse
 from django.db.models import Q, Count, QuerySet, query, F, Func, functions, Prefetch
 from django.db.models.functions import Lag
@@ -59,8 +59,8 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         for key, value in request.GET.items():
-            if key in ('event', 'ip'):
-                pass
+            if key == 'event':
+                queryset = queryset.filter(event=request.GET['event'])
             elif key == 'after':
                 queryset = queryset.filter(timestamp__gt=request.GET['after'])
             elif key == 'before':

@@ -4,52 +4,59 @@ import { SaveToDashboard } from '../../lib/components/SaveToDashboard'
 import { DateFilter } from '../../lib/components/DateFilter'
 import { EditFunnel } from './EditFunnel'
 import { FunnelViz } from './FunnelViz'
-import { People } from './People';
-import { funnelLogic } from './funnelLogic';
-import { useValues, useActions } from 'kea';
-
+import { People } from './People'
+import { funnelLogic } from './funnelLogic'
+import { useValues, useActions } from 'kea'
 
 export function Funnel({ match }) {
-    const { funnel, funnelLoading, steps, stepsLoading, filters } = useValues(funnelLogic({id: match.params.id}));
-    const { loadSteps, setFilters } = useActions(funnelLogic({id: match.params.id}));
-    if(funnelLoading || !funnel) return <Loading />
-    return <div className="funnel">
-        <h1>Funnel: {funnel.name}</h1>
-        <EditFunnel
-            funnelId={match.params.id}
-            onChange={() => loadSteps()}
-        />
-        <Card
-            title={
-                <span>
-                    <span className='float-right'>
-                        <DateFilter
-                            onChange={(date_from, date_to) =>
-                                setFilters({
-                                    date_from,
-                                    date_to,
-                                })
-                            }
-                            dateFrom={filters.date_from}
-                            dateTo={filters.date_to}
-                        />
-                        <SaveToDashboard
-                            filters={{ funnel_id: funnel.id }}
-                            type="FunnelViz"
-                            name={funnel.name}
-                        />
-                    </span>
-                    Graph
-                </span>
-            }
-        >
-            <div style={{ height: 300 }}>
-                {stepsLoading && <Loading />}
-                {steps && steps[0] && steps[0].count > -1 && (
-                    <FunnelViz funnel={{steps}} />
-                )}
-            </div>
-        </Card>
-        <People match={match} />
-    </div>
+    const id = match.params.id
+    const { funnel, funnelLoading, stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic({ id }))
+    const { setFunnel } = useActions(funnelLogic({ id }))
+    if (!funnel && funnelLoading) return <Loading />
+    return (
+        <div className="funnel">
+            {funnel.id ? <h1>Funnel: {funnel.name}</h1> : <h1>New funnel</h1>}
+            <EditFunnel funnelId={id} />
+
+            {funnel.id && (
+                <Card
+                    title={
+                        <span>
+                            <span className="float-right">
+                                <DateFilter
+                                    onChange={(date_from, date_to) =>
+                                        setFunnel(
+                                            {
+                                                filters: {
+                                                    date_from,
+                                                    date_to,
+                                                },
+                                            },
+                                            true
+                                        )
+                                    }
+                                    dateFrom={funnel.filters.date_from}
+                                    dateTo={funnel.filters.date_to}
+                                />
+                                <SaveToDashboard
+                                    filters={{ funnel_id: funnel.id }}
+                                    type="FunnelViz"
+                                    name={funnel.name}
+                                />
+                            </span>
+                            Graph
+                        </span>
+                    }
+                >
+                    <div style={{ height: 300 }}>
+                        {stepsWithCountLoading && <Loading />}
+                        {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 && (
+                            <FunnelViz funnel={{ steps: stepsWithCount }} />
+                        )}
+                    </div>
+                </Card>
+            )}
+            {funnel.id && <People match={match} />}
+        </div>
+    )
 }

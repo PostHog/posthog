@@ -2,19 +2,18 @@ import React, { Component } from 'react'
 import PropTypes from 'prop-types'
 import api from '../../api'
 import { PropertyFilter } from './PropertyFilter'
+import { Button } from 'antd'
 
 export class PropertyFilters extends Component {
     constructor(props) {
         super(props)
 
         this.state = {
-            filters: Object.entries(props.propertyFilters).map(
-                ([key, value]) => {
-                    let dict = {}
-                    dict[key] = value
-                    return dict
-                }
-            ),
+            filters: Object.entries(props.propertyFilters).map(([key, value]) => {
+                let dict = {}
+                dict[key] = value
+                return dict
+            }),
         }
         this.endpoint = !this.props.endpoint ? 'event' : this.props.endpoint
         this.set = this.set.bind(this)
@@ -33,18 +32,13 @@ export class PropertyFilters extends Component {
         )
     }
     componentDidUpdate(prevProps) {
-        if (
-            JSON.stringify(this.props.propertyFilters) !=
-            JSON.stringify(prevProps.propertyFilters)
-        ) {
+        if (JSON.stringify(this.props.propertyFilters) != JSON.stringify(prevProps.propertyFilters)) {
             this.setState({
-                filters: Object.entries(this.props.propertyFilters).map(
-                    ([key, value]) => {
-                        let dict = {}
-                        dict[key] = value
-                        return dict
-                    }
-                ),
+                filters: Object.entries(this.props.propertyFilters).map(([key, value]) => {
+                    let dict = {}
+                    dict[key] = value
+                    return dict
+                }),
             })
         }
     }
@@ -69,9 +63,7 @@ export class PropertyFilters extends Component {
     }
     render() {
         let { filters } = this.state
-        let properties = this.state.properties
-            ? this.state.properties
-            : this.props.properties
+        let properties = this.state.properties ? this.state.properties : this.props.properties
         return (
             <div
                 className={this.props.className || 'col-8'}
@@ -93,23 +85,20 @@ export class PropertyFilters extends Component {
                         />
                         {index != filters.length - 1 && (
                             <div className="row">
-                                <div
-                                    className="secondary offset-4 col-2"
-                                    style={{ textAlign: 'center' }}
-                                >
+                                <div className="secondary offset-4 col-2" style={{ textAlign: 'center' }}>
                                     AND
                                 </div>
                             </div>
                         )}
                     </span>
                 ))}
-                <button
-                    className="btn btn-sm btn-outline-success"
+                <Button
+                    type="primary"
                     onClick={() => this.setState({ filters: [...filters, {}] })}
                     style={{ marginTop: '0.5rem' }}
                 >
-                    {filters.length == 0 ? 'Filter events by property' : 'Add another filter'}
-                </button>
+                    {filters.length == 0 ? 'Filter by property' : 'Add another filter'}
+                </Button>
             </div>
         )
     }

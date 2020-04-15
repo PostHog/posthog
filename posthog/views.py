@@ -1,3 +1,4 @@
+from typing import Dict, Union
 from django.http import HttpResponse
 from django.conf import settings
 import json
@@ -15,12 +16,12 @@ def health(request):
 
 
 def stats(request):
-    stats_response = {}
+    stats_response: Dict[str, Union[int, str]] = {}
 
     last_heartbeat = redis_instance.get("POSTHOG_HEARTBEAT") if redis_instance else None
     worker_heartbeat = int(time.time()) - int(last_heartbeat) if last_heartbeat else None
 
-    if worker_heartbeat == 0 or worker_heartbeat < 300:
+    if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
         stats_response['worker_heartbeat'] = worker_heartbeat
     else:
         stats_response['worker_heartbeat'] = 'offline'

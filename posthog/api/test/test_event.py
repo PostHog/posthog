@@ -1,10 +1,10 @@
 from .base import BaseTest
 from posthog.models import Event, Person, Element, Action, ActionStep
-from freezegun import freeze_time # type: ignore
+from freezegun import freeze_time
 
 
 class TestEvents(BaseTest):
-    TESTS_API = True 
+    TESTS_API = True
     ENDPOINT = 'event'
 
     def test_filter_events(self):
@@ -20,6 +20,13 @@ class TestEvents(BaseTest):
             response = self.client.get('/api/event/?distinct_id=2').json()
         self.assertEqual(response['results'][0]['person'], 'tim@posthog.com')
         self.assertEqual(response['results'][0]['elements'][0]['tag_name'], 'button')
+
+    def test_filter_events_by_event_name(self):
+        person = Person.objects.create(properties={'email': 'tim@posthog.com'}, team=self.team, distinct_ids=["2", 'some-random-uid'])
+        event1 = Event.objects.create(event='event_name',team=self.team, distinct_id="2", properties={"$ip": '8.8.8.8'})
+        with self.assertNumQueries(7):
+            response = self.client.get('/api/event/?event=event_name').json()
+        self.assertEqual(response['results'][0]['event'], 'event_name')
 
     def test_filter_by_person(self):
         person = Person.objects.create(properties={'email': 'tim@posthog.com'}, distinct_ids=["2", 'some-random-uid'], team=self.team)

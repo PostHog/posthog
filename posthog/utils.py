@@ -1,9 +1,10 @@
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from django.db.models import Q
-from typing import Dict
+from typing import Dict, Any
 from django.template.loader import get_template
 from django.http import HttpResponse, JsonResponse
+from dateutil import parser
 
 import datetime
 import re
@@ -18,7 +19,7 @@ def relative_date_parse(input: str) -> datetime.date:
     # when input also contains the time for intervals "hour" and "minute"
     # the above try fails. Try one more time from isoformat.
     try:
-        return datetime.datetime.fromisoformat(input)
+        return parser.isoparse(input)
     except ValueError:
         pass
 
@@ -46,17 +47,17 @@ def relative_date_parse(input: str) -> datetime.date:
             date = date - relativedelta(month=12, day=31)
     return date.date()
 
-def request_to_date_query(request) -> Dict[str, datetime.date]:
-    if request.GET.get('date_from'):
-        date_from = relative_date_parse(request.GET['date_from'])
-        if request.GET['date_from'] == 'all':
+def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.date]:
+    if filters.get('date_from'):
+        date_from = relative_date_parse(filters['date_from'])
+        if filters['date_from'] == 'all':
             date_from = None # type: ignore
     else:
         date_from = datetime.date.today() - relativedelta(days=7)
 
     date_to = None
-    if request.GET.get('date_to'):
-        date_to = relative_date_parse(request.GET['date_to'])
+    if filters.get('date_to'):
+        date_to = relative_date_parse(filters['date_to'])
 
     resp = {}
     if date_from:

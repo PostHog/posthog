@@ -6,11 +6,10 @@ import { CloseButton } from '~/lib/utils'
 import { Dropdown } from '~/lib/components/Dropdown'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 
-export function ActionFilterRow(props) {
+export function ActionFilterRow({ filter, index, showMaths, typeKey }) {
     const node = useRef()
-    const { filter, index } = props
-    const { selectedFilter, entities } = useValues(entityFilterLogic)
-    const { selectFilter, updateFilterMath, removeLocalFilter } = useActions(entityFilterLogic)
+    const { selectedFilter, entities } = useValues(entityFilterLogic({ typeKey }))
+    const { selectFilter, updateFilterMath, removeLocalFilter } = useActions(entityFilterLogic({ typeKey }))
 
     let entity, dropDownCondition, onClick, onClose, onMathSelect, name, value, math
     math = filter.math
@@ -42,7 +41,9 @@ export function ActionFilterRow(props) {
             <button
                 ref={node}
                 className="filter-action"
+                type="button"
                 onClick={onClick}
+                type="button"
                 style={{
                     border: 0,
                     padding: 0,
@@ -52,7 +53,7 @@ export function ActionFilterRow(props) {
             >
                 {name || 'Select action'}
             </button>
-            <MathSelector math={math} index={index} onMathSelect={onMathSelect} />
+            {showMaths && <MathSelector math={math} index={index} onMathSelect={onMathSelect} />}
             <CloseButton
                 onClick={onClose}
                 style={{
@@ -64,6 +65,7 @@ export function ActionFilterRow(props) {
             />
             {dropDownCondition() && (
                 <ActionFilterDropdown
+                    typeKey={typeKey}
                     onClickOutside={e => {
                         if (node.current.contains(e.target)) {
                             return
