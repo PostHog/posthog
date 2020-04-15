@@ -10,7 +10,7 @@ def add(x, y):
     return x + y
 
 @shared_task
-def post_event_to_slack(event_id, site_url):
+def post_event_to_slack(event_id: int, site_url: str):
     # must import "Event" like this to avoid circular dependency with models.py (it imports tasks.py)
     event_model = apps.get_model(app_label='posthog', model_name='Event')
     event = event_model.objects.get(pk=event_id)
