@@ -3,6 +3,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { fromParams, toParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
+import { userLogic } from 'scenes/userLogic'
 
 export const EntityTypes = {
     ACTIONS: 'actions',
@@ -88,7 +89,7 @@ export const trendsLogic = kea({
     key: props => props.dashboardItemId || 'all_trends',
 
     connect: {
-        values: [actionsModel, ['actions']],
+        values: [userLogic, ['eventNames'], actionsModel, ['actions']],
         actions: [actionsModel, ['loadActionsSuccess']],
     },
 
@@ -103,7 +104,6 @@ export const trendsLogic = kea({
     actions: () => ({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: display => ({ display }),
-        setDefaultActionIfEmpty: true,
 
         showPeople: (action, day) => ({ action, day }),
         loadPeople: (action, day) => ({ action, day }),
@@ -150,23 +150,6 @@ export const trendsLogic = kea({
     }),
 
     listeners: ({ actions, values, props }) => ({
-        [actions.loadActionsSuccess]: () => {
-            if (!props.dashboardItemId) {
-                actions.setDefaultActionIfEmpty()
-            }
-        },
-        [actions.setDefaultActionIfEmpty]: () => {
-            if (!values.filters.actions && values.actions.length > 0) {
-                actions.setFilters({
-                    actions: [
-                        {
-                            id: values.actions[values.actions.length - 1].id,
-                            type: EntityTypes.ACTIONS,
-                        },
-                    ],
-                })
-            }
-        },
         [actions.setDisplay]: async ({ display }) => {
             actions.setFilters({ display })
         },
@@ -242,7 +225,6 @@ export const trendsLogic = kea({
                 actions.setFilters(props.filters, false)
             } else {
                 actions.setFilters(filtersFromParams(), false)
-                actions.setDefaultActionIfEmpty()
             }
         },
     }),

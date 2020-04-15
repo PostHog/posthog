@@ -5,9 +5,9 @@ import { PropertyValue } from './PropertyValue'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 
-export function PropertyFilter({ index, endpoint }) {
-    const { properties, filters } = useValues(propertyFilterLogic)
-    const { set, remove } = useActions(propertyFilterLogic)
+export function PropertyFilter({ index, endpoint, onChange }) {
+    const { properties, filters } = useValues(propertyFilterLogic({ onChange }))
+    const { set, remove } = useActions(propertyFilterLogic({ onChange }))
     let item = filters[index]
     let key = Object.keys(item)[0] ? Object.keys(item)[0].split('__') : []
     let value = Object.values(item)[0]
@@ -63,9 +63,10 @@ export function PropertyFilter({ index, endpoint }) {
                 <div className="col-5" style={{ paddingLeft: 0 }}>
                     <PropertyValue
                         endpoint={endpoint}
+                        key={Object.keys(item)[0]}
                         propertyKey={Object.keys(item)[0]}
                         value={value}
-                        onSet={(key, value) => onSet(key, value)}
+                        onSet={(key, value) => set(index, key, value)}
                     />
                     {(key[1] == 'gt' || key[1] == 'lt') && isNaN(value) && (
                         <p className="text-danger">Value needs to be a number. Try "equals" or "contains" instead.</p>

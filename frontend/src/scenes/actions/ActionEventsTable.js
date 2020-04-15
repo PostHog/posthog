@@ -7,8 +7,6 @@ import moment from 'moment'
 import { EventDetails } from '../events/EventDetails'
 import PropTypes from 'prop-types'
 import { FilterLink } from '../../lib/components/FilterLink'
-import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 
 export class ActionEventsTable extends Component {
     constructor(props) {
@@ -56,12 +54,10 @@ export class ActionEventsTable extends Component {
     render() {
         let params = ['$current_url']
         let { loading, properties, events } = this.state
-        const { eventProperties } = useValues(userLogic)
         return (
             <div className="events">
                 <PropertyFilters
                     propertyFilters={properties}
-                    properties={eventProperties}
                     onChange={properties => this.setState({ properties }, this.fetchEvents)}
                 />
                 <table className="table">

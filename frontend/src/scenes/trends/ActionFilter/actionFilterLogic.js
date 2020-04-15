@@ -61,7 +61,7 @@ export const entityFilterLogic = kea({
             (events, actions) => {
                 return {
                     [EntityTypes.ACTIONS]: actions,
-                    [EntityTypes.EVENTS]: events,
+                    [EntityTypes.EVENTS]: events.map(event => ({ id: event, name: event })),
                 }
             },
         ],
@@ -101,12 +101,23 @@ export const entityFilterLogic = kea({
         },
     }),
 
-    events: ({ actions, props }) => ({
+    events: ({ actions, props, values }) => ({
         afterMount: () => {
             let sort = (a, b) => a.order - b.order
-            actions.setLocalFilters(
-                [...(props.defaultFilters.actions || []), ...(props.defaultFilters.events || [])].sort(sort)
-            )
+            let filters = [...(props.defaultFilters.actions || []), ...(props.defaultFilters.events || [])]
+            actions.setLocalFilters(filters.sort(sort))
+            if (props.setDefaultIfEmpty && filters.length == 0) {
+                let event = values.eventNames.indexOf('$pageview') > -1 ? '$pageview' : values.eventNames[0]
+                actions.setLocalFilters({
+                    events: [
+                        {
+                            id: event,
+                            name: event,
+                            type: EntityTypes.EVENTS,
+                        },
+                    ],
+                })
+            }
         },
     }),
 })

@@ -35,7 +35,13 @@ export function Trends() {
             <Card>
                 <div className="card-body">
                     <h4 className="secondary">{'Actions & Events'}</h4>
-                    <ActionFilter setFilters={setFilters} defaultFilters={filters} showMaths={true} typeKey="trends" />
+                    <ActionFilter
+                        setDefaultIfEmpty={true}
+                        setFilters={setFilters}
+                        defaultFilters={filters}
+                        showMaths={true}
+                        typeKey="trends"
+                    />
                     <hr />
                     <h4 className="secondary">Filters</h4>
                     <PropertyFilters

@@ -3,6 +3,7 @@ import api from '../../../lib/api'
 import { userLogic } from 'scenes/userLogic'
 
 export const propertyFilterLogic = kea({
+    key: props => props.onChange,
     connect: {
         values: [userLogic, ['eventProperties']],
     },

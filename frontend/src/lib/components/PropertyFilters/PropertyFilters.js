@@ -4,9 +4,9 @@ import { Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 
-export function PropertyFilters({ endpoint, propertyFilters, className, style }) {
-    const { filters } = useValues(propertyFilterLogic({ propertyFilters, endpoint }))
-    const { newFilter } = useActions(propertyFilterLogic)
+export function PropertyFilters({ endpoint, propertyFilters, className, style, onChange }) {
+    const { filters } = useValues(propertyFilterLogic({ propertyFilters, endpoint, onChange }))
+    const { newFilter } = useActions(propertyFilterLogic({ onChange }))
 
     return (
         <div
@@ -20,7 +20,7 @@ export function PropertyFilters({ endpoint, propertyFilters, className, style })
             {filters &&
                 filters.map((item, index) => (
                     <span>
-                        <PropertyFilter key={index} index={index} endpoint={endpoint || 'event'} />
+                        <PropertyFilter key={index} index={index} endpoint={endpoint || 'event'} onChange={onChange} />
                         {index != filters.length - 1 && (
                             <div className="row">
                                 <div className="secondary offset-4 col-2" style={{ textAlign: 'center' }}>
