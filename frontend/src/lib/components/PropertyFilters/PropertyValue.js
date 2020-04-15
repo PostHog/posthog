@@ -8,27 +8,19 @@ export class PropertyValue extends Component {
     constructor(props) {
         super(props)
         this.state = { input: props.value }
-        this.loadPropertyValues = debounce(
-            this.loadPropertyValues.bind(this),
-            250
-        )
+        this.loadPropertyValues = debounce(this.loadPropertyValues.bind(this), 250)
         this.ref = React.createRef()
     }
     loadPropertyValues(value, callback) {
         let key = this.props.propertyKey.split('__')[0]
-        api.get(
-            'api/' +
-                this.props.endpoint +
-                '/values/?key=' +
-                key +
-                (value ? '&value=' + value : '')
-        ).then(propValues =>
-            callback(
-                propValues.map(property => ({
-                    label: property.name ? property.name : '(empty)',
-                    value: property.name,
-                }))
-            )
+        api.get('api/' + this.props.endpoint + '/values/?key=' + key + (value ? '&value=' + value : '')).then(
+            propValues =>
+                callback(
+                    propValues.map(property => ({
+                        label: property.name ? property.name : '(empty)',
+                        value: property.name,
+                    }))
+                )
         )
     }
     render() {
@@ -67,6 +59,7 @@ export class PropertyValue extends Component {
                         }
                         return this.state.input
                     }}
+                    menuPortalTarget={document.body}
                 />
             </span>
         )

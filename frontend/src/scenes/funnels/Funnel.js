@@ -7,6 +7,7 @@ import { FunnelViz } from './FunnelViz'
 import { People } from './People'
 import { funnelLogic } from './funnelLogic'
 import { useValues, useActions } from 'kea'
+import api from 'lib/api'
 
 export function Funnel({ match }) {
     const id = match.params.id
@@ -39,9 +40,14 @@ export function Funnel({ match }) {
                                     dateTo={funnel.filters.date_to}
                                 />
                                 <SaveToDashboard
-                                    filters={{ funnel_id: funnel.id }}
-                                    type="FunnelViz"
                                     name={funnel.name}
+                                    onSubmit={(value, callback) => {
+                                        api.create('api/dashboard', {
+                                            filters: { funnel_id: funnel.id },
+                                            type: 'FunnelViz',
+                                            name: value,
+                                        }).then(callback)
+                                    }}
                                 />
                             </span>
                             Graph

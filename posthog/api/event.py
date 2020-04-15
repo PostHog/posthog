@@ -229,9 +229,18 @@ class EventViewSet(viewsets.ModelViewSet):
                         FROM (SELECT global_session_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
                             AS length FROM ({}) as count GROUP BY 1) agg'.format(query)
 
-        cursor = connection.cursor()
-        cursor.execute(overall_average_length(all_sessions) if math == 'avg' else distribution(all_sessions), sessions_sql_params)
-        calculated = cursor.fetchall()
+        result = []
+        if math == 'avg':
+            cursor = connection.cursor()
+            cursor.execute(overall_average_length(all_sessions), sessions_sql_params)
+            calculated = cursor.fetchall()
+            result = [{'label': 'Number of Sessions', 'count': calculated[0][0]}, {'label': 'Average Duration of Session (seconds)', 'count': calculated[0][1]}]
+        else: 
+            dist_labels = ['0 seconds (1 event)', '0-3 seconds', '3-10 seconds', '10-30 seconds', '30-60 seconds', '1-3 minutes', '3-10 minutes', '10-30 minutes', '30-60 minutes', '1+ hours']
+            cursor = connection.cursor()
+            cursor.execute(distribution(all_sessions), sessions_sql_params)
+            calculated = cursor.fetchall()
+            result = [{'label': dist_labels[index], 'count': calculated[0][index]} for index in range(len(dist_labels))]
         
-        return calculated
+        return result
 

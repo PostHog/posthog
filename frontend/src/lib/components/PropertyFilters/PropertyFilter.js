@@ -32,25 +32,21 @@ export class PropertyFilter extends Component {
                         isLoading={!properties}
                         placeholder="Property key"
                         onChange={item =>
-                            onSet(
-                                item.value + (key[1] ? '__' + key[1] : ''),
-                                item.value != key[0] ? '' : value
-                            )
+                            onSet(item.value + (key[1] ? '__' + key[1] : ''), item.value != key[0] ? '' : value)
                         }
                         styles={selectStyle}
                         autoFocus={!key[0]}
                         openMenuOnFocus={true}
+                        menuPortalTarget={document.body}
                     />
                 </div>
                 {key[0] && (
                     <div className="col-3">
                         <Select
-                            options={Object.entries(operatorMap).map(
-                                ([key, value]) => ({
-                                    label: value,
-                                    value: key,
-                                })
-                            )}
+                            options={Object.entries(operatorMap).map(([key, value]) => ({
+                                label: value,
+                                value: key,
+                            }))}
                             style={{ width: 200 }}
                             value={[
                                 {
@@ -59,11 +55,9 @@ export class PropertyFilter extends Component {
                                 },
                             ]}
                             placeholder="Property key"
-                            onChange={operator =>
-                                onSet(key[0] + '__' + operator.value, value)
-                            }
+                            onChange={operator => onSet(key[0] + '__' + operator.value, value)}
                             styles={selectStyle}
-                            styles={selectStyle}
+                            menuPortalTarget={document.body}
                         />
                     </div>
                 )}
@@ -77,16 +71,12 @@ export class PropertyFilter extends Component {
                         />
                         {(key[1] == 'gt' || key[1] == 'lt') && isNaN(value) && (
                             <p className="text-danger">
-                                Value needs to be a number. Try "equals" or
-                                "contains" instead.
+                                Value needs to be a number. Try "equals" or "contains" instead.
                             </p>
                         )}
                     </div>
                 )}
-                <div
-                    className="col-1 cursor-pointer"
-                    onClick={() => onRemove(index)}
-                >
+                <div className="col-1 cursor-pointer" onClick={() => onRemove(index)}>
                     <CloseButton style={{ float: 'none' }} />
                 </div>
             </div>

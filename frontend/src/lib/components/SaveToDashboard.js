@@ -1,5 +1,4 @@
 import React, { Component } from 'react'
-import api from '../api'
 import { Modal } from './Modal'
 import { toast } from 'react-toastify'
 import { Link } from 'react-router-dom'
@@ -11,7 +10,6 @@ export class SaveToDashboard extends Component {
 
         this.state = {}
         this.Modal = this.Modal.bind(this)
-        this.save = this.save.bind(this)
     }
     Toast({ closeToast }) {
         return (
@@ -21,21 +19,18 @@ export class SaveToDashboard extends Component {
             </div>
         )
     }
-    save(event) {
+    onSubmit = () => {
         event.preventDefault()
-        api.create('api/dashboard', {
-            filters: this.props.filters,
-            type: this.props.type,
-            name: event.target.name.value,
-        }).then(() => {
+        this.props.onSubmit(event.target.name.value, () => {
             toast(this.Toast)
             this.setState({ openModal: false })
         })
     }
+
     Modal() {
         return (
             <Modal title="Add graph to dashboard" onDismiss={() => this.setState({ openModal: false })}>
-                <form onSubmit={this.save}>
+                <form onSubmit={this.onSubmit}>
                     <label>Panel name on dashboard</label>
                     <input
                         name="name"
