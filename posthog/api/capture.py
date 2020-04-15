@@ -98,6 +98,7 @@ def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict
         distinct_id=distinct_id,
         properties=properties,
         team=team,
+        site_url=request.build_absolute_uri('/')[:-1],
         **({'timestamp': timestamp} if timestamp else {}),
         **({'elements': elements_list} if elements_list else {})
     )

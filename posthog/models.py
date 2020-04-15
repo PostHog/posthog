@@ -246,7 +246,7 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def create(self, *args: Any, **kwargs: Any):
+    def create(self, site_url: Optional[str] = None, *args: Any, **kwargs: Any):
         with transaction.atomic():
             if kwargs.get('elements'):
                 kwargs['elements_hash'] = ElementGroup.objects.create(team=kwargs['team'], elements=kwargs.pop('elements')).hash
@@ -261,7 +261,7 @@ class EventManager(models.QuerySet):
             Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
 
             if should_post_to_slack and event.team and event.team.slack_incoming_webhook:
-                post_event_to_slack.delay(event.id)
+                post_event_to_slack.delay(event.id, site_url)
 
             return event
 
