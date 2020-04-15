@@ -55,7 +55,7 @@ ptyprocess==0.6.0
 pycparser==2.20
 Pygments==2.5.2
 PyJWT==1.7.1
-pyparsing==2.4.6
+pyparsing==2.4.7
 python-dateutil==2.8.1
 python3-openid==3.1.0
 pytz==2019.3
