@@ -69,7 +69,7 @@ export const funnelLogic = kea({
             if (update) actions.updateFunnel(values.funnel)
         },
         [actions.updateFunnelSuccess]: async ({ funnel }) => {
-            actions.loadStepsWithCount()
+            actions.loadStepsWithCount(funnel.id)
             toast('Funnel saved!')
         },
         [actions.createFunnelSuccess]: ({ funnel }) => {
