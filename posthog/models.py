@@ -246,7 +246,7 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def create(self, site_url: str = None, *args: Any, **kwargs: Any):
+    def create(self, site_url: Optional[str] = None, *args: Any, **kwargs: Any):
         with transaction.atomic():
             if kwargs.get('elements'):
                 kwargs['elements_hash'] = ElementGroup.objects.create(team=kwargs['team'], elements=kwargs.pop('elements')).hash
