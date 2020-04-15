@@ -16,6 +16,7 @@ import { ShownAsFilter } from './ShownAsFilter'
 import { PeopleModal } from './PeopleModal'
 import { trendsLogic } from './trendsLogic'
 import { ChartFilter } from 'lib/components/ChartFilter'
+import { userLogic } from 'scenes/userLogic'
 
 const displayMap = {
     ActionsLineGraph: 'Line chart',
@@ -24,8 +25,9 @@ const displayMap = {
 }
 
 export function Trends() {
-    const { filters, properties, resultsLoading, showingPeople } = useValues(trendsLogic({ dashboardItemId: null }))
+    const { filters, resultsLoading, showingPeople } = useValues(trendsLogic({ dashboardItemId: null }))
     const { setFilters, setDisplay } = useActions(trendsLogic({ dashboardItemId: null }))
+    const { eventProperties } = useValues(userLogic)
     return (
         <div className="actions-graph">
             {showingPeople ? <PeopleModal /> : null}
@@ -37,7 +39,7 @@ export function Trends() {
                     <hr />
                     <h4 className="secondary">Filters</h4>
                     <PropertyFilters
-                        properties={properties}
+                        properties={eventProperties}
                         propertyFilters={filters.properties}
                         onChange={properties => setFilters({ properties })}
                         style={{ marginBottom: 0 }}
@@ -46,7 +48,7 @@ export function Trends() {
                     <h4 className="secondary">Break down by</h4>
                     <div className="select-with-close">
                         <BreakdownFilter
-                            properties={properties}
+                            properties={eventProperties}
                             breakdown={filters.breakdown}
                             onChange={breakdown => setFilters({ breakdown })}
                         />

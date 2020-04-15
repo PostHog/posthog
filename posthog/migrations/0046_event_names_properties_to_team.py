@@ -29,7 +29,7 @@ def noop(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0044_auto_20200414_1840'),
+        ('posthog', '0045_add_timestamp_index'),
     ]
 
     operations = [

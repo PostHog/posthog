@@ -2,9 +2,7 @@ import { kea } from 'kea'
 
 import api from 'lib/api'
 import { fromParams, toParams } from 'lib/utils'
-import { propertiesModel } from '~/models/propertiesModel'
 import { actionsModel } from '~/models/actionsModel'
-import { eventsModel } from '~/models/eventsModel'
 
 export const EntityTypes = {
     ACTIONS: 'actions',
@@ -90,7 +88,7 @@ export const trendsLogic = kea({
     key: props => props.dashboardItemId || 'all_trends',
 
     connect: {
-        values: [propertiesModel, ['properties'], actionsModel, ['actions'], eventsModel, ['events']],
+        values: [actionsModel, ['actions']],
         actions: [actionsModel, ['loadActionsSuccess']],
     },
 

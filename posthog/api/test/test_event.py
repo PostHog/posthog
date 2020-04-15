@@ -116,13 +116,10 @@ class TestEvents(BaseTest):
         Event.objects.create(team=self.team, properties={'something_else': 'qwerty'})
         response = self.client.get('/api/event/values/?key=random_prop').json()
         self.assertEqual(response[0]['name'], 'asdf')
-        self.assertEqual(response[0]['count'], 2)
         self.assertEqual(response[1]['name'], 'qwerty')
-        self.assertEqual(response[1]['count'], 1)
 
         response = self.client.get('/api/event/values/?key=random_prop&value=qw').json()
         self.assertEqual(response[0]['name'], 'qwerty')
-        self.assertEqual(response[0]['count'], 1)
 
     def test_before_and_after(self):
         user = self._create_user('tim')

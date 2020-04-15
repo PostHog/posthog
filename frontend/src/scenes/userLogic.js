@@ -24,6 +24,29 @@ export const userLogic = kea({
         afterMount: actions.loadUser,
     }),
 
+    selectors: ({ selectors }) => ({
+        eventProperties: [
+            () => [selectors.user],
+            user => user.team.event_properties.map(property => ({ value: property, label: property })),
+        ],
+        eventNames: [() => [selectors.user], user => user.team.event_names],
+        eventNamesGrouped: [
+            () => [selectors.user],
+            user => {
+                let data = [
+                    { label: 'PostHog events', options: [] },
+                    { label: 'Custom events', options: [] },
+                ]
+                user.team.event_names.forEach(name => {
+                    let format = { label: name, value: name }
+                    if (name[0] == '$') return data[0].options.push(format)
+                    data[1].options.push(format)
+                })
+                return data
+            },
+        ],
+    }),
+
     listeners: ({ actions }) => ({
         [actions.loadUser]: async () => {
             try {
