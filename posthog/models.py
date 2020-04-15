@@ -269,6 +269,7 @@ class Event(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=['elements_hash']),
+            models.Index(fields=['timestamp']),
         ]
 
     @property
