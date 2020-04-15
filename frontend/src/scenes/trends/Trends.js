@@ -15,8 +15,10 @@ import { ActionsTable } from './ActionsTable'
 import { ActionsLineGraph } from './ActionsLineGraph'
 import { ShownAsFilter } from './ShownAsFilter'
 import { PeopleModal } from './PeopleModal'
-
 import { trendsLogic } from './trendsLogic'
+import { Tabs } from 'antd'
+
+const { TabPane } = Tabs
 
 const displayMap = {
     ActionsLineGraph: 'Line chart',
@@ -33,31 +35,51 @@ export function Trends() {
             <h1>Action trends</h1>
             <Card>
                 <div className="card-body">
-                    <h4 className="secondary">{'Actions & Events'}</h4>
-                    <ActionFilter></ActionFilter>
-                    <hr />
-                    <h4 className="secondary">Filters</h4>
-                    <PropertyFilters
-                        properties={properties}
-                        propertyFilters={filters.properties}
-                        onChange={properties => setFilters({ properties })}
-                        style={{ marginBottom: 0 }}
-                    />
-                    <hr />
-                    <h4 className="secondary">Break down by</h4>
-                    <div className="select-with-close">
-                        <BreakdownFilter
-                            properties={properties}
-                            breakdown={filters.breakdown}
-                            onChange={breakdown => setFilters({ breakdown })}
-                        />
-                        {filters.breakdown && (
-                            <CloseButton onClick={() => setFilters({ breakdown: false })} style={{ marginTop: 1 }} />
-                        )}
-                    </div>
-                    <hr />
-                    <h4 className="secondary">Shown as</h4>
-                    <ShownAsFilter shown_as={filters.shown_as} onChange={shown_as => setFilters({ shown_as })} />
+                    <Tabs defaultActiveKey="1" onChange={() => console.log('calloback')}>
+                        <TabPane tab={'Actions & Events'} key="1">
+                            <ActionFilter></ActionFilter>
+                            <hr />
+                            <h4 className="secondary">Filters</h4>
+                            <PropertyFilters
+                                properties={properties}
+                                propertyFilters={filters.properties}
+                                onChange={properties => setFilters({ properties })}
+                                style={{ marginBottom: 0 }}
+                            />
+                            <hr />
+                            <h4 className="secondary">Break down by</h4>
+                            <div className="select-with-close">
+                                <BreakdownFilter
+                                    properties={properties}
+                                    breakdown={filters.breakdown}
+                                    onChange={breakdown => setFilters({ breakdown })}
+                                />
+                                {filters.breakdown && (
+                                    <CloseButton
+                                        onClick={() => setFilters({ breakdown: false })}
+                                        style={{ marginTop: 1 }}
+                                    />
+                                )}
+                            </div>
+                            <hr />
+                            <h4 className="secondary">Shown as</h4>
+                            <ShownAsFilter
+                                shown_as={filters.shown_as}
+                                onChange={shown_as => setFilters({ shown_as })}
+                            />
+                        </TabPane>
+                        <TabPane tab="Sessions" key="2">
+                            <ActionFilter></ActionFilter>
+                            <hr />
+                            <h4 className="secondary">Filters</h4>
+                            <PropertyFilters
+                                properties={properties}
+                                propertyFilters={filters.properties}
+                                onChange={properties => setFilters({ properties })}
+                                style={{ marginBottom: 0 }}
+                            />
+                        </TabPane>
+                    </Tabs>
                 </div>
             </Card>
             <Card
