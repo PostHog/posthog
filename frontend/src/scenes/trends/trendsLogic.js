@@ -37,11 +37,6 @@ export const disableHourFor = {
     all: true,
 }
 
-export const ViewType = {
-    FILTERS: 'FILTERS',
-    SESSIONS: 'SESSIONS',
-}
-
 function cleanFilters(filters) {
     if (filters.breakdown && filters.display !== 'ActionsTable') {
         return {
@@ -90,11 +85,6 @@ function filtersFromParams() {
     return cleanFilters(filters)
 }
 
-function viewTypeFromParams() {
-    let params = fromParams()
-    return params.view
-}
-
 export const trendsLogic = kea({
     key: props => props.dashboardItemId || 'all_trends',
 
@@ -119,8 +109,6 @@ export const trendsLogic = kea({
         loadPeople: (action, day) => ({ action, day }),
         hidePeople: true,
         setPeople: (people, count) => ({ people, count }),
-        setActiveView: type => ({ type }),
-        setSessionParams: params => params,
     }),
 
     reducers: ({ actions }) => ({
@@ -147,21 +135,6 @@ export const trendsLogic = kea({
             {
                 [actions.setFilters]: () => null,
                 [actions.setPeople]: (_, { count }) => count,
-            },
-        ],
-        activeView: [
-            ViewType.FILTERS,
-            {
-                [actions.setActiveView]: (_, { type }) => type,
-            },
-        ],
-        session: [
-            {},
-            {
-                [actions.setSessionParams]: (state, params) => ({
-                    ...state,
-                    ...params,
-                }),
             },
         ],
     }),
@@ -223,28 +196,10 @@ export const trendsLogic = kea({
 
     actionToUrl: ({ actions, values, props }) => ({
         [actions.setFilters]: () => {
-            if (viewTypeFromParams() == ViewType.SESSIONS) {
-                const url = `/trends?${toParams({ view: ViewType.SESSIONS })}`
-                if (window.location.pathname + window.location.search !== url) {
-                    return url
-                }
-            } else if (!props.dashboardItemId) {
-                const url = `/trends?${toParams({ ...values.filters, view: ViewType.FILTERS })}`
+            if (!props.dashboardItemId) {
+                const url = `/trends?${toParams(values.filters)}`
                 // temporary check to disable double back button
                 // as react-router and kea-router don't sync super well
-                if (window.location.pathname + window.location.search !== url) {
-                    return url
-                }
-            }
-        },
-        [actions.setActiveView]: ({ type }) => {
-            if (type == ViewType.FILTERS) {
-                const url = `/trends?${toParams({ view: ViewType.FILTERS })}`
-                if (window.location.pathname + window.location.search !== url) {
-                    return url
-                }
-            } else if (type == ViewType.SESSIONS) {
-                const url = `/trends?${toParams({ view: ViewType.SESSIONS })}`
                 if (window.location.pathname + window.location.search !== url) {
                     return url
                 }
@@ -265,9 +220,7 @@ export const trendsLogic = kea({
 
     events: ({ actions, props }) => ({
         afterMount: () => {
-            if (viewTypeFromParams() == ViewType.SESSIONS) {
-                actions.setActiveView(ViewType.SESSIONS)
-            } else if (props.dashboardItemId) {
+            if (props.dashboardItemId) {
                 // on dashboard
                 actions.setFilters(props.filters, false)
             } else {

@@ -14,13 +14,8 @@ import { ActionsTable } from './ActionsTable'
 import { ActionsLineGraph } from './ActionsLineGraph'
 import { ShownAsFilter } from './ShownAsFilter'
 import { PeopleModal } from './PeopleModal'
-import { trendsLogic, ViewType } from './trendsLogic'
-import { Tabs } from 'antd'
-import api from 'lib/api'
-
-const { TabPane } = Tabs
+import { trendsLogic } from './trendsLogic'
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { SessionFilter } from 'lib/components/SessionsFilter'
 import { userLogic } from 'scenes/userLogic'
 
 const displayMap = {
@@ -30,9 +25,7 @@ const displayMap = {
 }
 
 export function Trends() {
-    const { filters, properties, resultsLoading, showingPeople, activeView, session } = useValues(
-        trendsLogic({ dashboardItemId: null })
-    )
+    const { filters, resultsLoading, showingPeople } = useValues(trendsLogic({ dashboardItemId: null }))
     const { setFilters, setDisplay } = useActions(trendsLogic({ dashboardItemId: null }))
     const { eventProperties } = useValues(userLogic)
     return (
@@ -80,18 +73,8 @@ export function Trends() {
                     <span>
                         Graph
                         <div className="float-right">
-                            <IntervalFilter
-                                setFilters={setFilters}
-                                filters={filters}
-                                interval={filters.interval}
-                                onChange={interval => setFilters({ interval })}
-                                disabled={activeView == ViewType.SESSIONS}
-                            />
-                            <ChartFilter
-                                defaultValue={displayMap[filters.display || 'ActionsLineGraph']}
-                                disabledOptions={disabledChartOptions(filters, activeView)}
-                                onChange={setDisplay}
-                            ></ChartFilter>
+                            <IntervalFilter setFilters={setFilters} filters={filters} />
+                            <ChartFilter displayMap={displayMap} filters={filters} onChange={setDisplay}></ChartFilter>
                             <DateFilter
                                 onChange={(date_from, date_to) =>
                                     setFilters({
@@ -102,15 +85,7 @@ export function Trends() {
                                 dateFrom={filters.date_from}
                                 dateTo={filters.date_to}
                             />
-                            <SaveToDashboard
-                                onSubmit={(value, callback) => {
-                                    api.create('api/dashboard', {
-                                        filters: filters,
-                                        type: filters.display || 'ActionsLineGraph',
-                                        name: value,
-                                    }).then(callback)
-                                }}
-                            />
+                            <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
                         </div>
                     </span>
                 }
@@ -124,9 +99,8 @@ export function Trends() {
                             }}
                         >
                             {resultsLoading && <Loading />}
-                            {((activeView != ViewType.SESSIONS && !filters.display) ||
-                                filters.display == 'ActionsLineGraph') && <ActionsLineGraph />}
-                            {filters.display == 'ActionsTable' && <ActionsTable filters={filters} view={activeView} />}
+                            {(!filters.display || filters.display == 'ActionsLineGraph') && <ActionsLineGraph />}
+                            {filters.display == 'ActionsTable' && <ActionsTable filters={filters} />}
                             {filters.display == 'ActionsPie' && <ActionsPie filters={filters} />}
                         </div>
                     )}
@@ -134,14 +108,4 @@ export function Trends() {
             </Card>
         </div>
     )
-}
-
-const disabledChartOptions = (filters, view) => {
-    if (view == ViewType.SESSIONS) {
-        return ['ActionsLineGraph']
-    } else if (filters.breakdown) {
-        return ['ActionsPie', 'ActionsLineGraph']
-    } else {
-        return []
-    }
 }

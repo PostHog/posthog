@@ -45,7 +45,6 @@ export function PropertyFilter({ index, endpoint, onChange, pageKey }) {
                         styles={selectStyle}
                         autoFocus={!key[0]}
                         openMenuOnFocus={true}
-                        menuPortalTarget={document.body}
                     />
                 )}
             </div>
