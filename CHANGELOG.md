@@ -1,5 +1,9 @@
 # Changelog
 
+### 1.1.0.1 - Thursday 16 April 2020
+
+- Fix issues with custom events while creating actions
+
 ### 1.1.0 - Wednesday 15 April 2020
 
 Important! We've added Celery workers. We'll move tasks to workers to speed up a lot of actions in PostHog. [See update instructions](https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011) on how to enable workers.
