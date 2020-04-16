@@ -270,13 +270,12 @@ class TestTrends(BaseTest):
     def test_trends_for_non_existing_action(self):
         with freeze_time('2020-01-04'):
             response = self.client.get('/api/action/trends/?actions=%s' % json_to_url([{'id': 4000000}])).json()
-
         self.assertEqual(len(response), 0)
 
         with freeze_time('2020-01-04'):
             response = self.client.get('/api/action/trends/?events=%s' % json_to_url([{'id': "DNE"}])).json()
 
-        self.assertEqual(len(response), 0)
+        self.assertEqual(response[0]['count'], 0)
 
 
     def test_dau_filtering(self):

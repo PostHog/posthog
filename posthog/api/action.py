@@ -395,8 +395,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     filters=event,
                     request=request,
                 )
-                if 'labels' in trend_entity:
-                    actions_list.append(trend_entity)
+                actions_list.append(trend_entity)
         if parsed_actions:
             for filters in parsed_actions:
                 try:
