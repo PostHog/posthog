@@ -69,3 +69,11 @@ class TestPropertiesToQ(BaseTest):
         self.assertEqual(events[0], event1)
         self.assertEqual(events[1], event2)
         self.assertEqual(len(events), 2)
+
+    def test_multiple(self):
+        event2 = Event.objects.create(team=self.team, event='$pageview', properties={'$current_url': 'https://something.com', 'another_key': 'value'})
+        Event.objects.create(team=self.team, event='$pageview', properties={'$current_url': 'https://something.com'})
+        properties = {'$current_url__icontains': 'something.com', 'another_key': 'value'}
+        events = Event.objects.filter(properties_to_Q(properties))
+        self.assertEqual(events[0], event2)
+        self.assertEqual(len(events), 1)
