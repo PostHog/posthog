@@ -461,7 +461,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 action = actions.get(pk=entityId)
             except Action.DoesNotExist:
                 return Response([])
-            filtered_events = self._process_entity_for_events(action, entity_type=TREND_FILTER_TYPE_ACTIONS, order_by='-timestamp').filter(self._filter_events(request))
+            filtered_events = self._process_entity_for_events(action, entity_type=TREND_FILTER_TYPE_ACTIONS, order_by=None).filter(self._filter_events(request))
             people = _calculate_people(id=action.id, name=action.name, events=filtered_events)
             return Response([people])
 
