@@ -439,7 +439,6 @@ class ActionViewSet(viewsets.ModelViewSet):
                     .annotate(day_count=Count(functions.TruncDay('timestamp'), distinct=True))\
                     .filter(day_count=stickiness_days)
 
-            from ipdb import set_trace; set_trace()
             people = Person.objects\
                 .filter(team=self.request.user.team_set.get(), id__in=[p['person_id'] for p in events[0:100]])
 
