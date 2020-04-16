@@ -95,15 +95,7 @@ def _handle_timestamp(data: dict, now: datetime.datetime) -> Union[datetime.date
     return now
 
 @shared_task
-def process_event(ip: str, site_url: str, data: dict, team_id: int, now: datetime.datetime) -> None:
-    try:
-        distinct_id = str(data['properties']['distinct_id'])
-    except KeyError:
-        try:
-            distinct_id = str(data['$distinct_id'])
-        except KeyError:
-            distinct_id = str(data['distinct_id'])
-
+def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: datetime.datetime) -> None:
     if data['event'] == '$create_alias':
         _alias(distinct_id=distinct_id, new_distinct_id=data['properties']['alias'], team_id=team_id)
 

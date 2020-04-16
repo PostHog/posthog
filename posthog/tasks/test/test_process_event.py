@@ -15,7 +15,7 @@ class ProcessEvent(BaseTest):
         ActionStep.objects.create(action=action2, selector='a')
 
         with self.assertNumQueries(18):
-            process_event('', '', {
+            process_event(2, '', '', {
                 'event': '$autocapture',
                 'properties': {
                     'distinct_id': 2,
@@ -41,7 +41,7 @@ class ProcessEvent(BaseTest):
         user = self._create_user('tim')
         Person.objects.create(team=self.team, distinct_ids=['asdfasdfasdf'])
 
-        process_event('', '', {
+        process_event('asdfasdfasdf', '', '', {
             'event': '$pageview',
             'properties': {
                 'distinct_id': 'asdfasdfasdf',
@@ -56,7 +56,7 @@ class ProcessEvent(BaseTest):
     def test_alias(self):
         Person.objects.create(team=self.team, distinct_ids=['old_distinct_id'])
 
-        process_event('', '', {
+        process_event('old_distinct_id', '', '', {
             'event': '$create_alias',
             'properties': {
                 'distinct_id': 'old_distinct_id',
@@ -85,7 +85,7 @@ class ProcessEvent(BaseTest):
 
     def test_offset_timestamp(self):
         with freeze_time("2020-01-01T12:00:05.200Z"):
-            process_event('', '', {
+            process_event('distinct_id', '', '', {
                 "offset": 150,
                 "event":"$autocapture",
                 "distinct_id": "distinct_id",
@@ -107,7 +107,7 @@ class TestIdentify(TransactionTestCase):
     def test_distinct_with_anonymous_id(self):
         Person.objects.create(team=self.team, distinct_ids=['anonymous_id'])
 
-        process_event('', '', {
+        process_event('new_distinct_id', '', '', {
             'event': '$identify',
             'properties': {
                 '$anon_distinct_id': 'anonymous_id',
@@ -120,7 +120,7 @@ class TestIdentify(TransactionTestCase):
         self.assertEqual(Person.objects.get().distinct_ids, ["anonymous_id", "new_distinct_id"])
 
         # check no errors as this call can happen multiple times
-        process_event('', '', {
+        process_event('new_distinct_id', '', '', {
             'event': '$identify',
             'properties': {
                 '$anon_distinct_id': 'anonymous_id',
@@ -138,7 +138,7 @@ class TestIdentify(TransactionTestCase):
         Person.objects.create(team=self.team, distinct_ids=['anonymous_id'])
         Person.objects.create(team=self.team, distinct_ids=['new_distinct_id'], properties={'email': 'someone@gmail.com'})
 
-        process_event('', '', {
+        process_event('new_distinct_id', '', '', {
             'event': '$identify',
             'properties': {
                 '$anon_distinct_id': 'anonymous_id',
@@ -158,7 +158,7 @@ class TestIdentify(TransactionTestCase):
         Person.objects.create(team=self.team, distinct_ids=['1', '2'])
 
         try:
-            process_event('', '', {
+            process_event('2', '', '', {
                 'event': '$identify',
                 'properties': {
                     '$anon_distinct_id': '1',

@@ -2,7 +2,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from posthog.models import Team
-from typing import Dict, Union, Optional, List
+from typing import Dict, Union, Optional, List, Any
 from urllib.parse import urlparse
 from posthog.tasks.process_event import process_event
 import json
@@ -63,6 +63,15 @@ def _get_token(data, request) -> Union[str, bool]:
         return data['properties']['token'] # JS capture call
     return False
 
+def _get_distinct_id(data: Dict[str, Any]) -> str:
+    try:
+        return str(data['properties']['distinct_id'])
+    except KeyError:
+        try:
+            return str(data['$distinct_id'])
+        except KeyError:
+            return str(data['distinct_id'])
+
 @csrf_exempt
 def get_event(request):
     now = timezone.now()
@@ -80,27 +89,29 @@ def get_event(request):
 
     if isinstance(data, dict):
         if data.get('batch'): # posthog-python and posthog-ruby
-            data = data['batch']
-            assert data is not None
+            events = data['batch']
+            assert events is not None
         elif 'engage' in request.path_info: # JS identify call
             data['event'] = '$identify' # make sure it has an event name
 
     if isinstance(data, list):
-        for i in data:
-            try:
-                process_event.delay(
-                    ip=get_ip_address(request),
-                    site_url=request.build_absolute_uri('/')[:-1],
-                    data=i, team_id=team.pk, now=now)
-            except KeyError:
-                return cors_response(request, JsonResponse({'code': 'validation', 'message': "You need to set a distinct_id.", "item": data}, status=400))
+        events = data
     else:
+        events = [data]
+
+    for event in events:
+        try:
+            distinct_id = _get_distinct_id(event)
+        except KeyError:
+            return cors_response(request, JsonResponse({'code': 'validation', 'message': "You need to set a distinct_id.", "item": event}, status=400))
         process_event.delay(
+            distinct_id=distinct_id,
             ip=get_ip_address(request),
             site_url=request.build_absolute_uri('/')[:-1],
-            data=data,
+            data=event,
             team_id=team.pk,
-            now=now)
+            now=now
+        )
 
     return cors_response(request, JsonResponse({'status': 1}))
 
