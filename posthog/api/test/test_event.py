@@ -163,9 +163,9 @@ class TestEvents(BaseTest):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="1")
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
 
-        response = self.client.get('/api/event/sessions/?math=avg').json()
-        self.assertEqual(response[0][0], 4) #number of sessions
-        self.assertEqual(response[0][1], 120) # average length of all sessions
+        response = self.client.get('/api/event/sessions/?session=avg&date_from=all').json()
+        self.assertEqual(response[0]['count'], 4) #number of sessions
+        self.assertEqual(response[1]['count'], 120) # average length of all sessions
 
     def test_sessions_count_buckets(self):
 
@@ -234,7 +234,7 @@ class TestEvents(BaseTest):
         with freeze_time("2012-01-21 06:00:30"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
 
-        response = self.client.get('/api/event/sessions/?math=distribution').json()
+        response = self.client.get('/api/event/sessions/?session=distribution&date_from=all').json()
         
-        for count in response[0]:
-            self.assertEqual(count, 1)
+        for item in response:
+            self.assertEqual(item['count'], 1)
