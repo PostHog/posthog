@@ -72,12 +72,12 @@ def properties_to_Q(properties: Dict[str, str]) -> Q:
     for key, value in properties.items():
         if key.endswith('__is_not'):
             key = key.replace('__is_not', '')
-            filters |= Q(~Q(**{'properties__{}'.format(key): value}) | ~Q(properties__has_key=key))
+            filters &= Q(~Q(**{'properties__{}'.format(key): value}) | ~Q(properties__has_key=key))
         elif key.endswith('__not_icontains'):
             key = key.replace('__not_icontains', '')
-            filters |= Q(~Q(**{'properties__{}__icontains'.format(key): value}) | ~Q(properties__has_key=key))
+            filters &= Q(~Q(**{'properties__{}__icontains'.format(key): value}) | ~Q(properties__has_key=key))
         else:
-            filters |= Q(**{'properties__{}'.format(key): value})
+            filters &= Q(**{'properties__{}'.format(key): value})
     return filters
 
 def render_template(template_name: str, request, context=None) -> HttpResponse:

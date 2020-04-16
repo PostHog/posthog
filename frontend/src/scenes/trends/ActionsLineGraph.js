@@ -16,7 +16,7 @@ export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam
     }, [toParams(otherFilters)])
 
     return results ? (
-        results[0] && results[0].labels ? (
+        results.reduce((total, item) => total + item.count, 0) > 0 ? (
             <LineGraph
                 type="line"
                 datasets={results}
@@ -34,7 +34,9 @@ export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam
                 }
             />
         ) : (
-            <p style={{ textAlign: 'center', marginTop: '4rem' }}>We couldn't find any matching actions.</p>
+            <p style={{ textAlign: 'center', marginTop: '4rem' }}>
+                We couldn't find any matching events. Try changing dates or pick another action or event.
+            </p>
         )
     ) : (
         <Loading />
