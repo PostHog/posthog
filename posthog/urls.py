@@ -84,11 +84,9 @@ def setup_admin(request):
         email = request.POST['email']
         password = request.POST['password']
         company_name = request.POST.get('company_name')
+        email_opt_in = request.POST.get('emailOptIn') == 'on'
         is_first_user = not User.objects.exists()
-        try:
-            user = User.objects.create_user(email=email, password=password, first_name=request.POST.get('name'))
-        except:
-            return render_template('setup_admin.html', request=request, context={'error': True, 'email': request.POST['email'], 'company_name': request.POST.get('company_name'), 'name': request.POST.get('name')})
+        user = User.objects.create_user(email=email, password=password, first_name=request.POST.get('name'), email_opt_in=email_opt_in)
         Team.objects.create_with_data(users=[user], name=company_name)
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': is_first_user})
