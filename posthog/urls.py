@@ -60,15 +60,11 @@ def signup_to_team_view(request, token):
         email = request.POST['email']
         password = request.POST['password']
         first_name=request.POST.get('name')
-        email_opt_in=request.POST.get('emailOptIn')
+        email_opt_in = request.POST.get('emailOptIn') == 'on'
 
-        if email_opt_in == 'on':
-            email_opt_in = True
-
-        try:
-            user = User.objects.create_user(email=email, password=password, first_name=first_name, email_opt_in=email_opt_in)
-        except:
-            return render_template('signup_to_team.html', request=request, context={'email': email, 'error': True, 'team': team, 'signup_token': token})
+        if User.objects.filter(email=email).exists():
+            return render_template('signup_to_team.html', request=request, context={'email': email, 'name': first_name, 'error': True, 'team': team, 'signup_token': token})
+        user = User.objects.create_user(email=email, password=password, first_name=first_name, email_opt_in=email_opt_in)
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         team.users.add(user)
         team.save()

@@ -35,6 +35,15 @@ class TestSignup(TestCase):
         self.assertEqual(items[1].filters['actions'][0]['id'], action.pk)
         self.assertEqual(items[1].type, 'ActionsTable')
 
+    def test_signup_to_team(self):
+        team = Team.objects.create_with_data(name='test', users=[
+            User.objects.create_user(email='adminuser@posthog.com')
+        ])
+        with self.settings(TEST=False):
+            response = self.client.post('/signup/{}'.format(team.signup_token), {'name': 'Jane', 'email': 'jane@acme.com', 'password': 'hunter2', 'emailOptIn': ''}, follow=True)
+        self.assertRedirects(response, '/')
+
+
 class TestSocialSignup(TestCase):
     def setUp(self):
         super().setUp()
