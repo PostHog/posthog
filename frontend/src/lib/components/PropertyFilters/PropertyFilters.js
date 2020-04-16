@@ -19,10 +19,15 @@ function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, 
     const { remove } = useActions(propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey }))
     let [open, setOpen] = useState(false)
 
-    let handleVisibleChange = visible => setOpen(visible)
+    let handleVisibleChange = visible => {
+        if (!visible && Object.keys(item).length !== 0) {
+            remove(index)
+        }
+        setOpen(visible)
+    }
 
     return (
-        <Row align="middle">
+        <Row align="middle" className="mt-2 mb-2">
             <Popover
                 trigger="click"
                 onVisibleChange={handleVisibleChange}
@@ -41,12 +46,12 @@ function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, 
                 }
             >
                 {Object.keys(item).length !== 0 ? (
-                    <Button type="primary" shape="round" style={{ marginTop: '0.5rem' }}>
+                    <Button type="primary" shape="round">
                         <span>{formatFilterName(Object.keys(item)[0]) + item[Object.keys(item)[0]]}</span>
                     </Button>
                 ) : (
-                    <Button type="default" shape="round" style={{ marginTop: '0.5rem', marginBottom: '0.5rem' }}>
-                        {filters.length == 0 ? 'Filter by property' : 'Add another filter'}
+                    <Button type="default" shape="round">
+                        {'Add Filter'}
                     </Button>
                 )}
             </Popover>
@@ -71,8 +76,8 @@ export function PropertyFilters(props) {
         <div
             className={className || 'col-8'}
             style={{
-                marginBottom: '2rem',
                 padding: 0,
+                marginBottom: '2rem',
                 display: 'inline',
                 style,
             }}
