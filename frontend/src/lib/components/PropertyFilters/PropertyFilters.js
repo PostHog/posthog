@@ -20,7 +20,7 @@ function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, 
     let [open, setOpen] = useState(false)
 
     let handleVisibleChange = visible => {
-        if (!visible && Object.keys(item).length !== 0) {
+        if (!visible && Object.keys(item).length >= 0 && !item[Object.keys(item)[0]]) {
             remove(index)
         }
         setOpen(visible)
