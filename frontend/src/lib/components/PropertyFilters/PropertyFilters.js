@@ -5,12 +5,11 @@ import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { Popover, Row } from 'antd'
 import { CloseButton } from '../../utils'
-import { CloseOutlined } from '@ant-design/icons'
 
 const formatFilterName = str => {
     if (str.includes('__is_not')) return str.replace('__is_not', '') + ' is not '
     else if (str.includes('__icontains')) return str.replace('__icontains', '') + ' contains '
-    else if (str.includes('__not_icontains')) return str.replace('__not_icontains', '') + ' does not contain '
+    else if (str.includes('__not_icontains')) return str.replace('__not_icontains', '') + " doesn't contain "
     else if (str.includes('__gt')) return str.replace('__gt', '') + ' > '
     else if (str.includes('__lt')) return str.replace('__lt', '') + ' < '
     else return str.replace('__null', '') + ' = '
