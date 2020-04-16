@@ -2,6 +2,8 @@ from celery import shared_task
 from posthog.models import Person, Element, Event, Team
 from typing import Union, Dict
 from dateutil.relativedelta import relativedelta
+from dateutil import parser
+
 from django.db import IntegrityError
 import datetime
 
@@ -87,17 +89,18 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
     person.properties.update(properties)
     person.save()
 
-def _handle_timestamp(data: dict, now: datetime.datetime) -> Union[datetime.datetime, str]:
+def _handle_timestamp(data: dict, now: str) -> Union[datetime.datetime, str]:
     if data.get('timestamp'):
         return data['timestamp']
+    now_datetime = parser.isoparse(now)
     if data.get('offset'):
-        return now - relativedelta(microseconds=data['offset'] * 1000)
-    return now
+        return now_datetime - relativedelta(microseconds=data['offset'] * 1000)
+    return now_datetime
 
 @shared_task
-def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: datetime.datetime) -> None:
+def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str) -> None:
     if data['event'] == '$create_alias':
-        _alias(distinct_id=distinct_id, new_distinct_id=data['properties']['alias'], team_id=team_id)
+        _alias(distinct_id=data['properties']['alias'], new_distinct_id=distinct_id, team_id=team_id)
 
     if data['event'] == '$identify' and data.get('properties') and data['properties'].get('$anon_distinct_id'):
         _alias(distinct_id=data['properties']['$anon_distinct_id'], new_distinct_id=distinct_id, team_id=team_id)

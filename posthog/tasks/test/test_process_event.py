@@ -25,7 +25,7 @@ class ProcessEvent(BaseTest):
                         {'tag_name': 'div', 'nth_child': 1, 'nth_of_type': 2, '$el_text': '💻'}
                     ]
                 },
-            }, self.team.pk, now())
+            }, self.team.pk, now().isoformat())
 
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
         event = Event.objects.get()
@@ -47,7 +47,7 @@ class ProcessEvent(BaseTest):
                 'distinct_id': 'asdfasdfasdf',
                 'token': self.team.api_token,
             },
-        }, self.team.pk, now())
+        }, self.team.pk, now().isoformat())
 
         self.assertEqual(Person.objects.get().distinct_ids, ["asdfasdfasdf"])
         event = Event.objects.get()
@@ -56,14 +56,14 @@ class ProcessEvent(BaseTest):
     def test_alias(self):
         Person.objects.create(team=self.team, distinct_ids=['old_distinct_id'])
 
-        process_event('old_distinct_id', '', '', {
+        process_event('new_distinct_id', '', '', {
             'event': '$create_alias',
             'properties': {
-                'distinct_id': 'old_distinct_id',
+                'distinct_id': 'new_distinct_id',
                 'token': self.team.api_token,
-                'alias': 'new_distinct_id'
+                'alias': 'old_distinct_id'
             },
-        }, self.team.pk, now())
+        }, self.team.pk, now().isoformat())
 
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
@@ -71,14 +71,14 @@ class ProcessEvent(BaseTest):
     # This tends to happen when .init and .identify get called right after each other, causing a race condition
     # in this case the 'anonymous_id' won't have any actions anyway
     def test_alias_to_non_existent_distinct_id(self):
-        process_event('', '', {
+        process_event('new_distinct_id', '', '', {
             'event': '$identify',
             'properties': {
                 '$anon_distinct_id': 'doesnt_exist',
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }, self.team.pk, now())
+        }, self.team.pk, now().isoformat())
 
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ['new_distinct_id'])
@@ -89,7 +89,7 @@ class ProcessEvent(BaseTest):
                 "offset": 150,
                 "event":"$autocapture",
                 "distinct_id": "distinct_id",
-            }, self.team.pk, now())
+            }, self.team.pk, now().isoformat())
 
         event = Event.objects.get()
         self.assertEqual(event.timestamp.isoformat(), '2020-01-01T12:00:05.050000+00:00')
@@ -114,7 +114,7 @@ class TestIdentify(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }, self.team.pk, now())
+        }, self.team.pk, now().isoformat())
 
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["anonymous_id", "new_distinct_id"])
@@ -127,7 +127,7 @@ class TestIdentify(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }, self.team.pk, now())
+        }, self.team.pk, now().isoformat())
 
     # This case is likely to happen after signup, for example:
     # 1. User browses website with anonymous_id
@@ -145,7 +145,7 @@ class TestIdentify(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }, self.team.pk, now())
+        }, self.team.pk, now().isoformat())
 
         # self.assertEqual(Event.objects.count(), 0)
         person = Person.objects.get()
@@ -165,7 +165,7 @@ class TestIdentify(TransactionTestCase):
                     'token': self.team.api_token,
                     'distinct_id': '2'
                 },
-            }, self.team.pk, now())
+            }, self.team.pk, now().isoformat())
         except:
             pass
 
