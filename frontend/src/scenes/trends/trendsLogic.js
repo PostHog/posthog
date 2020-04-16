@@ -116,7 +116,6 @@ export const trendsLogic = kea({
         setActiveView: type => ({ type }),
         initialView: type => ({ type }),
         setCachedUrl: url => ({ url }),
-        clearCachedUrl: true,
     }),
 
     reducers: ({ actions }) => ({
@@ -156,7 +155,6 @@ export const trendsLogic = kea({
             null,
             {
                 [actions.setCachedUrl]: (_, { url }) => url,
-                [actions.clearCachedUrl]: _ => null,
             },
         ],
     }),
