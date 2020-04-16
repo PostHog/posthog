@@ -174,7 +174,6 @@ class EventViewSet(viewsets.ModelViewSet):
         events = events.filter(self._filter_events(request))
         session_type = self.request.GET.get('session')
         calculated = self.calculate_sessions(events, session_type)
-    
         return response.Response(calculated)
 
     def calculate_sessions(self, events, session_type):
@@ -263,7 +262,8 @@ class EventViewSet(viewsets.ModelViewSet):
         if date_from:
             filters &= Q(timestamp__gte=date_from)
         if date_to:
-            filters &= Q(timestamp__lte=date_to)
+            relativity = relativedelta(days=1)
+            filters &= Q(timestamp__lte=date_to + relativity)
         if not request.GET.get('properties'):
             return filters
         properties = json.loads(request.GET['properties'])
