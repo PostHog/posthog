@@ -344,7 +344,10 @@ class ActionViewSet(viewsets.ModelViewSet):
             },
             'label': name,
             'count': 0,
-            'breakdown': []
+            'breakdown': [],
+            'data': [],
+            'labels': [],
+            'days': []
         }
 
         if request.GET.get('shown_as', 'Volume') == 'Volume':
