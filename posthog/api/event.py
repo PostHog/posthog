@@ -170,7 +170,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(methods=['GET'], detail=False)
     def sessions(self, request: request.Request) -> response.Response:
-        events = self.get_queryset().filter(**request_to_date_query(request.GET)) # type: ignore
+        events = self.get_queryset().filter(**request_to_date_query(request.GET.dict())) 
         session_type = self.request.GET.get('session')
         calculated = self.calculate_sessions(events, session_type)
         return response.Response(calculated)
