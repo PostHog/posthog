@@ -275,7 +275,7 @@ class TestTrends(BaseTest):
         with freeze_time('2020-01-04'):
             response = self.client.get('/api/action/trends/?events=%s' % json_to_url([{'id': "DNE"}])).json()
 
-        self.assertEqual(response[0]['count'], 0)
+        self.assertEqual(response[0]['data'], [0, 0, 0, 0, 0, 0, 0, 0])
 
 
     def test_dau_filtering(self):
