@@ -231,7 +231,7 @@ export const trendsLogic = kea({
             if (cachedUrl) {
                 return cachedUrl
             } else {
-                return type == ViewType.SESSIONS ? `/trends?${toParams({ session: 'avg' })}` : `/trends?${toParams({})}`
+                return type == ViewType.SESSIONS ? `/trends?${toParams({ session: 'avg' })}` : `/trends`
             }
         },
     }),

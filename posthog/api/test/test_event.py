@@ -153,13 +153,13 @@ class TestEvents(BaseTest):
         self.assertEqual(response['results'][0]['id'], event2.pk)
 
     def test_sessions_avg_length(self):
-        with freeze_time("2012-01-14 03:21:34"):
+        with freeze_time("2012-01-14T03:21:34.000Z"):
             Event.objects.create(team=self.team, event='1st action', distinct_id="1")
             Event.objects.create(team=self.team, event='1st action', distinct_id="2")
-        with freeze_time("2012-01-14 03:25:34"):
+        with freeze_time("2012-01-14T03:25:34.000Z"):
             Event.objects.create(team=self.team, event='2nd action', distinct_id="1")
             Event.objects.create(team=self.team, event='2nd action', distinct_id="2")
-        with freeze_time("2012-01-15 03:59:34"):
+        with freeze_time("2012-01-15T03:59:34.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="1")
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
 
@@ -170,58 +170,58 @@ class TestEvents(BaseTest):
     def test_sessions_count_buckets(self):
 
         # 0 seconds
-        with freeze_time("2012-01-11 01:25:30"):
+        with freeze_time("2012-01-11T01:25:30.000Z"):
             Event.objects.create(team=self.team, event='1st action', distinct_id="2")
             Event.objects.create(team=self.team, event='1st action', distinct_id="2")
             Event.objects.create(team=self.team, event='1st action', distinct_id="4")
-        with freeze_time("2012-01-11 01:25:32"):
+        with freeze_time("2012-01-11T01:25:32.000Z"):
             Event.objects.create(team=self.team, event='2nd action', distinct_id="4") # within 0-3 seconds
             Event.objects.create(team=self.team, event='1st action', distinct_id="6")
             Event.objects.create(team=self.team, event='2nd action', distinct_id="7")
-        with freeze_time("2012-01-11 01:25:40"):
+        with freeze_time("2012-01-11T01:25:40.000Z"):
             Event.objects.create(team=self.team, event='2nd action', distinct_id="6") # within 3-10 seconds
             Event.objects.create(team=self.team, event='2nd action', distinct_id="7") # within 3-10 seconds
 
-        with freeze_time("2012-01-15 04:59:34"):
+        with freeze_time("2012-01-15T04:59:34.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
             Event.objects.create(team=self.team, event='3rd action', distinct_id="4")
-        with freeze_time("2012-01-15 05:00:00"):
+        with freeze_time("2012-01-15T05:00:00.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2") # within 10-30 seconds
-        with freeze_time("2012-01-15 05:00:20"):
+        with freeze_time("2012-01-15T05:00:20.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="4") # within 30-60 seconds
 
         # within 1-3 mins
-        with freeze_time("2012-01-17 04:59:34"):
+        with freeze_time("2012-01-17T04:59:34.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="1")
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
             Event.objects.create(team=self.team, event='3rd action', distinct_id="5")
-        with freeze_time("2012-01-17 05:01:30"):
+        with freeze_time("2012-01-17T05:01:30.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="1")
-        with freeze_time("2012-01-17 05:07:30"):
+        with freeze_time("2012-01-17T05:07:30.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")  # test many events within a range
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")  
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")  
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")  # within 3-10 mins
             Event.objects.create(team=self.team, event='3rd action', distinct_id="10")
 
-        with freeze_time("2012-01-17 05:20:30"):
+        with freeze_time("2012-01-17T05:20:30.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="5") # within 10-30 mins
             Event.objects.create(team=self.team, event='3rd action', distinct_id="9")
             Event.objects.create(team=self.team, event='3rd action', distinct_id="10")
-        with freeze_time("2012-01-17 05:40:30"):
+        with freeze_time("2012-01-17T05:40:30.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="9")
             Event.objects.create(team=self.team, event='3rd action', distinct_id="10") # within 30-60 mins
-        with freeze_time("2012-01-17 05:58:30"):
+        with freeze_time("2012-01-17T05:58:30.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="9")  # -> within 30-60 mins
 
         # within 1+ hours
-        with freeze_time("2012-01-21 04:59:34"):
+        with freeze_time("2012-01-21T04:59:34.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
-        with freeze_time("2012-01-21 05:20:30"):
+        with freeze_time("2012-01-21T05:20:30.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
-        with freeze_time("2012-01-21 05:45:30"):
+        with freeze_time("2012-01-21T05:45:30.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
-        with freeze_time("2012-01-21 06:00:30"):
+        with freeze_time("2012-01-21T06:00:30.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
 
         response = self.client.get('/api/event/sessions/?session=distribution&date_from=all').json()

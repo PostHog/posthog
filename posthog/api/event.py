@@ -1,5 +1,5 @@
 from posthog.models import Event, Team, Person, Element, Action, PersonDistinctId, ElementGroup
-from posthog.utils import properties_to_Q, relative_date_parse
+from posthog.utils import properties_to_Q, relative_date_parse, request_to_date_query
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from django.http import HttpResponse, JsonResponse
@@ -53,7 +53,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        if self.action == 'list': # type: ignore
+        if self.action == 'list' or self.action == 'sessions': # type: ignore
             queryset = self._filter_request(self.request, queryset)
 
         return queryset\
@@ -170,8 +170,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(methods=['GET'], detail=False)
     def sessions(self, request: request.Request) -> response.Response:
-        events = self.get_queryset()
-        events = events.filter(self._filter_events(request))
+        events = self.get_queryset().filter(**request_to_date_query(request.GET))
         session_type = self.request.GET.get('session')
         calculated = self.calculate_sessions(events, session_type)
         return response.Response(calculated)
@@ -236,37 +235,3 @@ class EventViewSet(viewsets.ModelViewSet):
             result = [{'label': dist_labels[index], 'count': calculated[0][index]} for index in range(len(dist_labels))]
         
         return result
-
-    def _get_dates_from_request(self, request: request.Request) -> Tuple[datetime.date, datetime.date]:
-        if request.GET.get('date_from'):
-            date_from = relative_date_parse(request.GET['date_from'])
-            if request.GET['date_from'] == 'all':
-                date_from = None # type: ignore
-        else:
-            date_from = datetime.date.today() - relativedelta(days=7)
-
-        if request.GET.get('date_to'):
-            date_to = relative_date_parse(request.GET['date_to'])
-        else:
-            date_to = datetime.date.today()
-
-        # UTC is what is set in setting.py
-        if date_from is not None:
-            date_from = pd.Timestamp(date_from, tz='UTC')
-        date_to = pd.Timestamp(date_to, tz='UTC')
-        return date_from, date_to
-
-    def _filter_events(self, request: request.Request) -> Q:
-        filters = Q()
-        date_from, date_to = self._get_dates_from_request(request=request)
-        if date_from:
-            filters &= Q(timestamp__gte=date_from)
-        if date_to:
-            relativity = relativedelta(days=1)
-            filters &= Q(timestamp__lte=date_to + relativity)
-        if not request.GET.get('properties'):
-            return filters
-        properties = json.loads(request.GET['properties'])
-        filters &= properties_to_Q(properties)
-
-        return filters
