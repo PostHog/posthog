@@ -1,5 +1,5 @@
 from posthog.models import Event, Team, Person, Element, Action, PersonDistinctId, ElementGroup
-from posthog.utils import properties_to_Q, relative_date_parse, request_to_date_query
+from posthog.utils import properties_to_Q, friendly_time, request_to_date_query
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from django.http import HttpResponse, JsonResponse
@@ -9,7 +9,6 @@ from django.db import connection
 from django.db.models.expressions import Window
 from typing import Any, Union, Tuple, Dict, List
 import json
-import humanfriendly
 
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
@@ -224,7 +223,9 @@ class EventViewSet(viewsets.ModelViewSet):
             cursor = connection.cursor()
             cursor.execute(overall_average_length(all_sessions), sessions_sql_params)
             calculated = cursor.fetchall()
-            result = [{'label': 'Number of Sessions', 'count': calculated[0][0]}, {'label': 'Average Duration of Session', 'count': humanfriendly.format_timespan(round(calculated[0][1], 0))}]
+            avg_length = round(calculated[0][1], 0)
+            avg_formatted = friendly_time(avg_length)
+            result = [{'label': 'Number of Sessions', 'count': calculated[0][0]}, {'label': 'Average Duration of Session', 'count': avg_formatted}]
         else: 
             dist_labels = ['0 seconds (1 event)', '0-3 seconds', '3-10 seconds', '10-30 seconds', '30-60 seconds', '1-3 minutes', '3-10 minutes', '10-30 minutes', '30-60 minutes', '1+ hours']
             cursor = connection.cursor()

@@ -117,3 +117,10 @@ def attach_social_auth(context):
             'gitlab_auth': True
         })
     
+def friendly_time(seconds: float):
+    minutes, seconds = divmod(seconds, 60.0)
+    hours, minutes = divmod(minutes, 60.0)
+    return '{hours}{minutes}{seconds}'.format(\
+        hours='{h} hours '.format(h=int(hours)) if hours > 0 else '',\
+        minutes='{m} minutes '.format(m=int(minutes)) if minutes > 0 else '',\
+        seconds='{s} seconds'.format(s=int(seconds)) if seconds > 0 or (minutes == 0 and hours == 0) else '').strip()
