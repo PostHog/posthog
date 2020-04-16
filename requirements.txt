@@ -81,3 +81,5 @@ wcwidth==0.1.9
 Werkzeug==1.0.0
 whitenoise==5.0.1
 zipp==3.1.0
+humanfriendly==8.1
+

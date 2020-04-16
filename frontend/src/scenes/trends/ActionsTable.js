@@ -15,7 +15,7 @@ export class ActionsTable extends Component {
         let url = 'api/action/trends/?'
         if (this.props.filters.session) url = 'api/event/sessions/?'
         api.get(url + toParams(this.props.filters)).then(data => {
-            data = data.sort((a, b) => b.count - a.count)
+            if (!this.props.filters.session) data = data.sort((a, b) => b.count - a.count)
             this.setState({ data })
             this.props.onData && this.props.onData(data)
         })
