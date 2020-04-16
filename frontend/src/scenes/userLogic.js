@@ -34,13 +34,13 @@ export const userLogic = kea({
             () => [selectors.user],
             user => {
                 let data = [
-                    { label: 'PostHog events', options: [] },
                     { label: 'Custom events', options: [] },
+                    { label: 'PostHog events', options: [] },
                 ]
                 user.team.event_names.forEach(name => {
                     let format = { label: name, value: name }
-                    if (name[0] == '$') return data[0].options.push(format)
-                    data[1].options.push(format)
+                    if (name[0] == '$') return data[1].options.push(format)
+                    data[0].options.push(format)
                 })
                 return data
             },
