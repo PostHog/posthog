@@ -27,6 +27,7 @@ export class EventsTable extends Component {
             newEvents: [],
             loading: true,
             highlightEvents: [],
+            descendingOrder: true,
         }
         this.fetchEvents = this.fetchEvents.bind(this)
         this.pollEvents = this.pollEvents.bind(this)
@@ -35,6 +36,7 @@ export class EventsTable extends Component {
         this.clickLoadNewEvents = this.clickLoadNewEvents.bind(this)
         this.pollTimeout = 5000
         this.fetchEvents()
+        this.onOrderEvents = this.onOrderEvents.bind(this)
     }
     fetchEvents() {
         let params = {}
@@ -51,6 +53,7 @@ export class EventsTable extends Component {
         params = toParams({
             ...params,
             ...this.props.fixedFilters,
+            descendingOrder: this.state.descendingOrder,
         })
         api.get('api/event/?' + params).then(events => {
             this.setState({
@@ -61,10 +64,21 @@ export class EventsTable extends Component {
             this.poller = setTimeout(this.pollEvents, this.pollTimeout)
         })
     }
+
+    onOrderEvents() {
+        this.setState(
+            prevState => ({
+                descendingOrder: !prevState.descendingOrder,
+            }),
+            () => this.fetchEvents()
+        )
+    }
+
     pollEvents() {
         let params = {
             properties: this.state.properties,
             ...this.props.fixedFilters,
+            descendingOrder: this.state.descendingOrder,
         }
         if (this.state.events[0])
             params['after'] = this.state.events[0].timestamp
@@ -85,6 +99,7 @@ export class EventsTable extends Component {
             properties: this.state.properties,
             ...this.props.fixedFilters,
             before: events[events.length - 1].timestamp,
+            descendingOrder: this.state.descendingOrder,
         })
         clearTimeout(this.poller)
         this.setState({ hasNext: false })
@@ -188,7 +203,9 @@ export class EventsTable extends Component {
                             <th>Person</th>
                             <th>Path</th>
                             <th>Source</th>
-                            <th>When</th>
+                            <th onClick={this.onOrderEvents}>
+                                When <i className="fi flaticon-sort" />
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
