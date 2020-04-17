@@ -5,7 +5,7 @@ import { PropertyValue } from './PropertyValue'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 
-const operatorMap = {
+export const operatorMap = {
     null: 'equals',
     is_not: "doesn't equal",
     icontains: 'contains',
@@ -27,8 +27,8 @@ export function PropertyFilter({ index, endpoint, onChange, pageKey, onComplete 
 
     return (
         <div className="row" style={{ margin: '0.5rem -15px', minWidth: key[0] ? 700 : 200 }}>
-            <div className={key[0] ? 'col-3' : 'col-10'} style={{ paddingRight: 0 }}>
-                {properties && (
+            {properties && (
+                <div className={key[0] ? 'col-4' : 'col'}>
                     <Select
                         options={properties}
                         value={[{ label: key[0], value: key[0] }]}
@@ -45,10 +45,11 @@ export function PropertyFilter({ index, endpoint, onChange, pageKey, onComplete 
                         autoFocus={!key[0]}
                         openMenuOnFocus={true}
                     />
-                )}
-            </div>
+                </div>
+            )}
+
             {key[0] && (
-                <div className="col-3">
+                <div className="col-3 pl-0">
                     <Select
                         options={operatorOptions}
                         style={{ width: 200 }}
@@ -65,7 +66,7 @@ export function PropertyFilter({ index, endpoint, onChange, pageKey, onComplete 
                 </div>
             )}
             {key[0] && (
-                <div className="col-5" style={{ paddingLeft: 0 }}>
+                <div className="col-5 pl-0">
                     <PropertyValue
                         endpoint={endpoint}
                         key={Object.keys(item)[0]}

@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { PropertyFilter } from './PropertyFilter'
+import { PropertyFilter, operatorMap } from './PropertyFilter'
 import { Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
@@ -7,12 +7,10 @@ import { Popover, Row } from 'antd'
 import { CloseButton } from '../../utils'
 
 const formatFilterName = str => {
-    if (str.includes('__is_not')) return str.replace('__is_not', '') + ' is not '
-    else if (str.includes('__icontains')) return str.replace('__icontains', '') + ' contains '
-    else if (str.includes('__not_icontains')) return str.replace('__not_icontains', '') + " doesn't contain "
-    else if (str.includes('__gt')) return str.replace('__gt', '') + ' > '
-    else if (str.includes('__lt')) return str.replace('__lt', '') + ' < '
-    else return str.replace('__null', '') + ' = '
+    for (let [key, value] of Object.entries(operatorMap)) {
+        if (str.includes(key)) return str.replace('__' + key, '') + ` ${value} `
+    }
+    return str + ` ${operatorMap['null']} `
 }
 
 function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, filters }) {
@@ -85,7 +83,9 @@ export function PropertyFilters(props) {
             <div className="column">
                 {filters &&
                     filters.map((item, index) => {
-                        return <FilterRow {...props} item={item} index={index} filters={filters}></FilterRow>
+                        return (
+                            <FilterRow key={index} {...props} item={item} index={index} filters={filters}></FilterRow>
+                        )
                     })}
             </div>
         </div>
