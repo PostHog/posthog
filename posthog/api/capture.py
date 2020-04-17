@@ -89,8 +89,8 @@ def get_event(request):
 
     if isinstance(data, dict):
         if data.get('batch'): # posthog-python and posthog-ruby
-            events = data['batch']
-            assert events is not None
+            data = data['batch']
+            assert data is not None
         elif 'engage' in request.path_info: # JS identify call
             data['event'] = '$identify' # make sure it has an event name
 

@@ -1,13 +1,9 @@
 from .base import BaseTest
-from posthog.models import Event, Person, Team, User, ElementGroup, Action, ActionStep
-from django.test import TransactionTestCase
 from django.utils import timezone
 from freezegun import freeze_time
 from unittest.mock import patch, call
 import base64
 import json
-import datetime
-import pytz
 
 
 class TestCapture(BaseTest):
@@ -90,6 +86,27 @@ class TestCapture(BaseTest):
         self.assertEqual(response.content, b"1")
         self.assertEqual(patch_process_event.call_count, 0)
 
+    @patch('posthog.tasks.process_event.process_event.delay')
+    def test_batch(self, patch_process_event):
+        data = {
+            "type":"capture",
+            "event":"user signed up",
+            "distinct_id": "2"
+        }
+        response = self.client.post('/batch/', data={
+            "api_key": self.team.api_token,
+            "batch": [data]
+        }, content_type='application/json')
+        arguments = patch_process_event.call_args[1]
+        arguments.pop('now') # can't compare fakedate
+        self.assertDictEqual(arguments, {
+            'distinct_id': '2',
+            'ip': '127.0.0.1',
+            'site_url': 'http://testserver',
+            'data': data,
+            'team_id': self.team.pk,
+        })
+
     def test_batch_incorrect_token(self):
         response = self.client.post('/batch/', data={
             "api_key": "this-token-doesnt-exist",
@@ -132,3 +149,39 @@ class TestCapture(BaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()['message'], "You need to set a distinct_id.")
+
+    @patch('posthog.tasks.process_event.process_event.delay')
+    def test_engage(self, patch_process_event):
+        response = self.client.get('/engage/?data=%s' % self._dict_to_json({
+            '$set': {
+                '$os': 'Mac OS X',
+            },
+            '$token': 'token123',
+            '$distinct_id': 3,
+            '$device_id': '16fd4afae9b2d8-0fce8fe900d42b-39637c0e-7e9000-16fd4afae9c395',
+            '$user_id': 3
+        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
+        arguments = patch_process_event.call_args[1]
+        self.assertEqual(arguments['data']['event'], '$identify')
+        arguments.pop('now') # can't compare fakedate
+        arguments.pop('data') # can't compare fakedate
+        self.assertDictEqual(arguments, {
+            'distinct_id': '3',
+            'ip': '127.0.0.1',
+            'site_url': 'http://testserver',
+            'team_id': self.team.pk,
+        })
+
+    @patch('posthog.tasks.process_event.process_event.delay')
+    def test_python_library(self, patch_process_event):
+        self.client.post('/track/', data={
+            'data': self._dict_to_b64({
+                'event': '$pageview',
+                'properties': {
+                    'distinct_id': 'eeee',
+                },
+            }),
+            'api_key': self.team.api_token # main difference in this test
+        })
+        arguments = patch_process_event.call_args[1]
+        self.assertEqual(arguments['team_id'], self.team.pk)
