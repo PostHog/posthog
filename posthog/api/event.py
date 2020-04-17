@@ -1,12 +1,13 @@
 from posthog.models import Event, Team, Person, Element, Action, PersonDistinctId, ElementGroup
-from posthog.utils import properties_to_Q
+from posthog.utils import properties_to_Q, friendly_time, request_to_date_query
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from django.http import HttpResponse, JsonResponse
 from django.db.models import Q, Count, QuerySet, query, F, Func, functions, Prefetch
-from django.forms.models import model_to_dict
+from django.db.models.functions import Lag
+from django.db import connection
+from django.db.models.expressions import Window
 from typing import Any, Union, Tuple, Dict, List
-import re
 import json
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -49,7 +50,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        if self.action == 'list': # type: ignore
+        if self.action == 'list' or self.action == 'sessions': # type: ignore
             queryset = self._filter_request(self.request, queryset)
 
         return queryset\
@@ -163,3 +164,73 @@ class EventViewSet(viewsets.ModelViewSet):
         """.format(where), params)
 
         return response.Response([{'name': value.value} for value in values])
+
+    @action(methods=['GET'], detail=False)
+    def sessions(self, request: request.Request) -> response.Response:
+        events = self.get_queryset().filter(**request_to_date_query(request.GET.dict())) 
+        session_type = self.request.GET.get('session')
+        calculated = self.calculate_sessions(events, session_type)
+        return response.Response(calculated)
+
+    def calculate_sessions(self, events, session_type):
+        sessions = events\
+            .annotate(previous_timestamp=Window(
+                expression=Lag('timestamp', default=None),
+                partition_by=F('distinct_id'),
+                order_by=F('timestamp').asc()
+            ))\
+            .annotate(previous_event=Window(
+                expression=Lag('event', default=None),
+                partition_by=F('distinct_id'),
+                order_by=F('timestamp').asc()
+            ))
+        
+        sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
+        # TODO: add midnight condition
+
+        all_sessions = '\
+            SELECT distinct_id, timestamp,\
+                SUM(new_session) OVER (ORDER BY distinct_id, timestamp) AS global_session_id,\
+                SUM(new_session) OVER (PARTITION BY distinct_id ORDER BY timestamp) AS user_session_id\
+                FROM (SELECT *, CASE WHEN EXTRACT(\'EPOCH\' FROM (timestamp - previous_timestamp)) >= (60 * 30)\
+                    OR previous_timestamp IS NULL \
+                    THEN 1 ELSE 0 END AS new_session \
+                    FROM ({}) AS inner_sessions\
+                ) AS outer_sessions'.format(sessions_sql)
+
+        def overall_average_length(query):
+            return 'SELECT COUNT(*) as sessions,\
+                        AVG(length) AS average_session_length\
+                        FROM (SELECT global_session_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
+                            AS length FROM ({}) as count GROUP BY 1) agg'.format(query)
+
+        def distribution(query):
+            return 'SELECT COUNT(CASE WHEN length = 0 THEN 1 ELSE NULL END) as first,\
+                        COUNT(CASE WHEN length > 0 AND length <= 3 THEN 1 ELSE NULL END) as second,\
+                        COUNT(CASE WHEN length > 3 AND length <= 10 THEN 1 ELSE NULL END) as third,\
+                        COUNT(CASE WHEN length > 10 AND length <= 30 THEN 1 ELSE NULL END) as fourth,\
+                        COUNT(CASE WHEN length > 30 AND length <= 60 THEN 1 ELSE NULL END) as fifth,\
+                        COUNT(CASE WHEN length > 60 AND length <= 180 THEN 1 ELSE NULL END) as sixth,\
+                        COUNT(CASE WHEN length > 180 AND length <= 600 THEN 1 ELSE NULL END) as seventh,\
+                        COUNT(CASE WHEN length > 600 AND length <= 1800 THEN 1 ELSE NULL END) as eighth,\
+                        COUNT(CASE WHEN length > 1800 AND length <= 3600 THEN 1 ELSE NULL END) as ninth,\
+                        COUNT(CASE WHEN length > 3600 THEN 1 ELSE NULL END) as tenth\
+                        FROM (SELECT global_session_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
+                            AS length FROM ({}) as count GROUP BY 1) agg'.format(query)
+
+        result = []
+        if session_type == 'avg':
+            cursor = connection.cursor()
+            cursor.execute(overall_average_length(all_sessions), sessions_sql_params)
+            calculated = cursor.fetchall()
+            avg_length = round(calculated[0][1], 0)
+            avg_formatted = friendly_time(avg_length)
+            result = [{'label': 'Number of Sessions', 'count': calculated[0][0]}, {'label': 'Average Duration of Session', 'count': avg_formatted}]
+        else: 
+            dist_labels = ['0 seconds (1 event)', '0-3 seconds', '3-10 seconds', '10-30 seconds', '30-60 seconds', '1-3 minutes', '3-10 minutes', '10-30 minutes', '30-60 minutes', '1+ hours']
+            cursor = connection.cursor()
+            cursor.execute(distribution(all_sessions), sessions_sql_params)
+            calculated = cursor.fetchall()
+            result = [{'label': dist_labels[index], 'count': calculated[0][index]} for index in range(len(dist_labels))]
+        
+        return result
