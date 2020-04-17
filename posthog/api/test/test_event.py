@@ -1,10 +1,10 @@
 from .base import BaseTest
 from posthog.models import Event, Person, Element, Action, ActionStep
-from freezegun import freeze_time # type: ignore
+from freezegun import freeze_time
 
 
 class TestEvents(BaseTest):
-    TESTS_API = True 
+    TESTS_API = True
     ENDPOINT = 'event'
 
     def test_filter_events(self):
@@ -20,6 +20,13 @@ class TestEvents(BaseTest):
             response = self.client.get('/api/event/?distinct_id=2').json()
         self.assertEqual(response['results'][0]['person'], 'tim@posthog.com')
         self.assertEqual(response['results'][0]['elements'][0]['tag_name'], 'button')
+
+    def test_filter_events_by_event_name(self):
+        person = Person.objects.create(properties={'email': 'tim@posthog.com'}, team=self.team, distinct_ids=["2", 'some-random-uid'])
+        event1 = Event.objects.create(event='event_name',team=self.team, distinct_id="2", properties={"$ip": '8.8.8.8'})
+        with self.assertNumQueries(7):
+            response = self.client.get('/api/event/?event=event_name').json()
+        self.assertEqual(response['results'][0]['event'], 'event_name')
 
     def test_filter_by_person(self):
         person = Person.objects.create(properties={'email': 'tim@posthog.com'}, distinct_ids=["2", 'some-random-uid'], team=self.team)
@@ -102,25 +109,6 @@ class TestEvents(BaseTest):
         response = self.client.get('/api/event/actions/?after=%s' % last_event.timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')).json()
         self.assertEqual(len(response['results']), 1)
 
-    def test_event_names(self):
-        Event.objects.create(team=self.team, event='user login')
-        Event.objects.create(team=self.team, event='user sign up')
-        Event.objects.create(team=self.team, event='user sign up')
-
-        response = self.client.get('/api/event/names/').json()
-        self.assertEqual(response[0]['name'], 'user login')
-        self.assertEqual(response[1]['name'], 'user sign up')
-
-    def test_event_property_names(self):
-        Event.objects.create(team=self.team, properties={'$browser': 'whatever', '$os': 'Mac OS X'})
-        Event.objects.create(team=self.team, properties={'random_prop': 'asdf'})
-        Event.objects.create(team=self.team, properties={'random_prop': 'asdf'})
-
-        response = self.client.get('/api/event/properties/').json()
-        self.assertEqual(response[0]['name'], '$browser')
-        self.assertEqual(response[1]['name'], '$os')
-        self.assertEqual(response[2]['name'], 'random_prop')
-
     def test_event_property_values(self):
         Event.objects.create(team=self.team, properties={'random_prop': 'asdf', 'some other prop': 'with some text'})
         Event.objects.create(team=self.team, properties={'random_prop': 'asdf'})
@@ -128,13 +116,10 @@ class TestEvents(BaseTest):
         Event.objects.create(team=self.team, properties={'something_else': 'qwerty'})
         response = self.client.get('/api/event/values/?key=random_prop').json()
         self.assertEqual(response[0]['name'], 'asdf')
-        self.assertEqual(response[0]['count'], 2)
         self.assertEqual(response[1]['name'], 'qwerty')
-        self.assertEqual(response[1]['count'], 1)
 
         response = self.client.get('/api/event/values/?key=random_prop&value=qw').json()
         self.assertEqual(response[0]['name'], 'qwerty')
-        self.assertEqual(response[0]['count'], 1)
 
     def test_before_and_after(self):
         user = self._create_user('tim')

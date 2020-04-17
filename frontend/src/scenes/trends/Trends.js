@@ -2,7 +2,6 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 
 import { Card, CloseButton, Loading } from 'lib/utils'
-import { Dropdown } from 'lib/components/Dropdown'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DateFilter } from 'lib/components/DateFilter'
@@ -15,8 +14,9 @@ import { ActionsTable } from './ActionsTable'
 import { ActionsLineGraph } from './ActionsLineGraph'
 import { ShownAsFilter } from './ShownAsFilter'
 import { PeopleModal } from './PeopleModal'
-
 import { trendsLogic } from './trendsLogic'
+import { ChartFilter } from 'lib/components/ChartFilter'
+import { userLogic } from 'scenes/userLogic'
 
 const displayMap = {
     ActionsLineGraph: 'Line chart',
@@ -25,20 +25,28 @@ const displayMap = {
 }
 
 export function Trends() {
-    const { filters, properties, resultsLoading, showingPeople } = useValues(trendsLogic({ dashboardItemId: null }))
+    const { filters, resultsLoading, showingPeople } = useValues(trendsLogic({ dashboardItemId: null }))
     const { setFilters, setDisplay } = useActions(trendsLogic({ dashboardItemId: null }))
+    const { eventProperties } = useValues(userLogic)
     return (
         <div className="actions-graph">
             {showingPeople ? <PeopleModal /> : null}
-            <h1>Action trends</h1>
+            <h1>Trends</h1>
             <Card>
                 <div className="card-body">
                     <h4 className="secondary">{'Actions & Events'}</h4>
-                    <ActionFilter></ActionFilter>
+                    <ActionFilter
+                        setDefaultIfEmpty={true}
+                        setFilters={setFilters}
+                        defaultFilters={filters}
+                        showMaths={true}
+                        typeKey="trends"
+                    />
                     <hr />
                     <h4 className="secondary">Filters</h4>
                     <PropertyFilters
-                        properties={properties}
+                        pageKey="trends"
+                        properties={eventProperties}
                         propertyFilters={filters.properties}
                         onChange={properties => setFilters({ properties })}
                         style={{ marginBottom: 0 }}
@@ -47,7 +55,7 @@ export function Trends() {
                     <h4 className="secondary">Break down by</h4>
                     <div className="select-with-close">
                         <BreakdownFilter
-                            properties={properties}
+                            properties={eventProperties}
                             breakdown={filters.breakdown}
                             onChange={breakdown => setFilters({ breakdown })}
                         />
@@ -66,42 +74,7 @@ export function Trends() {
                         Graph
                         <div className="float-right">
                             <IntervalFilter setFilters={setFilters} filters={filters} />
-                            <Dropdown
-                                title={displayMap[filters.display || 'ActionsLineGraph']}
-                                buttonClassName="btn btn-sm btn-light"
-                                buttonStyle={{ margin: '0 8px' }}
-                            >
-                                <a
-                                    className={'dropdown-item ' + (filters.breakdown && 'disabled')}
-                                    href="#"
-                                    onClick={e => {
-                                        e.preventDefault()
-                                        setDisplay('ActionsLineGraph')
-                                    }}
-                                >
-                                    Line chart {filters.breakdown && '(Not available with breakdown)'}
-                                </a>
-                                <a
-                                    className="dropdown-item"
-                                    href="#"
-                                    onClick={e => {
-                                        e.preventDefault()
-                                        setDisplay('ActionsTable')
-                                    }}
-                                >
-                                    Table
-                                </a>
-                                <a
-                                    className={'dropdown-item ' + (filters.breakdown && 'disabled')}
-                                    href="#"
-                                    onClick={e => {
-                                        e.preventDefault()
-                                        setDisplay('ActionsPie')
-                                    }}
-                                >
-                                    Pie {filters.breakdown && '(Not available with breakdown)'}
-                                </a>
-                            </Dropdown>
+                            <ChartFilter displayMap={displayMap} filters={filters} onChange={setDisplay}></ChartFilter>
                             <DateFilter
                                 onChange={(date_from, date_to) =>
                                     setFilters({

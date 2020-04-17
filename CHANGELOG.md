@@ -1,5 +1,81 @@
 # Changelog
 
+### 1.1.0.1 - Thursday 16 April 2020
+
+- Fix issues with custom events while creating actions
+
+### 1.1.0 - Wednesday 15 April 2020
+
+Important! We've added Celery workers. We'll move tasks to workers to speed up a lot of actions in PostHog. [See update instructions](https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011) on how to enable workers.
+
+- Users can integrate PostHog with Slack to send push notifications when events are triggered
+
+![Slack action](https://posthog.com/wp-content/uploads/2020/04/Slack-action.gif)
+
+- Funnels can now be filtered by Events not just Actions
+- Funnels can be filtered by time intervals as well
+
+![funnel intervals](https://posthog.com/wp-content/uploads/2020/04/funnels-by-time.gif)
+![funnel with events](https://posthog.com/wp-content/uploads/2020/04/funnel-with-events.gif)
+
+- Added Ant Design to PostHog
+
+![ant design sidebar](https://posthog.com/wp-content/uploads/2020/04/Posthog-6-e1586882580994.png)
+![ant design buttons](https://posthog.com/wp-content/uploads/2020/04/Posthog-10.png)
+
+- Trends can now be filtered by different time intervals
+
+![time intervals](https://posthog.com/wp-content/uploads/2020/04/time-intervals.gif)
+
+- Added dotted lines to represent data yet to be determined
+
+![Dotted line example](https://posthog.com/wp-content/uploads/2020/04/dotted-lines.png)
+
+- Trends graphs have fixed the X axis at 0 
+
+![x axis 0](https://posthog.com/wp-content/uploads/2020/04/Posthog-7.png)
+
+- Daily Active Users (DAUs) added as a default dashboard
+
+![DAU dahsboard](https://posthog.com/wp-content/uploads/2020/04/Posthog-8.png)
+
+- Changed the way we rendered urls in Paths to reflect better on different screen sizes
+
+![paths](https://posthog.com/wp-content/uploads/2020/04/Posthog-9.png)
+
+- Updated UX when saving actions to be clearer
+
+![actions save](https://posthog.com/wp-content/uploads/2020/04/save-actions-ux.gif)
+
+- Changed the way we store events properties, we now store all event names and property names against the Team
+- Refactored PropertyFilters into a function
+- Added filter by event name to event properties
+- Added mypy rules
+- Using dateutil for datetime
+- Added timestamp index to allow event tables to load at large volumes
+- Updated helm charts to work with redis and workers
+- Added a Babel plugin to reduce antd module load
+- We now use offset instead of timestamp of posthog-js to avoid the wrong user time - previously if your local machine had a time set different to your location (or if the time was just off) we would have displayed that time.
+- Using npm instead of yarn in copy command as Heroku doesn't have yarn
+- We now use posthog-js to get array.js
+- Removed unused indexes from migrations
+- Updated PostHog snippet
+
+#### Bug Fixes
+- Removed unused future import to prevent Heroku deployments breaking
+- Fixed dupliucated users in Cohorts
+- Type Migration to prevent /trend bug when navigating to a url from a dashboard
+- Added missing type in initial dahsboard element creattion to fix the same bug as above
+- Fixed collectstatic on fresh Heroku updates
+- Fixed network timeout yarn for antd
+- Fixed npm command to copy array.js
+- Fixed date filter not detecting moment
+- Fixed redis error when upgrading Heroku
+- Stopped throwing an error if a user doesn't have a distinct id
+- Fixed a trends people bug that ignored the time interval selected
+- Fixed site_url pass to slack from request
+
+
 ### 1.0.11 - Wednesday 8 April 2020
 
 Important! We've added Celery workers. We'll move tasks to workers to speed up a lot of actions in PostHog. [See update instructions](https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011) on how to enable workers.

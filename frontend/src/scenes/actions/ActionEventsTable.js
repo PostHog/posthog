@@ -39,8 +39,7 @@ export class ActionEventsTable extends Component {
             ...this.props.fixedFilters,
             properties: this.state.properties,
         }
-        if (this.state.events[0])
-            params['after'] = this.state.events[0].event.timestamp
+        if (this.state.events[0]) params['after'] = this.state.events[0].event.timestamp
         api.get('api/event/actions/?' + toParams(params)).then(events => {
             this.setState({
                 events: [...events.results, ...this.state.events],
@@ -58,10 +57,9 @@ export class ActionEventsTable extends Component {
         return (
             <div className="events">
                 <PropertyFilters
+                    pageKey="actioneventstable"
                     propertyFilters={properties}
-                    onChange={properties =>
-                        this.setState({ properties }, this.fetchEvents)
-                    }
+                    onChange={properties => this.setState({ properties }, this.fetchEvents)}
                 />
                 <table className="table">
                     <tbody>
@@ -76,16 +74,9 @@ export class ActionEventsTable extends Component {
                         {events && events.length == 0 && (
                             <tr>
                                 <td colSpan="5">
-                                    We didn't find any events matching any
-                                    actions. You can either{' '}
-                                    <Link to="/actions">
-                                        set up some actions
-                                    </Link>{' '}
-                                    or{' '}
-                                    <Link to="/setup">
-                                        integrate PostHog in your app
-                                    </Link>
-                                    .
+                                    We didn't find any events matching any actions. You can either{' '}
+                                    <Link to="/actions">set up some actions</Link> or{' '}
+                                    <Link to="/setup">integrate PostHog in your app</Link>.
                                 </td>
                             </tr>
                         )}
@@ -97,13 +88,8 @@ export class ActionEventsTable extends Component {
                                         'day'
                                     ) && (
                                         <tr key={action.event.id + '_time'}>
-                                            <td
-                                                colSpan="5"
-                                                className="event-day-separator"
-                                            >
-                                                {moment(
-                                                    action.event.timestamp
-                                                ).format('LL')}
+                                            <td colSpan="5" className="event-day-separator">
+                                                {moment(action.event.timestamp).format('LL')}
                                             </td>
                                         </tr>
                                     ),
@@ -111,45 +97,23 @@ export class ActionEventsTable extends Component {
                                     key={action.id}
                                     className={
                                         'cursor-pointer event-row ' +
-                                        (this.state.newEvents.indexOf(
-                                            action.event.id
-                                        ) > -1 && 'event-row-new')
+                                        (this.state.newEvents.indexOf(action.event.id) > -1 && 'event-row-new')
                                     }
                                     onClick={() =>
                                         this.setState({
-                                            eventSelected:
-                                                this.state.eventSelected !=
-                                                action.id
-                                                    ? action.id
-                                                    : false,
+                                            eventSelected: this.state.eventSelected != action.id ? action.id : false,
                                         })
                                     }
                                 >
                                     <td>{action.action.name}</td>
                                     <td>
-                                        <Link
-                                            to={
-                                                '/person/' +
-                                                action.event.distinct_id
-                                            }
-                                        >
-                                            {action.event.person}
-                                        </Link>
+                                        <Link to={'/person/' + action.event.distinct_id}>{action.event.person}</Link>
                                     </td>
                                     {params.map(param => (
-                                        <td
-                                            key={param}
-                                            title={
-                                                action.event.properties[param]
-                                            }
-                                        >
+                                        <td key={param} title={action.event.properties[param]}>
                                             <FilterLink
                                                 property={param}
-                                                value={
-                                                    action.event.properties[
-                                                        param
-                                                    ]
-                                                }
+                                                value={action.event.properties[param]}
                                                 filters={properties}
                                                 onClick={(key, value) =>
                                                     this.setState(
@@ -165,26 +129,16 @@ export class ActionEventsTable extends Component {
                                             />
                                         </td>
                                     ))}
+                                    <td>{moment(action.event.timestamp).fromNow()}</td>
                                     <td>
-                                        {moment(
-                                            action.event.timestamp
-                                        ).fromNow()}
-                                    </td>
-                                    <td>
-                                        {action.event.properties.$browser}{' '}
-                                        {
-                                            action.event.properties
-                                                .$browser_version
-                                        }{' '}
-                                        - {action.event.properties.$os}
+                                        {action.event.properties.$browser} {action.event.properties.$browser_version} -{' '}
+                                        {action.event.properties.$os}
                                     </td>
                                 </tr>,
                                 this.state.eventSelected == action.id && (
                                     <tr key={action.id + '_open'}>
                                         <td colSpan="4">
-                                            <EventDetails
-                                                event={action.event}
-                                            />
+                                            <EventDetails event={action.event} />
                                         </td>
                                     </tr>
                                 ),

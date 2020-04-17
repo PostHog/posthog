@@ -14,8 +14,11 @@ class PathsViewSet(viewsets.ViewSet):
     def _event_subquery(self, event: str, key: str):
         return Event.objects.filter(pk=OuterRef(event)).values(key)[:1]
 
+    # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
+    # To avoid unexpected results should convert date range to timestamps with timezone.
     def _add_event_and_url_at_position(self, aggregate: QuerySet, team: Team, index: int, date_query: Dict[str, datetime.date], urls: Optional[List[str]]=None) -> QuerySet:
         event_key = 'event_{}'.format(index)
+
         # adds event_1, url_1, event_2, url_2 etc for each Person
         return aggregate.annotate(**{
             event_key: Subquery(
@@ -37,11 +40,11 @@ class PathsViewSet(viewsets.ViewSet):
     def list(self, request):
         team = request.user.team_set.get()
         resp = []
-        date_query = request_to_date_query(request)
-        aggregate = PersonDistinctId.objects.filter(team=team)
+        date_query = request_to_date_query(request.GET)
+        aggregate: QuerySet[PersonDistinctId] = PersonDistinctId.objects.filter(team=team)
 
         aggregate = self._add_event_and_url_at_position(aggregate, team, 1, date_query)
-        urls = False
+        urls: List[str] = []
 
         for index in range(1, 4):
             aggregate = self._add_event_and_url_at_position(aggregate, team, index+1, date_query)

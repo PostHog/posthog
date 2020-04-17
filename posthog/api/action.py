@@ -1,10 +1,10 @@
 from posthog.models import Event, Team, Action, ActionStep, Element, User, Person
 from posthog.utils import relative_date_parse, properties_to_Q
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from rest_framework import request, serializers, viewsets, authentication # type: ignore
+from rest_framework import request, serializers, viewsets, authentication
 from rest_framework.response import Response
 
-from rest_framework.decorators import action # type: ignore
+from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.utils.serializer_helpers import ReturnDict
 from django.db.models import Q, F, Count, Prefetch, functions, QuerySet, TextField
@@ -14,8 +14,8 @@ from django.forms.models import model_to_dict
 from django.utils.decorators import method_decorator
 from django.utils.dateparse import parse_date
 from typing import Any, List, Dict, Optional, Tuple
-import pandas as pd # type: ignore
-import numpy as np # type: ignore
+import pandas as pd
+import numpy as np
 import datetime
 import json
 from dateutil.relativedelta import relativedelta
@@ -76,7 +76,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if self.action == 'list':
+        if self.action == 'list':  # type: ignore
             queryset = queryset.filter(deleted=False)
 
         if self.request.GET.get(TREND_FILTER_TYPE_ACTIONS):
@@ -146,15 +146,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             actions_list.sort(key=lambda action: action.get('count', action['id']), reverse=True)
         return Response({'results': actions_list})
 
-    def _group_events_to_date(self, date_from: datetime.date, date_to: datetime.date, aggregates, interval):
-        aggregates = pd.DataFrame([{'date': a[interval], 'count': a['count']} for a in aggregates])
-        if interval == 'week':
-            aggregates['date'] = aggregates['date'].apply(lambda x: x - pd.offsets.Week(weekday=6))
-        elif interval == 'month':
-            aggregates['date'] = aggregates['date'].apply(lambda x: x - pd.offsets.MonthEnd(n=1))
-        else:
-            aggregates['date'] = aggregates['date']
-
+    def _group_events_to_date(self, date_from: datetime.date, date_to: datetime.date, aggregates: QuerySet, interval:str) -> Dict[datetime.datetime, int]:
         freq_map = {
             'minute': '60S',
             'hour': 'H',
@@ -168,11 +160,19 @@ class ActionViewSet(viewsets.ModelViewSet):
             date_to = pd.Timestamp(ts_input=date_to).replace(hour=23)
 
         time_index = pd.date_range(date_from, date_to, freq=freq_map[interval])
-        # create all dates
-        grouped = pd.DataFrame(aggregates.groupby('date').mean(), index=time_index)
+        if len(aggregates) > 0:
+            dataframe = pd.DataFrame([{'date': a[interval], 'count': a['count']} for a in aggregates])
+            if interval == 'week':
+                dataframe['date'] = dataframe['date'].apply(lambda x: x - pd.offsets.Week(weekday=6))
+            elif interval == 'month':
+                dataframe['date'] = dataframe['date'].apply(lambda x: x - pd.offsets.MonthEnd(n=1))
+            dataframe = pd.DataFrame(dataframe.groupby('date').mean(), index=time_index)
+        else:
+            dataframe = pd.DataFrame([], index=time_index)
+
         # fill gaps
-        grouped = grouped.fillna(0)
-        return grouped
+        dataframe = dataframe.fillna(0)
+        return {key: value[0] if len(value) > 0 else 0 for key, value in dataframe.iterrows()}
 
     def _get_dates_from_request(self, request: request.Request) -> Tuple[datetime.date, datetime.date]:
         if request.GET.get('date_from'):
@@ -226,12 +226,12 @@ class ActionViewSet(viewsets.ModelViewSet):
             .order_by('-count')
 
         events = self._process_math(events, filters)
-            
+
         values = [{'name': item[key] if item[key] else 'undefined', 'count': item['count']} for item in events]
         append['breakdown'] = values
         append['count'] = sum(item['count'] for item in values)
         return append
-        
+
     def _append_data(self, append: Dict, dates_filled: pd.DataFrame, interval: str) -> Dict:
         append['data'] = []
         append['labels'] = []
@@ -244,14 +244,14 @@ class ActionViewSet(viewsets.ModelViewSet):
             labels_format += ', %H:%M'
             days_format += ' %H:%M:%S'
 
-        for key, value in dates_filled.iterrows():
-            append['days'].append(key.strftime(days_format))
-            append['labels'].append(key.strftime(labels_format))
-            append['data'].append(value[0])
+        for date, value in dates_filled.items():
+            append['days'].append(date.strftime(days_format))
+            append['labels'].append(date.strftime(labels_format))
+            append['data'].append(value)
 
         append['count'] = sum(append['data'])
         return append
-    
+
     def _get_interval_annotation(self, key: str) -> Dict[str, Any]:
         map: Dict[str, Any] = {
             'minute': functions.TruncMinute('timestamp'),
@@ -263,7 +263,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         func = map.get(key)
         if func is None:
             return {'day': map.get('day')} # default
-        
+
         return { key: func }
 
     def _aggregate_by_interval(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request, interval: str) -> Dict[str, Any]:
@@ -278,12 +278,11 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         aggregates = self._process_math(aggregates, filters)
 
-        if len(aggregates) > 0:
-            date_from, date_to = self._get_dates_from_request(request)
-            if not date_from:
-                date_from = pd.Timestamp(aggregates[0][interval])
-            dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates, interval=interval)
-            append = self._append_data(append, dates_filled, interval)
+        date_from, date_to = self._get_dates_from_request(request)
+        if not date_from:
+            date_from = pd.Timestamp(aggregates[0][interval])
+        dates_filled = self._group_events_to_date(date_from=date_from, date_to=date_to, aggregates=aggregates, interval=interval)
+        append = self._append_data(append, dates_filled, interval)
         if request.GET.get('breakdown'):
             append = self._breakdown(append, filtered_events, filters, request, breakdown_by=request.GET['breakdown'])
 
@@ -344,7 +343,10 @@ class ActionViewSet(viewsets.ModelViewSet):
             },
             'label': name,
             'count': 0,
-            'breakdown': []
+            'breakdown': [],
+            'data': [],
+            'labels': [],
+            'days': []
         }
 
         if request.GET.get('shown_as', 'Volume') == 'Volume':
@@ -392,8 +394,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     filters=event,
                     request=request,
                 )
-                if trend_entity is not None and 'labels' in trend_entity:
-                    actions_list.append(trend_entity)  
+                actions_list.append(trend_entity)
         if parsed_actions:
             for filters in parsed_actions:
                 try:
@@ -464,5 +465,5 @@ class ActionViewSet(viewsets.ModelViewSet):
             filtered_events = self._process_entity_for_events(action, entity_type=TREND_FILTER_TYPE_ACTIONS, order_by=None).filter(self._filter_events(request))
             people = _calculate_people(id=action.id, name=action.name, events=filtered_events)
             return Response([people])
-        
+
         return Response([])

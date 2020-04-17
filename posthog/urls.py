@@ -1,3 +1,4 @@
+from typing import cast, Optional
 from django.contrib import admin
 from django.urls import path, include, re_path
 from django.views.generic.base import TemplateView
@@ -14,7 +15,7 @@ from .utils import render_template
 from .views import health, stats
 from posthog.demo import demo, delete_demo_data
 import json
-import posthoganalytics # type: ignore
+import posthoganalytics
 import os
 
 from rest_framework import permissions
@@ -33,10 +34,11 @@ def login_view(request):
     if request.method == 'POST':
         email = request.POST['email']
         password = request.POST['password']
-        user = authenticate(request, email=email, password=password)
+        user = cast(Optional[User], authenticate(request, email=email, password=password))
         if user is not None:
             login(request, user, backend='django.contrib.auth.backends.ModelBackend')
-            posthoganalytics.capture(user.distinct_id, 'user logged in')
+            if user.distinct_id:
+                posthoganalytics.capture(user.distinct_id, 'user logged in')
             return redirect('/')
         else:
             return render_template('login.html', request=request, context={'email': email, 'error': True})
@@ -49,7 +51,7 @@ def signup_to_team_view(request, token):
         return redirect('/')
     if not User.objects.exists():
         return redirect('/setup_admin')
-    try: 
+    try:
         team = Team.objects.get(signup_token=token)
     except Team.DoesNotExist:
         return redirect('/')
@@ -58,15 +60,11 @@ def signup_to_team_view(request, token):
         email = request.POST['email']
         password = request.POST['password']
         first_name=request.POST.get('name')
-        email_opt_in=request.POST.get('emailOptIn')
+        email_opt_in = request.POST.get('emailOptIn') == 'on'
 
-        if email_opt_in == 'on':
-            email_opt_in = True
-
-        try:
-            user = User.objects.create_user(email=email, password=password, first_name=first_name, email_opt_in=email_opt_in)
-        except:
-            return render_template('signup_to_team.html', request=request, context={'email': email, 'error': True, 'team': team, 'signup_token': token})
+        if User.objects.filter(email=email).exists():
+            return render_template('signup_to_team.html', request=request, context={'email': email, 'name': first_name, 'error': True, 'team': team, 'signup_token': token})
+        user = User.objects.create_user(email=email, password=password, first_name=first_name, email_opt_in=email_opt_in)
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         team.users.add(user)
         team.save()
@@ -112,11 +110,11 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
 
     fields = dict((name, kwargs.get(name, details.get(name)))
                    for name in backend.setting('USER_FIELDS', ['email']))
-    
+
     if not fields:
         return
 
-    try: 
+    try:
         team = Team.objects.get(signup_token=signup_token)
     except Team.DoesNotExist:
         processed = render_to_string('auth_error.html', {'message': "We can't find the team associated with this signup token. Please ensure the invite link is provided from an existing team!"})
@@ -189,26 +187,6 @@ if settings.DEBUG:
         assert False, locals()
     urlpatterns += [
         path('debug/', debug)
-    ]
-
-if hasattr(settings, 'INCLUDE_API_DOCS'):
-    from drf_yasg.views import get_schema_view # type: ignore
-    from drf_yasg import openapi # type: ignore
-    schema_view = get_schema_view(
-        openapi.Info(
-            title="PostHog API",
-            default_version='v1',
-            description="PostHog's API allows you to do anything you can do in the PostHog frontend.",
-            contact=openapi.Contact(email="hey@posthog.com"),
-            license=openapi.License(name="MIT License"),
-        ),
-        public=True,
-        permission_classes=(permissions.AllowAny,),
-    )
-    urlpatterns += [
-        re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
-        re_path(r'^swagger/$', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
-        re_path(r'^redoc/$', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
     ]
 
 urlpatterns += [

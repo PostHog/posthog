@@ -1,7 +1,7 @@
 from posthog.models import Event, Team, Person, Element, Action, PersonDistinctId, ElementGroup
 from posthog.utils import properties_to_Q
-from rest_framework import request, response, serializers, viewsets # type: ignore
-from rest_framework.decorators import action # type: ignore
+from rest_framework import request, response, serializers, viewsets
+from rest_framework.decorators import action
 from django.http import HttpResponse, JsonResponse
 from django.db.models import Q, Count, QuerySet, query, F, Func, functions, Prefetch
 from django.forms.models import model_to_dict
@@ -58,8 +58,8 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         for key, value in request.GET.items():
-            if key in ('event', 'ip'):
-                pass
+            if key == 'event':
+                queryset = queryset.filter(event=request.GET['event'])
             elif key == 'after':
                 queryset = queryset.filter(timestamp__gt=request.GET['after'])
             elif key == 'before':
@@ -135,41 +135,31 @@ class EventViewSet(viewsets.ModelViewSet):
         return response.Response({'results': [self._serialize_actions(event) for event in matches]})
 
     @action(methods=['GET'], detail=False)
-    def names(self, request: request.Request) -> response.Response:
-        events = self.get_queryset()
-        events = events\
-            .exclude(event='$pageview')\
-            .exclude(event='$autocapture')\
-            .distinct('event')\
-            .values('event')\
-            .order_by('event')
-
-        return response.Response([{'name': event['event']} for event in events])
-
-    @action(methods=['GET'], detail=False)
-    def properties(self, request: request.Request) -> response.Response:
-        class JsonKeys(Func):
-            function = 'jsonb_object_keys'
-
-        events = self.get_queryset()
-        events = events\
-            .annotate(keys=JsonKeys('properties'))\
-            .values('keys')\
-            .distinct('keys')\
-            .order_by('keys')
-
-        return response.Response([{'name': event['keys']} for event in events])
-
-    @action(methods=['GET'], detail=False)
     def values(self, request: request.Request) -> response.Response:
-        events = self.get_queryset()
-        key = "properties__{}".format(request.GET.get('key'))
-        events = events\
-            .values(key)\
-            .annotate(count=Count('id'))\
-            .order_by('-count')
-
+        key = request.GET.get('key')
+        params = [key, key]
         if request.GET.get('value'):
-            events = events.extra(where=["properties ->> %s LIKE %s"], params=[request.GET['key'], '%{}%'.format(request.GET['value'])])
+            where = " AND properties ->> %s LIKE %s"
+            params.append(key)
+            params.append('%{}%'.format(request.GET['value']))
+        else:
+            where = ''
 
-        return response.Response([{'name': event[key], 'count': event['count']} for event in events[:50]])
+        # This samples a bunch of events with that property, and then orders them by most popular in that sample
+        # This is much quicker than trying to do this over the entire table
+        values = Event.objects.raw("""
+            SELECT
+                value, COUNT(1) as id
+            FROM ( 
+                SELECT
+                    ("posthog_event"."properties" -> %s) as "value"
+                FROM
+                    "posthog_event"
+                WHERE ("posthog_event"."properties" -> %s) IS NOT NULL {} LIMIT 10000
+            ) as "value"
+            GROUP BY value
+            ORDER BY id DESC
+            LIMIT 50;
+        """.format(where), params)
+
+        return response.Response([{'name': value.value} for value in values])

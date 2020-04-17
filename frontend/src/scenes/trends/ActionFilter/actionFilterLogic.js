@@ -1,27 +1,26 @@
 import { kea } from 'kea'
 
 import { actionsModel } from '~/models/actionsModel'
-import { eventsModel } from '~/models/eventsModel'
-import { trendsLogic, EntityTypes } from '../trendsLogic'
+import { EntityTypes } from '../trendsLogic'
 
-import { groupActions, groupEvents } from '~/lib/utils'
+import { groupEvents } from '~/lib/utils'
+import { userLogic } from 'scenes/userLogic'
 
-const mirrorValues = (entities, newKey, valueKey) => {
+const mirrorValues = (entities, newKey) => {
     let newEntities = entities.map(entity => {
         return {
             ...entity,
-            [newKey]: entity[valueKey],
+            [newKey]: entity,
         }
     })
     return newEntities
 }
 
 export const entityFilterLogic = kea({
+    key: props => props.typeKey,
     connect: {
-        values: [eventsModel, ['events'], actionsModel, ['actions'], trendsLogic, ['filters']],
-        actions: [trendsLogic, ['setFilters']],
+        values: [userLogic, ['eventNames'], actionsModel, ['actions']],
     },
-
     actions: () => ({
         selectFilter: filter => ({ filter }),
         updateFilterMath: filter => ({
@@ -32,17 +31,11 @@ export const entityFilterLogic = kea({
         }),
         updateFilter: filter => ({ type: filter.type, index: filter.index, value: filter.value }),
         removeLocalFilter: filter => ({ value: filter.value, type: filter.type, index: filter.index }),
-        removeFilter: filter => ({ value: filter.value, type: filter.type, index: filter.index }),
         createNewFilter: true,
         setLocalFilters: filters => ({ filters }),
-        initializeLocalFilters: true,
     }),
 
-    events: ({ actions }) => ({
-        afterMount: actions.initializeLocalFilters,
-    }),
-
-    reducers: ({ actions }) => ({
+    reducers: ({ actions, props }) => ({
         selectedFilter: [
             null,
             {
@@ -52,51 +45,39 @@ export const entityFilterLogic = kea({
         allFilters: [
             [],
             {
-                [actions.setLocalFilters]: (state, { filters }) => filters,
-                [actions.createNewFilter]: state => [...state, { id: null, type: EntityTypes.NEW }],
+                [actions.setLocalFilters]: (state, { filters }) =>
+                    filters.map((filter, index) => ({ ...filter, order: index })),
+                [actions.createNewFilter]: state => [
+                    ...state,
+                    { id: null, type: EntityTypes.NEW, order: state.length },
+                ],
             },
         ],
     }),
 
     selectors: ({ selectors }) => ({
         entities: [
-            () => [selectors.events, selectors.actions],
+            () => [selectors.eventNames, selectors.actions],
             (events, actions) => {
                 return {
                     [EntityTypes.ACTIONS]: actions,
-                    [EntityTypes.EVENTS]: mirrorValues(events, 'id', 'name'),
+                    [EntityTypes.EVENTS]: events.map(event => ({ id: event, name: event })),
                 }
             },
         ],
-        formattedOptions: [
-            () => [selectors.events, selectors.actions],
-            (events, actions) => {
+        filters: [
+            () => [selectors.allFilters],
+            allFilters => {
                 return {
-                    [EntityTypes.ACTIONS]: groupActions(actions),
-                    [EntityTypes.EVENTS]: groupEvents(events),
+                    [EntityTypes.ACTIONS]: allFilters.filter(filter => filter.type == EntityTypes.ACTIONS),
+                    [EntityTypes.EVENTS]: allFilters.filter(filter => filter.type == EntityTypes.EVENTS),
                 }
             },
         ],
     }),
 
-    listeners: ({ actions, values }) => ({
-        [actions.initializeLocalFilters]: () => {
-            actions.setLocalFilters([...(values.filters.actions || []), ...(values.filters.events || [])])
-        },
+    listeners: ({ actions, values, props }) => ({
         [actions.updateFilter]: ({ type, index, value }) => {
-            let newFilters = values.filters[type]
-            newFilters.push({ id: value, type })
-
-            // if the types are the same update together otherwise can dispatch to action
-            if (type == values.selectedFilter.type) {
-                let target = newFilters.findIndex(e => e.id == values.selectedFilter.filter.id)
-                newFilters.splice(target, 1)
-            } else {
-                actions.removeFilter({ type: values.selectedFilter.type, value: values.selectedFilter.filter.id })
-            }
-
-            actions.setFilters({ [type]: newFilters })
-
             let currentfilters = values.allFilters ? [...values.allFilters] : []
             currentfilters[index] = {
                 id: value,
@@ -105,29 +86,36 @@ export const entityFilterLogic = kea({
             actions.setLocalFilters(currentfilters)
             actions.selectFilter(null)
         },
-        [actions.updateFilterMath]: ({ type, value, math, index }) => {
-            // parent logic change
-            let newFilters = values.filters[type] ? [...values.filters[type]] : []
-            let target = newFilters.findIndex(e => e.id == value)
-            newFilters[target].math = math
-            actions.setFilters({ [type]: newFilters })
-
-            // local changes
+        [actions.updateFilterMath]: ({ math, index }) => {
             let currentfilters = values.allFilters ? [...values.allFilters] : []
             currentfilters[index].math = math
             actions.setLocalFilters(currentfilters)
         },
-        [actions.removeLocalFilter]: ({ type, value, index }) => {
-            actions.removeFilter({ type, value })
+        [actions.removeLocalFilter]: ({ index }) => {
             let currentfilters = values.allFilters ? [...values.allFilters] : []
             currentfilters.splice(index, 1)
             actions.setLocalFilters(currentfilters)
         },
-        [actions.removeFilter]: ({ type, value }) => {
-            let newFilters = values.filters[type] ? [...values.filters[type]] : []
-            let target = newFilters.findIndex(e => e.id == value)
-            newFilters.splice(target, 1)
-            actions.setFilters({ [type]: newFilters })
+        [actions.setLocalFilters]: ({ filters }) => {
+            props.setFilters(values.filters)
+        },
+    }),
+
+    events: ({ actions, props, values }) => ({
+        afterMount: () => {
+            let sort = (a, b) => a.order - b.order
+            let filters = [...(props.defaultFilters.actions || []), ...(props.defaultFilters.events || [])]
+            actions.setLocalFilters(filters.sort(sort))
+            if (props.setDefaultIfEmpty && filters.length == 0) {
+                let event = values.eventNames.indexOf('$pageview') > -1 ? '$pageview' : values.eventNames[0]
+                actions.setLocalFilters([
+                    {
+                        id: event,
+                        name: event,
+                        type: EntityTypes.EVENTS,
+                    },
+                ])
+            }
         },
     }),
 })

@@ -1,7 +1,7 @@
 from .base import BaseTest
 from posthog.models import Event, Person, Team, User, ElementGroup, Action, ActionStep
 from django.test import TransactionTestCase
-from freezegun import freeze_time # type: ignore
+from freezegun import freeze_time
 import base64
 import json
 import datetime
@@ -24,7 +24,7 @@ class TestCapture(BaseTest):
         action2 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action2, selector='a')
 
-        with self.assertNumQueries(18):
+        with self.assertNumQueries(19):
             response = self.client.get('/e/?data=%s' % self._dict_to_json({
                 'event': '$autocapture',
                 'properties': {
@@ -37,7 +37,7 @@ class TestCapture(BaseTest):
                 },
             }), content_type='application/json', HTTP_ORIGIN='https://localhost')
 
-        self.assertEqual(response._headers['access-control-allow-origin'][1], 'https://localhost')
+        self.assertEqual(response.get('access-control-allow-origin'), 'https://localhost')
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
         event = Event.objects.get()
         self.assertEqual(event.event, '$autocapture')
@@ -47,6 +47,10 @@ class TestCapture(BaseTest):
         self.assertEqual(elements[1].order, 1)
         self.assertEqual(elements[1].text, '💻')
         self.assertEqual(event.distinct_id, "2")
+
+        team = Team.objects.get()
+        self.assertEqual(team.event_names, ['$autocapture'])
+        self.assertEqual(team.event_properties, ['distinct_id', 'token', '$ip'])
 
     def test_capture_no_element(self):
         user = self._create_user('tim')
@@ -84,7 +88,7 @@ class TestCapture(BaseTest):
             '$device_id': '16fd4afae9b2d8-0fce8fe900d42b-39637c0e-7e9000-16fd4afae9c395',
             '$user_id': 3
         }), content_type='application/json', HTTP_ORIGIN='https://localhost')
-        self.assertEqual(response._headers['access-control-allow-origin'][1], 'https://localhost')
+        self.assertEqual(response.get('access-control-allow-origin'), 'https://localhost')
 
         person = Person.objects.get()
         self.assertEqual(person.properties['whatever'], 'this is')
@@ -136,7 +140,9 @@ class TestCapture(BaseTest):
 
         self.assertEqual(Person.objects.get().distinct_ids, ["63"])
         event = Event.objects.get()
-        self.assertEqual(ElementGroup.objects.get(hash=event.elements_hash).element_set.all().first().text, '💻 Writing code')
+        element = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().first()
+        assert element is not None
+        self.assertEqual(element.text, '💻 Writing code')
 
     def test_incorrect_padding(self):
         response = self.client.get('/e/?data=eyJldmVudCI6IndoYXRldmVmciIsInByb3BlcnRpZXMiOnsidG9rZW4iOiJ0b2tlbjEyMyIsImRpc3RpbmN0X2lkIjoiYXNkZiJ9fQ', content_type='application/json', HTTP_REFERER='https://localhost')
@@ -179,7 +185,7 @@ class TestCapture(BaseTest):
 
 class TestIdentify(TransactionTestCase):
     def _create_user(self, email, **kwargs) -> User:
-        user: User = User.objects.create_user(email, **kwargs) # type: ignore
+        user: User = User.objects.create_user(email, **kwargs)
         if not hasattr(self, 'team'):
             self.team: Team = Team.objects.create(api_token='token123')
         self.team.users.add(user)

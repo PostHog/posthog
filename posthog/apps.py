@@ -1,6 +1,6 @@
 from django.apps import AppConfig
 from django.conf import settings
-import posthoganalytics # type: ignore
+import posthoganalytics
 
 
 class PostHogConfig(AppConfig):

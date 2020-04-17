@@ -34,10 +34,12 @@ export let fromParams = () =>
 
 export let colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
 export let percentage = division =>
-    division ? division.toLocaleString(undefined, {
-        style: 'percent',
-        maximumFractionDigits: 2,
-    }) : ''
+    division
+        ? division.toLocaleString(undefined, {
+              style: 'percent',
+              maximumFractionDigits: 2,
+          })
+        : ''
 
 export let Loading = () => (
     <div className="loading-overlay">
@@ -176,36 +178,6 @@ export let debounce = (func, wait, immediate) => {
     }
 }
 
-export const groupActions = actions => {
-    let data = [
-        { label: 'Autocapture', options: [] },
-        { label: 'Event', options: [] },
-        { label: 'Pageview', options: [] },
-    ]
-    actions.map(action => {
-        let format = { label: action.name, value: action.id }
-        if (actionContains(action, '$autocapture')) data[0].options.push(format)
-        if (actionContains(action, '$pageview')) data[2].options.push(format)
-        if (!actionContains(action, '$autocapture') && !actionContains(action, '$pageview'))
-            data[1].options.push(format)
-    })
-    return data
-}
-
-export const actionContains = (action, event) => {
-    return action.steps.filter(step => step.event == event).length > 0
-}
-
-export const groupEvents = events => {
-    let data = [{ label: 'All Events', options: [] }]
-
-    events.map(event => {
-        let format = { label: event.name, value: event.name }
-        data[0].options.push(format)
-    })
-    return data
-}
-
-export const capitalizeFirstLetter = (string) => {
-    return string.charAt(0).toUpperCase() + string.slice(1);
+export const capitalizeFirstLetter = string => {
+    return string.charAt(0).toUpperCase() + string.slice(1)
 }

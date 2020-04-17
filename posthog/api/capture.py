@@ -30,7 +30,7 @@ def cors_response(request, response):
     response["Access-Control-Allow-Headers"] = 'X-Requested-With'
     return response
 
-def _load_data(request) -> Union[Dict, None]:
+def _load_data(request) -> Optional[Union[Dict, List]]:
     if request.method == 'POST':
         if request.content_type == 'application/json':
             data = request.body
@@ -40,13 +40,14 @@ def _load_data(request) -> Union[Dict, None]:
         data = request.GET.get('data')
     if not data:
         return None
-    
+
     #  Is it plain json?
     try:
         data = json.loads(data)
     except json.JSONDecodeError:
         # if not, it's probably base64 encoded from other libraries
         data = json.loads(base64.b64decode(data + "===").decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
+    # FIXME: data can also be an array, function assumes it's either None or a dictionary.
     return data
 
 def _alias(distinct_id: str, new_distinct_id: str, team: Team):
@@ -69,6 +70,18 @@ def _alias(distinct_id: str, new_distinct_id: str, team: Team):
             previous_person.delete()
             person.add_distinct_id(new_distinct_id)
             person.save()
+
+def _store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
+    save = False
+    if event not in team.event_names:
+        save = True
+        team.event_names.append(event)
+    for key in properties.keys():
+        if key not in team.event_properties:
+            team.event_properties.append(key)
+            save = True
+    if save:
+        team.save()
 
 def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict, timestamp: Union[datetime.datetime, str]) -> None:
     elements = properties.get('$elements')
@@ -97,9 +110,11 @@ def _capture(request, team: Team, event: str, distinct_id: str, properties: Dict
         distinct_id=distinct_id,
         properties=properties,
         team=team,
+        site_url=request.build_absolute_uri('/')[:-1],
         **({'timestamp': timestamp} if timestamp else {}),
         **({'elements': elements_list} if elements_list else {})
     )
+    _store_names_and_properties(team=team, event=event, properties=properties)
     # try to create a new person
     try:
         Person.objects.create(team=team, distinct_ids=[str(distinct_id)], is_user=request.user if not request.user.is_anonymous else None)
@@ -175,16 +190,17 @@ def get_event(request):
     if not token:
         return cors_response(request, JsonResponse({'code': 'validation', 'message': "No api_key set. You can find your API key in the /setup page in posthog"}, status=400))
 
-    if not isinstance(data, list) and data.get('batch'): # posthog-python and posthog-ruby
-        data = data['batch']
-
-    if 'engage' in request.path_info: # JS identify call
-        data['event'] = '$identify' # make sure it has an event name
-
     try:
         team = Team.objects.get(api_token=token)
     except Team.DoesNotExist:
         return cors_response(request, JsonResponse({'code': 'validation', 'message': "API key is incorrect. You can find your API key in the /setup page in PostHog."}, status=400))
+
+    if isinstance(data, dict):
+        if data.get('batch'): # posthog-python and posthog-ruby
+            data = data['batch']
+            assert data is not None
+        elif 'engage' in request.path_info: # JS identify call
+            data['event'] = '$identify' # make sure it has an event name
 
     if isinstance(data, list):
         for i in data:

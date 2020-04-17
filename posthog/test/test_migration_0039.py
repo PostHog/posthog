@@ -9,22 +9,30 @@ from typing import Optional
 class TestMigrations(TestCase):
 
     @property
-    def app(self):
-        return apps.get_containing_app_config(type(self).__module__).name
+    def app(self) -> str:
+        app_config = apps.get_containing_app_config(type(self).__module__)
+        assert app_config is not None
+        return app_config.name
 
-    migrate_from: Optional[str] = None
-    migrate_to: Optional[str] = None
+    @property
+    def migrate_from(self) -> Optional[str]:
+        raise NotImplementedError("TestCase '{}' must define migrate_from property".format(type(self).__name__))
+
+    @property
+    def migrate_to(self) -> Optional[str]:
+        raise NotImplementedError("TestCase '{}' must define migrate_to property".format(type(self).__name__))
+
+    def setUpBeforeMigration(self, apps):
+        pass
 
     def setUp(self):
-        assert self.migrate_from and self.migrate_to, \
-            "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
-        self.migrate_from = [(self.app, self.migrate_from)]
-        self.migrate_to = [(self.app, self.migrate_to)]
+        migrate_from = [(self.app, self.migrate_from)]
+        migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)
-        old_apps = executor.loader.project_state(self.migrate_from).apps
+        old_apps = executor.loader.project_state(migrate_from).apps # type: ignore
 
         # Reverse to the original migration
-        executor.migrate(self.migrate_from)
+        executor.migrate(migrate_from)
 
         self.setUpBeforeMigration(old_apps)
 
@@ -32,12 +40,9 @@ class TestMigrations(TestCase):
         executor = MigrationExecutor(connection)
         executor.loader.build_graph()  # reload.
         with self.assertNumQueries(8):
-            executor.migrate(self.migrate_to)
+            executor.migrate(migrate_to)
 
-        self.apps = executor.loader.project_state(self.migrate_to).apps
-
-    def setUpBeforeMigration(self, apps):
-        pass
+        self.apps = executor.loader.project_state(migrate_to).apps  # type: ignore
 
 
 class TagsTestCase(TestMigrations):
