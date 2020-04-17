@@ -10,7 +10,7 @@ from django.dispatch import receiver
 from django.forms.models import model_to_dict
 from django.utils import timezone
 from posthog.utils import properties_to_Q, request_to_date_query
-from posthog.tasks import post_event_to_slack
+from posthog.tasks.slack import post_event_to_slack
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from typing import List, Tuple, Optional, Any, Union, Dict
 from django.db import transaction
@@ -250,7 +250,10 @@ class EventManager(models.QuerySet):
     def create(self, site_url: Optional[str] = None, *args: Any, **kwargs: Any):
         with transaction.atomic():
             if kwargs.get('elements'):
-                kwargs['elements_hash'] = ElementGroup.objects.create(team=kwargs['team'], elements=kwargs.pop('elements')).hash
+                if kwargs.get('team'):
+                    kwargs['elements_hash'] = ElementGroup.objects.create(team=kwargs['team'], elements=kwargs.pop('elements')).hash
+                else:
+                    kwargs['elements_hash'] = ElementGroup.objects.create(team_id=kwargs['team_id'], elements=kwargs.pop('elements')).hash
             event = super().create(*args, **kwargs)
             should_post_to_slack = False
             relations = []

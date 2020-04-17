@@ -1,16 +1,10 @@
-# Create your tasks here
-
 from celery import shared_task
 from django.apps import apps
 from django.conf import settings
 import requests
 
 @shared_task
-def add(x, y):
-    return x + y
-
-@shared_task
-def post_event_to_slack(event_id: int, site_url: str):
+def post_event_to_slack(event_id: int, site_url: str) -> None:
     # must import "Event" like this to avoid circular dependency with models.py (it imports tasks.py)
     event_model = apps.get_model(app_label='posthog', model_name='Event')
     event = event_model.objects.get(pk=event_id)
