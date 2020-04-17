@@ -37,8 +37,13 @@ export const disableHourFor = {
     all: true,
 }
 
+export const ViewType = {
+    FILTERS: 'FILTERS',
+    SESSIONS: 'SESSIONS',
+}
+
 function cleanFilters(filters) {
-    if (filters.breakdown && filters.display !== 'ActionsTable') {
+    if ((filters.breakdown && filters.display !== 'ActionsTable') || filters.session) {
         return {
             ...filters,
             display: 'ActionsTable',
@@ -81,7 +86,6 @@ function filtersFromParams() {
     filters.events = filters.events && JSON.parse(filters.events)
     filters.events = Array.isArray(filters.events) ? filters.events : []
     filters.properties = filters.properties ? JSON.parse(filters.properties) : {}
-
     return cleanFilters(filters)
 }
 
@@ -109,6 +113,9 @@ export const trendsLogic = kea({
         loadPeople: (action, day) => ({ action, day }),
         hidePeople: true,
         setPeople: (people, count) => ({ people, count }),
+        setActiveView: type => ({ type }),
+        initialView: type => ({ type }),
+        setCachedUrl: url => ({ url }),
     }),
 
     reducers: ({ actions }) => ({
@@ -135,6 +142,19 @@ export const trendsLogic = kea({
             {
                 [actions.setFilters]: () => null,
                 [actions.setPeople]: (_, { count }) => count,
+            },
+        ],
+        activeView: [
+            ViewType.FILTERS,
+            {
+                [actions.setActiveView]: (_, { type }) => type,
+                [actions.initialView]: (_, { type }) => type,
+            },
+        ],
+        cachedUrl: [
+            null,
+            {
+                [actions.setCachedUrl]: (_, { url }) => url,
             },
         ],
     }),
@@ -205,6 +225,15 @@ export const trendsLogic = kea({
                 }
             }
         },
+        [actions.setActiveView]: ({ type }) => {
+            let cachedUrl = values.cachedUrl
+            actions.setCachedUrl(window.location.pathname + window.location.search)
+            if (cachedUrl) {
+                return cachedUrl
+            } else {
+                return type == ViewType.SESSIONS ? `/trends?${toParams({ session: 'avg' })}` : `/trends`
+            }
+        },
     }),
 
     urlToAction: ({ actions, values, props }) => ({
@@ -220,11 +249,15 @@ export const trendsLogic = kea({
 
     events: ({ actions, props }) => ({
         afterMount: () => {
-            if (props.dashboardItemId) {
+            let filters = filtersFromParams()
+            if (filters.session) {
+                actions.initialView(ViewType.SESSIONS)
+                actions.setFilters(filters, false)
+            } else if (props.dashboardItemId) {
                 // on dashboard
                 actions.setFilters(props.filters, false)
             } else {
-                actions.setFilters(filtersFromParams(), false)
+                actions.setFilters(filters, false)
             }
         },
     }),

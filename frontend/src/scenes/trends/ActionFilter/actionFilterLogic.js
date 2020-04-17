@@ -106,8 +106,8 @@ export const entityFilterLogic = kea({
             let sort = (a, b) => a.order - b.order
             let filters = [...(props.defaultFilters.actions || []), ...(props.defaultFilters.events || [])]
             actions.setLocalFilters(filters.sort(sort))
-            if (props.setDefaultIfEmpty && filters.length == 0) {
-                let event = values.eventNames.indexOf('$pageview') > -1 ? '$pageview' : values.eventNames[0]
+            if (props.setDefaultIfEmpty && filters.length == 0 && values.eventNames) {
+                let event = values.eventNames.indexOf('$pageview') >= -1 ? '$pageview' : values.eventNames[0]
                 actions.setLocalFilters([
                     {
                         id: event,

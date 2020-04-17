@@ -12,13 +12,13 @@ export class ActionsTable extends Component {
         this.fetchGraph()
     }
     fetchGraph() {
-        api.get('api/action/trends/?' + toParams(this.props.filters)).then(
-            data => {
-                data = data.sort((a, b) => b.count - a.count)
-                this.setState({ data })
-                this.props.onData && this.props.onData(data)
-            }
-        )
+        let url = 'api/action/trends/?'
+        if (this.props.filters.session) url = 'api/event/sessions/?'
+        api.get(url + toParams(this.props.filters)).then(data => {
+            if (!this.props.filters.session) data = data.sort((a, b) => b.count - a.count)
+            this.setState({ data })
+            this.props.onData && this.props.onData(data)
+        })
     }
     componentDidUpdate(prevProps) {
         if (prevProps.filters !== this.props.filters) {
@@ -29,13 +29,13 @@ export class ActionsTable extends Component {
         let { data } = this.state
         let { filters } = this.props
         return data ? (
-            data[0] && data[0].labels ? (
+            data[0] && (filters.session || data[0].labels) ? (
                 <table className="table">
                     <tbody>
                         <tr>
-                            <th style={{ width: 100 }}>Action</th>
+                            <th style={{ width: 100 }}>{filters.session ? 'Session Attribute' : 'Action'}</th>
                             {filters.breakdown && <th>Breakdown</th>}
-                            <th style={{ width: 50 }}>Count</th>
+                            <th style={{ width: 50 }}>{filters.session ? 'Value' : 'Count'}</th>
                         </tr>
                         {!filters.breakdown &&
                             data.map(item => (
@@ -49,25 +49,13 @@ export class ActionsTable extends Component {
                                 .filter(item => item.count > 0)
                                 .map(item => [
                                     <tr key={item.label}>
-                                        <td
-                                            rowSpan={item.breakdown.length || 1}
-                                        >
-                                            {item.label}
-                                        </td>
-                                        <td className="text-overflow">
-                                            {item.breakdown[0] &&
-                                                item.breakdown[0].name}
-                                        </td>
-                                        <td>
-                                            {item.breakdown[0] &&
-                                                item.breakdown[0].count}
-                                        </td>
+                                        <td rowSpan={item.breakdown.length || 1}>{item.label}</td>
+                                        <td className="text-overflow">{item.breakdown[0] && item.breakdown[0].name}</td>
+                                        <td>{item.breakdown[0] && item.breakdown[0].count}</td>
                                     </tr>,
                                     item.breakdown.slice(1).map(i => (
                                         <tr key={i.name}>
-                                            <td className="text-overflow">
-                                                {i.name}
-                                            </td>
+                                            <td className="text-overflow">{i.name}</td>
                                             <td>{i.count}</td>
                                         </tr>
                                     )),
@@ -75,9 +63,7 @@ export class ActionsTable extends Component {
                     </tbody>
                 </table>
             ) : (
-                <p style={{ textAlign: 'center', marginTop: '4rem' }}>
-                    We couldn't find any matching actions.
-                </p>
+                <p style={{ textAlign: 'center', marginTop: '4rem' }}>We couldn't find any matching actions.</p>
             )
         ) : (
             <Loading />

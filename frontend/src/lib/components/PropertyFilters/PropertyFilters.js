@@ -19,7 +19,7 @@ export function PropertyFilters({ endpoint, propertyFilters, className, style, o
         >
             {filters &&
                 filters.map((item, index) => (
-                    <span>
+                    <span key={index}>
                         <PropertyFilter
                             key={index}
                             index={index}

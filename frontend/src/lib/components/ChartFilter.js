@@ -11,11 +11,11 @@ export function ChartFilter(props) {
             bordered={false}
             dropdownMatchSelectWidth={false}
         >
-            <Select.Option value="ActionsLineGraph" disabled={filters.breakdown}>
+            <Select.Option value="ActionsLineGraph" disabled={filters.breakdown || filters.session}>
                 Line chart
             </Select.Option>
             <Select.Option value="ActionsTable">Table</Select.Option>
-            <Select.Option value="ActionsPie" disabled={filters.breakdown}>
+            <Select.Option value="ActionsPie" disabled={filters.breakdown || filters.session}>
                 Pie
             </Select.Option>
         </Select>
