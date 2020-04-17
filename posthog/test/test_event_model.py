@@ -1,5 +1,6 @@
 from posthog.models import Event, Element, Action, ActionStep, Person, Team, ElementGroup
 from posthog.api.test.base import BaseTest
+from unittest.mock import patch, call
 
 class TestFilterByActions(BaseTest):
     def test_filter_with_selectors(self):
@@ -277,3 +278,16 @@ class TestPreCalculation(BaseTest):
         ActionStep.objects.all().delete()
         action.calculate_events()
         self.assertEqual([e for e in action.events.all().order_by('id')], [])
+
+class TestSendToSlack(BaseTest):
+    @patch('posthog.tasks.slack.post_event_to_slack.delay')
+    def test_send_to_slack(self, patch_post_to_slack):
+        self.team.slack_incoming_webhook = 'http://slack.com/hook'
+        action_user_paid = Action.objects.create(team=self.team, name='user paid', post_to_slack=True)
+        ActionStep.objects.create(action=action_user_paid, event='user paid')
+
+        event = Event.objects.create(team=self.team, event='user paid', site_url="http://testserver")
+        self.assertEqual(patch_post_to_slack.call_count, 1)
+        patch_post_to_slack.assert_has_calls([call(
+            event.pk, 'http://testserver'
+        )])
