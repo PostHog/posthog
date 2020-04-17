@@ -55,20 +55,20 @@ class TestCreateFunnel(BaseTest):
 class TestGetFunnel(BaseTest):
     TESTS_API = True
 
-    def _signup_event(self, distinct_id: str):
-        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team, event='user signed up')
+    def _signup_event(self, **kwargs):
+        sign_up = Event.objects.create(team=self.team, event='user signed up', **kwargs)
 
-    def _pay_event(self, distinct_id: str):
-        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team, elements=[
+    def _pay_event(self, **kwargs):
+        sign_up = Event.objects.create(team=self.team, elements=[
             Element(tag_name='button', text='Pay $10')
-        ])
+        ], **kwargs)
 
-    def _movie_event(self, distinct_id: str):
-        sign_up = Event.objects.create(distinct_id=distinct_id, team=self.team, elements=[
+    def _movie_event(self, **kwargs):
+        sign_up = Event.objects.create(team=self.team, elements=[
             Element(tag_name='a', href='/movie')
-        ])
+        ], **kwargs)
 
-    def _basic_funnel(self):
+    def _basic_funnel(self, properties=None):
         action_credit_card = Action.objects.create(team=self.team, name='paid')
         ActionStep.objects.create(action=action_credit_card, tag_name='button', text='Pay $10')
         action_play_movie = Action.objects.create(team=self.team, name='watched movie')
@@ -94,26 +94,26 @@ class TestGetFunnel(BaseTest):
 
         # events
         person_stopped_after_signup = Person.objects.create(distinct_ids=["stopped_after_signup"], team=self.team)
-        self._signup_event('stopped_after_signup')
+        self._signup_event(distinct_id='stopped_after_signup')
 
         person_stopped_after_pay = Person.objects.create(distinct_ids=["stopped_after_pay"], team=self.team)
-        self._signup_event('stopped_after_pay')
-        self._pay_event('stopped_after_pay')
+        self._signup_event(distinct_id='stopped_after_pay')
+        self._pay_event(distinct_id='stopped_after_pay')
 
         person_stopped_after_movie = Person.objects.create(distinct_ids=["had_anonymous_id", "completed_movie"], team=self.team)
-        self._signup_event('had_anonymous_id')
-        self._pay_event('completed_movie')
-        self._movie_event('completed_movie')
+        self._signup_event(distinct_id='had_anonymous_id')
+        self._pay_event(distinct_id='completed_movie')
+        self._movie_event(distinct_id='completed_movie')
 
         person_that_just_did_movie = Person.objects.create(distinct_ids=["just_did_movie"], team=self.team)
-        self._movie_event('just_did_movie')
+        self._movie_event(distinct_id='just_did_movie')
 
         person_wrong_order = Person.objects.create(distinct_ids=["wrong_order"], team=self.team)
-        self._pay_event('wrong_order')
-        self._signup_event('wrong_order')
-        self._movie_event('wrong_order')
+        self._pay_event(distinct_id='wrong_order')
+        self._signup_event(distinct_id='wrong_order')
+        self._movie_event(distinct_id='wrong_order')
 
-        self._signup_event('a_user_that_got_deleted_or_doesnt_exist')
+        self._signup_event(distinct_id='a_user_that_got_deleted_or_doesnt_exist')
 
         with self.assertNumQueries(7):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
@@ -129,11 +129,11 @@ class TestGetFunnel(BaseTest):
 
         # make sure it's O(n)
         person_wrong_order = Person.objects.create(distinct_ids=["badalgo"], team=self.team)
-        self._signup_event('badalgo')
+        self._signup_event(distinct_id='badalgo')
         with self.assertNumQueries(7):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
 
-        self._pay_event('badalgo')
+        self._pay_event(distinct_id='badalgo')
         with self.assertNumQueries(7):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
 
@@ -147,8 +147,8 @@ class TestGetFunnel(BaseTest):
         funnel = self._basic_funnel()
 
         person_wrong_order = Person.objects.create(distinct_ids=["wrong_order"], team=self.team)
-        self._signup_event('wrong_order')
-        self._movie_event('wrong_order')
+        self._signup_event(distinct_id='wrong_order')
+        self._movie_event(distinct_id='wrong_order')
 
         response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
         self.assertEqual(response['steps'][1]['count'], 0)
