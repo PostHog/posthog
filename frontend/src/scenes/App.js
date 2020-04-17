@@ -49,9 +49,9 @@ export default function App() {
             <Layout className="bg-white">
                 <Sidebar user={user} />
                 <Layout className="bg-white" style={{ height: '100vh' }}>
-                    <Layout.Header className="bg-white">
+                    <div className="content py-3">
                         <TopContent user={user} />
-                    </Layout.Header>
+                    </div>
                     <Layout.Content className="pl-5 pr-5 pt-3">
                         <SendEventsOverlay user={user} />
                         {user.has_events && (
