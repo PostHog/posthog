@@ -61,7 +61,7 @@ export class ActionEventsTable extends Component {
                     propertyFilters={properties}
                     onChange={properties => this.setState({ properties }, this.fetchEvents)}
                 />
-                <table className="table">
+                <table className="table" style={{ position: 'relative' }}>
                     <tbody>
                         <tr>
                             <th scope="col">Action ID</th>
