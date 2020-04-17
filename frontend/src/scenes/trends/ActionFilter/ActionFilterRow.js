@@ -32,8 +32,8 @@ export function ActionFilterRow({ filter, index, showMaths, typeKey }) {
         value = null
     } else {
         entity = entities[filter.type].filter(action => action.id == filter.id)[0] || {}
-        name = entity.name
-        value = entity.id
+        name = entity.name || filter.name
+        value = entity.id || filter.id
     }
 
     return (
