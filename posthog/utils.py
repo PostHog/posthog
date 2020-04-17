@@ -69,6 +69,9 @@ def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.date]:
 def properties_to_Q(properties: Dict[str, str]) -> Q:
     filters = Q()
 
+    if not properties:
+        return filters
+
     for key, value in properties.items():
         if key.endswith('__is_not'):
             key = key.replace('__is_not', '')

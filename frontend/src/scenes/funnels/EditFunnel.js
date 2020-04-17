@@ -5,12 +5,15 @@ import { actionsModel } from '../../models/actionsModel'
 import { useValues, useActions } from 'kea'
 import { funnelLogic } from './funnelLogic'
 import { ActionFilter } from 'scenes/trends/ActionFilter/ActionFilter'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Button } from 'antd'
+import { userLogic } from 'scenes/userLogic'
 
 export function EditFunnel({ funnelId, onChange }) {
     const { funnel, isStepsEmpty } = useValues(funnelLogic({ id: funnelId }))
     const { setFunnel, updateFunnel, createFunnel } = useActions(funnelLogic({ id: funnelId }))
     const { actions, actionsLoading } = useValues(actionsModel())
+    const { eventProperties } = useValues(userLogic)
     return (
         <form
             onSubmit={e => {
@@ -42,7 +45,23 @@ export function EditFunnel({ funnelId, onChange }) {
                         typeKey="edit-funnel"
                     />
                     <br />
-                    <Button type="primary" htmlType="submit" disabled={isStepsEmpty}>
+                    <hr />
+                    <h4 className="secondary mt-3">Filters</h4>
+                    <PropertyFilters
+                        pageKey="funnels"
+                        properties={eventProperties}
+                        propertyFilters={funnel.filters.properties || []}
+                        onChange={properties =>
+                            setFunnel({
+                                filters: {
+                                    properties,
+                                },
+                            })
+                        }
+                        style={{ marginBottom: 0 }}
+                    />
+                    <hr />
+                    <Button type="primary mt-3" htmlType="submit" disabled={isStepsEmpty}>
                         Save funnel
                     </Button>
                     <br />

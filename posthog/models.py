@@ -464,7 +464,7 @@ class Funnel(models.Model):
             return (score, person)
         return sorted(people, key=order, reverse=True)
 
-    def _annotate_steps(self, team_id: int, funnel_steps: QuerySet, date_query: Dict[str, datetime.date]) -> Dict[str, Subquery]:
+    def _annotate_steps(self, team_id: int, funnel_steps: QuerySet, date_query: Dict[str, datetime.date], properties: Dict[str, str]) -> Dict[str, Subquery]:
         annotations = {}
         for index, step in enumerate(funnel_steps):
             filter_key = 'event' if step.get('type') == TREND_FILTER_TYPE_EVENTS else 'action__pk'
@@ -481,8 +481,9 @@ class Funnel(models.Model):
                             ).values('distinct_id')
                         ),
                         **({'timestamp__gt': OuterRef('step_{}'.format(index-1))} if index > 0 else {}),
-                        **date_query
+                        **date_query,
                     )\
+                    .filter(properties_to_Q(properties))\
                     .order_by('timestamp')\
                     .values('timestamp')[:1])
         return annotations
@@ -502,6 +503,7 @@ class Funnel(models.Model):
 
     def get_steps(self) -> List[Dict[str, Any]]:
         funnel_steps = self.filters.get('actions', []) + self.filters.get('events', [])
+        properties = self.filters.get('properties', [])
         funnel_steps = sorted(funnel_steps, key=lambda step: step['order'])
         people = Person.objects.all()\
             .filter(
@@ -511,7 +513,8 @@ class Funnel(models.Model):
             .annotate(**self._annotate_steps(
                 team_id=self.team_id,
                 funnel_steps=funnel_steps,
-                date_query=request_to_date_query(self.filters)
+                date_query=request_to_date_query(self.filters),
+                properties=properties
             ))\
             .filter(step_0__isnull=False)\
             .distinct('pk')
