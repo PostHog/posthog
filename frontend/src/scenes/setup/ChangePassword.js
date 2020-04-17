@@ -1,6 +1,7 @@
 import React, { Component } from 'react'
 import { toast } from 'react-toastify'
 import api from '../../lib/api'
+import { Input, Button } from 'antd'
 
 export class ChangePassword extends Component {
     constructor(props) {
@@ -37,32 +38,38 @@ export class ChangePassword extends Component {
 
     render() {
         return (
-            <form id="change-password" onSubmit={this.save}>
+            <div>
                 <label>Old Password</label>
-                <input
+                <br />
+                <Input.Password
                     name="oldPassword"
                     required
-                    type="password"
-                    className="form-control"
                     onChange={this.handleChange}
                     value={this.state.oldPassword}
                     style={{ maxWidth: 400 }}
                 />
+                <br />
                 <label>New Password</label>
-                <input
+                <br />
+                <Input.Password
                     name="newPassword"
                     required
-                    type="password"
-                    className="form-control"
                     onChange={this.handleChange}
                     value={this.state.newPassword}
                     style={{ maxWidth: 400 }}
                 />
                 <br />
-                <button type="submit" className="btn btn-outline-primary">
+                <br />
+                <Button
+                    type="primary"
+                    onClick={e => {
+                        e.preventDefault()
+                        this.save()
+                    }}
+                >
                     Change Password
-                </button>
-            </form>
+                </Button>
+            </div>
         )
     }
 }
