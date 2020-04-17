@@ -192,7 +192,7 @@ class TestTrends(BaseTest):
         self.assertEqual(action_response[0]['data'][12], 1.0)
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
-    
+
     def test_interval_filtering(self):
         self._create_events(use_time=True)
 
@@ -406,6 +406,7 @@ class TestTrends(BaseTest):
         watched_movie.calculate_events()
         action_response = self.client.get('/api/action/trends/?shown_as=Stickiness&date_from=2020-01-01&date_to=2020-01-07&actions=%s' % json_to_url([{'id': watched_movie.id}])).json()
         event_response = self.client.get('/api/action/trends/?shown_as=Stickiness&date_from=2020-01-01&date_to=2020-01-07&events=%s' % json_to_url([{'id': "watched movie"}])).json()
+        self.assertEqual(action_response[0]['count'], 4)
         self.assertEqual(action_response[0]['labels'][0], '1 day')
         self.assertEqual(action_response[0]['data'][0], 2)
         self.assertEqual(action_response[0]['labels'][1], '2 days')
@@ -424,3 +425,6 @@ class TestTrends(BaseTest):
 
         self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
 
+        # test all time
+        response = self.client.get('/api/action/trends/?shown_as=Stickiness&date_from=all&date_to=2020-01-07&actions=%s' % json_to_url([{'id': watched_movie.id}])).json()
+        self.assertEqual(len(response[0]['data']), 89)
