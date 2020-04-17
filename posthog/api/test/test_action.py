@@ -1,5 +1,5 @@
 from .base import BaseTest
-from posthog.models import Action, ActionStep, Event, Element, Person
+from posthog.models import Action, ActionStep, Event, Element, Person, Team
 from freezegun import freeze_time
 from urllib import parse
 import json
@@ -118,6 +118,7 @@ class TestTrends(BaseTest):
         ActionStep.objects.create(action=sign_up_action, event='sign up')
 
         person = Person.objects.create(team=self.team, distinct_ids=['blabla'])
+        secondTeam = Team.objects.create(api_token='token123')
 
         freeze_without_time = ['2019-12-24', '2020-01-01', '2020-01-02']
         freeze_with_time = ['2019-12-24 03:45:34', '2020-01-01 00:06:34', '2020-01-02 16:34:34']
@@ -136,6 +137,9 @@ class TestTrends(BaseTest):
         with freeze_time(freeze_args[2]):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "other_value"})
             Event.objects.create(team=self.team, event='no events', distinct_id='blabla')
+
+            # second team should have no effect
+            Event.objects.create(team=secondTeam, event='sign up', distinct_id='blabla', properties={"some_property": "other_value"}) 
         return (sign_up_action, person)
 
     def _compare_entity_response(self, response1, response2, remove=['action', 'label']):
