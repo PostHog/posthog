@@ -233,4 +233,11 @@ class EventViewSet(viewsets.ModelViewSet):
             calculated = cursor.fetchall()
             result = [{'label': dist_labels[index], 'count': calculated[0][index]} for index in range(len(dist_labels))]
         
+        def test_average_length(query):
+            return 'SELECT date_trunc(\'day\', timestamp) as start_time,\
+                        AVG(length) AS average_session_length\
+                        FROM (SELECT global_session_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
+                            AS length,\
+                            MIN(timestamp) as timestamp FROM ({}) as count GROUP BY 1) as agg group by 1 order by start_time'.format(query)
+
         return result
