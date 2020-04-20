@@ -74,18 +74,25 @@ class TestGetFunnel(BaseTest):
         action_play_movie = Action.objects.create(team=self.team, name='watched movie')
         ActionStep.objects.create(action=action_play_movie, tag_name='a', href='/movie')
 
+        filters =  {
+            'events': [
+                {'id': 'user signed up', 'type': 'events', 'order': 0},
+            ],
+            'actions': [
+                {'id': action_credit_card.pk, 'type': 'actions', 'order': 1},
+                {'id': action_play_movie.pk, 'type': 'actions', 'order': 2},
+            ]
+        }
+
+        if properties is not None:
+            filters.update({
+                'properties': properties
+            })
+
         funnel = Funnel.objects.create(
             team=self.team,
             name='funnel',
-            filters={
-                'events': [
-                    {'id': 'user signed up', 'type': 'events', 'order': 0},
-                ],
-                'actions': [
-                    {'id': action_credit_card.pk, 'type': 'actions', 'order': 1},
-                    {'id': action_play_movie.pk, 'type': 'actions', 'order': 2},
-                ]
-            }
+            filters=filters
         )
         return funnel
 
@@ -153,3 +160,25 @@ class TestGetFunnel(BaseTest):
         response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
         self.assertEqual(response['steps'][1]['count'], 0)
         self.assertEqual(response['steps'][2]['count'], 0)
+
+    def test_funnel_prop_filters(self):
+        funnel = self._basic_funnel(properties={'$browser': 'Safari'})
+
+        # events
+        with_property = Person.objects.create(distinct_ids=["with_property"], team=self.team)
+        self._signup_event(distinct_id='with_property', properties={'$browser': 'Safari'})
+        self._pay_event(distinct_id='with_property', properties={'$browser': 'Safari'})
+
+        # should not add a count
+        without_property = Person.objects.create(distinct_ids=["without_property"], team=self.team)
+        self._signup_event(distinct_id='without_property')
+        self._pay_event(distinct_id='without_property', properties={'$browser': 'Safari'})
+
+        # will add to first step
+        half_property = Person.objects.create(distinct_ids=["half_property"], team=self.team)
+        self._signup_event(distinct_id='half_property', properties={'$browser': 'Safari'})
+        self._pay_event(distinct_id='half_property')
+
+        response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
+        self.assertEqual(response['steps'][0]['count'], 2)
+        self.assertEqual(response['steps'][1]['count'], 1)

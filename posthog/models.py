@@ -481,7 +481,7 @@ class Funnel(models.Model):
                             ).values('distinct_id')
                         ),
                         **({'timestamp__gt': OuterRef('step_{}'.format(index-1))} if index > 0 else {}),
-                        **date_query,
+                        **date_query
                     )\
                     .filter(properties_to_Q(properties))\
                     .order_by('timestamp')\
