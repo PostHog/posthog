@@ -6,8 +6,10 @@ import { propertyFilterLogic } from './propertyFilterLogic'
 import { Popover, Row } from 'antd'
 import { CloseButton } from '../../utils'
 
+const operatorEntries = Object.entries(operatorMap).reverse()
+
 const formatFilterName = str => {
-    for (let [key, value] of Object.entries(operatorMap).reverse()) {
+    for (let [key, value] of operatorEntries) {
         if (str.includes(key)) return str.replace('__' + key, '') + ` ${value} `
     }
     return str + ` ${operatorMap['null']} `
