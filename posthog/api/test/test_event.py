@@ -1,5 +1,5 @@
 from .base import BaseTest
-from posthog.models import Event, Person, Element, Action, ActionStep
+from posthog.models import Event, Person, Element, Action, ActionStep, Team
 from freezegun import freeze_time
 
 
@@ -114,9 +114,12 @@ class TestEvents(BaseTest):
         Event.objects.create(team=self.team, properties={'random_prop': 'asdf'})
         Event.objects.create(team=self.team, properties={'random_prop': 'qwerty'})
         Event.objects.create(team=self.team, properties={'something_else': 'qwerty'})
+        team2 = Team.objects.create()
+        Event.objects.create(team=team2, properties={'random_prop': 'abcd'})
         response = self.client.get('/api/event/values/?key=random_prop').json()
         self.assertEqual(response[0]['name'], 'asdf')
         self.assertEqual(response[1]['name'], 'qwerty')
+        self.assertEqual(len(response), 2)
 
         response = self.client.get('/api/event/values/?key=random_prop&value=qw').json()
         self.assertEqual(response[0]['name'], 'qwerty')
