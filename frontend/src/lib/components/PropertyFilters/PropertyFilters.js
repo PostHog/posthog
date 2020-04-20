@@ -7,7 +7,7 @@ import { Popover, Row } from 'antd'
 import { CloseButton } from '../../utils'
 
 const formatFilterName = str => {
-    for (let [key, value] of Object.entries(operatorMap)) {
+    for (let [key, value] of Object.entries(operatorMap).reverse()) {
         if (str.includes(key)) return str.replace('__' + key, '') + ` ${value} `
     }
     return str + ` ${operatorMap['null']} `
