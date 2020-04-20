@@ -135,14 +135,14 @@ class TeamManager(models.Manager):
         action = Action.objects.create(team=team, name='Pageviews')
         ActionStep.objects.create(action=action, event='$pageview')
 
-        DashboardItem.objects.create(team=team, name='Pageviews this week', type='ActionsLineGraph', filters={TREND_FILTER_TYPE_ACTIONS: [{'id': action.pk, 'type': TREND_FILTER_TYPE_ACTIONS}]})
+        DashboardItem.objects.create(team=team, name='Pageviews this week', type='ActionsLineGraph', filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'type': TREND_FILTER_TYPE_EVENTS}]})
         DashboardItem.objects.create(
             team=team,
             name='Most popular browsers this week',
             type='ActionsTable',
-            filters={TREND_FILTER_TYPE_ACTIONS: [{'id': action.pk, 'type': TREND_FILTER_TYPE_ACTIONS}], 'display': 'ActionsTable', 'breakdown': '$browser'}
+            filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'type': TREND_FILTER_TYPE_EVENTS}], 'display': 'ActionsTable', 'breakdown': '$browser'}
         )
-        DashboardItem.objects.create(team=team, name='Daily Active Users', type='ActionsLineGraph', filters={TREND_FILTER_TYPE_ACTIONS: [{'id': action.pk, 'math': 'dau', 'type': TREND_FILTER_TYPE_ACTIONS}]})
+        DashboardItem.objects.create(team=team, name='Daily Active Users', type='ActionsLineGraph', filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'math': 'dau', 'type': TREND_FILTER_TYPE_EVENTS}]})
         return team
 
 class Team(models.Model):
@@ -274,7 +274,7 @@ class Event(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=['elements_hash']),
-            models.Index(fields=['timestamp']),
+            models.Index(fields=['timestamp', 'team_id', 'event']),
         ]
 
     @property

@@ -222,7 +222,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         events = filtered_events\
             .filter(self._filter_events(request))\
             .values(key)\
-            .annotate(count=Count('id'))\
+            .annotate(count=Count(1))\
             .order_by('-count')
 
         events = self._process_math(events, filters)
@@ -273,7 +273,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             .filter(self._filter_events(request))\
             .annotate(**interval_annotation)\
             .values(interval)\
-            .annotate(count=Count('id'))\
+            .annotate(count=Count(1))\
             .order_by()
 
         aggregates = self._process_math(aggregates, filters)
