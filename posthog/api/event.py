@@ -53,12 +53,10 @@ class EventViewSet(viewsets.ModelViewSet):
         if self.action == 'list' or self.action == 'sessions': # type: ignore
             queryset = self._filter_request(self.request, queryset)
         
-        descending_order = self.request.GET.get('descendingOrder')
-        order_by = '-timestamp' if descending_order else 'timestamp'
-
+        order_by = self.request.GET.get('orderBy')
         return queryset\
             .filter(team=self.request.user.team_set.get())\
-            .order_by(order_by)
+            .order_by(*list(json.loads(order_by)))
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         for key, value in request.GET.items():

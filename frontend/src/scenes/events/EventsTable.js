@@ -27,7 +27,9 @@ export class EventsTable extends Component {
             newEvents: [],
             loading: true,
             highlightEvents: [],
-            descendingOrder: true,
+            orderBy: {
+                timestamp: '-timestamp',
+            },
         }
         this.fetchEvents = this.fetchEvents.bind(this)
         this.pollEvents = this.pollEvents.bind(this)
@@ -36,7 +38,7 @@ export class EventsTable extends Component {
         this.clickLoadNewEvents = this.clickLoadNewEvents.bind(this)
         this.pollTimeout = 5000
         this.fetchEvents()
-        this.onOrderEvents = this.onOrderEvents.bind(this)
+        this.onTimestapHeaderClick = this.onTimestapHeaderClick.bind(this)
     }
     fetchEvents() {
         let params = {}
@@ -53,7 +55,7 @@ export class EventsTable extends Component {
         params = toParams({
             ...params,
             ...this.props.fixedFilters,
-            descendingOrder: this.state.descendingOrder,
+            orderBy: Object.values(this.state.orderBy),
         })
         api.get('api/event/?' + params).then(events => {
             this.setState({
@@ -65,29 +67,35 @@ export class EventsTable extends Component {
         })
     }
 
-    onOrderEvents() {
+    onTimestapHeaderClick() {
         this.setState(
             prevState => ({
-                descendingOrder: !prevState.descendingOrder,
+                orderBy: {
+                    ...prevState.orderBy,
+                    timestamp: prevState.orderBy.timestamp === '-timestamp' ? 'timestamp' : '-timestamp',
+                },
             }),
             () => this.fetchEvents()
         )
     }
 
     pollEvents() {
-        let params = {
-            properties: this.state.properties,
-            ...this.props.fixedFilters,
-            descendingOrder: this.state.descendingOrder,
+        // Poll events when they are ordered in ascending order based on timestamp
+        if (this.state.orderBy.timestamp === '-timestamp') {
+            let params = {
+                properties: this.state.properties,
+                ...this.props.fixedFilters,
+                orderBy: Object.values(this.state.orderBy),
+            }
+            if (this.state.events[0])
+                params['after'] = this.state.events[0].timestamp
+                    ? this.state.events[0].timestamp
+                    : this.state.events[0].event.timestamp
+            api.get('api/event/?' + toParams(params)).then(events => {
+                this.setState({ newEvents: events.results, highlightEvents: [] })
+                this.poller = setTimeout(this.pollEvents, this.pollTimeout)
+            })
         }
-        if (this.state.events[0])
-            params['after'] = this.state.events[0].timestamp
-                ? this.state.events[0].timestamp
-                : this.state.events[0].event.timestamp
-        api.get('api/event/?' + toParams(params)).then(events => {
-            this.setState({ newEvents: events.results, highlightEvents: [] })
-            this.poller = setTimeout(this.pollEvents, this.pollTimeout)
-        })
     }
     componentWillUnmount() {
         clearTimeout(this.poller)
@@ -99,7 +107,7 @@ export class EventsTable extends Component {
             properties: this.state.properties,
             ...this.props.fixedFilters,
             before: events[events.length - 1].timestamp,
-            descendingOrder: this.state.descendingOrder,
+            orderBy: Object.values(this.state.orderBy),
         })
         clearTimeout(this.poller)
         this.setState({ hasNext: false })
@@ -203,7 +211,7 @@ export class EventsTable extends Component {
                             <th>Person</th>
                             <th>Path</th>
                             <th>Source</th>
-                            <th onClick={this.onOrderEvents}>
+                            <th onClick={this.onTimestapHeaderClick}>
                                 When <i className="fi flaticon-sort" />
                             </th>
                         </tr>
