@@ -47,11 +47,18 @@ $body-color: #37352f;
 // our components
 @import 'style/events';
 @import 'style/funnel';
-@import 'style/sidebar';
 @import 'style/toast';
 @import 'style/trends';
 @import 'style/send-events-overlay';
 @import 'style/action-filter-dropdown';
+
+.posthog-title {
+    font-weight: 500;
+    font-size: 20px;
+    color: #333;
+    padding-left: 15px;
+    margin-top: 8px;
+}
 
 .layout-container {
     max-width: 100vw;
