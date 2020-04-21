@@ -33,7 +33,7 @@ def cors_response(request, response):
 def _load_data(request) -> Optional[Union[Dict, List]]:
     if request.method == 'POST':
         if request.content_type == 'application/json':
-            if request.headers['content-encoding'] == 'gzip':
+            if request.headers.get('content-encoding', '').lower() == 'gzip':
                 data = gzip.decompress(request.body)
             else:
                 data = request.body
