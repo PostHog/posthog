@@ -9,17 +9,18 @@ from dateutil import parser
 import datetime
 import re
 import os
+import pytz
 
-def relative_date_parse(input: str) -> datetime.date:
+def relative_date_parse(input: str) -> datetime.datetime:
     try:
-        return datetime.datetime.strptime(input, '%Y-%m-%d').date()
+        return datetime.datetime.strptime(input, '%Y-%m-%d').replace(tzinfo=pytz.UTC)
     except ValueError:
         pass
     
     # when input also contains the time for intervals "hour" and "minute"
     # the above try fails. Try one more time from isoformat.
     try:
-        return parser.isoparse(input)
+        return parser.isoparse(input).replace(tzinfo=pytz.UTC)
     except ValueError:
         pass
 
@@ -45,11 +46,11 @@ def relative_date_parse(input: str) -> datetime.date:
             date = date - relativedelta(month=1, day=1)
         if match.group('position') == 'End':
             date = date - relativedelta(month=12, day=31)
-    return date.date()
+    return date
 
 def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.date]:
     if filters.get('date_from'):
-        date_from = relative_date_parse(filters['date_from'])
+        date_from = relative_date_parse(filters['date_from']).date()
         if filters['date_from'] == 'all':
             date_from = None # type: ignore
     else:
@@ -57,7 +58,7 @@ def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.date]:
 
     date_to = None
     if filters.get('date_to'):
-        date_to = relative_date_parse(filters['date_to'])
+        date_to = relative_date_parse(filters['date_to']).date()
 
     resp = {}
     if date_from:
