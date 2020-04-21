@@ -68,6 +68,32 @@ class ProcessEvent(BaseTest):
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
 
+    def test_alias_twice(self):
+        Person.objects.create(team=self.team, distinct_ids=['old_distinct_id'])
+
+        process_event('new_distinct_id', '', '', {
+            'event': '$create_alias',
+            'properties': {
+                'distinct_id': 'new_distinct_id',
+                'token': self.team.api_token,
+                'alias': 'old_distinct_id'
+            },
+        }, self.team.pk, now().isoformat())
+
+        Person.objects.create(team=self.team, distinct_ids=['old_distinct_id_2'])
+
+        process_event('new_distinct_id', '', '', {
+            'event': '$create_alias',
+            'properties': {
+                'distinct_id': 'new_distinct_id',
+                'token': self.team.api_token,
+                'alias': 'old_distinct_id_2'
+            },
+        }, self.team.pk, now().isoformat())
+
+        self.assertEqual(Event.objects.count(), 1)
+        self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "old_distinct_id_2", "new_distinct_id"])
+
     # This tends to happen when .init and .identify get called right after each other, causing a race condition
     # in this case the 'anonymous_id' won't have any actions anyway
     def test_alias_to_non_existent_distinct_id(self):
@@ -151,6 +177,44 @@ class TestIdentify(TransactionTestCase):
         person = Person.objects.get()
         self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id"])
         self.assertEqual(person.properties['email'], 'someone@gmail.com')
+
+    def test_distinct_with_multiple_anonymous_ids_which_were_already_created(self):
+        # logging in the first time
+        Person.objects.create(team=self.team, distinct_ids=['anonymous_id'])
+        Person.objects.create(team=self.team, distinct_ids=['new_distinct_id'], properties={'email': 'someone@gmail.com'})
+
+        process_event('new_distinct_id', '', '', {
+            'event': '$identify',
+            'properties': {
+                '$anon_distinct_id': 'anonymous_id',
+                'token': self.team.api_token,
+                'distinct_id': 'new_distinct_id'
+            },
+        }, self.team.pk, now().isoformat())
+
+        # self.assertEqual(Event.objects.count(), 0)
+        person = Person.objects.get()
+        self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id"])
+        self.assertEqual(person.properties['email'], 'someone@gmail.com')
+
+        # logging in another time
+
+        Person.objects.create(team=self.team, distinct_ids=['anonymous_id_2'])
+
+        process_event('new_distinct_id', '', '', {
+            'event': '$identify',
+            'properties': {
+                '$anon_distinct_id': 'anonymous_id_2',
+                'token': self.team.api_token,
+                'distinct_id': 'new_distinct_id'
+            },
+        }, self.team.pk, now().isoformat())
+
+        person = Person.objects.get()
+        self.assertEqual(person.distinct_ids, ["anonymous_id", "anonymous_id_2", "new_distinct_id"])
+        self.assertEqual(person.properties['email'], 'someone@gmail.com')
+
+
 
     def test_distinct_team_leakage(self):
         team2 = Team.objects.create()
