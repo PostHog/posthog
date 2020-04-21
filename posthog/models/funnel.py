@@ -131,11 +131,3 @@ class Funnel(models.Model):
                     steps, steps[index]["people"]
                 )[0:100]
         return steps
-
-
-class FunnelStep(models.Model):
-    funnel: models.ForeignKey = models.ForeignKey(
-        Funnel, related_name="steps", on_delete=models.CASCADE
-    )
-    action: models.ForeignKey = models.ForeignKey(Action, on_delete=models.CASCADE)
-    order: models.IntegerField = models.IntegerField()

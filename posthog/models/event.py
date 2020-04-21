@@ -14,7 +14,8 @@ from django.utils import timezone
 
 from .element_group import ElementGroup
 from .element import Element
-from .action import Action, ActionStep
+from .action import Action
+from .action_step import ActionStep
 from .person import PersonDistinctId, Person
 from .team import Team
 

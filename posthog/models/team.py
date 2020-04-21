@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.postgres.fields import JSONField, ArrayField
-from .action import Action, ActionStep
+from .action import Action
+from .action_step import ActionStep
 from .dashboard import DashboardItem
 from .user import User
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
