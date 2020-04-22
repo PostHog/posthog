@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom'
 import { Button } from 'antd'
 
 function momentToString(date) {
-    if (date._isAMomentObject) return val.format('YYYY-MM-DD')
+    if (date._isAMomentObject) return date.format('YYYY-MM-DD')
     return date
 }
 
