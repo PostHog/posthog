@@ -1,11 +1,9 @@
-import React, { Component } from 'react'
-import { selectStyle } from '../../lib/utils'
-import { Select, Col, Row } from 'antd'
+import React from 'react'
+import { Select, Row } from 'antd'
 
 export function ShownAsFilter({ shown_as, onChange }) {
-    let options = ['Volume', 'Stickiness']
     return (
-        <Col>
+        <div>
             <Row>
                 <Select
                     defaultValue={shown_as}
@@ -29,6 +27,6 @@ export function ShownAsFilter({ shown_as, onChange }) {
                     </small>
                 )}
             </Row>
-        </Col>
+        </div>
     )
 }
