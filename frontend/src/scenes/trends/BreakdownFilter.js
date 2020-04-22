@@ -1,11 +1,11 @@
 import React, { Component } from 'react'
 import { selectStyle } from '../../lib/utils'
-import { Select } from 'antd'
+import { Select, Row } from 'antd'
 
 export class BreakdownFilter extends Component {
     render() {
         return (
-            <div style={{ width: 200, display: 'inline-block' }}>
+            <Row>
                 <Select
                     style={{ width: 200 }}
                     placeholder={'Break down by'}
@@ -21,7 +21,7 @@ export class BreakdownFilter extends Component {
                         )
                     })}
                 </Select>
-            </div>
+            </Row>
         )
     }
 }

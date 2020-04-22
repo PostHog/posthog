@@ -41,7 +41,7 @@ export function Trends() {
             <h1>Trends</h1>
             <Row gutter={16}>
                 <Col xs={24} xl={6}>
-                    <Card style={{ minHeight: size.width > 1200 ? '83vh' : '' }}>
+                    <Card style={{ minHeight: size.width > 1200 ? '85vh' : '' }}>
                         <div className="card-body px-4">
                             <Tabs
                                 defaultActiveKey={activeView}
@@ -70,19 +70,17 @@ export function Trends() {
                                     />
                                     <hr />
                                     <h4 className="secondary">Break down by</h4>
-                                    <div className="select-with-close">
-                                        <BreakdownFilter
-                                            properties={eventProperties}
-                                            breakdown={filters.breakdown}
-                                            onChange={breakdown => setFilters({ breakdown })}
+                                    <BreakdownFilter
+                                        properties={eventProperties}
+                                        breakdown={filters.breakdown}
+                                        onChange={breakdown => setFilters({ breakdown })}
+                                    />
+                                    {filters.breakdown && (
+                                        <CloseButton
+                                            onClick={() => setFilters({ breakdown: false })}
+                                            style={{ marginTop: 1 }}
                                         />
-                                        {filters.breakdown && (
-                                            <CloseButton
-                                                onClick={() => setFilters({ breakdown: false })}
-                                                style={{ marginTop: 1 }}
-                                            />
-                                        )}
-                                    </div>
+                                    )}
                                     <hr />
                                     <h4 className="secondary">Shown as</h4>
                                     <ShownAsFilter
@@ -108,7 +106,7 @@ export function Trends() {
                 </Col>
                 <Col xs={24} xl={18}>
                     <Card
-                        style={{ minHeight: '83vh' }}
+                        style={{ minHeight: '85vh' }}
                         title={
                             <div className="float-right pt-2">
                                 <IntervalFilter
