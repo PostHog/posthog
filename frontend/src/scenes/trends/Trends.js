@@ -70,17 +70,19 @@ export function Trends() {
                                     />
                                     <hr />
                                     <h4 className="secondary">Break down by</h4>
-                                    <BreakdownFilter
-                                        properties={eventProperties}
-                                        breakdown={filters.breakdown}
-                                        onChange={breakdown => setFilters({ breakdown })}
-                                    />
-                                    {filters.breakdown && (
-                                        <CloseButton
-                                            onClick={() => setFilters({ breakdown: false })}
-                                            style={{ marginTop: 1 }}
+                                    <Row>
+                                        <BreakdownFilter
+                                            properties={eventProperties}
+                                            breakdown={filters.breakdown}
+                                            onChange={breakdown => setFilters({ breakdown })}
                                         />
-                                    )}
+                                        {filters.breakdown && (
+                                            <CloseButton
+                                                onClick={() => setFilters({ breakdown: false })}
+                                                style={{ marginTop: 1, marginLeft: 10 }}
+                                            />
+                                        )}
+                                    </Row>
                                     <hr />
                                     <h4 className="secondary">Shown as</h4>
                                     <ShownAsFilter
