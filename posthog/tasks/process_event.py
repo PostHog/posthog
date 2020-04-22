@@ -1,5 +1,5 @@
 from celery import shared_task
-from posthog.models import Person, Element, Event, Team
+from posthog.models import Person, Element, Event, Team, PersonDistinctId
 from typing import Union, Dict
 from dateutil.relativedelta import relativedelta
 from dateutil import parser
@@ -7,26 +7,58 @@ from dateutil import parser
 from django.db import IntegrityError
 import datetime
 
-def _alias(distinct_id: str, new_distinct_id: str, team_id: int) -> None:
+def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed:bool = True) -> None:
     try:
-        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=distinct_id)
+        old_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=previous_distinct_id)
     except Person.DoesNotExist:
-        # no reason to alias if it doesn't exist
-        # mostly happens if someone calls identify before the user has done anything
-        return
+        old_person = None  # type: ignore
+
     try:
-        person.add_distinct_id(new_distinct_id)
-    except IntegrityError:
-        # IntegrityError means a person with new_distinct_id already exists
-        # That can either mean `person` already has that distinct_id, in which case we do nothing
-        # OR it means there is _another_ Person with that distinct _id, in which case we want to remove that person
-        # and add that distinct ID to `person`
-        previous_person = Person.objects.filter(team_id=team_id, persondistinctid__distinct_id=new_distinct_id).exclude(pk=person.id)
-        if previous_person.exists():
-            person.properties.update(previous_person.first().properties) # type: ignore
-            previous_person.delete()
-            person.add_distinct_id(new_distinct_id)
-            person.save()
+        new_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=distinct_id)
+    except Person.DoesNotExist:
+        new_person = None  # type: ignore
+
+    if old_person and not new_person:
+        try:
+            old_person.add_distinct_id(distinct_id)
+        # Catch race case when somebody already added this distinct_id between .get and .add_distinct_id
+        except IntegrityError:
+            if retry_if_failed:  # run everything again to merge the users if needed
+                _alias(previous_distinct_id, distinct_id, team_id, False)
+        return
+
+    if not old_person and new_person:
+        try:
+            new_person.add_distinct_id(previous_distinct_id)
+        # Catch race case when somebody already added this distinct_id between .get and .add_distinct_id
+        except IntegrityError:
+            if retry_if_failed:  # run everything again to merge the users if needed
+                _alias(previous_distinct_id, distinct_id, team_id, False)
+        return
+
+    if not old_person and not new_person:
+        try:
+            Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id), str(previous_distinct_id)])
+        # Catch race condition where in between getting and creating, another request already created this user.
+        except IntegrityError:
+            if retry_if_failed:
+                # try once more, probably one of the two persons exists now
+                _alias(previous_distinct_id, distinct_id, team_id, False)
+        return
+
+    if old_person and new_person:
+        if old_person == new_person:
+            return
+
+        new_person.properties.update(old_person.properties)
+
+        old_person_distinct_ids = PersonDistinctId.objects.filter(person=old_person, team_id=team_id)
+
+        for person_distinct_id in old_person_distinct_ids:
+            person_distinct_id.person = new_person
+            person_distinct_id.save()
+
+        old_person.delete()
 
 def _store_names_and_properties(team_id: int, event: str, properties: Dict) -> None:
     team = Team.objects.get(pk=team_id)
@@ -100,10 +132,10 @@ def _handle_timestamp(data: dict, now: str) -> Union[datetime.datetime, str]:
 @shared_task
 def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str) -> None:
     if data['event'] == '$create_alias':
-        _alias(distinct_id=data['properties']['alias'], new_distinct_id=distinct_id, team_id=team_id)
+        _alias(previous_distinct_id=data['properties']['alias'], distinct_id=distinct_id, team_id=team_id)
 
     if data['event'] == '$identify' and data.get('properties') and data['properties'].get('$anon_distinct_id'):
-        _alias(distinct_id=data['properties']['$anon_distinct_id'], new_distinct_id=distinct_id, team_id=team_id)
+        _alias(previous_distinct_id=data['properties']['$anon_distinct_id'], distinct_id=distinct_id, team_id=team_id)
 
     if data['event'] == '$identify' and data.get('$set'):
         _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data['$set'])

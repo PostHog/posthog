@@ -68,6 +68,21 @@ class ProcessEvent(BaseTest):
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
 
+    def test_alias_reverse(self):
+        Person.objects.create(team=self.team, distinct_ids=['old_distinct_id'])
+
+        process_event('old_distinct_id', '', '', {
+            'event': '$create_alias',
+            'properties': {
+                'distinct_id': 'old_distinct_id',
+                'token': self.team.api_token,
+                'alias': 'new_distinct_id'
+            },
+        }, self.team.pk, now().isoformat())
+
+        self.assertEqual(Event.objects.count(), 1)
+        self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
+
     def test_alias_twice(self):
         Person.objects.create(team=self.team, distinct_ids=['old_distinct_id'])
 
@@ -91,23 +106,42 @@ class ProcessEvent(BaseTest):
             },
         }, self.team.pk, now().isoformat())
 
-        self.assertEqual(Event.objects.count(), 1)
-        self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "old_distinct_id_2", "new_distinct_id"])
+        self.assertEqual(Event.objects.count(), 2)
+        self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id", "old_distinct_id_2"])
 
-    # This tends to happen when .init and .identify get called right after each other, causing a race condition
-    # in this case the 'anonymous_id' won't have any actions anyway
-    def test_alias_to_non_existent_distinct_id(self):
+    def test_alias_before_person(self):
         process_event('new_distinct_id', '', '', {
-            'event': '$identify',
+            'event': '$create_alias',
             'properties': {
-                '$anon_distinct_id': 'doesnt_exist',
+                'distinct_id': 'new_distinct_id',
                 'token': self.team.api_token,
-                'distinct_id': 'new_distinct_id'
+                'alias': 'old_distinct_id'
+            },
+        }, self.team.pk, now().isoformat())
+
+        person1 = Person.objects.get(team=self.team, persondistinctid__distinct_id='old_distinct_id')
+        person2 = Person.objects.get(team=self.team, persondistinctid__distinct_id='new_distinct_id')
+
+        self.assertEqual(person1, person2)
+
+        self.assertEqual(Event.objects.count(), 1)
+        self.assertEqual(Person.objects.get().distinct_ids, ["new_distinct_id", "old_distinct_id"])
+
+    def test_alias_both_existing(self):
+        Person.objects.create(team=self.team, distinct_ids=['old_distinct_id'])
+        Person.objects.create(team=self.team, distinct_ids=['new_distinct_id'])
+
+        process_event('new_distinct_id', '', '', {
+            'event': '$create_alias',
+            'properties': {
+                'distinct_id': 'new_distinct_id',
+                'token': self.team.api_token,
+                'alias': 'old_distinct_id'
             },
         }, self.team.pk, now().isoformat())
 
         self.assertEqual(Event.objects.count(), 1)
-        self.assertEqual(Person.objects.get().distinct_ids, ['new_distinct_id'])
+        self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
 
     def test_offset_timestamp(self):
         with freeze_time("2020-01-01T12:00:05.200Z"):
@@ -211,7 +245,7 @@ class TestIdentify(TransactionTestCase):
         }, self.team.pk, now().isoformat())
 
         person = Person.objects.get()
-        self.assertEqual(person.distinct_ids, ["anonymous_id", "anonymous_id_2", "new_distinct_id"])
+        self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id", "anonymous_id_2"])
         self.assertEqual(person.properties['email'], 'someone@gmail.com')
 
 
