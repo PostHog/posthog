@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from posthog.tasks.process_event import process_event
 import json
 import base64
+import gzip
 import datetime
 
 
@@ -33,6 +34,9 @@ def _load_data(request) -> Optional[Union[Dict, List]]:
     if request.method == 'POST':
         if request.content_type == 'application/json':
             data = request.body
+
+            if request.headers.get('content-encoding', '').lower() == 'gzip':
+                data = gzip.decompress(data)
         else:
             data = request.POST.get('data')
     else:
