@@ -5,6 +5,11 @@ import { toast } from 'react-toastify'
 import { Link } from 'react-router-dom'
 import { Button } from 'antd'
 
+function momentToString(date) {
+    if (date._isAMomentObject) return val.format('YYYY-MM-DD')
+    return date
+}
+
 export class SaveToDashboard extends Component {
     constructor(props) {
         super(props)
@@ -16,15 +21,20 @@ export class SaveToDashboard extends Component {
     Toast({ closeToast }) {
         return (
             <div>
-                Panel added to dashboard.
+                Panel added to dashboard.&nbsp;
                 <Link to="/">Click here to see it.</Link>
             </div>
         )
     }
     save(event) {
+        let { filters } = this.props
         event.preventDefault()
         api.create('api/dashboard', {
-            filters: this.props.filters,
+            filters: {
+                ...filters,
+                date_from: momentToString(filters.date_from),
+                date_to: momentToString(filters.date_to),
+            },
             type: this.props.type,
             name: event.target.name.value,
         }).then(() => {
