@@ -1,5 +1,35 @@
 # Changelog
 
+### 1.2.0 - Wednesday 22 Aptil 2020
+
+- We have added an iOS library so you can now capture events in your iOS app and send them to PostHog, we can automatically capture screen changes, and send any other events that you like
+
+Click [here](https://docs.posthog.com/#/integrations/ios-integration) for instructions on how to install it on your app.
+
+- We have added Sessions to /trends with two modes: “Average session length”, which shows you how long sessions are and how many, and “distribution” which makes it super easy to spot whether sessions are uniformly distributed or whether there are outliers
+
+![sessions gif](https://posthog.com/wp-content/uploads/2020/04/Sessions.gif)
+
+- Funnels can be filtered by properties 
+
+![Funnel properties](https://posthog.com/wp-content/uploads/2020/04/funnel-properties.gif)
+
+- Added indexes so loading /trends is super fast, even with millions of events
+- We have offloaded storing events to workers, so that calls to our events API are non-blocking, and you can scale insertion of events independently from the rest of PostHog
+- Removed drf-yasg in favor of our own hosted docs
+- Added layout/header components of Ant design
+- Updated property filters to be "tokenized"
+- Updated the way we display actions/events in trend graphs if those action/events have no data in a given timeframe
+- Updated property filters so that they 'AND' rather than 'OR' if you filter multiples
+
+#### Bug Fixes
+- Fixed unable to sign up to teams
+- Fixed stickniess not loading 
+- Fixed property filter bug that would break when multiples were applied in some circumstances
+- Fixed setting event name in action
+- Fixzed event filtering with teams
+
+
 ### 1.1.0.1 - Thursday 16 April 2020
 
 - Fix issues with custom events while creating actions
