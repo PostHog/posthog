@@ -6,7 +6,7 @@ export class BreakdownFilter extends Component {
     render() {
         return (
             <Select
-                style={{ width: '90%', maxWidth: 200 }}
+                style={{ width: '80%', maxWidth: 200 }}
                 placeholder={'Break down by'}
                 value={this.props.breakdown ? this.props.breakdown : undefined}
                 onChange={value => this.props.onChange(value)}
