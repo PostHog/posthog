@@ -87,12 +87,14 @@ class EventManager(models.QuerySet):
         groups = groups.filter(**filter)
         return {"elements_hash__in": groups.values_list("hash", flat=True)}
 
-    def filter_by_url(self, action_step):
+    def filter_by_url(self, action_step: ActionStep, subquery: QuerySet):
         if not action_step.url:
-            return {}
-        if action_step.url_matching == ActionStep.EXACT:
-            return {"properties__$current_url": action_step.url}
-        return {"properties__$current_url__icontains": action_step.url}
+            return subquery
+        url_exact = action_step.url_matching == ActionStep.EXACT
+        return subquery.extra(
+            where=["properties ->> '$current_url' {} %s".format('=' if url_exact else 'LIKE')],
+            params=[action_step.url if url_exact else '%{}%'.format(action_step.url)]
+        )
 
     def filter_by_event(self, action_step):
         if not action_step.event:
@@ -118,11 +120,13 @@ class EventManager(models.QuerySet):
             return self.none()
 
         for step in steps:
-            any_step |= Q(
+            subquery = Event.objects.filter(
+                pk=OuterRef('id'),
                 **self.filter_by_element(step),
-                **self.filter_by_url(step),
                 **self.filter_by_event(step)
             )
+            subquery = self.filter_by_url(step, subquery)
+            any_step |= Q(Exists(subquery))
         events = self.filter(team_id=action.team_id).filter(any_step)
 
         if order_by:
@@ -170,6 +174,7 @@ class EventManager(models.QuerySet):
                     should_post_to_slack = True
 
             Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
+
 
             if (
                 should_post_to_slack
