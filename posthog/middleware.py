@@ -7,7 +7,7 @@ import re
 class AllowIP(object):
     def __init__(self, get_response):
         if getattr(settings, 'ALLOWED_IP_BLOCKS', False):
-            self.ip_blocks = settings.ALLOWED_IP_BLOCKS.split(',') # type: ignore
+            self.ip_blocks = [item.strip() for item in settings.ALLOWED_IP_BLOCKS.split(',')]  # type: ignore
         else:
             # this will make Django skip this middleware for all future requests
             raise MiddlewareNotUsed()
