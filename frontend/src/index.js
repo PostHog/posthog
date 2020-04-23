@@ -10,9 +10,6 @@ import App from './scenes/App'
 import { toast } from 'react-toastify'
 
 resetContext({
-    createStore: {
-        // additional options (e.g. middleware, reducers, ...)
-    },
     plugins: [
         routerPlugin,
         loadersPlugin({
