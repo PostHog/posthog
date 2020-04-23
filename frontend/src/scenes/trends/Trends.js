@@ -29,8 +29,6 @@ const displayMap = {
     ActionsPie: 'Pie',
 }
 
-const minCardHeight = size => (size.width > 1200 && size.height < size.width ? '85vh' : '')
-
 export function Trends() {
     const { filters, resultsLoading, showingPeople, activeView } = useValues(trendsLogic({ dashboardItemId: null }))
     const { setFilters, setDisplay, setActiveView } = useActions(trendsLogic({ dashboardItemId: null }))
@@ -43,7 +41,7 @@ export function Trends() {
             <h1>Trends</h1>
             <Row gutter={16}>
                 <Col xs={24} xl={6}>
-                    <Card style={{ minHeight: minCardHeight(size) }}>
+                    <Card>
                         <div className="card-body px-4">
                             <Tabs
                                 defaultActiveKey={activeView}
@@ -110,7 +108,6 @@ export function Trends() {
                 </Col>
                 <Col xs={24} xl={18}>
                     <Card
-                        style={{ minHeight: minCardHeight(size) }}
                         title={
                             <div className="float-right pt-1 pb-1">
                                 <IntervalFilter
