@@ -52,10 +52,16 @@ class EventViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == 'list' or self.action == 'sessions': # type: ignore
             queryset = self._filter_request(self.request, queryset)
-
+        
+        order_by = self.request.GET.get('orderBy')
+        order_by = ['-timestamp'] if not order_by else list(json.loads(order_by))
+        
         return queryset\
             .filter(team=self.request.user.team_set.get())\
-            .order_by('-timestamp')
+            .order_by(*order_by)
+
+
+
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         for key, value in request.GET.items():
@@ -146,6 +152,7 @@ class EventViewSet(viewsets.ModelViewSet):
         else:
             where = ''
 
+        params.append(request.user.team_set.get().pk)
         # This samples a bunch of events with that property, and then orders them by most popular in that sample
         # This is much quicker than trying to do this over the entire table
         values = Event.objects.raw("""
@@ -156,7 +163,10 @@ class EventViewSet(viewsets.ModelViewSet):
                     ("posthog_event"."properties" -> %s) as "value"
                 FROM
                     "posthog_event"
-                WHERE ("posthog_event"."properties" -> %s) IS NOT NULL {} LIMIT 10000
+                WHERE
+                    ("posthog_event"."properties" -> %s) IS NOT NULL {} AND
+                    ("posthog_event"."team_id" = %s)
+                LIMIT 10000
             ) as "value"
             GROUP BY value
             ORDER BY id DESC

@@ -1,5 +1,5 @@
 from .base import BaseTest
-from posthog.models import Action, ActionStep, Event, Element, Person
+from posthog.models import Action, ActionStep, Event, Element, Person, Team
 from freezegun import freeze_time
 from urllib import parse
 import json
@@ -118,6 +118,7 @@ class TestTrends(BaseTest):
         ActionStep.objects.create(action=sign_up_action, event='sign up')
 
         person = Person.objects.create(team=self.team, distinct_ids=['blabla'])
+        secondTeam = Team.objects.create(api_token='token123')
 
         freeze_without_time = ['2019-12-24', '2020-01-01', '2020-01-02']
         freeze_with_time = ['2019-12-24 03:45:34', '2020-01-01 00:06:34', '2020-01-02 16:34:34']
@@ -136,6 +137,9 @@ class TestTrends(BaseTest):
         with freeze_time(freeze_args[2]):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "other_value"})
             Event.objects.create(team=self.team, event='no events', distinct_id='blabla')
+
+            # second team should have no effect
+            Event.objects.create(team=secondTeam, event='sign up', distinct_id='blabla', properties={"some_property": "other_value"}) 
         return (sign_up_action, person)
 
     def _compare_entity_response(self, response1, response2, remove=['action', 'label']):
@@ -188,7 +192,7 @@ class TestTrends(BaseTest):
         self.assertEqual(action_response[0]['data'][12], 1.0)
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
-    
+
     def test_interval_filtering(self):
         self._create_events(use_time=True)
 
@@ -402,6 +406,7 @@ class TestTrends(BaseTest):
         watched_movie.calculate_events()
         action_response = self.client.get('/api/action/trends/?shown_as=Stickiness&date_from=2020-01-01&date_to=2020-01-07&actions=%s' % json_to_url([{'id': watched_movie.id}])).json()
         event_response = self.client.get('/api/action/trends/?shown_as=Stickiness&date_from=2020-01-01&date_to=2020-01-07&events=%s' % json_to_url([{'id': "watched movie"}])).json()
+        self.assertEqual(action_response[0]['count'], 4)
         self.assertEqual(action_response[0]['labels'][0], '1 day')
         self.assertEqual(action_response[0]['data'][0], 2)
         self.assertEqual(action_response[0]['labels'][1], '2 days')
@@ -420,3 +425,6 @@ class TestTrends(BaseTest):
 
         self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
 
+        # test all time
+        response = self.client.get('/api/action/trends/?shown_as=Stickiness&date_from=all&date_to=2020-01-07&actions=%s' % json_to_url([{'id': watched_movie.id}])).json()
+        self.assertEqual(len(response[0]['data']), 89)

@@ -222,7 +222,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         events = filtered_events\
             .filter(self._filter_events(request))\
             .values(key)\
-            .annotate(count=Count('id'))\
+            .annotate(count=Count(1))\
             .order_by('-count')
 
         events = self._process_math(events, filters)
@@ -273,7 +273,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             .filter(self._filter_events(request))\
             .annotate(**interval_annotation)\
             .values(interval)\
-            .annotate(count=Count('id'))\
+            .annotate(count=Count(1))\
             .order_by()
 
         aggregates = self._process_math(aggregates, filters)
@@ -300,7 +300,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     def _stickiness(self, filtered_events: QuerySet, filters: Dict[Any, Any], request: request.Request) -> Dict[str, Any]:
         date_from, date_to = self._get_dates_from_request(request)
-        range_days = (date_to - date_from).days + 2
+        range_days = (date_to - date_from).days + 2 if date_from else 90
 
         events = filtered_events\
             .filter(self._filter_events(request))\
@@ -327,7 +327,8 @@ class ActionViewSet(viewsets.ModelViewSet):
         return {
             'labels': labels,
             'days': [day for day in range(1, range_days)],
-            'data': data
+            'data': data,
+            'count': sum(data)
         }
 
     def _serialize_entity(self, id: str, name: str, entity, entity_type: str, filters: Dict[Any, Any], request: request.Request) -> Dict:
