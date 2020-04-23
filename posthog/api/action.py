@@ -330,12 +330,12 @@ class ActionViewSet(viewsets.ModelViewSet):
             serialized.update(self._stickiness(filtered_events=filtered_events, filter=filter))
         return serialized
 
-    def _serialize_people(self, id: str, name: str, people: QuerySet, request: request.Request) -> Dict:
+    def _serialize_people(self, entity: Entity, people: QuerySet, request: request.Request) -> Dict:
         people_dict = [PersonSerializer(person, context={'request': request}).data for person in  people]
         return {
             'action': {
-                'id': id,
-                'name': name
+                'id': entity.id,
+                'name': entity.name
             },
             'people': people_dict,
             'count': len(people_dict)
@@ -387,7 +387,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         })
         filter = Filter(request=request)
 
-        def _calculate_people(id, name, events: QuerySet):
+        def _calculate_people(id, entity: Entity, events: QuerySet):
             if request.GET.get('shown_as', 'Volume') == 'Volume':
                 events = events.values('person_id').distinct()
             elif request.GET['shown_as'] == 'Stickiness':
@@ -401,8 +401,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 .filter(team=team, id__in=[p['person_id'] for p in events[0:100]])
 
             return self._serialize_people(
-                id=id,
-                name=name,
+                entity=entity,
                 people=people,
                 request=request
             )
@@ -410,7 +409,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         if entity.type == TREND_FILTER_TYPE_EVENTS:
             filtered_events =  self._process_entity_for_events(entity, team=team, order_by=None)\
                 .filter(self._filter_events(filter))
-            people = _calculate_people(id=entity.id, name=entity.name, events=filtered_events)
+            people = _calculate_people(entity=entity, events=filtered_events)
             return Response([people])
         elif entity.type == TREND_FILTER_TYPE_ACTIONS:
             actions = super().get_queryset()
@@ -420,7 +419,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             except Action.DoesNotExist:
                 return Response([])
             filtered_events = self._process_entity_for_events(entity, team=team, order_by=None).filter(self._filter_events(filter))
-            people = _calculate_people(id=action.id, name=action.name, events=filtered_events)
+            people = _calculate_people(entity=entity, events=filtered_events)
             return Response([people])
 
         return Response([])

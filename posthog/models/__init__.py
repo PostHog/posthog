@@ -5,7 +5,8 @@ from .cohort import Cohort
 from .element import Element
 from .element_group import ElementGroup
 from .event import Event
-from .filter import Filter, Entity
+from .filter import Filter
+from .entity import Entity
 from .funnel import Funnel
 from .person import Person, PersonDistinctId
 from .team import Team

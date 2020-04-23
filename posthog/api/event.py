@@ -60,9 +60,6 @@ class EventViewSet(viewsets.ModelViewSet):
             .filter(team=self.request.user.team_set.get())\
             .order_by(*order_by)
 
-
-
-
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         for key, value in request.GET.items():
             if key == 'event':
