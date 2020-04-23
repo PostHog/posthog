@@ -387,7 +387,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         })
         filter = Filter(request=request)
 
-        def _calculate_people(id, entity: Entity, events: QuerySet):
+        def _calculate_people(entity: Entity, events: QuerySet):
             if request.GET.get('shown_as', 'Volume') == 'Volume':
                 events = events.values('person_id').distinct()
             elif request.GET['shown_as'] == 'Stickiness':
