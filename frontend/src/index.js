@@ -3,7 +3,6 @@ import React from 'react'
 import ReactDOM from 'react-dom'
 import { Provider } from 'react-redux'
 import { resetContext, getContext } from 'kea'
-import listenersPlugin from 'kea-listeners'
 import { routerPlugin } from 'kea-router'
 import { loadersPlugin } from 'kea-loaders'
 
@@ -28,7 +27,6 @@ resetContext({
                 window.Sentry && window.Sentry.captureException(error)
             },
         }),
-        listenersPlugin,
     ],
 })
 
