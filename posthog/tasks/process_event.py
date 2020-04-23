@@ -53,7 +53,8 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
         if old_person == new_person:
             return
 
-        new_person.properties.update(old_person.properties)
+        new_person.properties = {**old_person.properties, **new_person.properties}
+        new_person.save()
 
         old_person_distinct_ids = PersonDistinctId.objects.filter(person=old_person, team_id=team_id)
 

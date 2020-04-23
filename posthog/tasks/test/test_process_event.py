@@ -154,6 +154,37 @@ class ProcessEvent(BaseTest):
         event = Event.objects.get()
         self.assertEqual(event.timestamp.isoformat(), '2020-01-01T12:00:05.050000+00:00')
 
+    def test_alias_merge_properties(self) -> None:
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=['old_distinct_id'],
+            properties={'key_on_both': 'old value both', 'key_on_old': 'old value'})
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=['new_distinct_id'],
+            properties={'key_on_both': 'new value both', 'key_on_new': 'new value'})
+
+        process_event('new_distinct_id', '', '', {
+            'event': '$create_alias',
+            'properties': {
+                'distinct_id': 'new_distinct_id',
+                'token': self.team.api_token,
+                'alias': 'old_distinct_id'
+            },
+        }, self.team.pk, now().isoformat())
+
+        self.assertEqual(Event.objects.count(), 1)
+
+        person = Person.objects.get()
+        self.assertEqual(person.distinct_ids, ["old_distinct_id", "new_distinct_id"])
+        self.assertEqual(person.properties, {
+            'key_on_both': 'new value both',
+            'key_on_new': 'new value',
+            'key_on_old': 'old value'
+        })
+
+
 class TestIdentify(TransactionTestCase):
     def setUp(self) -> None:
         user: User = User.objects.create_user('tim@posthog.com')
