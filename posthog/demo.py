@@ -1,4 +1,4 @@
-from posthog.models import Person, PersonDistinctId, Event, Element, Action, ActionStep, Funnel, FunnelStep, Team, DashboardItem
+from posthog.models import Person, PersonDistinctId, Event, Element, Action, ActionStep, Funnel, Team, DashboardItem
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from django.http import HttpResponseNotFound, JsonResponse

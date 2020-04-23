@@ -1,4 +1,4 @@
-from posthog.models import Funnel, FunnelStep, Action, ActionStep, Event, Element, Person
+from posthog.models import Funnel, Action, ActionStep, Event, Element, Person
 from .base import BaseTest
 
 
