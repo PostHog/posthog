@@ -1,6 +1,6 @@
 from celery import shared_task
 from posthog.models import Person, Element, Event, Team, PersonDistinctId
-from typing import Union, Dict
+from typing import Union, Dict, Optional
 from dateutil.relativedelta import relativedelta
 from dateutil import parser
 
@@ -8,15 +8,18 @@ from django.db import IntegrityError
 import datetime
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed:bool = True) -> None:
+    old_person: Optional[Person] = None
+    new_person: Optional[Person] = None
+
     try:
         old_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=previous_distinct_id)
     except Person.DoesNotExist:
-        old_person = None  # type: ignore
+        pass
 
     try:
         new_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=distinct_id)
     except Person.DoesNotExist:
-        new_person = None  # type: ignore
+        pass
 
     if old_person and not new_person:
         try:
