@@ -43,7 +43,7 @@ export const ViewType = {
 }
 
 function cleanFilters(filters) {
-    if ((filters.breakdown && filters.display !== 'ActionsTable') || filters.session) {
+    if (filters.session) {
         return {
             ...filters,
             display: 'ActionsTable',

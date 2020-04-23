@@ -19,6 +19,7 @@ import numpy as np
 import datetime
 import json
 import pytz
+import copy
 from dateutil.relativedelta import relativedelta
 from .person import PersonSerializer
 
@@ -63,6 +64,14 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
                 raise AuthenticationFailed(detail='User doesnt exist')
             return (user.first(), None)
         return None
+
+def recur_dictify(frame):
+    if len(frame.columns) == 1:
+        if frame.values.size == 1: return frame.values[0][0]
+        return frame.values.squeeze()
+    grouped = frame.groupby(frame.columns[0])
+    d = {k: recur_dictify(g.ix[:,1:]) for k,g in grouped}
+    return d
 
 
 class ActionViewSet(viewsets.ModelViewSet):
@@ -142,7 +151,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             actions_list.sort(key=lambda action: action.get('count', action['id']), reverse=True)
         return Response({'results': actions_list})
 
-    def _group_events_to_date(self, date_from: datetime.datetime, date_to: datetime.datetime, aggregates: QuerySet, interval:str) -> Dict[datetime.datetime, int]:
+    def _group_events_to_date(self, date_from: datetime.datetime, date_to: datetime.datetime, aggregates: QuerySet, interval:str, breakdown: Optional[str]=None) -> Dict[str, Dict[datetime.datetime, int]]:
         freq_map = {
             'minute': '60S',
             'hour': 'H',
@@ -150,6 +159,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             'week': 'W',
             'month': 'M'
         }
+        response = {}
         # handle "today" date range
         if date_from == date_to:
             date_from = pd.Timestamp(ts_input=date_from).replace(hour=0)
@@ -157,18 +167,22 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         time_index = pd.date_range(date_from, date_to, freq=freq_map[interval])
         if len(aggregates) > 0:
-            dataframe = pd.DataFrame([{'date': a[interval], 'count': a['count']} for a in aggregates])
+            dataframe = pd.DataFrame([{'date': a[interval], 'count': a['count'], 'breakdown': a[breakdown] if breakdown else 'Total'} for a in aggregates])
             if interval == 'week':
                 dataframe['date'] = dataframe['date'].apply(lambda x: x - pd.offsets.Week(weekday=6))
             elif interval == 'month':
                 dataframe['date'] = dataframe['date'].apply(lambda x: x - pd.offsets.MonthEnd(n=1))
-            dataframe = pd.DataFrame(dataframe.groupby('date').mean(), index=time_index)
+
+            for _, value in dataframe['breakdown'].items():
+                filtered = dataframe.loc[dataframe['breakdown'] == value] if value else dataframe.loc[dataframe['breakdown'].isnull()]
+                df_dates = pd.DataFrame(filtered.groupby('date').mean(), index=time_index)
+                df_dates = df_dates.fillna(0)
+                response[value] = {key: value[0] if len(value) > 0 else 0 for key, value in df_dates.iterrows()}
         else:
             dataframe = pd.DataFrame([], index=time_index)
-
-        # fill gaps
-        dataframe = dataframe.fillna(0)
-        return {key: value[0] if len(value) > 0 else 0 for key, value in dataframe.iterrows()}
+            dataframe = dataframe.fillna(0)
+            response['total'] = {key: value[0] if len(value) > 0 else 0 for key, value in dataframe.iterrows()}
+        return response
 
     def _filter_events(self, filter: Filter) -> Q:
         filters = Q()
@@ -189,22 +203,8 @@ class ActionViewSet(viewsets.ModelViewSet):
             filters &= properties_to_Q(filter.properties)
         return filters
 
-    def _breakdown(self, append: Dict, filtered_events: QuerySet, entity: Entity, filter: Filter, breakdown_by: str) -> Dict:
-        key = "properties__{}".format(breakdown_by)
-        events = filtered_events\
-            .filter(self._filter_events(filter))\
-            .values(key)\
-            .annotate(count=Count(1))\
-            .order_by('-count')
-
-        events = self._process_math(events, entity)
-
-        values = [{'name': item[key] if item[key] else 'undefined', 'count': item['count']} for item in events]
-        append['breakdown'] = values
-        append['count'] = sum(item['count'] for item in values)
-        return append
-
-    def _append_data(self, append: Dict, dates_filled: pd.DataFrame, interval: str) -> Dict:
+    def _append_data(self, dates_filled: pd.DataFrame, interval: str) -> Dict:
+        append: Dict[str, Any] = {}
         append['data'] = []
         append['labels'] = []
         append['days'] = []
@@ -238,13 +238,14 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         return { key: func }
 
-    def _aggregate_by_interval(self, filtered_events: QuerySet, entity: Entity, filter: Filter, interval: str, request: request.Request) -> Dict[str, Any]:
-        append: Dict[str, Any] = {}
+    def _aggregate_by_interval(self, filtered_events: QuerySet, entity: Entity, filter: Filter, interval: str, request: request.Request, breakdown: Optional[str]=None) -> Dict[str, Any]:
         interval_annotation = self._get_interval_annotation(interval)
+        values = [interval]
+        if breakdown:
+            values.append(breakdown)
         aggregates = filtered_events\
-            .filter(self._filter_events(filter))\
             .annotate(**interval_annotation)\
-            .values(interval)\
+            .values(*values)\
             .annotate(count=Count(1))\
             .order_by()
 
@@ -254,13 +255,11 @@ class ActionViewSet(viewsets.ModelViewSet):
             date_from=filter.date_from if filter.date_from else pd.Timestamp(aggregates[0][interval]),
             date_to=filter.date_to,
             aggregates=aggregates,
-            interval=interval
+            interval=interval,
+            breakdown=breakdown
         )
-        append = self._append_data(append, dates_filled, interval)
-        if request.GET.get('breakdown'):
-            append = self._breakdown(append=append, filtered_events=filtered_events, entity=entity, filter=filter, breakdown_by=request.GET['breakdown'])
 
-        return append
+        return dates_filled
 
     def _process_math(self, query: QuerySet, entity: Entity):
         if entity.math == 'dau':
@@ -304,7 +303,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             'count': sum(data)
         }
 
-    def _serialize_entity(self, entity: Entity, filter: Filter, request: request.Request, team: Team) -> Dict:
+    def _serialize_entity(self, entity: Entity, filter: Filter, request: request.Request, team: Team) -> List[Dict[str, Any]]:
         interval = request.GET.get('interval')
         if interval is None:
             interval = 'day'
@@ -317,19 +316,33 @@ class ActionViewSet(viewsets.ModelViewSet):
             },
             'label': entity.name,
             'count': 0,
-            'breakdown': [],
             'data': [],
             'labels': [],
             'days': []
         }
+        response = []
+        events = self._process_entity_for_events(entity=entity, team=team, order_by=None if request.GET.get('shown_as') == 'Stickiness' else '-timestamp')
+        events = events.filter(self._filter_events(filter))
 
         if request.GET.get('shown_as', 'Volume') == 'Volume':
-            filtered_events = self._process_entity_for_events(entity=entity, team=team)
-            serialized.update(self._aggregate_by_interval(filtered_events=filtered_events, entity=entity, filter=filter, interval=interval, request=request))
+            items = self._aggregate_by_interval(
+                filtered_events=events,
+                entity=entity,
+                filter=filter,
+                interval=interval,
+                request=request,
+                breakdown='properties__{}'.format(request.GET['breakdown']) if request.GET.get('breakdown') else None
+            )
+            for value, item in items.items():
+                new_dict = copy.deepcopy(serialized)
+                if value != 'Total':
+                    new_dict['label'] = '{} - {}'.format(entity.name, value if value else 'undefined') 
+                new_dict.update(self._append_data(dates_filled=item, interval=interval))
+                response.append(new_dict)
         elif request.GET['shown_as'] == 'Stickiness':
-            filtered_events = self._process_entity_for_events(entity, team=team, order_by=None)
-            serialized.update(self._stickiness(filtered_events=filtered_events, filter=filter))
-        return serialized
+            response.append(self._stickiness(filtered_events=events, filter=filter))
+ 
+        return response
 
     def _serialize_people(self, entity: Entity, people: QuerySet, request: request.Request) -> Dict:
         people_dict = [PersonSerializer(person, context={'request': request}).data for person in  people]
@@ -361,6 +374,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         filter = Filter(request=request)
 
         if len(filter.entities) == 0:
+            # If no filters, automatically grab all actions and show those instead
             filter.entities = [Entity({'id': action.id, 'name': action.name, 'type': TREND_FILTER_TYPE_ACTIONS}) for action in actions]
 
         for entity in filter.entities:
@@ -376,7 +390,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 request=request,
                 team=team
             )
-            entities_list.append(trend_entity)
+            entities_list.extend(trend_entity)
         return Response(entities_list)
 
     @action(methods=['GET'], detail=False)
