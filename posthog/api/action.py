@@ -372,6 +372,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             for action in filter.actions:
                 try:
                     db_action = actions.get(pk=action.id, team=team)
+                    action.name = db_action.name
                 except Action.DoesNotExist:
                     continue
                 trend_entity = self._serialize_entity(
@@ -385,7 +386,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         elif not filter.events:
             for action in actions:
                 trend_entity = self._serialize_entity(
-                    entity=Entity({'id': action.id, 'type': TREND_FILTER_TYPE_ACTIONS}),
+                    entity=Entity({'id': action.id, 'name': action.name, 'type': TREND_FILTER_TYPE_ACTIONS}),
                     filter=filter,
                     request=request,
                     team=team
