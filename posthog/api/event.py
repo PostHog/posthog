@@ -228,6 +228,13 @@ class EventViewSet(viewsets.ModelViewSet):
                         FROM (SELECT global_session_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
                             AS length FROM ({}) as count GROUP BY 1) agg'.format(query)
 
+        def average_length_time(query):
+            return 'SELECT date_trunc(\'day\', timestamp) as start_time,\
+                        AVG(length) AS average_session_length\
+                        FROM (SELECT global_session_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
+                            AS length,\
+                            MIN(timestamp) as timestamp FROM ({}) as count GROUP BY 1) as agg group by 1 order by start_time'.format(query)
+
         result = []
         if session_type == 'avg':
             cursor = connection.cursor()
@@ -235,19 +242,35 @@ class EventViewSet(viewsets.ModelViewSet):
             calculated = cursor.fetchall()
             avg_length = round(calculated[0][1], 0)
             avg_formatted = friendly_time(avg_length)
-            result = [{'label': 'Number of Sessions', 'count': calculated[0][0]}, {'label': 'Average Duration of Session', 'count': avg_formatted}]
+            result = {'label': 'Average Duration of Session', 'count': avg_formatted}
+
+            cursor = connection.cursor()
+            cursor.execute(average_length_time(all_sessions), sessions_sql_params)
+            new = cursor.fetchall()
+
+            result = [self._append_data(result, new)]
         else: 
             dist_labels = ['0 seconds (1 event)', '0-3 seconds', '3-10 seconds', '10-30 seconds', '30-60 seconds', '1-3 minutes', '3-10 minutes', '10-30 minutes', '30-60 minutes', '1+ hours']
             cursor = connection.cursor()
             cursor.execute(distribution(all_sessions), sessions_sql_params)
             calculated = cursor.fetchall()
             result = [{'label': dist_labels[index], 'count': calculated[0][index]} for index in range(len(dist_labels))]
-        
-        def test_average_length(query):
-            return 'SELECT date_trunc(\'day\', timestamp) as start_time,\
-                        AVG(length) AS average_session_length\
-                        FROM (SELECT global_session_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
-                            AS length,\
-                            MIN(timestamp) as timestamp FROM ({}) as count GROUP BY 1) as agg group by 1 order by start_time'.format(query)
 
         return result
+
+    def _append_data(self, append: Dict, items: list) -> Dict:
+        append['data'] = []
+        append['labels'] = []
+        append['days'] = []
+
+        labels_format = '%a. %-d %B'
+        days_format = '%Y-%m-%d'
+
+        for item in items:
+            date = item[0]
+            value = item[1]
+            append['days'].append(date.strftime(days_format))
+            append['labels'].append(date.strftime(labels_format))
+            append['data'].append(value)
+
+        return append

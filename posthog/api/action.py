@@ -430,7 +430,7 @@ class ActionViewSet(viewsets.ModelViewSet):
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         entityId = request.GET.get('entityId')
         entityType = request.GET.get('type')
-
+        session = request.GET.get('session')
         def _calculate_people(id, name, events: QuerySet):
             if request.GET.get('shown_as', 'Volume') == 'Volume':
                 events = events.values('person_id').distinct()

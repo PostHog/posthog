@@ -185,7 +185,7 @@ export class LineGraph extends Component {
     }
 }
 LineGraph.propTypes = {
-    datasets: PropTypes.arrayOf(PropTypes.shape({ label: PropTypes.string, count: PropTypes.number })).isRequired,
+    datasets: PropTypes.arrayOf(PropTypes.shape({ label: PropTypes.string, count: PropTypes.any })).isRequired,
     labels: PropTypes.array.isRequired,
     options: PropTypes.object,
     type: PropTypes.string,
