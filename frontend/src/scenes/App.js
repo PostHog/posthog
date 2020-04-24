@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useValues } from 'kea'
-import { BrowserRouter as Router, Route, Redirect } from 'react-router-dom'
+import { BrowserRouter as Router, Route, Redirect, Switch } from 'react-router-dom'
 import { ToastContainer, Slide } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 import 'react-datepicker/dist/react-datepicker.css'
@@ -45,8 +45,10 @@ export default function App() {
     }
 
     return (
-        <Router path='/'>
-            <Redirect to='/trends'/>
+        <Router path="/">
+            <Switch>
+                <Redirect exact from="/" to="/trends" />
+            </Switch>
             <Layout className="bg-white">
                 <Sidebar user={user} />
                 <Layout className="bg-white" style={{ height: '100vh' }}>
