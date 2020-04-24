@@ -157,9 +157,9 @@ class TestTrends(BaseTest):
 
     def test_trends_per_day(self):
         self._create_events()
-        with freeze_time('2020-01-04'):
+        with freeze_time('2020-01-04T13:00:01Z'):
             with self.assertNumQueries(14):
-                action_response = self.client.get('/api/action/trends/').json()
+                action_response = self.client.get('/api/action/trends/?date_from=-7d').json()
                 event_response = self.client.get('/api/action/trends/?events=%s' % json_to_url([{'id': "sign up"}, {'id': "no events"}])).json()
 
         self.assertEqual(action_response[0]['action']['name'], 'sign up')

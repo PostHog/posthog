@@ -46,7 +46,7 @@ def relative_date_parse(input: str) -> datetime.datetime:
             date = date - relativedelta(month=1, day=1)
         if match.group('position') == 'End':
             date = date - relativedelta(month=12, day=31)
-    return date
+    return date.replace(hour=0, minute=0, second=0, microsecond=0)
 
 def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.date]:
     if filters.get('date_from'):
