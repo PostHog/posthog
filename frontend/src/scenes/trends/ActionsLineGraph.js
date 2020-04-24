@@ -33,7 +33,7 @@ export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam
                 }
             />
         ) : (
-            <p style={{ textAlign: 'center', marginTop: '4rem' }}>
+            <p style={{ textAlign: 'center', paddingTop: '4rem' }}>
                 We couldn't find any matching events. Try changing dates or pick another action or event.
             </p>
         )

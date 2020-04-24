@@ -46,8 +46,10 @@ function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, 
                 }
             >
                 {Object.keys(item).length !== 0 ? (
-                    <Button type="primary" shape="round">
-                        <span>{formatFilterName(Object.keys(item)[0]) + item[Object.keys(item)[0]]}</span>
+                    <Button type="primary" shape="round" style={{ maxWidth: '85%' }}>
+                        <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {formatFilterName(Object.keys(item)[0]) + item[Object.keys(item)[0]]}
+                        </span>
                     </Button>
                 ) : (
                     <Button type="default" shape="round">

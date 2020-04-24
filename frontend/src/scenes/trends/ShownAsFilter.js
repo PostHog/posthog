@@ -1,11 +1,9 @@
-import React, { Component } from 'react'
-import { selectStyle } from '../../lib/utils'
-import { Select, Col, Row } from 'antd'
+import React from 'react'
+import { Select, Row } from 'antd'
 
 export function ShownAsFilter({ shown_as, onChange }) {
-    let options = ['Volume', 'Stickiness']
     return (
-        <Col>
+        <div>
             <Row>
                 <Select
                     defaultValue={shown_as}
@@ -17,18 +15,6 @@ export function ShownAsFilter({ shown_as, onChange }) {
                     <Select.Option value={'Stickiness'}>{'Stickiness'}</Select.Option>
                 </Select>
             </Row>
-
-            <Row>
-                {shown_as == 'Stickiness' && (
-                    <small>
-                        <i>
-                            Stickiness shows you how many days users performed an action within the timeframe. If a user
-                            performed an action on Monday and came back and did it twice on Friday, it would be listed
-                            as "2 days" in the chart.
-                        </i>
-                    </small>
-                )}
-            </Row>
-        </Col>
+        </div>
     )
 }

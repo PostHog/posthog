@@ -111,10 +111,10 @@ class TestTrends(BaseTest):
     TESTS_API = True
 
     def _create_events(self, use_time = False):
-        no_events = Action.objects.create(team=self.team)
+        no_events = Action.objects.create(team=self.team, name='no events')
         ActionStep.objects.create(action=no_events, event='no events')
 
-        sign_up_action = Action.objects.create(team=self.team)
+        sign_up_action = Action.objects.create(team=self.team, name='sign up')
         ActionStep.objects.create(action=sign_up_action, event='sign up')
 
         person = Person.objects.create(team=self.team, distinct_ids=['blabla'])
@@ -157,15 +157,17 @@ class TestTrends(BaseTest):
 
     def test_trends_per_day(self):
         self._create_events()
-        with freeze_time('2020-01-04'):
+        with freeze_time('2020-01-04T13:00:01Z'):
             with self.assertNumQueries(14):
-                action_response = self.client.get('/api/action/trends/').json()
+                action_response = self.client.get('/api/action/trends/?date_from=-7d').json()
                 event_response = self.client.get('/api/action/trends/?events=%s' % json_to_url([{'id': "sign up"}, {'id': "no events"}])).json()
 
+        self.assertEqual(action_response[0]['action']['name'], 'sign up')
         self.assertEqual(action_response[0]['labels'][4], 'Wed. 1 January')
         self.assertEqual(action_response[0]['data'][4], 3.0)
         self.assertEqual(action_response[0]['labels'][5], 'Thu. 2 January')
         self.assertEqual(action_response[0]['data'][5], 1.0)
+        self.assertEqual(event_response[0]['label'], 'sign up')
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
