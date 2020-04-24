@@ -21,6 +21,9 @@ class Entity(object):
         self.order = data.get('order')
         self.name = data.get('name')
         self.math = data.get('math')
+        if self.type == TREND_FILTER_TYPE_EVENTS and not self.name:
+            # if it's an event id won't be int, but mypy...
+            self.name = str(self.id)
 
     def to_dict(self) -> Dict[str, Any]:
         return {

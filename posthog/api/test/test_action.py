@@ -167,6 +167,7 @@ class TestTrends(BaseTest):
         self.assertEqual(action_response[0]['data'][4], 3.0)
         self.assertEqual(action_response[0]['labels'][5], 'Thu. 2 January')
         self.assertEqual(action_response[0]['data'][5], 1.0)
+        self.assertEqual(event_response[0]['label'], 'sign up')
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
