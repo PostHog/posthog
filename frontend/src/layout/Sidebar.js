@@ -55,15 +55,15 @@ export default function Sidebar(props) {
                 mode="inline"
             >
                 <Logo></Logo>
-                <Menu.Item key={'/'} style={itemStyle}>
-                    <HomeOutlined />
-                    <span>{'Dashboard'}</span>
-                    <NavLink to={'/'}></NavLink>
-                </Menu.Item>
                 <Menu.Item key={'/trends'} style={itemStyle}>
                     <RiseOutlined />
                     <span>{'Trends'}</span>
                     <NavLink to={'/trends'}></NavLink>
+                </Menu.Item>
+                <Menu.Item key={'/dashboard'} style={itemStyle}>
+                    <HomeOutlined />
+                    <span>{'Dashboard'}</span>
+                    <NavLink to={'/dashboard'}></NavLink>
                 </Menu.Item>
                 <Menu.SubMenu
                     key="events"
