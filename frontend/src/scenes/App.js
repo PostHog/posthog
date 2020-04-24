@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useValues } from 'kea'
-import { BrowserRouter as Router, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Route, Redirect } from 'react-router-dom'
 import { ToastContainer, Slide } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 import 'react-datepicker/dist/react-datepicker.css'
@@ -45,7 +45,8 @@ export default function App() {
     }
 
     return (
-        <Router>
+        <Router path='/'>
+            <Redirect to='/trends'/>
             <Layout className="bg-white">
                 <Sidebar user={user} />
                 <Layout className="bg-white" style={{ height: '100vh' }}>
@@ -56,7 +57,7 @@ export default function App() {
                         <SendEventsOverlay user={user} />
                         {user.has_events && (
                             <>
-                                <PrivateRoute path="/" exact component={Dashboard} user={user} />
+                                <PrivateRoute path="/dashboard" exact component={Dashboard} user={user} />
                                 <PrivateRoute path="/actions" exact component={Actions} user={user} />
                                 <PrivateRoute path="/trends" exact component={Trends} user={user} />
                                 <PrivateRoute path="/actions/live" component={ActionEvents} user={user} />
