@@ -21,9 +21,7 @@ export class ActionStep extends Component {
         super(props)
         this.state = {
             step: props.step,
-            selection: Object.keys(props.step).filter(
-                key => key != 'id' && key != 'isNew' && props.step[key]
-            ),
+            selection: Object.keys(props.step).filter(key => key != 'id' && key != 'isNew' && props.step[key]),
         }
         this.onMouseOver = this.onMouseOver.bind(this)
         this.onKeyDown = this.onKeyDown.bind(this)
@@ -69,11 +67,7 @@ export class ActionStep extends Component {
             name: el.getAttribute('name') || '',
             text: getSafeText(el) || '',
             selector: query || '',
-            url:
-                window.location.protocol +
-                '//' +
-                window.location.host +
-                window.location.pathname,
+            url: window.location.protocol + '//' + window.location.host + window.location.pathname,
         }
         this.setState(
             {
@@ -88,13 +82,11 @@ export class ActionStep extends Component {
         if (event.keyCode == 27) this.stop()
     }
     start() {
-        document
-            .querySelectorAll('a, button, input, select, textarea, label')
-            .forEach(element => {
-                element.addEventListener('mouseover', this.onMouseOver, {
-                    capture: true,
-                })
+        document.querySelectorAll('a, button, input, select, textarea, label').forEach(element => {
+            element.addEventListener('mouseover', this.onMouseOver, {
+                capture: true,
             })
+        })
         document.addEventListener('keydown', this.onKeyDown)
         document.body.style.transition = '0.7s box-shadow'
         // document.body.style.boxShadow = 'inset 0 0px 13px -2px #dc3545';
@@ -104,13 +96,11 @@ export class ActionStep extends Component {
     stop() {
         this.box.style.display = 'none'
         document.body.style.boxShadow = 'none'
-        document
-            .querySelectorAll('a, button, input, select, textarea, label')
-            .forEach(element => {
-                element.removeEventListener('mouseover', this.onMouseOver, {
-                    capture: true,
-                })
+        document.querySelectorAll('a, button, input, select, textarea, label').forEach(element => {
+            element.removeEventListener('mouseover', this.onMouseOver, {
+                capture: true,
             })
+        })
         document.removeEventListener('keydown', this.onKeyDown)
     }
     sendStep(step) {
@@ -121,23 +111,14 @@ export class ActionStep extends Component {
         let onChange = e => {
             this.props.step[props.item] = e.target.value
 
-            if (
-                e.target.value &&
-                this.state.selection.indexOf(props.item) === -1
-            ) {
-                this.setState(
-                    { selection: this.state.selection.concat([props.item]) },
-                    () => this.sendStep(this.props.step)
+            if (e.target.value && this.state.selection.indexOf(props.item) === -1) {
+                this.setState({ selection: this.state.selection.concat([props.item]) }, () =>
+                    this.sendStep(this.props.step)
                 )
-            } else if (
-                !e.target.value &&
-                this.state.selection.indexOf(props.item) > -1
-            ) {
+            } else if (!e.target.value && this.state.selection.indexOf(props.item) > -1) {
                 this.setState(
                     {
-                        selection: this.state.selection.filter(
-                            i => i !== props.item
-                        ),
+                        selection: this.state.selection.filter(i => i !== props.item),
                     },
                     () => this.sendStep(this.props.step)
                 )
@@ -145,19 +126,17 @@ export class ActionStep extends Component {
                 this.sendStep(this.props.step)
             }
         }
+        let selectorError, matches
+        try {
+            matches = document.querySelectorAll(props.selector).length
+        } catch {
+            selectorError = true
+        }
         return (
-            <div
-                className={
-                    'form-group ' +
-                    (this.state.selection.indexOf(props.item) > -1 &&
-                        'selected')
-                }
-            >
+            <div className={'form-group ' + (this.state.selection.indexOf(props.item) > -1 && 'selected')}>
                 {props.selector && this.props.isEditor && (
-                    <small className="form-text text-muted float-right">
-                        Matches{' '}
-                        {document.querySelectorAll(props.selector).length}{' '}
-                        elements
+                    <small className={'form-text float-right ' + (selectorError ? 'text-danger' : 'text-muted')}>
+                        {selectorError ? 'Invalid selector' : `Matches ${matches} elements`}
                     </small>
                 )}
                 <label>
@@ -170,30 +149,17 @@ export class ActionStep extends Component {
                             if (e.target.checked) {
                                 this.state.selection.push(props.item)
                             } else {
-                                this.state.selection = this.state.selection.filter(
-                                    i => i !== props.item
-                                )
+                                this.state.selection = this.state.selection.filter(i => i !== props.item)
                             }
-                            this.setState(
-                                { selection: this.state.selection },
-                                () => this.sendStep(this.props.step)
-                            )
+                            this.setState({ selection: this.state.selection }, () => this.sendStep(this.props.step))
                         }}
                     />{' '}
                     {props.label} {props.extra_options}
                 </label>
                 {props.item == 'selector' ? (
-                    <textarea
-                        className="form-control"
-                        onChange={onChange}
-                        value={this.props.step[props.item] || ''}
-                    />
+                    <textarea className="form-control" onChange={onChange} value={this.props.step[props.item] || ''} />
                 ) : (
-                    <input
-                        className="form-control"
-                        onChange={onChange}
-                        value={this.props.step[props.item] || ''}
-                    />
+                    <input className="form-control" onChange={onChange} value={this.props.step[props.item] || ''} />
                 )}
             </div>
         )
@@ -205,15 +171,8 @@ export class ActionStep extends Component {
                 <div className="btn-group">
                     <button
                         type="button"
-                        onClick={() =>
-                            this.sendStep({ ...step, event: '$autocapture' })
-                        }
-                        className={
-                            'btn ' +
-                            (step.event == '$autocapture'
-                                ? 'btn-secondary'
-                                : 'btn-light')
-                        }
+                        onClick={() => this.sendStep({ ...step, event: '$autocapture' })}
+                        className={'btn ' + (step.event == '$autocapture' ? 'btn-secondary' : 'btn-light')}
                     >
                         Frontend element
                     </button>
@@ -247,32 +206,25 @@ export class ActionStep extends Component {
                                 })
                             )
                         }}
-                        className={
-                            'btn ' +
-                            (step.event == '$pageview'
-                                ? 'btn-secondary'
-                                : 'btn-light')
-                        }
+                        className={'btn ' + (step.event == '$pageview' ? 'btn-secondary' : 'btn-light')}
                     >
                         Page view
                     </button>
                 </div>
-                {step.event != null &&
-                    step.event != '$autocapture' &&
-                    step.event != '$pageview' && (
-                        <div style={{ marginTop: '2rem' }}>
-                            <label>Event name</label>
-                            <EventName
-                                value={step.event}
-                                onChange={item =>
-                                    this.sendStep({
-                                        ...step,
-                                        event: item.value,
-                                    })
-                                }
-                            />
-                        </div>
-                    )}
+                {step.event != null && step.event != '$autocapture' && step.event != '$pageview' && (
+                    <div style={{ marginTop: '2rem' }}>
+                        <label>Event name</label>
+                        <EventName
+                            value={step.event}
+                            onChange={item =>
+                                this.sendStep({
+                                    ...step,
+                                    event: item.value,
+                                })
+                            }
+                        />
+                    </div>
+                )}
             </div>
         )
     }
@@ -280,19 +232,11 @@ export class ActionStep extends Component {
         if (!isEditor)
             return (
                 <span>
-                    <AppEditorLink
-                        actionId={actionId}
-                        style={{ margin: '1rem 0' }}
-                        className="btn btn-sm btn-light"
-                    >
-                        Select element on site{' '}
-                        <i className="fi flaticon-export" />
+                    <AppEditorLink actionId={actionId} style={{ margin: '1rem 0' }} className="btn btn-sm btn-light">
+                        Select element on site <i className="fi flaticon-export" />
                     </AppEditorLink>
                     <br />
-                    <a
-                        href="https://github.com/PostHog/posthog/wiki/Actions"
-                        target="_blank"
-                    >
+                    <a href="https://github.com/PostHog/posthog/wiki/Actions" target="_blank">
                         See documentation
                     </a>{' '}
                     on how to set up actions.
@@ -303,24 +247,13 @@ export class ActionStep extends Component {
                 <this.Option
                     item="href"
                     label="Link href"
-                    selector={
-                        this.state.element &&
-                        'a[href="' +
-                            this.state.element.getAttribute('href') +
-                            '"]'
-                    }
+                    selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') + '"]'}
                 />
                 <this.Option item="text" label="Text" />
-                <this.Option
-                    item="selector"
-                    label="Selector"
-                    selector={step.selector}
-                />
+                <this.Option item="selector" label="Selector" selector={step.selector} />
                 <this.Option
                     item="url"
-                    extra_options={
-                        <this.URLMatching step={step} isEditor={isEditor} />
-                    }
+                    extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
                     label="URL"
                 />
             </div>
@@ -328,35 +261,21 @@ export class ActionStep extends Component {
     }
     URLMatching({ step, isEditor }) {
         return (
-            <div
-                className="btn-group"
-                style={{ margin: isEditor ? '4px 0 0 8px' : '0 0 0 8px' }}
-            >
+            <div className="btn-group" style={{ margin: isEditor ? '4px 0 0 8px' : '0 0 0 8px' }}>
                 <button
-                    onClick={() =>
-                        this.sendStep({ ...step, url_matching: 'contains' })
-                    }
+                    onClick={() => this.sendStep({ ...step, url_matching: 'contains' })}
                     type="button"
                     className={
                         'btn btn-sm ' +
-                        (!step.url_matching || step.url_matching == 'contains'
-                            ? 'btn-secondary'
-                            : 'btn-light')
+                        (!step.url_matching || step.url_matching == 'contains' ? 'btn-secondary' : 'btn-light')
                     }
                 >
                     contains
                 </button>
                 <button
-                    onClick={() =>
-                        this.sendStep({ ...step, url_matching: 'exact' })
-                    }
+                    onClick={() => this.sendStep({ ...step, url_matching: 'exact' })}
                     type="button"
-                    className={
-                        'btn btn-sm ' +
-                        (step.url_matching == 'exact'
-                            ? 'btn-secondary'
-                            : 'btn-light')
-                    }
+                    className={'btn btn-sm ' + (step.url_matching == 'exact' ? 'btn-secondary' : 'btn-light')}
                 >
                     exactly matches
                 </button>
@@ -375,14 +294,10 @@ export class ActionStep extends Component {
                 }}
             >
                 <div className={isEditor ? '' : 'card-body'}>
-                    {(!isEditor ||
-                        step.event === '$autocapture' ||
-                        !step.event) && (
+                    {(!isEditor || step.event === '$autocapture' || !step.event) && (
                         <button
                             style={{
-                                margin: isEditor
-                                    ? '12px 12px 0px 0px'
-                                    : '-3px 0 0 0',
+                                margin: isEditor ? '12px 12px 0px 0px' : '-3px 0 0 0',
                             }}
                             type="button"
                             className="close pull-right"
@@ -395,10 +310,7 @@ export class ActionStep extends Component {
                     {!isEditor && <this.TypeSwitcher />}
                     <div
                         style={{
-                            marginTop:
-                                step.event === '$pageview' && !isEditor
-                                    ? 20
-                                    : 8,
+                            marginTop: step.event === '$pageview' && !isEditor ? 20 : 8,
                         }}
                     >
                         {isEditor && (
@@ -413,21 +325,12 @@ export class ActionStep extends Component {
                         )}
 
                         {step.event === '$autocapture' && (
-                            <this.AutocaptureFields
-                                step={step}
-                                isEditor={isEditor}
-                                actionId={actionId}
-                            />
+                            <this.AutocaptureFields step={step} isEditor={isEditor} actionId={actionId} />
                         )}
                         {step.event === '$pageview' && (
                             <this.Option
                                 item="url"
-                                extra_options={
-                                    <this.URLMatching
-                                        step={step}
-                                        isEditor={isEditor}
-                                    />
-                                }
+                                extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
                                 label="URL"
                             />
                         )}
