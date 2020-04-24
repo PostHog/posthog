@@ -71,7 +71,10 @@ export function Trends() {
                                     <hr />
                                     <h4 className="secondary">
                                         Break down by
-                                        <Tooltip title="Breakdown allows you to see the volume of events for each variation of that property. For example, breaking down by $current_url will give you the event volume for each url your users have visited.">
+                                        <Tooltip
+                                            placement="right"
+                                            title="Use breakdown to see the volume of events for each variation of that property. For example, breaking down by $current_url will give you the event volume for each url your users have visited."
+                                        >
                                             <small className="info">info</small>
                                         </Tooltip>
                                     </h4>
@@ -92,10 +95,11 @@ export function Trends() {
                                     <h4 className="secondary">
                                         Shown as
                                         <Tooltip
+                                            placement="right"
                                             title='
                                             Stickiness shows you how many days users performed an action within the timeframe. If a user
-                                            performed an action on Monday and came back and did it again on Friday, it would be listed
-                                            as "2 days" in the chart.'
+                                            performed an action on Monday and again on Friday, it would be shown 
+                                            as "2 days".'
                                         >
                                             <small className="info">info</small>
                                         </Tooltip>
