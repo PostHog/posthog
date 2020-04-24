@@ -5,6 +5,7 @@ import { EntityTypes } from '../trendsLogic'
 import { CloseButton } from '~/lib/utils'
 import { Dropdown } from '~/lib/components/Dropdown'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
+import { Tooltip } from 'antd'
 
 export function ActionFilterRow({ filter, index, showMaths, typeKey }) {
     const node = useRef()
@@ -54,6 +55,7 @@ export function ActionFilterRow({ filter, index, showMaths, typeKey }) {
                 {name || 'Select action'}
             </button>
             {showMaths && <MathSelector math={math} index={index} onMathSelect={onMathSelect} />}
+
             <CloseButton
                 onClick={onClose}
                 style={{
@@ -86,12 +88,23 @@ function MathSelector(props) {
             buttonClassName="btn btn-sm btn-light"
             style={{ marginLeft: 32, marginRight: 16 }}
         >
-            <a href="#" className="dropdown-item" onClick={() => props.onMathSelect(props.index, 'total')}>
-                Total
-            </a>
-            <a href="#" className="dropdown-item" onClick={() => props.onMathSelect(props.index, 'dau')}>
-                DAU
-            </a>
+            <Tooltip
+                placement="right"
+                title="Total shows total event volume. If a user performs an event 3 times on one day it counts as 3."
+            >
+                <a href="#" className="dropdown-item" onClick={() => props.onMathSelect(props.index, 'total')}>
+                    Total
+                </a>
+            </Tooltip>
+
+            <Tooltip
+                placement="right"
+                title="Daily Active Users. Selecting DAU will mean a user performing an event 3 times on one day counts as 1."
+            >
+                <a href="#" className="dropdown-item" onClick={() => props.onMathSelect(props.index, 'dau')}>
+                    DAU
+                </a>
+            </Tooltip>
         </Dropdown>
     )
 }

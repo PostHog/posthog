@@ -17,7 +17,7 @@ import { PeopleModal } from './PeopleModal'
 import { trendsLogic, ViewType } from './trendsLogic'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { userLogic } from 'scenes/userLogic'
-import { Tabs, Row, Col } from 'antd'
+import { Tabs, Row, Col, Tooltip } from 'antd'
 import { SessionFilter } from 'lib/components/SessionsFilter'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 
@@ -69,7 +69,15 @@ export function Trends() {
                                         style={{ marginBottom: 0 }}
                                     />
                                     <hr />
-                                    <h4 className="secondary">Break down by</h4>
+                                    <h4 className="secondary">
+                                        Break down by
+                                        <Tooltip
+                                            placement="right"
+                                            title="Use breakdown to see the volume of events for each variation of that property. For example, breaking down by $current_url will give you the event volume for each url your users have visited."
+                                        >
+                                            <small className="info">info</small>
+                                        </Tooltip>
+                                    </h4>
                                     <Row>
                                         <BreakdownFilter
                                             properties={eventProperties}
@@ -84,7 +92,18 @@ export function Trends() {
                                         )}
                                     </Row>
                                     <hr />
-                                    <h4 className="secondary">Shown as</h4>
+                                    <h4 className="secondary">
+                                        Shown as
+                                        <Tooltip
+                                            placement="right"
+                                            title='
+                                            Stickiness shows you how many days users performed an action within the timeframe. If a user
+                                            performed an action on Monday and again on Friday, it would be shown 
+                                            as "2 days".'
+                                        >
+                                            <small className="info">info</small>
+                                        </Tooltip>
+                                    </h4>
                                     <ShownAsFilter
                                         shown_as={filters.shown_as}
                                         onChange={shown_as => setFilters({ shown_as })}
