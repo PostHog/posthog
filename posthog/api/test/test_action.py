@@ -1,17 +1,16 @@
-from .base import BaseTest
-from posthog.models import Action, ActionStep, Event, Element, Person, Team
-from freezegun import freeze_time
-from urllib import parse
-import json
+from json import dumps as jdumps
 
-def json_to_url(input) -> str:
-    return parse.quote(json.dumps(input))
+from freezegun import freeze_time
+
+from posthog.models import Action, ActionStep, Element, Event, Person, Team
+from .base import BaseTest
+
 
 class TestCreateAction(BaseTest):
     TESTS_API = True
 
     def test_create_and_update_action(self):
-        event = Event.objects.create(team=self.team, event='$autocapture', elements=[
+        Event.objects.create(team=self.team, event='$autocapture', elements=[
             Element(tag_name='button', order=0, text='sign up NOW'),
             Element(tag_name='div', order=1),
         ])
@@ -21,8 +20,8 @@ class TestCreateAction(BaseTest):
                 "text": "sign up",
                 "selector": "div > button",
                 "url": "/signup",
-                "isNew": 'asdf'
-            }]
+                "isNew": 'asdf',
+            }],
         }, content_type='application/json', HTTP_ORIGIN='http://testserver').json()
         action = Action.objects.get()
         self.assertEqual(action.name, 'user signed up')
@@ -33,7 +32,12 @@ class TestCreateAction(BaseTest):
         # test no actions with same name
         user2 = self._create_user('tim2')
         self.client.force_login(user2)
-        response = self.client.post('/api/action/', data={'name': 'user signed up'}, content_type='application/json', HTTP_ORIGIN='http://testserver').json()
+        response = self.client.post(
+            '/api/action/',
+            data={'name': 'user signed up'},
+            content_type='application/json',
+            HTTP_ORIGIN='http://testserver',
+        ).json()
         self.assertEqual(response['detail'], 'action-exists')
 
         # test update
@@ -45,7 +49,7 @@ class TestCreateAction(BaseTest):
                 "text": "sign up NOW",
                 "selector": "div > button",
                 "url": None,
-            }, {'href': '/a-new-link'}]
+            }, {'href': '/a-new-link'}],
         }, content_type='application/json', HTTP_ORIGIN='http://testserver').json()
         action = Action.objects.get()
         steps = action.steps.all().order_by('id')
@@ -61,7 +65,7 @@ class TestCreateAction(BaseTest):
         # test remove steps
         response = self.client.patch('/api/action/%s/' % action.pk, data={
             'name': 'user signed up 2',
-            'steps': []
+            'steps': [],
         }, content_type='application/json', HTTP_ORIGIN='http://testserver').json()
         self.assertEqual(ActionStep.objects.count(), 0)
 
@@ -87,7 +91,7 @@ class TestCreateAction(BaseTest):
 
         response = self.client.post('/api/action/?temporary_token=token123', data={
             'name': 'user signed up and post to slack',
-            'post_to_slack': True
+            'post_to_slack': True,
         }, content_type='application/json', HTTP_ORIGIN='https://somewebsite.com')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['post_to_slack'], True)
@@ -95,11 +99,22 @@ class TestCreateAction(BaseTest):
         list_response = self.client.get('/api/action/', content_type='application/json', HTTP_ORIGIN='https://evilwebsite.com')
         self.assertEqual(list_response.status_code, 403)
 
-        detail_response = self.client.get('/api/action/{}/'.format(response.json()['id']), content_type='application/json', HTTP_ORIGIN='https://evilwebsite.com')
+        detail_response = self.client.get(
+            f"/api/action/{response.json()['id']}/",
+            content_type='application/json',
+            HTTP_ORIGIN='https://evilwebsite.com',
+        )
         self.assertEqual(detail_response.status_code, 403)
 
         self.client.logout()
-        list_response = self.client.get('/api/action/?temporary_token=token123', content_type='application/json', HTTP_ORIGIN='https://somewebsite.com')
+        list_response = self.client.get(
+            '/api/action/',
+            data={
+                'temporary_token': 'token123',
+            },
+            content_type='application/json',
+            HTTP_ORIGIN='https://somewebsite.com',
+        )
         self.assertEqual(list_response.status_code, 200)
 
         response = self.client.post('/api/action/?temporary_token=token123', data={
@@ -107,10 +122,11 @@ class TestCreateAction(BaseTest):
         }, content_type='application/json', HTTP_ORIGIN='https://somewebsite.com')
         self.assertEqual(response.status_code, 200, response.json())
 
+
 class TestTrends(BaseTest):
     TESTS_API = True
 
-    def _create_events(self, use_time = False):
+    def _create_events(self, use_time=False):
         no_events = Action.objects.create(team=self.team, name='no events')
         ActionStep.objects.create(action=no_events, event='no events')
 
@@ -135,23 +151,33 @@ class TestTrends(BaseTest):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
         with freeze_time(freeze_args[2]):
-            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "other_value"})
+            Event.objects.create(
+                team=self.team,
+                event='sign up',
+                distinct_id='blabla',
+                properties={"some_property": "other_value"},
+            )
             Event.objects.create(team=self.team, event='no events', distinct_id='blabla')
 
             # second team should have no effect
-            Event.objects.create(team=secondTeam, event='sign up', distinct_id='blabla', properties={"some_property": "other_value"}) 
-        return (sign_up_action, person)
+            Event.objects.create(
+                team=secondTeam,
+                event='sign up',
+                distinct_id='blabla',
+                properties={"some_property": "other_value"},
+            )
+        return sign_up_action, person
 
-    def _compare_entity_response(self, response1, response2, remove=['action', 'label']):
-        if(len(response1)):
+    def _compare_entity_response(self, response1, response2, remove=('action', 'label')):
+        if len(response1):
             for attr in remove:
                 response1[0].pop(attr)
-        else: 
+        else:
             return False
-        if(len(response2)):
+        if len(response2):
             for attr in remove:
                 response2[0].pop(attr)
-        else: 
+        else:
             return False
         return str(response1[0]) == str(response2[0])
 
@@ -160,7 +186,12 @@ class TestTrends(BaseTest):
         with freeze_time('2020-01-04T13:00:01Z'):
             with self.assertNumQueries(14):
                 action_response = self.client.get('/api/action/trends/?date_from=-7d').json()
-                event_response = self.client.get('/api/action/trends/?events=%s' % json_to_url([{'id': "sign up"}, {'id': "no events"}])).json()
+                event_response = self.client.get(
+                    '/api/action/trends/',
+                    data={
+                        'events': jdumps([{'id': "sign up"}, {'id': "no events"}]),
+                    },
+                ).json()
 
         self.assertEqual(action_response[0]['action']['name'], 'sign up')
         self.assertEqual(action_response[0]['labels'][4], 'Wed. 1 January')
@@ -174,8 +205,19 @@ class TestTrends(BaseTest):
     def test_property_filtering(self):
         self._create_events()
         with freeze_time('2020-01-04'):
-            action_response = self.client.get('/api/action/trends/?properties=%s' % json_to_url({'some_property': 'value'})).json()
-            event_response = self.client.get('/api/action/trends/?events=%s&properties=%s' % (json_to_url([{'id': "sign up"}, {'id': "no events"}]), json_to_url({'some_property': 'value'}))).json()
+            action_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'properties': jdumps({'some_property': 'value'}),
+                },
+            ).json()
+            event_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'events': jdumps([{'id': "sign up"}, {'id': "no events"}]),
+                    'properties': jdumps({'some_property': 'value'}),
+                },
+            ).json()
         self.assertEqual(action_response[0]['labels'][4], 'Wed. 1 January')
         self.assertEqual(action_response[0]['data'][4], 1.0)
         self.assertEqual(action_response[0]['labels'][5], 'Thu. 2 January')
@@ -188,7 +230,13 @@ class TestTrends(BaseTest):
         self._create_events()
         with freeze_time('2020-01-02'):
             action_response = self.client.get('/api/action/trends/?date_from=2019-12-21').json()
-            event_response = self.client.get('/api/action/trends/?date_from=2019-12-21&events=%s' % json_to_url([{'id': "sign up"}, {'id': "no events"}])).json()
+            event_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'date_from': '2019-12-21',
+                    'events': jdumps([{'id': "sign up"}, {'id': "no events"}]),
+                },
+            ).json()
         self.assertEqual(action_response[0]['labels'][3], 'Tue. 24 December')
         self.assertEqual(action_response[0]['data'][3], 1.0)
         self.assertEqual(action_response[0]['data'][12], 1.0)
@@ -232,7 +280,14 @@ class TestTrends(BaseTest):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
         # test today + hourly
         with freeze_time('2020-01-02'):
-            action_response = self.client.get('/api/action/trends/?date_from=2020-01-02%2023%3A00%3A00&date_to=2020-01-02%2023%3A00%3A00&interval=hour').json()
+            action_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'date_from': '2020-01-02 23:00:00',
+                    'date_to': '2020-01-02 23:00:00',
+                    'interval': 'hour',
+                },
+            ).json()
         self.assertEqual(action_response[0]['labels'][23], 'Thu. 2 January, 23:00')
         self.assertEqual(action_response[0]['data'][23], 1.0)
 
@@ -241,7 +296,13 @@ class TestTrends(BaseTest):
         # automatically sets first day as first day of any events
         with freeze_time('2020-01-04'):
             action_response = self.client.get('/api/action/trends/?date_from=all').json()
-            event_response = self.client.get('/api/action/trends/?date_from=all&events=%s' % json_to_url([{'id': "sign up"}, {'id': "no events"}])).json()
+            event_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'date_from': 'all',
+                    'events': jdumps([{'id': "sign up"}, {'id': "no events"}]),
+                },
+            ).json()
         self.assertEqual(action_response[0]['labels'][0], 'Tue. 24 December')
         self.assertEqual(action_response[0]['data'][0], 1.0)
 
@@ -252,7 +313,13 @@ class TestTrends(BaseTest):
         # test breakdown filtering
         with freeze_time('2020-01-04'):
             action_response = self.client.get('/api/action/trends/?breakdown=some_property').json()
-            event_response = self.client.get('/api/action/trends/?breakdown=some_property&events=%s' % json_to_url([{'id': "sign up"}, {'id': "no events"}])).json()
+            event_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'breakdown': 'some_property',
+                    'events': jdumps([{'id': "sign up"}, {'id': "no events"}]),
+                },
+            ).json()
 
         self.assertEqual(action_response[0]['breakdown'][0]['name'], 'undefined')
         self.assertEqual(action_response[0]['breakdown'][0]['count'], 2)
@@ -266,31 +333,49 @@ class TestTrends(BaseTest):
     def test_action_filtering(self):
         sign_up_action, person = self._create_events()
         with freeze_time('2020-01-04'):
-            action_response = self.client.get('/api/action/trends/?actions=%s' % json_to_url([{'id': sign_up_action.id}])).json()
-            event_response = self.client.get('/api/action/trends/?events=%s' % json_to_url([{'id': "sign up"}])).json()
+            action_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'actions': jdumps([{'id': sign_up_action.id}]),
+                },
+            ).json()
+            event_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'events': jdumps([{'id': "sign up"}]),
+                },
+            ).json()
         self.assertEqual(len(action_response), 1)
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
-
     def test_trends_for_non_existing_action(self):
         with freeze_time('2020-01-04'):
-            response = self.client.get('/api/action/trends/?actions=%s' % json_to_url([{'id': 4000000}])).json()
+            response = self.client.get('/api/action/trends/', {'actions': jdumps([{'id': 4000000}])}).json()
         self.assertEqual(len(response), 0)
 
         with freeze_time('2020-01-04'):
-            response = self.client.get('/api/action/trends/?events=%s' % json_to_url([{'id': "DNE"}])).json()
+            response = self.client.get('/api/action/trends/', {'events': jdumps([{'id': "DNE"}])}).json()
 
         self.assertEqual(response[0]['data'], [0, 0, 0, 0, 0, 0, 0, 0])
-
 
     def test_dau_filtering(self):
         sign_up_action, person = self._create_events()
         with freeze_time('2020-01-02'):
             Event.objects.create(team=self.team, event='sign up', distinct_id='someone_else')
         with freeze_time('2020-01-04'):
-            action_response = self.client.get('/api/action/trends/?actions=%s' % json_to_url([{'id': sign_up_action.id, 'math': 'dau'}])).json()
-            event_response = self.client.get('/api/action/trends/?events=%s' % json_to_url([{'id': "sign up", 'math': 'dau'}])).json()
+            action_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'actions': jdumps([{'id': sign_up_action.id, 'math': 'dau'}]),
+                },
+            ).json()
+            event_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'events': jdumps([{'id': "sign up", 'math': 'dau'}]),
+                },
+            ).json()
         self.assertEqual(action_response[0]['data'][4], 1)
         self.assertEqual(action_response[0]['data'][5], 2)
 
@@ -299,10 +384,27 @@ class TestTrends(BaseTest):
     def test_dau_with_breakdown_filtering(self):
         sign_up_action, person = self._create_events()
         with freeze_time('2020-01-02'):
-            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"some_property": "other_value"})
+            Event.objects.create(
+                team=self.team,
+                event='sign up',
+                distinct_id='blabla',
+                properties={"some_property": "other_value"},
+            )
         with freeze_time('2020-01-04'):
-            action_response = self.client.get('/api/action/trends/?breakdown=some_property&actions=%s' % json_to_url([{'id': sign_up_action.id, 'math': 'dau'}])).json()
-            event_response = self.client.get('/api/action/trends/?breakdown=some_property&events=%s' % json_to_url([{'id': "sign up", 'math': 'dau'}])).json()
+            action_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'breakdown': 'some_property',
+                    'actions': jdumps([{'id': sign_up_action.id, 'math': 'dau'}]),
+                },
+            ).json()
+            event_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'breakdown': 'some_property',
+                    'events': jdumps([{'id': "sign up", 'math': 'dau'}]),
+                },
+            ).json()
 
         self.assertEqual(action_response[0]['breakdown'][0]['name'], 'other_value')
         self.assertEqual(action_response[0]['breakdown'][0]['count'], 1)
@@ -313,18 +415,32 @@ class TestTrends(BaseTest):
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
-
-
     def test_people_endpoint(self):
         sign_up_action, person = self._create_events()
         person1 = Person.objects.create(team=self.team, distinct_ids=['person1'])
-        person2 = Person.objects.create(team=self.team, distinct_ids=['person2'])
+        Person.objects.create(team=self.team, distinct_ids=['person2'])
         Event.objects.create(team=self.team, event='sign up', distinct_id='person1', timestamp='2020-01-04T12:00:00Z')
         Event.objects.create(team=self.team, event='sign up', distinct_id='person2', timestamp='2020-01-05T12:00:00Z')
         # test people
-        action_response = self.client.get('/api/action/people/?date_from=2020-01-04&date_to=2020-01-04&type=actions&entityId=%s' % sign_up_action.id).json()
-        event_response = self.client.get('/api/action/people/?date_from=2020-01-04&date_to=2020-01-04&type=events&entityId=sign%20up').json()
-        
+        action_response = self.client.get(
+            '/api/action/people/',
+            data={
+                'date_from': '2020-01-04',
+                'date_to': '2020-01-04',
+                'type': 'actions',
+                'entityId': sign_up_action.id,
+            },
+        ).json()
+        event_response = self.client.get(
+            '/api/action/people/',
+            data={
+                'date_from': '2020-01-04',
+                'date_to': '2020-01-04',
+                'type': 'events',
+                'entityId': 'sign up',
+            },
+        ).json()
+
         self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
         self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
 
@@ -339,52 +455,165 @@ class TestTrends(BaseTest):
         person6 = Person.objects.create(team=self.team, distinct_ids=['person6'])
         person7 = Person.objects.create(team=self.team, distinct_ids=['person7'])
 
-        Event.objects.create(team=self.team, event='sign up', distinct_id='person1', timestamp='2020-01-04T14:10:00Z') # solo
-        Event.objects.create(team=self.team, event='sign up', distinct_id='person2', timestamp='2020-01-04T16:30:00Z') # group by hour
-        Event.objects.create(team=self.team, event='sign up', distinct_id='person3', timestamp='2020-01-04T16:50:00Z') # group by hour
-        Event.objects.create(team=self.team, event='sign up', distinct_id='person4', timestamp='2020-01-04T19:20:00Z') # group by min
-        Event.objects.create(team=self.team, event='sign up', distinct_id='person5', timestamp='2020-01-04T19:20:00Z') # group by min
-        Event.objects.create(team=self.team, event='sign up', distinct_id='person6', timestamp='2019-11-05T16:30:00Z') # group by week and month
-        Event.objects.create(team=self.team, event='sign up', distinct_id='person7', timestamp='2019-11-07T16:50:00Z') # group by week and month
+        # solo
+        Event.objects.create(team=self.team, event='sign up', distinct_id='person1', timestamp='2020-01-04T14:10:00Z')
+        # group by hour
+        Event.objects.create(team=self.team, event='sign up', distinct_id='person2', timestamp='2020-01-04T16:30:00Z')
+        # group by hour
+        Event.objects.create(team=self.team, event='sign up', distinct_id='person3', timestamp='2020-01-04T16:50:00Z')
+        # group by min
+        Event.objects.create(team=self.team, event='sign up', distinct_id='person4', timestamp='2020-01-04T19:20:00Z')
+        # group by min
+        Event.objects.create(team=self.team, event='sign up', distinct_id='person5', timestamp='2020-01-04T19:20:00Z')
+        # group by week and month
+        Event.objects.create(team=self.team, event='sign up', distinct_id='person6', timestamp='2019-11-05T16:30:00Z')
+        # group by week and month
+        Event.objects.create(team=self.team, event='sign up', distinct_id='person7', timestamp='2019-11-07T16:50:00Z')
 
         # check solo hour
-        action_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%s&date_to=2020-01-04%s&type=actions&entityId=%s' % (' 14:00:00', ' 14:00:00', sign_up_action.id)).json()
-        event_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%2014%3A00%3A00&date_to=2020-01-04%2014%3A00%3A00&type=events&entityId=sign%20up').json()
+        action_response = self.client.get(
+            '/api/action/people/',
+            data={
+                'interval': 'hour',
+                'date_from': '2020-01-04 14:00:00',
+                'date_to': '2020-01-04 14:00:00',
+                'type': 'actions',
+                'entityId': sign_up_action.id,
+            },
+        ).json()
+        event_response = self.client.get(
+            '/api/action/people/',
+            data={
+                'interval': 'hour',
+                'date_from': '2020-01-04 14:00:00',
+                'date_to': '2020-01-04 14:00:00',
+                'type': 'events',
+                'entityId': 'sign up',
+            },
+        ).json()
         self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
         self.assertEqual(len(action_response[0]['people']), 1)
         self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
 
         # check grouped hour
-        hour_grouped_action_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%s&date_to=2020-01-04%s&type=actions&entityId=%s' % (' 16:00:00', ' 16:00:00', sign_up_action.id)).json()
-        hour_grouped_grevent_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%2016%3A00%3A00&date_to=2020-01-04%2016%3A00%3A00&type=events&entityId=sign%20up').json()
+        hour_grouped_action_response = self.client.get(
+            '/api/action/people/',
+            data={
+                'interval': 'hour',
+                'date_from': '2020-01-04 16:00:00',
+                'date_to': '2020-01-04 16:00:00',
+                'type': 'actions',
+                'entityId': sign_up_action.id,
+            },
+        ).json()
+        hour_grouped_grevent_response = self.client.get(
+            '/api/action/people/',
+            data={
+                'interval': 'hour',
+                'date_from': '2020-01-04 16:00:00',
+                'date_to': '2020-01-04 16:00:00',
+                'type': 'events',
+                'entityId': 'sign up',
+            },
+        ).json()
         self.assertEqual(hour_grouped_action_response[0]['people'][0]['id'], person2.pk)
         self.assertEqual(hour_grouped_action_response[0]['people'][1]['id'], person3.pk)
         self.assertEqual(len(hour_grouped_action_response[0]['people']), 2)
-        self.assertTrue(self._compare_entity_response(hour_grouped_action_response, hour_grouped_grevent_response, remove=['action']))
+        self.assertTrue(self._compare_entity_response(
+            hour_grouped_action_response,
+            hour_grouped_grevent_response,
+            remove=['action'],
+        ))
 
         # check grouped minute
-        min_grouped_action_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%s&date_to=2020-01-04%s&type=actions&entityId=%s' % (' 19:20:00', ' 19:20:00', sign_up_action.id)).json()
-        min_grouped_grevent_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%2019%3A20%3A00&date_to=2020-01-04%2019%3A20%3A00&type=events&entityId=sign%20up').json()
+        min_grouped_action_response = self.client.get(
+            '/api/action/people/',
+            data={
+                'interval': 'hour',
+                'date_from': '2020-01-04 19:20:00',
+                'date_to': '2020-01-04 19:20:00',
+                'type': 'actions',
+                'entityId': sign_up_action.id,
+            },
+        ).json()
+        min_grouped_grevent_response = self.client.get(
+            '/api/action/people/',
+            data={
+                'interval': 'hour',
+                'date_from': '2020-01-04 19:20:00',
+                'date_to': '2020-01-04 19:20:00',
+                'type': 'events',
+                'entityId': 'sign up',
+            },
+        ).json()
         self.assertEqual(min_grouped_action_response[0]['people'][0]['id'], person4.pk)
         self.assertEqual(min_grouped_action_response[0]['people'][1]['id'], person5.pk)
         self.assertEqual(len(min_grouped_action_response[0]['people']), 2)
-        self.assertTrue(self._compare_entity_response(min_grouped_action_response, min_grouped_grevent_response, remove=['action']))
+        self.assertTrue(self._compare_entity_response(
+            min_grouped_action_response,
+            min_grouped_grevent_response,
+            remove=['action'],
+        ))
 
         # check grouped week
-        week_grouped_action_response = self.client.get('/api/action/people/?interval=week&date_from=2019-11-01&date_to=2019-11-01&type=actions&entityId=%s' % (sign_up_action.id)).json()
-        week_grouped_grevent_response = self.client.get('/api/action/people/?interval=week&date_from=2019-11-01&date_to=2019-11-01&type=events&entityId=sign%20up').json()
+        week_grouped_action_response = self.client.get(
+            '/api/action/people/',
+            data={
+                'interval': 'week',
+                'date_from': '2019-11-01',
+                'date_to': '2019-11-01',
+                'type': 'actions',
+                'entityId': sign_up_action.id,
+            },
+        ).json()
+        week_grouped_grevent_response = self.client.get(
+            '/api/action/people/',
+            data={
+                'interval': 'week',
+                'date_from': '2019-11-01',
+                'date_to': '2019-11-01',
+                'type': 'events',
+                'entityId': 'sign up',
+            },
+        ).json()
         self.assertEqual(week_grouped_action_response[0]['people'][0]['id'], person6.pk)
         self.assertEqual(week_grouped_action_response[0]['people'][1]['id'], person7.pk)
         self.assertEqual(len(week_grouped_action_response[0]['people']), 2)
-        self.assertTrue(self._compare_entity_response(week_grouped_action_response, week_grouped_grevent_response, remove=['action']))
+        self.assertTrue(self._compare_entity_response(
+            week_grouped_action_response,
+            week_grouped_grevent_response,
+            remove=['action'],
+        ))
 
         # check grouped month
-        month_group_action_response = self.client.get('/api/action/people/?interval=month&date_from=2019-11-01&date_to=2019-11-01&type=actions&entityId=%s' % (sign_up_action.id)).json()
-        month_group_grevent_response = self.client.get('/api/action/people/?interval=month&date_from=2019-11-01&date_to=2019-11-01&type=events&entityId=sign%20up').json()
+        month_group_action_response = self.client.get(
+            '/api/action/people/',
+            data={
+                'interval': 'month',
+                'date_from': '2019-11-01',
+                'date_to': '2019-11-01',
+                'type': 'actions',
+                'entityId': sign_up_action.id,
+            },
+        ).json()
+        month_group_grevent_response = self.client.get(
+            '/api/action/people/',
+            data={
+                'interval': 'month',
+                'date_from': '2019-11-01',
+                'date_to': '2019-11-01',
+                'type': 'events',
+                'entityId': 'sign up',
+            },
+        ).json()
         self.assertEqual(month_group_action_response[0]['people'][0]['id'], person6.pk)
         self.assertEqual(month_group_action_response[0]['people'][1]['id'], person7.pk)
         self.assertEqual(len(month_group_action_response[0]['people']), 2)
-        self.assertTrue(self._compare_entity_response(month_group_action_response, month_group_grevent_response, remove=['action']))
+        self.assertTrue(self._compare_entity_response(
+            month_group_action_response,
+            month_group_grevent_response,
+            remove=['action'],
+        ))
 
     def test_stickiness(self):
         person1 = Person.objects.create(team=self.team, distinct_ids=['person1'])
@@ -393,21 +622,38 @@ class TestTrends(BaseTest):
         Person.objects.create(team=self.team, distinct_ids=['person2'])
         Event.objects.create(team=self.team, event='watched movie', distinct_id='person2', timestamp='2020-01-01T12:00:00Z')
         Event.objects.create(team=self.team, event='watched movie', distinct_id='person2', timestamp='2020-01-02T12:00:00Z')
-        Event.objects.create(team=self.team, event='watched movie', distinct_id='person2', timestamp='2020-01-02T12:00:00Z') # same day
+        # same day
+        Event.objects.create(team=self.team, event='watched movie', distinct_id='person2', timestamp='2020-01-02T12:00:00Z')
 
         Person.objects.create(team=self.team, distinct_ids=['person3'])
         Event.objects.create(team=self.team, event='watched movie', distinct_id='person3', timestamp='2020-01-01T12:00:00Z')
         Event.objects.create(team=self.team, event='watched movie', distinct_id='person3', timestamp='2020-01-02T12:00:00Z')
         Event.objects.create(team=self.team, event='watched movie', distinct_id='person3', timestamp='2020-01-03T12:00:00Z')
 
-        person4 = Person.objects.create(team=self.team, distinct_ids=['person4'])
+        Person.objects.create(team=self.team, distinct_ids=['person4'])
         Event.objects.create(team=self.team, event='watched movie', distinct_id='person4', timestamp='2020-01-05T12:00:00Z')
 
         watched_movie = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=watched_movie, event='watched movie')
         watched_movie.calculate_events()
-        action_response = self.client.get('/api/action/trends/?shown_as=Stickiness&date_from=2020-01-01&date_to=2020-01-07&actions=%s' % json_to_url([{'id': watched_movie.id}])).json()
-        event_response = self.client.get('/api/action/trends/?shown_as=Stickiness&date_from=2020-01-01&date_to=2020-01-07&events=%s' % json_to_url([{'id': "watched movie"}])).json()
+        action_response = self.client.get(
+            '/api/action/trends/',
+            data={
+                'shown_as': 'Stickiness',
+                'date_from': '2020-01-01',
+                'date_to': '2020-01-07',
+                'actions': jdumps([{'id': watched_movie.id}]),
+            },
+        ).json()
+        event_response = self.client.get(
+            '/api/action/trends/',
+            data={
+                'shown_as': 'Stickiness',
+                'date_from': '2020-01-01',
+                'date_to': '2020-01-07',
+                'events': jdumps([{'id': "watched movie"}]),
+            },
+        ).json()
         self.assertEqual(action_response[0]['count'], 4)
         self.assertEqual(action_response[0]['labels'][0], '1 day')
         self.assertEqual(action_response[0]['data'][0], 2)
@@ -421,12 +667,40 @@ class TestTrends(BaseTest):
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
         # test people
-        action_response = self.client.get('/api/action/people/?shown_as=Stickiness&stickiness_days=1&date_from=2020-01-01&date_to=2020-01-07&type=actions&entityId=%s' % watched_movie.id).json()
-        event_response = self.client.get('/api/action/people/?shown_as=Stickiness&stickiness_days=1&date_from=2020-01-01&date_to=2020-01-07&type=events&entityId=watched%20movie').json()
+        action_response = self.client.get(
+            '/api/action/people/',
+            data={
+                'shown_as': 'Stickiness',
+                'stickiness_days': 1,
+                'date_from': '2020-01-01',
+                'date_to': '2020-01-07',
+                'type': 'actions',
+                'entityId': watched_movie.id,
+            },
+        ).json()
+        event_response = self.client.get(
+            '/api/action/people/',
+            data={
+                'shown_as': 'Stickiness',
+                'stickiness_days': 1,
+                'date_from': '2020-01-01',
+                'date_to': '2020-01-07',
+                'type': 'events',
+                'entityId': 'watched movie',
+            },
+        ).json()
         self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
 
         self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
 
         # test all time
-        response = self.client.get('/api/action/trends/?shown_as=Stickiness&date_from=all&date_to=2020-01-07&actions=%s' % json_to_url([{'id': watched_movie.id}])).json()
+        response = self.client.get(
+            '/api/action/trends/',
+            data={
+                'shown_as': 'Stickiness',
+                'date_from': 'all',
+                'date_to': '2020-01-07',
+                'actions': jdumps([{'id': watched_movie.id}]),
+            },
+        ).json()
         self.assertEqual(len(response[0]['data']), 89)
