@@ -74,6 +74,7 @@ export function SetupAppUrls() {
                     />
                 </div>
             ))}
+            {appUrls.length === 0 && <br />}
             <button
                 className="btn btn-link"
                 type="button"
