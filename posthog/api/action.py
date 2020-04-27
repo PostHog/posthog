@@ -274,7 +274,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         cursor.execute(query, params)
         return cursor.fetchall()
 
-    def _stickiness(self, filtered_events: QuerySet, filter: Filter) -> Dict[str, Any]:
+    def _stickiness(self, filtered_events: QuerySet, entity: Entity, filter: Filter) -> Dict[str, Any]:
         range_days = (filter.date_to - filter.date_from).days + 2 if filter.date_from else 90
 
         events = filtered_events\
@@ -330,7 +330,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             serialized.update(self._aggregate_by_interval(filtered_events=filtered_events, entity=entity, filter=filter, interval=interval, request=request))
         elif request.GET['shown_as'] == 'Stickiness':
             filtered_events = self._process_entity_for_events(entity, team=team, order_by=None)
-            serialized.update(self._stickiness(filtered_events=filtered_events, filter=filter))
+            serialized.update(self._stickiness(filtered_events=filtered_events, entity=entity, filter=filter))
         return serialized
 
     def _serialize_people(self, entity: Entity, people: QuerySet, request: request.Request) -> Dict:
