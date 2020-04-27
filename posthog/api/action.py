@@ -1,7 +1,6 @@
 from posthog.models import Event, Team, Action, ActionStep, Element, User, Person, Filter, Entity
-from posthog.utils import properties_to_Q
+from posthog.utils import properties_to_Q, append_data
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from posthog.api.event import all_sessions_query
 from rest_framework import request, serializers, viewsets, authentication
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -197,26 +196,6 @@ class ActionViewSet(viewsets.ModelViewSet):
         append['count'] = sum(item['count'] for item in values)
         return append
 
-    def _append_data(self, append: Dict, dates_filled: pd.DataFrame, interval: str) -> Dict:
-        append['data'] = []
-        append['labels'] = []
-        append['days'] = []
-
-        labels_format = '%a. %-d %B'
-        days_format = '%Y-%m-%d'
-
-        if interval == 'hour' or interval == 'minute':
-            labels_format += ', %H:%M'
-            days_format += ' %H:%M:%S'
-
-        for date, value in dates_filled.items():
-            append['days'].append(date.strftime(days_format))
-            append['labels'].append(date.strftime(labels_format))
-            append['data'].append(value)
-
-        append['count'] = sum(append['data'])
-        return append
-
     def _get_interval_annotation(self, key: str) -> Dict[str, Any]:
         map: Dict[str, Any] = {
             'minute': functions.TruncMinute('timestamp'),
@@ -249,7 +228,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             aggregates=aggregates,
             interval=interval
         )
-        append = self._append_data(append, dates_filled, interval)
+        append = append_data(append, dates_filled.items(), interval)
         if request.GET.get('breakdown'):
             append = self._breakdown(append=append, filtered_events=filtered_events, entity=entity, filter=filter, breakdown_by=request.GET['breakdown'])
 

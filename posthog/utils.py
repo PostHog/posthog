@@ -128,3 +128,25 @@ def friendly_time(seconds: float):
         hours='{h} hours '.format(h=int(hours)) if hours > 0 else '',\
         minutes='{m} minutes '.format(m=int(minutes)) if minutes > 0 else '',\
         seconds='{s} seconds'.format(s=int(seconds)) if seconds > 0 or (minutes == 0 and hours == 0) else '').strip()
+
+def append_data(append: Dict, dates_filled: list, interval=None, count=True) -> Dict:
+    append['data'] = []
+    append['labels'] = []
+    append['days'] = []
+
+    labels_format = '%a. %-d %B'
+    days_format = '%Y-%m-%d'
+
+    if interval == 'hour' or interval == 'minute':
+        labels_format += ', %H:%M'
+        days_format += ' %H:%M:%S'
+
+    for item in dates_filled:
+        date=item[0]
+        value=item[1]
+        append['days'].append(date.strftime(days_format))
+        append['labels'].append(date.strftime(labels_format))
+        append['data'].append(value)
+    if count:
+        append['count'] = sum(append['data'])
+    return append
