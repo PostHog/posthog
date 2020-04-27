@@ -111,11 +111,11 @@ export class LineGraph extends Component {
                                           )
                                       )
                                           return null
-                                      var label = data.datasets[tooltipItem.datasetIndex].label || ''
-                                      let formattedLabel = label + ' - ' + tooltipItem.yLabel.toLocaleString()
-                                      if (formattedLabel.includes('Average Duration of Session'))
-                                          formattedLabel = formattedLabel + ' seconds'
-                                      return formattedLabel
+                                      var label =
+                                          data.datasets[tooltipItem.datasetIndex].chartLabel ||
+                                          data.datasets[tooltipItem.datasetIndex].label ||
+                                          ''
+                                      return label + ' - ' + tooltipItem.yLabel.toLocaleString()
                                   },
                               },
                           },
@@ -188,7 +188,7 @@ export class LineGraph extends Component {
     }
 }
 LineGraph.propTypes = {
-    datasets: PropTypes.arrayOf(PropTypes.shape({ label: PropTypes.string, count: PropTypes.any })).isRequired,
+    datasets: PropTypes.arrayOf(PropTypes.shape({ label: PropTypes.string, count: PropTypes.number })).isRequired,
     labels: PropTypes.array.isRequired,
     options: PropTypes.object,
     type: PropTypes.string,

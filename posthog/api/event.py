@@ -206,7 +206,7 @@ class EventViewSet(viewsets.ModelViewSet):
                 ) AS outer_sessions'.format(sessions_sql)
 
         def overall_average_length(query):
-            return 'SELECT COUNT(*) as sessions,\
+            return 'SELECT COUNT(1) as sessions,\
                         AVG(length) AS average_session_length\
                         FROM (SELECT global_session_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
                             AS length FROM ({}) as count GROUP BY 1) agg'.format(query)
@@ -239,14 +239,17 @@ class EventViewSet(viewsets.ModelViewSet):
             calculated = cursor.fetchall()
             avg_length = round(calculated[0][1], 0) if calculated[0][1] is not None else 0
             avg_formatted = friendly_time(avg_length)
-            overall_average = {'label': 'Average Duration of Session', 'count': avg_formatted}
+            avg_split = avg_formatted.split(' ')
+            overall_average = {'label': 'Average Duration of Session ({})'.format(avg_split[1]), 'count': int(avg_split[0])}
 
             cursor = connection.cursor()
             cursor.execute(average_length_time(all_sessions), sessions_sql_params)
             time_series_avg = cursor.fetchall()
             time_series_avg_friendly: List = [(item[0], round(item[1])) for item in time_series_avg]
+            time_series_data = append_data(overall_average, time_series_avg_friendly, math=None)
+            time_series_data.update({"chartLabel": 'Average Duration of Session (seconds)'})
 
-            result = [append_data(overall_average, time_series_avg_friendly, count=False)]
+            result = [time_series_data]
         else: 
             dist_labels = ['0 seconds (1 event)', '0-3 seconds', '3-10 seconds', '10-30 seconds', '30-60 seconds', '1-3 minutes', '3-10 minutes', '10-30 minutes', '30-60 minutes', '1+ hours']
             cursor = connection.cursor()

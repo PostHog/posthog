@@ -10,6 +10,7 @@ import datetime
 import re
 import os
 import pytz
+import statistics
 
 def relative_date_parse(input: str) -> datetime.datetime:
     try:
@@ -129,7 +130,7 @@ def friendly_time(seconds: float):
         minutes='{m} minutes '.format(m=int(minutes)) if minutes > 0 else '',\
         seconds='{s} seconds'.format(s=int(seconds)) if seconds > 0 or (minutes == 0 and hours == 0) else '').strip()
 
-def append_data(append: Dict, dates_filled: List, interval=None, count=True) -> Dict:
+def append_data(append: Dict, dates_filled: List, interval=None, math='sum') -> Dict:
     append['data'] = []
     append['labels'] = []
     append['days'] = []
@@ -147,6 +148,6 @@ def append_data(append: Dict, dates_filled: List, interval=None, count=True) -> 
         append['days'].append(date.strftime(days_format))
         append['labels'].append(date.strftime(labels_format))
         append['data'].append(value)
-    if count:
+    if math == 'sum':
         append['count'] = sum(append['data'])
     return append
