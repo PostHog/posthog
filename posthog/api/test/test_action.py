@@ -194,7 +194,7 @@ class TestTrends(BaseTest):
                     },
                 ).json()
 
-        self.assertEqual(action_response[0]['action']['name'], 'sign up')
+        self.assertEqual(action_response[0]['label'], 'sign up')
         self.assertEqual(action_response[0]['labels'][4], 'Wed. 1 January')
         self.assertEqual(action_response[0]['data'][4], 3.0)
         self.assertEqual(action_response[0]['labels'][5], 'Thu. 2 January')
@@ -381,16 +381,16 @@ class TestTrends(BaseTest):
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
     def test_dau_with_breakdown_filtering(self):
-        sign_up_action, person = self._create_events()
+        sign_up_action, _ = self._create_events()
         with freeze_time('2020-01-02'):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"$some_property": "other_value"})
         with freeze_time('2020-01-04'):
             action_response = self.client.get('/api/action/trends/?breakdown=$some_property&actions=%s' % json_to_url([{'id': sign_up_action.id, 'math': 'dau'}])).json()
             event_response = self.client.get('/api/action/trends/?breakdown=$some_property&events=%s' % json_to_url([{'id': "sign up", 'math': 'dau'}])).json()
 
-        self.assertEqual(event_response[0]['action']['name'], 'sign up - other_value')
-        self.assertEqual(event_response[1]['action']['name'], 'sign up - value')
-        self.assertEqual(event_response[2]['action']['name'], 'sign up - undefined')
+        self.assertEqual(event_response[0]['label'], 'sign up - other_value')
+        self.assertEqual(event_response[1]['label'], 'sign up - value')
+        self.assertEqual(event_response[2]['label'], 'sign up - undefined')
 
         self.assertEqual(sum(event_response[0]['data']), 1)
         self.assertEqual(event_response[0]['data'][5], 1)
@@ -398,7 +398,6 @@ class TestTrends(BaseTest):
         self.assertEqual(sum(event_response[2]['data']), 1)
         self.assertEqual(event_response[2]['data'][4], 1) # property not defined
  
-
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
     def test_people_endpoint(self):

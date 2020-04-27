@@ -334,7 +334,9 @@ class ActionViewSet(viewsets.ModelViewSet):
                 new_dict.update(self._append_data(dates_filled=item, interval=interval))
                 response.append(new_dict)
         elif request.GET['shown_as'] == 'Stickiness':
-            response.append(self._stickiness(filtered_events=events, filter=filter))
+            new_dict = copy.deepcopy(serialized)
+            new_dict.update(self._stickiness(filtered_events=events, filter=filter))
+            response.append(new_dict)
  
         return response
 
