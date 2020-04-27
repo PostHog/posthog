@@ -237,7 +237,7 @@ class EventViewSet(viewsets.ModelViewSet):
             cursor = connection.cursor()
             cursor.execute(overall_average_length(all_sessions), sessions_sql_params)
             calculated = cursor.fetchall()
-            avg_length = round(calculated[0][1], 0)
+            avg_length = round(calculated[0][1], 0) if calculated[0][1] is not None else 0
             avg_formatted = friendly_time(avg_length)
             overall_average = {'label': 'Average Duration of Session', 'count': avg_formatted}
 
