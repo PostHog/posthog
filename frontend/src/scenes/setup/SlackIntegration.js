@@ -2,6 +2,7 @@ import React from 'react'
 import { kea, useActions, useValues } from 'kea'
 import { userLogic } from '../userLogic'
 import api from 'lib/api'
+import { Input, Button } from 'antd'
 
 const logic = kea({
     actions: () => ({
@@ -82,41 +83,40 @@ export function SlackIntegration() {
             <label>
                 Enter your Slack webhook URL here.{' '}
                 <a href="https://docs.posthog.com/#/integrations/slack">
-                    Read the docs to find out how to get this value.
+                    Read the docs to find out how to get this URL.
                 </a>
             </label>
-            <form
-                onSubmit={e => {
+            <div style={{ marginBottom: 5 }}>
+                <Input
+                    value={editedWebhook}
+                    size="large"
+                    onChange={e => setEditedWebhook(e.target.value)}
+                    style={{ width: 500 }}
+                    type="url"
+                />
+            </div>
+
+            <Button
+                type="primary"
+                onClick={e => {
                     e.preventDefault()
                     testAndSaveWebhook()
                 }}
             >
-                <div style={{ marginBottom: 5 }}>
-                    <input
-                        value={editedWebhook}
-                        onChange={e => setEditedWebhook(e.target.value)}
-                        style={{ display: 'inline-block', maxWidth: 700 }}
-                        type="url"
-                        className="form-control"
-                    />
-                </div>
+                {isSaving ? '...' : editedWebhook ? 'Test & Save' : 'Save'}
+            </Button>
 
-                <button className="btn btn-success" type="submit">
-                    {isSaving ? '...' : editedWebhook ? 'Test & Save' : 'Save'}
-                </button>
+            {error && (
+                <span className="text-danger" style={{ marginLeft: 10 }}>
+                    Error: {error}
+                </span>
+            )}
 
-                {error && (
-                    <span className="text-danger" style={{ marginLeft: 10 }}>
-                        Error: {error}
-                    </span>
-                )}
-
-                {isSaved && (
-                    <span className="text-success" style={{ marginLeft: 10 }}>
-                        {editedWebhook ? 'All good! You should see a message on Slack!' : 'Slack integration removed!'}
-                    </span>
-                )}
-            </form>
+            {isSaved && (
+                <span className="text-success" style={{ marginLeft: 10 }}>
+                    {editedWebhook ? 'All good! You should see a message on Slack!' : 'Slack integration removed!'}
+                </span>
+            )}
         </div>
     )
 }

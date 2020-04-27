@@ -3,7 +3,6 @@ import React from 'react'
 import ReactDOM from 'react-dom'
 import { Provider } from 'react-redux'
 import { resetContext, getContext } from 'kea'
-import listenersPlugin from 'kea-listeners'
 import { routerPlugin } from 'kea-router'
 import { loadersPlugin } from 'kea-loaders'
 
@@ -11,9 +10,6 @@ import App from './scenes/App'
 import { toast } from 'react-toastify'
 
 resetContext({
-    createStore: {
-        // additional options (e.g. middleware, reducers, ...)
-    },
     plugins: [
         routerPlugin,
         loadersPlugin({
@@ -28,7 +24,6 @@ resetContext({
                 window.Sentry && window.Sentry.captureException(error)
             },
         }),
-        listenersPlugin,
     ],
 })
 

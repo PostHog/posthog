@@ -21,4 +21,5 @@ frontend/yarn-error.log
 celerybeat-schedule
 celerybeat.pid
 yarn-error.log
-
+.yalc
+yalc.lock
