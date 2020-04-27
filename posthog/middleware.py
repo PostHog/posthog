@@ -1,17 +1,18 @@
+import re
+from ipaddress import ip_address, ip_network
+
 from django.conf import settings
 from django.core.exceptions import MiddlewareNotUsed
-from django.http import HttpResponse, HttpRequest
-from ipaddress import ip_address, ip_network
-import re
+from django.http import HttpRequest, HttpResponse
+
 
 class AllowIP(object):
     def __init__(self, get_response):
-        if getattr(settings, 'ALLOWED_IP_BLOCKS', False):
-            self.ip_blocks = [item.strip() for item in settings.ALLOWED_IP_BLOCKS.split(',')]  # type: ignore
-        else:
+        if not settings.ALLOWED_IP_BLOCKS:
             # this will make Django skip this middleware for all future requests
             raise MiddlewareNotUsed()
 
+        self.ip_blocks = settings.ALLOWED_IP_BLOCKS
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):

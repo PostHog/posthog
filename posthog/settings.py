@@ -10,12 +10,16 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 
+import ast
 import os
 import sys
-import dj_database_url
+from typing import List, Optional
+
 import sentry_sdk
-from django.core.exceptions import ImproperlyConfigured
 from sentry_sdk.integrations.django import DjangoIntegration
+
+import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 
 VERSION = '1.2.0'
 
@@ -25,11 +29,26 @@ def get_env(key):
     except KeyError:
         raise ImproperlyConfigured(f'The environment var "{key}" is absolutely required to run this software')
 
-# Build paths inside the project like this: os.path.join(BASE_DIR, ...)
+def get_list(text: str) -> List[str]:
+    if not text:
+        return []
+    return [item.strip() for item in text.split(",")]
 
+
+def get_bool_from_env(name: str, default_value: bool) -> bool:
+    if name in os.environ:
+        value = os.environ[name]
+        try:
+            return ast.literal_eval(value)
+        except ValueError as e:
+            raise ValueError(f"{value} is an invalid value for {name}, expected boolean") from e
+    return default_value
+
+
+# Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-DEBUG = os.environ.get("DEBUG", False)
+DEBUG = get_bool_from_env("DEBUG", False)
 TEST = 'test' in sys.argv
 
 SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
@@ -45,15 +64,15 @@ if not DEBUG and not TEST:
             integrations=[DjangoIntegration()]
         )
 
-if os.environ.get('DISABLE_SECURE_SSL_REDIRECT'):
+if get_bool_from_env('DISABLE_SECURE_SSL_REDIRECT', False):
     SECURE_SSL_REDIRECT = False
     SESSION_COOKIE_SECURE = False
 
-if os.environ.get('IS_BEHIND_PROXY', False):
+if get_bool_from_env('IS_BEHIND_PROXY', False):
     USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-ALLOWED_IP_BLOCKS = os.environ.get('ALLOWED_IP_BLOCKS', False)
+ALLOWED_IP_BLOCKS = get_list(os.environ.get('ALLOWED_IP_BLOCKS', ''))
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
@@ -63,10 +82,7 @@ SECRET_KEY = os.environ.get('SECRET_KEY', "6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-
 
 # SECURITY WARNING: don't run with debug turned on in production!
 
-ALLOWED_HOSTS = [
-    '*'
-]
-
+ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
 
 # Application definition
 
@@ -132,7 +148,6 @@ AUTHENTICATION_BACKENDS = (
 )
 
 SOCIAL_AUTH_PIPELINE = (
-
     'social_core.pipeline.social_auth.social_details',
     'social_core.pipeline.social_auth.social_uid',
     'social_core.pipeline.social_auth.auth_allowed',
@@ -279,10 +294,10 @@ EMAIL_HOST = os.environ.get('EMAIL_HOST')
 EMAIL_PORT = os.environ.get('EMAIL_PORT')
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD')
-EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', False)
-EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', False)
+EMAIL_USE_TLS = get_bool_from_env('EMAIL_USE_TLS', False)
+EMAIL_USE_SSL = get_bool_from_env('EMAIL_USE_SSL', False)
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'tim@posthog.com')
 
 
 # You can pass a comma deliminated list of domains with which users can sign up to this service
-RESTRICT_SIGNUPS = os.environ.get('RESTRICT_SIGNUPS', False)
+RESTRICT_SIGNUPS = get_bool_from_env('RESTRICT_SIGNUPS', False)
