@@ -1,5 +1,7 @@
 import React, { Component } from 'react'
 import { toast } from 'react-toastify'
+import { Button, Tooltip, Input } from 'antd'
+import { CopyOutlined } from '@ant-design/icons'
 
 export class InviteTeam extends Component {
     urlRef = React.createRef()
@@ -18,23 +20,22 @@ export class InviteTeam extends Component {
                 Send your team the following URL:
                 <br />
                 <br />
-                <div className="input-group">
-                    <input
+                <div>
+                    <Input
                         type="text"
                         ref={this.urlRef}
-                        className="form-control"
                         value={url + '/signup/' + this.props.user.team.signup_token}
-                        readOnly={true}
+                        disabled={true}
+                        suffix={
+                            <Tooltip title="Copy to Clipboard">
+                                <Button
+                                    onClick={this.copyToClipboard.bind(this)}
+                                    type="default"
+                                    icon={<CopyOutlined />}
+                                />
+                            </Tooltip>
+                        }
                     />
-                    <div className="input-group-append">
-                        <button
-                            className="btn btn-outline-secondary"
-                            type="button"
-                            onClick={this.copyToClipboard.bind(this)}
-                        >
-                            Copy to clipboard
-                        </button>
-                    </div>
                 </div>
                 <br />
             </div>
