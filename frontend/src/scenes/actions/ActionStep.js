@@ -328,11 +328,18 @@ export class ActionStep extends Component {
                             <this.AutocaptureFields step={step} isEditor={isEditor} actionId={actionId} />
                         )}
                         {step.event === '$pageview' && (
-                            <this.Option
-                                item="url"
-                                extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
-                                label="URL"
-                            />
+                            <div>
+                                <this.Option
+                                    item="url"
+                                    extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
+                                    label="URL"
+                                />
+                                {(!step.url_matching || step.url_matching == 'contains') && (
+                                    <small style={{ display: 'block', marginTop: -12 }}>
+                                        Use '%' for wildcard, for example: /user/%/edit
+                                    </small>
+                                )}
+                            </div>
                         )}
                     </div>
                 </div>

@@ -108,7 +108,7 @@ class TestFilterByActions(BaseTest):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0], event1)
 
-    def test_filter_events_by_url_exact(self):
+    def test_filter_events_by_url(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
         action1 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action1, url='https://posthog.com/feedback/123', url_matching=ActionStep.EXACT)
@@ -116,6 +116,9 @@ class TestFilterByActions(BaseTest):
 
         action2 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action2, url='123', url_matching=ActionStep.CONTAINS)
+
+        action3 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=action3, url='https://posthog.com/%/123', url_matching=ActionStep.CONTAINS)
 
         event1 = Event.objects.create(team=self.team, distinct_id='whatever')
         event2 = Event.objects.create(team=self.team, distinct_id='whatever', properties={'$current_url': 'https://posthog.com/feedback/123'}, elements=[
@@ -127,6 +130,10 @@ class TestFilterByActions(BaseTest):
         self.assertEqual(len(events), 1)
 
         events = Event.objects.filter_by_action(action2)
+        self.assertEqual(events[0], event2)
+        self.assertEqual(len(events), 1)
+
+        events = Event.objects.filter_by_action(action3)
         self.assertEqual(events[0], event2)
         self.assertEqual(len(events), 1)
 
