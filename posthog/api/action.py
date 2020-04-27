@@ -65,14 +65,6 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
             return (user.first(), None)
         return None
 
-def recur_dictify(frame):
-    if len(frame.columns) == 1:
-        if frame.values.size == 1: return frame.values[0][0]
-        return frame.values.squeeze()
-    grouped = frame.groupby(frame.columns[0])
-    d = {k: recur_dictify(g.ix[:,1:]) for k,g in grouped}
-    return d
-
 
 class ActionViewSet(viewsets.ModelViewSet):
     queryset = Action.objects.all()
