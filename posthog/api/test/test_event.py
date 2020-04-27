@@ -167,8 +167,7 @@ class TestEvents(BaseTest):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
 
         response = self.client.get('/api/event/sessions/?session=avg&date_from=all').json()
-        self.assertEqual(response[0]['count'], 4) #number of sessions
-        self.assertEqual(response[1]['count'], '2 minutes') # average length of all sessions
+        self.assertEqual(response[0]['count'], '2 minutes') # average length of all sessions
 
     def test_sessions_count_buckets(self):
 

@@ -326,7 +326,7 @@ class TestTrends(BaseTest):
         event_response = self.client.get('/api/action/people/?date_from=2020-01-04&date_to=2020-01-04&type=events&entityId=sign%20up').json()
         
         self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
-        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
+        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=[]))
 
     def test_people_endpoint_with_intervals(self):
         sign_up_action, person = self._create_events()
@@ -352,7 +352,7 @@ class TestTrends(BaseTest):
         event_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%2014%3A00%3A00&date_to=2020-01-04%2014%3A00%3A00&type=events&entityId=sign%20up').json()
         self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
         self.assertEqual(len(action_response[0]['people']), 1)
-        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
+        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=[]))
 
         # check grouped hour
         hour_grouped_action_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%s&date_to=2020-01-04%s&type=actions&entityId=%s' % (' 16:00:00', ' 16:00:00', sign_up_action.id)).json()
@@ -360,7 +360,7 @@ class TestTrends(BaseTest):
         self.assertEqual(hour_grouped_action_response[0]['people'][0]['id'], person2.pk)
         self.assertEqual(hour_grouped_action_response[0]['people'][1]['id'], person3.pk)
         self.assertEqual(len(hour_grouped_action_response[0]['people']), 2)
-        self.assertTrue(self._compare_entity_response(hour_grouped_action_response, hour_grouped_grevent_response, remove=['action']))
+        self.assertTrue(self._compare_entity_response(hour_grouped_action_response, hour_grouped_grevent_response, remove=[]))
 
         # check grouped minute
         min_grouped_action_response = self.client.get('/api/action/people/?interval=hour&date_from=2020-01-04%s&date_to=2020-01-04%s&type=actions&entityId=%s' % (' 19:20:00', ' 19:20:00', sign_up_action.id)).json()
@@ -368,7 +368,7 @@ class TestTrends(BaseTest):
         self.assertEqual(min_grouped_action_response[0]['people'][0]['id'], person4.pk)
         self.assertEqual(min_grouped_action_response[0]['people'][1]['id'], person5.pk)
         self.assertEqual(len(min_grouped_action_response[0]['people']), 2)
-        self.assertTrue(self._compare_entity_response(min_grouped_action_response, min_grouped_grevent_response, remove=['action']))
+        self.assertTrue(self._compare_entity_response(min_grouped_action_response, min_grouped_grevent_response, remove=[]))
 
         # check grouped week
         week_grouped_action_response = self.client.get('/api/action/people/?interval=week&date_from=2019-11-01&date_to=2019-11-01&type=actions&entityId=%s' % (sign_up_action.id)).json()
@@ -376,7 +376,7 @@ class TestTrends(BaseTest):
         self.assertEqual(week_grouped_action_response[0]['people'][0]['id'], person6.pk)
         self.assertEqual(week_grouped_action_response[0]['people'][1]['id'], person7.pk)
         self.assertEqual(len(week_grouped_action_response[0]['people']), 2)
-        self.assertTrue(self._compare_entity_response(week_grouped_action_response, week_grouped_grevent_response, remove=['action']))
+        self.assertTrue(self._compare_entity_response(week_grouped_action_response, week_grouped_grevent_response, remove=[]))
 
         # check grouped month
         month_group_action_response = self.client.get('/api/action/people/?interval=month&date_from=2019-11-01&date_to=2019-11-01&type=actions&entityId=%s' % (sign_up_action.id)).json()
@@ -384,7 +384,7 @@ class TestTrends(BaseTest):
         self.assertEqual(month_group_action_response[0]['people'][0]['id'], person6.pk)
         self.assertEqual(month_group_action_response[0]['people'][1]['id'], person7.pk)
         self.assertEqual(len(month_group_action_response[0]['people']), 2)
-        self.assertTrue(self._compare_entity_response(month_group_action_response, month_group_grevent_response, remove=['action']))
+        self.assertTrue(self._compare_entity_response(month_group_action_response, month_group_grevent_response, remove=[]))
 
     def test_stickiness(self):
         person1 = Person.objects.create(team=self.team, distinct_ids=['person1'])
@@ -425,7 +425,7 @@ class TestTrends(BaseTest):
         event_response = self.client.get('/api/action/people/?shown_as=Stickiness&stickiness_days=1&date_from=2020-01-01&date_to=2020-01-07&type=events&entityId=watched%20movie').json()
         self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
 
-        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
+        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=[]))
 
         # test all time
         response = self.client.get('/api/action/trends/?shown_as=Stickiness&date_from=all&date_to=2020-01-07&actions=%s' % json_to_url([{'id': watched_movie.id}])).json()
