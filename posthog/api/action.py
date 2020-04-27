@@ -170,7 +170,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         dataframe = dataframe.fillna(0)
         return {key: value[0] if len(value) > 0 else 0 for key, value in dataframe.iterrows()}
 
-    def _filter_events(self, filter: Filter) -> Q:
+    def _filter_events(self, filter: Filter, entity: Entity) -> Q:
         filters = Q()
         if filter.date_from:
             filters &= Q(timestamp__gte=filter.date_from)
@@ -187,12 +187,14 @@ class ActionViewSet(viewsets.ModelViewSet):
             filters &= Q(timestamp__lte=filter.date_to + relativity)
         if filter.properties:
             filters &= properties_to_Q(filter.properties)
+        if entity.properties:
+            filters &= properties_to_Q(entity.properties)
         return filters
 
     def _breakdown(self, append: Dict, filtered_events: QuerySet, entity: Entity, filter: Filter, breakdown_by: str) -> Dict:
         key = "properties__{}".format(breakdown_by)
         events = filtered_events\
-            .filter(self._filter_events(filter))\
+            .filter(self._filter_events(filter, entity))\
             .values(key)\
             .annotate(count=Count(1))\
             .order_by('-count')
@@ -242,7 +244,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         append: Dict[str, Any] = {}
         interval_annotation = self._get_interval_annotation(interval)
         aggregates = filtered_events\
-            .filter(self._filter_events(filter))\
+            .filter(self._filter_events(filter, entity))\
             .annotate(**interval_annotation)\
             .values(interval)\
             .annotate(count=Count(1))\
@@ -276,7 +278,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         range_days = (filter.date_to - filter.date_from).days + 2 if filter.date_from else 90
 
         events = filtered_events\
-            .filter(self._filter_events(filter))\
+            .filter(self._filter_events(filter, entity))\
             .values('person_id') \
             .annotate(day_count=Count(functions.TruncDay('timestamp'), distinct=True))\
             .filter(day_count__lte=range_days)
@@ -409,7 +411,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         if entity.type == TREND_FILTER_TYPE_EVENTS:
             filtered_events =  self._process_entity_for_events(entity, team=team, order_by=None)\
-                .filter(self._filter_events(filter))
+                .filter(self._filter_events(filter, entity))
             people = _calculate_people(entity=entity, events=filtered_events)
             return Response([people])
         elif entity.type == TREND_FILTER_TYPE_ACTIONS:
@@ -419,7 +421,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 action = actions.get(pk=entity.id)
             except Action.DoesNotExist:
                 return Response([])
-            filtered_events = self._process_entity_for_events(entity, team=team, order_by=None).filter(self._filter_events(filter))
+            filtered_events = self._process_entity_for_events(entity, team=team, order_by=None).filter(self._filter_events(filter, entity))
             people = _calculate_people(entity=entity, events=filtered_events)
             return Response([people])
 

@@ -12,7 +12,9 @@ import { userLogic } from 'scenes/userLogic'
 export function ActionFilterRow({ filter, index, typeKey }) {
     const node = useRef()
     const { selectedFilter, entities } = useValues(entityFilterLogic({ typeKey }))
-    const { selectFilter, updateFilterMath, removeLocalFilter } = useActions(entityFilterLogic({ typeKey }))
+    const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty } = useActions(
+        entityFilterLogic({ typeKey })
+    )
     const { eventProperties } = useValues(userLogic)
 
     let entity, dropDownCondition, onClick, onClose, onMathSelect, name, value, math
@@ -58,15 +60,6 @@ export function ActionFilterRow({ filter, index, typeKey }) {
                 {name || 'Select action'}
             </button>
             <MathSelector math={math} index={index} onMathSelect={onMathSelect} />
-            <div className="ml-4">
-                <PropertyFilters
-                    pageKey={`${index}-${typeKey}-filter`}
-                    properties={eventProperties}
-                    propertyFilters={[]}
-                    onChange={properties => null}
-                    style={{ marginBottom: 0 }}
-                />
-            </div>
             <CloseButton
                 onClick={onClose}
                 style={{
@@ -76,6 +69,15 @@ export function ActionFilterRow({ filter, index, typeKey }) {
                     marginTop: 3,
                 }}
             />
+            <div className="ml-4">
+                <PropertyFilters
+                    pageKey={`${index}-${typeKey}-filter`}
+                    properties={eventProperties}
+                    propertyFilters={filter.properties}
+                    onChange={properties => updateFilterProperty({ properties, index })}
+                    style={{ marginBottom: 0 }}
+                />
+            </div>
             {dropDownCondition() && (
                 <ActionFilterDropdown
                     typeKey={typeKey}
