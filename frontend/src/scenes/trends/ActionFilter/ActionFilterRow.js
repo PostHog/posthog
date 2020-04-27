@@ -6,11 +6,14 @@ import { CloseButton } from '~/lib/utils'
 import { Dropdown } from '~/lib/components/Dropdown'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { Tooltip } from 'antd'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { userLogic } from 'scenes/userLogic'
 
-export function ActionFilterRow({ filter, index, showMaths, typeKey }) {
+export function ActionFilterRow({ filter, index, typeKey }) {
     const node = useRef()
     const { selectedFilter, entities } = useValues(entityFilterLogic({ typeKey }))
     const { selectFilter, updateFilterMath, removeLocalFilter } = useActions(entityFilterLogic({ typeKey }))
+    const { eventProperties } = useValues(userLogic)
 
     let entity, dropDownCondition, onClick, onClose, onMathSelect, name, value, math
     math = filter.math
@@ -54,8 +57,16 @@ export function ActionFilterRow({ filter, index, showMaths, typeKey }) {
             >
                 {name || 'Select action'}
             </button>
-            {showMaths && <MathSelector math={math} index={index} onMathSelect={onMathSelect} />}
-
+            <MathSelector math={math} index={index} onMathSelect={onMathSelect} />
+            <div className="ml-4">
+                <PropertyFilters
+                    pageKey={`${index}-${typeKey}-filter`}
+                    properties={eventProperties}
+                    propertyFilters={[]}
+                    onChange={properties => null}
+                    style={{ marginBottom: 0 }}
+                />
+            </div>
             <CloseButton
                 onClick={onClose}
                 style={{
