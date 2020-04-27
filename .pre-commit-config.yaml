@@ -1,0 +1,15 @@
+repos:
+    - repo: https://github.com/pre-commit/pre-commit-hooks
+      rev: v2.5.0
+      hooks:
+        - id: trailing-whitespace
+        - id: end-of-file-fixer
+
+    - repo: local
+      hooks:
+        - id: migrations-check
+          language: system
+          name: Check for uncreated migrations.
+          entry: sh -c "./manage.py makemigrations --check --dry-run"
+          files: "models/*\\.py$"
+          stages: [commit]
