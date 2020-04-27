@@ -170,7 +170,7 @@ class TestEvents(BaseTest):
             Event.objects.create(team=self.team, event='4th action', distinct_id="2")
 
         response = self.client.get('/api/event/sessions/?session=avg&date_from=all').json()
-        self.assertEqual(response[0]['count'], '3 minutes') # average length of all sessions
+        self.assertEqual(response[0]['count'], 3) # average length of all sessions
 
         # time series 
         self.assertEqual(response[0]['data'][0], 240)
