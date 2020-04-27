@@ -58,14 +58,14 @@ class TagsTestCase(TestMigrations):
         Event = apps.get_model('posthog', 'Event')
         Team = apps.get_model('posthog', 'Team')
         team = Team.objects.create()
-        
+
         Event.objects.bulk_create([
             Event(team=team, event='$autocapture', ip="127.0.0.1")
                 for i in range(default_event_count)], default_batch_size)
 
         Event.objects.bulk_create([
-            Event(team=team, event='$prefilled_properties', distinct_id="2", 
-            ip="192.2.2.1", properties={"$os": "MacOS"}) 
+            Event(team=team, event='$prefilled_properties', distinct_id="2",
+            ip="192.2.2.1", properties={"$os": "MacOS"})
                 for i in range(default_event_count)], default_batch_size)
 
         null_ip_event = Event.objects.create(team=team, event='$null_ip')
@@ -73,14 +73,14 @@ class TagsTestCase(TestMigrations):
     def test_ip_migrated(self):
         Event = apps.get_model('posthog', 'Event')
 
-        events = Event.objects.all() 
+        events = Event.objects.all()
         for e in events:
-            if e.event == '$prefilled_properties':     
+            if e.event == '$prefilled_properties':
                 self.assertEqual(e.properties.get("$ip"), "192.2.2.1")
                 self.assertEqual(e.properties.get("$ip"), "192.2.2.1")
                 self.assertEqual(e.properties.get("$os"), "MacOS")
 
-            if e.event == '$autocapture':     
+            if e.event == '$autocapture':
                 self.assertEqual(e.properties.get("$ip"), "127.0.0.1")
                 self.assertEqual(e.properties.get("$ip"), "127.0.0.1")
             if e.event == '$null_ip':

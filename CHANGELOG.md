@@ -10,7 +10,7 @@ Click [here](https://docs.posthog.com/#/integrations/ios-integration) for instru
 
 ![sessions gif](https://posthog.com/wp-content/uploads/2020/04/Sessions.gif)
 
-- Funnels can be filtered by properties 
+- Funnels can be filtered by properties
 
 ![Funnel properties](https://posthog.com/wp-content/uploads/2020/04/funnel-properties.gif)
 
@@ -24,7 +24,7 @@ Click [here](https://docs.posthog.com/#/integrations/ios-integration) for instru
 
 #### Bug Fixes
 - Fixed unable to sign up to teams
-- Fixed stickniess not loading 
+- Fixed stickniess not loading
 - Fixed property filter bug that would break when multiples were applied in some circumstances
 - Fixed setting event name in action
 - Fixzed event filtering with teams
@@ -61,7 +61,7 @@ Important! We've added Celery workers. We'll move tasks to workers to speed up a
 
 ![Dotted line example](https://posthog.com/wp-content/uploads/2020/04/dotted-lines.png)
 
-- Trends graphs have fixed the X axis at 0 
+- Trends graphs have fixed the X axis at 0
 
 ![x axis 0](https://posthog.com/wp-content/uploads/2020/04/Posthog-7.png)
 
@@ -173,7 +173,7 @@ Important! We've added Celery workers. We'll move tasks to workers to speed up a
 
 ![demo data copy](https://posthog.com/wp-content/uploads/2020/03/HogFlix.png)
 
-- Built a Helm Chart for PostHog 
+- Built a Helm Chart for PostHog
 
 - Ordering is now by timestamp instead of id
 

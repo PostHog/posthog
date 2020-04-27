@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && apt-get install nodejs -y --no-install-recommends \
     && npm install -g yarn@1 \
     && yarn config set network-timeout 300000 \
-    && yarn --frozen-lockfile 
+    && yarn --frozen-lockfile
 
 RUN mkdir /code/frontend/dist
 

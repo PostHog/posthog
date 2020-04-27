@@ -44,7 +44,7 @@ class TestFilterByActions(BaseTest):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0], event2)
 
-        # test [id='someId'] 
+        # test [id='someId']
         action3 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action3, selector="[id='someId']")
         action3.calculate_events()

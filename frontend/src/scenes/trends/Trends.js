@@ -98,7 +98,7 @@ export function Trends() {
                                             placement="right"
                                             title='
                                             Stickiness shows you how many days users performed an action within the timeframe. If a user
-                                            performed an action on Monday and again on Friday, it would be shown 
+                                            performed an action on Monday and again on Friday, it would be shown
                                             as "2 days".'
                                         >
                                             <small className="info">info</small>

@@ -9,13 +9,13 @@ class TestSignup(TestCase):
     def setUp(self):
         super().setUp()
         self.client = Client()
-     
+
     def test_signup_new_team(self):
         with self.settings(TEST=False):
             response = self.client.post('/setup_admin', {'company_name': 'ACME Inc.', 'name': 'Jane', 'email': 'jane@acme.com', 'password': 'hunter2', 'emailOptIn': 'on'}, follow=True)
         self.assertRedirects(response, '/')
 
-        user = User.objects.get() 
+        user = User.objects.get()
         self.assertEqual(user.first_name, 'Jane')
         self.assertEqual(user.email, 'jane@acme.com')
         self.assertTrue(user.email_opt_in)
@@ -56,7 +56,7 @@ class TestSocialSignup(TestCase):
     def test_custom_create_user_pipeline(self):
         Team.objects.create(signup_token='faketoken')
         details = {'username': 'fake_username', 'email': 'fake@email.com', 'fullname': 'bob bob', 'first_name': 'bob', 'last_name': 'bob'}
-        
+
         # try to create user without a signup token
         result = social_create_user(self.strategy, details, self.backend)
         count = User.objects.count()
@@ -74,4 +74,3 @@ class TestSocialSignup(TestCase):
         user = User.objects.get()
         self.assertEqual(result['is_new'], True)
         self.assertEqual(user.email, "fake@email.com")
-        

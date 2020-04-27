@@ -33,4 +33,3 @@ class Entity(object):
             'name': self.name,
             'math': self.math
         }
-

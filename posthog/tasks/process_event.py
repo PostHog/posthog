@@ -110,7 +110,7 @@ def _capture(ip: str, site_url: str, team_id: int, event: str, distinct_id: str,
     # try to create a new person
     try:
         Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-    except IntegrityError: 
+    except IntegrityError:
         pass # person already exists, which is fine
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:

@@ -4,7 +4,7 @@ class TestSignup(TestCase):
     def setUp(self):
         super().setUp()
         self.client = Client()
-     
+
     def test_ip_range(self):
         with self.settings(ALLOWED_IP_BLOCKS='192.168.0.0/31, 127.0.0.0/25,128.0.0.1'):
             # not in list

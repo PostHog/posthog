@@ -16,7 +16,7 @@ def relative_date_parse(input: str) -> datetime.datetime:
         return datetime.datetime.strptime(input, '%Y-%m-%d').replace(tzinfo=pytz.UTC)
     except ValueError:
         pass
-    
+
     # when input also contains the time for intervals "hour" and "minute"
     # the above try fails. Try one more time from isoformat.
     try:
@@ -120,7 +120,7 @@ def attach_social_auth(context):
         context.update({
             'gitlab_auth': True
         })
-    
+
 def friendly_time(seconds: float):
     minutes, seconds = divmod(seconds, 60.0)
     hours, minutes = divmod(minutes, 60.0)

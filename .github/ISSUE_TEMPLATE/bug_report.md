@@ -11,9 +11,9 @@ labels: bug
 
 
 **To Reproduce**
-1. 
-2. 
-3. 
+1.
+2.
+3.
 
 **Expected behavior**
 
@@ -25,13 +25,13 @@ labels: bug
 
 **Desktop (optional: please complete the following information):**
  - OS:
- - Browser: 
- - Version: 
+ - Browser:
+ - Version:
 
 **Smartphone (optional: please complete the following information):**
- - Device: 
- - OS: 
- - Browser 
- - Version 
+ - Device:
+ - OS:
+ - Browser
+ - Version
 
 **Additional context**

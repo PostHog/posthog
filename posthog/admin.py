@@ -19,7 +19,7 @@ class EventAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         qs = super(EventAdmin, self).get_queryset(request)
         return qs.order_by('-timestamp')
- 
+
 @admin.register(User)
 class UserAdmin(DjangoUserAdmin):
     """Define admin model for custom User model with no email field."""

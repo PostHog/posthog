@@ -150,7 +150,7 @@ class TestEvents(BaseTest):
         response = self.client.get('/api/event/?after=2020-01-09').json()
         self.assertEqual(len(response['results']), 1)
         self.assertEqual(response['results'][0]['id'], event1.pk)
-        
+
         response = self.client.get('/api/event/?before=2020-01-09').json()
         self.assertEqual(len(response['results']), 1)
         self.assertEqual(response['results'][0]['id'], event2.pk)
@@ -202,8 +202,8 @@ class TestEvents(BaseTest):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="1")
         with freeze_time("2012-01-17T05:07:30.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")  # test many events within a range
-            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")  
-            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")  
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")  # within 3-10 mins
             Event.objects.create(team=self.team, event='3rd action', distinct_id="10")
 
@@ -228,7 +228,7 @@ class TestEvents(BaseTest):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
 
         response = self.client.get('/api/event/sessions/?session=distribution&date_from=all').json()
-        
+
         for item in response:
             if item['label'] == '30-60 minutes' or item['label'] == '3-10 seconds':
                 self.assertEqual(item['count'], 2)

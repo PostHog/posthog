@@ -52,10 +52,10 @@ class EventViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == 'list' or self.action == 'sessions': # type: ignore
             queryset = self._filter_request(self.request, queryset)
-        
+
         order_by = self.request.GET.get('orderBy')
         order_by = ['-timestamp'] if not order_by else list(json.loads(order_by))
-        
+
         return queryset\
             .filter(team=self.request.user.team_set.get())\
             .order_by(*order_by)
@@ -155,7 +155,7 @@ class EventViewSet(viewsets.ModelViewSet):
         values = Event.objects.raw("""
             SELECT
                 value, COUNT(1) as id
-            FROM ( 
+            FROM (
                 SELECT
                     ("posthog_event"."properties" -> %s) as "value"
                 FROM
@@ -174,7 +174,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(methods=['GET'], detail=False)
     def sessions(self, request: request.Request) -> response.Response:
-        events = self.get_queryset().filter(**request_to_date_query(request.GET.dict())) 
+        events = self.get_queryset().filter(**request_to_date_query(request.GET.dict()))
         session_type = self.request.GET.get('session')
         calculated = self.calculate_sessions(events, session_type)
         return response.Response(calculated)
@@ -191,7 +191,7 @@ class EventViewSet(viewsets.ModelViewSet):
                 partition_by=F('distinct_id'),
                 order_by=F('timestamp').asc()
             ))
-        
+
         sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
         # TODO: add midnight condition
 
@@ -233,11 +233,11 @@ class EventViewSet(viewsets.ModelViewSet):
             avg_length = round(calculated[0][1], 0)
             avg_formatted = friendly_time(avg_length)
             result = [{'label': 'Number of Sessions', 'count': calculated[0][0]}, {'label': 'Average Duration of Session', 'count': avg_formatted}]
-        else: 
+        else:
             dist_labels = ['0 seconds (1 event)', '0-3 seconds', '3-10 seconds', '10-30 seconds', '30-60 seconds', '1-3 minutes', '3-10 minutes', '10-30 minutes', '30-60 minutes', '1+ hours']
             cursor = connection.cursor()
             cursor.execute(distribution(all_sessions), sessions_sql_params)
             calculated = cursor.fetchall()
             result = [{'label': dist_labels[index], 'count': calculated[0][index]} for index in range(len(dist_labels))]
-        
+
         return result

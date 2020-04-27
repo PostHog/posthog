@@ -14,7 +14,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
 
     def get_steps(self, funnel: Funnel) -> List[Dict[str, Any]]:
         # for some reason, rest_framework executes SerializerMethodField multiple times,
-        # causing lots of slow queries. 
+        # causing lots of slow queries.
         # Seems a known issue: https://stackoverflow.com/questions/55023511/serializer-being-called-multiple-times-django-python
         if hasattr(funnel, 'steps_cache'):
             return []

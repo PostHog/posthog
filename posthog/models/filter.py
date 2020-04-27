@@ -42,7 +42,7 @@ class Filter(object):
             self.entities.extend([Entity({**entity, 'type': TREND_FILTER_TYPE_ACTIONS}) for entity in data.get('actions', [])])
         if data.get('events'):
             self.entities.extend([Entity({**entity, 'type': TREND_FILTER_TYPE_EVENTS}) for entity in data.get('events', [])])
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             'date_from': self._date_from,

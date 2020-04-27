@@ -18,7 +18,7 @@ def get_ip_address(request):
         ip = x_forwarded_for.split(',')[0]
     else:
         ip = request.META.get('REMOTE_ADDR')    ### Real IP address of client Machine
-    return ip   
+    return ip
 
 def cors_response(request, response):
     if not request.META.get('HTTP_ORIGIN'):

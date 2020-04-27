@@ -28,8 +28,8 @@ class TestCreateFunnel(BaseTest):
             }
         }, content_type='application/json').json()
         funnels = Funnel.objects.get()
-        self.assertEqual(funnels.filters['actions'][0]['id'], action_sign_up.pk) 
-        self.assertEqual(funnels.filters['events'][0]['id'], 'user signed up') 
+        self.assertEqual(funnels.filters['actions'][0]['id'], action_sign_up.pk)
+        self.assertEqual(funnels.filters['events'][0]['id'], 'user signed up')
         self.assertEqual(funnels.get_steps()[0]['order'], 0)
         self.assertEqual(funnels.get_steps()[1]['order'], 1)
 

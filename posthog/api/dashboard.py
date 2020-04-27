@@ -12,7 +12,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         request = self.context['request']
         dashboard_item = DashboardItem.objects.create(team=request.user.team_set.get(), **validated_data)
         return dashboard_item
- 
+
 
 class DashboardViewSet(viewsets.ModelViewSet):
     queryset = DashboardItem.objects.all()

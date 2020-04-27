@@ -17,5 +17,5 @@ class Command(MakeMigrationsCommand):
             for app_name in apps:
                 leaf_nodes = graph.leaf_nodes(app_name)
                 if len(leaf_nodes) != 1:
-                    raise Exception('App {} has multiple leaf migrations!'.format(app_name))  
+                    raise Exception('App {} has multiple leaf migrations!'.format(app_name))
                 f.write('{}: {}\n'.format(app_name, leaf_nodes[0][1]))

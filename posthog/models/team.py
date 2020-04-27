@@ -35,7 +35,7 @@ class TeamManager(models.Manager):
 
 class Team(models.Model):
     users: models.ManyToManyField = models.ManyToManyField(User, blank=True)
-    api_token: models.CharField = models.CharField(
+    sapi_token: models.CharField = models.CharField(
         max_length=200, null=True, blank=True
     )
     signup_token: models.CharField = models.CharField(

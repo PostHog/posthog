@@ -109,4 +109,3 @@ class PersonViewSet(viewsets.ModelViewSet):
             people = people.extra(where=["properties ->> %s LIKE %s"], params=[request.GET['key'], '%{}%'.format(request.GET['value'])])
 
         return response.Response([{'name': event[key], 'count': event['count']} for event in people[:50]])
-
