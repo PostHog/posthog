@@ -239,7 +239,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             .annotate(**interval_annotation)\
             .values(*values)\
             .annotate(count=Count(1))\
-            .order_by()
+            .order_by('-count')[0:100]
 
         aggregates = self._process_math(aggregates, entity)
 

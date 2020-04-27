@@ -316,16 +316,16 @@ class TestTrends(BaseTest):
             action_response = self.client.get('/api/action/trends/?date_from=-14d&breakdown=$some_property').json()
             event_response = self.client.get('/api/action/trends/?date_from=-14d&properties={}&actions=[]&display=ActionsTable&interval=day&breakdown=$some_property&events=%s' % jdumps([{'id': "sign up", "name": "sign up", "type": "events", "order": 0}, {'id': "no events"}])).json()
 
-        self.assertEqual(event_response[0]['label'], 'sign up - other_value')
-        self.assertEqual(event_response[1]['label'], 'sign up - value')
-        self.assertEqual(event_response[2]['label'], 'sign up - undefined')
+        self.assertEqual(event_response[0]['label'], 'sign up - undefined')
+        self.assertEqual(event_response[1]['label'], 'sign up - other_value')
+        self.assertEqual(event_response[2]['label'], 'sign up - value')
         self.assertEqual(event_response[3]['label'], 'no events - undefined')
 
-        self.assertEqual(sum(event_response[0]['data']), 1)
-        self.assertEqual(event_response[0]['data'][5+7], 1)
+        self.assertEqual(sum(event_response[0]['data']), 2)
+        self.assertEqual(event_response[0]['data'][4+7], 2) # property not defined
 
-        self.assertEqual(sum(event_response[2]['data']), 2)
-        self.assertEqual(event_response[2]['data'][4+7], 2) # property not defined
+        self.assertEqual(sum(event_response[1]['data']), 1)
+        self.assertEqual(event_response[1]['data'][5+7], 1)
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
