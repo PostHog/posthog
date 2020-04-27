@@ -112,7 +112,10 @@ export class LineGraph extends Component {
                                       )
                                           return null
                                       var label = data.datasets[tooltipItem.datasetIndex].label || ''
-                                      return label + ' - ' + tooltipItem.yLabel.toLocaleString()
+                                      let formattedLabel = label + ' - ' + tooltipItem.yLabel.toLocaleString()
+                                      if (formattedLabel.includes('Average Duration of Session'))
+                                          formattedLabel = formattedLabel + ' seconds'
+                                      return formattedLabel
                                   },
                               },
                           },
