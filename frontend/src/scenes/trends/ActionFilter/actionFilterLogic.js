@@ -1,20 +1,7 @@
 import { kea } from 'kea'
-
 import { actionsModel } from '~/models/actionsModel'
 import { EntityTypes } from '../trendsLogic'
-
-import { groupEvents } from '~/lib/utils'
 import { userLogic } from 'scenes/userLogic'
-
-const mirrorValues = (entities, newKey) => {
-    let newEntities = entities.map(entity => {
-        return {
-            ...entity,
-            [newKey]: entity,
-        }
-    })
-    return newEntities
-}
 
 export const entityFilterLogic = kea({
     key: props => props.typeKey,
