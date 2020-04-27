@@ -373,33 +373,16 @@ class ActionViewSet(viewsets.ModelViewSet):
         team = request.user.team_set.get()
         filter = Filter(request=request)
 
-        if request.GET.get('session'):
-            filtered_events = Event.objects.filter(team=team).filter(self._filter_events(filter)).add_person_id(team.id)
-            all_sessions, sessions_sql_params = all_sessions_query(filtered_events)
-            cursor = connection.cursor()
-            cursor.execute('SELECT person_id, MAX(user_session_id) from ({}) as people GROUP BY 1'.format(all_sessions), sessions_sql_params)
-            result = cursor.fetchall()
-            people = Person.objects\
-                .filter(team=team, id__in=[p[0] for p in result[0:100]])
-            return Response([self._serialize_people(
-                people=people,
-                request=request
-            )])
-
-        entity = Entity({
-            'id': request.GET['entityId'],
-            'type': request.GET['type']
-        })
-
-        def _calculate_people(entity: Entity, events: QuerySet):
-            if request.GET.get('shown_as', 'Volume') == 'Volume':
-                events = events.values('person_id').distinct()
-            elif request.GET['shown_as'] == 'Stickiness':
+        def _calculate_people(events: QuerySet):
+            shown_as = request.GET.get('shown_as')
+            if shown_as is not None and shown_as == 'Stickiness':
                 stickiness_days = int(request.GET['stickiness_days'])
                 events = events\
                     .values('person_id')\
                     .annotate(day_count=Count(functions.TruncDay('timestamp'), distinct=True))\
                     .filter(day_count=stickiness_days)
+            else:
+                events = events.values('person_id').distinct()
             people = Person.objects\
                 .filter(team=team, id__in=[p['person_id'] for p in events[0:100]])
 
@@ -407,20 +390,26 @@ class ActionViewSet(viewsets.ModelViewSet):
                 people=people,
                 request=request
             )
-        if entity.type == TREND_FILTER_TYPE_EVENTS:
-            filtered_events =  self._process_entity_for_events(entity, team=team, order_by=None)\
-                .filter(self._filter_events(filter))
-            people = _calculate_people(entity=entity, events=filtered_events)
-            return Response([people])
-        elif entity.type == TREND_FILTER_TYPE_ACTIONS:
-            actions = super().get_queryset()
-            actions = actions.filter(deleted=False)
-            try:
-                action = actions.get(pk=entity.id)
-            except Action.DoesNotExist:
-                return Response([])
-            filtered_events = self._process_entity_for_events(entity, team=team, order_by=None).filter(self._filter_events(filter))
-            people = _calculate_people(entity=entity, events=filtered_events)
-            return Response([people])
 
-        return Response([])
+        filtered_events = QuerySet()
+        if request.GET.get('session'):
+            filtered_events = Event.objects.filter(team=team).filter(self._filter_events(filter)).add_person_id(team.id)
+        else:
+            entity = Entity({
+                'id': request.GET['entityId'],
+                'type': request.GET['type']
+            })
+            if entity.type == TREND_FILTER_TYPE_EVENTS:
+                filtered_events =  self._process_entity_for_events(entity, team=team, order_by=None)\
+                    .filter(self._filter_events(filter))
+            elif entity.type == TREND_FILTER_TYPE_ACTIONS:
+                actions = super().get_queryset()
+                actions = actions.filter(deleted=False)
+                try:
+                    action = actions.get(pk=entity.id)
+                except Action.DoesNotExist:
+                    return Response([])
+                filtered_events = self._process_entity_for_events(entity, team=team, order_by=None).filter(self._filter_events(filter))
+        
+        people = _calculate_people(events=filtered_events)
+        return Response([people])
