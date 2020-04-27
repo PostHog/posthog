@@ -1,7 +1,7 @@
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from django.db.models import Q
-from typing import Dict, Any
+from typing import Dict, Any, List
 from django.template.loader import get_template
 from django.http import HttpResponse, JsonResponse
 from dateutil import parser
@@ -129,7 +129,7 @@ def friendly_time(seconds: float):
         minutes='{m} minutes '.format(m=int(minutes)) if minutes > 0 else '',\
         seconds='{s} seconds'.format(s=int(seconds)) if seconds > 0 or (minutes == 0 and hours == 0) else '').strip()
 
-def append_data(append: Dict, dates_filled: list, interval=None, count=True) -> Dict:
+def append_data(append: Dict, dates_filled: List, interval=None, count=True) -> Dict:
     append['data'] = []
     append['labels'] = []
     append['days'] = []

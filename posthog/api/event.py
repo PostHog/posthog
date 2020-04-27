@@ -8,6 +8,7 @@ from django.db import connection
 from django.db.models.expressions import Window
 from typing import Any, Dict, List
 import json
+import datetime
 
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
@@ -231,21 +232,21 @@ class EventViewSet(viewsets.ModelViewSet):
                             AS length,\
                             MIN(timestamp) as timestamp FROM ({}) as count GROUP BY 1) as agg group by 1 order by start_time'.format(query)
 
-        result = []
+        result: List = []
         if session_type == 'avg':
             cursor = connection.cursor()
             cursor.execute(overall_average_length(all_sessions), sessions_sql_params)
             calculated = cursor.fetchall()
             avg_length = round(calculated[0][1], 0)
             avg_formatted = friendly_time(avg_length)
-            result = {'label': 'Average Duration of Session', 'count': avg_formatted}
+            overall_average = {'label': 'Average Duration of Session', 'count': avg_formatted}
 
             cursor = connection.cursor()
             cursor.execute(average_length_time(all_sessions), sessions_sql_params)
             time_series_avg = cursor.fetchall()
-            time_series_avg_friendly = [(item[0], round(item[1])) for item in time_series_avg]
+            time_series_avg_friendly: List = [(item[0], round(item[1])) for item in time_series_avg]
 
-            result = [append_data(result, time_series_avg_friendly, count=False)]
+            result = [append_data(overall_average, time_series_avg_friendly, count=False)]
         else: 
             dist_labels = ['0 seconds (1 event)', '0-3 seconds', '3-10 seconds', '10-30 seconds', '30-60 seconds', '1-3 minutes', '3-10 minutes', '10-30 minutes', '30-60 minutes', '1+ hours']
             cursor = connection.cursor()

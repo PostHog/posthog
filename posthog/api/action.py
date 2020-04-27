@@ -228,7 +228,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             aggregates=aggregates,
             interval=interval
         )
-        append = append_data(append, dates_filled.items(), interval)
+        append = append_data(append, list(dates_filled.items()), interval)
         if request.GET.get('breakdown'):
             append = self._breakdown(append=append, filtered_events=filtered_events, entity=entity, filter=filter, breakdown_by=request.GET['breakdown'])
 
@@ -370,9 +370,9 @@ class ActionViewSet(viewsets.ModelViewSet):
                 request=request
             )
 
-        filtered_events = QuerySet()
+        filtered_events: QuerySet = QuerySet()
         if request.GET.get('session'):
-            filtered_events = Event.objects.filter(team=team).filter(self._filter_events(filter)).add_person_id(team.id)
+            filtered_events = Event.objects.filter(team=team).filter(self._filter_events(filter)).add_person_id(team.pk)
         else:
             entity = Entity({
                 'id': request.GET['entityId'],
