@@ -10,7 +10,6 @@ import datetime
 import re
 import os
 import pytz
-import statistics
 
 def relative_date_parse(input: str) -> datetime.datetime:
     try:
