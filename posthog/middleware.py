@@ -17,9 +17,9 @@ class AllowIP(object):
         self.get_response = get_response
 
     def get_forwarded_for(self, request: HttpRequest):
-        hdr = request.META.get('HTTP_X_FORWARDED_FOR')
-        if hdr is not None:
-            return [ip.strip() for ip in hdr.split(',')]
+        forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if forwarded_for is not None:
+            return [ip.strip() for ip in forwarded_for.split(',')]
         else:
             return []
 
@@ -30,6 +30,8 @@ class AllowIP(object):
             if forwarded_for:
                 closest_proxy = client_ip
                 client_ip = forwarded_for.pop(0)
+                if getattr(settings, 'TRUST_ALL_PROXIES', False):
+                    return client_ip
                 proxies = [closest_proxy] + forwarded_for
                 for proxy in proxies:
                     if proxy not in self.trusted_proxies:

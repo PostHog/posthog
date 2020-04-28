@@ -53,7 +53,11 @@ if os.environ.get('IS_BEHIND_PROXY', False):
     USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
+# IP block settings
 ALLOWED_IP_BLOCKS = os.environ.get('ALLOWED_IP_BLOCKS', False)
+TRUSTED_PROXIES = os.environ.get('TRUSTED_PROXIES', False)
+TRUST_ALL_PROXIES = os.environ.get('TRUST_ALL_PROXIES', False)
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
