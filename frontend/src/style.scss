@@ -130,6 +130,23 @@ $body-color: #37352f;
     padding: 0 45px;
 }
 
+.code-container {
+    position: relative;
+    .copy-icon {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        padding: 2px;
+        color: white;
+        background-color: inherit;
+        cursor: pointer;
+        &:hover {
+            transition: all 0.2s ease-in-out;
+            transform: scale(1.1);
+        }
+    }
+}
+
 pre.code {
     white-space: pre-wrap;
     word-break: break-all;

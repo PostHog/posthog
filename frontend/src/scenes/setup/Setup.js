@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { Divider } from 'antd'
-import { JSSnippet } from '../../lib/utils'
+import { JSSnippet } from '../../lib/components/JSSnippet'
 import { InviteTeam } from '../../lib/components/InviteTeam'
 import { OptOutCapture } from './OptOutCapture'
 import { UpdateEmailPreferences } from './UpdateEmailPreferences'

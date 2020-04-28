@@ -235,7 +235,7 @@ class EventViewSet(viewsets.ModelViewSet):
             cursor.execute(average_length_time(all_sessions), sessions_sql_params)
             time_series_avg = cursor.fetchall()
             time_series_avg_friendly: List = [(item[0], round(item[1])) for item in time_series_avg]
-            time_series_data = append_data({}, time_series_avg_friendly, math=None)
+            time_series_data = append_data(time_series_avg_friendly, math=None)
 
             # calculate average
             totals = [sum(x) for x in list(zip(*time_series_avg))[2:4]]

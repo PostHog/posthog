@@ -1,6 +1,6 @@
 import React, { Component } from 'react'
 import { withRouter } from 'react-router-dom'
-import { JSSnippet } from '../lib/utils'
+import { JSSnippet } from '../lib/components/JSSnippet'
 
 class SendEventsOverlay extends Component {
     constructor(props) {
