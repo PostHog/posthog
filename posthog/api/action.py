@@ -169,7 +169,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             response['total'] = {key: value[0] if len(value) > 0 else 0 for key, value in dataframe.iterrows()}
         return response
 
-    def _filter_events(self, filter: Filter, entity: Entity=None) -> Q:
+    def _filter_events(self, filter: Filter, entity: Optional[Entity]=None) -> Q:
         filters = Q()
         if filter.date_from:
             filters &= Q(timestamp__gte=filter.date_from)
