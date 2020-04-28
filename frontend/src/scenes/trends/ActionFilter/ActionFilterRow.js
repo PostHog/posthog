@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { entityFilterLogic } from './actionFilterLogic'
 import { EntityTypes } from '../trendsLogic'
@@ -16,6 +16,7 @@ export function ActionFilterRow({ filter, index, typeKey }) {
         entityFilterLogic({ typeKey })
     )
     const { eventProperties } = useValues(userLogic)
+    const [entityFilterVisible, setEntityFilterVisible] = useState(false)
 
     let entity, dropDownCondition, onClick, onClose, onMathSelect, name, value, math
     math = filter.math
@@ -41,7 +42,6 @@ export function ActionFilterRow({ filter, index, typeKey }) {
         name = entity.name || filter.name
         value = entity.id || filter.id
     }
-
     return (
         <div>
             <button
@@ -60,6 +60,15 @@ export function ActionFilterRow({ filter, index, typeKey }) {
                 {name || 'Select action'}
             </button>
             <MathSelector math={math} index={index} onMathSelect={onMathSelect} />
+            <div className="btn btn-sm btn-light" onClick={() => setEntityFilterVisible(!entityFilterVisible)}>
+                {entityFilterVisible
+                    ? 'Hide Filters'
+                    : filter.properties && Object.keys(filter.properties).length > 0
+                    ? Object.keys(filter.properties).length +
+                      ' Filter' +
+                      (Object.keys(filter.properties).length == 1 ? '' : 's')
+                    : 'Add Filters'}
+            </div>
             <CloseButton
                 onClick={onClose}
                 style={{
@@ -69,15 +78,17 @@ export function ActionFilterRow({ filter, index, typeKey }) {
                     marginTop: 3,
                 }}
             />
-            <div className="ml-4">
-                <PropertyFilters
-                    pageKey={`${index}-${typeKey}-filter`}
-                    properties={eventProperties}
-                    propertyFilters={filter.properties}
-                    onChange={properties => updateFilterProperty({ properties, index })}
-                    style={{ marginBottom: 0 }}
-                />
-            </div>
+            {entityFilterVisible && (
+                <div className="ml-4">
+                    <PropertyFilters
+                        pageKey={`${index}-${typeKey}-filter`}
+                        properties={eventProperties}
+                        propertyFilters={filter.properties}
+                        onChange={properties => updateFilterProperty({ properties, index })}
+                        style={{ marginBottom: 0 }}
+                    />
+                </div>
+            )}
             {dropDownCondition() && (
                 <ActionFilterDropdown
                     typeKey={typeKey}

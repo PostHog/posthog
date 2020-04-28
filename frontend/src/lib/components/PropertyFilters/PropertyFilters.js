@@ -53,7 +53,7 @@ function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, 
                     </Button>
                 ) : (
                     <Button type="default" shape="round">
-                        {'Add Filter'}
+                        {'New Filter'}
                     </Button>
                 )}
             </Popover>
