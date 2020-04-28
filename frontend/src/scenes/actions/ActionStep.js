@@ -171,7 +171,16 @@ export class ActionStep extends Component {
                 <div className="btn-group">
                     <button
                         type="button"
-                        onClick={() => this.sendStep({ ...step, event: '$autocapture' })}
+                        onClick={() =>
+                            this.setState(
+                                {
+                                    selection: Object.keys(step).filter(
+                                        key => key != 'id' && key != 'isNew' && step[key]
+                                    ),
+                                },
+                                () => this.sendStep({ ...step, event: '$autocapture' })
+                            )
+                        }
                         className={'btn ' + (step.event == '$autocapture' ? 'btn-secondary' : 'btn-light')}
                     >
                         Frontend element
