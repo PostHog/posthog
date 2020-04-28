@@ -22,7 +22,7 @@ export class SaveToDashboard extends Component {
         return (
             <div>
                 Panel added to dashboard.&nbsp;
-                <Link to="/">Click here to see it.</Link>
+                <Link to="/dashboard">Click here to see it.</Link>
             </div>
         )
     }
