@@ -322,10 +322,12 @@ class TestTrends(BaseTest):
         self.assertEqual(event_response[3]['label'], 'no events - undefined')
 
         self.assertEqual(sum(event_response[0]['data']), 2)
-        self.assertEqual(event_response[0]['data'][4+7], 2) # property not defined
+        self.assertEqual(event_response[0]['data'][4+7], 2)
+        self.assertEqual(event_response[0]['breakdown_value'], None)
 
         self.assertEqual(sum(event_response[1]['data']), 1)
         self.assertEqual(event_response[1]['data'][5+7], 1)
+        self.assertEqual(event_response[1]['breakdown_value'], 'other_value')
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 

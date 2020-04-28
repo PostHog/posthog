@@ -331,6 +331,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 new_dict = copy.deepcopy(serialized)
                 if value != 'Total':
                     new_dict['label'] = '{} - {}'.format(entity.name, value if value else 'undefined') 
+                    new_dict['breakdown_value'] = value
                 new_dict.update(self._append_data(dates_filled=item, interval=interval))
                 response.append(new_dict)
         elif request.GET['shown_as'] == 'Stickiness':

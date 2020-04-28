@@ -7,7 +7,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam }) {
     const { filters, results } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
-    const { loadResults, showPeople } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
+    const { loadResults, loadPeople } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
 
     const { people_action, people_day, ...otherFilters } = filters
 
@@ -25,11 +25,8 @@ export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam
                     dashboardItemId
                         ? null
                         : point => {
-                              const {
-                                  dataset: { action },
-                                  day,
-                              } = point
-                              showPeople(action, day)
+                              const { dataset, day } = point
+                              loadPeople(dataset.action, day, dataset.breakdown_value)
                           }
                 }
             />
