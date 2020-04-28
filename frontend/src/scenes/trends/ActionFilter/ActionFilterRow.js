@@ -9,6 +9,17 @@ import { Tooltip } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { userLogic } from 'scenes/userLogic'
 
+const determineFilterLabel = (visible, filter) => {
+    if (visible) return 'Hide Filters'
+
+    if (filter.properties && Object.keys(filter.properties).length > 0) {
+        return (
+            Object.keys(filter.properties).length + ' Filter' + (Object.keys(filter.properties).length == 1 ? '' : 's')
+        )
+    }
+    return 'Add Filters'
+}
+
 export function ActionFilterRow({ filter, index, typeKey }) {
     const node = useRef()
     const { selectedFilter, entities } = useValues(entityFilterLogic({ typeKey }))
@@ -61,13 +72,7 @@ export function ActionFilterRow({ filter, index, typeKey }) {
             </button>
             <MathSelector math={math} index={index} onMathSelect={onMathSelect} />
             <div className="btn btn-sm btn-light" onClick={() => setEntityFilterVisible(!entityFilterVisible)}>
-                {entityFilterVisible
-                    ? 'Hide Filters'
-                    : filter.properties && Object.keys(filter.properties).length > 0
-                    ? Object.keys(filter.properties).length +
-                      ' Filter' +
-                      (Object.keys(filter.properties).length == 1 ? '' : 's')
-                    : 'Add Filters'}
+                {determineFilterLabel(entityFilterVisible, filter)}
             </div>
             <CloseButton
                 onClick={onClose}
