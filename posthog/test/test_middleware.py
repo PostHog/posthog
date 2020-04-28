@@ -18,6 +18,9 @@ class TestSignup(TestCase):
             response = self.client.get('/', REMOTE_ADDR='192.168.0.1')
             self.assertNotIn(b'IP is not allowed', response.content)
 
+            response = self.client.get('/', REMOTE_ADDR='128.0.0.2', HTTP_X_FORWARDED_FOR='192.168.0.1')
+            self.assertNotIn(b'IP is not allowed', response.content)
+
             response = self.client.get('/', REMOTE_ADDR='192.168.0.2')
             self.assertIn(b'IP is not allowed', response.content)
 
