@@ -86,7 +86,7 @@ export function ActionFilterRow({ filter, index, typeKey }) {
             {entityFilterVisible && (
                 <div className="ml-4">
                     <PropertyFilters
-                        pageKey={`${index}-${typeKey}-filter`}
+                        pageKey={`${index}-${value}-filter`}
                         properties={eventProperties}
                         propertyFilters={filter.properties}
                         onChange={properties => updateFilterProperty({ properties, index })}
