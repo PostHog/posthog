@@ -387,8 +387,8 @@ class TestTrends(BaseTest):
         with freeze_time('2020-01-02'):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"$some_property": "other_value"})
         with freeze_time('2020-01-04'):
-            action_response = self.client.get('/api/action/trends/?breakdown=$some_property&actions=%s' % json_to_url([{'id': sign_up_action.id, 'math': 'dau'}])).json()
-            event_response = self.client.get('/api/action/trends/?breakdown=$some_property&events=%s' % json_to_url([{'id': "sign up", 'math': 'dau'}])).json()
+            action_response = self.client.get('/api/action/trends/?breakdown=$some_property&actions=%s' % jdumps([{'id': sign_up_action.id, 'math': 'dau'}])).json()
+            event_response = self.client.get('/api/action/trends/?breakdown=$some_property&events=%s' % jdumps([{'id': "sign up", 'math': 'dau'}])).json()
 
         self.assertEqual(event_response[0]['label'], 'sign up - other_value')
         self.assertEqual(event_response[1]['label'], 'sign up - value')
