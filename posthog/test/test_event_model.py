@@ -7,8 +7,10 @@ class TestFilterByActions(BaseTest):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
 
         event1 = Event.objects.create(event='$autocapture', team=self.team, distinct_id='whatever', elements=[
-            Element(tag_name='div', nth_child=0, nth_of_type=0, order=0),
-            Element(tag_name='a', href='/a-url', nth_child=1, nth_of_type=0, order=1)
+            Element(tag_name='a', href='/a-url', nth_child=1, nth_of_type=0, order=1),
+            Element(tag_name='button', nth_child=0, nth_of_type=0, order=2),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=3),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=4, attr_id='nested'),
         ])
 
         event2 = Event.objects.create(event='$autocapture', team=self.team, distinct_id='whatever', elements=[
@@ -52,6 +54,15 @@ class TestFilterByActions(BaseTest):
         events = Event.objects.filter_by_action(action3)
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0], event2)
+
+        # test selector without >
+        action4 = Action.objects.create(team=self.team, name='action1')
+        ActionStep.objects.create(event='$autocapture', action=action4, selector="[id='nested'] a")
+        action4.calculate_events()
+
+        events = Event.objects.filter_by_action(action4)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0], event1)
 
     def test_with_normal_filters(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)

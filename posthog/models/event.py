@@ -20,67 +20,97 @@ from .person import PersonDistinctId, Person
 from .team import Team
 
 from posthog.tasks.slack import post_event_to_slack
-from typing import Dict, Union, List, Optional, Any
+from typing import Dict, Union, List, Optional, Any, Tuple
 
 import re
+import copy
 
 attribute_regex = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 
 
-def split_selector_into_parts(selector: str) -> List:
-    tags = selector.split(" > ")
-    tags.reverse()
-    ret: List[Dict[str, Union[str, List]]] = []
-    for tag in tags:
-        data: Dict[str, Union[str, List]] = {}
+class SelectorPart(object):
+    direct_descendant = False
+
+    def __init__(self, tag: str, direct_descendant: bool):
+        self.direct_descendant = direct_descendant
+        self.data: Dict[str, Union[str, List]] = {}
+
         result = re.search(attribute_regex, tag)
         if result and "[id=" in tag:
-            data["attr_id"] = result[3]
+            self.data["attr_id"] = result[3]
             tag = result[1]
         if result and "[" in tag:
-            data["attributes__{}".format(result[2])] = result[3]
+            self.data["attributes__{}".format(result[2])] = result[3]
             tag = result[1]
         if "nth-child(" in tag:
             parts = tag.split(":nth-child(")
-            data["nth_child"] = parts[1].replace(")", "")
+            self.data["nth_child"] = parts[1].replace(")", "")
             tag = parts[0]
         if "." in tag:
             parts = tag.split(".")
-            data["attr_class"] = parts[1:]
+            self.data["attr_class__contains"] = parts[1:]
             tag = parts[0]
         if tag:
-            data["tag_name"] = tag
-        ret.append(data)
-    return ret
+            self.data["tag_name"] = tag
+
+
+class Selector(object):
+    parts: List[SelectorPart] = []
+
+    def __init__(self, selector: str):
+        self.parts = []
+        tags = re.split(" ", selector)
+        tags.reverse()
+        for index, tag in enumerate(tags):
+            if tag == ">":
+                continue
+            direct_descendant = False
+            if tags[index - 1] == ">":
+                del tags[index - 1]
+                direct_descendant = True
+            part = SelectorPart(tag, direct_descendant)
+            self.parts.append(copy.deepcopy(part))
 
 
 class EventManager(models.QuerySet):
+    def _element_subquery(
+        self, selector: Selector
+    ) -> Tuple[Dict[str, Subquery], Dict[str, Union[F, bool]]]:
+        filter: Dict[str, Union[F, bool]] = {}
+        subqueries = {}
+        for index, tag in enumerate(selector.parts):
+            subqueries["match_{}".format(index)] = Subquery(
+                Element.objects.filter(group_id=OuterRef("pk"), **tag.data).values(
+                    "order"
+                )[:1]
+            )
+            filter["match_{}__isnull".format(index)] = False
+            if index > 0:
+                # If direct descendant, the next element has to have order +1
+                if tag.direct_descendant:
+                    filter["match_{}".format(index)] = (
+                        F("match_{}".format(index - 1)) + 1
+                    )
+                else:
+                    # If not, it can have any order as long as it's bigger than current element
+                    filter["match_{}__gt".format(index)] = F(
+                        "match_{}".format(index - 1)
+                    )
+        return (subqueries, filter)
+
     def filter_by_element(self, action_step):
         groups = ElementGroup.objects.filter(team=action_step.action.team_id)
-        filter = {}
+
+        if action_step.selector:
+            selector = Selector(action_step.selector)
+            subqueries, filter = self._element_subquery(selector)
+            groups = groups.annotate(**subqueries)  # type: ignore
+        else:
+            filter = {}
+
         for key in ["tag_name", "text", "href"]:
             if getattr(action_step, key):
                 filter["element__{}".format(key)] = getattr(action_step, key)
-
-        if action_step.selector:
-            parts = split_selector_into_parts(action_step.selector)
-            subqueries = {}
-            for index, tag in enumerate(parts):
-                if tag.get("attr_class"):
-                    attr_class = tag.pop("attr_class")
-                    tag["attr_class__contains"] = attr_class
-                subqueries["match_{}".format(index)] = Subquery(
-                    Element.objects.filter(group_id=OuterRef("pk"), **tag).values(
-                        "order"
-                    )[:1]
-                )
-            groups = groups.annotate(**subqueries)  # type: ignore
-            for index, _ in enumerate(parts):
-                filter["match_{}__isnull".format(index)] = False
-                if index > 0:
-                    filter["match_{}__gt".format(index)] = F(
-                        "match_{}".format(index - 1)
-                    )  # make sure the ordering of the elements is correct
 
         if not filter:
             return {}
@@ -92,8 +122,12 @@ class EventManager(models.QuerySet):
             return subquery
         url_exact = action_step.url_matching == ActionStep.EXACT
         return subquery.extra(
-            where=["properties ->> '$current_url' {} %s".format('=' if url_exact else 'LIKE')],
-            params=[action_step.url if url_exact else '%{}%'.format(action_step.url)]
+            where=[
+                "properties ->> '$current_url' {} %s".format(
+                    "=" if url_exact else "LIKE"
+                )
+            ],
+            params=[action_step.url if url_exact else "%{}%".format(action_step.url)],
         )
 
     def filter_by_event(self, action_step):
@@ -121,7 +155,7 @@ class EventManager(models.QuerySet):
 
         for step in steps:
             subquery = Event.objects.filter(
-                pk=OuterRef('id'),
+                pk=OuterRef("id"),
                 **self.filter_by_element(step),
                 **self.filter_by_event(step)
             )
@@ -174,7 +208,6 @@ class EventManager(models.QuerySet):
                     should_post_to_slack = True
 
             Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
-
 
             if (
                 should_post_to_slack
