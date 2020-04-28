@@ -165,10 +165,20 @@ class TestEvents(BaseTest):
         with freeze_time("2012-01-15T03:59:34.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="1")
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            Event.objects.create(team=self.team, event='4th action', distinct_id="1")
+            Event.objects.create(team=self.team, event='4th action', distinct_id="2")
 
         response = self.client.get('/api/event/sessions/?session=avg&date_from=all').json()
-        self.assertEqual(response[0]['count'], 4) #number of sessions
-        self.assertEqual(response[1]['count'], '2 minutes') # average length of all sessions
+        self.assertEqual(response[0]['count'], 3) # average length of all sessions
+
+        # time series 
+        self.assertEqual(response[0]['data'][0], 240)
+        self.assertEqual(response[0]['data'][1], 120)
+        self.assertEqual(response[0]['labels'][0], 'Sat. 14 January')
+        self.assertEqual(response[0]['labels'][1], 'Sun. 15 January')
+        self.assertEqual(response[0]['days'][0], '2012-01-14')
+        self.assertEqual(response[0]['days'][1], '2012-01-15')
 
     def test_sessions_count_buckets(self):
 

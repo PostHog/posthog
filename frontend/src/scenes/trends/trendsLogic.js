@@ -43,7 +43,7 @@ export const ViewType = {
 }
 
 function cleanFilters(filters) {
-    if (filters.session) {
+    if (filters.session && filters.session == 'dist') {
         return {
             ...filters,
             display: 'ActionsTable',
@@ -100,6 +100,9 @@ export const trendsLogic = kea({
     loaders: ({ values }) => ({
         results: {
             loadResults: async () => {
+                if (values.filters.session) {
+                    return await api.get('api/event/sessions/?' + toParams(filterClientSideParams(values.filters)))
+                }
                 return await api.get('api/action/trends/?' + toParams(filterClientSideParams(values.filters)))
             },
         },

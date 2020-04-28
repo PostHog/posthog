@@ -11,7 +11,7 @@ export function ChartFilter(props) {
             bordered={false}
             dropdownMatchSelectWidth={false}
         >
-            <Select.Option value="ActionsLineGraph" disabled={filters.session}>
+            <Select.Option value="ActionsLineGraph" disabled={filters.session && filters.session == 'dist'}>
                 Line chart
             </Select.Option>
             <Select.Option value="ActionsTable">Table</Select.Option>

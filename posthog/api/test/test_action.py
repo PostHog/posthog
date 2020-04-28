@@ -429,7 +429,7 @@ class TestTrends(BaseTest):
         ).json()
 
         self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
-        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
+        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=[]))
 
     def test_people_endpoint_with_intervals(self):
         sign_up_action, person = self._create_events()
@@ -480,7 +480,7 @@ class TestTrends(BaseTest):
         ).json()
         self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
         self.assertEqual(len(action_response[0]['people']), 1)
-        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
+        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=[]))
 
         # check grouped hour
         hour_grouped_action_response = self.client.get(
@@ -509,7 +509,7 @@ class TestTrends(BaseTest):
         self.assertTrue(self._compare_entity_response(
             hour_grouped_action_response,
             hour_grouped_grevent_response,
-            remove=['action'],
+            remove=[],
         ))
 
         # check grouped minute
@@ -539,7 +539,7 @@ class TestTrends(BaseTest):
         self.assertTrue(self._compare_entity_response(
             min_grouped_action_response,
             min_grouped_grevent_response,
-            remove=['action'],
+            remove=[],
         ))
 
         # check grouped week
@@ -569,7 +569,7 @@ class TestTrends(BaseTest):
         self.assertTrue(self._compare_entity_response(
             week_grouped_action_response,
             week_grouped_grevent_response,
-            remove=['action'],
+            remove=[],
         ))
 
         # check grouped month
@@ -599,7 +599,7 @@ class TestTrends(BaseTest):
         self.assertTrue(self._compare_entity_response(
             month_group_action_response,
             month_group_grevent_response,
-            remove=['action'],
+            remove=[],
         ))
 
     def test_stickiness(self):
@@ -678,7 +678,7 @@ class TestTrends(BaseTest):
         ).json()
         self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
 
-        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=['action']))
+        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=[]))
 
         # test all time
         response = self.client.get(

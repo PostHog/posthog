@@ -1,21 +1,14 @@
 from posthog.models import Event, Team, Action, ActionStep, Element, User, Person, Filter, Entity
-from posthog.utils import relative_date_parse, properties_to_Q
+from posthog.utils import properties_to_Q, append_data
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from rest_framework import request, serializers, viewsets, authentication
 from rest_framework.response import Response
-
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
-from rest_framework.utils.serializer_helpers import ReturnDict
-from django.db.models import Q, F, Count, Prefetch, functions, QuerySet, TextField
+from django.db.models import Q, Count, Prefetch, functions, QuerySet
 from django.db import connection
-from django.db.models.functions import Concat
-from django.forms.models import model_to_dict
-from django.utils.decorators import method_decorator
-from django.utils.dateparse import parse_date
 from typing import Any, List, Dict, Optional, Tuple
 import pandas as pd
-import numpy as np
 import datetime
 import json
 import pytz
@@ -332,7 +325,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 if value != 'Total':
                     new_dict['label'] = '{} - {}'.format(entity.name, value if value else 'undefined') 
                     new_dict['breakdown_value'] = value
-                new_dict.update(self._append_data(dates_filled=item, interval=interval))
+                new_dict.update(append_data(dates_filled=list(item.items()), interval=interval))
                 response.append(new_dict)
         elif request.GET['shown_as'] == 'Stickiness':
             new_dict = copy.deepcopy(serialized)
@@ -341,13 +334,9 @@ class ActionViewSet(viewsets.ModelViewSet):
  
         return response
 
-    def _serialize_people(self, entity: Entity, people: QuerySet, request: request.Request) -> Dict:
+    def _serialize_people(self, people: QuerySet, request: request.Request) -> Dict:
         people_dict = [PersonSerializer(person, context={'request': request}).data for person in  people]
         return {
-            'action': {
-                'id': entity.id,
-                'name': entity.name
-            },
             'people': people_dict,
             'count': len(people_dict)
         }
@@ -393,45 +382,45 @@ class ActionViewSet(viewsets.ModelViewSet):
     @action(methods=['GET'], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.team_set.get()
-        entity = Entity({
-            'id': request.GET['entityId'],
-            'type': request.GET['type']
-        })
         filter = Filter(request=request)
 
-        def _calculate_people(entity: Entity, events: QuerySet):
-            if request.GET.get('shown_as', 'Volume') == 'Volume':
-                events = events.values('person_id').distinct()
-            elif request.GET['shown_as'] == 'Stickiness':
+        def _calculate_people(events: QuerySet):
+            shown_as = request.GET.get('shown_as')
+            if shown_as is not None and shown_as == 'Stickiness':
                 stickiness_days = int(request.GET['stickiness_days'])
                 events = events\
                     .values('person_id')\
                     .annotate(day_count=Count(functions.TruncDay('timestamp'), distinct=True))\
                     .filter(day_count=stickiness_days)
-
+            else:
+                events = events.values('person_id').distinct()
             people = Person.objects\
                 .filter(team=team, id__in=[p['person_id'] for p in events[0:100]])
 
             return self._serialize_people(
-                entity=entity,
                 people=people,
                 request=request
             )
 
-        if entity.type == TREND_FILTER_TYPE_EVENTS:
-            filtered_events =  self._process_entity_for_events(entity, team=team, order_by=None)\
-                .filter(self._filter_events(filter))
-            people = _calculate_people(entity=entity, events=filtered_events)
-            return Response([people])
-        elif entity.type == TREND_FILTER_TYPE_ACTIONS:
-            actions = super().get_queryset()
-            actions = actions.filter(deleted=False)
-            try:
-                action = actions.get(pk=entity.id)
-            except Action.DoesNotExist:
-                return Response([])
-            filtered_events = self._process_entity_for_events(entity, team=team, order_by=None).filter(self._filter_events(filter))
-            people = _calculate_people(entity=entity, events=filtered_events)
-            return Response([people])
-
-        return Response([])
+        filtered_events: QuerySet = QuerySet()
+        if request.GET.get('session'):
+            filtered_events = Event.objects.filter(team=team).filter(self._filter_events(filter)).add_person_id(team.pk)
+        else:
+            entity = Entity({
+                'id': request.GET['entityId'],
+                'type': request.GET['type']
+            })
+            if entity.type == TREND_FILTER_TYPE_EVENTS:
+                filtered_events =  self._process_entity_for_events(entity, team=team, order_by=None)\
+                    .filter(self._filter_events(filter))
+            elif entity.type == TREND_FILTER_TYPE_ACTIONS:
+                actions = super().get_queryset()
+                actions = actions.filter(deleted=False)
+                try:
+                    action = actions.get(pk=entity.id)
+                except Action.DoesNotExist:
+                    return Response([])
+                filtered_events = self._process_entity_for_events(entity, team=team, order_by=None).filter(self._filter_events(filter))
+        
+        people = _calculate_people(events=filtered_events)
+        return Response([people])
