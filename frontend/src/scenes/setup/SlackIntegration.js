@@ -25,8 +25,10 @@ const logic = kea({
                 [actions.saveWebhook]: () => true,
                 [actions.testAndSaveWebhook]: () => true,
                 [actions.setError]: () => false,
-                [userLogic.actions.userUpdateSuccess]: (_, { updateKey }) => (updateKey === 'slack' ? false : state),
-                [userLogic.actions.userUpdateFailure]: (_, { updateKey }) => (updateKey === 'slack' ? false : state),
+                [userLogic.actions.userUpdateSuccess]: (state, { updateKey }) =>
+                    updateKey === 'slack' ? false : state,
+                [userLogic.actions.userUpdateFailure]: (state, { updateKey }) =>
+                    updateKey === 'slack' ? false : state,
             },
         ],
         isSaved: [
@@ -34,7 +36,7 @@ const logic = kea({
             {
                 [actions.saveWebhook]: () => false,
                 [actions.testAndSaveWebhook]: () => false,
-                [userLogic.actions.userUpdateSuccess]: (_, { updateKey }) => (updateKey === 'slack' ? true : state),
+                [userLogic.actions.userUpdateSuccess]: (state, { updateKey }) => (updateKey === 'slack' ? true : state),
                 [actions.setEditedWebhook]: () => false,
             },
         ],

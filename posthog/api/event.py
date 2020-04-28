@@ -1,14 +1,14 @@
-from posthog.models import Event, Team, Person, Element, Action, PersonDistinctId, ElementGroup
-from posthog.utils import properties_to_Q, friendly_time, request_to_date_query
+from posthog.models import Event, Person, Element, Action, ElementGroup
+from posthog.utils import properties_to_Q, friendly_time, request_to_date_query, append_data
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from django.http import HttpResponse, JsonResponse
-from django.db.models import Q, Count, QuerySet, query, F, Func, functions, Prefetch
+from django.db.models import QuerySet, F, Prefetch
 from django.db.models.functions import Lag
 from django.db import connection
 from django.db.models.expressions import Window
-from typing import Any, Union, Tuple, Dict, List
+from typing import Any, Dict, List
 import json
+import datetime
 
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
@@ -205,12 +205,6 @@ class EventViewSet(viewsets.ModelViewSet):
                     FROM ({}) AS inner_sessions\
                 ) AS outer_sessions'.format(sessions_sql)
 
-        def overall_average_length(query):
-            return 'SELECT COUNT(*) as sessions,\
-                        AVG(length) AS average_session_length\
-                        FROM (SELECT global_session_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
-                            AS length FROM ({}) as count GROUP BY 1) agg'.format(query)
-
         def distribution(query):
             return 'SELECT COUNT(CASE WHEN length = 0 THEN 1 ELSE NULL END) as first,\
                         COUNT(CASE WHEN length > 0 AND length <= 3 THEN 1 ELSE NULL END) as second,\
@@ -225,19 +219,39 @@ class EventViewSet(viewsets.ModelViewSet):
                         FROM (SELECT global_session_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
                             AS length FROM ({}) as count GROUP BY 1) agg'.format(query)
 
-        result = []
+        def average_length_time(query):
+            return 'SELECT date_trunc(\'day\', timestamp) as start_time,\
+                        AVG(length) AS average_session_length_per_day,\
+                        SUM(length) AS total_session_length_per_day, \
+                        COUNT(1) as num_sessions_per_day\
+                        FROM (SELECT global_session_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
+                            AS length,\
+                            MIN(timestamp) as timestamp FROM ({}) as count GROUP BY 1) as agg group by 1 order by start_time'.format(query)
+
+        result: List = []
         if session_type == 'avg':
+
             cursor = connection.cursor()
-            cursor.execute(overall_average_length(all_sessions), sessions_sql_params)
-            calculated = cursor.fetchall()
-            avg_length = round(calculated[0][1], 0)
-            avg_formatted = friendly_time(avg_length)
-            result = [{'label': 'Number of Sessions', 'count': calculated[0][0]}, {'label': 'Average Duration of Session', 'count': avg_formatted}]
+            cursor.execute(average_length_time(all_sessions), sessions_sql_params)
+            time_series_avg = cursor.fetchall()
+            time_series_avg_friendly: List = [(item[0], round(item[1])) for item in time_series_avg]
+            time_series_data = append_data(time_series_avg_friendly, math=None)
+
+            # calculate average
+            totals = [sum(x) for x in list(zip(*time_series_avg))[2:4]]
+            overall_average = totals[0] / totals[1]
+            avg_formatted = friendly_time(overall_average)
+            avg_split = avg_formatted.split(' ')
+
+            time_series_data.update({'label': 'Average Duration of Session ({})'.format(avg_split[1]), 'count': int(avg_split[0])})
+            time_series_data.update({"chartLabel": 'Average Duration of Session (seconds)'})
+
+            result = [time_series_data]
         else: 
             dist_labels = ['0 seconds (1 event)', '0-3 seconds', '3-10 seconds', '10-30 seconds', '30-60 seconds', '1-3 minutes', '3-10 minutes', '10-30 minutes', '30-60 minutes', '1+ hours']
             cursor = connection.cursor()
             cursor.execute(distribution(all_sessions), sessions_sql_params)
             calculated = cursor.fetchall()
             result = [{'label': dist_labels[index], 'count': calculated[0][index]} for index in range(len(dist_labels))]
-        
+
         return result

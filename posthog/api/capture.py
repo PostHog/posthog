@@ -2,6 +2,7 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from posthog.models import Team
+from posthog.utils import get_ip_address
 from typing import Dict, Union, Optional, List, Any
 from urllib.parse import urlparse
 from posthog.tasks.process_event import process_event
@@ -10,15 +11,6 @@ import base64
 import gzip
 import datetime
 
-
-def get_ip_address(request):
-    """ use requestobject to fetch client machine's IP Address """
-    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    if x_forwarded_for:
-        ip = x_forwarded_for.split(',')[0]
-    else:
-        ip = request.META.get('REMOTE_ADDR')    ### Real IP address of client Machine
-    return ip   
 
 def cors_response(request, response):
     if not request.META.get('HTTP_ORIGIN'):

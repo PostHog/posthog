@@ -1,9 +1,9 @@
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from django.db.models import Q
-from typing import Dict, Any
+from typing import Dict, Any, List
 from django.template.loader import get_template
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse, HttpRequest
 from dateutil import parser
 
 import datetime
@@ -84,7 +84,7 @@ def properties_to_Q(properties: Dict[str, str]) -> Q:
             filters &= Q(**{'properties__{}'.format(key): value})
     return filters
 
-def render_template(template_name: str, request, context=None) -> HttpResponse:
+def render_template(template_name: str, request: HttpRequest, context=None) -> HttpResponse:
     from posthog.models import Team
     if context is None:
         context = {}
@@ -128,3 +128,35 @@ def friendly_time(seconds: float):
         hours='{h} hours '.format(h=int(hours)) if hours > 0 else '',\
         minutes='{m} minutes '.format(m=int(minutes)) if minutes > 0 else '',\
         seconds='{s} seconds'.format(s=int(seconds)) if seconds > 0 or (minutes == 0 and hours == 0) else '').strip()
+
+def append_data(dates_filled: List, interval=None, math='sum') -> Dict:
+    append: Dict[str, Any] = {}
+    append['data'] = []
+    append['labels'] = []
+    append['days'] = []
+
+    labels_format = '%a. %-d %B'
+    days_format = '%Y-%m-%d'
+
+    if interval == 'hour' or interval == 'minute':
+        labels_format += ', %H:%M'
+        days_format += ' %H:%M:%S'
+
+    for item in dates_filled:
+        date=item[0]
+        value=item[1]
+        append['days'].append(date.strftime(days_format))
+        append['labels'].append(date.strftime(labels_format))
+        append['data'].append(value)
+    if math == 'sum':
+        append['count'] = sum(append['data'])
+    return append
+
+def get_ip_address(request: HttpRequest) -> str:
+    """ use requestobject to fetch client machine's IP Address """
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR')    ### Real IP address of client Machine
+    return ip

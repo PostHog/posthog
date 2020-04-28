@@ -111,7 +111,10 @@ export class LineGraph extends Component {
                                           )
                                       )
                                           return null
-                                      var label = data.datasets[tooltipItem.datasetIndex].label || ''
+                                      var label =
+                                          data.datasets[tooltipItem.datasetIndex].chartLabel ||
+                                          data.datasets[tooltipItem.datasetIndex].label ||
+                                          ''
                                       return label + ' - ' + tooltipItem.yLabel.toLocaleString()
                                   },
                               },

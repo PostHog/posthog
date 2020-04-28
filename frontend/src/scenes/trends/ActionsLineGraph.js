@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react'
-import api from '../../lib/api'
 import { Loading, toParams } from '../../lib/utils'
 import { LineGraph } from './LineGraph'
 import { useActions, useValues } from 'kea'
@@ -7,7 +6,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam }) {
     const { filters, results } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
-    const { loadResults, showPeople } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
+    const { loadResults, loadPeople } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
 
     const { people_action, people_day, ...otherFilters } = filters
 
@@ -16,7 +15,7 @@ export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam
     }, [toParams(otherFilters)])
 
     return results ? (
-        results.reduce((total, item) => total + item.count, 0) > 0 ? (
+        filters.session || results.reduce((total, item) => total + item.count, 0) > 0 ? (
             <LineGraph
                 type="line"
                 datasets={results}
@@ -25,11 +24,8 @@ export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam
                     dashboardItemId
                         ? null
                         : point => {
-                              const {
-                                  dataset: { action },
-                                  day,
-                              } = point
-                              showPeople(action, day)
+                              const { dataset, day } = point
+                              loadPeople(dataset.action || 'session', day, dataset.breakdown_value)
                           }
                 }
             />
