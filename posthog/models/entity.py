@@ -22,7 +22,7 @@ class Entity(object):
         self.name = data.get('name')
         self.math = data.get('math')
         if self.type == TREND_FILTER_TYPE_EVENTS and not self.name:
-            # if it's an event id won't be int, but mypy...
+            # It won't be an int if it's an event, but mypy...
             self.name = str(self.id)
 
     def to_dict(self) -> Dict[str, Any]:
