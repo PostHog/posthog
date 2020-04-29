@@ -2,7 +2,7 @@
 
 ### 1.3.0 - Wednesday 29 April 2020
 
-- We have added an Android library so you can now capture events in your Androi app and send them to PostHog, we can automatically capture screen changes, and send any other events that you like
+- We have added an Android library so you can now capture events in your Android app and send them to PostHog, we can automatically capture screen changes, and send any other events that you like
 
 ![android events](https://posthog.com/wp-content/uploads/2020/04/android-events.gif)
 
