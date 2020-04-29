@@ -16,14 +16,14 @@ class PathsViewSet(viewsets.ViewSet):
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
     # To avoid unexpected results should convert date range to timestamps with timezone.
     def _add_event_step(self, event:str, aggregate: QuerySet, team: Team, index: int, date_query: Dict[str, datetime.date],  path_type: str, urls: Optional[List[str]]=None) -> QuerySet:
-        event_key = 'event_{}'.format(index)
+        event_key = '{}_{}'.format(event, index)
 
         # adds event_1, url_1, event_2, url_2 etc for each Person
         return aggregate.annotate(**{
             event_key: Subquery(
                 Event.objects.filter(
                     team=team,
-                    event=event,
+                    **({"event":event} if event else {}),
                     distinct_id=OuterRef('distinct_id'),
                     **date_query,
                     **{'{}__isnull'.format(path_type): False},
@@ -53,6 +53,9 @@ class PathsViewSet(viewsets.ViewSet):
             elif requested_type == "$autocapture":
                 event = "$autocapture"
                 path_type = "elements_hash"
+            elif requested_type == "custom_event":
+                event = None
+                path_type = "event"
 
         aggregate = self._add_event_step(event, aggregate, team, 1, date_query, path_type)
         urls: List[str] = []
