@@ -15,7 +15,7 @@ class PathsViewSet(viewsets.ViewSet):
 
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
     # To avoid unexpected results should convert date range to timestamps with timezone.
-    def _add_event_and_url_at_position(self, aggregate: QuerySet, team: Team, index: int, date_query: Dict[str, datetime.date],  path_type: str, urls: Optional[List[str]]=None) -> QuerySet:
+    def _add_event_and_url_at_position(self, event:str, aggregate: QuerySet, team: Team, index: int, date_query: Dict[str, datetime.date],  path_type: str, urls: Optional[List[str]]=None) -> QuerySet:
         event_key = 'event_{}'.format(index)
 
         # adds event_1, url_1, event_2, url_2 etc for each Person
@@ -23,17 +23,17 @@ class PathsViewSet(viewsets.ViewSet):
             event_key: Subquery(
                 Event.objects.filter(
                     team=team,
-                    event='$pageview',
+                    event=event,
                     distinct_id=OuterRef('distinct_id'),
                     **date_query,
-                    **{'properties__${}__isnull'.format(path_type): False},
+                    **{'{}__isnull'.format(path_type): False},
                     **({'timestamp__gt': OuterRef('timestamp_{}'.format(index - 1))} if index > 1 else {})
                 )\
-                .exclude(**({'properties__$current_url': OuterRef('{}_{}'.format(path_type, index -1))} if index > 1 else {}))\
+                .exclude(**({'{}'.format(path_type): OuterRef('{}_{}'.format(path_type, index -1))} if index > 1 else {}))\
                 .order_by('id').values('pk')[:1]
             ),
             'timestamp_{}'.format(index): self._event_subquery(event_key, 'timestamp'),
-            '{}_{}'.format(path_type, index): self._event_subquery(event_key, 'properties__${}'.format(path_type))
+            '{}_{}'.format(path_type, index): self._event_subquery(event_key, '{}'.format(path_type))
         })
 
     def list(self, request):
@@ -41,11 +41,12 @@ class PathsViewSet(viewsets.ViewSet):
         resp = []
         date_query = request_to_date_query(request.GET)
         aggregate: QuerySet[PersonDistinctId] = PersonDistinctId.objects.filter(team=team)
-        path_type = "current_url"
-        aggregate = self._add_event_and_url_at_position(aggregate, team, 1, date_query, path_type)
+        event = "$pageview"
+        path_type = "properties__$current_url"
+        aggregate = self._add_event_and_url_at_position(event, aggregate, team, 1, date_query, path_type)
         urls: List[str] = []
         for index in range(1, 4):
-            aggregate = self._add_event_and_url_at_position(aggregate, team, index+1, date_query, path_type)
+            aggregate = self._add_event_and_url_at_position(event, aggregate, team, index+1, date_query, path_type)
             first_url_key = '{}_{}'.format(path_type, index)
             second_url_key = '{}_{}'.format(path_type, index + 1)
             rows = aggregate\
