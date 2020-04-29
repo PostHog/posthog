@@ -97,10 +97,13 @@ module.exports = {
         contentBase: path.join(__dirname, 'dist'),
         hot: true,
         proxy: {
+            // pass all things not static to django
             '!/static/**': {
                 target: 'http://localhost:8000', // points to django dev server
                 changeOrigin: true,
             },
+            // put all assets directly copied into dist and not managed by webpack as a workaround
+            // else we have to load those assets using a loader rather than cp it in yarn run dev
             '**/*.png': {
                 target: 'http://localhost:8000', // points to django dev server
                 changeOrigin: true,
