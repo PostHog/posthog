@@ -1,6 +1,6 @@
 from rest_framework import viewsets
 from rest_framework.response import Response
-from posthog.models import Event, PersonDistinctId, Team
+from posthog.models import Event, PersonDistinctId, Team, ElementGroup
 from posthog.utils import request_to_date_query
 from django.db.models import Subquery, OuterRef, Count, QuerySet
 from typing import List, Optional, Dict
@@ -15,7 +15,7 @@ class PathsViewSet(viewsets.ViewSet):
 
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
     # To avoid unexpected results should convert date range to timestamps with timezone.
-    def _add_event_and_url_at_position(self, event:str, aggregate: QuerySet, team: Team, index: int, date_query: Dict[str, datetime.date],  path_type: str, urls: Optional[List[str]]=None) -> QuerySet:
+    def _add_event_step(self, event:str, aggregate: QuerySet, team: Team, index: int, date_query: Dict[str, datetime.date],  path_type: str, urls: Optional[List[str]]=None) -> QuerySet:
         event_key = 'event_{}'.format(index)
 
         # adds event_1, url_1, event_2, url_2 etc for each Person
@@ -41,12 +41,12 @@ class PathsViewSet(viewsets.ViewSet):
         resp = []
         date_query = request_to_date_query(request.GET)
         aggregate: QuerySet[PersonDistinctId] = PersonDistinctId.objects.filter(team=team)
-        event = "$pageview"
-        path_type = "properties__$current_url"
-        aggregate = self._add_event_and_url_at_position(event, aggregate, team, 1, date_query, path_type)
+        event = "$autocapture"
+        path_type = "elements_hash"
+        aggregate = self._add_event_step(event, aggregate, team, 1, date_query, path_type)
         urls: List[str] = []
         for index in range(1, 4):
-            aggregate = self._add_event_and_url_at_position(event, aggregate, team, index+1, date_query, path_type)
+            aggregate = self._add_event_step(event, aggregate, team, index+1, date_query, path_type)
             first_url_key = '{}_{}'.format(path_type, index)
             second_url_key = '{}_{}'.format(path_type, index + 1)
             rows = aggregate\
@@ -62,11 +62,16 @@ class PathsViewSet(viewsets.ViewSet):
                 .order_by('-count')[0: 6]
             urls = []
             for row in rows:
+                source_element = ElementGroup.objects.get(hash=row[first_url_key]).element_set.all().order_by('order')[:1] if event == "$autocapture" else QuerySet()
+                target_element = ElementGroup.objects.get(hash=row[second_url_key]).element_set.all().order_by('order')[:1] if event == "$autocapture" else QuerySet()
                 resp.append({
+                    'sourceLabel': '<{}> {}'.format(source_element.values()[0]['tag_name'], "with text \"{}\"".format(source_element.values()[0]['text'])if source_element.values()[0]['text'] else "") if event == "$autocapture" else '{}_{}'.format(index, row[first_url_key]),
+                    'targetLabel': '<{}> {}'.format(target_element.values()[0]['tag_name'], "with text \"{}\"".format(target_element.values()[0]['text'])if target_element.values()[0]['text'] else "") if event == "$autocapture" else '{}_{}'.format(index, row[second_url_key]),
                     'source': '{}_{}'.format(index, row[first_url_key]),
                     'target': '{}_{}'.format(index + 1, row[second_url_key]),
                     'value': row['count']
                 })
                 urls.append(row[second_url_key])
+            
         resp = sorted(resp, key=lambda x: x['value'], reverse=True)
         return Response(resp)

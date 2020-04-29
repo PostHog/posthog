@@ -141,7 +141,7 @@ export class Paths extends Component {
             // .attr("fill", d =>  'var(--blue)')
             .attr('opacity', 0.5)
             .append('title')
-            .text(d => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
+            .text(d => `${stripHTTP(d.label)}\n${d.value.toLocaleString()}`)
 
         const dropOffGradient = svg
             .append('defs')
@@ -201,7 +201,7 @@ export class Paths extends Component {
                 return d.value - d.source.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
             })
 
-        link.append('title').text(d => `${d.source.name} → ${d.target.name}\n${d.value.toLocaleString()}`)
+        link.append('title').text(d => `${d.source.label} → ${d.target.label}\n${d.value.toLocaleString()}`)
 
         var textSelection = svg
             .append('g')
@@ -215,9 +215,9 @@ export class Paths extends Component {
             .attr('text-anchor', d => (d.x0 < width / 2 ? 'start' : 'end'))
             .attr('display', d => (d.value > 0 ? 'inherit' : 'none'))
             .text(d =>
-                d.name.length > 35
-                    ? stripHTTP(d.name).substring(0, 6) + '...' + stripHTTP(d.name).slice(-15)
-                    : stripHTTP(d.name)
+                d.label.length > 35
+                    ? stripHTTP(d.label).substring(0, 6) + '...' + stripHTTP(d.label).slice(-15)
+                    : stripHTTP(d.label)
             )
 
         textSelection
@@ -225,7 +225,7 @@ export class Paths extends Component {
             .attr('fill-opacity', 0.7)
             .text(d => ` ${d.value.toLocaleString()}`)
 
-        textSelection.append('title').text(d => stripHTTP(d.name))
+        textSelection.append('title').text(d => stripHTTP(d.label))
 
         return textSelection.node()
     }
@@ -238,8 +238,8 @@ export class Paths extends Component {
                 {
                     paths: {
                         nodes: [
-                            ...paths.map(path => ({ name: path.source })),
-                            ...paths.map(path => ({ name: path.target })),
+                            ...paths.map(path => ({ name: path.source, label: path.sourceLabel })),
+                            ...paths.map(path => ({ name: path.target, label: path.targetLabel })),
                         ],
                         links: paths,
                     },
