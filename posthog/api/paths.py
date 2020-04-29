@@ -36,11 +36,7 @@ class PathsViewSet(viewsets.ViewSet):
             '{}_{}'.format(path_type, index): self._event_subquery(event_key, '{}'.format(path_type))
         })
 
-    def list(self, request):
-        team = request.user.team_set.get()
-        resp = []
-        date_query = request_to_date_query(request.GET)
-        aggregate: QuerySet[PersonDistinctId] = PersonDistinctId.objects.filter(team=team)
+    def _determine_path_type(self, request):
         event = "$pageview"
         path_type = "properties__$current_url"
 
@@ -56,6 +52,14 @@ class PathsViewSet(viewsets.ViewSet):
             elif requested_type == "custom_event":
                 event = None
                 path_type = "event"
+        return event, path_type
+
+    def list(self, request):
+        team = request.user.team_set.get()
+        resp = []
+        date_query = request_to_date_query(request.GET)
+        aggregate: QuerySet[PersonDistinctId] = PersonDistinctId.objects.filter(team=team)
+        event, path_type = self._determine_path_type(request)
 
         aggregate = self._add_event_step(event, aggregate, team, 1, date_query, path_type)
         urls: List[str] = []
