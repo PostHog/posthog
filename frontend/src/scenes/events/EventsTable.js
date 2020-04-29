@@ -219,7 +219,7 @@ export class EventsTable extends Component {
                         <tr>
                             <th>Event</th>
                             <th>Person</th>
-                            <th>Path</th>
+                            <th>Path / Screen</th>
                             <th>Source</th>
                             <th onClick={this.onTimestapHeaderClick}>
                                 When <i className="fi flaticon-sort" />
