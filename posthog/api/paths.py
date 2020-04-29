@@ -41,8 +41,19 @@ class PathsViewSet(viewsets.ViewSet):
         resp = []
         date_query = request_to_date_query(request.GET)
         aggregate: QuerySet[PersonDistinctId] = PersonDistinctId.objects.filter(team=team)
-        event = "$autocapture"
-        path_type = "elements_hash"
+        event = "$pageview"
+        path_type = "properties__$current_url"
+
+        # determine requested type
+        requested_type = request.GET.get('type', None)
+        if requested_type:
+            if requested_type == "$screen":
+                event = "$screen"
+                path_type = "properties__$screen"
+            elif requested_type == "$autocapture":
+                event = "$autocapture"
+                path_type = "elements_hash"
+
         aggregate = self._add_event_step(event, aggregate, team, 1, date_query, path_type)
         urls: List[str] = []
         for index in range(1, 4):

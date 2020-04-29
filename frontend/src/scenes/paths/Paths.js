@@ -2,6 +2,8 @@ import React, { Component } from 'react'
 import api from '../../lib/api'
 import { toParams, Card } from '../../lib/utils'
 import { DateFilter } from '../../lib/components/DateFilter'
+import { PathSelect } from '~/lib/components/PathSelect'
+import { Row } from 'antd'
 
 let stripHTTP = url => url.replace(/(^[0-9]+_\w+:|^)\/\//, '')
 
@@ -255,27 +257,29 @@ export class Paths extends Component {
     }
 
     render() {
-        let { paths, rendered, filter, dataLoaded } = this.state
+        let { paths, filter, dataLoaded } = this.state
 
         return (
             <div>
                 <h1>Paths</h1>
                 <Card
                     title={
-                        <span>
-                            <span className="float-right">
-                                <DateFilter
-                                    onChange={(date_from, date_to) =>
-                                        this.updateFilter({
-                                            date_from,
-                                            date_to,
-                                        })
-                                    }
-                                    dateFrom={filter.date_from}
-                                    dateTo={filter.date_to}
-                                />
-                            </span>
-                        </span>
+                        <Row justify="space-between">
+                            <Row align="middle">
+                                Path Type:
+                                <PathSelect onChange={value => this.updateFilter({ type: value })} />
+                            </Row>
+                            <DateFilter
+                                onChange={(date_from, date_to) =>
+                                    this.updateFilter({
+                                        date_from,
+                                        date_to,
+                                    })
+                                }
+                                dateFrom={filter.date_from}
+                                dateTo={filter.date_to}
+                            />
+                        </Row>
                     }
                 >
                     <div ref={this.canvas} className="paths" style={{ height: '90vh' }}>
