@@ -40,7 +40,7 @@ class AllowIP(object):
 
     def __call__(self, request: HttpRequest):
         response: HttpResponse = self.get_response(request)
-        if request.path.split('/')[1] in ['decide', 'engage', 'track', 'capture', 'batch', 'e']:
+        if request.path.split('/')[1] in ['decide', 'engage', 'track', 'capture', 'batch', 'e', 'static']:
             return response
         ip = self.extract_client_ip(request)
         if ip and any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
