@@ -68,9 +68,11 @@ export function Trends() {
                                     </h4>
                                     <Row>
                                         <BreakdownFilter
-                                            properties={eventProperties}
                                             breakdown={filters.breakdown}
-                                            onChange={breakdown => setFilters({ breakdown })}
+                                            breakdown_type={filters.breakdown_type}
+                                            onChange={(breakdown, breakdown_type) =>
+                                                setFilters({ breakdown, breakdown_type })
+                                            }
                                         />
                                         {filters.breakdown && (
                                             <CloseButton

@@ -50,7 +50,7 @@ class PersonViewSet(viewsets.ModelViewSet):
 
     def _filter_cohort(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
         cohort = Cohort.objects.get(team=team, pk=request.GET['cohort'])
-        queryset = queryset.filter(cohort.people_filter).order_by('id').distinct('id')
+        queryset = queryset.filter(cohort.people_filter()).order_by('id').distinct('id')
         return queryset
 
     def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
