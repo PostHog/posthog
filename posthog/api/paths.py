@@ -1,8 +1,9 @@
 from rest_framework import viewsets
 from rest_framework.response import Response
-from posthog.models import Event, PersonDistinctId, Team, ElementGroup
-from posthog.utils import request_to_date_query
+from posthog.models import Event, PersonDistinctId, Team, ElementGroup, Element
+from posthog.utils import request_to_date_query, dict_from_cursor_fetchall
 from django.db.models import Subquery, OuterRef, Count, QuerySet
+from django.db import connection
 from typing import List, Optional, Dict
 import datetime
 
@@ -37,8 +38,8 @@ class PathsViewSet(viewsets.ViewSet):
         })
 
     def _determine_path_type(self, request):
-        event = "$pageview"
-        path_type = "properties__$current_url"
+        event = "$autocapture"
+        path_type = "elements_hash"
 
         # determine requested type
         requested_type = request.GET.get('type', None)
@@ -77,19 +78,33 @@ class PathsViewSet(viewsets.ViewSet):
                     second_url_key
                 )\
                 .annotate(count=Count('pk'))\
+                .annotate(**{'group_id_1': ElementGroup.objects.filter(hash=OuterRef(first_url_key)).values('id')[:1]} if event == "$autocapture" else {})\
+                .annotate(**{'group_id_2': ElementGroup.objects.filter(hash=OuterRef(first_url_key)).values('id')[:1]} if event == "$autocapture" else {})\
                 .order_by('-count')[0: 6]
             urls = []
+
+            if event == "$autocapture":
+                rows_query, params = rows.query.sql_with_params()
+                source_element = 'SELECT e."tag_name" as tag_name_source, e."text" as text_source FROM "posthog_element" e JOIN \
+                    ( SELECT group_id, MIN("posthog_element"."order") as minOrder FROM "posthog_element" GROUP BY group_id) e2 ON e.order = e2.minOrder AND e.group_id = e2.group_id where e.group_id = v1.group_id_1'
+                target_element = 'SELECT e."tag_name" as tag_name_target, e."text" as text_target FROM "posthog_element" e JOIN \
+                    ( SELECT group_id, MIN("posthog_element"."order") as minOrder FROM "posthog_element" GROUP BY group_id) e2 ON e.order = e2.minOrder AND e.group_id = e2.group_id where e.group_id = v1.group_id_2'
+                new_query = 'SELECT * FROM ({}) as v1 JOIN LATERAL ({}) as v2 on true JOIN LATERAL ({}) as v3 on true order by -count'.format(rows_query, source_element, target_element)
+                
+                cursor = connection.cursor()
+                cursor.execute(new_query, params)
+                rows = dict_from_cursor_fetchall(cursor)
+
             for row in rows:
-                source_element = ElementGroup.objects.get(hash=row[first_url_key]).element_set.all().order_by('order')[:1] if event == "$autocapture" else QuerySet()
-                target_element = ElementGroup.objects.get(hash=row[second_url_key]).element_set.all().order_by('order')[:1] if event == "$autocapture" else QuerySet()
                 resp.append({
-                    'sourceLabel': '<{}> {}'.format(source_element.values()[0]['tag_name'], "with text \"{}\"".format(source_element.values()[0]['text'])if source_element.values()[0]['text'] else "") if event == "$autocapture" else '{}_{}'.format(index, row[first_url_key]),
-                    'targetLabel': '<{}> {}'.format(target_element.values()[0]['tag_name'], "with text \"{}\"".format(target_element.values()[0]['text'])if target_element.values()[0]['text'] else "") if event == "$autocapture" else '{}_{}'.format(index, row[second_url_key]),
+                    'sourceLabel': '<{}> {}'.format(row['tag_name_source'], "with text \"{}\"".format(row['text_source'])if row['text_source'] else "") if event == "$autocapture" else '{}_{}'.format(index, row[first_url_key]),
+                    'targetLabel': '<{}> {}'.format(row['tag_name_target'], "with text \"{}\"".format(row['text_target'])if row['text_target'] else "") if event == "$autocapture" else '{}_{}'.format(index, row[second_url_key]),
                     'source': '{}_{}'.format(index, row[first_url_key]),
                     'target': '{}_{}'.format(index + 1, row[second_url_key]),
                     'value': row['count']
                 })
                 urls.append(row[second_url_key])
-            
+
+        
         resp = sorted(resp, key=lambda x: x['value'], reverse=True)
         return Response(resp)
