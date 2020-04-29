@@ -15,7 +15,8 @@
         "copy-array": "cp node_modules/posthog-js/dist/array.js frontend/dist/",
         "start": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack --config webpack.config.js --watch",
         "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-array",
-        "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\""
+        "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\"",
+        "dev": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack-dev-server"
     },
     "license": "MIT",
     "dependencies": {
@@ -75,7 +76,8 @@
         "prettier": "1.19.1",
         "sass-loader": "^8.0.2",
         "webpack": "^4.42.0",
-        "webpack-cli": "^3.3.11"
+        "webpack-cli": "^3.3.11",
+        "webpack-dev-server": "^3.10.3"
     },
     "husky": {
         "hooks": {

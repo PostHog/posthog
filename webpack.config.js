@@ -93,6 +93,21 @@ module.exports = {
             },
         ],
     },
+    devServer: {
+        contentBase: path.join(__dirname, 'dist'),
+        hot: true,
+        proxy: {
+            '!/static/**': {
+                target: 'http://localhost:8000', // points to django dev server
+                changeOrigin: true,
+            },
+            '**/*.png': {
+                target: 'http://localhost:8000', // points to django dev server
+                changeOrigin: true,
+            },
+        },
+        port: 8001,
+    },
     plugins: [
         new MiniCssExtractPlugin({
             filename: '[name].css',
