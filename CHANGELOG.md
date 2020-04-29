@@ -1,5 +1,50 @@
 # Changelog
 
+### 1.3.0 - Wednesday 29 April 2020
+
+- We have added an Android library so you can now capture events in your Androi app and send them to PostHog, we can automatically capture screen changes, and send any other events that you like
+
+![android events](https://posthog.com/wp-content/uploads/2020/04/android-events.gif)
+
+- There is now, also a [PostHog Gatsby plugin](https://docs.posthog.com/#/integrations/gatsby)
+
+- We have added URL wildcards so you can use % as a wildcard when setting up an action
+
+![url wildcards](https://posthog.com/wp-content/uploads/2020/04/Posthog-19-e1588157571429.png)
+
+- We have also updated the Trends page design as well as adding trends info hints. Trends is the default homepage when logging into PostHog.
+
+![trend layout](https://posthog.com/wp-content/uploads/2020/04/Posthog-21-e1588171341976.png)
+
+![trend hints](https://posthog.com/wp-content/uploads/2020/04/Fullscreen_4_29_20__12_09_PM-e1588158606164.png)
+
+- The Events table can now be sorted by timestamp.
+
+![timestamp reverse](https://posthog.com/wp-content/uploads/2020/04/timestampreverse.gif)
+
+- Added a more strict flake8 setup and improvements
+- Upgraded Kea to `2.0.0-beta.5`
+- Implemented AntD into Setup page
+- You can now allow access to your PostHog instance by IP address for more security. this does not apply to the JS snippet or the event capture API
+- Added model for typing of filters
+- Added copy code to clipboard changes
+- Use forward for header in middleware if applicable
+- Move get_ip_address to utils
+- Fixed redirect to be explicit for /Trends
+- Moved models to separate files
+- Added link to docs for local deployment
+- Warn instead of crash on invalid selector when using the front-end toolbar
+
+
+#### Bug Fixes
+- Fixed issue with default trends route
+- Fixed Setup page operations not working
+- Fixed crash when hovering over events
+- Fixed issues with $create_alias when users have multiple distinct_ids attached to them
+- Fixed trends save to dashboard issue
+- Fixed adding dashboarditem with set dates
+
+
 ### 1.2.0 - Wednesday 22 Aptil 2020
 
 - We have added an iOS library so you can now capture events in your iOS app and send them to PostHog, we can automatically capture screen changes, and send any other events that you like
