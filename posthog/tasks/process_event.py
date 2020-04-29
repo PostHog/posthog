@@ -5,7 +5,10 @@ from dateutil.relativedelta import relativedelta
 from dateutil import parser
 
 from django.db import IntegrityError
+from django.utils.dateparse import parse_datetime
 import datetime
+
+TIMESTAMP_MAX_OFFSET = 10
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed:bool = True) -> None:
     old_person: Optional[Person] = None
@@ -126,10 +129,18 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
     person.save()
 
 def _handle_timestamp(data: dict, now: str) -> Union[datetime.datetime, str]:
-    if data.get('timestamp'):
-        return data['timestamp']
     now_datetime = parser.isoparse(now)
-    if data.get('offset'):
+    if data.get('timestamp'):
+        timestamp = parse_datetime(data['timestamp'])
+        if not timestamp:
+            return now
+        # if timestamp is too far in the future
+        if timestamp > now_datetime and (timestamp - now_datetime).seconds > TIMESTAMP_MAX_OFFSET:
+            return now
+        # ignore timestamp if it comes from the web
+        if data.get('properties', {}).get('$lib') != 'web':
+            return data['timestamp']
+    if data.get('offset') and data['offset'] < TIMESTAMP_MAX_OFFSET * 1000:
         return now_datetime - relativedelta(microseconds=data['offset'] * 1000)
     return now_datetime
 

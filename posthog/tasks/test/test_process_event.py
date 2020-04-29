@@ -143,17 +143,6 @@ class ProcessEvent(BaseTest):
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
 
-    def test_offset_timestamp(self) -> None:
-        with freeze_time("2020-01-01T12:00:05.200Z"):
-            process_event('distinct_id', '', '', {
-                "offset": 150,
-                "event":"$autocapture",
-                "distinct_id": "distinct_id",
-            }, self.team.pk, now().isoformat())
-
-        event = Event.objects.get()
-        self.assertEqual(event.timestamp.isoformat(), '2020-01-01T12:00:05.050000+00:00')
-
     def test_alias_merge_properties(self) -> None:
         Person.objects.create(
             team=self.team,
@@ -184,6 +173,53 @@ class ProcessEvent(BaseTest):
             'key_on_old': 'old value'
         })
 
+class TestTimestamp(BaseTest):
+    def test_offset_timestamp(self) -> None:
+        with freeze_time("2020-01-01T12:00:05.200Z"):
+            process_event('distinct_id', '', '', {
+                "offset": 150,
+                "event":"$autocapture",
+                "distinct_id": "distinct_id",
+            }, self.team.pk, now().isoformat())
+
+        event = Event.objects.get()
+        self.assertEqual(event.timestamp.isoformat(), '2020-01-01T12:00:05.050000+00:00')
+
+    def test_offset_too_large(self) -> None:
+        with freeze_time("2020-01-01T12:00:05.200Z"):
+            process_event('distinct_id', '', '', {
+                "offset": 10000,
+                "event":"$autocapture",
+                "distinct_id": "distinct_id",
+            }, self.team.pk, now().isoformat())
+
+        event = Event.objects.get()
+        self.assertEqual(event.timestamp.isoformat(), '2020-01-01T12:00:05.200000+00:00')
+
+    def test_timestamp_catch_bad_data(self) -> None:
+        with freeze_time("2020-01-01T12:00:05Z"):
+            process_event('distinct_id', '', '', {
+                "event":"$autocapture",
+                "distinct_id": "distinct_id",
+                "timestamp": "2020-01-01T13:20:04Z"
+            }, self.team.pk, now().isoformat())
+
+        event = Event.objects.get()
+        self.assertEqual(event.timestamp.isoformat(), '2020-01-01T12:00:05+00:00')
+
+    def test_ignore_timestamps_from_web(self) -> None:
+        with freeze_time("2020-01-01T12:00:05Z"):
+            process_event('distinct_id', '', '', {
+                "event":"$autocapture",
+                "distinct_id": "distinct_id",
+                "timestamp": "2020-01-01T10:20:04Z",
+                "properties": {
+                    "$lib": "web"
+                }
+            }, self.team.pk, now().isoformat())
+
+        event = Event.objects.get()
+        self.assertEqual(event.timestamp.isoformat(), '2020-01-01T12:00:05+00:00')
 
 class TestIdentify(TransactionTestCase):
     def setUp(self) -> None:
@@ -277,8 +313,6 @@ class TestIdentify(TransactionTestCase):
         person = Person.objects.get()
         self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id", "anonymous_id_2"])
         self.assertEqual(person.properties['email'], 'someone@gmail.com')
-
-
 
     def test_distinct_team_leakage(self) -> None:
         team2 = Team.objects.create()
