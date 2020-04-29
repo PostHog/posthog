@@ -4,7 +4,6 @@ from posthog.models import Event, PersonDistinctId, Team
 from posthog.utils import request_to_date_query
 from django.db.models import Subquery, OuterRef, Count, QuerySet
 from typing import List, Optional, Dict
-from django.utils.timezone import now
 import datetime
 
 
@@ -16,7 +15,7 @@ class PathsViewSet(viewsets.ViewSet):
 
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
     # To avoid unexpected results should convert date range to timestamps with timezone.
-    def _add_event_and_url_at_position(self, aggregate: QuerySet, team: Team, index: int, date_query: Dict[str, datetime.date], urls: Optional[List[str]]=None) -> QuerySet:
+    def _add_event_and_url_at_position(self, aggregate: QuerySet, team: Team, index: int, date_query: Dict[str, datetime.date],  path_type: str, urls: Optional[List[str]]=None) -> QuerySet:
         event_key = 'event_{}'.format(index)
 
         # adds event_1, url_1, event_2, url_2 etc for each Person
@@ -27,14 +26,14 @@ class PathsViewSet(viewsets.ViewSet):
                     event='$pageview',
                     distinct_id=OuterRef('distinct_id'),
                     **date_query,
-                    **{'properties__$current_url__isnull': False},
+                    **{'properties__${}__isnull'.format(path_type): False},
                     **({'timestamp__gt': OuterRef('timestamp_{}'.format(index - 1))} if index > 1 else {})
                 )\
-                .exclude(**({'properties__$current_url': OuterRef('url_{}'.format(index -1))} if index > 1 else {}))\
+                .exclude(**({'properties__$current_url': OuterRef('{}_{}'.format(path_type, index -1))} if index > 1 else {}))\
                 .order_by('id').values('pk')[:1]
             ),
             'timestamp_{}'.format(index): self._event_subquery(event_key, 'timestamp'),
-            'url_{}'.format(index): self._event_subquery(event_key, 'properties__$current_url')
+            '{}_{}'.format(path_type, index): self._event_subquery(event_key, 'properties__${}'.format(path_type))
         })
 
     def list(self, request):
@@ -42,14 +41,13 @@ class PathsViewSet(viewsets.ViewSet):
         resp = []
         date_query = request_to_date_query(request.GET)
         aggregate: QuerySet[PersonDistinctId] = PersonDistinctId.objects.filter(team=team)
-
-        aggregate = self._add_event_and_url_at_position(aggregate, team, 1, date_query)
+        path_type = "current_url"
+        aggregate = self._add_event_and_url_at_position(aggregate, team, 1, date_query, path_type)
         urls: List[str] = []
-
         for index in range(1, 4):
-            aggregate = self._add_event_and_url_at_position(aggregate, team, index+1, date_query)
-            first_url_key = 'url_{}'.format(index)
-            second_url_key = 'url_{}'.format(index + 1)
+            aggregate = self._add_event_and_url_at_position(aggregate, team, index+1, date_query, path_type)
+            first_url_key = '{}_{}'.format(path_type, index)
+            second_url_key = '{}_{}'.format(path_type, index + 1)
             rows = aggregate\
                 .filter(
                     **({'{}__in'.format(first_url_key): urls} if urls else {}),
@@ -61,7 +59,6 @@ class PathsViewSet(viewsets.ViewSet):
                 )\
                 .annotate(count=Count('pk'))\
                 .order_by('-count')[0: 6]
-
             urls = []
             for row in rows:
                 resp.append({
@@ -70,6 +67,5 @@ class PathsViewSet(viewsets.ViewSet):
                     'value': row['count']
                 })
                 urls.append(row[second_url_key])
-
         resp = sorted(resp, key=lambda x: x['value'], reverse=True)
         return Response(resp)
