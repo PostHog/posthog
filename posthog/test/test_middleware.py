@@ -28,7 +28,7 @@ class TestSignup(TestCase):
             self.assertEqual(b'1', response.content)
 
             response = self.client.get('/static/array.js', REMOTE_ADDR='192.168.0.2')
-            self.assertNotIn(b'IP is not allowed', response.streaming_content)
+            self.assertEqual(200, response.status_code)
 
             # /24 block
             response = self.client.get('/', REMOTE_ADDR='127.0.0.1')
