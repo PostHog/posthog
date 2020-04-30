@@ -3,6 +3,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from unittest.mock import patch, call
 from datetime import timedelta
+from urllib.parse import quote
 import base64
 import json
 import gzip
@@ -32,7 +33,7 @@ class TestCapture(BaseTest):
         now = timezone.now()
         with freeze_time(now):
             with self.assertNumQueries(1):
-                response = self.client.get('/e/?data=%s' % self._dict_to_json(data), content_type='application/json', HTTP_ORIGIN='https://localhost')
+                response = self.client.get('/e/?data=%s' % quote(self._dict_to_json(data)), content_type='application/json', HTTP_ORIGIN='https://localhost')
         self.assertEqual(response.get('access-control-allow-origin'), 'https://localhost')
         arguments = patch_process_event.call_args[1]
         arguments.pop('now') # can't compare fakedate
@@ -179,7 +180,7 @@ class TestCapture(BaseTest):
 
     @patch('posthog.tasks.process_event.process_event.delay')
     def test_engage(self, patch_process_event):
-        response = self.client.get('/engage/?data=%s' % self._dict_to_json({
+        response = self.client.get('/engage/?data=%s' % quote(self._dict_to_json({
             '$set': {
                 '$os': 'Mac OS X',
             },
@@ -187,7 +188,7 @@ class TestCapture(BaseTest):
             '$distinct_id': 3,
             '$device_id': '16fd4afae9b2d8-0fce8fe900d42b-39637c0e-7e9000-16fd4afae9c395',
             '$user_id': 3
-        }), content_type='application/json', HTTP_ORIGIN='https://localhost')
+        })), content_type='application/json', HTTP_ORIGIN='https://localhost')
         arguments = patch_process_event.call_args[1]
         self.assertEqual(arguments['data']['event'], '$identify')
         arguments.pop('now') # can't compare fakedate
@@ -220,9 +221,16 @@ class TestCapture(BaseTest):
         tomorrow = now + timedelta(days=1, hours=2)
         tomorrow_sent_at = now + timedelta(days=1, hours=2, minutes=10)
 
-        data = {'event': 'movie played', 'timestamp': tomorrow.isoformat(), 'properties': {'distinct_id': 2, 'token': self.team.api_token}}
+        data = {
+            'event': 'movie played',
+            'timestamp': tomorrow.isoformat(),
+            'properties': {
+                'distinct_id': 2,
+                'token': self.team.api_token
+            }
+        }
 
-        self.client.get('/e/?_=%s&data=%s' % (int(tomorrow_sent_at.timestamp()), self._dict_to_json(data)),
+        self.client.get('/e/?_=%s&data=%s' % (int(tomorrow_sent_at.timestamp()), quote(self._dict_to_json(data))),
                        content_type='application/json', HTTP_ORIGIN='https://localhost')
 
         arguments = patch_process_event.call_args[1]
@@ -231,7 +239,10 @@ class TestCapture(BaseTest):
         # right time sent as sent_at to process_event
         timediff = arguments['sent_at'].timestamp() - tomorrow_sent_at.timestamp()
         self.assertLess(abs(timediff), 1)
-        self.assertEqual(arguments['data']['timestamp'], tomorrow.isoformat())
+        self.assertEqual(
+            arguments['data']['timestamp'],
+            tomorrow.isoformat()
+        )
 
 
     @patch('posthog.tasks.process_event.process_event.delay')
