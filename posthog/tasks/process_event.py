@@ -132,6 +132,8 @@ def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[dat
             # sent_at - timestamp == now - x
             # x = now + (timestamp - sent_at)
             try:
+                # timestamp and sent_at must both be in the same format: either both with or both without timezones
+                # otherwise we can't get a diff to add to now
                 return parser.isoparse(now) + (parser.isoparse(data['timestamp']) - parser.isoparse(sent_at))
             except TypeError as e:
                 capture_exception(e)
