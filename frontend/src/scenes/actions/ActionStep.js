@@ -171,7 +171,16 @@ export class ActionStep extends Component {
                 <div className="btn-group">
                     <button
                         type="button"
-                        onClick={() => this.sendStep({ ...step, event: '$autocapture' })}
+                        onClick={() =>
+                            this.setState(
+                                {
+                                    selection: Object.keys(step).filter(
+                                        key => key != 'id' && key != 'isNew' && step[key]
+                                    ),
+                                },
+                                () => this.sendStep({ ...step, event: '$autocapture' })
+                            )
+                        }
                         className={'btn ' + (step.event == '$autocapture' ? 'btn-secondary' : 'btn-light')}
                     >
                         Frontend element
@@ -202,7 +211,7 @@ export class ActionStep extends Component {
                                           '//' +
                                           window.location.host +
                                           window.location.pathname
-                                        : null,
+                                        : step.url,
                                 })
                             )
                         }}
@@ -229,33 +238,38 @@ export class ActionStep extends Component {
         )
     }
     AutocaptureFields({ step, isEditor, actionId }) {
-        if (!isEditor)
-            return (
-                <span>
-                    <AppEditorLink actionId={actionId} style={{ margin: '1rem 0' }} className="btn btn-sm btn-light">
-                        Select element on site <i className="fi flaticon-export" />
-                    </AppEditorLink>
-                    <br />
-                    <a href="https://github.com/PostHog/posthog/wiki/Actions" target="_blank">
-                        See documentation
-                    </a>{' '}
-                    on how to set up actions.
-                </span>
-            )
         return (
             <div>
-                <this.Option
-                    item="href"
-                    label="Link href"
-                    selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') + '"]'}
-                />
-                <this.Option item="text" label="Text" />
-                <this.Option item="selector" label="Selector" selector={step.selector} />
-                <this.Option
-                    item="url"
-                    extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
-                    label="URL"
-                />
+                {!isEditor && (
+                    <span>
+                        <AppEditorLink
+                            actionId={actionId}
+                            style={{ margin: '1rem 0' }}
+                            className="btn btn-sm btn-light"
+                        >
+                            Select element on site <i className="fi flaticon-export" />
+                        </AppEditorLink>
+                        <a href="https://docs.posthog.com/#/features/actions" target="_blank" style={{ marginLeft: 8 }}>
+                            See documentation.
+                        </a>{' '}
+                    </span>
+                )}
+                {(isEditor || step.selector || step.href || step.text) && (
+                    <span>
+                        <this.Option
+                            item="href"
+                            label="Link href"
+                            selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') + '"]'}
+                        />
+                        <this.Option item="text" label="Text" />
+                        <this.Option item="selector" label="Selector" selector={step.selector} />
+                        <this.Option
+                            item="url"
+                            extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
+                            label="URL"
+                        />
+                    </span>
+                )}
             </div>
         )
     }

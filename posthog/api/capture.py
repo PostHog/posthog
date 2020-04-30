@@ -6,10 +6,12 @@ from posthog.utils import get_ip_address
 from typing import Dict, Union, Optional, List, Any
 from urllib.parse import urlparse
 from posthog.tasks.process_event import process_event
+from datetime import datetime
+from dateutil import parser
+import re
 import json
 import base64
 import gzip
-import datetime
 
 
 def cors_response(request, response):
@@ -46,6 +48,31 @@ def _load_data(request) -> Optional[Union[Dict, List]]:
     return data
 
 
+def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
+    if len(timestamp) > 11:  # assuming milliseconds / update "11" to "12" if year > 5138 (set a reminder!)
+        timestamp_number = float(timestamp) / 1000
+    else:
+        timestamp_number = int(timestamp)
+
+    return datetime.fromtimestamp(timestamp_number, timezone.utc)
+
+
+def _get_sent_at(data, request) -> Optional[datetime]:
+    if isinstance(data, dict) and data.get('sent_at'):  # posthog-android, posthog-ios
+        sent_at = data['sent_at']
+    elif request.POST.get('sent_at'):  # when urlencoded body and not JSON (in some test)
+        sent_at = request.POST['sent_at']
+    elif request.GET.get('_'):  # posthog-js
+        sent_at = request.GET['_']
+    else:
+        return None
+
+    if re.match(r"^[0-9]+$", sent_at):
+        return _datetime_from_seconds_or_millis(sent_at)
+
+    return parser.isoparse(sent_at)
+
+
 def _get_token(data, request) -> Union[str, bool]:
     if request.POST.get('api_key'):
         return request.POST['api_key']
@@ -74,6 +101,7 @@ def get_event(request):
     data = _load_data(request)
     if not data:
         return cors_response(request, HttpResponse("1"))
+    sent_at = _get_sent_at(data, request)
     token = _get_token(data, request)
     if not token:
         return cors_response(request, JsonResponse({'code': 'validation', 'message': "No api_key set. You can find your API key in the /setup page in posthog"}, status=400))
@@ -106,7 +134,8 @@ def get_event(request):
             site_url=request.build_absolute_uri('/')[:-1],
             data=event,
             team_id=team.pk,
-            now=now
+            now=now,
+            sent_at=sent_at,
         )
 
     return cors_response(request, JsonResponse({'status': 1}))
