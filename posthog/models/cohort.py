@@ -12,11 +12,12 @@ from typing import Any, Dict, Optional
 import json
 
 class Group(object):
-    def __init__(self, properties: Optional[Dict[str, Any]]=None, action_id: Optional[int]=None):
+    def __init__(self, properties: Optional[Dict[str, Any]]=None, action_id: Optional[int]=None, days: Optional[int]=None):
         if not properties and not action_id:
             raise ValueError('Cohort group needs properties or action_id')
         self.properties = properties
         self.action_id = action_id
+        self.days = days
 
 class CohortManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
@@ -25,6 +26,10 @@ class CohortManager(models.Manager):
         return cohort
 
 class Cohort(models.Model):
+    @property
+    def people(self):
+        return Person.objects.filter(self.people_filter(), team=self.team_id)
+
     def people_filter(self, extra_filter=None):
         filters = Q()
         for group in self.groups:
