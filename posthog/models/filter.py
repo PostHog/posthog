@@ -67,7 +67,7 @@ class Filter(object):
         return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
 
     @property
-    def date_to(self) -> Optional[datetime.datetime]:
+    def date_to(self) -> datetime.datetime:
         if self._date_to:
             return relative_date_parse(self._date_to)
-        return None
+        return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)

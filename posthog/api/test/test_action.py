@@ -279,13 +279,13 @@ class TestTrends(BaseTest):
 
         with freeze_time('2020-01-02 23:30'):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
-
         # test today + hourly
-        with freeze_time('2020-01-02T23:31:00Z'):
+        with freeze_time('2020-01-02'):
             action_response = self.client.get(
                 '/api/action/trends/',
                 data={
-                    'date_from': 'dStart',
+                    'date_from': '2020-01-02 23:00:00',
+                    'date_to': '2020-01-02 23:00:00',
                     'interval': 'hour',
                 },
             ).json()

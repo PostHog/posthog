@@ -7,7 +7,6 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 from django.db.models import Q, Count, Prefetch, functions, QuerySet
 from django.db import connection
-from django.utils.timezone import now
 from typing import Any, List, Dict, Optional, Tuple
 import pandas as pd
 import datetime
@@ -146,6 +145,10 @@ class ActionViewSet(viewsets.ModelViewSet):
             'month': 'M'
         }
         response = {}
+        # handle "today" date range
+        if date_from == date_to:
+            date_from = pd.Timestamp(ts_input=date_from).replace(hour=0)
+            date_to = pd.Timestamp(ts_input=date_to).replace(hour=23)
 
         time_index = pd.date_range(date_from, date_to, freq=freq_map[interval])
         if len(aggregates) > 0:
@@ -237,7 +240,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         dates_filled = self._group_events_to_date(
             date_from=filter.date_from if filter.date_from else pd.Timestamp(aggregates[0][interval]),
-            date_to=filter.date_to if filter.date_to else now(),
+            date_to=filter.date_to,
             aggregates=aggregates,
             interval=interval,
             breakdown=breakdown
@@ -256,7 +259,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         return cursor.fetchall()
 
     def _stickiness(self, filtered_events: QuerySet, filter: Filter) -> Dict[str, Any]:
-        range_days = (filter.date_to - filter.date_from).days + 2 if filter.date_from and filter.date_to else 90
+        range_days = (filter.date_to - filter.date_from).days + 2 if filter.date_from else 90
 
         events = filtered_events\
             .filter(self._filter_events(filter))\
