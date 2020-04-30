@@ -244,7 +244,6 @@ class TestCapture(BaseTest):
             tomorrow.isoformat()
         )
 
-
     @patch('posthog.tasks.process_event.process_event.delay')
     def test_sent_at_field(self, patch_process_event):
         now = timezone.now()
