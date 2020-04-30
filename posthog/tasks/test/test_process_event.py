@@ -1,5 +1,6 @@
 from django.test import TransactionTestCase
 from django.utils.timezone import now
+from datetime import timedelta
 from freezegun import freeze_time
 from posthog.api.test.base import BaseTest
 from posthog.models import Event, Action, ActionStep, Person, ElementGroup, Team, User
@@ -52,6 +53,32 @@ class ProcessEvent(BaseTest):
         self.assertEqual(Person.objects.get().distinct_ids, ["asdfasdfasdf"])
         event = Event.objects.get()
         self.assertEqual(event.event, '$pageview')
+
+    def test_capture_sent_at(self) -> None:
+        self._create_user('tim')
+        Person.objects.create(team=self.team, distinct_ids=['asdfasdfasdf'])
+
+        right_now = now()
+        tomorrow = right_now + timedelta(days=1, hours=2)
+        tomorrow_sent_at = right_now + timedelta(days=1, hours=2, minutes=10)
+
+        # event sent_at 10 minutes after timestamp
+        process_event('movie played', '', '', {
+            'event': '$pageview',
+            'timestamp': tomorrow.isoformat(),
+            'properties': {
+                'distinct_id': 'asdfasdfasdf',
+                'token': self.team.api_token,
+            },
+        }, self.team.pk, right_now.isoformat(), tomorrow_sent_at.isoformat())
+
+        event = Event.objects.get()
+
+        event_seconds_before_now = (right_now - event.timestamp).seconds
+
+        # assert that the event is actually recorded 10 minutes before now
+        self.assertGreater(event_seconds_before_now, 590)
+        self.assertLess(event_seconds_before_now, 610)
 
     def test_alias(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=['old_distinct_id'])
