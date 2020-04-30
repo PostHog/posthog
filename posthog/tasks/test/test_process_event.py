@@ -80,6 +80,29 @@ class ProcessEvent(BaseTest):
         self.assertGreater(event_seconds_before_now, 590)
         self.assertLess(event_seconds_before_now, 610)
 
+    def test_capture_no_sent_at(self) -> None:
+        self._create_user('james')
+        Person.objects.create(team=self.team, distinct_ids=['asdfasdfasdf'])
+
+        right_now = now()
+        tomorrow = right_now + timedelta(days=1, hours=2)
+
+        # event sent_at 10 minutes after timestamp
+        process_event('movie played', '', '', {
+            'event': '$pageview',
+            'timestamp': tomorrow.isoformat(),
+            'properties': {
+                'distinct_id': 'asdfasdfasdf',
+                'token': self.team.api_token,
+            },
+        }, self.team.pk, right_now.isoformat(), None)
+
+        event = Event.objects.get()
+
+        difference = abs((tomorrow - event.timestamp).seconds)
+
+        self.assertLess(difference, 1)
+
     def test_alias(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=['old_distinct_id'])
 
