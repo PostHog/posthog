@@ -35,6 +35,7 @@ class TestCapture(BaseTest):
         self.assertEqual(response.get('access-control-allow-origin'), 'https://localhost')
         arguments = patch_process_event.call_args[1]
         arguments.pop('now') # can't compare fakedate
+        arguments.pop('sent_at') # can't compare fakedate
         self.assertDictEqual(arguments, {
             'distinct_id': '2',
             'ip': '127.0.0.1',
@@ -47,19 +48,18 @@ class TestCapture(BaseTest):
     def test_multiple_events(self, patch_process_event):
         self.client.post('/track/', data={
             'data': json.dumps([{
-                'event': 'beep',
-                'properties': {
-                    'distinct_id': 'eeee',
-                    'token': self.team.api_token,
-                },
-            },
-                {
-                'event': 'boop',
-                'properties': {
-                    'distinct_id': 'aaaa',
-                    'token': self.team.api_token,
-                },
-            } ]),
+                    'event': 'beep',
+                    'properties': {
+                        'distinct_id': 'eeee',
+                        'token': self.team.api_token,
+                    },
+                }, {
+                    'event': 'boop',
+                    'properties': {
+                        'distinct_id': 'aaaa',
+                        'token': self.team.api_token,
+                    },
+                }]),
             'api_key': self.team.api_token
         })
         self.assertEqual(patch_process_event.call_count, 2)
@@ -99,6 +99,7 @@ class TestCapture(BaseTest):
         }, content_type='application/json')
         arguments = patch_process_event.call_args[1]
         arguments.pop('now') # can't compare fakedate
+        arguments.pop('sent_at') # can't compare fakedate
         self.assertDictEqual(arguments, {
             'distinct_id': '2',
             'ip': '127.0.0.1',
@@ -123,6 +124,7 @@ class TestCapture(BaseTest):
 
         arguments = patch_process_event.call_args[1]
         arguments.pop('now') # can't compare fakedate
+        arguments.pop('sent_at') # can't compare fakedate
         self.assertDictEqual(arguments, {
             'distinct_id': '2',
             'ip': '127.0.0.1',
@@ -188,6 +190,7 @@ class TestCapture(BaseTest):
         arguments = patch_process_event.call_args[1]
         self.assertEqual(arguments['data']['event'], '$identify')
         arguments.pop('now') # can't compare fakedate
+        arguments.pop('sent_at') # can't compare fakedate
         arguments.pop('data') # can't compare fakedate
         self.assertDictEqual(arguments, {
             'distinct_id': '3',

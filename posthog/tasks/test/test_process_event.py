@@ -25,7 +25,7 @@ class ProcessEvent(BaseTest):
                         {'tag_name': 'div', 'nth_child': 1, 'nth_of_type': 2, '$el_text': '💻'}
                     ]
                 },
-            }, self.team.pk, now().isoformat())
+            }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
         event = Event.objects.get()
@@ -47,7 +47,7 @@ class ProcessEvent(BaseTest):
                 'distinct_id': 'asdfasdfasdf',
                 'token': self.team.api_token,
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Person.objects.get().distinct_ids, ["asdfasdfasdf"])
         event = Event.objects.get()
@@ -63,7 +63,7 @@ class ProcessEvent(BaseTest):
                 'token': self.team.api_token,
                 'alias': 'old_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
@@ -78,7 +78,7 @@ class ProcessEvent(BaseTest):
                 'token': self.team.api_token,
                 'alias': 'new_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
@@ -93,7 +93,7 @@ class ProcessEvent(BaseTest):
                 'token': self.team.api_token,
                 'alias': 'old_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         Person.objects.create(team=self.team, distinct_ids=['old_distinct_id_2'])
 
@@ -104,7 +104,7 @@ class ProcessEvent(BaseTest):
                 'token': self.team.api_token,
                 'alias': 'old_distinct_id_2'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Event.objects.count(), 2)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id", "old_distinct_id_2"])
@@ -117,7 +117,7 @@ class ProcessEvent(BaseTest):
                 'token': self.team.api_token,
                 'alias': 'old_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         person1 = Person.objects.get(team=self.team, persondistinctid__distinct_id='old_distinct_id')
         person2 = Person.objects.get(team=self.team, persondistinctid__distinct_id='new_distinct_id')
@@ -138,7 +138,7 @@ class ProcessEvent(BaseTest):
                 'token': self.team.api_token,
                 'alias': 'old_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
@@ -149,7 +149,7 @@ class ProcessEvent(BaseTest):
                 "offset": 150,
                 "event":"$autocapture",
                 "distinct_id": "distinct_id",
-            }, self.team.pk, now().isoformat())
+            }, self.team.pk, now().isoformat(), now().isoformat())
 
         event = Event.objects.get()
         self.assertEqual(event.timestamp.isoformat(), '2020-01-01T12:00:05.050000+00:00')
@@ -172,7 +172,7 @@ class ProcessEvent(BaseTest):
                 'token': self.team.api_token,
                 'alias': 'old_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Event.objects.count(), 1)
 
@@ -204,7 +204,7 @@ class TestIdentify(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["anonymous_id", "new_distinct_id"])
@@ -217,7 +217,7 @@ class TestIdentify(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
     # This case is likely to happen after signup, for example:
     # 1. User browses website with anonymous_id
@@ -235,7 +235,7 @@ class TestIdentify(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         # self.assertEqual(Event.objects.count(), 0)
         person = Person.objects.get()
@@ -254,7 +254,7 @@ class TestIdentify(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         # self.assertEqual(Event.objects.count(), 0)
         person = Person.objects.get()
@@ -272,7 +272,7 @@ class TestIdentify(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         person = Person.objects.get()
         self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id", "anonymous_id_2"])
@@ -293,7 +293,7 @@ class TestIdentify(TransactionTestCase):
                     'token': self.team.api_token,
                     'distinct_id': '2'
                 },
-            }, self.team.pk, now().isoformat())
+            }, self.team.pk, now().isoformat(), now().isoformat())
         except:
             pass
 

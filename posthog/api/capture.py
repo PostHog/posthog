@@ -66,16 +66,17 @@ def _get_sent_at(data, request) -> Optional[datetime]:
         sent_at = request.POST['sent_at']
     elif request.POST.get('sentAt'):
         sent_at = request.POST['sentAt']
-    elif data.get('sent_at'):
+    elif isinstance(data, dict) and data.get('sent_at'):
         sent_at = data['sent_at']
-    elif data.get('sentAt'):
+    elif isinstance(data, dict) and data.get('sentAt'):
         sent_at = data['sentAt']
+    else:
+        return None
 
-    if sent_at:
-        if re.match(r"^[0-9]+$", sent_at):
-            return _datetime_from_seconds_or_millis(sent_at)
-        return parser.isoparse(sent_at)
-    return None
+    if re.match(r"^[0-9]+$", sent_at):
+        return _datetime_from_seconds_or_millis(sent_at)
+
+    return parser.isoparse(sent_at)
 
 
 def _get_token(data, request) -> Union[str, bool]:
