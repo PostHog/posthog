@@ -3,6 +3,7 @@ from posthog.models import Person, Element, Event, Team, PersonDistinctId
 from typing import Union, Dict, Optional
 from dateutil.relativedelta import relativedelta
 from dateutil import parser
+from sentry_sdk import capture_exception
 
 from django.db import IntegrityError
 import datetime
@@ -130,7 +131,11 @@ def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[dat
         if sent_at:
             # sent_at - timestamp == now - x
             # x = timestamp + (now - sent_at)
-            return parser.isoparse(data['timestamp']) + (parser.isoparse(now) - parser.isoparse(sent_at))
+            try:
+                return parser.isoparse(data['timestamp']) + (parser.isoparse(now) - parser.isoparse(sent_at))
+            except TypeError as e:
+                capture_exception(e)
+
         return data['timestamp']
     now_datetime = parser.isoparse(now)
     if data.get('offset'):
