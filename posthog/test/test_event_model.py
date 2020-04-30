@@ -1,4 +1,5 @@
 from posthog.models import Event, Element, Action, ActionStep, Person, Team, ElementGroup
+from posthog.models.event import Selector, SelectorPart
 from posthog.api.test.base import BaseTest
 from unittest.mock import patch, call
 
@@ -7,8 +8,10 @@ class TestFilterByActions(BaseTest):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
 
         event1 = Event.objects.create(event='$autocapture', team=self.team, distinct_id='whatever', elements=[
-            Element(tag_name='div', nth_child=0, nth_of_type=0, order=0),
-            Element(tag_name='a', href='/a-url', nth_child=1, nth_of_type=0, order=1)
+            Element(tag_name='a', href='/a-url', nth_child=1, nth_of_type=0, order=1),
+            Element(tag_name='button', nth_child=0, nth_of_type=0, order=2),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=3),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=4, attr_id='nested'),
         ])
 
         event2 = Event.objects.create(event='$autocapture', team=self.team, distinct_id='whatever', elements=[
@@ -52,6 +55,15 @@ class TestFilterByActions(BaseTest):
         events = Event.objects.filter_by_action(action3)
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0], event2)
+
+        # test selector without >
+        action4 = Action.objects.create(team=self.team, name='action1')
+        ActionStep.objects.create(event='$autocapture', action=action4, selector="[id='nested'] a")
+        action4.calculate_events()
+
+        events = Event.objects.filter_by_action(action4)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0], event1)
 
     def test_with_normal_filters(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
@@ -298,3 +310,45 @@ class TestSendToSlack(BaseTest):
         patch_post_to_slack.assert_has_calls([call(
             event.pk, 'http://testserver'
         )])
+
+class TestSelectors(BaseTest):
+    def test_selector_splitting(self):
+        selector1 = Selector("div > span > a")
+        selector2 = Selector("div span > a")
+        selector3 = Selector("div span a")
+        selector4 = Selector("div > span a")
+
+        self.assertEqual(len(selector1.parts), 3)
+        self.assertEqual(len(selector2.parts), 3)
+        self.assertEqual(len(selector3.parts), 3)
+        self.assertEqual(len(selector4.parts), 3)
+
+    def test_selector_child(self):
+        selector1 = Selector("div span")
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div'}, 'direct_descendant': False})
+
+    def test_selector_child_direct_descendant(self):
+        selector1 = Selector("div > span")
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div'}, 'direct_descendant': True})
+
+    def test_selector_attribute(self):
+        selector1 = Selector('div[data-id="5"] > span')
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div', 'attributes__data-id': '5'}, 'direct_descendant': True})
+
+    def test_selector_id(self):
+        selector1 = Selector('[id="5"] > span')
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'attr_id': '5'}, 'direct_descendant': True})
+
+    def test_class(self):
+        selector1 = Selector('div.classone.classtwo > span')
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div', 'attr_class__contains': ['classone', 'classtwo']}, 'direct_descendant': True})
+
+    def test_nth_child(self):
+        selector1 = Selector('div > span:nth-child(3)')
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span', 'nth_child': '3'}, 'direct_descendant': False})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div'}, 'direct_descendant': True})
