@@ -130,9 +130,9 @@ def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[dat
     if data.get('timestamp'):
         if sent_at:
             # sent_at - timestamp == now - x
-            # x = timestamp + (now - sent_at)
+            # x = now + (timestamp - sent_at)
             try:
-                return parser.isoparse(data['timestamp']) + (parser.isoparse(now) - parser.isoparse(sent_at))
+                return parser.isoparse(now) + (parser.isoparse(data['timestamp']) - parser.isoparse(sent_at))
             except TypeError as e:
                 capture_exception(e)
 
