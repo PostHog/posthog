@@ -4,43 +4,32 @@ import { fromParams } from 'lib/utils'
 import { Cohort } from './Cohort'
 import { PeopleTable } from './PeopleTable'
 
+import { Button } from 'antd'
+import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
+
 export function People({ history }) {
     const [loading, setLoading] = useState(true)
     const [people, setPeople] = useState(null)
     const [search, setSearch] = useState(undefined)
-    const [hasNext, setHasNext] = useState(null)
+    const [cohortId, setCohortId] = useState(fromParams()['cohort'])
+    const [pagination, setPagination] = useState({})
 
-    function fetchPeople(search, cohort_id) {
-        if (search !== undefined) {
-            setLoading(true)
-        }
-
-        api.get(
-            `api/person/?include_last_event=1&${!!search ? 'search=' + search : ''}${
-                cohort_id ? 'cohort=' + cohort_id : ''
-            }`
-        ).then(data => {
-            // TODO: breakpoint if fetching when previous didn't finish
-            setPeople(data.results)
-            setHasNext(data.next)
-            setLoading(false)
-        })
-    }
-
-    function clickNext() {
+    function fetchPeople(url, scrollTop) {
         setLoading(true)
-        setHasNext(null)
-
-        api.get(hasNext).then(olderPeople => {
-            setPeople([...people, ...olderPeople.results])
-            setHasNext(olderPeople.next)
+        if (scrollTop)
+            document.querySelector('section.ant-layout > .content').parentNode.scrollTo({ top: 0, behavior: 'smooth' })
+        api.get(
+            url ? url : `api/person/?${!!search ? 'search=' + search : ''}${cohortId ? 'cohort=' + cohortId : ''}`
+        ).then(data => {
+            setPeople(data.results)
             setLoading(false)
+            setPagination({ next: data.next, previous: data.previous })
         })
     }
 
     useEffect(() => {
-        fetchPeople(undefined, fromParams()['cohort'])
-    }, [])
+        fetchPeople()
+    }, [cohortId])
 
     const exampleEmail =
         (people && people.map(person => person.properties.email).filter(d => d)[0]) || 'example@gmail.com'
@@ -48,40 +37,40 @@ export function People({ history }) {
     return (
         <div>
             <h1>Users</h1>
-            <Cohort onChange={cohort_id => fetchPeople(false, cohort_id)} history={history} />
-            {people && (
-                <input
-                    className="form-control"
-                    name="search"
-                    autoFocus
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    onKeyDown={e => e.keyCode === 13 && fetchPeople(search)}
-                    placeholder={people && 'Try ' + exampleEmail + ' or has:email'}
-                />
-            )}
-            <br />
-
-            <PeopleTable
-                loading={loading}
-                people={people}
-                onClickProperty={(property, value) => {
-                    const newSearch = search ? `${search.trim()} ${value}` : value
-                    setSearch(newSearch)
-                    fetchPeople(newSearch)
-                }}
+            <Cohort onChange={setCohortId} history={history} />
+            <Button
+                className="float-right"
+                type="default"
+                icon={<ExportOutlined />}
+                href={'/api/person.csv' + (cohortId ? '?cohort=' + cohortId : '')}
+            >
+                Export
+            </Button>
+            <input
+                className="form-control"
+                name="search"
+                autoFocus
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onKeyDown={e => e.keyCode === 13 && fetchPeople(search)}
+                placeholder={people && 'Try ' + exampleEmail + ' or has:email'}
+                style={{ maxWidth: 400 }}
             />
+            <br />
+            <PeopleTable people={people} loading={loading} actions={true} onChange={fetchPeople} />
 
-            {people && people.length > 0 && hasNext && (
-                <button
-                    className="btn btn-primary"
-                    onClick={clickNext}
-                    style={{ margin: '2rem auto 15rem', display: 'block' }}
-                    disabled={!hasNext}
+            <div style={{ margin: '3rem auto 10rem', width: 200 }}>
+                <Button
+                    type="link"
+                    disabled={!pagination.previous}
+                    onClick={() => fetchPeople(pagination.previous, true)}
                 >
-                    Load more events
-                </button>
-            )}
+                    <LeftOutlined style={{ verticalAlign: 'initial' }} /> Previous
+                </Button>
+                <Button type="link" disabled={!pagination.next} onClick={() => fetchPeople(pagination.next, true)}>
+                    Next <RightOutlined style={{ verticalAlign: 'initial' }} />
+                </Button>
+            </div>
         </div>
     )
 }
