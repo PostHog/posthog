@@ -199,7 +199,18 @@ class ProcessEvent(BaseTest):
                 "offset": 150,
                 "event":"$autocapture",
                 "distinct_id": "distinct_id",
-            }, self.team.pk, now().isoformat(), now().isoformat())
+            }, self.team.pk, now().isoformat(), now().isoformat())  # sent at makes no difference for offset
+
+        event = Event.objects.get()
+        self.assertEqual(event.timestamp.isoformat(), '2020-01-01T12:00:05.050000+00:00')
+
+    def test_offset_timestamp_no_sent_at(self) -> None:
+        with freeze_time("2020-01-01T12:00:05.200Z"):
+            process_event('distinct_id', '', '', {
+                "offset": 150,
+                "event":"$autocapture",
+                "distinct_id": "distinct_id",
+            }, self.team.pk, now().isoformat(), None)  # no sent at makes no difference for offset
 
         event = Event.objects.get()
         self.assertEqual(event.timestamp.isoformat(), '2020-01-01T12:00:05.050000+00:00')
