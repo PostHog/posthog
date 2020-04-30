@@ -54,7 +54,7 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
     else:
         timestamp_number = int(timestamp)
 
-    return datetime.utcfromtimestamp(timestamp_number)
+    return datetime.fromtimestamp(timestamp_number, timezone.utc)
 
 
 def _get_sent_at(data, request) -> Optional[datetime]:

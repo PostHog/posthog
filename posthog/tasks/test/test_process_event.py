@@ -80,6 +80,36 @@ class ProcessEvent(BaseTest):
         self.assertGreater(event_seconds_before_now, 590)
         self.assertLess(event_seconds_before_now, 610)
 
+    def test_capture_sent_at_no_timezones(self) -> None:
+        self._create_user('tim')
+        Person.objects.create(team=self.team, distinct_ids=['asdfasdfasdf'])
+
+        right_now = now()
+        tomorrow = right_now + timedelta(days=1, hours=2)
+        tomorrow_sent_at = right_now + timedelta(days=1, hours=2, minutes=10)
+
+        # remove timezones
+        tomorrow = tomorrow.replace(tzinfo=None)
+        tomorrow_sent_at = tomorrow_sent_at.replace(tzinfo=None)
+
+        # event sent_at 10 minutes after timestamp
+        process_event('movie played', '', '', {
+            'event': '$pageview',
+            'timestamp': tomorrow.isoformat(),
+            'properties': {
+                'distinct_id': 'asdfasdfasdf',
+                'token': self.team.api_token,
+            },
+        }, self.team.pk, right_now.isoformat(), tomorrow_sent_at.isoformat())
+
+        event = Event.objects.get()
+
+        event_seconds_before_now = (right_now - event.timestamp).seconds
+
+        # assert that the event is actually recorded 10 minutes before now
+        self.assertGreater(event_seconds_before_now, 590)
+        self.assertLess(event_seconds_before_now, 610)
+
     def test_capture_no_sent_at(self) -> None:
         self._create_user('james')
         Person.objects.create(team=self.team, distinct_ids=['asdfasdfasdf'])

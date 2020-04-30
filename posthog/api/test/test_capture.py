@@ -237,6 +237,9 @@ class TestCapture(BaseTest):
         arguments.pop('now')  # can't compare fakedate
 
         # right time sent as sent_at to process_event
+
+        self.assertEqual(arguments['sent_at'].tzinfo, timezone.utc)
+
         timediff = arguments['sent_at'].timestamp() - tomorrow_sent_at.timestamp()
         self.assertLess(abs(timediff), 1)
         self.assertEqual(
