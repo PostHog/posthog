@@ -45,7 +45,7 @@ function CohortFilter({ breakdown, onChange }) {
             optionLabelProp="label"
             value={breakdown ? breakdown : undefined}
             onChange={value => {
-                onChange(value, 'cohort')
+                onChange(value.length > 0 ? value : null, 'cohort')
             }}
             styles={selectStyle}
             filterOption={(input, option) => option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0}
@@ -94,6 +94,7 @@ export function BreakdownFilter({ breakdown, breakdown_type, onChange }) {
                 <Content
                     breakdown={breakdown}
                     breakdown_type={breakdown_type}
+                    key={open}
                     onChange={(value, type) => {
                         if (type !== 'cohort') setOpen(false)
                         onChange(value, type)
