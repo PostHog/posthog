@@ -1,5 +1,6 @@
 from django.test import TransactionTestCase
 from django.utils.timezone import now
+from datetime import timedelta
 from freezegun import freeze_time
 from posthog.api.test.base import BaseTest
 from posthog.models import Event, Action, ActionStep, Person, ElementGroup, Team, User
@@ -25,7 +26,7 @@ class ProcessEvent(BaseTest):
                         {'tag_name': 'div', 'nth_child': 1, 'nth_of_type': 2, '$el_text': '💻'}
                     ]
                 },
-            }, self.team.pk, now().isoformat())
+            }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
         event = Event.objects.get()
@@ -47,11 +48,60 @@ class ProcessEvent(BaseTest):
                 'distinct_id': 'asdfasdfasdf',
                 'token': self.team.api_token,
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Person.objects.get().distinct_ids, ["asdfasdfasdf"])
         event = Event.objects.get()
         self.assertEqual(event.event, '$pageview')
+
+    def test_capture_sent_at(self) -> None:
+        self._create_user('tim')
+        Person.objects.create(team=self.team, distinct_ids=['asdfasdfasdf'])
+
+        right_now = now()
+        tomorrow = right_now + timedelta(days=1, hours=2)
+        tomorrow_sent_at = right_now + timedelta(days=1, hours=2, minutes=10)
+
+        # event sent_at 10 minutes after timestamp
+        process_event('movie played', '', '', {
+            'event': '$pageview',
+            'timestamp': tomorrow.isoformat(),
+            'properties': {
+                'distinct_id': 'asdfasdfasdf',
+                'token': self.team.api_token,
+            },
+        }, self.team.pk, right_now.isoformat(), tomorrow_sent_at.isoformat())
+
+        event = Event.objects.get()
+
+        event_seconds_before_now = (right_now - event.timestamp).seconds
+
+        # assert that the event is actually recorded 10 minutes before now
+        self.assertGreater(event_seconds_before_now, 590)
+        self.assertLess(event_seconds_before_now, 610)
+
+    def test_capture_no_sent_at(self) -> None:
+        self._create_user('james')
+        Person.objects.create(team=self.team, distinct_ids=['asdfasdfasdf'])
+
+        right_now = now()
+        tomorrow = right_now + timedelta(days=1, hours=2)
+
+        # event sent_at 10 minutes after timestamp
+        process_event('movie played', '', '', {
+            'event': '$pageview',
+            'timestamp': tomorrow.isoformat(),
+            'properties': {
+                'distinct_id': 'asdfasdfasdf',
+                'token': self.team.api_token,
+            },
+        }, self.team.pk, right_now.isoformat(), None)
+
+        event = Event.objects.get()
+
+        difference = abs((tomorrow - event.timestamp).seconds)
+
+        self.assertLess(difference, 1)
 
     def test_alias(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=['old_distinct_id'])
@@ -63,7 +113,7 @@ class ProcessEvent(BaseTest):
                 'token': self.team.api_token,
                 'alias': 'old_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
@@ -78,7 +128,7 @@ class ProcessEvent(BaseTest):
                 'token': self.team.api_token,
                 'alias': 'new_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
@@ -93,7 +143,7 @@ class ProcessEvent(BaseTest):
                 'token': self.team.api_token,
                 'alias': 'old_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         Person.objects.create(team=self.team, distinct_ids=['old_distinct_id_2'])
 
@@ -104,7 +154,7 @@ class ProcessEvent(BaseTest):
                 'token': self.team.api_token,
                 'alias': 'old_distinct_id_2'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Event.objects.count(), 2)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id", "old_distinct_id_2"])
@@ -117,7 +167,7 @@ class ProcessEvent(BaseTest):
                 'token': self.team.api_token,
                 'alias': 'old_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         person1 = Person.objects.get(team=self.team, persondistinctid__distinct_id='old_distinct_id')
         person2 = Person.objects.get(team=self.team, persondistinctid__distinct_id='new_distinct_id')
@@ -138,7 +188,7 @@ class ProcessEvent(BaseTest):
                 'token': self.team.api_token,
                 'alias': 'old_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
@@ -149,7 +199,18 @@ class ProcessEvent(BaseTest):
                 "offset": 150,
                 "event":"$autocapture",
                 "distinct_id": "distinct_id",
-            }, self.team.pk, now().isoformat())
+            }, self.team.pk, now().isoformat(), now().isoformat())  # sent at makes no difference for offset
+
+        event = Event.objects.get()
+        self.assertEqual(event.timestamp.isoformat(), '2020-01-01T12:00:05.050000+00:00')
+
+    def test_offset_timestamp_no_sent_at(self) -> None:
+        with freeze_time("2020-01-01T12:00:05.200Z"):
+            process_event('distinct_id', '', '', {
+                "offset": 150,
+                "event":"$autocapture",
+                "distinct_id": "distinct_id",
+            }, self.team.pk, now().isoformat(), None)  # no sent at makes no difference for offset
 
         event = Event.objects.get()
         self.assertEqual(event.timestamp.isoformat(), '2020-01-01T12:00:05.050000+00:00')
@@ -172,7 +233,7 @@ class ProcessEvent(BaseTest):
                 'token': self.team.api_token,
                 'alias': 'old_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Event.objects.count(), 1)
 
@@ -204,7 +265,7 @@ class TestIdentify(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         self.assertEqual(Event.objects.count(), 1)
         self.assertEqual(Person.objects.get().distinct_ids, ["anonymous_id", "new_distinct_id"])
@@ -217,7 +278,7 @@ class TestIdentify(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
     # This case is likely to happen after signup, for example:
     # 1. User browses website with anonymous_id
@@ -235,7 +296,7 @@ class TestIdentify(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         # self.assertEqual(Event.objects.count(), 0)
         person = Person.objects.get()
@@ -254,7 +315,7 @@ class TestIdentify(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         # self.assertEqual(Event.objects.count(), 0)
         person = Person.objects.get()
@@ -272,7 +333,7 @@ class TestIdentify(TransactionTestCase):
                 'token': self.team.api_token,
                 'distinct_id': 'new_distinct_id'
             },
-        }, self.team.pk, now().isoformat())
+        }, self.team.pk, now().isoformat(), now().isoformat())
 
         person = Person.objects.get()
         self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id", "anonymous_id_2"])
@@ -293,7 +354,7 @@ class TestIdentify(TransactionTestCase):
                     'token': self.team.api_token,
                     'distinct_id': '2'
                 },
-            }, self.team.pk, now().isoformat())
+            }, self.team.pk, now().isoformat(), now().isoformat())
         except:
             pass
 
