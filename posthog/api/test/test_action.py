@@ -701,18 +701,13 @@ class TestTrends(BaseTest):
         cohort = Cohort.objects.create(name='cohort1', team=self.team, groups=[
            {'properties': {'name': 'person1'}} 
         ])
-        cohort.people.add(person1)
         cohort2 = Cohort.objects.create(name='cohort2', team=self.team, groups=[
            {'properties': {'name': 'person2'}} 
         ])
-        cohort2.people.add(person2)
         cohort3 = Cohort.objects.create(name='cohort3', team=self.team, groups=[
             {'properties': {'name': 'person1'}},
             {'properties': {'name': 'person2'}},
         ])
-        cohort3.people.add(person1)
-        cohort3.people.add(person2)
-        # cohort = Cohort.objects.create(name='ch')
         with freeze_time('2020-01-04T13:01:01Z'):
             event_response = self.client.get('/api/action/trends/?date_from=-14d&breakdown=%s&breakdown_type=cohort&events=%s' % (jdumps([cohort.pk, cohort2.pk, cohort3.pk]), jdumps([{'id': "watched movie", "name": "watched movie", "type": "events", "order": 0}]))).json()
 
