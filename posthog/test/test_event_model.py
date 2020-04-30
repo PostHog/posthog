@@ -348,7 +348,7 @@ class TestSelectors(BaseTest):
         self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
         self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div', 'attr_class__contains': ['classone', 'classtwo']}, 'direct_descendant': True})
 
-    def test_class(self):
+    def test_nth_child(self):
         selector1 = Selector('div > span:nth-child(3)')
         self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span', 'nth_child': '3'}, 'direct_descendant': False})
         self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div'}, 'direct_descendant': True})
