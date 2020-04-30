@@ -1,6 +1,6 @@
 import React, { Component, useState } from 'react'
 import { selectStyle } from '../../lib/utils'
-import { Select, Tabs } from 'antd'
+import { Select, Tabs, Popover, Button } from 'antd'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { cohortsModel } from '../../models/cohortsModel'
@@ -13,7 +13,9 @@ function PropertyFilter({ breakdown, onChange }) {
     return (
         <Select
             showSearch
-            style={{ width: '80%', maxWidth: 200 }}
+            autoFocus
+            defaultOpen={true}
+            style={{ width: '100%' }}
             placeholder={'Break down by'}
             value={breakdown ? breakdown : undefined}
             onChange={(_, { value }) => onChange(value)}
@@ -35,9 +37,10 @@ function CohortFilter({ breakdown, onChange }) {
     const { cohorts, cohortsLoading } = useValues(cohortsModel)
     return (
         <Select
-            // showSearch
+            autoFocus
+            defaultOpen={true}
             mode="multiple"
-            style={{ width: '80%', maxWidth: 200 }}
+            style={{ width: '100%' }}
             placeholder={'Break down by'}
             optionLabelProp="label"
             value={breakdown ? breakdown : undefined}
@@ -59,9 +62,9 @@ function CohortFilter({ breakdown, onChange }) {
     )
 }
 
-export function BreakdownFilter({ breakdown, breakdown_type, onChange }) {
+function Content({ breakdown, breakdown_type, onChange }) {
     return (
-        <Tabs defaultActiveKey={breakdown_type}>
+        <Tabs defaultActiveKey={breakdown_type} tabPosition="top" style={{ minWidth: 350 }}>
             <TabPane tab="Property" key="property">
                 <PropertyFilter
                     breakdown={(!breakdown_type || breakdown_type == 'property') && breakdown}
@@ -72,5 +75,37 @@ export function BreakdownFilter({ breakdown, breakdown_type, onChange }) {
                 <CohortFilter breakdown={breakdown_type == 'cohort' && breakdown} onChange={onChange} />
             </TabPane>
         </Tabs>
+    )
+}
+
+export function BreakdownFilter({ breakdown, breakdown_type, onChange }) {
+    const { cohorts } = useValues(cohortsModel)
+    let [open, setOpen] = useState(false)
+    let label = breakdown
+    if (breakdown_type === 'cohort' && breakdown) {
+        label = cohorts ? breakdown.map(cohort_id => cohorts.filter(c => c.id == cohort_id)[0]?.name).join(', ') : ''
+    }
+
+    return (
+        <Popover
+            visible={open}
+            onVisibleChange={setOpen}
+            content={
+                <Content
+                    breakdown={breakdown}
+                    breakdown_type={breakdown_type}
+                    onChange={(value, type) => {
+                        if (type !== 'cohort') setOpen(false)
+                        onChange(value, type)
+                    }}
+                />
+            }
+            trigger="click"
+            placement="bottomLeft"
+        >
+            <Button shape="round" type={breakdown ? 'primary' : 'default'}>
+                {label || 'Add breakdown'}
+            </Button>
+        </Popover>
     )
 }
