@@ -1,5 +1,6 @@
 const path = require('path')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
+const CopyWebpackPlugin = require('copy-webpack-plugin')
 
 module.exports = {
     mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
@@ -102,12 +103,6 @@ module.exports = {
                 target: 'http://localhost:8000', // points to django dev server
                 changeOrigin: true,
             },
-            // put all assets directly copied into dist and not managed by webpack as a workaround
-            // else we have to load those assets using a loader rather than cp it in yarn run dev
-            '**/*.png': {
-                target: 'http://localhost:8000', // points to django dev server
-                changeOrigin: true,
-            },
         },
         port: 8001,
     },
@@ -115,5 +110,9 @@ module.exports = {
         new MiniCssExtractPlugin({
             filename: '[name].css',
         }),
+        new CopyWebpackPlugin([
+            { from: 'frontend/public', to: 'frontend/dist' },
+            { from: 'node_modules/posthog-js/dist/array.js', to: 'frontend/dist' },
+        ]),
     ],
 }

@@ -12,11 +12,9 @@
     },
     "homepage": "https://github.com/posthog/posthog#readme",
     "scripts": {
-        "copy-array": "cp node_modules/posthog-js/dist/array.js frontend/dist/",
-        "start": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack --config webpack.config.js --watch",
+        "start": "webpack-dev-server",
         "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-array",
-        "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\"",
-        "dev": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack-dev-server"
+        "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\""
     },
     "license": "MIT",
     "dependencies": {
@@ -31,7 +29,7 @@
         "d3-sankey": "^0.12.3",
         "editor": "^1.0.0",
         "funnel-graph-js": "^1.4.1",
-        "kea": "^2.0.0-beta.5",
+        "kea": "^2.0.0-beta.Ø",
         "kea-loaders": "^0.1.1",
         "kea-router": "^0.1.2",
         "moment": "^2.24.0",
@@ -65,6 +63,7 @@
         "babel-loader": "^8.0.6",
         "babel-plugin-import": "^1.13.0",
         "babel-plugin-kea": "^0.1.0",
+        "copy-webpack-plugin": "^5.1.1",
         "css-loader": "^3.4.2",
         "cssnano": "^4.1.10",
         "file-loader": "^5.1.0",

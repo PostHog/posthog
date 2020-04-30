@@ -5,6 +5,6 @@ trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 
 ./bin/start-worker &
 ./bin/start-backend &
-./bin/start-frontend &
+#./bin/start-frontend &
 
 wait
