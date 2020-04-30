@@ -58,18 +58,14 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
 
 
 def _get_sent_at(data, request) -> Optional[datetime]:
-    if request.GET.get('_'):  # posthog-js
-        sent_at = request.GET['_']
-    elif request.POST.get('_'):
-        sent_at = request.POST['_']
-    elif isinstance(data, dict) and data.get('sent_at'):  # posthog-android
+    # posthog-android, posthog-ios
+    if isinstance(data, dict) and data.get('sent_at'):
         sent_at = data['sent_at']
-    elif isinstance(data, dict) and data.get('sentAt'):  # posthog-ios
-        sent_at = data['sentAt']
-    elif request.POST.get('sent_at'):
-        sent_at = request.POST['sent_at']
-    elif request.POST.get('sentAt'):
-        sent_at = request.POST['sentAt']
+
+    # posthog-js
+    elif request.GET.get('_'):
+        sent_at = request.GET['_']
+
     else:
         return None
 
