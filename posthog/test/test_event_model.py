@@ -1,4 +1,5 @@
 from posthog.models import Event, Element, Action, ActionStep, Person, Team, ElementGroup
+from posthog.models.event import Selector, SelectorPart
 from posthog.api.test.base import BaseTest
 from unittest.mock import patch, call
 
@@ -309,3 +310,15 @@ class TestSendToSlack(BaseTest):
         patch_post_to_slack.assert_has_calls([call(
             event.pk, 'http://testserver'
         )])
+
+class TestSelectors(BaseTest):
+    def test_selector_splitting(self):
+        selector1 = Selector("div > span > a")
+        selector2 = Selector("div span > a")
+        selector3 = Selector("div span a")
+        selector4 = Selector("div > span a")
+
+        self.assertEqual(len(selector1.parts), 3)
+        self.assertEqual(len(selector2.parts), 3)
+        self.assertEqual(len(selector3.parts), 3)
+        self.assertEqual(len(selector4.parts), 3)
