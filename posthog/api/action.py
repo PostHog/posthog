@@ -301,7 +301,8 @@ class ActionViewSet(viewsets.ModelViewSet):
             'action': {
                 'id': entity.id,
                 'name': entity.name,
-                'type': entity.type
+                'type': entity.type,
+                'properties': entity.properties
             },
             'label': entity.name,
             'count': 0,
