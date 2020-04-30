@@ -211,7 +211,7 @@ export class ActionStep extends Component {
                                           '//' +
                                           window.location.host +
                                           window.location.pathname
-                                        : null,
+                                        : step.url,
                                 })
                             )
                         }}
