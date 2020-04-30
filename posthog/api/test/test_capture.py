@@ -2,6 +2,7 @@ from .base import BaseTest
 from django.utils import timezone
 from freezegun import freeze_time
 from unittest.mock import patch, call
+from datetime import timedelta
 import base64
 import json
 import gzip
@@ -212,3 +213,51 @@ class TestCapture(BaseTest):
         })
         arguments = patch_process_event.call_args[1]
         self.assertEqual(arguments['team_id'], self.team.pk)
+
+    @patch('posthog.tasks.process_event.process_event.delay')
+    def test_js_library_underscore_sent_at(self, patch_process_event):
+        now = timezone.now()
+        tomorrow = now + timedelta(days=1, hours=2)
+        tomorrow_sent_at = now + timedelta(days=1, hours=2, minutes=10)
+
+        data = {'event': 'movie played', 'timestamp': tomorrow.isoformat(), 'properties': {'distinct_id': 2, 'token': self.team.api_token}}
+
+        self.client.get('/e/?_=%s&data=%s' % (int(tomorrow_sent_at.timestamp()), self._dict_to_json(data)),
+                       content_type='application/json', HTTP_ORIGIN='https://localhost')
+
+        arguments = patch_process_event.call_args[1]
+        arguments.pop('now')  # can't compare fakedate
+
+        # right time sent as sent_at to process_event
+        timediff = arguments['sent_at'].timestamp() - tomorrow_sent_at.timestamp()
+        self.assertLess(abs(timediff), 1)
+        self.assertEqual(arguments['data']['timestamp'], tomorrow.isoformat())
+
+
+    @patch('posthog.tasks.process_event.process_event.delay')
+    def test_sent_at_field(self, patch_process_event):
+        now = timezone.now()
+        tomorrow = now + timedelta(days=1, hours=2)
+        tomorrow_sent_at = now + timedelta(days=1, hours=2, minutes=10)
+
+        self.client.post('/track/', data={
+            'sent_at': tomorrow_sent_at.isoformat(),
+            'data': self._dict_to_b64({
+                'event': '$pageview',
+                'timestamp': tomorrow.isoformat(),
+                'properties': {
+                    'distinct_id': 'eeee',
+                },
+            }),
+            'api_key': self.team.api_token # main difference in this test
+        })
+
+        arguments = patch_process_event.call_args[1]
+        arguments.pop('now')  # can't compare fakedate
+
+        # right time sent as sent_at to process_event
+        timediff = arguments['sent_at'].timestamp() - tomorrow_sent_at.timestamp()
+        self.assertLess(abs(timediff), 1)
+        self.assertEqual(arguments['data']['timestamp'], tomorrow.isoformat())
+
+
