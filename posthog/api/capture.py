@@ -62,14 +62,14 @@ def _get_sent_at(data, request) -> Optional[datetime]:
         sent_at = request.GET['_']
     elif request.POST.get('_'):
         sent_at = request.POST['_']
+    elif isinstance(data, dict) and data.get('sent_at'):  # posthog-android
+        sent_at = data['sent_at']
+    elif isinstance(data, dict) and data.get('sentAt'):  # posthog-ios
+        sent_at = data['sentAt']
     elif request.POST.get('sent_at'):
         sent_at = request.POST['sent_at']
     elif request.POST.get('sentAt'):
         sent_at = request.POST['sentAt']
-    elif isinstance(data, dict) and data.get('sent_at'):
-        sent_at = data['sent_at']
-    elif isinstance(data, dict) and data.get('sentAt'):
-        sent_at = data['sentAt']
     else:
         return None
 
