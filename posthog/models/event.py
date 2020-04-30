@@ -65,7 +65,7 @@ class Selector(object):
             if tag == ">":
                 continue
             direct_descendant = False
-            if tags[index - 1] == ">":
+            if index > 0 and tags[index - 1] == ">":
                 direct_descendant = True
             part = SelectorPart(tag, direct_descendant)
             self.parts.append(copy.deepcopy(part))
