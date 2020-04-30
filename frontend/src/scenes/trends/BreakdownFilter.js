@@ -50,6 +50,9 @@ function CohortFilter({ breakdown, onChange }) {
             styles={selectStyle}
             filterOption={(input, option) => option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0}
         >
+            <Select.Option value={'all'} type="cohort" label={'all users'}>
+                All users*
+            </Select.Option>
             {cohorts &&
                 cohorts.map(item => {
                     return (
@@ -83,7 +86,9 @@ export function BreakdownFilter({ breakdown, breakdown_type, onChange }) {
     let [open, setOpen] = useState(false)
     let label = breakdown
     if (breakdown_type === 'cohort' && breakdown) {
-        label = cohorts ? breakdown.map(cohort_id => cohorts.filter(c => c.id == cohort_id)[0]?.name).join(', ') : ''
+        label = cohorts
+            ? breakdown.map(cohort_id => cohorts.filter(c => c.id == cohort_id)[0]?.name || cohort_id).join(', ')
+            : ''
     }
 
     return (

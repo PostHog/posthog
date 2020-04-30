@@ -709,11 +709,12 @@ class TestTrends(BaseTest):
             {'properties': {'name': 'person2'}},
         ])
         with freeze_time('2020-01-04T13:01:01Z'):
-            event_response = self.client.get('/api/action/trends/?date_from=-14d&breakdown=%s&breakdown_type=cohort&events=%s' % (jdumps([cohort.pk, cohort2.pk, cohort3.pk]), jdumps([{'id': "watched movie", "name": "watched movie", "type": "events", "order": 0}]))).json()
+            event_response = self.client.get('/api/action/trends/?date_from=-14d&breakdown=%s&breakdown_type=cohort&events=%s' % (jdumps([cohort.pk, cohort2.pk, cohort3.pk, 'all']), jdumps([{'id': "watched movie", "name": "watched movie", "type": "events", "order": 0}]))).json()
 
         self.assertEqual(event_response[0]['label'], 'watched movie - cohort1')
         self.assertEqual(event_response[1]['label'], 'watched movie - cohort2')
         self.assertEqual(event_response[2]['label'], 'watched movie - cohort3')
+        self.assertEqual(event_response[3]['label'], 'watched movie - all users')
 
         self.assertEqual(sum(event_response[0]['data']), 1)
         self.assertEqual(event_response[0]['breakdown_value'], 'cohort1')
@@ -723,3 +724,6 @@ class TestTrends(BaseTest):
 
         self.assertEqual(sum(event_response[2]['data']), 4)
         self.assertEqual(event_response[2]['breakdown_value'], 'cohort3')
+
+        self.assertEqual(sum(event_response[3]['data']), 7)
+        self.assertEqual(event_response[3]['breakdown_value'], 'all users')

@@ -5,10 +5,11 @@ from rest_framework import request, serializers, viewsets, authentication
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
-from django.db.models import Q, Count, Prefetch, functions, QuerySet, OuterRef, Exists
+from django.db.models import Q, Count, Prefetch, functions, QuerySet, OuterRef, Exists, Value, BooleanField
 from django.db import connection
 from django.utils.timezone import now
 from typing import Any, List, Dict, Optional, Tuple
+from typing import Any, List, Dict, Optional, Tuple, Union
 import pandas as pd
 import datetime
 import json
@@ -177,7 +178,10 @@ class ActionViewSet(viewsets.ModelViewSet):
                 df_dates = pd.DataFrame(filtered.groupby('date').mean(), index=time_index)
                 df_dates = df_dates.fillna(0)
                 if breakdown == 'cohorts':
-                    value = Cohort.objects.get(pk=value.replace('cohort_', '')).name
+                    if value == 'cohort_all':
+                        value = 'all users'
+                    else:
+                        value = Cohort.objects.get(pk=value.replace('cohort_', '')).name
                 response[value] = {key: value[0] if len(value) > 0 else 0 for key, value in df_dates.iterrows()}
         else:
             dataframe = pd.DataFrame([], index=time_index)
@@ -241,10 +245,9 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         return { key: func }
 
-    def _add_cohort_annotations(self, team: Team, breakdown: List[int]) -> Tuple[List[str], Dict[str, Exists]]:
-        cohorts = Cohort.objects.filter(team=team, pk__in=breakdown)
-        annotations = {}
-        values = []
+    def _add_cohort_annotations(self, team: Team, breakdown: List[Union[int, str]]) -> Dict[str, Union[Value, Exists]]:
+        cohorts = Cohort.objects.filter(team=team, pk__in=[b for b in breakdown if b != 'all'])
+        annotations: Dict[str, Union[Value, Exists]] = {}
         for cohort in cohorts:
             annotations['cohort_{}'.format(cohort.pk)] = Exists(
                 Person.objects.filter(
@@ -252,21 +255,18 @@ class ActionViewSet(viewsets.ModelViewSet):
                     team=team,
                     id=OuterRef('person_id')
                 )
-                # Cohort.people.through.objects.filter(
-                #     person_id=OuterRef('person_id'),
-                #     cohort_id=cohort.pk
-                # )
             )
-            values.append('cohort_{}'.format(cohort.pk))
-        return (values, annotations)
+        if 'all' in breakdown:
+            annotations['cohort_all'] = Value(True, output_field=BooleanField())
+        return annotations
 
     def _aggregate_by_interval(self, filtered_events: QuerySet, team: Team, entity: Entity, filter: Filter, interval: str, request: request.Request, breakdown: Optional[str]=None) -> Dict[str, Any]:
         interval_annotation = self._get_interval_annotation(interval)
         values = [interval]
         if breakdown:
             if request.GET.get('breakdown_type') == 'cohort':
-                new_values, annotations = self._add_cohort_annotations(team, json.loads(request.GET['breakdown']))
-                values.extend(new_values)
+                annotations = self._add_cohort_annotations(team, json.loads(request.GET['breakdown']))
+                values.extend(annotations.keys())
                 filtered_events = filtered_events.annotate(**annotations)
                 breakdown = 'cohorts'
             else:
