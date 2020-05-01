@@ -1,10 +1,10 @@
 from .base import BaseTest
-from posthog.models import Event, Person, Element, Action, ActionStep
-from freezegun import freeze_time # type: ignore
+from posthog.models import Event, Person, Element, Action, ActionStep, Team
+from freezegun import freeze_time
 
 
 class TestEvents(BaseTest):
-    TESTS_API = True 
+    TESTS_API = True
     ENDPOINT = 'event'
 
     def test_filter_events(self):
@@ -20,6 +20,13 @@ class TestEvents(BaseTest):
             response = self.client.get('/api/event/?distinct_id=2').json()
         self.assertEqual(response['results'][0]['person'], 'tim@posthog.com')
         self.assertEqual(response['results'][0]['elements'][0]['tag_name'], 'button')
+
+    def test_filter_events_by_event_name(self):
+        person = Person.objects.create(properties={'email': 'tim@posthog.com'}, team=self.team, distinct_ids=["2", 'some-random-uid'])
+        event1 = Event.objects.create(event='event_name',team=self.team, distinct_id="2", properties={"$ip": '8.8.8.8'})
+        with self.assertNumQueries(7):
+            response = self.client.get('/api/event/?event=event_name').json()
+        self.assertEqual(response['results'][0]['event'], 'event_name')
 
     def test_filter_by_person(self):
         person = Person.objects.create(properties={'email': 'tim@posthog.com'}, distinct_ids=["2", 'some-random-uid'], team=self.team)
@@ -102,41 +109,20 @@ class TestEvents(BaseTest):
         response = self.client.get('/api/event/actions/?after=%s' % last_event.timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')).json()
         self.assertEqual(len(response['results']), 1)
 
-    def test_event_names(self):
-        Event.objects.create(team=self.team, event='user login')
-        Event.objects.create(team=self.team, event='user sign up')
-        Event.objects.create(team=self.team, event='user sign up')
-
-        response = self.client.get('/api/event/names/').json()
-        self.assertEqual(response[0]['name'], 'user sign up')
-        self.assertEqual(response[0]['count'], 2)
-        self.assertEqual(response[1]['name'], 'user login')
-        self.assertEqual(response[1]['count'], 1)
-
-    def test_event_property_names(self):
-        Event.objects.create(team=self.team, properties={'$browser': 'whatever', '$os': 'Mac OS X'})
-        Event.objects.create(team=self.team, properties={'random_prop': 'asdf'})
-        Event.objects.create(team=self.team, properties={'random_prop': 'asdf'})
-
-        response = self.client.get('/api/event/properties/').json()
-        self.assertEqual(response[0]['name'], '$browser')
-        self.assertEqual(response[1]['name'], '$os')
-        self.assertEqual(response[2]['name'], 'random_prop')
-
     def test_event_property_values(self):
         Event.objects.create(team=self.team, properties={'random_prop': 'asdf', 'some other prop': 'with some text'})
         Event.objects.create(team=self.team, properties={'random_prop': 'asdf'})
         Event.objects.create(team=self.team, properties={'random_prop': 'qwerty'})
         Event.objects.create(team=self.team, properties={'something_else': 'qwerty'})
+        team2 = Team.objects.create()
+        Event.objects.create(team=team2, properties={'random_prop': 'abcd'})
         response = self.client.get('/api/event/values/?key=random_prop').json()
         self.assertEqual(response[0]['name'], 'asdf')
-        self.assertEqual(response[0]['count'], 2)
         self.assertEqual(response[1]['name'], 'qwerty')
-        self.assertEqual(response[1]['count'], 1)
+        self.assertEqual(len(response), 2)
 
         response = self.client.get('/api/event/values/?key=random_prop&value=qw').json()
         self.assertEqual(response[0]['name'], 'qwerty')
-        self.assertEqual(response[0]['count'], 1)
 
     def test_before_and_after(self):
         user = self._create_user('tim')
@@ -168,3 +154,93 @@ class TestEvents(BaseTest):
         response = self.client.get('/api/event/?before=2020-01-09').json()
         self.assertEqual(len(response['results']), 1)
         self.assertEqual(response['results'][0]['id'], event2.pk)
+
+    def test_sessions_avg_length(self):
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            Event.objects.create(team=self.team, event='1st action', distinct_id="1")
+            Event.objects.create(team=self.team, event='1st action', distinct_id="2")
+        with freeze_time("2012-01-14T03:25:34.000Z"):
+            Event.objects.create(team=self.team, event='2nd action', distinct_id="1")
+            Event.objects.create(team=self.team, event='2nd action', distinct_id="2")
+        with freeze_time("2012-01-15T03:59:34.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="1")
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            Event.objects.create(team=self.team, event='4th action', distinct_id="1")
+            Event.objects.create(team=self.team, event='4th action', distinct_id="2")
+
+        response = self.client.get('/api/event/sessions/?session=avg&date_from=all').json()
+        self.assertEqual(response[0]['count'], 3) # average length of all sessions
+
+        # time series 
+        self.assertEqual(response[0]['data'][0], 240)
+        self.assertEqual(response[0]['data'][1], 120)
+        self.assertEqual(response[0]['labels'][0], 'Sat. 14 January')
+        self.assertEqual(response[0]['labels'][1], 'Sun. 15 January')
+        self.assertEqual(response[0]['days'][0], '2012-01-14')
+        self.assertEqual(response[0]['days'][1], '2012-01-15')
+
+    def test_sessions_count_buckets(self):
+
+        # 0 seconds
+        with freeze_time("2012-01-11T01:25:30.000Z"):
+            Event.objects.create(team=self.team, event='1st action', distinct_id="2")
+            Event.objects.create(team=self.team, event='1st action', distinct_id="2")
+            Event.objects.create(team=self.team, event='1st action', distinct_id="4")
+        with freeze_time("2012-01-11T01:25:32.000Z"):
+            Event.objects.create(team=self.team, event='2nd action', distinct_id="4") # within 0-3 seconds
+            Event.objects.create(team=self.team, event='1st action', distinct_id="6")
+            Event.objects.create(team=self.team, event='2nd action', distinct_id="7")
+        with freeze_time("2012-01-11T01:25:40.000Z"):
+            Event.objects.create(team=self.team, event='2nd action', distinct_id="6") # within 3-10 seconds
+            Event.objects.create(team=self.team, event='2nd action', distinct_id="7") # within 3-10 seconds
+
+        with freeze_time("2012-01-15T04:59:34.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="4")
+        with freeze_time("2012-01-15T05:00:00.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2") # within 10-30 seconds
+        with freeze_time("2012-01-15T05:00:20.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="4") # within 30-60 seconds
+
+        # within 1-3 mins
+        with freeze_time("2012-01-17T04:59:34.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="1")
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="5")
+        with freeze_time("2012-01-17T05:01:30.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="1")
+        with freeze_time("2012-01-17T05:07:30.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")  # test many events within a range
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")  
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")  
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")  # within 3-10 mins
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="10")
+
+        with freeze_time("2012-01-17T05:20:30.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="5") # within 10-30 mins
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="9")
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="10")
+        with freeze_time("2012-01-17T05:40:30.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="9")
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="10") # within 30-60 mins
+        with freeze_time("2012-01-17T05:58:30.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="9")  # -> within 30-60 mins
+
+        # within 1+ hours
+        with freeze_time("2012-01-21T04:59:34.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
+        with freeze_time("2012-01-21T05:20:30.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
+        with freeze_time("2012-01-21T05:45:30.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
+        with freeze_time("2012-01-21T06:00:30.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
+
+        response = self.client.get('/api/event/sessions/?session=distribution&date_from=all').json()
+        
+        for item in response:
+            if item['label'] == '30-60 minutes' or item['label'] == '3-10 seconds':
+                self.assertEqual(item['count'], 2)
+            else:
+                self.assertEqual(item['count'], 1)

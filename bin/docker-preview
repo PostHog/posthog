@@ -4,7 +4,10 @@ set -e
 export PGDATA=/var/lib/postgresql/data
 
 export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+export REDIS_URL=redis://localhost
 
 /etc/init.d/postgresql start > /dev/null
+/etc/init.d/redis-server start > /dev/null
 
+DEBUG=1 celery -A posthog worker --loglevel=info &
 DEBUG=1 gunicorn posthog.wsgi --config gunicorn.config.py --bind 0.0.0.0:8000 --log-file - -e DEBUG=1 -e DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog

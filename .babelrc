@@ -1,4 +1,10 @@
 {
-  "plugins": ["@babel/plugin-transform-runtime", "@babel/plugin-transform-react-jsx", "@babel/plugin-proposal-class-properties"],
-  "presets": ["@babel/preset-env"]
+    "plugins": [
+        "@babel/plugin-transform-runtime",
+        "@babel/plugin-transform-react-jsx",
+        "@babel/plugin-proposal-class-properties",
+        ["import", { "libraryName": "antd", "libraryDirectory": "es", "style": "css" }],
+        ["babel-plugin-kea", { "path": "./frontend/src" }]
+    ],
+    "presets": ["@babel/preset-env"]
 }

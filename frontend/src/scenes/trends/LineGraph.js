@@ -20,29 +20,64 @@ export class LineGraph extends Component {
         }
     }
 
-    buildChart = () => {
-        const myChartRef = this.chartRef.current.getContext('2d')
-        const { datasets, labels, options } = this.props
-
-        if (typeof this.myLineChart !== 'undefined') this.myLineChart.destroy()
+    processDataset = (dataset, index) => {
         let colors = ['blue', 'orange', 'green', 'red', 'purple', 'gray']
         let getVar = variable => getComputedStyle(document.body).getPropertyValue('--' + variable)
+        return {
+            borderColor: getVar(colors[index]),
+            backgroundColor: (this.props.type == 'bar' || this.props.type == 'doughnut') && getVar(colors[index]),
+            fill: false,
+            borderWidth: 1,
+            pointHitRadius: 8,
+            ...dataset,
+        }
+    }
+
+    buildChart = () => {
+        const myChartRef = this.chartRef.current.getContext('2d')
+        let { datasets, labels, options } = this.props
+
+        if (typeof this.myLineChart !== 'undefined') this.myLineChart.destroy()
         const _this = this
+        // if chart is line graph, make duplicate lines and overlay to show dotted lines
+        datasets =
+            !this.props.type || this.props.type == 'line'
+                ? [
+                      ...datasets.map((dataset, index) => {
+                          let datasetCopy = Object.assign({}, dataset)
+                          let data = [...dataset.data]
+                          let labels = [...dataset.labels]
+                          let days = [...dataset.days]
+                          data.pop()
+                          labels.pop()
+                          days.pop()
+                          datasetCopy.data = data
+                          datasetCopy.labels = labels
+                          datasetCopy.days = days
+                          return this.processDataset(datasetCopy, index)
+                      }),
+                      ...datasets.map((dataset, index) => {
+                          let datasetCopy = Object.assign({}, dataset)
+                          let datasetLength = datasetCopy.data.length
+                          datasetCopy.dotted = true
+                          datasetCopy.borderDash = [10, 10]
+                          datasetCopy.data =
+                              datasetCopy.data.length > 2
+                                  ? datasetCopy.data.map((datum, index) =>
+                                        index == datasetLength - 1 || index == datasetLength - 2 ? datum : null
+                                    )
+                                  : datasetCopy.data
+                          return this.processDataset(datasetCopy, index)
+                      }),
+                  ]
+                : datasets.map((dataset, index) => this.processDataset(dataset, index))
 
         this.myLineChart = new Chart(myChartRef, {
             type: this.props.type || 'line',
             data: {
                 //Bring in data
                 labels: labels,
-                datasets: datasets.map((dataset, index) => ({
-                    borderColor: getVar(colors[index]),
-                    backgroundColor:
-                        (this.props.type == 'bar' || this.props.type == 'doughnut') && getVar(colors[index]),
-                    fill: false,
-                    borderWidth: 1,
-                    pointHitRadius: 8,
-                    ...dataset,
-                })),
+                datasets: datasets,
             },
             options:
                 this.props.type !== 'doughnut'
@@ -68,7 +103,18 @@ export class LineGraph extends Component {
                               titleSpacing: 0,
                               callbacks: {
                                   label: function(tooltipItem, data) {
-                                      var label = data.datasets[tooltipItem.datasetIndex].label || ''
+                                      if (
+                                          data.datasets[tooltipItem.datasetIndex].dotted &&
+                                          !(
+                                              tooltipItem.index ==
+                                              data.datasets[tooltipItem.datasetIndex].data.length - 1
+                                          )
+                                      )
+                                          return null
+                                      var label =
+                                          data.datasets[tooltipItem.datasetIndex].chartLabel ||
+                                          data.datasets[tooltipItem.datasetIndex].label ||
+                                          ''
                                       return label + ' - ' + tooltipItem.yLabel.toLocaleString()
                                   },
                               },
@@ -88,7 +134,7 @@ export class LineGraph extends Component {
                                   {
                                       display: true,
                                       gridLines: { lineWidth: 0 },
-                                      ticks: { autoSkip: true },
+                                      ticks: { autoSkip: true, beginAtZero: true, min: 0 },
                                   },
                               ],
                               yAxes: [
@@ -96,6 +142,8 @@ export class LineGraph extends Component {
                                       display: true,
                                       ticks: {
                                           autoSkip: true,
+                                          beginAtZero: true,
+                                          min: 0,
                                       },
                                   },
                               ],

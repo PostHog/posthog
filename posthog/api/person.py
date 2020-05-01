@@ -1,10 +1,12 @@
 from posthog.models import Event, Team, Person, PersonDistinctId, Cohort
 from rest_framework import serializers, viewsets, response, request
 from rest_framework.decorators import action
+from rest_framework.settings import api_settings
+from rest_framework_csv import renderers as csvrenderers  # type: ignore
 from django.db.models import Q, Prefetch, QuerySet, Subquery, OuterRef, Count, Func
 from .event import EventSerializer
 from typing import Union
-from .base import CursorPagination
+from .base import CursorPagination as BaseCursorPagination
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
     last_event = serializers.SerializerMethodField()
@@ -30,14 +32,25 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             return person.distinct_ids[-1]
         return person.pk
 
+class CursorPagination(BaseCursorPagination):
+    ordering = '-id'
+    page_size = 100
+
 class PersonViewSet(viewsets.ModelViewSet):
+    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES)\
+        + (csvrenderers.PaginatedCSVRenderer, )
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = CursorPagination
 
+    def paginate_queryset(self, queryset):
+        if 'text/csv' in self.request.accepted_media_type:
+            return None
+        return self.paginator.paginate_queryset(queryset, self.request, view=self)
+
     def _filter_cohort(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
         cohort = Cohort.objects.get(team=team, pk=request.GET['cohort'])
-        queryset = queryset.filter(pk__in=cohort.person_ids)
+        queryset = queryset.filter(cohort.people_filter).order_by('id').distinct('id')
         return queryset
 
     def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
@@ -71,8 +84,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         team = self.request.user.team_set.get()
         queryset = queryset.filter(team=team)
-        queryset = self._filter_request(self.request, queryset, team)
-        return queryset.order_by('-id')
+        return self._filter_request(self.request, queryset, team)
 
     @action(methods=['GET'], detail=False)
     def by_distinct_id(self, request):

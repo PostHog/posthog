@@ -7,6 +7,8 @@ import { PropertyFilters } from '../../lib/components/PropertyFilters/PropertyFi
 import { FilterLink } from '../../lib/components/FilterLink'
 import { EventDetails } from './EventDetails'
 import PropTypes from 'prop-types'
+import { useValues } from 'kea'
+import { userLogic } from 'scenes/userLogic'
 
 let eventNameMap = event => {
     if (event.properties.$event_type == 'click') return 'clicked '
@@ -25,6 +27,9 @@ export class EventsTable extends Component {
             newEvents: [],
             loading: true,
             highlightEvents: [],
+            orderBy: {
+                timestamp: '-timestamp',
+            },
         }
         this.fetchEvents = this.fetchEvents.bind(this)
         this.pollEvents = this.pollEvents.bind(this)
@@ -33,6 +38,7 @@ export class EventsTable extends Component {
         this.clickLoadNewEvents = this.clickLoadNewEvents.bind(this)
         this.pollTimeout = 5000
         this.fetchEvents()
+        this.onTimestapHeaderClick = this.onTimestapHeaderClick.bind(this)
     }
     fetchEvents() {
         let params = {}
@@ -49,6 +55,7 @@ export class EventsTable extends Component {
         params = toParams({
             ...params,
             ...this.props.fixedFilters,
+            orderBy: Object.values(this.state.orderBy),
         })
         api.get('api/event/?' + params).then(events => {
             this.setState({
@@ -59,19 +66,36 @@ export class EventsTable extends Component {
             this.poller = setTimeout(this.pollEvents, this.pollTimeout)
         })
     }
+
+    onTimestapHeaderClick() {
+        this.setState(
+            prevState => ({
+                orderBy: {
+                    ...prevState.orderBy,
+                    timestamp: prevState.orderBy.timestamp === '-timestamp' ? 'timestamp' : '-timestamp',
+                },
+            }),
+            () => this.fetchEvents()
+        )
+    }
+
     pollEvents() {
-        let params = {
-            properties: this.state.properties,
-            ...this.props.fixedFilters,
+        // Poll events when they are ordered in ascending order based on timestamp
+        if (this.state.orderBy.timestamp === '-timestamp') {
+            let params = {
+                properties: this.state.properties,
+                ...this.props.fixedFilters,
+                orderBy: Object.values(this.state.orderBy),
+            }
+            if (this.state.events[0])
+                params['after'] = this.state.events[0].timestamp
+                    ? this.state.events[0].timestamp
+                    : this.state.events[0].event.timestamp
+            api.get('api/event/?' + toParams(params)).then(events => {
+                this.setState({ newEvents: events.results, highlightEvents: [] })
+                this.poller = setTimeout(this.pollEvents, this.pollTimeout)
+            })
         }
-        if (this.state.events[0])
-            params['after'] = this.state.events[0].timestamp
-                ? this.state.events[0].timestamp
-                : this.state.events[0].event.timestamp
-        api.get('api/event/?' + toParams(params)).then(events => {
-            this.setState({ newEvents: events.results, highlightEvents: [] })
-            this.poller = setTimeout(this.pollEvents, this.pollTimeout)
-        })
     }
     componentWillUnmount() {
         clearTimeout(this.poller)
@@ -83,6 +107,7 @@ export class EventsTable extends Component {
             properties: this.state.properties,
             ...this.props.fixedFilters,
             before: events[events.length - 1].timestamp,
+            orderBy: Object.values(this.state.orderBy),
         })
         clearTimeout(this.poller)
         this.setState({ hasNext: false })
@@ -130,26 +155,36 @@ export class EventsTable extends Component {
                         {event.person}
                     </Link>
                 </td>
-                {params.map(param => (
-                    <td key={param} title={event.properties[param]}>
-                        <FilterLink
-                            property={param}
-                            value={event.properties[param]}
-                            filters={properties}
-                            onClick={(key, value) =>
-                                this.setState(
-                                    {
-                                        properties: {
-                                            ...properties,
-                                            [key]: value,
+                {params.map(paramRequest => {
+                    let param = paramRequest
+                    let value = event.properties[param]
+
+                    if (param === '$current_url' && !value) {
+                        param = '$screen'
+                        value = event.properties[param]
+                    }
+
+                    return (
+                        <td key={param} title={value}>
+                            <FilterLink
+                                property={param}
+                                value={event.properties[param]}
+                                filters={properties}
+                                onClick={(key, value) =>
+                                    this.setState(
+                                        {
+                                            properties: {
+                                                ...properties,
+                                                [key]: value,
+                                            },
                                         },
-                                    },
-                                    this.fetchEvents
-                                )
-                            }
-                        />
-                    </td>
-                ))}
+                                        this.fetchEvents
+                                    )
+                                }
+                            />
+                        </td>
+                    )
+                })}
                 <td>{moment(event.timestamp).fromNow()}</td>
             </tr>
         )
@@ -171,6 +206,7 @@ export class EventsTable extends Component {
             <div className="events">
                 <PropertyFilters
                     propertyFilters={properties}
+                    pageKey="EventsTable"
                     onChange={properties => this.setState({ properties }, this.fetchEvents)}
                 />
                 <table className="table" style={{ position: 'relative' }}>
@@ -183,9 +219,11 @@ export class EventsTable extends Component {
                         <tr>
                             <th>Event</th>
                             <th>Person</th>
-                            <th>Path</th>
+                            <th>Path / Screen</th>
                             <th>Source</th>
-                            <th>When</th>
+                            <th onClick={this.onTimestapHeaderClick}>
+                                When <i className="fi flaticon-sort" />
+                            </th>
                         </tr>
                     </thead>
                     <tbody>

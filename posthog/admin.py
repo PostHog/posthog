@@ -1,13 +1,12 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.utils.translation import ugettext_lazy as _
-from posthog.models import Event, User, Team, Person, Element, Funnel, FunnelStep, Action, ActionStep, DashboardItem
+from posthog.models import Event, User, Team, Person, Element, Funnel, Action, ActionStep, DashboardItem
 
 admin.site.register(Team)
 admin.site.register(Person)
 admin.site.register(Element)
 admin.site.register(Funnel)
-admin.site.register(FunnelStep)
 admin.site.register(Action)
 admin.site.register(ActionStep)
 admin.site.register(DashboardItem)

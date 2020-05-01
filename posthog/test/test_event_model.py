@@ -1,13 +1,17 @@
 from posthog.models import Event, Element, Action, ActionStep, Person, Team, ElementGroup
+from posthog.models.event import Selector, SelectorPart
 from posthog.api.test.base import BaseTest
+from unittest.mock import patch, call
 
 class TestFilterByActions(BaseTest):
     def test_filter_with_selectors(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
 
         event1 = Event.objects.create(event='$autocapture', team=self.team, distinct_id='whatever', elements=[
-            Element(tag_name='div', nth_child=0, nth_of_type=0, order=0),
-            Element(tag_name='a', href='/a-url', nth_child=1, nth_of_type=0, order=1)
+            Element(tag_name='a', href='/a-url', nth_child=1, nth_of_type=0, order=1),
+            Element(tag_name='button', nth_child=0, nth_of_type=0, order=2),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=3),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=4, attr_id='nested'),
         ])
 
         event2 = Event.objects.create(event='$autocapture', team=self.team, distinct_id='whatever', elements=[
@@ -51,6 +55,15 @@ class TestFilterByActions(BaseTest):
         events = Event.objects.filter_by_action(action3)
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0], event2)
+
+        # test selector without >
+        action4 = Action.objects.create(team=self.team, name='action1')
+        ActionStep.objects.create(event='$autocapture', action=action4, selector="[id='nested'] a")
+        action4.calculate_events()
+
+        events = Event.objects.filter_by_action(action4)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0], event1)
 
     def test_with_normal_filters(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
@@ -107,7 +120,7 @@ class TestFilterByActions(BaseTest):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0], event1)
 
-    def test_filter_events_by_url_exact(self):
+    def test_filter_events_by_url(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
         action1 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action1, url='https://posthog.com/feedback/123', url_matching=ActionStep.EXACT)
@@ -115,6 +128,9 @@ class TestFilterByActions(BaseTest):
 
         action2 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action2, url='123', url_matching=ActionStep.CONTAINS)
+
+        action3 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=action3, url='https://posthog.com/%/123', url_matching=ActionStep.CONTAINS)
 
         event1 = Event.objects.create(team=self.team, distinct_id='whatever')
         event2 = Event.objects.create(team=self.team, distinct_id='whatever', properties={'$current_url': 'https://posthog.com/feedback/123'}, elements=[
@@ -126,6 +142,10 @@ class TestFilterByActions(BaseTest):
         self.assertEqual(len(events), 1)
 
         events = Event.objects.filter_by_action(action2)
+        self.assertEqual(events[0], event2)
+        self.assertEqual(len(events), 1)
+
+        events = Event.objects.filter_by_action(action3)
         self.assertEqual(events[0], event2)
         self.assertEqual(len(events), 1)
 
@@ -168,7 +188,7 @@ class TestElementGroup(BaseTest):
             Element(tag_name='div')
         ]
         group1 = ElementGroup.objects.create(team=self.team, elements=elements)
-        elements = Element.objects.all()
+        elements = list(Element.objects.all())
         self.assertEqual(elements[0].tag_name, 'button')
         self.assertEqual(elements[1].tag_name, 'div')
 
@@ -248,7 +268,7 @@ class TestActions(BaseTest):
             Element(tag_name='a', attr_class=None, order=0)
         ])
         # This would error when attr_class wasn't set.
-        self.assertEqual(event.actions, []) 
+        self.assertEqual(event.actions, [])
 
 class TestPreCalculation(BaseTest):
     def test_update_or_delete_action_steps(self):
@@ -277,3 +297,58 @@ class TestPreCalculation(BaseTest):
         ActionStep.objects.all().delete()
         action.calculate_events()
         self.assertEqual([e for e in action.events.all().order_by('id')], [])
+
+class TestSendToSlack(BaseTest):
+    @patch('posthog.tasks.slack.post_event_to_slack.delay')
+    def test_send_to_slack(self, patch_post_to_slack):
+        self.team.slack_incoming_webhook = 'http://slack.com/hook'
+        action_user_paid = Action.objects.create(team=self.team, name='user paid', post_to_slack=True)
+        ActionStep.objects.create(action=action_user_paid, event='user paid')
+
+        event = Event.objects.create(team=self.team, event='user paid', site_url="http://testserver")
+        self.assertEqual(patch_post_to_slack.call_count, 1)
+        patch_post_to_slack.assert_has_calls([call(
+            event.pk, 'http://testserver'
+        )])
+
+class TestSelectors(BaseTest):
+    def test_selector_splitting(self):
+        selector1 = Selector("div > span > a")
+        selector2 = Selector("div span > a")
+        selector3 = Selector("div span a")
+        selector4 = Selector("div > span a")
+
+        self.assertEqual(len(selector1.parts), 3)
+        self.assertEqual(len(selector2.parts), 3)
+        self.assertEqual(len(selector3.parts), 3)
+        self.assertEqual(len(selector4.parts), 3)
+
+    def test_selector_child(self):
+        selector1 = Selector("div span")
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div'}, 'direct_descendant': False})
+
+    def test_selector_child_direct_descendant(self):
+        selector1 = Selector("div > span")
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div'}, 'direct_descendant': True})
+
+    def test_selector_attribute(self):
+        selector1 = Selector('div[data-id="5"] > span')
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div', 'attributes__data-id': '5'}, 'direct_descendant': True})
+
+    def test_selector_id(self):
+        selector1 = Selector('[id="5"] > span')
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'attr_id': '5'}, 'direct_descendant': True})
+
+    def test_class(self):
+        selector1 = Selector('div.classone.classtwo > span')
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div', 'attr_class__contains': ['classone', 'classtwo']}, 'direct_descendant': True})
+
+    def test_nth_child(self):
+        selector1 = Selector('div > span:nth-child(3)')
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span', 'nth_child': '3'}, 'direct_descendant': False})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div'}, 'direct_descendant': True})

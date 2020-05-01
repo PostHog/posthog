@@ -1,16 +1,46 @@
-import React, { Component } from 'react'
+import React, { Component, useState } from 'react'
 import Select, { components } from 'react-select'
 import { ActionSelectInfo } from '../../scenes/trends/ActionSelectInfo'
 import { selectStyle } from '../utils'
 import PropTypes from 'prop-types'
+import ActionSelectTab from './ActionSelectTab'
+import { Link } from 'react-router-dom'
 
-export class ActionSelectBox extends Component {
-    constructor(props) {
-        super(props)
-        this.state = {}
+const determineActiveTab = props => {
+    if (props.selected) {
+        return props.selected
+    } else {
+        return Array.isArray(props.children) ? props.children[0].props.title : props.children.props.title
     }
-    actionContains(action, event) {
-        return action.steps.filter(step => step.event == event).length > 0
+}
+
+export function ActionSelectTabs(props) {
+    let [activeTab, setActiveTab] = useState(determineActiveTab(props))
+    let [labels] = useState(
+        Array.isArray(props.children) ? props.children.map(child => child.props.title) : [props.children.props.title]
+    )
+    return (
+        <div className="select-box" style={{ padding: 0 }}>
+            {labels.length > 1 && (
+                <ActionSelectTab
+                    entityType={activeTab}
+                    allTypes={labels}
+                    chooseEntityType={setActiveTab}
+                ></ActionSelectTab>
+            )}
+            {Array.isArray(props.children)
+                ? props.children.map(child => {
+                      if (child.props.title !== activeTab) return undefined
+                      return child
+                  })
+                : props.children}
+        </div>
+    )
+}
+
+export class ActionSelectPanel extends Component {
+    state = {
+        infoOpen: false,
     }
 
     Option = props => {
@@ -31,80 +61,42 @@ export class ActionSelectBox extends Component {
             </div>
         )
     }
-    groupActions = actions => {
-        let data = [
-            { label: 'Autocapture', options: [] },
-            { label: 'Event', options: [] },
-            { label: 'Pageview', options: [] },
-        ]
-        actions.map(action => {
-            let format = { label: action.name, value: action.id }
-            if (this.actionContains(action, '$autocapture'))
-                data[0].options.push(format)
-            if (this.actionContains(action, '$pageview'))
-                data[2].options.push(format)
-            if (
-                !this.actionContains(action, '$autocapture') &&
-                !this.actionContains(action, '$pageview')
-            )
-                data[1].options.push(format)
-        })
-        return data
-    }
+
     render() {
-        let {
-            action,
-            actions,
-            onClose,
-            onChange,
-            defaultMenuIsOpen,
-        } = this.props
         return (
-            <div className="select-box">
-                {action.id && (
-                    <a href={'/action/' + action.id} target="_blank">
-                        Edit "{action.name}"{' '}
-                        <i className="fi flaticon-export" />
-                    </a>
-                )}
+            <div style={{ padding: '1rem', height: '90%', width: '100%' }}>
+                {this.props.redirect}
                 {this.state.infoOpen && (
                     <ActionSelectInfo
                         isOpen={this.state.infoOpen}
                         boundingRect={this.state.infoBoundingRect}
-                        action={
-                            actions.filter(
-                                a => a.id == this.state.infoActionId
-                            )[0]
-                        }
+                        entity={this.props.onHover(this.state.infoActionId)}
                     />
                 )}
                 <Select
                     onBlur={e => {
-                        if (e.relatedTarget && e.relatedTarget.tagName == 'A')
-                            return
+                        if (e.relatedTarget && e.relatedTarget.tagName == 'A') return
                         this.setState({ infoOpen: false })
-                        if (onClose) onClose()
                     }}
-                    onChange={item => onChange(item.value)}
-                    defaultMenuIsOpen={defaultMenuIsOpen}
+                    onChange={this.props.onSelect}
+                    defaultMenuIsOpen={this.props.defaultMenuIsOpen}
                     autoFocus={true}
-                    value={{
-                        label: action.name,
-                        value: action.id,
-                    }}
+                    value={this.props.active}
                     className="select-box-select"
                     styles={selectStyle}
                     components={{ Option: this.Option }}
-                    options={this.groupActions(actions)}
+                    options={this.props.options}
                 />
+                {this.props.message}
             </div>
         )
     }
 }
-ActionSelectBox.propTypes = {
-    onChange: PropTypes.func.isRequired,
-    actions: PropTypes.array.isRequired,
-    action: PropTypes.object.isRequired,
-    onClose: PropTypes.func,
-    defaultMenuIsOpen: PropTypes.bool,
+
+ActionSelectPanel.propTypes = {
+    options: PropTypes.array.isRequired,
+    defaultMenuIsOpen: PropTypes.bool.isRequired,
+    onSelect: PropTypes.func.isRequired,
+    title: PropTypes.string.isRequired,
+    onHover: PropTypes.func.isRequired,
 }

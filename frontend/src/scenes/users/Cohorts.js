@@ -49,6 +49,9 @@ export class Cohorts extends Component {
                                         </Link>
                                     </td>
                                     <td>
+                                        <a href={'/api/person.csv?cohort=' + cohort.id}>
+                                            <i className="fi flaticon-export" />
+                                        </a>
                                         <DeleteWithUndo
                                             endpoint="cohort"
                                             object={cohort}

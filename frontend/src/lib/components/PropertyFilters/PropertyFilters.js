@@ -1,123 +1,97 @@
-import React, { Component } from 'react'
-import PropTypes from 'prop-types'
-import api from '../../api'
-import { PropertyFilter } from './PropertyFilter'
+import React, { useState } from 'react'
+import { PropertyFilter, operatorMap } from './PropertyFilter'
+import { Button } from 'antd'
+import { useValues, useActions } from 'kea'
+import { propertyFilterLogic } from './propertyFilterLogic'
+import { Popover, Row } from 'antd'
+import { CloseButton } from '../../utils'
 
-export class PropertyFilters extends Component {
-    constructor(props) {
-        super(props)
+const operatorEntries = Object.entries(operatorMap).reverse()
 
-        this.state = {
-            filters: Object.entries(props.propertyFilters).map(
-                ([key, value]) => {
-                    let dict = {}
-                    dict[key] = value
-                    return dict
-                }
-            ),
-        }
-        this.endpoint = !this.props.endpoint ? 'event' : this.props.endpoint
-        this.set = this.set.bind(this)
-        this.update = this.update.bind(this)
-        this.remove = this.remove.bind(this)
-        if (props.properties === undefined) this.fetchProperties.call(this)
+const formatFilterName = str => {
+    for (let [key, value] of operatorEntries) {
+        if (str.includes(key)) return str.replace('__' + key, '') + ` ${value} `
     }
-    fetchProperties() {
-        api.get('api/' + this.endpoint + '/properties').then(properties =>
-            this.setState({
-                properties: properties.map(property => ({
-                    label: property.name,
-                    value: property.name,
-                })),
-            })
-        )
-    }
-    componentDidUpdate(prevProps) {
-        if (
-            JSON.stringify(this.props.propertyFilters) !=
-            JSON.stringify(prevProps.propertyFilters)
-        ) {
-            this.setState({
-                filters: Object.entries(this.props.propertyFilters).map(
-                    ([key, value]) => {
-                        let dict = {}
-                        dict[key] = value
-                        return dict
-                    }
-                ),
-            })
-        }
-    }
-    update(filters) {
-        let dict = {}
-        filters.map(item => (dict = { ...dict, ...item }))
-        this.props.onChange(dict)
-    }
-    set(index, key, value) {
-        let filters = [...this.state.filters]
-        filters[index] = {}
-        filters[index][key] = value
-        console.log('setting', filters)
-        this.setState({ filters })
-        if (value) this.update(filters)
-    }
-    remove(index) {
-        let filters = [...this.state.filters]
-        filters.splice(index, 1)
-        this.setState({ filters })
-        this.update(filters)
-    }
-    render() {
-        let { filters } = this.state
-        let properties = this.state.properties
-            ? this.state.properties
-            : this.props.properties
-        return (
-            <div
-                className={this.props.className || 'col-8'}
-                style={{
-                    marginBottom: '2rem',
-                    padding: 0,
-                    ...this.props.style,
-                }}
-            >
-                {filters.map((item, index) => (
-                    <span>
-                        <PropertyFilter
-                            properties={properties}
-                            key={index}
-                            onSet={(key, value) => this.set(index, key, value)}
-                            onRemove={() => this.remove(index)}
-                            endpoint={this.endpoint}
-                            item={item}
-                        />
-                        {index != filters.length - 1 && (
-                            <div className="row">
-                                <div
-                                    className="secondary offset-4 col-2"
-                                    style={{ textAlign: 'center' }}
-                                >
-                                    AND
-                                </div>
-                            </div>
-                        )}
-                    </span>
-                ))}
-                <button
-                    className="btn btn-sm btn-outline-success"
-                    onClick={() => this.setState({ filters: [...filters, {}] })}
-                    style={{ marginTop: '0.5rem' }}
-                >
-                    {filters.length == 0 ? 'Filter events by property' : 'Add another filter'}
-                </button>
-            </div>
-        )
-    }
+    return str + ` ${operatorMap['null']} `
 }
 
-PropertyFilters.propTypes = {
-    propertyFilters: PropTypes.object.isRequired,
-    onChange: PropTypes.func.isRequired,
-    endpoint: PropTypes.string,
-    properties: PropTypes.array,
+function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, filters }) {
+    const { remove } = useActions(propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey }))
+    let [open, setOpen] = useState(false)
+
+    let handleVisibleChange = visible => {
+        if (!visible && Object.keys(item).length >= 0 && !item[Object.keys(item)[0]]) {
+            remove(index)
+        }
+        setOpen(visible)
+    }
+
+    return (
+        <Row align="middle" className="mt-2 mb-2">
+            <Popover
+                trigger="click"
+                onVisibleChange={handleVisibleChange}
+                defaultVisible={false}
+                visible={open}
+                placement="bottomLeft"
+                content={
+                    <PropertyFilter
+                        key={index}
+                        index={index}
+                        endpoint={endpoint || 'event'}
+                        onChange={onChange}
+                        onComplete={() => setOpen(false)}
+                        pageKey={pageKey}
+                    />
+                }
+            >
+                {Object.keys(item).length !== 0 ? (
+                    <Button type="primary" shape="round" style={{ maxWidth: '85%' }}>
+                        <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {formatFilterName(Object.keys(item)[0]) + item[Object.keys(item)[0]]}
+                        </span>
+                    </Button>
+                ) : (
+                    <Button type="default" shape="round">
+                        {'Add Filter'}
+                    </Button>
+                )}
+            </Popover>
+            {index != filters.length - 1 && (
+                <CloseButton
+                    className="ml-1"
+                    onClick={() => {
+                        remove(index)
+                    }}
+                    style={{ cursor: 'pointer', float: 'none' }}
+                />
+            )}
+        </Row>
+    )
+}
+
+export function PropertyFilters(props) {
+    let { endpoint, propertyFilters, className, style, onChange, pageKey } = props
+    const { filters } = useValues(propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey }))
+
+    return (
+        <div
+            className={className || 'col-8'}
+            style={{
+                padding: 0,
+                marginBottom: '2rem',
+                display: 'inline',
+                style,
+            }}
+        >
+            <div className="column">
+                {filters &&
+                    filters.map((item, index) => {
+                        return (
+                            <FilterRow key={index} {...props} item={item} index={index} filters={filters}></FilterRow>
+                        )
+                    })}
+            </div>
+        </div>
+    )
 }

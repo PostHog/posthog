@@ -6,26 +6,27 @@ import { Modal } from 'lib/components/Modal'
 import { PeopleTable } from 'scenes/users/PeopleTable'
 
 export function PeopleModal() {
-    const { people, peopleCount, peopleAction, peopleDay, filters } = useValues(trendsLogic({ id: null }))
-    const { hidePeople } = useActions(trendsLogic({ dashboardItemId: null }))
+    const { people, filters } = useValues(trendsLogic({ id: null }))
+    const { setShowingPeople } = useActions(trendsLogic({ dashboardItemId: null }))
 
+    const name = people ? people.action.name + (people.breakdown_value ? ' - ' + people.breakdown_value : '') : '...'
     const title =
         filters.shown_as === 'Stickiness'
-            ? `"${peopleAction?.name || '...'}" stickiness ${peopleDay} day${peopleDay === 1 ? '' : 's'}`
-            : `"${peopleAction?.name || '...'}" on ${peopleDay ? moment(peopleDay).format('ll') : '...'}`
+            ? `"${name}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
+            : `"${name}" on ${people?.day ? moment(people.day).format('ll') : '...'}`
 
     return (
-        <Modal title={title} onDismiss={hidePeople}>
+        <Modal title={title} onDismiss={() => setShowingPeople(false)}>
             {people ? (
                 <p>
-                    Found {peopleCount} {peopleCount === 1 ? 'user' : 'users'}
-                    {peopleCount > 100 ? '. Showing the first 100 below.' : ''}
+                    Found {people.count} {people.count === 1 ? 'user' : 'users'}
+                    {people.count > 100 ? '. Showing the first 100 below.' : ''}
                 </p>
             ) : (
                 <p>Loading users...</p>
             )}
 
-            <PeopleTable loading={!people} people={people} />
+            <PeopleTable loading={!people?.people} people={people?.people} />
         </Modal>
     )
 }

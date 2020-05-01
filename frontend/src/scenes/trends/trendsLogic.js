@@ -2,17 +2,53 @@ import { kea } from 'kea'
 
 import api from 'lib/api'
 import { fromParams, toParams } from 'lib/utils'
-import { propertiesModel } from '~/models/propertiesModel'
 import { actionsModel } from '~/models/actionsModel'
+import { userLogic } from 'scenes/userLogic'
+
+export const EntityTypes = {
+    ACTIONS: 'actions',
+    EVENTS: 'events',
+    NEW: 'new',
+}
+
+export const disableMinuteFor = {
+    dStart: false,
+    '-1d': false,
+    '-7d': true,
+    '-14d': true,
+    '-30d': true,
+    '-90d': true,
+    mStart: true,
+    '-1mStart': true,
+    yStart: true,
+    all: true,
+}
+
+export const disableHourFor = {
+    dStart: false,
+    '-1d': false,
+    '-7d': false,
+    '-14d': false,
+    '-30d': false,
+    '-90d': true,
+    mStart: false,
+    '-1mStart': false,
+    yStart: true,
+    all: true,
+}
+
+export const ViewType = {
+    FILTERS: 'FILTERS',
+    SESSIONS: 'SESSIONS',
+}
 
 function cleanFilters(filters) {
-    if (filters.breakdown && filters.display !== 'ActionsTable') {
+    if (filters.session && filters.session == 'dist') {
         return {
             ...filters,
             display: 'ActionsTable',
         }
     }
-
     return filters
 }
 
@@ -27,12 +63,29 @@ function filterClientSideParams(filters) {
     return newFilters
 }
 
+function autocorrectInterval({ date_from, interval }) {
+    if (!interval) return 'day' // undefined/uninitialized
+
+    const minute_disabled = disableMinuteFor[date_from] && interval === 'minute'
+    const hour_disabled = disableHourFor[date_from] && interval === 'hour'
+
+    if (minute_disabled) {
+        return 'hour'
+    } else if (hour_disabled) {
+        return 'day'
+    } else {
+        return interval
+    }
+}
+
 function filtersFromParams() {
     let filters = fromParams()
+    filters.interval = autocorrectInterval(filters)
     filters.actions = filters.actions && JSON.parse(filters.actions)
     filters.actions = Array.isArray(filters.actions) ? filters.actions : undefined
+    filters.events = filters.events && JSON.parse(filters.events)
+    filters.events = Array.isArray(filters.events) ? filters.events : []
     filters.properties = filters.properties ? JSON.parse(filters.properties) : {}
-
     return cleanFilters(filters)
 }
 
@@ -40,13 +93,16 @@ export const trendsLogic = kea({
     key: props => props.dashboardItemId || 'all_trends',
 
     connect: {
-        values: [propertiesModel, ['properties'], actionsModel, ['actions']],
+        values: [userLogic, ['eventNames'], actionsModel, ['actions']],
         actions: [actionsModel, ['loadActionsSuccess']],
     },
 
     loaders: ({ values }) => ({
         results: {
             loadResults: async () => {
+                if (values.filters.session) {
+                    return await api.get('api/event/sessions/?' + toParams(filterClientSideParams(values.filters)))
+                }
                 return await api.get('api/action/trends/?' + toParams(filterClientSideParams(values.filters)))
             },
         },
@@ -55,43 +111,56 @@ export const trendsLogic = kea({
     actions: () => ({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: display => ({ display }),
-        setDefaultActionIfEmpty: true,
 
-        showPeople: (action, day) => ({ action, day }),
-        loadPeople: (action, day) => ({ action, day }),
-        hidePeople: true,
-        setPeople: (people, count) => ({ people, count }),
+        loadPeople: (action, day, breakdown_value) => ({ action, day, breakdown_value }),
+        setShowingPeople: isShowing => ({ isShowing }),
+        setPeople: (people, count, action, day, breakdown_value) => ({ people, count, action, day, breakdown_value }),
+        setActiveView: type => ({ type }),
+        initialView: type => ({ type }),
+        setCachedUrl: url => ({ url }),
     }),
 
     reducers: ({ actions }) => ({
         filters: [
             {},
             {
-                [actions.setFilters]: (state, { filters, mergeFilters }) =>
-                    cleanFilters({
+                [actions.setFilters]: (state, { filters, mergeFilters }) => {
+                    return cleanFilters({
                         ...(mergeFilters ? state : {}),
                         ...filters,
-                    }),
+                    })
+                },
             },
         ],
         people: [
             null,
             {
                 [actions.setFilters]: () => null,
-                [actions.setPeople]: (_, { people }) => people,
+                [actions.setPeople]: (_, people) => people,
             },
         ],
-        peopleCount: [
+        activeView: [
+            ViewType.FILTERS,
+            {
+                [actions.setActiveView]: (_, { type }) => type,
+                [actions.initialView]: (_, { type }) => type,
+            },
+        ],
+        cachedUrl: [
             null,
             {
-                [actions.setFilters]: () => null,
-                [actions.setPeople]: (_, { count }) => count,
+                [actions.setCachedUrl]: (_, { url }) => url,
+            },
+        ],
+        showingPeople: [
+            false,
+            {
+                [actions.setShowingPeople]: (_, { isShowing }) => isShowing,
             },
         ],
     }),
 
     selectors: ({ selectors }) => ({
-        showingPeople: [() => [selectors.filters], filters => !!(filters.people_action && filters.people_day)],
         peopleAction: [
             () => [selectors.filters, selectors.actions],
             (filters, actions) =>
@@ -101,63 +170,32 @@ export const trendsLogic = kea({
     }),
 
     listeners: ({ actions, values, props }) => ({
-        [actions.loadActionsSuccess]: () => {
-            if (!props.dashboardItemId) {
-                actions.setDefaultActionIfEmpty()
-            }
-        },
-        [actions.setDefaultActionIfEmpty]: () => {
-            if (!values.filters.actions && values.actions.length > 0) {
-                actions.setFilters({
-                    actions: [
-                        {
-                            id: values.actions[values.actions.length - 1].id,
-                        },
-                    ],
-                })
-            }
-        },
         [actions.setDisplay]: async ({ display }) => {
             actions.setFilters({ display })
         },
-        [actions.showPeople]: async ({ action, day }) => {
-            actions.setFilters({
-                ...values.filters,
-                people_day: day,
-                people_action: action.id,
-            })
-        },
-        [actions.hidePeople]: async () => {
-            actions.setFilters({
-                ...values.filters,
-                people_day: '',
-                people_action: '',
-            })
-        },
-        [actions.setFilters]: async ({ filters }) => {
-            if (filters.people_day && filters.people_action) {
-                actions.loadPeople(filters.people_action, filters.people_day)
-            }
-        },
-        [actions.loadPeople]: async ({ day, action }) => {
+        [actions.loadPeople]: async ({ action, day, breakdown_value }, breakpoint) => {
+            actions.setShowingPeople(true)
             const params = filterClientSideParams({
                 ...values.filters,
-                actions: [{ id: action }],
+                entityId: action.id,
+                type: action.type,
             })
 
-            if (`${day}`.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            if (values.filters.shown_as === 'Stickiness') {
+                params.stickiness_days = day
+            } else {
                 params.date_from = day
                 params.date_to = day
-            } else {
-                params.stickiness_days = day
+            }
+            if (breakdown_value) {
+                params.properties = { ...params.properties, [params.breakdown]: breakdown_value }
             }
 
             const filterParams = toParams(params)
+            actions.setPeople(null, null, action, day, breakdown_value)
             const people = await api.get(`api/action/people/?include_last_event=1&${filterParams}`)
-
-            if (day === values.filters.people_day && action === values.filters.people_action) {
-                actions.setPeople(people[0]?.people, people[0]?.count)
-            }
+            breakpoint()
+            actions.setPeople(people[0]?.people, people[0]?.count, action, day, breakdown_value)
         },
     }),
 
@@ -172,13 +210,21 @@ export const trendsLogic = kea({
                 }
             }
         },
+        [actions.setActiveView]: ({ type }) => {
+            let cachedUrl = values.cachedUrl
+            actions.setCachedUrl(window.location.pathname + window.location.search)
+            if (cachedUrl) {
+                return cachedUrl
+            } else {
+                return type == ViewType.SESSIONS ? `/trends?${toParams({ session: 'avg' })}` : `/trends`
+            }
+        },
     }),
 
     urlToAction: ({ actions, values, props }) => ({
         '/trends': () => {
             if (!props.dashboardItemId) {
                 const newFilters = filtersFromParams()
-
                 if (toParams(newFilters) !== toParams(values.filters)) {
                     actions.setFilters(newFilters, false)
                 }
@@ -188,12 +234,15 @@ export const trendsLogic = kea({
 
     events: ({ actions, props }) => ({
         afterMount: () => {
-            if (props.dashboardItemId) {
+            let filters = filtersFromParams()
+            if (filters.session) {
+                actions.initialView(ViewType.SESSIONS)
+                actions.setFilters(filters, false)
+            } else if (props.dashboardItemId) {
                 // on dashboard
                 actions.setFilters(props.filters, false)
             } else {
-                actions.setFilters(filtersFromParams(), false)
-                actions.setDefaultActionIfEmpty()
+                actions.setFilters(filters, false)
             }
         },
     }),

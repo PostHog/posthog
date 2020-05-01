@@ -1,8 +1,8 @@
 from django.test import TestCase, Client
 from posthog.models import User, DashboardItem, Action, Person, Event, Team
-from social_django.strategy import DjangoStrategy # type: ignore
-from social_django.models import DjangoStorage # type: ignore
-from social_core.utils import module_member # type: ignore
+from social_django.strategy import DjangoStrategy
+from social_django.models import DjangoStorage
+from social_core.utils import module_member
 from posthog.urls import social_create_user
 
 class TestSignup(TestCase):
@@ -12,12 +12,13 @@ class TestSignup(TestCase):
      
     def test_signup_new_team(self):
         with self.settings(TEST=False):
-            response = self.client.post('/setup_admin', {'company_name': 'ACME Inc.', 'name': 'Jane', 'email': 'jane@acme.com', 'password': 'hunter2'}, follow=True)
+            response = self.client.post('/setup_admin', {'company_name': 'ACME Inc.', 'name': 'Jane', 'email': 'jane@acme.com', 'password': 'hunter2', 'emailOptIn': 'on'}, follow=True)
         self.assertRedirects(response, '/')
 
         user = User.objects.get() 
         self.assertEqual(user.first_name, 'Jane')
         self.assertEqual(user.email, 'jane@acme.com')
+        self.assertTrue(user.email_opt_in)
 
         team = user.team_set.get()
         self.assertEqual(team.name, 'ACME Inc.')
@@ -30,10 +31,19 @@ class TestSignup(TestCase):
         items = DashboardItem.objects.filter(team=team).order_by('id')
         self.assertEqual(items[0].name, 'Pageviews this week')
         self.assertEqual(items[0].type, 'ActionsLineGraph')
-        self.assertEqual(items[0].filters['actions'][0]['id'], action.pk)
+        self.assertEqual(items[0].filters['events'][0]['id'], '$pageview')
 
-        self.assertEqual(items[1].filters['actions'][0]['id'], action.pk)
+        self.assertEqual(items[1].filters['events'][0]['id'], '$pageview')
         self.assertEqual(items[1].type, 'ActionsTable')
+
+    def test_signup_to_team(self):
+        team = Team.objects.create_with_data(name='test', users=[
+            User.objects.create_user(email='adminuser@posthog.com')
+        ])
+        with self.settings(TEST=False):
+            response = self.client.post('/signup/{}'.format(team.signup_token), {'name': 'Jane', 'email': 'jane@acme.com', 'password': 'hunter2', 'emailOptIn': ''}, follow=True)
+        self.assertRedirects(response, '/')
+
 
 class TestSocialSignup(TestCase):
     def setUp(self):

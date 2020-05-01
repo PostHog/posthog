@@ -3,6 +3,12 @@ import api from '../api'
 import { Modal } from './Modal'
 import { toast } from 'react-toastify'
 import { Link } from 'react-router-dom'
+import { Button } from 'antd'
+
+function momentToString(date) {
+    if (date && date._isAMomentObject) return date.format('YYYY-MM-DD')
+    return date
+}
 
 export class SaveToDashboard extends Component {
     constructor(props) {
@@ -15,15 +21,20 @@ export class SaveToDashboard extends Component {
     Toast({ closeToast }) {
         return (
             <div>
-                Panel added to dashboard.
-                <Link to="/">Click here to see it.</Link>
+                Panel added to dashboard.&nbsp;
+                <Link to="/dashboard">Click here to see it.</Link>
             </div>
         )
     }
     save(event) {
+        let { filters } = this.props
         event.preventDefault()
         api.create('api/dashboard', {
-            filters: this.props.filters,
+            filters: {
+                ...filters,
+                date_from: momentToString(filters.date_from),
+                date_to: momentToString(filters.date_to),
+            },
             type: this.props.type,
             name: event.target.name.value,
         }).then(() => {
@@ -33,10 +44,7 @@ export class SaveToDashboard extends Component {
     }
     Modal() {
         return (
-            <Modal
-                title="Add graph to dashboard"
-                onDismiss={() => this.setState({ openModal: false })}
-            >
+            <Modal title="Add graph to dashboard" onDismiss={() => this.setState({ openModal: false })}>
                 <form onSubmit={this.save}>
                     <label>Panel name on dashboard</label>
                     <input
@@ -60,14 +68,9 @@ export class SaveToDashboard extends Component {
         return (
             <span className="save-to-dashboard">
                 {this.state.openModal && <this.Modal />}
-                <button
-                    onClick={() => this.setState({ openModal: true })}
-                    className={
-                        'btn btn-secondary btn-sm ' + this.props.className
-                    }
-                >
+                <Button onClick={() => this.setState({ openModal: true })} type="primary">
                     Add to dashboard
-                </button>
+                </Button>
             </span>
         )
     }

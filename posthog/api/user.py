@@ -6,10 +6,12 @@ from django.core.exceptions import ValidationError
 from django.shortcuts import redirect
 from django.conf import settings
 from posthog.models import Event
+import requests
 
 import urllib.parse
 import secrets
 import json
+import posthoganalytics
 
 def user(request):
     if not request.user.is_authenticated:
@@ -19,9 +21,17 @@ def user(request):
 
     if request.method == 'PATCH':
         data = json.loads(request.body)
-        team.app_urls = data['team'].get('app_urls', team.app_urls)
-        team.opt_out_capture = data['team'].get('opt_out_capture', team.opt_out_capture)
-        team.save()
+
+        if 'team' in data:
+            team.app_urls = data['team'].get('app_urls', team.app_urls)
+            team.opt_out_capture = data['team'].get('opt_out_capture', team.opt_out_capture)
+            team.slack_incoming_webhook = data['team'].get('slack_incoming_webhook', team.slack_incoming_webhook)
+            team.save()
+
+        if 'user' in data:
+            request.user.email_opt_in = data['user'].get('email_opt_in')
+            posthoganalytics.identify(request.user.distinct_id, {'email_opt_in': request.user.email_opt_in})
+            request.user.save()
 
     return JsonResponse({
         'id': request.user.pk,
@@ -29,11 +39,15 @@ def user(request):
         'name': request.user.first_name,
         'email': request.user.email,
         'has_events': Event.objects.filter(team=team).exists(),
+        'email_opt_in': request.user.email_opt_in,
         'team': {
             'app_urls': team.app_urls,
             'api_token': team.api_token,
             'signup_token': team.signup_token,
-            'opt_out_capture': team.opt_out_capture
+            'opt_out_capture': team.opt_out_capture,
+            'slack_incoming_webhook': team.slack_incoming_webhook,
+            'event_names': team.event_names,
+            'event_properties': team.event_properties
         },
         'posthog_version': settings.VERSION if hasattr(settings, 'VERSION') else None
     })
@@ -82,7 +96,7 @@ def change_password(request):
         return JsonResponse({'error': 'Incorrect old password'}, status=400)
 
     try:
-        validate_password(new_password, user)
+        validate_password(new_password, request.user)
     except ValidationError as err:
         return JsonResponse({'error': err.messages[0]}, status=400)
 
@@ -91,3 +105,35 @@ def change_password(request):
     update_session_auth_hash(request, request.user)
 
     return JsonResponse({})
+
+
+@require_http_methods(['POST'])
+def test_slack_webhook(request):
+    """Change the password of a regular User."""
+    if not request.user.is_authenticated:
+        return JsonResponse({}, status=401)
+
+    try:
+        body = json.loads(request.body)
+    except (TypeError, json.decoder.JSONDecodeError):
+        return JsonResponse({'error': 'Cannot parse request body'}, status=400)
+
+    webhook = body.get('webhook')
+
+    if not webhook:
+        return JsonResponse({'error': 'no webhook'})
+    message = {
+        "text": "Greetings from PostHog!"
+    }
+    try:
+        response = requests.post(webhook, verify=False, json=message)
+
+        if response.ok:
+            if response.text == 'ok':
+                return JsonResponse({'success': True})
+            else:
+                return JsonResponse({'error': 'invalid webhook url'})
+        else:
+            return JsonResponse({'error': response.text})
+    except:
+        return JsonResponse({'error': 'invalid webhook url'})

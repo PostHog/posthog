@@ -1,1 +1,10 @@
-python manage.py runserver & ./bin/start-frontend && kill $!.
+#!/bin/bash
+set -e
+
+trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
+
+./bin/start-worker &
+./bin/start-backend &
+./bin/start-frontend &
+
+wait

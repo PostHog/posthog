@@ -11,6 +11,8 @@ class TestDemo(BaseTest):
         self.assertEqual(Person.objects.count(), 100)
         self.assertEqual(Funnel.objects.count(), 1)
         self.assertEqual(Action.objects.count(), 3)
+
+        self.assertEqual(Action.objects.all()[1].events.count(), 9)
  
     def test_do_not_create_demo_data_if_already_exists(self):
         Event.objects.create(team=self.team, event='random event')

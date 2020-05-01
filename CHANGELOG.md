@@ -1,5 +1,204 @@
 # Changelog
 
+### 1.3.0 - Wednesday 29 April 2020
+
+- We have added an Android library so you can now capture events in your Android app and send them to PostHog, we can automatically capture screen changes, and send any other events that you like
+
+![android events](https://posthog.com/wp-content/uploads/2020/04/android-events.gif)
+
+- There is now, also a [PostHog Gatsby plugin](https://docs.posthog.com/#/integrations/gatsby)
+
+- We have added URL wildcards so you can use % as a wildcard when setting up an action
+
+![url wildcards](https://posthog.com/wp-content/uploads/2020/04/Posthog-19-e1588157571429.png)
+
+- We have also updated the Trends page design as well as adding trends info hints. Trends is the default homepage when logging into PostHog.
+
+![trend layout](https://posthog.com/wp-content/uploads/2020/04/Posthog-21-e1588171341976.png)
+
+![trend hints](https://posthog.com/wp-content/uploads/2020/04/Fullscreen_4_29_20__12_09_PM-e1588158606164.png)
+
+- The Events table can now be sorted by timestamp.
+
+![timestamp reverse](https://posthog.com/wp-content/uploads/2020/04/timestampreverse.gif)
+
+- Added a more strict flake8 setup and improvements
+- Upgraded Kea to `2.0.0-beta.5`
+- Implemented AntD into Setup page
+- You can now allow access to your PostHog instance by IP address for more security. this does not apply to the JS snippet or the event capture API
+- Added model for typing of filters
+- Added copy code to clipboard changes
+- Use forward for header in middleware if applicable
+- Move get_ip_address to utils
+- Fixed redirect to be explicit for /Trends
+- Moved models to separate files
+- Added link to docs for local deployment
+- Warn instead of crash on invalid selector when using the front-end toolbar
+
+
+#### Bug Fixes
+- Fixed issue with default trends route
+- Fixed Setup page operations not working
+- Fixed crash when hovering over events
+- Fixed issues with $create_alias when users have multiple distinct_ids attached to them
+- Fixed trends save to dashboard issue
+- Fixed adding dashboarditem with set dates
+
+
+### 1.2.0 - Wednesday 22 Aptil 2020
+
+- We have added an iOS library so you can now capture events in your iOS app and send them to PostHog, we can automatically capture screen changes, and send any other events that you like
+
+Click [here](https://docs.posthog.com/#/integrations/ios-integration) for instructions on how to install it on your app.
+
+- We have added Sessions to /trends with two modes: “Average session length”, which shows you how long sessions are and how many, and “distribution” which makes it super easy to spot whether sessions are uniformly distributed or whether there are outliers
+
+![sessions gif](https://posthog.com/wp-content/uploads/2020/04/Sessions.gif)
+
+- Funnels can be filtered by properties 
+
+![Funnel properties](https://posthog.com/wp-content/uploads/2020/04/funnel-properties.gif)
+
+- Added indexes so loading /trends is super fast, even with millions of events
+- We have offloaded storing events to workers, so that calls to our events API are non-blocking, and you can scale insertion of events independently from the rest of PostHog
+- Removed drf-yasg in favor of our own hosted docs
+- Added layout/header components of Ant design
+- Updated property filters to be "tokenized"
+- Updated the way we display actions/events in trend graphs if those action/events have no data in a given timeframe
+- Updated property filters so that they 'AND' rather than 'OR' if you filter multiples
+
+#### Bug Fixes
+- Fixed unable to sign up to teams
+- Fixed stickniess not loading 
+- Fixed property filter bug that would break when multiples were applied in some circumstances
+- Fixed setting event name in action
+- Fixzed event filtering with teams
+
+
+### 1.1.0.1 - Thursday 16 April 2020
+
+- Fix issues with custom events while creating actions
+
+### 1.1.0 - Wednesday 15 April 2020
+
+Important! We've added Celery workers. We'll move tasks to workers to speed up a lot of actions in PostHog. [See update instructions](https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011) on how to enable workers.
+
+- Users can integrate PostHog with Slack to send push notifications when events are triggered
+
+![Slack action](https://posthog.com/wp-content/uploads/2020/04/Slack-action.gif)
+
+- Funnels can now be filtered by Events not just Actions
+- Funnels can be filtered by time intervals as well
+
+![funnel intervals](https://posthog.com/wp-content/uploads/2020/04/funnels-by-time.gif)
+![funnel with events](https://posthog.com/wp-content/uploads/2020/04/funnel-with-events.gif)
+
+- Added Ant Design to PostHog
+
+![ant design sidebar](https://posthog.com/wp-content/uploads/2020/04/Posthog-6-e1586882580994.png)
+![ant design buttons](https://posthog.com/wp-content/uploads/2020/04/Posthog-10.png)
+
+- Trends can now be filtered by different time intervals
+
+![time intervals](https://posthog.com/wp-content/uploads/2020/04/time-intervals.gif)
+
+- Added dotted lines to represent data yet to be determined
+
+![Dotted line example](https://posthog.com/wp-content/uploads/2020/04/dotted-lines.png)
+
+- Trends graphs have fixed the X axis at 0 
+
+![x axis 0](https://posthog.com/wp-content/uploads/2020/04/Posthog-7.png)
+
+- Daily Active Users (DAUs) added as a default dashboard
+
+![DAU dahsboard](https://posthog.com/wp-content/uploads/2020/04/Posthog-8.png)
+
+- Changed the way we rendered urls in Paths to reflect better on different screen sizes
+
+![paths](https://posthog.com/wp-content/uploads/2020/04/Posthog-9.png)
+
+- Updated UX when saving actions to be clearer
+
+![actions save](https://posthog.com/wp-content/uploads/2020/04/save-actions-ux.gif)
+
+- Changed the way we store events properties, we now store all event names and property names against the Team
+- Refactored PropertyFilters into a function
+- Added filter by event name to event properties
+- Added mypy rules
+- Using dateutil for datetime
+- Added timestamp index to allow event tables to load at large volumes
+- Updated helm charts to work with redis and workers
+- Added a Babel plugin to reduce antd module load
+- We now use offset instead of timestamp of posthog-js to avoid the wrong user time - previously if your local machine had a time set different to your location (or if the time was just off) we would have displayed that time.
+- Using npm instead of yarn in copy command as Heroku doesn't have yarn
+- We now use posthog-js to get array.js
+- Removed unused indexes from migrations
+- Updated PostHog snippet
+
+#### Bug Fixes
+- Removed unused future import to prevent Heroku deployments breaking
+- Fixed dupliucated users in Cohorts
+- Type Migration to prevent /trend bug when navigating to a url from a dashboard
+- Added missing type in initial dahsboard element creattion to fix the same bug as above
+- Fixed collectstatic on fresh Heroku updates
+- Fixed network timeout yarn for antd
+- Fixed npm command to copy array.js
+- Fixed date filter not detecting moment
+- Fixed redis error when upgrading Heroku
+- Stopped throwing an error if a user doesn't have a distinct id
+- Fixed a trends people bug that ignored the time interval selected
+- Fixed site_url pass to slack from request
+
+
+### 1.0.11 - Wednesday 8 April 2020
+
+Important! We've added Celery workers. We'll move tasks to workers to speed up a lot of actions in PostHog. [See update instructions](https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011) on how to enable workers.
+
+- Users can filter the trends view by any event rather than just actions
+
+![events in trends](https://posthog.com/wp-content/uploads/2020/04/events-in-trends.gif)
+
+- Users can now change password in /setup
+
+![password change](https://posthog.com/wp-content/uploads/2020/04/Posthog-3.png)
+
+- Users can also reset password at login screen
+- Added a logout button
+
+![logout button](https://posthog.com/wp-content/uploads/2020/04/logoutbuton.gif)
+
+- Added GitHub / GitLab Social Authorization
+
+![social auth](https://posthog.com/wp-content/uploads/2020/04/Posthog-1.png)
+
+- Added Stickiness explanation in /trends > Shown As > Stickiness
+
+![Stickiness explanation](https://posthog.com/wp-content/uploads/2020/04/Posthog-4.png)
+
+- Precalculated events that matched actions, this massively speeds up anything that uses actions
+- Added Celery background workers
+- Added gunicorn workers in docker-server script
+- Added email opt in for PostHog Security and Feature updates
+- Removed yarn cache in production image
+- Cleaned docker yarcn cache
+- Reduced size of Docker images by ~80MB
+- Set default password for postgres in docker-compose.yml
+- Sped up the event insert by only loading actions that were really necessary
+- Migrated ip field to event property
+- Updated all links to point to new docs domain
+- Added GitLab API url
+- Added Async JS snippet
+- Docker and server updates for helm
+
+#### Bug Fixes
+- Fixed some instances of Cohort page hangs
+- Fixed demo actions not being recalculated
+- Fixed breakdown error on DAUs where tables could not be filtered
+- Fixed array.js
+- Fixied ActionStep.url_ so that it can be null
+
+
 ### 1.0.10.2 - Friday 3 April 2020
 
 - Precalculate Actions to speed up everything (dashboards/actions overview etcetera)

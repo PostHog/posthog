@@ -1,10 +1,11 @@
-from posthog.models import Person, PersonDistinctId, Event, Element, Action, ActionStep, Funnel, FunnelStep, Team
+from posthog.models import Person, PersonDistinctId, Event, Element, Action, ActionStep, Funnel, Team, DashboardItem
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from django.http import HttpResponseNotFound, JsonResponse
 
 from posthog.urls import render_template
 from posthog.utils import render_template
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
 from typing import List
 from pathlib import Path
@@ -41,10 +42,14 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                 team=team,
                 distinct_id=distinct_id,
                 event='$autocapture',
-                properties={'$current_url': base_url},
+                properties={'$current_url': base_url, '$browser': browser, '$lib': 'web', '$event_type': 'click'},
                 timestamp=date + relativedelta(seconds=14),
                 elements=[
-                    Element(tag_name='a', href='/demo/1', attr_class=['btn', 'btn-success'], attr_id='sign-up', text='Sign up')
+                    Element(tag_name='a', href='/demo/1', attr_class=['btn', 'btn-success'], attr_id='sign-up', text='Sign up', order=0),
+                    Element(tag_name='form', attr_class=['form'], order=1),
+                    Element(tag_name='div', attr_class=['container'], order=2),
+                    Element(tag_name='body', order=3),
+                    Element(tag_name='html', order=4),
                 ])
             events.append(Event(event='$pageview', team=team, distinct_id=distinct_id, properties={'$current_url': '%s1/' % base_url, '$browser': browser, '$lib': 'web'}, timestamp=date + relativedelta(seconds=15)))
             if index % 4 == 0:
@@ -52,10 +57,14 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                     team=team,
                     event='$autocapture',
                     distinct_id=distinct_id,
-                    properties={'$current_url': '%s1/' % base_url},
+                    properties={'$current_url': '%s1/' % base_url, '$browser': browser, '$lib': 'web', '$event_type': 'click'},
                     timestamp=date + relativedelta(seconds=29),
                     elements=[
-                        Element(tag_name='button', attr_class=['btn', 'btn-success'], text='Sign up!')
+                        Element(tag_name='button', attr_class=['btn', 'btn-success'], text='Sign up!', order=0),
+                        Element(tag_name='form', attr_class=['form'], order=1),
+                        Element(tag_name='div', attr_class=['container'], order=2),
+                        Element(tag_name='body', order=3),
+                        Element(tag_name='html', order=4),
                     ])
                 events.append(Event(event='$pageview', team=team, distinct_id=distinct_id, properties={'$current_url': '%s2/' % base_url, '$browser': browser, '$lib': 'web'}, timestamp=date + relativedelta(seconds=30)))
                 if index % 5 == 0:
@@ -63,10 +72,14 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                         team=team,
                         event='$autocapture',
                         distinct_id=distinct_id,
-                        properties={'$current_url': '%s2/' % base_url},
+                        properties={'$current_url': '%s2/' % base_url, '$browser': browser, '$lib': 'web', '$event_type': 'click'},
                         timestamp=date + relativedelta(seconds=59),
                         elements=[
-                            Element(tag_name='button', attr_class=['btn', 'btn-success'], text='Pay $10')
+                            Element(tag_name='button', attr_class=['btn', 'btn-success'], text='Pay $10', order=0),
+                            Element(tag_name='form', attr_class=['form'], order=1),
+                            Element(tag_name='div', attr_class=['container'], order=2),
+                            Element(tag_name='body', order=3),
+                            Element(tag_name='html', order=4),
                         ])
                     events.append(Event(event='$pageview', team=team, distinct_id=distinct_id, properties={'$current_url': '%s3/' % base_url, '$browser': browser, '$lib': 'web'}, timestamp=date + relativedelta(seconds=60)))
 
@@ -78,21 +91,32 @@ def _create_funnel(team: Team, base_url: str) -> None:
     ActionStep.objects.create(action=homepage, event='$pageview', url=base_url, url_matching='exact')
 
     user_signed_up = Action.objects.create(team=team, name='HogFlix signed up')
-    ActionStep.objects.create(action=homepage, event='$autocapture', url='%s1/' % base_url, url_matching='exact', selector='button')
+    ActionStep.objects.create(action=user_signed_up, event='$autocapture', url='%s1/' % base_url, url_matching='exact', selector='button')
 
     user_paid = Action.objects.create(team=team, name='HogFlix paid')
-    ActionStep.objects.create(action=homepage, event='$autocapture', url='%s2/' % base_url, url_matching='exact', selector='button')
+    ActionStep.objects.create(action=user_paid, event='$autocapture', url='%s2/' % base_url, url_matching='exact', selector='button')
 
-    funnel = Funnel.objects.create(team=team, name='HogFlix signup -> watching movie')
-    FunnelStep.objects.create(funnel=funnel, action=homepage, order=0)
-    FunnelStep.objects.create(funnel=funnel, action=user_signed_up, order=1)
-    FunnelStep.objects.create(funnel=funnel, action=user_paid, order=2)
+    funnel = Funnel.objects.create(team=team, name='HogFlix signup -> watching movie', filters={
+        'actions': [
+            {'id': homepage.id, 'order': 0, 'type': TREND_FILTER_TYPE_ACTIONS},
+            {'id': user_signed_up.id, 'order': 1, 'type': TREND_FILTER_TYPE_ACTIONS},
+            {'id': user_paid.id, 'order': 2, 'type': TREND_FILTER_TYPE_ACTIONS},
+        ]
+    })
+
+    DashboardItem.objects.create(team=team, name='HogFlix signup -> watching movie', type='FunnelViz', filters={'funnel_id': funnel.pk})
+
+def _recalculate(team: Team) -> None:
+    actions = Action.objects.filter(team=team)
+    for action in actions:
+        action.calculate_events()
 
 def demo(request):
     team = request.user.team_set.get()
     if Event.objects.filter(team=team).count() == 0:
-        _create_funnel(team=team, base_url=request.build_absolute_uri('/demo/'))
         _create_anonymous_users(team=team, base_url=request.build_absolute_uri('/demo/'))
+        _create_funnel(team=team, base_url=request.build_absolute_uri('/demo/'))
+        _recalculate(team=team)
     return render_template('demo.html', request=request, context={'api_token': team.api_token})
 
 def delete_demo_data(request):
@@ -103,5 +127,6 @@ def delete_demo_data(request):
     Person.objects.filter(team=team, properties__is_demo=True).delete()
     Funnel.objects.filter(team=team, name__contains="HogFlix").delete()
     Action.objects.filter(team=team, name__contains="HogFlix").delete()
+    DashboardItem.objects.filter(team=team, name__contains="HogFlix").delete()
 
     return JsonResponse({'status': 'ok'})
