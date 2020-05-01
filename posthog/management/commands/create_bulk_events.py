@@ -8,7 +8,6 @@ from django.conf import settings
 
 from django.core.management.base import BaseCommand
 from django.utils.timezone import now
-from django.core import serializers
 
 from dateutil.relativedelta import relativedelta
 from pathlib import Path
@@ -16,8 +15,9 @@ from typing import List
 import time
 from typing import Iterator, Optional
 import io
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
-from posthog.models import Event, Element, Team, Person, PersonDistinctId, Funnel, Action, ActionStep, FunnelStep
+from posthog.models import Event, Element, Team, Person, PersonDistinctId, Funnel, Action, ActionStep
 
 def clean_csv_value(value: Optional[any]) -> str:
     if value is None:
@@ -91,8 +91,8 @@ class Command(BaseCommand):
             self._delete_demo_data(team)
             print("--- %s seconds ---" % (time.time() - start_time))
         else:
-            self._delete_demo_data(team)
-            self._create_funnel(base_url, team)
+            # self._delete_demo_data(team)
+            self._create_funnel(team, base_url)
             start_time = time.time()
             self._create_events(demo_data,team, base_url)
             print("--- %s seconds ---" % (time.time() - start_time))
@@ -173,18 +173,22 @@ class Command(BaseCommand):
         Funnel.objects.filter(team=team, name__contains="HogFlix").delete()
         Action.objects.filter(team=team, name__contains="HogFlix").delete()
         
-    def _create_funnel(self, base_url, team):
+    def _create_funnel(self, team: Team, base_url: str) -> None:
         homepage = Action.objects.create(team=team, name='HogFlix homepage view')
         ActionStep.objects.create(action=homepage, event='$pageview', url=base_url, url_matching='exact')
 
         user_signed_up = Action.objects.create(team=team, name='HogFlix signed up')
-        ActionStep.objects.create(action=homepage, event='$autocapture', url='%s1/' % base_url, url_matching='exact')
+        ActionStep.objects.create(action=user_signed_up, event='$autocapture', url='%s1/' % base_url, url_matching='exact', selector='button')
 
         user_paid = Action.objects.create(team=team, name='HogFlix paid')
-        ActionStep.objects.create(action=homepage, event='$autocapture', url='%s2/' % base_url, url_matching='exact')
+        ActionStep.objects.create(action=user_paid, event='$autocapture', url='%s2/' % base_url, url_matching='exact', selector='button')
 
-        funnel = Funnel.objects.create(team=team, name='HogFlix signup -> watching movie')
-        FunnelStep.objects.create(funnel=funnel, action=homepage, order=0)
-        FunnelStep.objects.create(funnel=funnel, action=user_signed_up, order=1)
-        FunnelStep.objects.create(funnel=funnel, action=user_paid, order=2)
+        funnel = Funnel.objects.create(team=team, name='HogFlix signup -> watching movie', filters={
+            'actions': [
+                {'id': homepage.id, 'order': 0, 'type': TREND_FILTER_TYPE_ACTIONS},
+                {'id': user_signed_up.id, 'order': 1, 'type': TREND_FILTER_TYPE_ACTIONS},
+                {'id': user_paid.id, 'order': 2, 'type': TREND_FILTER_TYPE_ACTIONS},
+            ]
+        })
+
 
