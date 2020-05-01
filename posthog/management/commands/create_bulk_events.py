@@ -98,12 +98,8 @@ class Command(BaseCommand):
             print("--- %s seconds ---" % (time.time() - start_time))
         
     def _create_events(self, demo_data, team, base_url):           
-        result = urlparse(settings.DATABASE_URL)
-
-        database = result.path[1:]
-        hostname = result.hostname
         try:
-            conn = psycopg2.connect(dbname=database,  host=hostname)
+            conn = psycopg2.connect(settings.DATABASE_URL)
         except:
             print ("Unable to connect to the database")
 
