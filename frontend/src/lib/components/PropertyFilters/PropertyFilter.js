@@ -15,8 +15,8 @@ export function PropertyFilter({ index, endpoint, onChange, pageKey, onComplete 
     const { setFilter, remove } = useActions(propertyFilterLogic({ onChange, pageKey }))
     let item = filters[index]
     let key = Object.keys(item)[0] ? Object.keys(item)[0].split('__') : []
+    if (key.length == 1) key.push('exact')
     let value = Object.values(item)[0]
-
     return (
         <div className="row" style={{ margin: '0.5rem -15px', minWidth: key[0] ? 700 : 200 }}>
             {properties && (

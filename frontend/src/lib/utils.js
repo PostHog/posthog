@@ -168,7 +168,7 @@ export const capitalizeFirstLetter = string => {
 }
 
 export const operatorMap = {
-    null: '= equals',
+    exact: '= equals',
     is_not: "≠ doesn't equal",
     icontains: '∋ contains',
     not_icontains: "∌ doesn't contain",
@@ -182,5 +182,5 @@ export const formatFilterName = str => {
     for (let [key, value] of operatorEntries) {
         if (str.includes(key)) return str.replace('__' + key, '') + ` ${value.split(' ')[0]} `
     }
-    return str + ` ${operatorMap['null'].split(' ')[0]} `
+    return ''
 }
