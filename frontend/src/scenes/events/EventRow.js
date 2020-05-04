@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import moment from 'moment'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 
-let eventNameMap = event => {
+const eventNameMap = event => {
     if (event.properties.$event_type === 'click') return 'clicked '
     if (event.properties.$event_type === 'change') return 'typed something into '
     if (event.properties.$event_type === 'submit') return 'submitted '
