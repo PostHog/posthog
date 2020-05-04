@@ -3,6 +3,8 @@ import { fromParams, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 
+const POLL_TIMEOUT = 5000
+
 const addQuestion = search => (search ? `?${search}` : '')
 
 // props: fixedFilters
@@ -15,7 +17,10 @@ export const eventsTableLogic = kea({
         fetchNextEvents: true,
         flipSort: true,
         pollEvents: true,
+        pollEventsSuccess: events => ({ events }),
+        prependNewEvents: events => ({ events }),
         setSelectedEvent: selectedEvent => ({ selectedEvent }),
+        setPollTimeout: pollTimeout => ({ pollTimeout }),
     }),
 
     reducers: () => ({
@@ -44,6 +49,7 @@ export const eventsTableLogic = kea({
             [],
             {
                 fetchEventsSuccess: (state, { events, isNext }) => (isNext ? [...state, ...events] : events),
+                prependNewEvents: (state, { events }) => [...events, ...state],
             },
         ],
         hasNext: [
@@ -61,6 +67,32 @@ export const eventsTableLogic = kea({
                 setSelectedEvent: (_, { selectedEvent }) => selectedEvent,
             },
         ],
+        newEvents: [
+            [],
+            {
+                pollEventsSuccess: (_, { events }) => events,
+                prependNewEvents: () => [],
+            },
+        ],
+        highlightEvents: [
+            {},
+            {
+                pollEventsSuccess: () => ({}),
+                prependNewEvents: (_, { events }) => {
+                    const highlightEvents = {}
+                    events.forEach(event => {
+                        highlightEvents[event.id] = true
+                    })
+                    return highlightEvents
+                },
+            },
+        ],
+        pollTimeout: [
+            null,
+            {
+                setPollTimeout: (_, { pollTimeout }) => pollTimeout,
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
@@ -76,8 +108,11 @@ export const eventsTableLogic = kea({
         ],
     }),
 
-    events: ({ actions }) => ({
+    events: ({ actions, values }) => ({
         afterMount: [actions.fetchEvents],
+        beforeUnmount: () => {
+            clearTimeout(values.pollTimeout)
+        },
     }),
 
     actionToUrl: ({ values }) => ({
@@ -119,7 +154,7 @@ export const eventsTableLogic = kea({
             })
         },
         fetchEvents: async ({ nextParams }, breakpoint) => {
-            // clearTimeout(this.poller)
+            clearTimeout(values.pollTimeout)
 
             const urlParams = toParams({
                 properties: values.properties,
@@ -131,7 +166,33 @@ export const eventsTableLogic = kea({
             const events = await api.get('api/event/?' + urlParams)
             breakpoint()
             actions.fetchEventsSuccess(events.results, events.next, !!nextParams)
-            // this.poller = setTimeout(this.pollEvents, this.pollTimeout)
+
+            actions.setPollTimeout(setTimeout(actions.pollEvents, POLL_TIMEOUT))
+        },
+        pollEvents: async (_, breakpoint) => {
+            // Poll events when they are ordered in ascending order based on timestamp
+            if (values.orderBy !== '-timestamp') {
+                return
+            }
+
+            let params = {
+                properties: values.properties,
+                ...(props.fixedFilters || {}),
+                orderBy: [values.orderBy],
+            }
+
+            const event = values.events[0]
+
+            if (event) {
+                params.after = event.timestamp || event.event.timestamp
+            }
+
+            const events = await api.get('api/event/?' + toParams(params))
+            breakpoint()
+
+            actions.pollEventsSuccess(events.results)
+
+            actions.setPollTimeout(setTimeout(actions.pollEvents, POLL_TIMEOUT))
         },
     }),
 })

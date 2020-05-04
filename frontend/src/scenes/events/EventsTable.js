@@ -14,12 +14,19 @@ import { Spin } from 'antd'
 
 export function EventsTable({ fixedFilters }) {
     const logic = eventsTableLogic({ fixedFilters })
-    const { properties, events, isLoading, hasNext, isLoadingNext, selectedEvent } = useValues(logic)
-    const { setProperties, updateProperty, setSelectedEvent, fetchNextEvents, flipSort } = useActions(logic)
-
-    const newEvents = []
-    const highlightEvents = []
-    const clickLoadNewEvents = () => {}
+    const {
+        properties,
+        events,
+        isLoading,
+        hasNext,
+        isLoadingNext,
+        selectedEvent,
+        newEvents,
+        highlightEvents,
+    } = useValues(logic)
+    const { setProperties, updateProperty, setSelectedEvent, fetchNextEvents, flipSort, prependNewEvents } = useActions(
+        logic
+    )
 
     return (
         <div className="events">
@@ -45,13 +52,13 @@ export function EventsTable({ fixedFilters }) {
                     )}
                     <tr
                         className={'event-new-events ' + (newEvents.length > 0 ? 'show' : 'hide')}
-                        onClick={clickLoadNewEvents}
+                        onClick={() => prependNewEvents(newEvents)}
                     >
                         <td colSpan="5">
                             <div>There are {newEvents.length} new events. Click here to load them.</div>
                         </td>
                     </tr>
-                    {!events || events.length === 0 ? <NoItems events={events} /> : null}
+                    {!events || events.length === 0 ? <NoItems /> : null}
                     {events &&
                         events.map((event, index) => (
                             <React.Fragment key={event.id}>
@@ -95,55 +102,4 @@ export function EventsTable({ fixedFilters }) {
             <div style={{ marginTop: '5rem' }} />
         </div>
     )
-}
-
-export class EventsTableOld extends Component {
-    constructor(props) {
-        super(props)
-
-        let params = fromParams()
-        this.state = {
-            properties: params.properties ? JSON.parse(params.properties) : {},
-            newEvents: [],
-            loading: true,
-            highlightEvents: [],
-            orderBy: {
-                timestamp: '-timestamp',
-            },
-        }
-        this.pollEvents = this.pollEvents.bind(this)
-        this.clickLoadNewEvents = this.clickLoadNewEvents.bind(this)
-        this.pollTimeout = 5000
-    }
-
-    pollEvents() {
-        // Poll events when they are ordered in ascending order based on timestamp
-        if (this.state.orderBy.timestamp === '-timestamp') {
-            let params = {
-                properties: this.state.properties,
-                ...this.props.fixedFilters,
-                orderBy: Object.values(this.state.orderBy),
-            }
-            if (this.state.events[0])
-                params['after'] = this.state.events[0].timestamp
-                    ? this.state.events[0].timestamp
-                    : this.state.events[0].event.timestamp
-            api.get('api/event/?' + toParams(params)).then(events => {
-                this.setState({ newEvents: events.results, highlightEvents: [] })
-                this.poller = setTimeout(this.pollEvents, this.pollTimeout)
-            })
-        }
-    }
-    componentWillUnmount() {
-        clearTimeout(this.poller)
-    }
-
-    clickLoadNewEvents() {
-        let { newEvents, events } = this.state
-        this.setState({
-            newEvents: [],
-            events: [...newEvents, ...events],
-            highlightEvents: newEvents.map(event => event.id),
-        })
-    }
 }
