@@ -14,8 +14,8 @@ import { Spin } from 'antd'
 
 export function EventsTable({ fixedFilters }) {
     const logic = eventsTableLogic({ fixedFilters })
-    const { properties, events, isLoading, hasNext, isLoadingNext, eventSelected } = useValues(logic)
-    const { setProperties, updateProperty, setEventSelected, fetchNextEvents, flipSort } = useActions(logic)
+    const { properties, events, isLoading, hasNext, isLoadingNext, selectedEvent } = useValues(logic)
+    const { setProperties, updateProperty, setSelectedEvent, fetchNextEvents, flipSort } = useActions(logic)
 
     const newEvents = []
     const highlightEvents = []
@@ -65,12 +65,12 @@ export function EventsTable({ fixedFilters }) {
                                 <EventRow
                                     event={event}
                                     highlightEvents={highlightEvents}
-                                    eventSelected={eventSelected}
+                                    selectedEvent={selectedEvent}
                                     properties={properties}
-                                    setEventSelected={setEventSelected}
+                                    setSelectedEvent={setSelectedEvent}
                                     setFilter={updateProperty}
                                 />
-                                {eventSelected === event.id && (
+                                {selectedEvent === event.id && (
                                     <tr>
                                         <td colSpan="5">
                                             <EventDetails event={event} />

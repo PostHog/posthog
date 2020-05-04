@@ -10,12 +10,12 @@ let eventNameMap = event => {
     return event.event
 }
 
-export function EventRow({ event, highlightEvents, eventSelected, properties, setEventSelected, setFilter }) {
+export function EventRow({ event, highlightEvents, selectedEvent, properties, setSelectedEvent, setFilter }) {
     let params = ['$current_url', '$lib']
     return (
         <tr
             className={'cursor-pointer event-row ' + (highlightEvents.indexOf(event.id) > -1 && 'event-row-new')}
-            onClick={() => setEventSelected(eventSelected !== event.id ? event.id : false)}
+            onClick={() => setSelectedEvent(selectedEvent !== event.id ? event.id : false)}
         >
             <td>
                 {eventNameMap(event)}

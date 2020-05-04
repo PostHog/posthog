@@ -14,9 +14,9 @@ export const eventsTableLogic = kea({
         fetchEventsSuccess: (events, hasNext) => ({ events, hasNext }),
         fetchNextEvents: true,
         fetchNextEventsSuccess: (events, hasNext) => ({ events, hasNext }),
-        pollEvents: true,
         flipSort: true,
-        setEventSelected: eventSelected => ({ eventSelected }),
+        pollEvents: true,
+        setSelectedEvent: selectedEvent => ({ selectedEvent }),
     }),
 
     reducers: () => ({
@@ -58,10 +58,10 @@ export const eventsTableLogic = kea({
             },
         ],
         orderBy: ['-timestamp', { flipSort: state => (state === 'timestamp' ? '-timestamp' : 'timestamp') }],
-        eventSelected: [
+        selectedEvent: [
             null,
             {
-                setEventSelected: (_, { eventSelected }) => eventSelected,
+                setSelectedEvent: (_, { selectedEvent }) => selectedEvent,
             },
         ],
     }),
