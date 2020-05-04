@@ -13,16 +13,12 @@ import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { Spin } from 'antd'
 
 export function EventsTable({ fixedFilters }) {
-    const { properties, events, isLoading, hasNext, isLoadingNext, eventSelected } = useValues(
-        eventsTableLogic({ fixedFilters })
-    )
-    const { setProperties, updateProperty, setEventSelected, fetchNextEvents } = useActions(
-        eventsTableLogic({ fixedFilters })
-    )
+    const logic = eventsTableLogic({ fixedFilters })
+    const { properties, events, isLoading, hasNext, isLoadingNext, eventSelected } = useValues(logic)
+    const { setProperties, updateProperty, setEventSelected, fetchNextEvents, flipSort } = useActions(logic)
 
     const newEvents = []
     const highlightEvents = []
-    const onTimestampHeaderClick = () => {}
     const clickLoadNewEvents = () => {}
 
     return (
@@ -36,7 +32,7 @@ export function EventsTable({ fixedFilters }) {
                         <th>Person</th>
                         <th>Path / Screen</th>
                         <th>Source</th>
-                        <th onClick={onTimestampHeaderClick}>
+                        <th onClick={flipSort}>
                             When <i className="fi flaticon-sort" />
                         </th>
                     </tr>
@@ -93,7 +89,7 @@ export function EventsTable({ fixedFilters }) {
                 }}
             >
                 <button className="btn btn-primary" onClick={fetchNextEvents}>
-                    {isLoadingNext ? <Spin /> : 'Load more events11'}
+                    {isLoadingNext ? <Spin /> : 'Load more events'}
                 </button>
             </div>
             <div style={{ marginTop: '5rem' }} />
@@ -115,25 +111,9 @@ export class EventsTableOld extends Component {
                 timestamp: '-timestamp',
             },
         }
-        this.fetchEvents = this.fetchEvents.bind(this)
         this.pollEvents = this.pollEvents.bind(this)
-        this.clickNext = this.clickNext.bind(this)
         this.clickLoadNewEvents = this.clickLoadNewEvents.bind(this)
         this.pollTimeout = 5000
-        this.fetchEvents()
-        this.onTimestampHeaderClick = this.onTimestampHeaderClick.bind(this)
-    }
-
-    onTimestampHeaderClick() {
-        this.setState(
-            prevState => ({
-                orderBy: {
-                    ...prevState.orderBy,
-                    timestamp: prevState.orderBy.timestamp === '-timestamp' ? 'timestamp' : '-timestamp',
-                },
-            }),
-            () => this.fetchEvents()
-        )
     }
 
     pollEvents() {
