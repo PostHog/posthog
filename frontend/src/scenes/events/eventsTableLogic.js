@@ -1,11 +1,9 @@
 import { kea } from 'kea'
-import { fromParams, toParams } from 'lib/utils'
+import { addUrlQuestion, fromParams, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 
 const POLL_TIMEOUT = 5000
-
-const addQuestion = search => (search ? `?${search}` : '')
 
 // props: fixedFilters
 export const eventsTableLogic = kea({
@@ -132,7 +130,7 @@ export const eventsTableLogic = kea({
         '*': () => {
             const { urlParams } = values
             const newFilters = fromParams()
-            const newUrlParams = addQuestion(toParams(newFilters))
+            const newUrlParams = addUrlQuestion(toParams(newFilters))
 
             if (newUrlParams !== urlParams) {
                 actions.setProperties(newFilters.properties ? JSON.parse(newFilters.properties) : {})

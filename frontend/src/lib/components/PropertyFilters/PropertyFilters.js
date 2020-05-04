@@ -48,7 +48,7 @@ function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, 
                     </Button>
                 )}
             </Popover>
-            {index != filters.length - 1 && (
+            {index !== filters.length - 1 && (
                 <CloseButton
                     className="ml-1"
                     onClick={() => {
@@ -62,7 +62,7 @@ function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, 
 }
 
 export function PropertyFilters(props) {
-    let { endpoint, propertyFilters, className, style, onChange, pageKey } = props
+    const { endpoint, propertyFilters, className, style, onChange, pageKey } = props
     const { filters } = useValues(propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey }))
 
     return (
@@ -79,7 +79,13 @@ export function PropertyFilters(props) {
                 {filters &&
                     filters.map((item, index) => {
                         return (
-                            <FilterRow key={index} {...props} item={item} index={index} filters={filters}></FilterRow>
+                            <FilterRow
+                                key={index === filters.length - 1 ? index : `${index}_${Object.keys(item)[0]}`}
+                                {...props}
+                                item={item}
+                                index={index}
+                                filters={filters}
+                            />
                         )
                     })}
             </div>

@@ -185,6 +185,8 @@ export const formatFilterName = str => {
     return str + ` ${operatorMap['exact'].split(' ')[0]} `
 }
 
+export const addUrlQuestion = search => (search ? `?${search}` : '')
+
 export const deletePersonData = (person, callback) => {
     window.confirm('Are you sure you want to delete this user? This cannot be undone') &&
         api.delete('api/person/' + person.id).then(() => {

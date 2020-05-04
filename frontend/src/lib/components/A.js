@@ -9,6 +9,7 @@ export function A(props) {
             onClick={event => {
                 if (!props.target) {
                     event.preventDefault()
+                    event.stopPropagation()
                     router.actions.push(props.href) // router is mounted automatically, so this is safe to call
                 }
                 props.onClick && props.onClick(event)

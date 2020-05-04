@@ -29,9 +29,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
 
     return (
         <div className="events">
-            {filtersEnabled ? (
-                <PropertyFilters propertyFilters={properties} pageKey="EventsTable" onChange={setProperties} />
-            ) : null}
+            {filtersEnabled ? <PropertyFilters pageKey="EventsTable" /> : null}
             <table className="table" style={{ position: 'relative' }}>
                 {isLoading && <Loading />}
                 <thead>

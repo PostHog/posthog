@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useValues } from 'kea'
 import { BrowserRouter as Router, Route, Redirect, Switch } from 'react-router-dom'
 import { ToastContainer, Slide } from 'react-toastify'

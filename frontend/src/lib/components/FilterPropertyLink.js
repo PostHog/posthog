@@ -15,7 +15,6 @@ export function FilterPropertyLink({ property, value, filters, onClick }) {
                 if (onClick) {
                     onClick(property, value)
                 }
-                event.stopPropagation()
             }}
         >
             <Property value={value} />

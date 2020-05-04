@@ -1,17 +1,18 @@
 import { kea } from 'kea'
 import api from '../../../lib/api'
 import { userLogic } from 'scenes/userLogic'
+import { addUrlQuestion, fromParams, toParams } from 'lib/utils'
+import { router } from 'kea-router'
 
 export const propertyFilterLogic = kea({
     key: props => props.pageKey,
-    connect: {
-        values: [userLogic, ['eventProperties']],
-    },
+
     actions: () => ({
         loadEventProperties: true,
         setProperties: properties => ({ properties }),
         update: filters => ({ filters }),
         setFilter: (index, key, value) => ({ index, key, value }),
+        setFilters: filters => ({ filters }),
         newFilter: true,
         remove: index => ({ index }),
     }),
@@ -40,41 +41,73 @@ export const propertyFilterLogic = kea({
                 ? Object.entries(props.propertyFilters).map(([key, value]) => ({ [key]: value }))
                 : [],
             {
-                [actions.setFilter]: (filters, { index, key, value }) => {
-                    const newFilters = [...filters]
+                [actions.setFilter]: (state, { index, key, value }) => {
+                    const newFilters = [...state]
                     newFilters[index] = { [key]: value }
                     return newFilters
                 },
-                [actions.newFilter]: filters => {
-                    return [...filters, {}]
+                [actions.setFilters]: (_, { filters }) => filters,
+                [actions.newFilter]: state => {
+                    return [...state, {}]
                 },
-                [actions.remove]: (filters, { index }) => {
-                    return filters.filter((_, i) => i !== index)
+                [actions.remove]: (state, { index }) => {
+                    return state.filter((_, i) => i !== index)
                 },
             },
         ],
     }),
+
     listeners: ({ actions, props, values }) => ({
         // Only send update if value is set to something
         [actions.setFilter]: ({ value }) => value && actions.update(),
         [actions.remove]: () => actions.update(),
         [actions.update]: () => {
-            if (values.filters.length === 0) {
-                actions.newFilter()
-                return props.onChange({})
+            if (props.onChange) {
+                if (values.filters.length === 0) {
+                    actions.newFilter()
+                    return props.onChange({})
+                }
+                if (Object.keys(values.filters[values.filters.length - 1]).length !== 0) actions.newFilter()
+                let dict = values.filters.reduce((result, item) => ({ ...result, ...item }))
+                props.onChange(dict)
+            } else {
+                const { filters } = values
+                const { properties: _, ...urlParams } = fromParams()
+                if (filters.filter(f => Object.keys(f).length > 0).length > 0) {
+                    urlParams.properties = filters.reduce((result, item) => ({ ...result, ...item }))
+                }
+                const newUrl = addUrlQuestion(toParams(urlParams))
+                const { search, pathname } = router.values.location
+                if (search !== newUrl) {
+                    router.actions.push(`${pathname}${newUrl}`)
+                }
             }
-            if (Object.keys(values.filters[values.filters.length - 1]).length !== 0) actions.newFilter()
-            let dict = values.filters.reduce((result, item) => ({ ...result, ...item }))
-            props.onChange(dict)
         },
     }),
+
+    urlToAction: ({ actions, values, props }) => ({
+        '*': () => {
+            if (props.onChange) {
+                return
+            }
+
+            const urlFilters = fromParams()
+
+            if (urlFilters.properties !== JSON.stringify(values.filters)) {
+                const newFilters = urlFilters.properties ? JSON.parse(urlFilters.properties) : {}
+                const mappedFilters = Object.entries(newFilters).map(([key, value]) => ({ [key]: value }))
+                actions.setFilters([...mappedFilters, {}])
+            }
+        },
+    }),
+
     events: ({ actions, props, values }) => ({
         afterMount: () => {
             actions.newFilter()
             if (props.endpoint === 'person') {
                 actions.loadPeopleProperties()
             } else {
-                actions.setProperties(values.eventProperties)
+                actions.setProperties(userLogic.values.eventProperties)
             }
         },
     }),

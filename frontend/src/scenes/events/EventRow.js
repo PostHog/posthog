@@ -2,7 +2,7 @@ import React from 'react'
 import moment from 'moment'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
-import { A } from 'lib/components/A'
+import { Link } from 'react-router-dom'
 
 const eventNameMap = event => {
     if (event.properties.$event_type === 'click') return 'clicked '
@@ -26,9 +26,9 @@ export function EventRow({ event, highlightEvents, selectedEvent, properties, se
                 {event.elements.length > 0 && event.elements[0].text && ' with text "' + event.elements[0].text + '"'}
             </td>
             <td>
-                <A href={'/person/' + encodeURIComponent(event.distinct_id)} className="ph-no-capture">
+                <Link to={'/person/' + encodeURIComponent(event.distinct_id)} className="ph-no-capture">
                     {event.person}
-                </A>
+                </Link>
             </td>
             {params.map(paramRequest => {
                 let param = paramRequest
