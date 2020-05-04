@@ -3,6 +3,7 @@ import { toParams } from '../utils'
 import PropTypes from 'prop-types'
 
 import { A } from 'lib/components/A'
+import { Property } from 'lib/components/Property'
 
 export function FilterPropertyLink({ property, value, filters, onClick }) {
     const params = toParams({ ...filters, properties: { ...filters.properties, [property]: value } })
@@ -17,7 +18,7 @@ export function FilterPropertyLink({ property, value, filters, onClick }) {
                 event.stopPropagation()
             }}
         >
-            {typeof value === 'object' ? JSON.stringify(value) : value && value.replace(/(^\w+:|^)\/\//, '')}
+            <Property value={value} />
         </A>
     )
 }

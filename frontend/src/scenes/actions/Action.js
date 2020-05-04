@@ -37,6 +37,7 @@ export class Action extends Component {
                         <h2>Events</h2>
                         <EventsTable
                             fixedFilters={{ action_id: this.state.action.id }}
+                            filtersEnabled={false}
                             history={this.props.history}
                             key={this.state.refresh} // hack to force a refresh of events on update
                         />

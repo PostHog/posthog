@@ -129,7 +129,7 @@ export const eventsTableLogic = kea({
     }),
 
     urlToAction: ({ actions, values }) => ({
-        '/events': () => {
+        '*': () => {
             const { urlParams } = values
             const newFilters = fromParams()
             const newUrlParams = addQuestion(toParams(newFilters))

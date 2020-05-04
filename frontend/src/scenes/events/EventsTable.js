@@ -11,7 +11,7 @@ import { NoItems } from 'scenes/events/NoItems'
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { Spin } from 'antd'
 
-export function EventsTable({ fixedFilters }) {
+export function EventsTable({ fixedFilters, filtersEnabled = true }) {
     const logic = eventsTableLogic({ fixedFilters })
     const {
         properties,
@@ -29,7 +29,9 @@ export function EventsTable({ fixedFilters }) {
 
     return (
         <div className="events">
-            <PropertyFilters propertyFilters={properties} pageKey="EventsTable" onChange={setProperties} />
+            {filtersEnabled ? (
+                <PropertyFilters propertyFilters={properties} pageKey="EventsTable" onChange={setProperties} />
+            ) : null}
             <table className="table" style={{ position: 'relative' }}>
                 {isLoading && <Loading />}
                 <thead>
@@ -75,6 +77,7 @@ export function EventsTable({ fixedFilters }) {
                                     properties={properties}
                                     setSelectedEvent={setSelectedEvent}
                                     setFilter={updateProperty}
+                                    filtersEnabled={filtersEnabled}
                                 />
                                 {selectedEvent === event.id && (
                                     <tr>

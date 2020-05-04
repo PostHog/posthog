@@ -2,6 +2,7 @@ import React from 'react'
 import { Link } from 'react-router-dom'
 import moment from 'moment'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
+import { Property } from 'lib/components/Property'
 
 const eventNameMap = event => {
     if (event.properties.$event_type === 'click') return 'clicked '
@@ -10,7 +11,7 @@ const eventNameMap = event => {
     return event.event
 }
 
-export function EventRow({ event, highlightEvents, selectedEvent, properties, setSelectedEvent }) {
+export function EventRow({ event, highlightEvents, selectedEvent, properties, setSelectedEvent, filtersEnabled }) {
     let params = ['$current_url', '$lib']
     return (
         <tr
@@ -40,7 +41,15 @@ export function EventRow({ event, highlightEvents, selectedEvent, properties, se
 
                 return (
                     <td key={param} title={value}>
-                        <FilterPropertyLink property={param} value={event.properties[param]} filters={{ properties }} />
+                        {filtersEnabled ? (
+                            <FilterPropertyLink
+                                property={param}
+                                value={event.properties[param]}
+                                filters={{ properties }}
+                            />
+                        ) : (
+                            <Property value={event.properties[param]} />
+                        )}
                     </td>
                 )
             })}
