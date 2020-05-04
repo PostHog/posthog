@@ -44,7 +44,7 @@ class PersonViewSet(viewsets.ModelViewSet):
     pagination_class = CursorPagination
 
     def paginate_queryset(self, queryset):
-        if 'text/csv' in self.request.accepted_media_type:
+        if 'text/csv' in self.request.accepted_media_type or not self.paginator:
             return None
         return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
