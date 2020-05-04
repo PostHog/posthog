@@ -3,6 +3,7 @@ from posthog.models import Person, Element, Event, Team, PersonDistinctId
 from typing import Union, Dict, Optional
 from dateutil.relativedelta import relativedelta
 from dateutil import parser
+from sentry_sdk import capture_exception
 
 from django.db import IntegrityError
 import datetime
@@ -125,8 +126,18 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
     person.properties.update(properties)
     person.save()
 
-def _handle_timestamp(data: dict, now: str) -> Union[datetime.datetime, str]:
+def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[datetime.datetime, str]:
     if data.get('timestamp'):
+        if sent_at:
+            # sent_at - timestamp == now - x
+            # x = now + (timestamp - sent_at)
+            try:
+                # timestamp and sent_at must both be in the same format: either both with or both without timezones
+                # otherwise we can't get a diff to add to now
+                return parser.isoparse(now) + (parser.isoparse(data['timestamp']) - parser.isoparse(sent_at))
+            except TypeError as e:
+                capture_exception(e)
+
         return data['timestamp']
     now_datetime = parser.isoparse(now)
     if data.get('offset'):
@@ -134,7 +145,7 @@ def _handle_timestamp(data: dict, now: str) -> Union[datetime.datetime, str]:
     return now_datetime
 
 @shared_task
-def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str) -> None:
+def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str]) -> None:
     if data['event'] == '$create_alias':
         _alias(previous_distinct_id=data['properties']['alias'], distinct_id=distinct_id, team_id=team_id)
 
@@ -151,5 +162,5 @@ def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team_id:
         event=data['event'],
         distinct_id=distinct_id,
         properties=data.get('properties', data.get('$set', {})),
-        timestamp=_handle_timestamp(data, now)
+        timestamp=_handle_timestamp(data, now, sent_at)
     )
