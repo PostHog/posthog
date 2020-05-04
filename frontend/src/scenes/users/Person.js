@@ -3,6 +3,8 @@ import { EventsTable } from '../events/EventsTable'
 import api from 'lib/api'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { toast } from 'react-toastify'
+import { deletePersonData } from 'lib/utils'
+import { Button } from 'antd'
 
 export function Person({ match, history }) {
     const [person, setPerson] = useState(null)
@@ -19,18 +21,9 @@ export function Person({ match, history }) {
 
     return person ? (
         <div>
-            <button
-                className="btn btn-outline-danger btn-sm float-right"
-                onClick={e =>
-                    window.confirm('Are you sure you want to delete this user? This cannot be undone') &&
-                    api.delete('api/person/' + person.id).then(() => {
-                        toast('Person succesfully deleted.')
-                        history.push('/people')
-                    })
-                }
-            >
+            <Button className="float-right" danger onClick={() => deletePersonData(person)}>
                 Delete all data on this person
-            </button>
+            </Button>
             <h1>{person.name}</h1>
             <div style={{ maxWidth: 750 }}>
                 <PropertiesTable properties={person.properties} />
