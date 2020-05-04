@@ -1,6 +1,5 @@
 import React, { Component } from 'react'
-import { kea, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { useActions, useValues } from 'kea'
 import moment from 'moment'
 
 import { fromParams, Loading, toParams } from 'lib/utils'
@@ -10,127 +9,21 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { EventRow } from 'scenes/events/EventRow'
 import { NoItems } from 'scenes/events/NoItems'
-
-const addQuestion = search => (search ? `?${search}` : '')
-
-// props: fixedFilters
-const eventsTableLogic = kea({
-    actions: () => ({
-        setProperties: properties => ({ properties }),
-        updateProperty: (key, value) => ({ key, value }),
-        fetchEvents: true,
-        fetchEventsSuccess: (events, hasNext) => ({ events, hasNext }),
-        pollEvents: true,
-        setEventSelected: eventSelected => ({ eventSelected }),
-    }),
-
-    reducers: () => ({
-        properties: [
-            {},
-            {
-                setProperties: (_, { properties }) => properties,
-                updateProperty: (state, { key, value }) => ({ ...state, [key]: value }),
-            },
-        ],
-        isLoading: [
-            false,
-            {
-                fetchEvents: () => true,
-                fetchEventsSuccess: () => false,
-            },
-        ],
-        events: [
-            [],
-            {
-                fetchEventsSuccess: (_, { events }) => events,
-            },
-        ],
-        hasNext: [
-            false,
-            {
-                fetchEventsSuccess: (_, { hasNext }) => hasNext,
-            },
-        ],
-        orderBy: ['-timestamp', {}],
-        eventSelected: [
-            null,
-            {
-                setEventSelected: (_, { eventSelected }) => eventSelected,
-            },
-        ],
-    }),
-
-    selectors: ({ selectors }) => ({
-        urlParams: [
-            () => [selectors.properties],
-            properties => {
-                if (Object.keys(properties).length > 0) {
-                    return '?' + toParams({ properties })
-                } else {
-                    return ''
-                }
-            },
-        ],
-    }),
-
-    events: ({ actions }) => ({
-        afterMount: [actions.fetchEvents],
-    }),
-
-    actionToUrl: ({ values }) => ({
-        setProperties: () => {
-            return `${router.values.location.pathname}${values.urlParams}`
-        },
-        updateProperty: () => {
-            return `${router.values.location.pathname}${values.urlParams}`
-        },
-    }),
-
-    urlToAction: ({ actions, values }) => ({
-        '/events': () => {
-            const { urlParams } = values
-            const newFilters = fromParams()
-            const newUrlParams = addQuestion(toParams(newFilters))
-
-            if (newUrlParams !== urlParams) {
-                actions.setProperties(newFilters.properties ? JSON.parse(newFilters.properties) : {})
-            }
-        },
-    }),
-
-    listeners: ({ actions, values, props }) => ({
-        setProperties: () => {
-            actions.fetchEvents()
-        },
-        updateProperty: () => {
-            actions.fetchEvents()
-        },
-        fetchEvents: async (_, breakpoint) => {
-            // clearTimeout(this.poller)
-
-            const urlParams = toParams({
-                properties: values.properties,
-                ...(props.fixedFilters || {}),
-                orderBy: [values.orderBy],
-            })
-
-            const events = await api.get('api/event/?' + urlParams)
-            breakpoint()
-            actions.fetchEventsSuccess(events.results, events.next)
-            // this.poller = setTimeout(this.pollEvents, this.pollTimeout)
-        },
-    }),
-})
+import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
+import { Spin } from 'antd'
 
 export function EventsTable({ fixedFilters }) {
-    const { properties, events, isLoading, hasNext, eventSelected } = useValues(eventsTableLogic({ fixedFilters }))
-    const { setProperties, updateProperty, setEventSelected } = useActions(eventsTableLogic({ fixedFilters }))
+    const { properties, events, isLoading, hasNext, isLoadingNext, eventSelected } = useValues(
+        eventsTableLogic({ fixedFilters })
+    )
+    const { setProperties, updateProperty, setEventSelected, fetchNextEvents } = useActions(
+        eventsTableLogic({ fixedFilters })
+    )
 
     const newEvents = []
     const highlightEvents = []
     const onTimestampHeaderClick = () => {}
     const clickLoadNewEvents = () => {}
-    const clickNext = () => {}
 
     return (
         <div className="events">
@@ -192,16 +85,18 @@ export function EventsTable({ fixedFilters }) {
                         ))}
                 </tbody>
             </table>
-            {hasNext && (
-                <button
-                    className="btn btn-primary"
-                    onClick={clickNext}
-                    style={{ margin: '2rem auto 15rem', display: 'block' }}
-                >
-                    Load more events
+            <div
+                style={{
+                    visibility: hasNext || isLoadingNext ? 'visible' : 'hidden',
+                    margin: '2rem auto 5rem',
+                    textAlign: 'center',
+                }}
+            >
+                <button className="btn btn-primary" onClick={fetchNextEvents}>
+                    {isLoadingNext ? <Spin /> : 'Load more events11'}
                 </button>
-            )}
-            <div style={{ marginTop: '15rem' }} />
+            </div>
+            <div style={{ marginTop: '5rem' }} />
         </div>
     )
 }
@@ -263,25 +158,6 @@ export class EventsTableOld extends Component {
         clearTimeout(this.poller)
     }
 
-    clickNext() {
-        let { events } = this.state
-        let params = toParams({
-            properties: this.state.properties,
-            ...this.props.fixedFilters,
-            before: events[events.length - 1].timestamp,
-            orderBy: Object.values(this.state.orderBy),
-        })
-        clearTimeout(this.poller)
-        this.setState({ hasNext: false })
-        api.get('api/event/?' + params).then(olderEvents => {
-            this.setState({
-                events: [...events, ...olderEvents.results],
-                hasNext: olderEvents.next,
-                loading: false,
-            })
-            this.poller = setTimeout(this.pollEvents, this.pollTimeout)
-        })
-    }
     clickLoadNewEvents() {
         let { newEvents, events } = this.state
         this.setState({
