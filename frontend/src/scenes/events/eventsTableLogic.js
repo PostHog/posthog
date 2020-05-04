@@ -10,10 +10,9 @@ export const eventsTableLogic = kea({
     actions: () => ({
         setProperties: properties => ({ properties }),
         updateProperty: (key, value) => ({ key, value }),
-        fetchEvents: true,
-        fetchEventsSuccess: (events, hasNext) => ({ events, hasNext }),
+        fetchEvents: (nextParams = null) => ({ nextParams }),
+        fetchEventsSuccess: (events, hasNext, isNext) => ({ events, hasNext, isNext }),
         fetchNextEvents: true,
-        fetchNextEventsSuccess: (events, hasNext) => ({ events, hasNext }),
         flipSort: true,
         pollEvents: true,
         setSelectedEvent: selectedEvent => ({ selectedEvent }),
@@ -30,7 +29,7 @@ export const eventsTableLogic = kea({
         isLoading: [
             false,
             {
-                fetchEvents: () => true,
+                fetchEvents: (state, { nextParams }) => (nextParams ? state : true),
                 fetchEventsSuccess: () => false,
             },
         ],
@@ -38,23 +37,21 @@ export const eventsTableLogic = kea({
             false,
             {
                 fetchNextEvents: () => true,
-                fetchNextEventsSuccess: () => false,
+                fetchEventsSuccess: () => false,
             },
         ],
         events: [
             [],
             {
-                fetchEventsSuccess: (_, { events }) => events,
-                fetchNextEventsSuccess: (state, { events }) => [...state, ...events],
+                fetchEventsSuccess: (state, { events, isNext }) => (isNext ? [...state, ...events] : events),
             },
         ],
         hasNext: [
             false,
             {
                 fetchEvents: () => false,
-                fetchEventsSuccess: (_, { hasNext }) => hasNext,
                 fetchNextEvents: () => false,
-                fetchNextEventsSuccess: (_, { hasNext }) => hasNext,
+                fetchEventsSuccess: (_, { hasNext }) => hasNext,
             },
         ],
         orderBy: ['-timestamp', { flipSort: state => (state === 'timestamp' ? '-timestamp' : 'timestamp') }],
@@ -114,33 +111,26 @@ export const eventsTableLogic = kea({
         flipSort: () => {
             actions.fetchEvents()
         },
-        fetchEvents: async (_, breakpoint) => {
+        fetchNextEvents: async () => {
+            const { events, orderBy } = values
+
+            actions.fetchEvents({
+                [orderBy === 'timestamp' ? 'after' : 'before']: events[events.length - 1].timestamp,
+            })
+        },
+        fetchEvents: async ({ nextParams }, breakpoint) => {
             // clearTimeout(this.poller)
 
             const urlParams = toParams({
                 properties: values.properties,
                 ...(props.fixedFilters || {}),
+                ...(nextParams || {}),
                 orderBy: [values.orderBy],
             })
 
             const events = await api.get('api/event/?' + urlParams)
             breakpoint()
-            actions.fetchEventsSuccess(events.results, events.next)
-            // this.poller = setTimeout(this.pollEvents, this.pollTimeout)
-        },
-        fetchNextEvents: async () => {
-            // clearTimeout(this.poller)
-            const { events } = values
-
-            const urlParams = toParams({
-                properties: values.properties,
-                ...(props.fixedFilters || {}),
-                [values.orderBy === 'timestamp' ? 'after' : 'before']: events[events.length - 1].timestamp,
-                orderBy: [values.orderBy],
-            })
-
-            const olderEvents = await api.get('api/event/?' + urlParams)
-            actions.fetchNextEventsSuccess(olderEvents.results, olderEvents.next)
+            actions.fetchEventsSuccess(events.results, events.next, !!nextParams)
             // this.poller = setTimeout(this.pollEvents, this.pollTimeout)
         },
     }),
