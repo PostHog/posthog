@@ -59,11 +59,11 @@ export const propertyFilterLogic = kea({
         [actions.setFilter]: ({ value }) => value && actions.update(),
         [actions.remove]: () => actions.update(),
         [actions.update]: () => {
-            if (values.filters.length == 0) {
+            if (values.filters.length === 0) {
                 actions.newFilter()
                 return props.onChange({})
             }
-            if (Object.keys(values.filters[values.filters.length - 1]).length != 0) actions.newFilter()
+            if (Object.keys(values.filters[values.filters.length - 1]).length !== 0) actions.newFilter()
             let dict = values.filters.reduce((result, item) => ({ ...result, ...item }))
             props.onChange(dict)
         },
@@ -71,7 +71,7 @@ export const propertyFilterLogic = kea({
     events: ({ actions, props, values }) => ({
         afterMount: () => {
             actions.newFilter()
-            if (props.endpoint == 'person') {
+            if (props.endpoint === 'person') {
                 actions.loadPeopleProperties()
             } else {
                 actions.setProperties(values.eventProperties)
