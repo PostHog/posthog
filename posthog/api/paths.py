@@ -81,7 +81,7 @@ class PathsViewSet(viewsets.ViewSet):
                 )\
                 .annotate(count=Count('pk'))\
                 .annotate(**{'group_id_1': ElementGroup.objects.filter(hash=OuterRef(first_url_key)).values('id')[:1]} if event == "$autocapture" else {})\
-                .annotate(**{'group_id_2': ElementGroup.objects.filter(hash=OuterRef(first_url_key)).values('id')[:1]} if event == "$autocapture" else {})\
+                .annotate(**{'group_id_2': ElementGroup.objects.filter(hash=OuterRef(second_url_key)).values('id')[:1]} if event == "$autocapture" else {})\
                 .order_by('-count')[0: 6]
             urls = []
 
@@ -99,8 +99,8 @@ class PathsViewSet(viewsets.ViewSet):
 
             for row in rows:
                 resp.append({
-                    'sourceLabel': '<{}> {}'.format(row['tag_name_source'], "with text \"{}\"".format(row['text_source'])if row['text_source'] else "") if event == "$autocapture" else '{}_{}'.format(index, row[first_url_key]),
-                    'targetLabel': '<{}> {}'.format(row['tag_name_target'], "with text \"{}\"".format(row['text_target'])if row['text_target'] else "") if event == "$autocapture" else '{}_{}'.format(index, row[second_url_key]),
+                    'sourceLabel': '{}_<{}> {}'.format(index, row['tag_name_source'], "with text \"{}\"".format(row['text_source'])if row['text_source'] else "") if event == "$autocapture" else '{}_{}'.format(index, row[first_url_key]),
+                    'targetLabel': '{}_<{}> {}'.format(index+1, row['tag_name_target'], "with text \"{}\"".format(row['text_target'])if row['text_target'] else "") if event == "$autocapture" else '{}_{}'.format(index + 1, row[second_url_key]),
                     'source': '{}_{}'.format(index, row[first_url_key]),
                     'target': '{}_{}'.format(index + 1, row[second_url_key]),
                     'value': row['count']

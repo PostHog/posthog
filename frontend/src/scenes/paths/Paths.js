@@ -5,7 +5,11 @@ import { DateFilter } from '../../lib/components/DateFilter'
 import { PathSelect } from '~/lib/components/PathSelect'
 import { Row } from 'antd'
 
-let stripHTTP = url => url.replace(/(^[0-9]+_\w+:|^)\/\//, '')
+let stripHTTP = url => {
+    url = url.replace(/(^[0-9]+_)/, '')
+    url = url.replace(/(^\w+:|^)\/\//, '')
+    return url
+}
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
