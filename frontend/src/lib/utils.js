@@ -166,3 +166,21 @@ export let debounce = (func, wait, immediate) => {
 export const capitalizeFirstLetter = string => {
     return string.charAt(0).toUpperCase() + string.slice(1)
 }
+
+export const operatorMap = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    icontains: '∋ contains',
+    not_icontains: "∌ doesn't contain",
+    gt: '> greater than',
+    lt: '< lower than',
+}
+
+const operatorEntries = Object.entries(operatorMap).reverse()
+
+export const formatFilterName = str => {
+    for (let [key, value] of operatorEntries) {
+        if (str.includes(key)) return str.replace('__' + key, '') + ` ${value.split(' ')[0]} `
+    }
+    return str + ` ${operatorMap['exact'].split(' ')[0]} `
+}

@@ -77,6 +77,7 @@ class Funnel(models.Model):
                     **date_query
                 )
                 .filter(properties_to_Q(properties))
+                .filter(properties_to_Q(step['properties']) if step.get('properties') is not None else Q() )
                 .order_by("timestamp")
                 .values("timestamp")[:1]
             )

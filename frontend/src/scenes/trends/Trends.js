@@ -56,7 +56,6 @@ export function Trends() {
                                         setDefaultIfEmpty={true}
                                         setFilters={setFilters}
                                         defaultFilters={filters}
-                                        showMaths={true}
                                         typeKey="trends"
                                     />
                                     <hr />

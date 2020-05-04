@@ -1,6 +1,8 @@
 import React, { Component } from 'react'
 import Chart from 'chart.js'
 import PropTypes from 'prop-types'
+import { formatFilterName } from '~/lib/utils'
+import _ from 'lodash'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -103,18 +105,19 @@ export class LineGraph extends Component {
                               titleSpacing: 0,
                               callbacks: {
                                   label: function(tooltipItem, data) {
-                                      if (
-                                          data.datasets[tooltipItem.datasetIndex].dotted &&
-                                          !(
-                                              tooltipItem.index ==
-                                              data.datasets[tooltipItem.datasetIndex].data.length - 1
-                                          )
-                                      )
+                                      let entityData = data.datasets[tooltipItem.datasetIndex]
+                                      if (entityData.dotted && !(tooltipItem.index == entityData.data.length - 1))
                                           return null
-                                      var label =
-                                          data.datasets[tooltipItem.datasetIndex].chartLabel ||
-                                          data.datasets[tooltipItem.datasetIndex].label ||
-                                          ''
+                                      var label = entityData.chartLabel || entityData.label || ''
+                                      if (entityData.action.properties && !_.isEmpty(entityData.action.properties)) {
+                                          label += ' ('
+                                          Object.entries(entityData.action.properties).forEach(([key, val], index) => {
+                                              if (index > 0) label += ', '
+                                              label += formatFilterName(key).split(' ')[1] + ' ' + val
+                                          })
+                                          label += ')'
+                                      }
+
                                       return label + ' - ' + tooltipItem.yLabel.toLocaleString()
                                   },
                               },

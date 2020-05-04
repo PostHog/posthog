@@ -1,19 +1,10 @@
 import React, { useState } from 'react'
-import { PropertyFilter, operatorMap } from './PropertyFilter'
+import { PropertyFilter } from './PropertyFilter'
 import { Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { Popover, Row } from 'antd'
-import { CloseButton } from '../../utils'
-
-const operatorEntries = Object.entries(operatorMap).reverse()
-
-const formatFilterName = str => {
-    for (let [key, value] of operatorEntries) {
-        if (str.includes(key)) return str.replace('__' + key, '') + ` ${value} `
-    }
-    return str + ` ${operatorMap['null']} `
-}
+import { CloseButton, formatFilterName } from '../../utils'
 
 function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, filters }) {
     const { remove } = useActions(propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey }))
@@ -53,7 +44,7 @@ function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, 
                     </Button>
                 ) : (
                     <Button type="default" shape="round">
-                        {'Add Filter'}
+                        {'New Filter'}
                     </Button>
                 )}
             </Popover>

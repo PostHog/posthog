@@ -1,20 +1,7 @@
 import { kea } from 'kea'
-
 import { actionsModel } from '~/models/actionsModel'
 import { EntityTypes } from '../trendsLogic'
-
-import { groupEvents } from '~/lib/utils'
 import { userLogic } from 'scenes/userLogic'
-
-const mirrorValues = (entities, newKey) => {
-    let newEntities = entities.map(entity => {
-        return {
-            ...entity,
-            [newKey]: entity,
-        }
-    })
-    return newEntities
-}
 
 export const entityFilterLogic = kea({
     key: props => props.typeKey,
@@ -33,6 +20,7 @@ export const entityFilterLogic = kea({
         removeLocalFilter: filter => ({ value: filter.value, type: filter.type, index: filter.index }),
         createNewFilter: true,
         setLocalFilters: filters => ({ filters }),
+        updateFilterProperty: filter => ({ properties: filter.properties, index: filter.index }),
     }),
 
     reducers: ({ actions, props }) => ({
@@ -85,6 +73,11 @@ export const entityFilterLogic = kea({
             }
             actions.setLocalFilters(currentfilters)
             actions.selectFilter(null)
+        },
+        [actions.updateFilterProperty]: ({ properties, index }) => {
+            let currentfilters = values.allFilters ? [...values.allFilters] : []
+            currentfilters[index].properties = properties
+            actions.setLocalFilters(currentfilters)
         },
         [actions.updateFilterMath]: ({ math, index }) => {
             let currentfilters = values.allFilters ? [...values.allFilters] : []

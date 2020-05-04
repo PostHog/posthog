@@ -1,18 +1,10 @@
-import React, { Component } from 'react'
+import React from 'react'
 import Select from 'react-select'
-import { selectStyle } from '../../utils'
+import { selectStyle, operatorMap } from '../../utils'
 import { PropertyValue } from './PropertyValue'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 
-export const operatorMap = {
-    null: 'equals',
-    is_not: "doesn't equal",
-    icontains: 'contains',
-    not_icontains: "doesn't contain",
-    gt: 'greater than',
-    lt: 'lower than',
-}
 const operatorOptions = Object.entries(operatorMap).map(([key, value]) => ({
     label: value,
     value: key,
@@ -24,7 +16,6 @@ export function PropertyFilter({ index, endpoint, onChange, pageKey, onComplete 
     let item = filters[index]
     let key = Object.keys(item)[0] ? Object.keys(item)[0].split('__') : []
     let value = Object.values(item)[0]
-
     return (
         <div className="row" style={{ margin: '0.5rem -15px', minWidth: key[0] ? 700 : 200 }}>
             {properties && (
@@ -55,7 +46,7 @@ export function PropertyFilter({ index, endpoint, onChange, pageKey, onComplete 
                         style={{ width: 200 }}
                         value={[
                             {
-                                label: operatorMap[key[1]] || 'equals',
+                                label: operatorMap[key[1]] || '= equals',
                                 value: key[1],
                             },
                         ]}

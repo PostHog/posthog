@@ -12,6 +12,7 @@ class Entity(object):
     order: Optional[int]
     name: Optional[str]
     math: Optional[str]
+    properties: Optional[Dict]
 
     def __init__(self, data: Dict[str, Any]) -> None:
         self.id = data['id']
@@ -21,6 +22,7 @@ class Entity(object):
         self.order = data.get('order')
         self.name = data.get('name')
         self.math = data.get('math')
+        self.properties = data.get('properties')
         if self.type == TREND_FILTER_TYPE_EVENTS and not self.name:
             # It won't be an int if it's an event, but mypy...
             self.name = str(self.id)
@@ -31,6 +33,7 @@ class Entity(object):
             'type': self.type,
             'order': self.order,
             'name': self.name,
-            'math': self.math
+            'math': self.math,
+            'properties': self.properties
         }
 
