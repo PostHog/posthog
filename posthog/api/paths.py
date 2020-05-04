@@ -41,7 +41,7 @@ class PathsViewSet(viewsets.ViewSet):
         requested_type = request.GET.get('type', None)
         
         # Default
-        event = "$pageview"
+        event: Optional[str] = "$pageview"
         path_type = "properties__$current_url"
 
         # determine requested type
