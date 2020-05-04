@@ -1,20 +1,88 @@
 import React, { Component } from 'react'
-import { fromParams, toParams } from '../../lib/utils'
-import api from '../../lib/api'
+import { fromParams, toParams } from 'lib/utils'
+import api from 'lib/api'
 import { Link } from 'react-router-dom'
 import moment from 'moment'
-import { PropertyFilters } from '../../lib/components/PropertyFilters/PropertyFilters'
-import { FilterLink } from '../../lib/components/FilterLink'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { FilterLink } from 'lib/components/FilterLink'
 import { EventDetails } from './EventDetails'
 import PropTypes from 'prop-types'
-import { useValues } from 'kea'
+import { kea, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
 let eventNameMap = event => {
-    if (event.properties.$event_type == 'click') return 'clicked '
-    if (event.properties.$event_type == 'change') return 'typed something into '
-    if (event.properties.$event_type == 'submit') return 'submitted '
+    if (event.properties.$event_type === 'click') return 'clicked '
+    if (event.properties.$event_type === 'change') return 'typed something into '
+    if (event.properties.$event_type === 'submit') return 'submitted '
     return event.event
+}
+
+const eventsTableLogic = kea({
+    actions: () => ({
+        fetchEvents: true,
+    }),
+
+    listeners: () => ({
+        fetchEvents: () => {},
+    }),
+})
+
+function NoItems({ events }) {
+    if (!events || events.length > 0) {
+        return null
+    }
+    return (
+        <tr>
+            <td colSpan={4}>
+                You don't have any items here. If you haven't integrated PostHog yet,{' '}
+                <Link to="/setup">click here to set PostHog up on your app</Link>
+            </td>
+        </tr>
+    )
+}
+
+function EventRow({ event, highlightEvents, eventSelected, properties, setEventSelected, setFilter }) {
+    let params = ['$current_url', '$lib']
+    return (
+        <tr
+            className={'cursor-pointer event-row ' + (highlightEvents.indexOf(event.id) > -1 && 'event-row-new')}
+            onClick={() => setEventSelected(eventSelected != event.id ? event.id : false)}
+        >
+            <td>
+                {eventNameMap(event)}
+                {event.elements.length > 0 && (
+                    <pre style={{ marginBottom: 0, display: 'inline' }}>&lt;{event.elements[0].tag_name}&gt;</pre>
+                )}
+                {event.elements.length > 0 && event.elements[0].text && ' with text "' + event.elements[0].text + '"'}
+            </td>
+            <td>
+                <Link to={'/person/' + encodeURIComponent(event.distinct_id)} className="ph-no-capture">
+                    {event.person}
+                </Link>
+            </td>
+            {params.map(paramRequest => {
+                let param = paramRequest
+                let value = event.properties[param]
+
+                if (param === '$current_url' && !value) {
+                    param = '$screen'
+                    value = event.properties[param]
+                }
+
+                return (
+                    <td key={param} title={value}>
+                        <FilterLink
+                            property={param}
+                            value={event.properties[param]}
+                            filters={properties}
+                            onClick={setFilter}
+                        />
+                    </td>
+                )
+            })}
+            <td>{moment(event.timestamp).fromNow()}</td>
+        </tr>
+    )
 }
 
 export class EventsTable extends Component {
@@ -34,7 +102,6 @@ export class EventsTable extends Component {
         this.fetchEvents = this.fetchEvents.bind(this)
         this.pollEvents = this.pollEvents.bind(this)
         this.clickNext = this.clickNext.bind(this)
-        this.EventRow = this.EventRow.bind(this)
         this.clickLoadNewEvents = this.clickLoadNewEvents.bind(this)
         this.pollTimeout = 5000
         this.fetchEvents()
@@ -128,78 +195,7 @@ export class EventsTable extends Component {
             highlightEvents: newEvents.map(event => event.id),
         })
     }
-    EventRow(props) {
-        let { event } = props
-        let { highlightEvents, eventSelected, properties } = this.state
-        let params = ['$current_url', '$lib']
-        return (
-            <tr
-                className={'cursor-pointer event-row ' + (highlightEvents.indexOf(event.id) > -1 && 'event-row-new')}
-                onClick={() =>
-                    this.setState({
-                        eventSelected: eventSelected != event.id ? event.id : false,
-                    })
-                }
-            >
-                <td>
-                    {eventNameMap(event)}
-                    {event.elements.length > 0 && (
-                        <pre style={{ marginBottom: 0, display: 'inline' }}>&lt;{event.elements[0].tag_name}&gt;</pre>
-                    )}
-                    {event.elements.length > 0 &&
-                        event.elements[0].text &&
-                        ' with text "' + event.elements[0].text + '"'}
-                </td>
-                <td>
-                    <Link to={'/person/' + encodeURIComponent(event.distinct_id)} className="ph-no-capture">
-                        {event.person}
-                    </Link>
-                </td>
-                {params.map(paramRequest => {
-                    let param = paramRequest
-                    let value = event.properties[param]
 
-                    if (param === '$current_url' && !value) {
-                        param = '$screen'
-                        value = event.properties[param]
-                    }
-
-                    return (
-                        <td key={param} title={value}>
-                            <FilterLink
-                                property={param}
-                                value={event.properties[param]}
-                                filters={properties}
-                                onClick={(key, value) =>
-                                    this.setState(
-                                        {
-                                            properties: {
-                                                ...properties,
-                                                [key]: value,
-                                            },
-                                        },
-                                        this.fetchEvents
-                                    )
-                                }
-                            />
-                        </td>
-                    )
-                })}
-                <td>{moment(event.timestamp).fromNow()}</td>
-            </tr>
-        )
-    }
-    NoItems(props) {
-        if (!props.events || props.events.length > 0) return null
-        return (
-            <tr>
-                <td colSpan="4">
-                    You don't have any items here. If you haven't integrated PostHog yet,{' '}
-                    <Link to="/setup">click here to set PostHog up on your app</Link>
-                </td>
-            </tr>
-        )
-    }
     render() {
         let { properties, events, loading, hasNext, newEvents, highlightEvents } = this.state
         return (
@@ -240,7 +236,7 @@ export class EventsTable extends Component {
                                 <div>There are {newEvents.length} new events. Click here to load them.</div>
                             </td>
                         </tr>
-                        <this.NoItems events={events} />
+                        <NoItems events={events} />
                         {this.state.events &&
                             this.state.events.map((event, index) => [
                                 index > 0 && !moment(event.timestamp).isSame(events[index - 1].timestamp, 'day') && (
@@ -250,7 +246,25 @@ export class EventsTable extends Component {
                                         </td>
                                     </tr>
                                 ),
-                                <this.EventRow event={event} key={event.id} />,
+                                <EventRow
+                                    key={event.id}
+                                    event={event}
+                                    highlightEvents={this.state.highlightEvents}
+                                    eventSelected={this.state.eventSelected}
+                                    properties={this.state.properties}
+                                    setEventSelected={eventSelected => this.setState({ eventSelected })}
+                                    setFilter={(key, value) =>
+                                        this.setState(
+                                            {
+                                                properties: {
+                                                    ...properties,
+                                                    [key]: value,
+                                                },
+                                            },
+                                            this.fetchEvents
+                                        )
+                                    }
+                                />,
                                 this.state.eventSelected == event.id && (
                                     <tr key={event.id + '_open'}>
                                         <td colSpan="5">

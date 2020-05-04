@@ -18,15 +18,13 @@ export function FilterLink({ property, value, filters, onClick }) {
                 event.stopPropagation()
             }}
         >
-            {typeof value === 'object'
-                ? JSON.stringify(value)
-                : value && value.replace(/(^\w+:|^)\/\//, '')}
+            {typeof value === 'object' ? JSON.stringify(value) : value && value.replace(/(^\w+:|^)\/\//, '')}
         </Link>
     )
 }
 FilterLink.propTypes = {
     property: PropTypes.string.isRequired,
-    value: PropTypes.string.isRequired,
+    value: PropTypes.string,
     filters: PropTypes.object.isRequired,
     onClick: PropTypes.func.isRequired,
 }
