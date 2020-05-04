@@ -22,6 +22,7 @@ django-loginas==0.3.8
 django-slack==5.14.3
 django-stubs==1.5.0
 djangorestframework==3.11.0
+djangorestframework-csv==2.1.0
 djangorestframework-stubs==1.1.0
 freezegun==0.3.14
 gunicorn==20.0.4

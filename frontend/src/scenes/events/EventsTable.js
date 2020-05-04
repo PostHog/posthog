@@ -155,26 +155,36 @@ export class EventsTable extends Component {
                         {event.person}
                     </Link>
                 </td>
-                {params.map(param => (
-                    <td key={param} title={event.properties[param]}>
-                        <FilterLink
-                            property={param}
-                            value={event.properties[param]}
-                            filters={properties}
-                            onClick={(key, value) =>
-                                this.setState(
-                                    {
-                                        properties: {
-                                            ...properties,
-                                            [key]: value,
+                {params.map(paramRequest => {
+                    let param = paramRequest
+                    let value = event.properties[param]
+
+                    if (param === '$current_url' && !value) {
+                        param = '$screen'
+                        value = event.properties[param]
+                    }
+
+                    return (
+                        <td key={param} title={value}>
+                            <FilterLink
+                                property={param}
+                                value={event.properties[param]}
+                                filters={properties}
+                                onClick={(key, value) =>
+                                    this.setState(
+                                        {
+                                            properties: {
+                                                ...properties,
+                                                [key]: value,
+                                            },
                                         },
-                                    },
-                                    this.fetchEvents
-                                )
-                            }
-                        />
-                    </td>
-                ))}
+                                        this.fetchEvents
+                                    )
+                                }
+                            />
+                        </td>
+                    )
+                })}
                 <td>{moment(event.timestamp).fromNow()}</td>
             </tr>
         )
@@ -209,7 +219,7 @@ export class EventsTable extends Component {
                         <tr>
                             <th>Event</th>
                             <th>Person</th>
-                            <th>Path</th>
+                            <th>Path / Screen</th>
                             <th>Source</th>
                             <th onClick={this.onTimestapHeaderClick}>
                                 When <i className="fi flaticon-sort" />
