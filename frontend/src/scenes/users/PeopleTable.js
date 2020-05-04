@@ -2,29 +2,10 @@ import React, { useEffect, useState } from 'react'
 import { Button, Table } from 'antd'
 import api from 'lib/api'
 import { Link } from 'react-router-dom'
-import { FilterLink } from '../../lib/components/FilterLink'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { DeleteOutlined } from '@ant-design/icons'
 
 import { toast } from 'react-toastify'
-
-function Properties({ properties }) {
-    return (
-        <div className="d-flex flex-wrap flex-column" style={{ maxHeight: 200 }}>
-            {Object.keys(properties)
-                .sort()
-                .map(key => (
-                    <div
-                        style={{
-                            flex: '0 1',
-                        }}
-                        key={key}
-                    >
-                        <strong>{key}:</strong> {properties[key]}
-                    </div>
-                ))}
-        </div>
-    )
-}
 
 export function PeopleTable({ people, loading, actions, onChange }) {
     let columns = [
@@ -42,7 +23,6 @@ export function PeopleTable({ people, loading, actions, onChange }) {
             title: 'Actions',
             render: person => (
                 <Button
-                    className="float-right"
                     danger
                     type="link"
                     onClick={() => {
@@ -66,7 +46,7 @@ export function PeopleTable({ people, loading, actions, onChange }) {
             rowKey={person => person.id}
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             expandable={{
-                expandedRowRender: ({ properties }) => <Properties properties={properties} />,
+                expandedRowRender: ({ properties }) => <PropertiesTable properties={properties} />,
                 rowExpandable: ({ properties }) => Object.keys(properties).length > 0,
             }}
             dataSource={people}
