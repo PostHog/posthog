@@ -57,7 +57,7 @@ export function People({ history }) {
                 style={{ maxWidth: 400 }}
             />
             <br />
-            <PeopleTable people={people} loading={loading} actions={true} onChange={() => fetchPeople()} />
+            <PeopleTable people={people} loading={loading} actions={true} onChange={() => fetchPeople({ search })} />
 
             <div style={{ margin: '3rem auto 10rem', width: 200 }}>
                 <Button
