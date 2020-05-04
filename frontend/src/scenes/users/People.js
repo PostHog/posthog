@@ -14,12 +14,12 @@ export function People({ history }) {
     const [cohortId, setCohortId] = useState(fromParams()['cohort'])
     const [pagination, setPagination] = useState({})
 
-    function fetchPeople(url, scrollTop) {
+    function fetchPeople({ url, scrollTop, search }) {
         setLoading(true)
         if (scrollTop)
             document.querySelector('section.ant-layout > .content').parentNode.scrollTo({ top: 0, behavior: 'smooth' })
         api.get(
-            url ? url : `api/person/?${!!search ? 'search=' + search : ''}${cohortId ? 'cohort=' + cohortId : ''}`
+            url ? url : `api/person/?${!!search ? 'search=' + search : ''}${cohortId ? '&cohort=' + cohortId : ''}`
         ).then(data => {
             setPeople(data.results)
             setLoading(false)
@@ -28,7 +28,7 @@ export function People({ history }) {
     }
 
     useEffect(() => {
-        fetchPeople()
+        fetchPeople({})
     }, [cohortId])
 
     const exampleEmail =
@@ -52,22 +52,26 @@ export function People({ history }) {
                 autoFocus
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                onKeyDown={e => e.keyCode === 13 && fetchPeople(search)}
+                onKeyDown={e => e.keyCode === 13 && fetchPeople({ search })}
                 placeholder={people && 'Try ' + exampleEmail + ' or has:email'}
                 style={{ maxWidth: 400 }}
             />
             <br />
-            <PeopleTable people={people} loading={loading} actions={true} onChange={fetchPeople} />
+            <PeopleTable people={people} loading={loading} actions={true} onChange={() => fetchPeople()} />
 
             <div style={{ margin: '3rem auto 10rem', width: 200 }}>
                 <Button
                     type="link"
                     disabled={!pagination.previous}
-                    onClick={() => fetchPeople(pagination.previous, true)}
+                    onClick={() => fetchPeople({ url: pagination.previous, scrollTop: true })}
                 >
                     <LeftOutlined style={{ verticalAlign: 'initial' }} /> Previous
                 </Button>
-                <Button type="link" disabled={!pagination.next} onClick={() => fetchPeople(pagination.next, true)}>
+                <Button
+                    type="link"
+                    disabled={!pagination.next}
+                    onClick={() => fetchPeople({ url: pagination.next, scrollTop: true })}
+                >
                     Next <RightOutlined style={{ verticalAlign: 'initial' }} />
                 </Button>
             </div>
