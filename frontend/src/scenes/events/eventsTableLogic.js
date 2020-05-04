@@ -9,6 +9,10 @@ const addQuestion = search => (search ? `?${search}` : '')
 
 // props: fixedFilters
 export const eventsTableLogic = kea({
+    // Set a unique key based on the fixed filters.
+    // This way if we move back/forward between /events and /person/ID, the logic is reloaded.
+    key: props => (props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all'),
+
     actions: () => ({
         setProperties: properties => ({ properties }),
         updateProperty: (key, value) => ({ key, value }),

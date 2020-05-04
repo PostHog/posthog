@@ -1,9 +1,8 @@
-import React, { Component } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import moment from 'moment'
 
-import { fromParams, Loading, toParams } from 'lib/utils'
-import api from 'lib/api'
+import { Loading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { EventDetails } from 'scenes/events/EventDetails'
