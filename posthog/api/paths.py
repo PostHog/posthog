@@ -24,7 +24,7 @@ class PathsViewSet(viewsets.ViewSet):
             event_key: Subquery(
                 Event.objects.filter(
                     team=team,
-                    **({"event":event} if event else {}),
+                    **({"event":event} if event else {'event__regex':'^[^\$].*'}),
                     distinct_id=OuterRef('distinct_id'),
                     **date_query,
                     **{'{}__isnull'.format(path_type): False},
@@ -38,11 +38,13 @@ class PathsViewSet(viewsets.ViewSet):
         })
 
     def _determine_path_type(self, request):
-        event = "$autocapture"
-        path_type = "elements_hash"
+        requested_type = request.GET.get('type', None)
+        
+        # Default
+        event = "$pageview"
+        path_type = "properties__$current_url"
 
         # determine requested type
-        requested_type = request.GET.get('type', None)
         if requested_type:
             if requested_type == "$screen":
                 event = "$screen"
