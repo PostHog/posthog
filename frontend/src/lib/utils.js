@@ -182,5 +182,5 @@ export const formatFilterName = str => {
     for (let [key, value] of operatorEntries) {
         if (str.includes(key)) return str.replace('__' + key, '') + ` ${value.split(' ')[0]} `
     }
-    return ''
+    return str + ` ${operatorMap['exact'].split(' ')[0]} `
 }
