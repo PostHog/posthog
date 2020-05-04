@@ -25,5 +25,5 @@ FilterPropertyLink.propTypes = {
     property: PropTypes.string.isRequired,
     value: PropTypes.string,
     filters: PropTypes.object.isRequired,
-    onClick: PropTypes.func.isRequired,
+    onClick: PropTypes.func,
 }
