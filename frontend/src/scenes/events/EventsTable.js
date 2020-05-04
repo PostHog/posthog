@@ -1,91 +1,212 @@
 import React, { Component } from 'react'
-import { fromParams, toParams } from 'lib/utils'
-import api from 'lib/api'
-import { Link } from 'react-router-dom'
+import { kea, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import moment from 'moment'
+
+import { fromParams, Loading, toParams } from 'lib/utils'
+import api from 'lib/api'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { FilterLink } from 'lib/components/FilterLink'
-import { EventDetails } from './EventDetails'
-import PropTypes from 'prop-types'
-import { kea, useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 
-let eventNameMap = event => {
-    if (event.properties.$event_type === 'click') return 'clicked '
-    if (event.properties.$event_type === 'change') return 'typed something into '
-    if (event.properties.$event_type === 'submit') return 'submitted '
-    return event.event
-}
+import { EventDetails } from 'scenes/events/EventDetails'
+import { EventRow } from 'scenes/events/EventRow'
+import { NoItems } from 'scenes/events/NoItems'
 
+const addQuestion = search => (search ? `?${search}` : '')
+
+// props: fixedFilters
 const eventsTableLogic = kea({
     actions: () => ({
+        setProperties: properties => ({ properties }),
+        updateProperty: (key, value) => ({ key, value }),
         fetchEvents: true,
+        fetchEventsSuccess: (events, hasNext) => ({ events, hasNext }),
+        pollEvents: true,
+        setEventSelected: eventSelected => ({ eventSelected }),
     }),
 
-    listeners: () => ({
-        fetchEvents: () => {},
+    reducers: () => ({
+        properties: [
+            {},
+            {
+                setProperties: (_, { properties }) => properties,
+                updateProperty: (state, { key, value }) => ({ ...state, [key]: value }),
+            },
+        ],
+        isLoading: [
+            false,
+            {
+                fetchEvents: () => true,
+                fetchEventsSuccess: () => false,
+            },
+        ],
+        events: [
+            [],
+            {
+                fetchEventsSuccess: (_, { events }) => events,
+            },
+        ],
+        hasNext: [
+            false,
+            {
+                fetchEventsSuccess: (_, { hasNext }) => hasNext,
+            },
+        ],
+        orderBy: ['-timestamp', {}],
+        eventSelected: [
+            null,
+            {
+                setEventSelected: (_, { eventSelected }) => eventSelected,
+            },
+        ],
+    }),
+
+    selectors: ({ selectors }) => ({
+        urlParams: [
+            () => [selectors.properties],
+            properties => {
+                if (Object.keys(properties).length > 0) {
+                    return '?' + toParams({ properties })
+                } else {
+                    return ''
+                }
+            },
+        ],
+    }),
+
+    events: ({ actions }) => ({
+        afterMount: [actions.fetchEvents],
+    }),
+
+    actionToUrl: ({ values }) => ({
+        setProperties: () => {
+            return `${router.values.location.pathname}${values.urlParams}`
+        },
+        updateProperty: () => {
+            return `${router.values.location.pathname}${values.urlParams}`
+        },
+    }),
+
+    urlToAction: ({ actions, values }) => ({
+        '/events': () => {
+            const { urlParams } = values
+            const newFilters = fromParams()
+            const newUrlParams = addQuestion(toParams(newFilters))
+
+            if (newUrlParams !== urlParams) {
+                actions.setProperties(newFilters.properties ? JSON.parse(newFilters.properties) : {})
+            }
+        },
+    }),
+
+    listeners: ({ actions, values, props }) => ({
+        setProperties: () => {
+            actions.fetchEvents()
+        },
+        updateProperty: () => {
+            actions.fetchEvents()
+        },
+        fetchEvents: async (_, breakpoint) => {
+            // clearTimeout(this.poller)
+
+            const urlParams = toParams({
+                properties: values.properties,
+                ...(props.fixedFilters || {}),
+                orderBy: [values.orderBy],
+            })
+
+            const events = await api.get('api/event/?' + urlParams)
+            breakpoint()
+            actions.fetchEventsSuccess(events.results, events.next)
+            // this.poller = setTimeout(this.pollEvents, this.pollTimeout)
+        },
     }),
 })
 
-function NoItems({ events }) {
-    if (!events || events.length > 0) {
-        return null
-    }
+export function EventsTable({ fixedFilters }) {
+    const { properties, events, isLoading, hasNext, eventSelected } = useValues(eventsTableLogic({ fixedFilters }))
+    const { setProperties, updateProperty, setEventSelected } = useActions(eventsTableLogic({ fixedFilters }))
+
+    const newEvents = []
+    const highlightEvents = []
+    const onTimestampHeaderClick = () => {}
+    const clickLoadNewEvents = () => {}
+    const clickNext = () => {}
+
     return (
-        <tr>
-            <td colSpan={4}>
-                You don't have any items here. If you haven't integrated PostHog yet,{' '}
-                <Link to="/setup">click here to set PostHog up on your app</Link>
-            </td>
-        </tr>
+        <div className="events">
+            <PropertyFilters propertyFilters={properties} pageKey="EventsTable" onChange={setProperties} />
+            <table className="table" style={{ position: 'relative' }}>
+                {isLoading && <Loading />}
+                <thead>
+                    <tr>
+                        <th>Event</th>
+                        <th>Person</th>
+                        <th>Path / Screen</th>
+                        <th>Source</th>
+                        <th onClick={onTimestampHeaderClick}>
+                            When <i className="fi flaticon-sort" />
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {isLoading && (
+                        <div className="loading">
+                            <div />
+                        </div>
+                    )}
+                    <tr
+                        className={'event-new-events ' + (newEvents.length > 0 ? 'show' : 'hide')}
+                        onClick={clickLoadNewEvents}
+                    >
+                        <td colSpan="5">
+                            <div>There are {newEvents.length} new events. Click here to load them.</div>
+                        </td>
+                    </tr>
+                    {!events || events.length === 0 ? <NoItems events={events} /> : null}
+                    {events &&
+                        events.map((event, index) => (
+                            <React.Fragment key={event.id}>
+                                {index > 0 && !moment(event.timestamp).isSame(events[index - 1].timestamp, 'day') && (
+                                    <tr>
+                                        <td colSpan="5" className="event-day-separator">
+                                            {moment(event.timestamp).format('LL')}
+                                        </td>
+                                    </tr>
+                                )}
+                                <EventRow
+                                    event={event}
+                                    highlightEvents={highlightEvents}
+                                    eventSelected={eventSelected}
+                                    properties={properties}
+                                    setEventSelected={setEventSelected}
+                                    setFilter={updateProperty}
+                                />
+                                {eventSelected === event.id && (
+                                    <tr>
+                                        <td colSpan="5">
+                                            <EventDetails event={event} />
+                                        </td>
+                                    </tr>
+                                )}
+                            </React.Fragment>
+                        ))}
+                </tbody>
+            </table>
+            {hasNext && (
+                <button
+                    className="btn btn-primary"
+                    onClick={clickNext}
+                    style={{ margin: '2rem auto 15rem', display: 'block' }}
+                >
+                    Load more events
+                </button>
+            )}
+            <div style={{ marginTop: '15rem' }} />
+        </div>
     )
 }
 
-function EventRow({ event, highlightEvents, eventSelected, properties, setEventSelected, setFilter }) {
-    let params = ['$current_url', '$lib']
-    return (
-        <tr
-            className={'cursor-pointer event-row ' + (highlightEvents.indexOf(event.id) > -1 && 'event-row-new')}
-            onClick={() => setEventSelected(eventSelected != event.id ? event.id : false)}
-        >
-            <td>
-                {eventNameMap(event)}
-                {event.elements.length > 0 && (
-                    <pre style={{ marginBottom: 0, display: 'inline' }}>&lt;{event.elements[0].tag_name}&gt;</pre>
-                )}
-                {event.elements.length > 0 && event.elements[0].text && ' with text "' + event.elements[0].text + '"'}
-            </td>
-            <td>
-                <Link to={'/person/' + encodeURIComponent(event.distinct_id)} className="ph-no-capture">
-                    {event.person}
-                </Link>
-            </td>
-            {params.map(paramRequest => {
-                let param = paramRequest
-                let value = event.properties[param]
-
-                if (param === '$current_url' && !value) {
-                    param = '$screen'
-                    value = event.properties[param]
-                }
-
-                return (
-                    <td key={param} title={value}>
-                        <FilterLink
-                            property={param}
-                            value={event.properties[param]}
-                            filters={properties}
-                            onClick={setFilter}
-                        />
-                    </td>
-                )
-            })}
-            <td>{moment(event.timestamp).fromNow()}</td>
-        </tr>
-    )
-}
-
-export class EventsTable extends Component {
+export class EventsTableOld extends Component {
     constructor(props) {
         super(props)
 
@@ -105,36 +226,10 @@ export class EventsTable extends Component {
         this.clickLoadNewEvents = this.clickLoadNewEvents.bind(this)
         this.pollTimeout = 5000
         this.fetchEvents()
-        this.onTimestapHeaderClick = this.onTimestapHeaderClick.bind(this)
-    }
-    fetchEvents() {
-        let params = {}
-        if (Object.keys(this.state.properties).length > 0) params.properties = this.state.properties
-
-        if (this.props.history.location.search !== toParams(params)) {
-            this.props.history.push({
-                pathname: this.props.history.location.pathname,
-                search: toParams(params),
-            })
-        }
-        if (!this.state.loading) this.setState({ loading: true })
-        clearTimeout(this.poller)
-        params = toParams({
-            ...params,
-            ...this.props.fixedFilters,
-            orderBy: Object.values(this.state.orderBy),
-        })
-        api.get('api/event/?' + params).then(events => {
-            this.setState({
-                events: events.results,
-                hasNext: events.next,
-                loading: false,
-            })
-            this.poller = setTimeout(this.pollEvents, this.pollTimeout)
-        })
+        this.onTimestampHeaderClick = this.onTimestampHeaderClick.bind(this)
     }
 
-    onTimestapHeaderClick() {
+    onTimestampHeaderClick() {
         this.setState(
             prevState => ({
                 orderBy: {
@@ -195,101 +290,4 @@ export class EventsTable extends Component {
             highlightEvents: newEvents.map(event => event.id),
         })
     }
-
-    render() {
-        let { properties, events, loading, hasNext, newEvents, highlightEvents } = this.state
-        return (
-            <div className="events">
-                <PropertyFilters
-                    propertyFilters={properties}
-                    pageKey="EventsTable"
-                    onChange={properties => this.setState({ properties }, this.fetchEvents)}
-                />
-                <table className="table" style={{ position: 'relative' }}>
-                    {loading && (
-                        <div className="loading-overlay">
-                            <div></div>
-                        </div>
-                    )}
-                    <thead>
-                        <tr>
-                            <th>Event</th>
-                            <th>Person</th>
-                            <th>Path / Screen</th>
-                            <th>Source</th>
-                            <th onClick={this.onTimestapHeaderClick}>
-                                When <i className="fi flaticon-sort" />
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {loading && (
-                            <div className="loading">
-                                <div></div>
-                            </div>
-                        )}
-                        <tr
-                            className={'event-new-events ' + (this.state.newEvents.length > 0 ? 'show' : 'hide')}
-                            onClick={this.clickLoadNewEvents}
-                        >
-                            <td colSpan="5">
-                                <div>There are {newEvents.length} new events. Click here to load them.</div>
-                            </td>
-                        </tr>
-                        <NoItems events={events} />
-                        {this.state.events &&
-                            this.state.events.map((event, index) => [
-                                index > 0 && !moment(event.timestamp).isSame(events[index - 1].timestamp, 'day') && (
-                                    <tr key={event.id + '_time'}>
-                                        <td colSpan="5" className="event-day-separator">
-                                            {moment(event.timestamp).format('LL')}
-                                        </td>
-                                    </tr>
-                                ),
-                                <EventRow
-                                    key={event.id}
-                                    event={event}
-                                    highlightEvents={this.state.highlightEvents}
-                                    eventSelected={this.state.eventSelected}
-                                    properties={this.state.properties}
-                                    setEventSelected={eventSelected => this.setState({ eventSelected })}
-                                    setFilter={(key, value) =>
-                                        this.setState(
-                                            {
-                                                properties: {
-                                                    ...properties,
-                                                    [key]: value,
-                                                },
-                                            },
-                                            this.fetchEvents
-                                        )
-                                    }
-                                />,
-                                this.state.eventSelected == event.id && (
-                                    <tr key={event.id + '_open'}>
-                                        <td colSpan="5">
-                                            <EventDetails event={event} />
-                                        </td>
-                                    </tr>
-                                ),
-                            ])}
-                    </tbody>
-                </table>
-                {hasNext && (
-                    <button
-                        className="btn btn-primary"
-                        onClick={this.clickNext}
-                        style={{ margin: '2rem auto 15rem', display: 'block' }}
-                    >
-                        Load more events
-                    </button>
-                )}
-                <div style={{ marginTop: '15rem' }}></div>
-            </div>
-        )
-    }
-}
-EventsTable.propTypes = {
-    fixedFilters: PropTypes.object,
-    history: PropTypes.object.isRequired,
 }
