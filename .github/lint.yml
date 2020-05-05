@@ -1,2 +1,12 @@
-- name: ESLint Action
-  uses: hallee/eslint-action@1.0.1
+name: Lint
+
+on: pull_request
+
+jobs:
+  eslint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - uses: hallee/eslint-action@master
+        with:
+          repo-token: ${{secrets.GITHUB_TOKEN}}
