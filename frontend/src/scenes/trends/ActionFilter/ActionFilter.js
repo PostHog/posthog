@@ -13,9 +13,9 @@ export function ActionFilter({ setFilters, filters, defaultFilters, typeKey, set
     return (
         <div>
             {allFilters &&
-                allFilters.map((filter, index) => {
-                    return <ActionFilterRow logic={logic} filter={filter} index={index} key={index} typeKey={typeKey} />
-                })}
+                allFilters.map((filter, index) => (
+                    <ActionFilterRow logic={logic} filter={filter} index={index} key={index} typeKey={typeKey} />
+                ))}
             <Button type="primary" onClick={() => createNewFilter()} style={{ marginTop: '0.5rem' }}>
                 Add action/event
             </Button>

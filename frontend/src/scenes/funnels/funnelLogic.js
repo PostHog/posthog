@@ -57,7 +57,7 @@ export const funnelLogic = kea({
         isStepsEmpty: [
             () => [selectors.funnel],
             funnel => {
-                return funnel && [...(funnel.filters.actions || []), ...(funnel.filters.events || [])].length == 0
+                return funnel && [...(funnel.filters.actions || []), ...(funnel.filters.events || [])].length === 0
             },
         ],
     }),

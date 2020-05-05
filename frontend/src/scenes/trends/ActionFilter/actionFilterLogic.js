@@ -6,7 +6,7 @@ import { userLogic } from 'scenes/userLogic'
 function toLocalFilters(filters) {
     return [...(filters.actions || []), ...(filters.events || [])]
         .sort((a, b) => a.order - b.order)
-        .map((filter, index) => ({ ...filter, order: index }))
+        .map((filter, order) => ({ ...filter, order }))
 }
 
 function toFilters(localFilters) {
