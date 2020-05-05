@@ -20,9 +20,8 @@ const determineFilterLabel = (visible, filter) => {
     return 'Add Filters'
 }
 
-export function ActionFilterRow({ filter, index, typeKey }) {
+export function ActionFilterRow({ logic, filter, index, typeKey }) {
     const node = useRef()
-    const logic = entityFilterLogic({ typeKey })
     const { selectedFilter, entities } = useValues(logic)
     const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty } = useActions(logic)
     const { eventProperties } = useValues(userLogic)
