@@ -137,7 +137,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             actions_list.sort(key=lambda action: action.get('count', action['id']), reverse=True)
         return Response({'results': actions_list})
 
-    def _group_events_to_date(self, date_from: datetime.datetime, date_to: datetime.datetime, aggregates: QuerySet, interval:str, breakdown: Optional[str]=None) -> Dict[str, Dict[datetime.datetime, int]]:
+    def _group_events_to_date(self, date_from: Optional[datetime.datetime], date_to: datetime.datetime, aggregates: QuerySet, interval:str, breakdown: Optional[str]=None) -> Dict[str, Dict[datetime.datetime, int]]:
         freq_map = {
             'minute': '60S',
             'hour': 'H',
@@ -238,7 +238,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         aggregates = self._process_math(aggregates, entity)
 
         dates_filled = self._group_events_to_date(
-            date_from=filter.date_from if filter.date_from else pd.Timestamp(aggregates[0][interval]),
+            date_from=filter.date_from,
             date_to=filter.date_to if filter.date_to else now(),
             aggregates=aggregates,
             interval=interval,
@@ -318,7 +318,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 filter=filter,
                 interval=interval,
                 request=request,
-                breakdown='properties__{}'.format(request.GET['breakdown']) if request.GET.get('breakdown') else None
+                breakdown='properties__{}'.format(request.GET['breakdown']) if request.GET.get('breakdown') else None,
             )
             for value, item in items.items():
                 new_dict = copy.deepcopy(serialized)
@@ -362,6 +362,9 @@ class ActionViewSet(viewsets.ModelViewSet):
         if len(filter.entities) == 0:
             # If no filters, automatically grab all actions and show those instead
             filter.entities = [Entity({'id': action.id, 'name': action.name, 'type': TREND_FILTER_TYPE_ACTIONS}) for action in actions]
+
+        if not filter.date_from:
+            filter._date_from = Event.objects.filter(team=team).order_by('timestamp')[0].timestamp.isoformat()
 
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:

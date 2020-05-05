@@ -309,6 +309,12 @@ class TestTrends(BaseTest):
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
+
+        # test empty response
+        with freeze_time('2020-01-04'):
+            empty = self.client.get('/api/action/trends/?date_from=all&events=%s' % jdumps([{'id': 'blabla'}, {'id': 'sign up'}])).json()
+        self.assertEqual(empty[0]['data'][0], 0)
+
     def test_breakdown_filtering(self):
         self._create_events()
         # test breakdown filtering
