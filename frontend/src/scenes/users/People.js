@@ -10,7 +10,7 @@ import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 export function People() {
     const [loading, setLoading] = useState(true)
     const [people, setPeople] = useState(null)
-    const [search, setSearch] = useState(undefined)
+    const [search, setSearch] = useState('')
     const [cohortId, setCohortId] = useState(fromParams()['cohort'])
     const [pagination, setPagination] = useState({})
 
