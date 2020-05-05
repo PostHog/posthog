@@ -1,7 +1,6 @@
 import React from 'react'
 import { router } from 'kea-router'
 
-// use <A href=''> instead of <a href=''> to open links via the router
 export function Link({ to, ...props }) {
     return (
         <a

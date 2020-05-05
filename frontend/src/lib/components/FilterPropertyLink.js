@@ -2,15 +2,15 @@ import React from 'react'
 import { toParams } from '../utils'
 import PropTypes from 'prop-types'
 
-import { A } from 'lib/components/A'
 import { Property } from 'lib/components/Property'
+import { Link } from 'lib/components/Link'
 
 export function FilterPropertyLink({ property, value, filters, onClick }) {
     const params = toParams({ ...filters, properties: { ...filters.properties, [property]: value } })
 
     return (
-        <A
-            href={`${window.location.pathname}${params ? '?' : ''}${params}`}
+        <Link
+            to={`${window.location.pathname}${params ? '?' : ''}${params}`}
             onClick={event => {
                 if (onClick) {
                     onClick(property, value)
@@ -18,7 +18,7 @@ export function FilterPropertyLink({ property, value, filters, onClick }) {
             }}
         >
             <Property value={value} />
-        </A>
+        </Link>
     )
 }
 FilterPropertyLink.propTypes = {
