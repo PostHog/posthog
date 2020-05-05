@@ -35,7 +35,7 @@ export const entityFilterLogic = kea({
         setLocalFilters: filters => ({
             filters: filters.map((filter, index) => ({
                 ...filter,
-                order: typeof filter.order === undefined ? index : filter.order,
+                order: typeof filter.order === 'undefined' ? index : filter.order,
             })),
         }),
         updateFilterProperty: filter => ({ properties: filter.properties, index: filter.index }),
