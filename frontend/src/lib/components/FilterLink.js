@@ -1,18 +1,19 @@
 import React from 'react'
-import { toParams } from '../utils'
-import { createBrowserHistory } from 'history'
+import { useValues } from 'kea'
+import { router } from 'kea-router'
 import PropTypes from 'prop-types'
 
-import { Link } from 'react-router-dom'
+import { addUrlQuestion, toParams } from 'lib/utils'
+import { Link } from 'lib/components/Link'
 
 export function FilterLink({ property, value, filters, onClick }) {
-    let history = createBrowserHistory()
+    const {
+        location: { pathname },
+    } = useValues(router)
+    const search = addUrlQuestion(toParams(filters))
     return (
         <Link
-            to={{
-                pathname: history.pathname,
-                search: toParams(filters),
-            }}
+            to={`${pathname}${search}`}
             onClick={event => {
                 onClick(property, value)
                 event.stopPropagation()

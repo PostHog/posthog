@@ -1,8 +1,7 @@
 import React, { Component } from 'react'
-import api from '../../lib/api'
-import { Link } from 'react-router-dom'
-import { DeleteWithUndo } from '../../lib/utils'
-import { AppEditorLink } from '../../lib/components/AppEditorLink/AppEditorLink'
+import api from 'lib/api'
+import { Link } from 'lib/components/Link'
+import { DeleteWithUndo } from 'lib/utils'
 
 export class ActionsTable extends Component {
     constructor(props) {
@@ -36,17 +35,12 @@ export class ActionsTable extends Component {
                 <h1>Actions</h1>
                 <p style={{ maxWidth: 600 }}>
                     <i>
-                        Actions are PostHog’s way of easily cleaning up a large
-                        amount of Event data. Actions consist of one or more
-                        events that you have decided to put into a
-                        manually-labelled bucket. They're used in Funnels, Live
-                        actions and Trends.
+                        Actions are PostHog’s way of easily cleaning up a large amount of Event data. Actions consist of
+                        one or more events that you have decided to put into a manually-labelled bucket. They're used in
+                        Funnels, Live actions and Trends.
                         <br />
                         <br />
-                        <a
-                            href="https://github.com/PostHog/posthog/wiki/Actions"
-                            target="_blank"
-                        >
+                        <a href="https://github.com/PostHog/posthog/wiki/Actions" target="_blank">
                             See documentation
                         </a>
                     </i>
@@ -76,9 +70,7 @@ export class ActionsTable extends Component {
                             actions.map(action => (
                                 <tr key={action.id}>
                                     <td>
-                                        <Link to={'/action/' + action.id}>
-                                            {action.name}
-                                        </Link>
+                                        <Link to={'/action/' + action.id}>{action.name}</Link>
                                     </td>
                                     <td>{action.count}</td>
                                     <td>
@@ -89,15 +81,9 @@ export class ActionsTable extends Component {
                                                         case '$autocapture':
                                                             return 'Autocapture'
                                                         case '$pageview':
-                                                            return (
-                                                                'URL matches ' +
-                                                                step.url
-                                                            )
+                                                            return 'URL matches ' + step.url
                                                         default:
-                                                            return (
-                                                                'Event: ' +
-                                                                step.event
-                                                            )
+                                                            return 'Event: ' + step.event
                                                     }
                                                 })()}
                                             </div>

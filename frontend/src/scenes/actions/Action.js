@@ -1,49 +1,37 @@
-import React, { Component } from 'react'
+import React from 'react'
 import { EventsTable } from '../events/EventsTable'
 import { ActionEdit } from './ActionEdit'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { userLogic } from 'scenes/userLogic'
+import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 
-export class Action extends Component {
-    constructor(props) {
-        super(props)
+export function Action({ id }) {
+    const fixedFilters = { action_id: id }
 
-        this.state = {
-            newEvents: [],
-            action: { id: this.props.match.params.id },
-        }
-    }
-    render() {
-        return (
-            <div>
-                <h1>{this.props.match.params.id ? 'Edit action' : 'New action'}</h1>
-                <ActionEdit
-                    apiURL=""
-                    actionId={this.state.action.id}
-                    user={this.props.user}
-                    onSave={action => {
-                        this.setState({ action, refresh: new Date() })
-                        if (!this.props.match.params.id) {
-                            this.props.history.push({
-                                pathname: '/action/' + action.id,
-                                state: { id: action.id },
-                            })
-                        }
-                    }}
-                />
-                {this.state.action.id && (
-                    <div>
-                        <br />
-                        <br />
+    const { push } = useActions(router)
+    const { user } = useValues(userLogic)
+    const { fetchEvents } = useActions(eventsTableLogic({ fixedFilters }))
 
-                        <h2>Events</h2>
-                        <EventsTable
-                            fixedFilters={{ action_id: this.state.action.id }}
-                            filtersEnabled={false}
-                            history={this.props.history}
-                            key={this.state.refresh} // hack to force a refresh of events on update
-                        />
-                    </div>
-                )}
-            </div>
-        )
-    }
+    return (
+        <div>
+            <h1>{id ? 'Edit action' : 'New action'}</h1>
+            <ActionEdit
+                apiURL=""
+                actionId={id}
+                user={user}
+                onSave={action => {
+                    if (!id) {
+                        push(`/action/${action.id}`)
+                    }
+                    fetchEvents()
+                }}
+            />
+            <br />
+            <br />
+
+            <h2>Events</h2>
+            <EventsTable fixedFilters={fixedFilters} filtersEnabled={false} />
+        </div>
+    )
 }

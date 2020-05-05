@@ -1,6 +1,6 @@
 import React from 'react'
-import { Card, Loading } from '../../lib/utils'
-import { Link } from 'react-router-dom'
+import { Card } from 'lib/utils'
+import { Link } from 'lib/components/Link'
 import { actionsModel } from '../../models/actionsModel'
 import { useValues, useActions } from 'kea'
 import { funnelLogic } from './funnelLogic'

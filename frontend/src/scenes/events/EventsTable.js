@@ -23,9 +23,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
         newEvents,
         highlightEvents,
     } = useValues(logic)
-    const { setProperties, updateProperty, setSelectedEvent, fetchNextEvents, flipSort, prependNewEvents } = useActions(
-        logic
-    )
+    const { updateProperty, setSelectedEvent, fetchNextEvents, flipSort, prependNewEvents } = useActions(logic)
 
     return (
         <div className="events">

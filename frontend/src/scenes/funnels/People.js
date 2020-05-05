@@ -1,11 +1,11 @@
 import React from 'react'
-import { useValues, useActions } from 'kea'
+import { useValues } from 'kea'
 import { funnelLogic } from './funnelLogic'
-import { Link } from 'react-router-dom'
-import { Card, percentage, Loading } from '../../lib/utils'
+import { Link } from 'lib/components/Link'
+import { Card, percentage, Loading } from 'lib/utils'
 
-export function People({ match }) {
-    const { stepsWithCount, peopleSorted, peopleLoading } = useValues(funnelLogic({ id: match.params.id }))
+export function People({ id }) {
+    const { stepsWithCount, peopleSorted, peopleLoading } = useValues(funnelLogic({ id }))
 
     return (
         <Card title="Per user">

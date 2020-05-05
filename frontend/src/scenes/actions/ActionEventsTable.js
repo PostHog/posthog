@@ -1,12 +1,14 @@
 import React, { Component } from 'react'
-import { fromParams, Loading, toParams } from '../../lib/utils'
-import api from '../../lib/api'
-import { Link } from 'react-router-dom'
-import { PropertyFilters } from '../../lib/components/PropertyFilters/PropertyFilters'
 import moment from 'moment'
-import { EventDetails } from '../events/EventDetails'
 import PropTypes from 'prop-types'
-import { FilterLink } from '../../lib/components/FilterLink'
+
+import { fromParams, Loading, toParams } from 'lib/utils'
+import api from 'lib/api'
+import { Link } from 'lib/components/Link'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { FilterLink } from 'lib/components/FilterLink'
+
+import { EventDetails } from '../events/EventDetails'
 
 export class ActionEventsTable extends Component {
     constructor(props) {
@@ -151,5 +153,4 @@ export class ActionEventsTable extends Component {
 }
 ActionEventsTable.propTypes = {
     fixedFilters: PropTypes.object,
-    history: PropTypes.object.isRequired,
 }

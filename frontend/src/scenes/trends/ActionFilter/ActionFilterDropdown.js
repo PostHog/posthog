@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { entityFilterLogic } from './actionFilterLogic'
 import { EntityTypes } from '../trendsLogic'
 import { ActionSelectPanel, ActionSelectTabs } from '~/lib/components/ActionSelectBox'
-import { Link } from 'react-router-dom'
+import { Link } from 'lib/components/Link'
 import { userLogic } from 'scenes/userLogic'
 import { actionsModel } from '~/models/actionsModel'
 

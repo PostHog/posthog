@@ -2,7 +2,7 @@ import React from 'react'
 import moment from 'moment'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
-import { Link } from 'react-router-dom'
+import { Link } from 'lib/components/Link'
 
 const eventNameMap = event => {
     if (event.properties.$event_type === 'click') return 'clicked '

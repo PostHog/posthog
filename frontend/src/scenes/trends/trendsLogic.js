@@ -43,7 +43,7 @@ export const ViewType = {
 }
 
 function cleanFilters(filters) {
-    if (filters.session && filters.session == 'dist') {
+    if (filters.session && filters.session === 'dist') {
         return {
             ...filters,
             display: 'ActionsTable',
@@ -202,12 +202,7 @@ export const trendsLogic = kea({
     actionToUrl: ({ actions, values, props }) => ({
         [actions.setFilters]: () => {
             if (!props.dashboardItemId) {
-                const url = `/trends?${toParams(values.filters)}`
-                // temporary check to disable double back button
-                // as react-router and kea-router don't sync super well
-                if (window.location.pathname + window.location.search !== url) {
-                    return url
-                }
+                return `/trends?${toParams(values.filters)}`
             }
         },
         [actions.setActiveView]: ({ type }) => {
@@ -216,7 +211,7 @@ export const trendsLogic = kea({
             if (cachedUrl) {
                 return cachedUrl
             } else {
-                return type == ViewType.SESSIONS ? `/trends?${toParams({ session: 'avg' })}` : `/trends`
+                return type === ViewType.SESSIONS ? `/trends?${toParams({ session: 'avg' })}` : `/trends`
             }
         },
     }),

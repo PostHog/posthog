@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link } from 'lib/components/Link'
 import React from 'react'
 
 export function NoItems() {
