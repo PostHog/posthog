@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react'
 import { EventsTable } from '../events/EventsTable'
 import api from 'lib/api'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { toast } from 'react-toastify'
 import { deletePersonData } from 'lib/utils'
 import { Button } from 'antd'
 
@@ -21,7 +20,11 @@ export function Person({ match, history }) {
 
     return person ? (
         <div>
-            <Button className="float-right" danger onClick={() => deletePersonData(person)}>
+            <Button
+                className="float-right"
+                danger
+                onClick={() => deletePersonData(person, () => history.push('/people'))}
+            >
                 Delete all data on this person
             </Button>
             <h1>{person.name}</h1>
