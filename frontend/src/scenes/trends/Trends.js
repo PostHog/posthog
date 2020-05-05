@@ -54,8 +54,8 @@ export function Trends() {
                                 <TabPane tab={'Actions & Events'} key={ViewType.FILTERS}>
                                     <ActionFilter
                                         setDefaultIfEmpty={true}
+                                        filters={filters}
                                         setFilters={setFilters}
-                                        defaultFilters={filters}
                                         typeKey="trends"
                                     />
                                     <hr />

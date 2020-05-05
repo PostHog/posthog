@@ -27,18 +27,19 @@ export function ActionFilterRow({ logic, filter, index, typeKey }) {
     const { eventProperties } = useValues(userLogic)
     const [entityFilterVisible, setEntityFilterVisible] = useState(false)
 
-    let entity, dropDownCondition, onClick, onClose, onMathSelect, name, value, math
-    math = filter.math
-    onClose = () => {
+    let entity, name, value
+    let math = filter.math
+    const onClose = () => {
         removeLocalFilter({ value: filter.id, type: filter.type, index })
     }
-    onMathSelect = (_, math) => {
+    const onMathSelect = (_, math) => {
         updateFilterMath({ math, value: filter.id, type: filter.type, index: index })
     }
 
-    dropDownCondition = () => selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index
+    const dropDownCondition = () =>
+        selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index
 
-    onClick = () => {
+    const onClick = () => {
         if (selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index) selectFilter(null)
         else selectFilter({ filter, type: filter.type, index })
     }
