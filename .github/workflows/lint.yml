@@ -1,11 +1,11 @@
-name: Run ESLint on Pull Requests
+name: List
 
 on:
   - pull_request
 
 jobs:
   build:
-    name: Run ESLint
+    name: ESLint
     runs-on: ubuntu-latest
     steps:
       # Check out the repository
