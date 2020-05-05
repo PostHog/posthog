@@ -19,7 +19,7 @@ export function PeopleTable({ people, loading, actions, onChange }) {
         },
     ]
     if (actions)
-        columns.append({
+        columns.push({
             title: 'Actions',
             render: person => (
                 <Button danger type="link" onClick={() => deletePersonData(person, onChange)}>
