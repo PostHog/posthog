@@ -28,7 +28,7 @@ export function PeopleTable({ people, loading, actions, onChange }) {
             ),
         })
 
-    return people ? (
+    return (
         <Table
             size="small"
             columns={columns}
@@ -41,5 +41,5 @@ export function PeopleTable({ people, loading, actions, onChange }) {
             }}
             dataSource={people}
         />
-    ) : null
+    )
 }
