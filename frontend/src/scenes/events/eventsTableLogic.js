@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { addUrlQuestion, fromParams, toParams } from 'lib/utils'
+import { toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 
@@ -108,11 +108,11 @@ export const eventsTableLogic = kea({
     }),
 
     selectors: ({ selectors }) => ({
-        urlParams: [
+        propertiesForUrl: [
             () => [selectors.properties],
             properties => {
                 if (Object.keys(properties).length > 0) {
-                    return '?' + toParams({ properties })
+                    return { properties }
                 } else {
                     return ''
                 }
@@ -129,15 +129,15 @@ export const eventsTableLogic = kea({
 
     actionToUrl: ({ values }) => ({
         setProperties: () => {
-            return `${router.values.location.pathname}${values.urlParams}`
+            return [router.values.location.pathname, values.propertiesForUrl]
         },
         updateProperty: () => {
-            return `${router.values.location.pathname}${values.urlParams}`
+            return [router.values.location.pathname, values.propertiesForUrl]
         },
     }),
 
     urlToAction: ({ actions, values }) => ({
-        '*': () => {
+        '*': (_, searchParams) => {
             try {
                 // if the url changed, but we are not anymore on the page we were at when the logic was mounted
                 if (router.values.location.pathname !== values.initialPathname) {
@@ -149,12 +149,8 @@ export const eventsTableLogic = kea({
                 return
             }
 
-            const { urlParams } = values
-            const newFilters = fromParams()
-            const newUrlParams = addUrlQuestion(toParams(newFilters))
-
-            if (newUrlParams !== urlParams) {
-                actions.setProperties(newFilters.properties ? JSON.parse(newFilters.properties) : {})
+            if (JSON.stringify(searchParams.properties || {}) !== JSON.stringify(values.properties)) {
+                actions.setProperties(searchParams.properties || {})
             }
         },
     }),
