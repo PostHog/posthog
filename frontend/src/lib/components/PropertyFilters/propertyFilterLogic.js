@@ -51,7 +51,14 @@ export const propertyFilterLogic = kea({
                     return [...state, {}]
                 },
                 [actions.remove]: (state, { index }) => {
-                    return state.filter((_, i) => i !== index)
+                    const newState = state.filter((_, i) => i !== index)
+                    if (newState.length === 0) {
+                        return [{}]
+                    }
+                    if (Object.keys(newState[newState.length - 1]).length !== 0) {
+                        return [...newState, {}]
+                    }
+                    return newState
                 },
             },
         ],
