@@ -14,7 +14,7 @@ const determineFilterLabel = (visible, filter) => {
 
     if (filter.properties && Object.keys(filter.properties).length > 0) {
         return (
-            Object.keys(filter.properties).length + ' Filter' + (Object.keys(filter.properties).length == 1 ? '' : 's')
+            Object.keys(filter.properties).length + ' Filter' + (Object.keys(filter.properties).length === 1 ? '' : 's')
         )
     }
     return 'Add Filters'
@@ -22,10 +22,9 @@ const determineFilterLabel = (visible, filter) => {
 
 export function ActionFilterRow({ filter, index, typeKey }) {
     const node = useRef()
-    const { selectedFilter, entities } = useValues(entityFilterLogic({ typeKey }))
-    const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty } = useActions(
-        entityFilterLogic({ typeKey })
-    )
+    const logic = entityFilterLogic({ typeKey })
+    const { selectedFilter, entities } = useValues(logic)
+    const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty } = useActions(logic)
     const { eventProperties } = useValues(userLogic)
     const [entityFilterVisible, setEntityFilterVisible] = useState(false)
 
@@ -38,18 +37,18 @@ export function ActionFilterRow({ filter, index, typeKey }) {
         updateFilterMath({ math, value: filter.id, type: filter.type, index: index })
     }
 
-    dropDownCondition = () => selectedFilter && selectedFilter.type == filter.type && selectedFilter.index == index
+    dropDownCondition = () => selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index
 
     onClick = () => {
-        if (selectedFilter && selectedFilter.type == filter.type && selectedFilter.index == index) selectFilter(null)
+        if (selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index) selectFilter(null)
         else selectFilter({ filter, type: filter.type, index })
     }
 
-    if (filter.type == EntityTypes.NEW) {
+    if (filter.type === EntityTypes.NEW) {
         name = null
         value = null
     } else {
-        entity = entities[filter.type].filter(action => action.id == filter.id)[0] || {}
+        entity = entities[filter.type].filter(action => action.id === filter.id)[0] || {}
         name = entity.name || filter.name
         value = entity.id || filter.id
     }
@@ -60,7 +59,6 @@ export function ActionFilterRow({ filter, index, typeKey }) {
                 className="filter-action"
                 type="button"
                 onClick={onClick}
-                type="button"
                 style={{
                     border: 0,
                     padding: 0,
@@ -103,7 +101,7 @@ export function ActionFilterRow({ filter, index, typeKey }) {
                         }
                         selectFilter(null)
                     }}
-                ></ActionFilterDropdown>
+                />
             )}
         </div>
     )
