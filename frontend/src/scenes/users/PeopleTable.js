@@ -17,15 +17,17 @@ export function PeopleTable({ people, loading, actions, onChange }) {
                 </Link>
             ),
         },
-        actions && {
+    ]
+    if (actions)
+        columns.append({
             title: 'Actions',
             render: person => (
                 <Button danger type="link" onClick={() => deletePersonData(person, onChange)}>
                     <DeleteOutlined />
                 </Button>
             ),
-        },
-    ]
+        })
+
     return (
         <Table
             size="small"
