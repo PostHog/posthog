@@ -5,17 +5,24 @@ import api from 'lib/api'
 
 const POLL_TIMEOUT = 5000
 
-// props: fixedFilters
+// props:
+// - fixedFilters
+// - apiUrl = 'api/event/'
+// - live = false
 export const eventsTableLogic = kea({
     // Set a unique key based on the fixed filters.
     // This way if we move back/forward between /events and /person/ID, the logic is reloaded.
-    key: props => (props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all'),
+    key: props =>
+        (props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all') +
+        '-' +
+        (props.apiUrl || 'events') +
+        (props.live ? '-live' : ''),
 
     actions: () => ({
         setProperties: properties => ({ properties }),
         updateProperty: (key, value) => ({ key, value }),
         fetchEvents: (nextParams = null) => ({ nextParams }),
-        fetchEventsSuccess: (events, hasNext, isNext) => ({ events, hasNext, isNext }),
+        fetchEventsSuccess: (events, hasNext = false, isNext = false) => ({ events, hasNext, isNext }),
         fetchNextEvents: true,
         flipSort: true,
         pollEvents: true,
@@ -165,7 +172,7 @@ export const eventsTableLogic = kea({
                 orderBy: [values.orderBy],
             })
 
-            const events = await api.get('api/event/?' + urlParams)
+            const events = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
             breakpoint()
             actions.fetchEventsSuccess(events.results, events.next, !!nextParams)
 
@@ -189,10 +196,14 @@ export const eventsTableLogic = kea({
                 params.after = event.timestamp || event.event.timestamp
             }
 
-            const events = await api.get('api/event/?' + toParams(params))
+            const events = await api.get(`${props.apiUrl || 'api/event/'}?${toParams(params)}`)
             breakpoint()
 
-            actions.pollEventsSuccess(events.results)
+            if (props.live) {
+                actions.prependNewEvents(events.results)
+            } else {
+                actions.pollEventsSuccess(events.results)
+            }
 
             actions.setPollTimeout(setTimeout(actions.pollEvents, POLL_TIMEOUT))
         },
