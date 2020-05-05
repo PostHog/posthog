@@ -3,7 +3,7 @@ import 'react-datepicker/dist/react-datepicker.css'
 
 import React from 'react'
 import { useValues } from 'kea'
-import { Layout } from 'antd'
+import { Layout, Spin } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
 import Sidebar from '~/layout/Sidebar'
@@ -17,7 +17,13 @@ export default function App() {
     const { user } = useValues(userLogic)
     const { scene, params } = useValues(sceneLogic)
 
-    const Scene = loadedScenes[scene]?.component || (() => <div>Loading...</div>)
+    const Scene =
+        loadedScenes[scene]?.component ||
+        (() => (
+            <div>
+                <Spin />
+            </div>
+        ))
 
     if (!user) {
         return null

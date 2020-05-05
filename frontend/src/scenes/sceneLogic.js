@@ -1,5 +1,6 @@
 import React from 'react'
 import { kea } from 'kea'
+import { router } from 'kea-router'
 
 export const loadedScenes = {
     '404': { component: () => <div>404</div> },
@@ -7,7 +8,6 @@ export const loadedScenes = {
 const delay = ms => new Promise(resolve => window.setTimeout(resolve, ms))
 
 export const scenes = {
-    root: () => <div></div>,
     dashboard: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
     events: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     person: () => import(/* webpackChunkName: 'person' */ './users/Person'),
@@ -22,6 +22,10 @@ export const scenes = {
     trends: () => import(/* webpackChunkName: 'trends' */ './trends/Trends'),
     paths: () => import(/* webpackChunkName: 'paths' */ './paths/Paths'),
     cohorts: () => import(/* webpackChunkName: 'cohorts' */ './users/Cohorts'),
+}
+
+export const redirects = {
+    '/': '/trends',
 }
 
 export const routes = {
@@ -71,6 +75,14 @@ export const sceneLogic = kea({
     }),
     urlToAction: ({ actions }) => {
         const mapping = {}
+
+        for (const [paths, redirect] of Object.entries(redirects)) {
+            for (const path of paths.split('|')) {
+                mapping[path] = params =>
+                    router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
+            }
+        }
+
         for (const [paths, scene] of Object.entries(routes)) {
             for (const path of paths.split('|')) {
                 mapping[path] = params => actions.loadScene(scene, params)
