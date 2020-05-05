@@ -727,3 +727,32 @@ class TestTrends(BaseTest):
 
         self.assertEqual(sum(event_response[3]['data']), 7)
         self.assertEqual(event_response[3]['breakdown_value'], 'all users')
+
+        people = self.client.get(
+            '/api/action/people/',
+            data={
+                'date_from': '2020-01-01',
+                'date_to': '2020-01-07',
+                'type': 'events',
+                'entityId': 'watched movie',
+                'breakdown_type': 'cohort',
+                'breakdown_value': cohort.pk,
+            },
+        ).json()
+        self.assertEqual(len(people[0]['people']), 1)
+        self.assertEqual(people[0]['people'][0]['id'], person1.pk)
+
+        # all people
+        people = self.client.get(
+            '/api/action/people/',
+            data={
+                'date_from': '2020-01-01',
+                'date_to': '2020-01-07',
+                'type': 'events',
+                'entityId': 'watched movie',
+                'breakdown_type': 'cohort',
+                'breakdown_value': 'all users',
+            },
+        ).json()
+        self.assertEqual(len(people[0]['people']), 4)
+        self.assertEqual(people[0]['people'][0]['id'], person1.pk)

@@ -443,6 +443,8 @@ class ActionViewSet(viewsets.ModelViewSet):
             people = Person.objects\
                 .filter(team=team, id__in=[p['person_id'] for p in events[0:100]])
 
+            if request.GET.get('breakdown_type') == 'cohort' and request.GET.get('breakdown_value') != 'all users':
+                people = people.filter(Cohort.objects.get(team=team, pk=request.GET['breakdown_value']).people_filter())
             return self._serialize_people(
                 people=people,
                 request=request

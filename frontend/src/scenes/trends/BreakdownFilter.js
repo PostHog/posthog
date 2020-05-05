@@ -9,12 +9,10 @@ const { TabPane } = Tabs
 
 function PropertyFilter({ breakdown, onChange }) {
     const { eventProperties } = useValues(userLogic)
-    const { search } = useState()
     return (
         <Select
             showSearch
             autoFocus
-            defaultOpen={true}
             style={{ width: '100%' }}
             placeholder={'Break down by'}
             value={breakdown ? breakdown : undefined}
@@ -34,11 +32,10 @@ function PropertyFilter({ breakdown, onChange }) {
 }
 
 function CohortFilter({ breakdown, onChange }) {
-    const { cohorts, cohortsLoading } = useValues(cohortsModel)
+    const { cohorts } = useValues(cohortsModel)
     return (
         <Select
             autoFocus
-            defaultOpen={true}
             mode="multiple"
             style={{ width: '100%' }}
             placeholder={'Break down by'}

@@ -165,6 +165,7 @@ export const trendsLogic = kea({
                 ...values.filters,
                 entityId: action.id,
                 type: action.type,
+                breakdown_value,
             })
 
             if (values.filters.shown_as === 'Stickiness') {
@@ -173,7 +174,7 @@ export const trendsLogic = kea({
                 params.date_from = day
                 params.date_to = day
             }
-            if (breakdown_value) {
+            if (breakdown_value && values.filters.breakdown_type != 'cohort') {
                 params.properties = { ...params.properties, [params.breakdown]: breakdown_value }
             }
 
