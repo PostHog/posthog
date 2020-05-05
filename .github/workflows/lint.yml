@@ -1,12 +1,23 @@
-name: Lint
+name: Run ESLint on Pull Requests
 
-on: pull_request
+on:
+  - pull_request
 
 jobs:
-  eslint:
+  build:
+    name: Run ESLint
     runs-on: ubuntu-latest
     steps:
+      # Check out the repository
       - uses: actions/checkout@v1
-      - uses: hallee/eslint-action@master
+
+      # Install Node.js
+      - uses: actions/setup-node@v1
         with:
-          repo-token: ${{secrets.GITHUB_TOKEN}}
+          node-version: 12
+
+      # Install your dependencies
+      - run: npm ci
+
+      # Run ESLint
+      - uses: eslint/github-action@v0
