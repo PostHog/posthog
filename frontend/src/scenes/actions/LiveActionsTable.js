@@ -8,9 +8,9 @@ import { Link } from 'lib/components/Link'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { FilterLink } from 'lib/components/FilterLink'
 
-import { EventDetails } from '../events/EventDetails'
+import { EventDetails } from 'scenes/events/EventDetails'
 
-export class ActionEventsTable extends Component {
+export class LiveActionsTable extends Component {
     constructor(props) {
         super(props)
 
@@ -151,6 +151,6 @@ export class ActionEventsTable extends Component {
         )
     }
 }
-ActionEventsTable.propTypes = {
+LiveActionsTable.propTypes = {
     fixedFilters: PropTypes.object,
 }

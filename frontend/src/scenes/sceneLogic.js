@@ -14,10 +14,10 @@ export const scenes = {
     people: () => import(/* webpackChunkName: 'people' */ './users/People'),
     actions: () => import(/* webpackChunkName: 'actions' */ './actions/Actions'),
     action: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
+    liveActions: () => import(/* webpackChunkName: 'liveActions' */ './actions/LiveActions'),
     funnel: () => import(/* webpackChunkName: 'funnel' */ './funnels/Funnel'),
     editFunnel: () => import(/* webpackChunkName: 'editFunnel' */ './funnels/EditFunnel'),
     funnels: () => import(/* webpackChunkName: 'funnels' */ './funnels/Funnels'),
-    actionEvents: () => import(/* webpackChunkName: 'actionEvents' */ './actions/ActionEvents'),
     setup: () => import(/* webpackChunkName: 'setup' */ './setup/Setup'),
     trends: () => import(/* webpackChunkName: 'trends' */ './trends/Trends'),
     paths: () => import(/* webpackChunkName: 'paths' */ './paths/Paths'),
@@ -30,9 +30,11 @@ export const redirects = {
 
 export const routes = {
     '/dashboard': 'dashboard',
+    '/action/:id': 'action',
+    '/action': 'action',
+    '/actions/live': 'liveActions',
     '/actions': 'actions',
     '/trends': 'trends',
-    '/actions/live': 'actionEvents',
     '/funnel': 'funnels',
     '/paths': 'paths',
     '/setup': 'setup',
@@ -41,8 +43,6 @@ export const routes = {
     '/person/:distinctId': 'person',
     '/people': 'people',
     '/people/cohorts': 'cohorts',
-    '/action/:id': 'action',
-    '/action': 'action',
     '/new-funnel': 'editFunnel',
     '/funnel/:id': 'funnel',
 }
