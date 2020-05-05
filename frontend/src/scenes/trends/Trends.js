@@ -44,7 +44,7 @@ export function Trends() {
                     <Card>
                         <div className="card-body px-4">
                             <Tabs
-                                defaultActiveKey={activeView}
+                                activeKey={activeView}
                                 style={{
                                     overflow: 'visible',
                                 }}
@@ -60,13 +60,7 @@ export function Trends() {
                                     />
                                     <hr />
                                     <h4 className="secondary">Filters</h4>
-                                    <PropertyFilters
-                                        pageKey="trends-filters"
-                                        properties={eventProperties}
-                                        propertyFilters={filters.properties}
-                                        onChange={properties => setFilters({ properties })}
-                                        style={{ marginBottom: 0 }}
-                                    />
+                                    <PropertyFilters pageKey="trends-filters" style={{ marginBottom: 0 }} />
                                     <hr />
                                     <h4 className="secondary">
                                         Break down by
@@ -112,13 +106,7 @@ export function Trends() {
                                     <SessionFilter value={filters.session} onChange={v => setFilters({ session: v })} />
                                     <hr />
                                     <h4 className="secondary">Filters</h4>
-                                    <PropertyFilters
-                                        pageKey="trends-sessions"
-                                        properties={eventProperties}
-                                        propertyFilters={filters.properties}
-                                        onChange={properties => setFilters({ properties })}
-                                        style={{ marginBottom: 0 }}
-                                    />
+                                    <PropertyFilters pageKey="trends-sessions" style={{ marginBottom: 0 }} />
                                 </TabPane>
                             </Tabs>
                         </div>
@@ -129,11 +117,7 @@ export function Trends() {
                         title={
                             <div className="float-right pt-1 pb-1">
                                 <IntervalFilter setFilters={setFilters} filters={filters} disabled={filters.session} />
-                                <ChartFilter
-                                    displayMap={displayMap}
-                                    filters={filters}
-                                    onChange={setDisplay}
-                                ></ChartFilter>
+                                <ChartFilter displayMap={displayMap} filters={filters} onChange={setDisplay} />
                                 <DateFilter
                                     onChange={(date_from, date_to) =>
                                         setFilters({
@@ -157,11 +141,11 @@ export function Trends() {
                                     }}
                                 >
                                     {resultsLoading && <Loading />}
-                                    {(!filters.display || filters.display == 'ActionsLineGraph') && (
+                                    {(!filters.display || filters.display === 'ActionsLineGraph') && (
                                         <ActionsLineGraph />
                                     )}
-                                    {filters.display == 'ActionsTable' && <ActionsTable filters={filters} />}
-                                    {filters.display == 'ActionsPie' && <ActionsPie filters={filters} />}
+                                    {filters.display === 'ActionsTable' && <ActionsTable filters={filters} />}
+                                    {filters.display === 'ActionsPie' && <ActionsPie filters={filters} />}
                                 </div>
                             )}
                         </div>
