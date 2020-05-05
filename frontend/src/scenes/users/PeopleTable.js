@@ -17,16 +17,18 @@ export function PeopleTable({ people, loading, actions, onChange }) {
                 </Link>
             ),
         },
-        actions && {
+    ]
+    if (actions)
+        columns.append({
             title: 'Actions',
             render: person => (
                 <Button danger type="link" onClick={() => deletePersonData(person, onChange)}>
                     <DeleteOutlined />
                 </Button>
             ),
-        },
-    ]
-    return (
+        })
+
+    return people ? (
         <Table
             size="small"
             columns={columns}
@@ -39,5 +41,5 @@ export function PeopleTable({ people, loading, actions, onChange }) {
             }}
             dataSource={people}
         />
-    )
+    ) : null
 }
