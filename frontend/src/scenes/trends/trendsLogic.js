@@ -83,24 +83,29 @@ function filtersFromParams() {
     filters.interval = autocorrectInterval(filters)
     filters.actions = filters.actions && JSON.parse(filters.actions)
     filters.actions = Array.isArray(filters.actions) ? filters.actions : undefined
+    if (filters.actions) {
+        filters.actions = filters.actions.map((action, index) => ({ ...action, order: index }))
+    }
     filters.events = filters.events && JSON.parse(filters.events)
     filters.events = Array.isArray(filters.events) ? filters.events : []
     filters.properties = filters.properties ? JSON.parse(filters.properties) : {}
     return cleanFilters(filters)
 }
 
+// props:
+// - dashboardItemId
+// - filters
 export const trendsLogic = kea({
     key: props => props.dashboardItemId || 'all_trends',
 
     connect: {
         values: [userLogic, ['eventNames'], actionsModel, ['actions']],
-        actions: [actionsModel, ['loadActionsSuccess']],
     },
 
     loaders: ({ values }) => ({
         results: {
             loadResults: async () => {
-                if (values.filters.session) {
+                if (values.activeView === ViewType.SESSIONS) {
                     return await api.get('api/event/sessions/?' + toParams(filterClientSideParams(values.filters)))
                 }
                 return await api.get('api/action/trends/?' + toParams(filterClientSideParams(values.filters)))
@@ -109,20 +114,19 @@ export const trendsLogic = kea({
     }),
 
     actions: () => ({
-        setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
+        setFilters: (filters, mergeFilters = true, fromUrl = false) => ({ filters, mergeFilters, fromUrl }),
         setDisplay: display => ({ display }),
 
         loadPeople: (action, day, breakdown_value) => ({ action, day, breakdown_value }),
         setShowingPeople: isShowing => ({ isShowing }),
         setPeople: (people, count, action, day, breakdown_value) => ({ people, count, action, day, breakdown_value }),
         setActiveView: type => ({ type }),
-        initialView: type => ({ type }),
-        setCachedUrl: url => ({ url }),
+        setCachedUrl: (type, url) => ({ type, url }),
     }),
 
-    reducers: ({ actions }) => ({
+    reducers: ({ actions, props }) => ({
         filters: [
-            {},
+            props.dashboardItemId ? props.filters : filtersFromParams(),
             {
                 [actions.setFilters]: (state, { filters, mergeFilters }) => {
                     return cleanFilters({
@@ -139,42 +143,36 @@ export const trendsLogic = kea({
                 [actions.setPeople]: (_, people) => people,
             },
         ],
-        activeView: [
-            ViewType.FILTERS,
+        cachedUrls: [
+            {},
             {
-                [actions.setActiveView]: (_, { type }) => type,
-                [actions.initialView]: (_, { type }) => type,
-            },
-        ],
-        cachedUrl: [
-            null,
-            {
-                [actions.setCachedUrl]: (_, { url }) => url,
+                [actions.setCachedUrl]: (state, { type, url }) => ({ ...state, [type]: url }),
             },
         ],
         showingPeople: [
             false,
             {
+                [actions.loadPeople]: () => true,
                 [actions.setShowingPeople]: (_, { isShowing }) => isShowing,
             },
         ],
     }),
 
     selectors: ({ selectors }) => ({
+        activeView: [() => [selectors.filters], filters => (filters.session ? ViewType.SESSIONS : ViewType.FILTERS)],
         peopleAction: [
             () => [selectors.filters, selectors.actions],
             (filters, actions) =>
                 filters.people_action ? actions.find(a => a.id === parseInt(filters.people_action)) : null,
         ],
-        peopleDay: [() => [selectors.filters], (filters, actions) => filters.people_day],
+        peopleDay: [() => [selectors.filters], filters => filters.people_day],
     }),
 
-    listeners: ({ actions, values, props }) => ({
+    listeners: ({ actions, values }) => ({
         [actions.setDisplay]: async ({ display }) => {
             actions.setFilters({ display })
         },
         [actions.loadPeople]: async ({ action, day, breakdown_value }, breakpoint) => {
-            actions.setShowingPeople(true)
             const params = filterClientSideParams({
                 ...values.filters,
                 entityId: action.id,
@@ -200,44 +198,40 @@ export const trendsLogic = kea({
     }),
 
     actionToUrl: ({ actions, values, props }) => ({
-        [actions.setFilters]: () => {
-            if (!props.dashboardItemId) {
-                return `/trends?${toParams(values.filters)}`
+        [actions.setFilters]: ({ fromUrl }) => {
+            if (props.dashboardItemId) {
+                return // don't use the URL if on the dashboard
+            }
+            if (!fromUrl) {
+                const oldFilters = filtersFromParams()
+
+                if (toParams(oldFilters) !== toParams(values.filters)) {
+                    return `/trends?${toParams(values.filters)}`
+                }
             }
         },
         [actions.setActiveView]: ({ type }) => {
-            let cachedUrl = values.cachedUrl
-            actions.setCachedUrl(window.location.pathname + window.location.search)
+            if (props.dashboardItemId) {
+                return // don't use the URL if on the dashboard
+            }
+            actions.setCachedUrl(values.activeView, window.location.pathname + window.location.search)
+            const cachedUrl = values.cachedUrls[type]
             if (cachedUrl) {
                 return cachedUrl
-            } else {
-                return type === ViewType.SESSIONS ? `/trends?${toParams({ session: 'avg' })}` : `/trends`
             }
+            return type === ViewType.SESSIONS ? `/trends?${toParams({ session: 'avg' })}` : `/trends`
         },
     }),
 
     urlToAction: ({ actions, values, props }) => ({
         '/trends': () => {
-            if (!props.dashboardItemId) {
-                const newFilters = filtersFromParams()
-                if (toParams(newFilters) !== toParams(values.filters)) {
-                    actions.setFilters(newFilters, false)
-                }
+            if (props.dashboardItemId) {
+                return // don't use the URL if on the dashboard
             }
-        },
-    }),
 
-    events: ({ actions, props }) => ({
-        afterMount: () => {
-            let filters = filtersFromParams()
-            if (filters.session) {
-                actions.initialView(ViewType.SESSIONS)
-                actions.setFilters(filters, false)
-            } else if (props.dashboardItemId) {
-                // on dashboard
-                actions.setFilters(props.filters, false)
-            } else {
-                actions.setFilters(filters, false)
+            const newFilters = filtersFromParams()
+            if (toParams(newFilters) !== toParams(values.filters)) {
+                actions.setFilters(newFilters, false, true)
             }
         },
     }),
