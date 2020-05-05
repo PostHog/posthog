@@ -98,9 +98,18 @@ export const propertyFilterLogic = kea({
                 return
             }
 
+            let filters
+            try {
+                filters = values.filters
+            } catch (error) {
+                // since this is a catch-all route, this code might run during or after the logic was unmounted
+                // if we have an error accessing the filter value, the logic is gone and we should return
+                return
+            }
+
             const urlFilters = fromParams()
 
-            if (urlFilters.properties !== JSON.stringify(values.filters)) {
+            if (urlFilters.properties !== JSON.stringify(filters)) {
                 const newFilters = urlFilters.properties ? JSON.parse(urlFilters.properties) : {}
                 const mappedFilters = Object.entries(newFilters).map(([key, value]) => ({ [key]: value }))
                 actions.setFilters([...mappedFilters, {}])

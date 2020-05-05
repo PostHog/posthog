@@ -33,6 +33,9 @@ export const eventsTableLogic = kea({
     }),
 
     reducers: () => ({
+        // save the pathname that was used when this logic was mounted
+        // we use it to NOT update the filters when the user moves away from this path, yet the scene is still active
+        initialPathname: [state => router.selectors.location(state).pathname, { noop: a => a }],
         properties: [
             {},
             {
@@ -135,6 +138,17 @@ export const eventsTableLogic = kea({
 
     urlToAction: ({ actions, values }) => ({
         '*': () => {
+            try {
+                // if the url changed, but we are not anymore on the page we were at when the logic was mounted
+                if (router.values.location.pathname !== values.initialPathname) {
+                    return
+                }
+            } catch (error) {
+                // since this is a catch-all route, this code might run during or after the logic was unmounted
+                // if we have an error accessing the filter value, the logic is gone and we should return
+                return
+            }
+
             const { urlParams } = values
             const newFilters = fromParams()
             const newUrlParams = addUrlQuestion(toParams(newFilters))
