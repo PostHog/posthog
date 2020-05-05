@@ -1,12 +1,12 @@
 import React, { Component } from 'react'
 import api from 'lib/api'
 import { Link } from 'lib/components/Link'
-import { toParams, DeleteWithUndo } from 'lib/utils'
+import { toParams, DeleteWithUndo, addUrlQuestion } from 'lib/utils'
 import { FunnelViz } from '../funnels/FunnelViz'
 import { ActionsLineGraph } from '../trends/ActionsLineGraph'
 import { ActionsTable } from '../trends/ActionsTable'
 import { ActionsPie } from '../trends/ActionsPie'
-import { Dropdown } from '../../lib/components/Dropdown'
+import { Dropdown } from 'lib/components/Dropdown'
 
 export class Dashboard extends Component {
     constructor(props) {
@@ -24,28 +24,19 @@ export class Dashboard extends Component {
         let typeMap = {
             ActionsLineGraph: {
                 element: ActionsLineGraph,
-                link: filters => ({
-                    pathname: '/trends',
-                    search: toParams(filters),
-                }),
+                link: filters => `/trends${addUrlQuestion(toParams(filters))}`,
             },
             ActionsTable: {
                 element: ActionsTable,
-                link: filters => ({
-                    pathname: '/trends',
-                    search: toParams(filters),
-                }),
+                link: filters => `/trends${addUrlQuestion(toParams(filters))}`,
             },
             ActionsPie: {
                 element: ActionsPie,
-                link: filters => ({
-                    pathname: '/trends',
-                    search: toParams(filters),
-                }),
+                link: filters => `/trends${addUrlQuestion(toParams(filters))}`,
             },
             FunnelViz: {
                 element: FunnelViz,
-                link: filters => '/funnel/' + filters.funnel_id,
+                link: filters => `/funnel/${filters.funnel_id}`,
             },
         }
 
