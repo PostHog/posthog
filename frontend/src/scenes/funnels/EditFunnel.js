@@ -1,7 +1,7 @@
 import React from 'react'
 import { Card } from 'lib/utils'
 import { Link } from 'lib/components/Link'
-import { actionsModel } from '../../models/actionsModel'
+import { actionsModel } from '~/models/actionsModel'
 import { useValues, useActions } from 'kea'
 import { funnelLogic } from './funnelLogic'
 import { ActionFilter } from 'scenes/trends/ActionFilter/ActionFilter'
@@ -9,17 +9,21 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Button } from 'antd'
 import { userLogic } from 'scenes/userLogic'
 
-export function EditFunnel({ funnelId, onChange }) {
+export function EditFunnel({ funnelId }) {
     const { funnel, isStepsEmpty } = useValues(funnelLogic({ id: funnelId }))
     const { setFunnel, updateFunnel, createFunnel } = useActions(funnelLogic({ id: funnelId }))
     const { actions, actionsLoading } = useValues(actionsModel())
     const { eventProperties } = useValues(userLogic)
+
     return (
         <form
             onSubmit={e => {
                 e.preventDefault()
-                if (!funnel.id) return createFunnel(funnel)
-                updateFunnel(funnel)
+                if (!funnel.id) {
+                    createFunnel(funnel)
+                } else {
+                    updateFunnel(funnel)
+                }
             }}
         >
             <Card>
@@ -40,9 +44,9 @@ export function EditFunnel({ funnelId, onChange }) {
                     )}
                     <br />
                     <ActionFilter
-                        filters={funnel ? funnel.filters : {}}
+                        filters={funnel.filters}
                         setFilters={filters => setFunnel({ filters }, false)}
-                        typeKey="edit-funnel"
+                        typeKey="EditFunnel"
                     />
                     <br />
                     <hr />

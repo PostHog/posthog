@@ -3,21 +3,27 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 
 export const funnelLogic = kea({
+    key: props => props.id || 'new',
+
     actions: () => ({
         setFunnel: (funnel, update) => ({ funnel, update }),
     }),
-    loaders: ({ props, values }) => ({
-        funnel: {
-            loadFunnel: async (id = props.id) => {
-                return await api.get('api/funnel/' + id + '/?exclude_count=1')
+
+    loaders: ({ props }) => ({
+        funnel: [
+            { filters: {} },
+            {
+                loadFunnel: async (id = props.id) => {
+                    return await api.get('api/funnel/' + id + '/?exclude_count=1')
+                },
+                updateFunnel: async funnel => {
+                    return await api.update('api/funnel/' + funnel.id, funnel)
+                },
+                createFunnel: async funnel => {
+                    return await api.create('api/funnel', funnel)
+                },
             },
-            updateFunnel: async funnel => {
-                return await api.update('api/funnel/' + funnel.id, funnel)
-            },
-            createFunnel: async funnel => {
-                return await api.create('api/funnel', funnel)
-            },
-        },
+        ],
         stepsWithCount: {
             loadStepsWithCount: async (id = props.id) => {
                 return (await api.get('api/funnel/' + id)).steps
@@ -29,20 +35,17 @@ export const funnelLogic = kea({
             },
         },
     }),
-    reducers: ({ actions }) => ({
-        funnel: [
-            {},
-            {
-                [actions.setFunnel]: (state, { funnel }) => ({
-                    ...state,
-                    ...funnel,
-                    filters: { ...state.filters, ...funnel.filters },
-                }),
-                [actions.loadFunnelSuccess]: (state, { funnel }) => funnel,
-                [actions.createFunnelSuccess]: (state, { funnel }) => funnel,
-            },
-        ],
+
+    reducers: () => ({
+        funnel: {
+            setFunnel: (state, { funnel }) => ({
+                ...state,
+                ...funnel,
+                filters: { ...state.filters, ...funnel.filters },
+            }),
+        },
     }),
+
     selectors: ({ selectors }) => ({
         peopleSorted: [
             () => [selectors.stepsWithCount, selectors.people],
@@ -61,30 +64,33 @@ export const funnelLogic = kea({
             },
         ],
     }),
+
     listeners: ({ actions, values }) => ({
-        [actions.loadStepsWithCountSuccess]: async () => {
+        loadStepsWithCountSuccess: async () => {
             actions.loadPeople(values.stepsWithCount)
         },
-        [actions.setFunnel]: ({ update }) => {
+        setFunnel: ({ update }) => {
             if (update) actions.updateFunnel(values.funnel)
         },
-        [actions.updateFunnelSuccess]: async ({ funnel }) => {
+        updateFunnelSuccess: async ({ funnel }) => {
             actions.loadStepsWithCount(funnel.id)
             toast('Funnel saved!')
         },
-        [actions.createFunnelSuccess]: ({ funnel }) => {
+        createFunnelSuccess: ({ funnel }) => {
             actions.loadStepsWithCount(funnel.id)
             toast('Funnel saved!')
         },
     }),
 
-    actionToUrl: ({ actions }) => ({
-        [actions.createFunnelSuccess]: ({ funnel }) => '/funnel/' + funnel.id,
+    actionToUrl: () => ({
+        createFunnelSuccess: ({ funnel }) => `/funnel/${funnel.id}`,
     }),
 
-    events: ({ actions, props }) => ({
+    events: ({ actions, key }) => ({
         afterMount: () => {
-            if (!props.id) return actions.loadFunnelSuccess({ filters: {} })
+            if (key === 'new') {
+                return
+            }
             actions.loadFunnel()
             actions.loadStepsWithCount()
         },

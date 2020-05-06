@@ -38,6 +38,8 @@ export const routes = {
     '/actions': 'actions',
     '/trends': 'trends',
     '/funnel': 'funnels',
+    '/funnel/new': 'editFunnel',
+    '/funnel/:id': 'funnel',
     '/paths': 'paths',
     '/setup': 'setup',
     '/events': 'events',
@@ -45,8 +47,6 @@ export const routes = {
     '/person/:distinctId': 'person',
     '/people': 'people',
     '/people/cohorts': 'cohorts',
-    '/new-funnel': 'editFunnel',
-    '/funnel/:id': 'funnel',
 }
 
 export const sceneLogic = kea({

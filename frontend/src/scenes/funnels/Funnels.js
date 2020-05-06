@@ -19,7 +19,7 @@ export class Funnels extends Component {
     render() {
         return (
             <div>
-                <Link to={'/new-funnel'} className="btn btn-outline-success float-right">
+                <Link to="/funnel/new" className="btn btn-outline-success float-right">
                     <i className="fi flaticon-add" />
                     &nbsp;&nbsp;New funnel
                 </Link>
@@ -43,7 +43,7 @@ export class Funnels extends Component {
                             <tr>
                                 <td colSpan="6">
                                     You haven't created any funnels yet.{' '}
-                                    <Link to="/new-funnel">Click here to create one!</Link>
+                                    <Link to="/funnel/new">Click here to create one!</Link>
                                 </td>
                             </tr>
                         )}
@@ -51,10 +51,10 @@ export class Funnels extends Component {
                             this.state.funnels.map(funnel => (
                                 <tr key={funnel.id}>
                                     <td>
-                                        <Link to={'/funnel/' + funnel.id}>{funnel.name}</Link>
+                                        <Link to={`/funnel/${funnel.id}`}>{funnel.name}</Link>
                                     </td>
                                     <td style={{ fontSize: 16 }}>
-                                        <Link to={'/funnel/' + funnel.id}>
+                                        <Link to={`/funnel/${funnel.id}`}>
                                             <i className="fi flaticon-edit" />
                                         </Link>
                                         <DeleteWithUndo
