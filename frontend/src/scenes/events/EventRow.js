@@ -11,7 +11,15 @@ const eventNameMap = event => {
     return event.event
 }
 
-export function EventRow({ event, highlightEvents, selectedEvent, properties, setSelectedEvent, filtersEnabled }) {
+export function EventRow({
+    event,
+    highlightEvents,
+    selectedEvent,
+    properties,
+    search,
+    setSelectedEvent,
+    filtersEnabled,
+}) {
     let params = ['$current_url', '$lib']
     return (
         <tr
@@ -26,7 +34,11 @@ export function EventRow({ event, highlightEvents, selectedEvent, properties, se
                 {event.elements.length > 0 && event.elements[0].text && ' with text "' + event.elements[0].text + '"'}
             </td>
             <td>
-                <Link to={'/person/' + encodeURIComponent(event.distinct_id)} className="ph-no-capture">
+                <Link
+                    to={`/person/${encodeURIComponent(event.distinct_id)}${search}`}
+                    searchParams={{ properties }}
+                    className="ph-no-capture"
+                >
                     {event.person}
                 </Link>
             </td>

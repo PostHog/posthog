@@ -10,6 +10,7 @@ import { EventRow } from 'scenes/events/EventRow'
 import { NoItems } from 'scenes/events/NoItems'
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { Spin } from 'antd'
+import { router } from 'kea-router'
 
 export function EventsTable({ fixedFilters, filtersEnabled = true }) {
     const logic = eventsTableLogic({ fixedFilters })
@@ -24,6 +25,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
         highlightEvents,
     } = useValues(logic)
     const { updateProperty, setSelectedEvent, fetchNextEvents, flipSort, prependNewEvents } = useActions(logic)
+    const {
+        location: { search },
+    } = useValues(router)
 
     return (
         <div className="events">
@@ -68,6 +72,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
                                 )}
                                 <EventRow
                                     event={event}
+                                    search={search}
                                     highlightEvents={highlightEvents}
                                     selectedEvent={selectedEvent}
                                     properties={properties}
