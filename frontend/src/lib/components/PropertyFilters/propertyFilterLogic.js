@@ -93,7 +93,7 @@ export const propertyFilterLogic = kea({
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        '*': () => {
+        '*': (_, { properties }) => {
             if (props.onChange) {
                 return
             }
@@ -107,11 +107,8 @@ export const propertyFilterLogic = kea({
                 return
             }
 
-            const urlFilters = fromParams()
-
-            if (urlFilters.properties !== JSON.stringify(filters)) {
-                const newFilters = urlFilters.properties ? JSON.parse(urlFilters.properties) : {}
-                const mappedFilters = Object.entries(newFilters).map(([key, value]) => ({ [key]: value }))
+            if (JSON.stringify(properties || {}) !== JSON.stringify(filters)) {
+                const mappedFilters = Object.entries(properties || {}).map(([key, value]) => ({ [key]: value }))
                 actions.setFilters([...mappedFilters, {}])
             }
         },
