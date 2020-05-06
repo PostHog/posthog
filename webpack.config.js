@@ -3,6 +3,7 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 
 module.exports = {
     mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
+    devtool: process.env.NODE_ENV === 'production' ? 'source-map' : 'inline-source-map',
     entry: {
         main: './frontend/src/index.js',
         editor: './frontend/src/editor/index.js',
