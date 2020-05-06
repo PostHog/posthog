@@ -194,3 +194,5 @@ export const deletePersonData = (person, callback) => {
             if (callback) callback()
         })
 }
+
+export const objectsEqual = (obj1, obj2) => JSON.stringify(obj1) === JSON.stringify(obj2)

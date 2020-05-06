@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { toParams as toAPIParams } from 'lib/utils'
+import { objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
@@ -213,7 +213,7 @@ export const trendsLogic = kea({
                 return // don't use the URL if on the dashboard
             }
 
-            if (JSON.stringify(cleanFilters(searchParams)) !== JSON.stringify(values.filters)) {
+            if (!objectsEqual(cleanFilters(searchParams), values.filters)) {
                 actions.setFilters(cleanFilters(searchParams), false, true)
             }
         },

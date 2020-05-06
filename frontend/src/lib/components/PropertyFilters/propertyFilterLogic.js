@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from '../../../lib/api'
 import { userLogic } from 'scenes/userLogic'
-import { addUrlQuestion, fromParams, toParams } from 'lib/utils'
+import { addUrlQuestion, fromParams, objectsEqual, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 
 export const propertyFilterLogic = kea({
@@ -107,7 +107,7 @@ export const propertyFilterLogic = kea({
                 return
             }
 
-            if (JSON.stringify(properties || {}) !== JSON.stringify(filters)) {
+            if (!objectsEqual(properties || {}, filters)) {
                 const mappedFilters = Object.entries(properties || {}).map(([key, value]) => ({ [key]: value }))
                 actions.setFilters([...mappedFilters, {}])
             }

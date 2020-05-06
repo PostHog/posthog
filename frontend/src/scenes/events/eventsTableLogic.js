@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { toParams } from 'lib/utils'
+import { objectsEqual, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 
@@ -149,7 +149,7 @@ export const eventsTableLogic = kea({
                 return
             }
 
-            if (JSON.stringify(searchParams.properties || {}) !== JSON.stringify(values.properties)) {
+            if (!objectsEqual(searchParams.properties || {}, values.properties)) {
                 actions.setProperties(searchParams.properties || {})
             }
         },
