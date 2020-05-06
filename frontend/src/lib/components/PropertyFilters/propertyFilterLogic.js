@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from '../../../lib/api'
 import { userLogic } from 'scenes/userLogic'
-import { addUrlQuestion, fromParams, objectsEqual, toParams } from 'lib/utils'
+import { objectsEqual } from 'lib/utils'
 import { router } from 'kea-router'
 
 export const propertyFilterLogic = kea({
@@ -79,14 +79,15 @@ export const propertyFilterLogic = kea({
                 props.onChange(dict)
             } else {
                 const { filters } = values
-                const { properties: _, ...urlParams } = fromParams()
+                const { properties: _, ...searchParams } = router.values.searchParams
+                const { pathname } = router.values.location
+
                 if (filters.filter(f => Object.keys(f).length > 0).length > 0) {
-                    urlParams.properties = filters.reduce((result, item) => ({ ...result, ...item }))
+                    searchParams.properties = filters.reduce((result, item) => ({ ...result, ...item }))
                 }
-                const newUrl = addUrlQuestion(toParams(urlParams))
-                const { search, pathname } = router.values.location
-                if (search !== newUrl) {
-                    router.actions.push(`${pathname}${newUrl}`)
+
+                if (!objectsEqual(router.values.searchParams, searchParams)) {
+                    router.actions.push(pathname, searchParams)
                 }
             }
         },
@@ -114,7 +115,7 @@ export const propertyFilterLogic = kea({
         },
     }),
 
-    events: ({ actions, props, values }) => ({
+    events: ({ actions, props }) => ({
         afterMount: () => {
             actions.newFilter()
             if (props.endpoint === 'person') {
