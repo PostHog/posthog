@@ -20,7 +20,7 @@ export default function App() {
     const Scene =
         loadedScenes[scene]?.component ||
         (() => (
-            <div>
+            <div style={{ textAlign: 'center', marginTop: '20vh' }}>
                 <Spin />
             </div>
         ))

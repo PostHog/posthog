@@ -33,7 +33,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
         <div className="events">
             {filtersEnabled ? <PropertyFilters pageKey="EventsTable" /> : null}
             <table className="table" style={{ position: 'relative' }}>
-                {isLoading && <Loading />}
                 <thead>
                     <tr>
                         <th>Event</th>
@@ -47,9 +46,11 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
                 </thead>
                 <tbody>
                     {isLoading && (
-                        <div className="loading">
-                            <div />
-                        </div>
+                        <tr>
+                            <td colSpan={5} style={{ padding: 50, textAlign: 'center' }}>
+                                <Spin />
+                            </td>
+                        </tr>
                     )}
                     <tr
                         className={'event-new-events ' + (newEvents.length > 0 ? 'show' : 'hide')}

@@ -34,11 +34,7 @@ export function EventRow({
                 {event.elements.length > 0 && event.elements[0].text && ' with text "' + event.elements[0].text + '"'}
             </td>
             <td>
-                <Link
-                    to={`/person/${encodeURIComponent(event.distinct_id)}${search}`}
-                    searchParams={{ properties }}
-                    className="ph-no-capture"
-                >
+                <Link to={`/person/${encodeURIComponent(event.distinct_id)}${search}`} className="ph-no-capture">
                     {event.person}
                 </Link>
             </td>
