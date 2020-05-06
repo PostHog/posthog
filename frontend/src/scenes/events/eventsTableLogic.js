@@ -30,6 +30,7 @@ export const eventsTableLogic = kea({
         prependNewEvents: events => ({ events }),
         setSelectedEvent: selectedEvent => ({ selectedEvent }),
         setPollTimeout: pollTimeout => ({ pollTimeout }),
+        setDelayedLoading: true,
     }),
 
     reducers: () => ({
@@ -46,7 +47,8 @@ export const eventsTableLogic = kea({
         isLoading: [
             false,
             {
-                fetchEvents: (state, { nextParams }) => (nextParams ? state : true),
+                fetchEvents: (state, { nextParams }) => (nextParams ? state : state || null),
+                setDelayedLoading: () => true,
                 fetchEventsSuccess: () => false,
             },
         ],
@@ -172,22 +174,32 @@ export const eventsTableLogic = kea({
                 [orderBy === 'timestamp' ? 'after' : 'before']: events[events.length - 1].timestamp,
             })
         },
-        fetchEvents: async ({ nextParams }, breakpoint) => {
-            clearTimeout(values.pollTimeout)
+        fetchEvents: [
+            async (_, breakpoint) => {
+                if (values.events.length > 0) {
+                    await breakpoint(500)
+                }
+                if (values.isLoading === null) {
+                    actions.setDelayedLoading()
+                }
+            },
+            async ({ nextParams }, breakpoint) => {
+                clearTimeout(values.pollTimeout)
 
-            const urlParams = toParams({
-                properties: values.properties,
-                ...(props.fixedFilters || {}),
-                ...(nextParams || {}),
-                orderBy: [values.orderBy],
-            })
+                const urlParams = toParams({
+                    properties: values.properties,
+                    ...(props.fixedFilters || {}),
+                    ...(nextParams || {}),
+                    orderBy: [values.orderBy],
+                })
 
-            const events = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
-            breakpoint()
-            actions.fetchEventsSuccess(events.results, events.next, !!nextParams)
+                const events = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
+                breakpoint()
+                actions.fetchEventsSuccess(events.results, events.next, !!nextParams)
 
-            actions.setPollTimeout(setTimeout(actions.pollEvents, POLL_TIMEOUT))
-        },
+                actions.setPollTimeout(setTimeout(actions.pollEvents, POLL_TIMEOUT))
+            },
+        ],
         pollEvents: async (_, breakpoint) => {
             // Poll events when they are ordered in ascending order based on timestamp
             if (values.orderBy !== '-timestamp') {
