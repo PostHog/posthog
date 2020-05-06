@@ -1,9 +1,10 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { fromParams, toParams } from 'lib/utils'
+import { toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
+import { router } from 'kea-router'
 
 export const EntityTypes = {
     ACTIONS: 'actions',
@@ -43,13 +44,14 @@ export const ViewType = {
 }
 
 function cleanFilters(filters) {
-    if (filters.session && filters.session === 'dist') {
-        return {
-            ...filters,
-            display: 'ActionsTable',
-        }
+    return {
+        ...filters,
+        interval: autocorrectInterval(filters),
+        display: filters.session && filters.session === 'dist' ? 'ActionsTable' : filters.display,
+        actions: Array.isArray(filters.actions) ? filters.actions : undefined,
+        events: Array.isArray(filters.events) ? filters.events : undefined,
+        properties: filters.properties || {},
     }
-    return filters
 }
 
 function filterClientSideParams(filters) {
@@ -78,20 +80,6 @@ function autocorrectInterval({ date_from, interval }) {
     }
 }
 
-function filtersFromParams() {
-    let filters = fromParams()
-    filters.interval = autocorrectInterval(filters)
-    filters.actions = filters.actions && JSON.parse(filters.actions)
-    filters.actions = Array.isArray(filters.actions) ? filters.actions : undefined
-    if (filters.actions) {
-        filters.actions = filters.actions.map((action, index) => ({ ...action, order: index }))
-    }
-    filters.events = filters.events && JSON.parse(filters.events)
-    filters.events = Array.isArray(filters.events) ? filters.events : []
-    filters.properties = filters.properties ? JSON.parse(filters.properties) : {}
-    return cleanFilters(filters)
-}
-
 // props:
 // - dashboardItemId
 // - filters
@@ -106,9 +94,9 @@ export const trendsLogic = kea({
         results: {
             loadResults: async () => {
                 if (values.activeView === ViewType.SESSIONS) {
-                    return await api.get('api/event/sessions/?' + toParams(filterClientSideParams(values.filters)))
+                    return await api.get('api/event/sessions/?' + toAPIParams(filterClientSideParams(values.filters)))
                 }
-                return await api.get('api/action/trends/?' + toParams(filterClientSideParams(values.filters)))
+                return await api.get('api/action/trends/?' + toAPIParams(filterClientSideParams(values.filters)))
             },
         },
     }),
@@ -126,7 +114,7 @@ export const trendsLogic = kea({
 
     reducers: ({ actions, props }) => ({
         filters: [
-            props.dashboardItemId ? props.filters : filtersFromParams(),
+            props.dashboardItemId ? props.filters : state => cleanFilters(router.selectors.searchParams(state)),
             {
                 [actions.setFilters]: (state, { filters, mergeFilters }) => {
                     return cleanFilters({
@@ -189,7 +177,7 @@ export const trendsLogic = kea({
                 params.properties = { ...params.properties, [params.breakdown]: breakdown_value }
             }
 
-            const filterParams = toParams(params)
+            const filterParams = toAPIParams(params)
             actions.setPeople(null, null, action, day, breakdown_value)
             const people = await api.get(`api/action/people/?include_last_event=1&${filterParams}`)
             breakpoint()
@@ -203,11 +191,7 @@ export const trendsLogic = kea({
                 return // don't use the URL if on the dashboard
             }
             if (!fromUrl) {
-                const oldFilters = filtersFromParams()
-
-                if (toParams(oldFilters) !== toParams(values.filters)) {
-                    return `/trends?${toParams(values.filters)}`
-                }
+                return ['/trends', values.filters]
             }
         },
         [actions.setActiveView]: ({ type }) => {
@@ -219,19 +203,18 @@ export const trendsLogic = kea({
             if (cachedUrl) {
                 return cachedUrl
             }
-            return type === ViewType.SESSIONS ? `/trends?${toParams({ session: 'avg' })}` : `/trends`
+            return ['/trends', type === ViewType.SESSIONS ? { session: 'avg' } : {}]
         },
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        '/trends': () => {
+        '/trends': (_, searchParams) => {
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
 
-            const newFilters = filtersFromParams()
-            if (toParams(newFilters) !== toParams(values.filters)) {
-                actions.setFilters(newFilters, false, true)
+            if (JSON.stringify(cleanFilters(searchParams)) !== JSON.stringify(values.filters)) {
+                actions.setFilters(cleanFilters(searchParams), false, true)
             }
         },
     }),
