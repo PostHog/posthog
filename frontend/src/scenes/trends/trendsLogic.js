@@ -213,8 +213,28 @@ export const trendsLogic = kea({
                 return // don't use the URL if on the dashboard
             }
 
-            if (!objectsEqual(cleanFilters(searchParams), values.filters)) {
-                actions.setFilters(cleanFilters(searchParams), false, true)
+            const cleanSearchParams = cleanFilters(searchParams)
+
+            // opening /trends without any params, just open $pageview, $screen or the first random event
+            if (Object.keys(searchParams).length === 0 && values.eventNames && values.eventNames[0]) {
+                const event = values.eventNames.includes('$pageview')
+                    ? '$pageview'
+                    : values.eventNames.includes('$screen')
+                    ? '$screen'
+                    : values.eventNames[0]
+
+                cleanSearchParams[EntityTypes.EVENTS] = [
+                    {
+                        id: event,
+                        name: event,
+                        type: EntityTypes.EVENTS,
+                        order: 0,
+                    },
+                ]
+            }
+
+            if (!objectsEqual(cleanSearchParams, values.filters)) {
+                actions.setFilters(cleanSearchParams, false, true)
             }
         },
     }),

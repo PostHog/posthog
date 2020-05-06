@@ -4,8 +4,8 @@ import { entityFilterLogic } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 
-export function ActionFilter({ setFilters, filters, typeKey, setDefaultIfEmpty }) {
-    const logic = entityFilterLogic({ setFilters, filters, typeKey, setDefaultIfEmpty })
+export function ActionFilter({ setFilters, filters, typeKey }) {
+    const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
     const { localFilters } = useValues(logic)
     const { addFilter, setLocalFilters } = useActions(logic)

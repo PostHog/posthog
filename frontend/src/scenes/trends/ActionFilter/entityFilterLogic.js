@@ -30,9 +30,6 @@ function toFilters(localFilters) {
 // - filters
 // - setFilters
 // - typeKey
-//
-// optional props:
-// - setDefaultIfEmpty
 export const entityFilterLogic = kea({
     key: props => props.typeKey,
     connect: {
@@ -108,21 +105,6 @@ export const entityFilterLogic = kea({
         },
         setFilters: ({ filters }) => {
             props.setFilters(toFilters(filters))
-        },
-    }),
-
-    events: ({ actions, props, values }) => ({
-        afterMount: () => {
-            if (props.setDefaultIfEmpty && values.localFilters.length === 0 && values.eventNames) {
-                let event = values.eventNames.indexOf('$pageview') >= -1 ? '$pageview' : values.eventNames[0]
-                actions.setFilters([
-                    {
-                        id: event,
-                        name: event,
-                        type: EntityTypes.EVENTS,
-                    },
-                ])
-            }
         },
     }),
 })
