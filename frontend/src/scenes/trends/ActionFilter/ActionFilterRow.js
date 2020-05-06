@@ -43,7 +43,7 @@ export function ActionFilterRow({ logic, filter, index }) {
         else selectFilter({ filter, type: filter.type, index })
     }
 
-    if (filter.type === EntityTypes.NEW) {
+    if (filter.type === EntityTypes.NEW_ENTITY) {
         name = null
         value = null
     } else {

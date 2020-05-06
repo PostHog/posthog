@@ -9,7 +9,7 @@ import { router } from 'kea-router'
 export const EntityTypes = {
     ACTIONS: 'actions',
     EVENTS: 'events',
-    NEW: 'new',
+    NEW_ENTITY: 'new_entity',
 }
 
 export const disableMinuteFor = {

@@ -4,16 +4,25 @@ import { EntityTypes } from '../trendsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 function toLocalFilters(filters) {
-    return [...(filters.actions || []), ...(filters.events || [])]
+    return [
+        ...(filters[EntityTypes.ACTIONS] || []),
+        ...(filters[EntityTypes.EVENTS] || []),
+        ...(filters[EntityTypes.NEW_ENTITY] || []),
+    ]
         .sort((a, b) => a.order - b.order)
         .map((filter, order) => ({ ...filter, order }))
 }
 
 function toFilters(localFilters) {
+    const filters = localFilters.map((filter, index) => ({
+        ...filter,
+        order: index,
+    }))
+
     return {
-        [EntityTypes.ACTIONS]: localFilters.filter(filter => filter.type === EntityTypes.ACTIONS),
-        [EntityTypes.EVENTS]: localFilters.filter(filter => filter.type === EntityTypes.EVENTS),
-        [EntityTypes.NEW]: localFilters.filter(filter => filter.type === EntityTypes.NEW),
+        [EntityTypes.ACTIONS]: filters.filter(filter => filter.type === EntityTypes.ACTIONS),
+        [EntityTypes.EVENTS]: filters.filter(filter => filter.type === EntityTypes.EVENTS),
+        [EntityTypes.NEW_ENTITY]: filters.filter(filter => filter.type === EntityTypes.NEW_ENTITY),
     }
 }
 
@@ -91,18 +100,11 @@ export const entityFilterLogic = kea({
         addFilter: () => {
             actions.setFilters([
                 ...values.allFilters,
-                { id: null, type: EntityTypes.NEW, order: values.allFilters.length },
+                { id: null, type: EntityTypes.NEW_ENTITY, order: values.allFilters.length },
             ])
         },
         setFilters: ({ filters }) => {
-            props.setFilters(
-                toFilters(
-                    filters.map((filter, index) => ({
-                        ...filter,
-                        order: index,
-                    }))
-                )
-            )
+            props.setFilters(toFilters(filters))
         },
     }),
 
