@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { funnelLogic } from './funnelLogic'
 import { Link } from 'lib/components/Link'
 import { Card, percentage, Loading } from 'lib/utils'
+import { EntityTypes } from 'scenes/trends/trendsLogic'
 
 export function People({ id }) {
     const { stepsWithCount, peopleSorted, peopleLoading } = useValues(funnelLogic({ id }))
@@ -13,19 +14,23 @@ export function People({ id }) {
             <table className="table table-bordered table-fixed">
                 <tbody>
                     <tr>
-                        <td></td>
+                        <th />
                         {stepsWithCount &&
-                            stepsWithCount.map(step => (
-                                <th key={step.id}>
-                                    <Link to={'/action/' + step.action_id}>{step.name}</Link>
+                            stepsWithCount.map((step, index) => (
+                                <th key={index}>
+                                    {step.type === EntityTypes.ACTIONS ? (
+                                        <Link to={'/action/' + step.action_id}>{step.name}</Link>
+                                    ) : (
+                                        step.name
+                                    )}
                                 </th>
                             ))}
                     </tr>
                     <tr>
-                        <td></td>
+                        <td />
                         {stepsWithCount &&
-                            stepsWithCount.map(step => (
-                                <td key={step.id}>
+                            stepsWithCount.map((step, index) => (
+                                <td key={index}>
                                     {step.count}&nbsp; ({percentage(step.count / stepsWithCount[0].count)})
                                 </td>
                             ))}
@@ -34,15 +39,15 @@ export function People({ id }) {
                         peopleSorted.map(person => (
                             <tr key={person.id}>
                                 <td className="text-overflow">
-                                    <Link to={'/person_by_id/' + person.id}>{person.name}</Link>
+                                    <Link to={`/person_by_id/${person.id}`}>{person.name}</Link>
                                 </td>
-                                {stepsWithCount.map(step => (
+                                {stepsWithCount.map((step, index) => (
                                     <td
-                                        key={step.id}
+                                        key={index}
                                         className={
                                             step.people.indexOf(person.id) > -1 ? 'funnel-success' : 'funnel-dropped'
                                         }
-                                    ></td>
+                                    />
                                 ))}
                             </tr>
                         ))}
