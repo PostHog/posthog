@@ -70,20 +70,23 @@ class TestPaths(BaseTest):
         self.assertEqual(len(response), 0)
 
     def test_paths_in_window(self):
-        person1 = Person.objects.create(team=self.team, distinct_ids=['person_1'])
+        Person.objects.create(team=self.team, distinct_ids=['person_1'])
 
         first_day = now() - relativedelta(days=5)
-        second_day = now() - relativedelta(days=4)
-        begin_query_range = now() - relativedelta(days=7)
-
         with freeze_time(first_day.strftime("%Y-%m-%d")):
             Event.objects.create(properties={'$current_url': '/'}, distinct_id='person_1', event='$pageview', team=self.team)
+        first_day = first_day + relativedelta(minutes=5)
+        with freeze_time(first_day.strftime("%Y-%m-%d")):
             Event.objects.create(properties={'$current_url': '/about'}, distinct_id='person_1', event='$pageview', team=self.team)
         
+        second_day = now() - relativedelta(days=4)
         with freeze_time(second_day.strftime("%Y-%m-%d")):
             Event.objects.create(properties={'$current_url': '/'}, distinct_id='person_1', event='$pageview', team=self.team)
+        second_day = second_day + relativedelta(minutes=4)
+        with freeze_time(second_day.strftime("%Y-%m-%d")):
             Event.objects.create(properties={'$current_url': '/about'}, distinct_id='person_1', event='$pageview', team=self.team)
 
+        begin_query_range = now() - relativedelta(days=7)
         response = self.client.get('/api/paths/?date_from=' + begin_query_range.strftime("%Y-%m-%d")).json()
 
         self.assertEqual(response[0]['source'], '1_/')
