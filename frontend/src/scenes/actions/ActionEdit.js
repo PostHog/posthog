@@ -178,7 +178,7 @@ export class ActionEdit extends Component {
                                             edited: true,
                                         })
                                     }}
-                                    checked={action.post_to_slack}
+                                    checked={!!action.post_to_slack}
                                     disabled={!this.state.slackEnabled}
                                 />
                                 &nbsp;Post to Slack when this action is triggered.
