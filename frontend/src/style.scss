@@ -114,6 +114,13 @@ $body-color: #37352f;
     > div {
         height: calc(50% - 20px);
     }
+    &.over-table {
+        display: block;
+        background: rgba(0, 0, 0, 0.1);
+        td {
+            display: block;
+        }
+    }
 }
 
 .content {

@@ -56,8 +56,8 @@ export class ActionsTable extends Component {
                         </tr>
                     </thead>
                     <tbody>
-                        {loading && <TableRowLoading colSpan={4} />}
-                        {actions && actions.length == 0 && (
+                        {loading && <TableRowLoading colSpan={4} asOverlay={actions.length > 0} />}
+                        {actions && actions.length === 0 && (
                             <tr>
                                 <td>You don't have any actions yet.</td>
                             </tr>

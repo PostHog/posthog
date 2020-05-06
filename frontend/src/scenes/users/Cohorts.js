@@ -36,7 +36,7 @@ export class Cohorts extends Component {
                         </tr>
                     </thead>
                     <tbody>
-                        {loading && <TableRowLoading colSpan={2} />}
+                        {loading && <TableRowLoading colSpan={2} asOverlay={cohorts.length > 0} />}
                         {cohorts &&
                             cohorts.map(cohort => (
                                 <tr key={cohort.id}>

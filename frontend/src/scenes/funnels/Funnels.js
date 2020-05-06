@@ -41,7 +41,9 @@ export class Funnels extends Component {
                         </tr>
                     </thead>
                     <tbody>
-                        {this.state.loading && <TableRowLoading colSpan={2} />}
+                        {this.state.loading && (
+                            <TableRowLoading colSpan={2} asOverlay={this.state.funnels.length > 0} />
+                        )}
                         {this.state.funnels && this.state.funnels.length === 0 && (
                             <tr>
                                 <td colSpan="6">

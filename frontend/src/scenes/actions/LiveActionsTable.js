@@ -28,7 +28,7 @@ export function LiveActionsTable({ fixedFilters }) {
                         <th scope="col">Date</th>
                         <th scope="col">Browser</th>
                     </tr>
-                    {isLoading && <TableRowLoading colSpan={5} />}
+                    {isLoading && <TableRowLoading colSpan={5} asOverlay={events.length > 0} />}
                     {events && events.length === 0 && (
                         <tr>
                             <td colSpan="5">

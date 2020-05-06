@@ -47,7 +47,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
                     </tr>
                 </thead>
                 <tbody>
-                    {isLoading && <TableRowLoading colSpan={5} />}
+                    {isLoading && <TableRowLoading colSpan={5} asOverlay={events.length > 0} />}
                     <tr
                         className={'event-new-events ' + (newEvents.length > 0 ? 'show' : 'hide')}
                         onClick={() => prependNewEvents(newEvents)}

@@ -49,8 +49,8 @@ export let Loading = () => (
     </div>
 )
 
-export const TableRowLoading = ({ colSpan = 1 }) => (
-    <tr>
+export const TableRowLoading = ({ colSpan = 1, asOverlay = false }) => (
+    <tr className={asOverlay ? 'loading-overlay over-table' : ''}>
         <td colSpan={colSpan} style={{ padding: 50, textAlign: 'center' }}>
             <Spin />
         </td>
