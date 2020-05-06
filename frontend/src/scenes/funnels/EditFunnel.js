@@ -33,15 +33,15 @@ export function EditFunnel({ funnelId, onChange }) {
                         value={funnel.name || ''}
                         className="form-control"
                     />
-                    {!actionsLoading && actions.length == 0 && (
+                    {!actionsLoading && actions.length === 0 && (
                         <div className="alert alert-warning" style={{ marginTop: '1rem' }}>
                             You don't have any actions set up. <Link to="/actions">Click here to set up an action</Link>
                         </div>
                     )}
                     <br />
                     <ActionFilter
+                        filters={funnel ? funnel.filters : {}}
                         setFilters={filters => setFunnel({ filters }, false)}
-                        defaultFilters={funnel ? funnel.filters : {}}
                         typeKey="edit-funnel"
                     />
                     <br />
