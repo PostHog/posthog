@@ -1,6 +1,5 @@
 import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { entityFilterLogic } from './actionFilterLogic'
 import { EntityTypes } from '../trendsLogic'
 import { CloseButton } from '~/lib/utils'
 import { Dropdown } from '~/lib/components/Dropdown'
@@ -20,7 +19,7 @@ const determineFilterLabel = (visible, filter) => {
     return 'Add Filters'
 }
 
-export function ActionFilterRow({ logic, filter, index, typeKey }) {
+export function ActionFilterRow({ logic, filter, index }) {
     const node = useRef()
     const { selectedFilter, entities } = useValues(logic)
     const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty } = useActions(logic)
@@ -94,7 +93,7 @@ export function ActionFilterRow({ logic, filter, index, typeKey }) {
             )}
             {dropDownCondition() && (
                 <ActionFilterDropdown
-                    typeKey={typeKey}
+                    logic={logic}
                     onClickOutside={e => {
                         if (node.current.contains(e.target)) {
                             return
