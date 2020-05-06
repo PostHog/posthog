@@ -251,11 +251,14 @@ export class Paths extends Component {
     }
 
     updateFilter = changes => {
-        this.setState({ filter: { ...this.state.filter, ...changes }, rendered: false }, this.fetchPaths)
+        this.setState(
+            { filter: { ...this.state.filter, ...changes }, rendered: false, dataLoaded: false },
+            this.fetchPaths
+        )
     }
 
     render() {
-        let { paths, rendered, filter, dataLoaded } = this.state
+        let { paths, filter, dataLoaded } = this.state
 
         return (
             <div>
