@@ -258,7 +258,9 @@ class ActionViewSet(viewsets.ModelViewSet):
         return cursor.fetchall()
 
     def _stickiness(self, filtered_events: QuerySet, entity: Entity, filter: Filter) -> Dict[str, Any]:
-        range_days = (filter.date_to - filter.date_from).days + 2 if filter.date_from else 0 # filter.date_from should be set
+        if not filter.date_to or not filter.date_from:
+            raise ValueError('_stickiness needs date_to and date_from set')
+        range_days = (filter.date_to - filter.date_from).days + 2
 
         events = filtered_events\
             .filter(self._filter_events(filter, entity))\
