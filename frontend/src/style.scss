@@ -108,22 +108,12 @@ $body-color: #37352f;
     position: absolute;
     top: 0;
     left: 0;
-    background: rgba(0, 0, 0, 0.3);
-    padding-top: 3rem;
+    background: #fff;
     text-align: center;
     min-height: 6rem;
-
-    & > div {
-        display: inline-block;
-        height: 44px;
-        width: 40px;
-        animation: rotation 1.3s infinite linear;
+    > div {
+        height: calc(50% - 20px);
     }
-}
-.loading-overlay div::before {
-    content: '\f138';
-    font-family: Flaticon;
-    font-size: 30px;
 }
 
 .content {

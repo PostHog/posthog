@@ -2,7 +2,7 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import moment from 'moment'
 
-import { Loading } from 'lib/utils'
+import { TableRowLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { EventDetails } from 'scenes/events/EventDetails'
@@ -45,13 +45,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
                     </tr>
                 </thead>
                 <tbody>
-                    {isLoading && (
-                        <tr>
-                            <td colSpan={5} style={{ padding: 50, textAlign: 'center' }}>
-                                <Spin />
-                            </td>
-                        </tr>
-                    )}
+                    {isLoading && <TableRowLoading colSpan={5} />}
                     <tr
                         className={'event-new-events ' + (newEvents.length > 0 ? 'show' : 'hide')}
                         onClick={() => prependNewEvents(newEvents)}

@@ -1,7 +1,8 @@
 import React, { Component } from 'react'
-import api from '../../lib/api'
-import { toParams, Card } from '../../lib/utils'
-import { DateFilter } from '../../lib/components/DateFilter'
+import api from 'lib/api'
+import { toParams, Card } from 'lib/utils'
+import { DateFilter } from 'lib/components/DateFilter'
+import { Spin } from 'antd'
 
 let stripHTTP = url => url.replace(/(^[0-9]+_\w+:|^)\/\//, '')
 
@@ -283,8 +284,10 @@ export class Paths extends Component {
                             <NoData />
                         ) : (
                             !dataLoaded && (
-                                <div className="loading-overlay" style={{ paddingTop: '14rem' }}>
+                                <div style={{ paddingTop: '14rem', textAlign: 'center' }}>
                                     <div />
+                                    <Spin />
+                                    <br />
                                     <br />
                                     (This might take a while)
                                 </div>

@@ -1,7 +1,7 @@
 import React, { Component } from 'react'
 import api from 'lib/api'
 import { Link } from 'lib/components/Link'
-import { toParams, DeleteWithUndo, addUrlQuestion } from 'lib/utils'
+import { toParams, DeleteWithUndo, addUrlQuestion, Loading } from 'lib/utils'
 import { FunnelViz } from '../funnels/FunnelViz'
 import { ActionsLineGraph } from '../trends/ActionsLineGraph'
 import { ActionsTable } from '../trends/ActionsTable'
@@ -81,13 +81,7 @@ export class Dashboard extends Component {
                                             position: 'relative',
                                         }}
                                     >
-                                        {Panel ? (
-                                            Panel
-                                        ) : (
-                                            <div className="loading-overlay">
-                                                <div></div>
-                                            </div>
-                                        )}
+                                        {Panel ? Panel : <Loading />}
                                     </div>
                                 </div>
                             </div>

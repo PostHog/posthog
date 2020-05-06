@@ -1,6 +1,6 @@
 import React, { Component } from 'react'
 import { Link } from 'lib/components/Link'
-import { DeleteWithUndo, Loading } from 'lib/utils'
+import { DeleteWithUndo, TableRowLoading } from 'lib/utils'
 import { Tooltip } from 'antd'
 import { ExportOutlined, DeleteOutlined } from '@ant-design/icons'
 import api from 'lib/api'
@@ -29,12 +29,14 @@ export class Cohorts extends Component {
                 <br />
                 <br />
                 <table className="table" style={{ position: 'relative' }}>
-                    {loading && <Loading />}
-                    <tbody>
+                    <thead>
                         <tr>
                             <th>Cohort name</th>
                             <th>Actions</th>
                         </tr>
+                    </thead>
+                    <tbody>
+                        {loading && <TableRowLoading colSpan={2} />}
                         {cohorts &&
                             cohorts.map(cohort => (
                                 <tr key={cohort.id}>

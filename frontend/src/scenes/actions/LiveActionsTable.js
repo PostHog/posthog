@@ -1,7 +1,7 @@
 import React, { Fragment } from 'react'
 import moment from 'moment'
 
-import { Loading } from 'lib/utils'
+import { TableRowLoading } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
@@ -28,7 +28,7 @@ export function LiveActionsTable({ fixedFilters }) {
                         <th scope="col">Date</th>
                         <th scope="col">Browser</th>
                     </tr>
-                    {isLoading && <Loading />}
+                    {isLoading && <TableRowLoading colSpan={5} />}
                     {events && events.length === 0 && (
                         <tr>
                             <td colSpan="5">

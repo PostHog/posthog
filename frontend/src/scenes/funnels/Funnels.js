@@ -1,19 +1,19 @@
 import React, { Component } from 'react'
 import { Link } from 'lib/components/Link'
 import api from 'lib/api'
-import { DeleteWithUndo } from 'lib/utils'
+import { DeleteWithUndo, TableRowLoading } from 'lib/utils'
 
 export class Funnels extends Component {
     constructor(props) {
         super(props)
 
-        this.state = {}
+        this.state = { loading: true }
         this.fetchFunnels = this.fetchFunnels.bind(this)
         this.fetchFunnels()
     }
     fetchFunnels() {
         api.get('api/funnel').then(funnels => {
-            this.setState({ funnels: funnels.results })
+            this.setState({ funnels: funnels.results, loading: false })
         })
     }
     render() {
@@ -34,12 +34,15 @@ export class Funnels extends Component {
                     </i>
                 </p>
                 <table className="table">
-                    <tbody>
+                    <thead>
                         <tr>
                             <th>Funnel name</th>
                             <th>Actions</th>
                         </tr>
-                        {this.state.funnels && this.state.funnels.length == 0 && (
+                    </thead>
+                    <tbody>
+                        {this.state.loading && <TableRowLoading colSpan={2} />}
+                        {this.state.funnels && this.state.funnels.length === 0 && (
                             <tr>
                                 <td colSpan="6">
                                     You haven't created any funnels yet.{' '}

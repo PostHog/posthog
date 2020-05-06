@@ -2,6 +2,7 @@ import React from 'react'
 import api from './api'
 import { toast } from 'react-toastify'
 import PropTypes from 'prop-types'
+import { Spin } from 'antd'
 
 export function uuid() {
     return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
@@ -44,7 +45,16 @@ export let percentage = division =>
 export let Loading = () => (
     <div className="loading-overlay">
         <div></div>
+        <Spin />
     </div>
+)
+
+export const TableRowLoading = ({ colSpan = 1 }) => (
+    <tr>
+        <td colSpan={colSpan} style={{ padding: 50, textAlign: 'center' }}>
+            <Spin />
+        </td>
+    </tr>
 )
 
 export let CloseButton = props => {

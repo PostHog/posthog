@@ -1,7 +1,7 @@
 import React, { Component } from 'react'
 import api from 'lib/api'
 import { Link } from 'lib/components/Link'
-import { DeleteWithUndo } from 'lib/utils'
+import { DeleteWithUndo, TableRowLoading } from 'lib/utils'
 
 export class ActionsTable extends Component {
     constructor(props) {
@@ -47,11 +47,6 @@ export class ActionsTable extends Component {
                 </p>
 
                 <table className="table" style={{ position: 'relative' }}>
-                    {loading && (
-                        <div className="loading-overlay">
-                            <div></div>
-                        </div>
-                    )}
                     <thead>
                         <tr>
                             <th scope="col">Action ID</th>
@@ -61,6 +56,7 @@ export class ActionsTable extends Component {
                         </tr>
                     </thead>
                     <tbody>
+                        {loading && <TableRowLoading colSpan={4} />}
                         {actions && actions.length == 0 && (
                             <tr>
                                 <td>You don't have any actions yet.</td>
