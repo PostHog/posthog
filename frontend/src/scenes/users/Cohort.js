@@ -16,6 +16,7 @@ export class _Cohort extends Component {
         this.state = {
             groups: window.location.search.indexOf('new_cohort') > -1 ? [{}] : [],
             id: fromParams()['cohort'],
+            name: '',
         }
         this.fetchProperties.call(this)
         this.fetchActions.call(this)
@@ -65,7 +66,7 @@ export class _Cohort extends Component {
     }
     render() {
         let { groups, properties, actions, name } = this.state
-        return groups.length == 0 ? (
+        return groups.length === 0 ? (
             <button
                 className="btn btn-sm btn-outline-success float-right"
                 style={{ marginBottom: '1rem', marginLeft: 12 }}
