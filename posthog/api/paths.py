@@ -1,12 +1,13 @@
 from rest_framework import viewsets
 from rest_framework.response import Response
-from posthog.models import Event, PersonDistinctId, Team
+from posthog.models import Event
 from posthog.utils import request_to_date_query
-from django.db.models import Subquery, OuterRef, Count, QuerySet
-from typing import List, Optional, Dict
-from django.utils.timezone import now
-import datetime
+from django.db.models import OuterRef
 
+from django.db.models.expressions import Window
+from django.db.models.functions import Lag
+from django.db.models import F
+from django.db import connection
 
 # At the moment, paths don't support users changing distinct_ids midway through.
 # See: https://github.com/PostHog/posthog/issues/185
@@ -16,60 +17,61 @@ class PathsViewSet(viewsets.ViewSet):
 
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
     # To avoid unexpected results should convert date range to timestamps with timezone.
-    def _add_event_and_url_at_position(self, aggregate: QuerySet, team: Team, index: int, date_query: Dict[str, datetime.date], urls: Optional[List[str]]=None) -> QuerySet:
-        event_key = 'event_{}'.format(index)
-
-        # adds event_1, url_1, event_2, url_2 etc for each Person
-        return aggregate.annotate(**{
-            event_key: Subquery(
-                Event.objects.filter(
-                    team=team,
-                    event='$pageview',
-                    distinct_id=OuterRef('distinct_id'),
-                    **date_query,
-                    **{'properties__$current_url__isnull': False},
-                    **({'timestamp__gt': OuterRef('timestamp_{}'.format(index - 1))} if index > 1 else {})
-                )\
-                .exclude(**({'properties__$current_url': OuterRef('url_{}'.format(index -1))} if index > 1 else {}))\
-                .order_by('id').values('pk')[:1]
-            ),
-            'timestamp_{}'.format(index): self._event_subquery(event_key, 'timestamp'),
-            'url_{}'.format(index): self._event_subquery(event_key, 'properties__$current_url')
-        })
-
     def list(self, request):
         team = request.user.team_set.get()
         resp = []
         date_query = request_to_date_query(request.GET)
-        aggregate: QuerySet[PersonDistinctId] = PersonDistinctId.objects.filter(team=team)
 
-        aggregate = self._add_event_and_url_at_position(aggregate, team, 1, date_query)
-        urls: List[str] = []
+        sessions = Event.objects.filter(
+                team=team,
+                event='$pageview',
+                **date_query,
+                **{'properties__$current_url__isnull': False},
+            )\
+            .annotate(previous_timestamp=Window(
+                expression=Lag('timestamp', default=None),
+                partition_by=F('distinct_id'),
+                order_by=F('timestamp').asc()
+            ))
 
-        for index in range(1, 4):
-            aggregate = self._add_event_and_url_at_position(aggregate, team, index+1, date_query)
-            first_url_key = 'url_{}'.format(index)
-            second_url_key = 'url_{}'.format(index + 1)
-            rows = aggregate\
-                .filter(
-                    **({'{}__in'.format(first_url_key): urls} if urls else {}),
-                    **{'{}__isnull'.format(second_url_key): False}
-                )\
-                .values(
-                    first_url_key,
-                    second_url_key
-                )\
-                .annotate(count=Count('pk'))\
-                .order_by('-count')[0: 6]
+        sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
 
-            urls = []
-            for row in rows:
-                resp.append({
-                    'source': '{}_{}'.format(index, row[first_url_key]),
-                    'target': '{}_{}'.format(index + 1, row[second_url_key]),
-                    'value': row['count']
-                })
-                urls.append(row[second_url_key])
+        cursor = connection.cursor()
+        cursor.execute('\
+        SELECT source_event, target_event, count(*) from (\
+            SELECT event_number || \'_\' || current_url as target_event,LAG(event_number || \'_\' || current_url, 1) OVER (\
+                            PARTITION BY session\
+                            ) AS source_event from \
+        (\
+            SELECT properties->> \'$current_url\' as current_url, sessionified.session\
+                ,ROW_NUMBER() OVER (\
+                        PARTITION BY distinct_id\
+                        ,session ORDER BY timestamp\
+                        ) AS event_number\
+        FROM (\
+            SELECT events_notated.*, SUM(new_session) OVER (\
+                ORDER BY distinct_id\
+                        ,timestamp\
+                ) AS session\
+            FROM (\
+                SELECT *, CASE WHEN EXTRACT(\'EPOCH\' FROM (timestamp - previous_timestamp)) >= (60 * 30) OR previous_timestamp IS NULL THEN 1 ELSE 0 END AS new_session\
+                FROM ({}) AS inner_sessions \
+            ) as events_notated \
+        ) as sessionified\
+        ) as final\
+        where event_number <= 4\
+        ) as counts\
+        where source_event is not null and target_event is not null and SUBSTRING(source_event, 3) != SUBSTRING(target_event, 3)\
+        group by source_event, target_event order by count desc limit 15\
+        '.format(sessions_sql), sessions_sql_params)
+        rows = cursor.fetchall()
+
+        for row in rows:
+            resp.append({
+                'source': row[0],
+                'target': row[1],
+                'value': row[2]
+            })
 
         resp = sorted(resp, key=lambda x: x['value'], reverse=True)
         return Response(resp)
