@@ -25,8 +25,7 @@ class PathsViewSet(viewsets.ViewSet):
         sessions = Event.objects.filter(
                 team=team,
                 event='$pageview',
-                **date_query,
-                **{'properties__$current_url__isnull': False},
+                **date_query
             )\
             .annotate(previous_timestamp=Window(
                 expression=Lag('timestamp', default=None),
