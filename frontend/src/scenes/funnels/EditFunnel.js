@@ -46,13 +46,13 @@ export function EditFunnel({ funnelId }) {
                     <ActionFilter
                         filters={funnel.filters}
                         setFilters={filters => setFunnel({ filters }, false)}
-                        typeKey="EditFunnel"
+                        typeKey={`EditFunnel-${funnel.id || 'new'}`}
                     />
                     <br />
                     <hr />
                     <h4 className="secondary mt-3">Filters</h4>
                     <PropertyFilters
-                        pageKey="funnels"
+                        pageKey={`EditFunnel-${funnel.id || 'new'}`}
                         properties={eventProperties}
                         propertyFilters={funnel.filters.properties || []}
                         onChange={properties =>

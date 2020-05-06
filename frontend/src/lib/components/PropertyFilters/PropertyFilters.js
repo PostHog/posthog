@@ -4,10 +4,10 @@ import { Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { Popover, Row } from 'antd'
-import { CloseButton, formatFilterName } from '../../utils'
+import { CloseButton, formatFilterName } from 'lib/utils'
 
-function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, filters }) {
-    const { remove } = useActions(propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey }))
+function FilterRow({ endpoint, item, index, filters, logic }) {
+    const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
 
     let handleVisibleChange = visible => {
@@ -30,9 +30,8 @@ function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, 
                         key={index}
                         index={index}
                         endpoint={endpoint || 'event'}
-                        onChange={onChange}
                         onComplete={() => setOpen(false)}
-                        pageKey={pageKey}
+                        logic={logic}
                     />
                 }
             >
@@ -61,9 +60,9 @@ function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, 
     )
 }
 
-export function PropertyFilters(props) {
-    const { endpoint, propertyFilters, className, style, onChange, pageKey } = props
-    const { filters } = useValues(propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey }))
+export function PropertyFilters({ endpoint, propertyFilters, className, style, onChange, pageKey }) {
+    const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
+    const { filters } = useValues(logic)
 
     return (
         <div
@@ -81,10 +80,11 @@ export function PropertyFilters(props) {
                         return (
                             <FilterRow
                                 key={index === filters.length - 1 ? index : `${index}_${Object.keys(item)[0]}`}
-                                {...props}
+                                logic={logic}
                                 item={item}
                                 index={index}
                                 filters={filters}
+                                endpoint={endpoint}
                             />
                         )
                     })}
