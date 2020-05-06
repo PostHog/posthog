@@ -8,6 +8,8 @@ export const loadedScenes = {
 const delay = ms => new Promise(resolve => window.setTimeout(resolve, ms))
 
 export const scenes = {
+    // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
+
     dashboard: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
     events: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     person: () => import(/* webpackChunkName: 'person' */ './users/Person'),
@@ -66,10 +68,10 @@ export const sceneLogic = kea({
             },
         ],
         loadingScene: [
-            true,
+            null,
             {
-                [actions.loadScene]: () => true,
-                [actions.setScene]: () => false,
+                [actions.loadScene]: (_, { scene }) => scene,
+                [actions.setScene]: () => null,
             },
         ],
     }),

@@ -17,6 +17,7 @@ import {
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -32,7 +33,16 @@ function Logo() {
     )
 }
 
+// to show the right page in the sidebar
+const sceneOverride = {
+    action: 'actions',
+    funnel: 'funnels',
+    editFunnel: 'funnels',
+    person: 'people',
+}
+
 export default function Sidebar(props) {
+    const { scene, loadingScene } = useValues(sceneLogic)
     const [inviteModalOpen, setInviteModalOpen] = useState(false)
 
     const { location } = useValues(router)
@@ -54,17 +64,19 @@ export default function Sidebar(props) {
         <Layout.Sider breakpoint="lg" collapsedWidth="0" className="bg-light">
             <Menu
                 className="h-100 bg-light"
-                selectedKeys={[location.pathname]}
+                selectedKeys={[
+                    loadingScene ? sceneOverride[loadingScene] || loadingScene : sceneOverride[scene] || scene,
+                ]}
                 openKeys={determineSubmenuOpen()}
                 mode="inline"
             >
                 <Logo />
-                <Menu.Item key={'/trends'} style={itemStyle}>
+                <Menu.Item key="trends" style={itemStyle}>
                     <RiseOutlined />
                     <span>{'Trends'}</span>
                     <Link to={'/trends'} />
                 </Menu.Item>
-                <Menu.Item key={'/dashboard'} style={itemStyle}>
+                <Menu.Item key="dashboard" style={itemStyle}>
                     <HomeOutlined />
                     <span>{'Dashboard'}</span>
                     <Link to={'/dashboard'} />
@@ -79,17 +91,17 @@ export default function Sidebar(props) {
                     }
                     onTitleClick={() => (location.pathname !== '/events' ? push('/events') : null)}
                 >
-                    <Menu.Item key={'/events'} style={itemStyle}>
+                    <Menu.Item key="events" style={itemStyle}>
                         <ContainerOutlined />
                         <span>{'All Events'}</span>
                         <Link to={'/events'} />
                     </Menu.Item>
-                    <Menu.Item key={'/actions'} style={itemStyle}>
+                    <Menu.Item key="actions" style={itemStyle}>
                         <AimOutlined />
                         <span>{'Actions'}</span>
                         <Link to={'/actions'} />
                     </Menu.Item>
-                    <Menu.Item key={'/actions/live'} style={itemStyle}>
+                    <Menu.Item key="liveActions" style={itemStyle}>
                         <SyncOutlined />
                         <span>{'Live Actions'}</span>
                         <Link to={'/actions/live'} />
@@ -105,33 +117,33 @@ export default function Sidebar(props) {
                     }
                     onTitleClick={() => (location.pathname !== '/people' ? push('/people') : null)}
                 >
-                    <Menu.Item key={'/people'} style={itemStyle}>
+                    <Menu.Item key="people" style={itemStyle}>
                         <UserOutlined />
                         <span>{'All Users'}</span>
                         <Link to={'/people'} />
                     </Menu.Item>
-                    <Menu.Item key={'/people/cohorts'} style={itemStyle}>
+                    <Menu.Item key="cohorts" style={itemStyle}>
                         <UsergroupAddOutlined />
                         <span>{'Cohorts'}</span>
                         <Link to={'/people/cohorts'} />
                     </Menu.Item>
                 </Menu.SubMenu>
-                <Menu.Item key={'/funnel'} style={itemStyle}>
+                <Menu.Item key="funnels" style={itemStyle}>
                     <FunnelPlotOutlined />
                     <span>{'Funnels'}</span>
                     <Link to={'/funnel'} />
                 </Menu.Item>
-                <Menu.Item key={'/paths'} style={itemStyle}>
+                <Menu.Item key="paths" style={itemStyle}>
                     <ForkOutlined />
                     <span>{'Paths'}</span>
                     <Link to={'/paths'} />
                 </Menu.Item>
-                <Menu.Item key={'/setup'} style={itemStyle}>
+                <Menu.Item key="setup" style={itemStyle}>
                     <SettingOutlined />
                     <span>{'Setup'}</span>
                     <Link to={'/setup'} />
                 </Menu.Item>
-                <Menu.Item key={'invite'} style={itemStyle} onClick={() => setInviteModalOpen(true)}>
+                <Menu.Item key="invite" style={itemStyle} onClick={() => setInviteModalOpen(true)}>
                     <PlusOutlined />
                     <span>{'Invite your team'}</span>
                 </Menu.Item>
