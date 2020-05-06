@@ -29,6 +29,8 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
         location: { search },
     } = useValues(router)
 
+    const showLinkToPerson = !fixedFilters?.person_id
+
     return (
         <div className="events">
             {filtersEnabled ? <PropertyFilters pageKey="EventsTable" /> : null}
@@ -74,6 +76,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
                                     setSelectedEvent={setSelectedEvent}
                                     setFilter={updateProperty}
                                     filtersEnabled={filtersEnabled}
+                                    showLinkToPerson={showLinkToPerson}
                                 />
                                 {selectedEvent === event.id && (
                                     <tr>

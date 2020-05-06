@@ -19,6 +19,7 @@ export function EventRow({
     search,
     setSelectedEvent,
     filtersEnabled,
+    showLinkToPerson,
 }) {
     let params = ['$current_url', '$lib']
     return (
@@ -34,9 +35,13 @@ export function EventRow({
                 {event.elements.length > 0 && event.elements[0].text && ' with text "' + event.elements[0].text + '"'}
             </td>
             <td>
-                <Link to={`/person/${encodeURIComponent(event.distinct_id)}${search}`} className="ph-no-capture">
-                    {event.person}
-                </Link>
+                {showLinkToPerson ? (
+                    <Link to={`/person/${encodeURIComponent(event.distinct_id)}${search}`} className="ph-no-capture">
+                        {event.person}
+                    </Link>
+                ) : (
+                    event.person
+                )}
             </td>
             {params.map(paramRequest => {
                 let param = paramRequest
