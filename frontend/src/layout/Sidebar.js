@@ -41,33 +41,28 @@ const sceneOverride = {
     person: 'people',
 }
 
+// to show the open submenu
+const submenuOverride = {
+    actions: 'events',
+    liveActions: 'events',
+    cohorts: 'people',
+}
+
 export default function Sidebar(props) {
-    const { scene, loadingScene } = useValues(sceneLogic)
     const [inviteModalOpen, setInviteModalOpen] = useState(false)
 
+    const { scene, loadingScene } = useValues(sceneLogic)
     const { location } = useValues(router)
     const { push } = useActions(router)
 
-    let matches = path => location.pathname.indexOf(path) > -1
-
-    let determineSubmenuOpen = () => {
-        if (matches('/action') || matches('events')) {
-            return ['events']
-        } else if (matches('people') || matches('/person')) {
-            return ['people']
-        } else {
-            return []
-        }
-    }
+    const activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
 
     return (
         <Layout.Sider breakpoint="lg" collapsedWidth="0" className="bg-light">
             <Menu
                 className="h-100 bg-light"
-                selectedKeys={[
-                    loadingScene ? sceneOverride[loadingScene] || loadingScene : sceneOverride[scene] || scene,
-                ]}
-                openKeys={determineSubmenuOpen()}
+                selectedKeys={[activeScene]}
+                openKeys={[submenuOverride[activeScene] || activeScene]}
                 mode="inline"
             >
                 <Logo />
