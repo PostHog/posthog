@@ -68,6 +68,10 @@ DECLARE
 	start_of_day TEXT;
 	end_of_day TEXT;
 BEGIN 
+
+    EXECUTE ('CREATE TABLE temp_posthog_event_default AS TABLE posthog_event_default');
+    EXECUTE ('DROP TABLE posthog_event_default CASCADE');
+    
     range_begin := (SELECT date_trunc('day', MAX(timestamp)) as range_begin from posthog_event); -- start at the latest day that exists
     range_end := (SELECT date_trunc('day', CURRENT_TIMESTAMP) as range_end) + interval '1 week'; -- Always be a week ahead
 
@@ -98,6 +102,15 @@ BEGIN
 
         range_begin := range_begin + interval '1 day';
     END LOOP;
+
+    EXECUTE ('CREATE TABLE posthog_event_default PARTITION OF public.posthog_event DEFAULT');
+
+    -- Move all data from old default table into new table
+    EXECUTE ('INSERT INTO public.posthog_event (id, event, properties, elements, timestamp, team_id, distinct_id, elements_hash)
+    SELECT id, event, properties, elements, timestamp, team_id, distinct_id, elements_hash
+    FROM public.temp_posthog_event_default;');
+
+    EXECUTE ('DROP TABLE temp_posthog_event_default CASCADE');
 
 RETURN;
 END
