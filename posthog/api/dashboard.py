@@ -14,17 +14,33 @@ class DashboardSerializer(serializers.ModelSerializer):
         return dashboard
 
 
+class DashboardsViewSet(viewsets.ModelViewSet):
+    queryset = Dashboard.objects.all()
+    serializer_class = DashboardSerializer
+
+    def get_queryset(self) -> QuerySet:
+        queryset = super().get_queryset()
+        if self.action == 'list':  # type: ignore
+            queryset = queryset.filter(deleted=False)
+        return queryset\
+            .filter(team=self.request.user.team_set.get())\
+            .order_by('name')
+
+
 class DashboardItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = DashboardItem
-        fields = ['id', 'name', 'filters', 'order', 'type', 'deleted', 'dashboard_id']
+        fields = ['id', 'name', 'filters', 'order', 'type', 'deleted', 'dashboard']
 
-    # TODO: validate that dashboard_id is for the same team
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
         request = self.context['request']
-        dashboard_item = DashboardItem.objects.create(team=request.user.team_set.get(), **validated_data)
-        return dashboard_item
- 
+        team = request.user.team_set.get()
+        if validated_data['dashboard'].team == team:
+            dashboard_item = DashboardItem.objects.create(team=team, **validated_data)
+            return dashboard_item
+        else:
+            raise serializers.ValidationError("Dashboard not found")
+
 
 class DashboardItemsViewSet(viewsets.ModelViewSet):
     queryset = DashboardItem.objects.all()
@@ -38,15 +54,3 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
             .filter(team=self.request.user.team_set.get())\
             .order_by('order')
 
-
-class DashboardsViewSet(viewsets.ModelViewSet):
-    queryset = Dashboard.objects.all()
-    serializer_class = DashboardSerializer
-
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-        if self.action == 'list':  # type: ignore
-            queryset = queryset.filter(deleted=False)
-        return queryset\
-            .filter(team=self.request.user.team_set.get())\
-            .order_by('name')
