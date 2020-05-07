@@ -29,7 +29,7 @@ def setup_periodic_tasks(sender, **kwargs):
     # Heartbeat every 10sec to make sure the worker is alive
     sender.add_periodic_task(10.0, redis_heartbeat.s(), name='10 sec heartbeat')
     sender.add_periodic_task(
-        20.0,
+        crontab(minute=0, hour=0),
         update_event_partitions.s(),
     )
 
