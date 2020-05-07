@@ -15,5 +15,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(load_sql('0050_event_partitions.sql'))
+        migrations.RunSQL(load_sql('0050_event_partitions.sql'), reverse_sql=load_sql('0050_event_partitions_reverse.sql'))
     ]
