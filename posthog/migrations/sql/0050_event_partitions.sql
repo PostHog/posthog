@@ -80,11 +80,11 @@ BEGIN
     EXECUTE ('CREATE TABLE temp_posthog_event_default AS TABLE posthog_event_default');
     EXECUTE ('DROP TABLE posthog_event_default CASCADE');
 
-    range_begin := (SELECT date_trunc('day', MAX(timestamp)) as range_begin from posthog_event); -- start at the latest day that exists
+    range_begin := (SELECT date_trunc('day', MIN(timestamp)) as range_begin from temp_posthog_event_default);
     range_end := (SELECT date_trunc('day', CURRENT_TIMESTAMP) as range_end) + interval '1 week'; -- Always be a week ahead
 
     IF range_begin IS NULL THEN
-        range_begin := (SELECT date_trunc('day', MIN(timestamp)) as range_begin from temp_posthog_event_default);
+        range_begin := (SELECT date_trunc('day', MAX(timestamp)) as range_begin from posthog_event);
     END IF;
 
     IF range_begin IS NULL THEN
