@@ -1,4 +1,4 @@
-from posthog.models import Event, Team, Action, ActionStep, Element, User, Person, Filter, Entity, Cohort
+from posthog.models import Event, Team, Action, ActionStep, Element, User, Person, Filter, Entity, Cohort, CohortPeople
 from posthog.utils import properties_to_Q, append_data
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from rest_framework import request, serializers, viewsets, authentication
@@ -245,11 +245,10 @@ class ActionViewSet(viewsets.ModelViewSet):
         annotations: Dict[str, Union[Value, Exists]] = {}
         for cohort in cohorts:
             annotations['cohort_{}'.format(cohort.pk)] = Exists(
-                Person.objects.filter(
-                    cohort.people_filter({'person_id': OuterRef('id')}),
-                    team=team,
-                    id=OuterRef('person_id')
-                )
+                CohortPeople.objects.filter(
+                    cohort=cohort.pk,
+                    person_id=OuterRef('person_id')
+                ).only('id')
             )
         if 'all' in breakdown:
             annotations['cohort_all'] = Value(True, output_field=BooleanField())
@@ -453,7 +452,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 .filter(team=team, id__in=[p['person_id'] for p in events[0:100]])
 
             if request.GET.get('breakdown_type') == 'cohort' and request.GET.get('breakdown_value') != 'all':
-                people = people.filter(Cohort.objects.get(team=team, pk=request.GET['breakdown_value']).people_filter())
+                people = people.filter(cohort=request.GET['breakdown_value'])
             return self._serialize_people(
                 people=people,
                 request=request

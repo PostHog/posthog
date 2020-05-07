@@ -2,7 +2,6 @@ import os
 
 from celery import Celery, schedules
 from django.conf import settings
-from redbeat import RedBeatSchedulerEntry
 import redis
 import time
 

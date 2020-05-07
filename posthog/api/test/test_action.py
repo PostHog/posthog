@@ -708,17 +708,17 @@ class TestTrends(BaseTest):
             {'properties': {'name': 'person1'}},
             {'properties': {'name': 'person2'}},
         ])
+        cohort.calculate_people()
+        cohort2.calculate_people()
+        cohort3.calculate_people()
         action = Action.objects.create(name='watched movie', team=self.team)
         ActionStep.objects.create(action=action, event='watched movie')
+        action.calculate_events()
 
         with freeze_time('2020-01-04T13:01:01Z'):
             event_response = self.client.get('/api/action/trends/?date_from=-14d&breakdown=%s&breakdown_type=cohort&events=%s' % (jdumps([cohort.pk, cohort2.pk, cohort3.pk, 'all']), jdumps([{'id': "watched movie", "name": "watched movie", "type": "events", "order": 0}]))).json()
             action_response = self.client.get('/api/action/trends/?date_from=-14d&breakdown=%s&breakdown_type=cohort&actions=%s' % (jdumps([cohort.pk, cohort2.pk, cohort3.pk, 'all']), jdumps([{'id': action.pk, "type": "actions", "order": 0}]))).json()
 
-        self.assertTrue(self._compare_entity_response(
-            event_response,
-            action_response,
-        ))
         self.assertEqual(event_response[0]['label'], 'watched movie - cohort1')
         self.assertEqual(event_response[1]['label'], 'watched movie - cohort2')
         self.assertEqual(event_response[2]['label'], 'watched movie - cohort3')
@@ -735,6 +735,11 @@ class TestTrends(BaseTest):
 
         self.assertEqual(sum(event_response[3]['data']), 7)
         self.assertEqual(event_response[3]['breakdown_value'], 'all')
+
+        self.assertTrue(self._compare_entity_response(
+            event_response,
+            action_response,
+        ))
 
         people = self.client.get(
             '/api/action/people/',
@@ -760,7 +765,7 @@ class TestTrends(BaseTest):
                 'type': 'events',
                 'entityId': 'watched movie',
                 'breakdown_type': 'cohort',
-                'breakdown_value': 'all users',
+                'breakdown_value': 'all',
                 'breakdown': [cohort.pk]
             },
         ).json()

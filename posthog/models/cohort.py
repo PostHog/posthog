@@ -78,17 +78,18 @@ class Cohort(models.Model):
         self.save()
         event_query, params = (
             Person.objects.filter(self.people_filter(), team=self.team)
+            .distinct('pk')
             .only("pk")
             .query.sql_with_params()
         )
 
         query = """
         DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {};
-        INSERT INTO "posthog_cohortpeople" ("cohort_id", "person_id")
+        INSERT INTO "posthog_cohortpeople" ("person_id", "cohort_id")
         {}
         ON CONFLICT DO NOTHING
         """.format(
-            self.pk, event_query.replace("SELECT ", "SELECT {}, ".format(self.pk), 1)
+            self.pk, event_query.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1)
         )
 
         cursor = connection.cursor()
@@ -106,3 +107,8 @@ class Cohort(models.Model):
 class CohortPeople(models.Model):
     cohort: models.ForeignKey = models.ForeignKey("Cohort", on_delete=models.CASCADE)
     person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["cohort_id", "person_id"]),
+        ]
