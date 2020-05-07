@@ -9,6 +9,6 @@ class Dashboard(models.Model):
         auto_now_add=True, blank=True
     )
     created_by: models.ForeignKey = models.ForeignKey(
-        "User", on_delete=models.CASCADE, null=True, blank=True
+        "User", on_delete=models.SET_NULL, null=True, blank=True
     )
     deleted: models.BooleanField = models.BooleanField(default=False)

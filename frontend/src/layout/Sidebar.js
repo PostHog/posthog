@@ -14,10 +14,13 @@ import {
     AimOutlined,
     UsergroupAddOutlined,
     ContainerOutlined,
+    PushpinOutlined,
+    LinkOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -46,6 +49,7 @@ const submenuOverride = {
     actions: 'events',
     liveActions: 'events',
     cohorts: 'people',
+    dashboard: 'dashboards',
 }
 
 export default function Sidebar(props) {
@@ -54,28 +58,65 @@ export default function Sidebar(props) {
     const { scene, loadingScene } = useValues(sceneLogic)
     const { location } = useValues(router)
     const { push } = useActions(router)
+    const { dashboards, pinnedDashboards } = useValues(dashboardsModel)
 
-    const activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
+    let activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
+    const openSubmenu = submenuOverride[activeScene] || activeScene
+
+    let firstDashboard = pinnedDashboards.length > 0 ? `/dashboard/${pinnedDashboards[0].id}` : '/dashboard'
+    let unpinnedDashboard = null
+    if (activeScene === 'dashboard') {
+        const dashboardId = parseInt(location.pathname.split('/dashboard/')[1])
+        activeScene = `dashboard-${dashboardId}`
+
+        const dashboard = dashboards.find(d => d.id === dashboardId)
+        if (dashboard && !dashboard.pinned) {
+            unpinnedDashboard = dashboard
+        }
+    }
 
     return (
         <Layout.Sider breakpoint="lg" collapsedWidth="0" className="bg-light">
-            <Menu
-                className="h-100 bg-light"
-                selectedKeys={[activeScene]}
-                openKeys={[submenuOverride[activeScene] || activeScene]}
-                mode="inline"
-            >
+            <Menu className="h-100 bg-light" selectedKeys={[activeScene]} openKeys={[openSubmenu]} mode="inline">
                 <Logo />
                 <Menu.Item key="trends" style={itemStyle}>
                     <RiseOutlined />
                     <span>{'Trends'}</span>
                     <Link to={'/trends'} />
                 </Menu.Item>
-                <Menu.Item key="dashboard" style={itemStyle}>
-                    <HomeOutlined />
-                    <span>{'Dashboard'}</span>
-                    <Link to={'/dashboard'} />
-                </Menu.Item>
+                {pinnedDashboards.length > 0 || unpinnedDashboard ? (
+                    <Menu.SubMenu
+                        key="dashboards"
+                        title={
+                            <span style={itemStyle}>
+                                <HomeOutlined />
+                                <span>Dashboards</span>
+                            </span>
+                        }
+                        onTitleClick={() => (location.pathname !== firstDashboard ? push(firstDashboard) : null)}
+                    >
+                        {pinnedDashboards.map(dashboard => (
+                            <Menu.Item key={`dashboard-${dashboard.id}`} style={itemStyle}>
+                                <PushpinOutlined />
+                                <span>{dashboard.name}</span>
+                                <Link to={`/dashboard/${dashboard.id}`} />
+                            </Menu.Item>
+                        ))}
+                        {unpinnedDashboard ? (
+                            <Menu.Item key={`dashboard-${unpinnedDashboard.id}`} style={itemStyle}>
+                                <LinkOutlined />
+                                <span>{unpinnedDashboard.name}</span>
+                                <Link to={`/dashboard/${unpinnedDashboard.id}`} />
+                            </Menu.Item>
+                        ) : null}
+                    </Menu.SubMenu>
+                ) : (
+                    <Menu.Item key="dashboards" style={itemStyle}>
+                        <HomeOutlined />
+                        <span>Dashboards</span>
+                        <Link to="/dashboard" />
+                    </Menu.Item>
+                )}
                 <Menu.SubMenu
                     key="events"
                     title={

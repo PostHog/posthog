@@ -10,6 +10,7 @@ const delay = ms => new Promise(resolve => window.setTimeout(resolve, ms))
 export const scenes = {
     // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
 
+    dashboards: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboards'),
     dashboard: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
     events: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     person: () => import(/* webpackChunkName: 'person' */ './users/Person'),
@@ -31,7 +32,8 @@ export const redirects = {
 }
 
 export const routes = {
-    '/dashboard': 'dashboard',
+    '/dashboard': 'dashboards',
+    '/dashboard/:id': 'dashboard',
     '/action/:id': 'action',
     '/action': 'action',
     '/actions/live': 'liveActions',
