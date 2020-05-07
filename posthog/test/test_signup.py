@@ -1,5 +1,5 @@
 from django.test import TestCase, Client
-from posthog.models import User, DashboardItem, Action, Person, Event, Team
+from posthog.models import User, Dashboard, DashboardItem, Action, Person, Event, Team
 from social_django.strategy import DjangoStrategy
 from social_django.models import DjangoStorage
 from social_core.utils import module_member
@@ -28,11 +28,17 @@ class TestSignup(TestCase):
         self.assertEqual(action.name, 'Pageviews')
         self.assertEqual(action.steps.all()[0].event, '$pageview')
 
+        dashboards = Dashboard.objects.filter(team=team).order_by('id')
+        self.assertEqual(dashboards[0].name, 'Default Dashboard')
+        self.assertEqual(dashboards[0].team, team)
+
         items = DashboardItem.objects.filter(team=team).order_by('id')
+        self.assertEqual(items[0].dashboard, dashboards[0])
         self.assertEqual(items[0].name, 'Pageviews this week')
         self.assertEqual(items[0].type, 'ActionsLineGraph')
         self.assertEqual(items[0].filters['events'][0]['id'], '$pageview')
 
+        self.assertEqual(items[1].dashboard, dashboards[0])
         self.assertEqual(items[1].filters['events'][0]['id'], '$pageview')
         self.assertEqual(items[1].type, 'ActionsTable')
 
