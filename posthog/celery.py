@@ -1,7 +1,9 @@
 import os
 
 from celery import Celery
+from celery.schedules import crontab
 from django.conf import settings
+from django.db import connection
 import redis
 import time
 
@@ -26,12 +28,19 @@ redis_instance = redis.from_url(settings.REDIS_URL, db=0)
 def setup_periodic_tasks(sender, **kwargs):
     # Heartbeat every 10sec to make sure the worker is alive
     sender.add_periodic_task(10.0, redis_heartbeat.s(), name='10 sec heartbeat')
-
+    sender.add_periodic_task(
+        20.0,
+        update_event_partitions.s(),
+    )
 
 @app.task
 def redis_heartbeat():
     redis_instance.set("POSTHOG_HEARTBEAT", int(time.time()))
 
+@app.task
+def update_event_partitions():
+    with connection.cursor() as cursor:
+        cursor.execute("DO $$ BEGIN IF (SELECT exists(select * from pg_proc where proname = 'update_partitions')) THEN PERFORM update_partitions(); END IF; END $$")
 
 @app.task(bind=True)
 def debug_task(self):
