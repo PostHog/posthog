@@ -328,11 +328,11 @@ class ActionViewSet(viewsets.ModelViewSet):
             'count': sum(data)
         }
 
-    def _breakdown_label(self, entity: Entity, value: str) -> Dict[str, str]:
-        ret_dict = {}
-        if 'cohort_' not in value:
+    def _breakdown_label(self, entity: Entity, value: str) -> Dict[str, Optional[str]]:
+        ret_dict: Dict[str, Optional[str]] = {}
+        if not value or 'cohort_' not in value:
             ret_dict['label'] = '{} - {}'.format(entity.name, value if value else 'undefined') 
-            ret_dict['breakdown_value'] = value if not pd.isna(value) else None
+            ret_dict['breakdown_value'] = value if value and not pd.isna(value) else None
         else:
             if value == 'cohort_all':
                 ret_dict['label'] = '{} - all users'.format(entity.name) 

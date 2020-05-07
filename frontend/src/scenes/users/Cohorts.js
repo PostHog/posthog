@@ -1,9 +1,10 @@
 import React, { Component } from 'react'
 import { Link } from 'lib/components/Link'
+import { LinkButton } from 'lib/components/LinkButton'
 import moment from 'moment'
 import { DeleteWithUndo } from 'lib/utils'
 import { Tooltip, Table, Spin } from 'antd'
-import { ExportOutlined, DeleteOutlined } from '@ant-design/icons'
+import { ExportOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
 
@@ -18,7 +19,26 @@ export function Cohorts() {
             render: (_, cohort) => <Link to={'/people?cohort=' + cohort.id}>{cohort.name}</Link>,
         },
         {
-            title: 'Last calculation',
+            title: 'Users in cohort',
+            render: (_, cohort) => cohort.count.toLocaleString(),
+        },
+        {
+            title: 'Created at',
+            render: (_, cohort) => (cohort.created_at ? moment(cohort.created_at).format('LLL') : '-'),
+        },
+        {
+            title: 'Created by',
+            render: (_, cohort) => (cohort.created_by ? cohort.created_by.first_name || cohort.created_by.email : '-'),
+        },
+        {
+            title: (
+                <span>
+                    <Tooltip title="PostHog calculates what users belong to each cohort. This is then used when filtering on cohorts in the Trends page etc. Calculating happens every 15 minutes, or whenever a cohort is updated.">
+                        Last calculation
+                        <InfoCircleOutlined style={{ marginLeft: 6 }} />
+                    </Tooltip>
+                </span>
+            ),
             render: (_, cohort) =>
                 cohort.is_calculating ? (
                     <span>
@@ -54,15 +74,15 @@ export function Cohorts() {
     return (
         <div>
             <h1>Cohorts</h1>
-            <Link to={'/people?new_cohort='} className="btn btn-outline-success btn-sm">
+            <LinkButton to={'/people/new_cohort'} type="primary">
                 + new cohort
-            </Link>
+            </LinkButton>
             <br />
             <br />
             <Table
                 size="small"
                 columns={columns}
-                loading={cohortsLoading}
+                loading={!cohorts && cohortsLoading}
                 rowKey={cohort => cohort.id}
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
                 dataSource={cohorts}

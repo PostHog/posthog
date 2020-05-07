@@ -26,7 +26,7 @@ redis_instance = redis.from_url(settings.REDIS_URL, db=0)
 def setup_periodic_tasks(sender, **kwargs):
     # Heartbeat every 10sec to make sure the worker is alive
     sender.add_periodic_task(10.0, redis_heartbeat.s(), name='10 sec heartbeat')
-    sender.add_periodic_task(15*60, debug_task.s(), name='debug')
+    sender.add_periodic_task(15*60, calculate_cohort.s(), name='debug')
 
 @app.task
 def redis_heartbeat():

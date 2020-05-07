@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { Card, CloseButton, fromParams } from 'lib/utils'
-import api from 'lib/api'
-import { toast } from 'react-toastify'
 import { CohortGroup } from './CohortGroup'
 import { cohortLogic } from './cohortLogic'
+import { Button } from 'antd'
 
 import { useValues, useActions } from 'kea'
 import { router } from 'kea-router'
@@ -14,13 +13,13 @@ export function Cohort({ onChange }) {
 
     if (!cohort) return null
     return cohort.groups.length === 0 ? (
-        <button
-            className="btn btn-sm btn-outline-success float-right"
-            style={{ marginBottom: '1rem', marginLeft: 12 }}
+        <Button
+            style={{ marginBottom: '1rem', marginRight: 12 }}
             onClick={() => setCohort({ groups: [{}] })}
+            type="primary"
         >
             + new cohort
-        </button>
+        </Button>
     ) : (
         <div style={{ maxWidth: 750 }}>
             <Card
@@ -79,17 +78,16 @@ export function Cohort({ onChange }) {
                             </div>,
                             curr,
                         ])}
-                    <button
-                        className="btn btn-outline-success btn-sm"
-                        style={{ marginTop: '1rem' }}
-                        type="button"
-                        onClick={() => setCohort({ ...cohort, groups: [...groups, {}] })}
+
+                    <Button type="primary" htmlType="submit" style={{ marginTop: '1rem' }}>
+                        Save cohort
+                    </Button>
+                    <Button
+                        style={{ marginTop: '1rem', marginLeft: 12 }}
+                        onClick={() => setCohort({ ...cohort, groups: [...cohort.groups, {}] })}
                     >
                         New group
-                    </button>
-                    <button className="btn btn-success btn-sm float-right" style={{ marginTop: '1rem' }}>
-                        Save cohort
-                    </button>
+                    </Button>
                 </form>
             </Card>
         </div>

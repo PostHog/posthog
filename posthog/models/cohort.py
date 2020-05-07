@@ -36,7 +36,7 @@ class Cohort(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(
         default=timezone.now, blank=True, null=True
     )
-    is_calculating: models.BooleanField = models.BooleanField(default=True)
+    is_calculating: models.BooleanField = models.BooleanField(default=False)
     last_calculation: models.DateTimeField = models.DateTimeField(
         blank=True, null=True
     )

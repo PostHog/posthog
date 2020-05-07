@@ -1,16 +1,17 @@
 from rest_framework import request, response, serializers, viewsets
 from posthog.models import Cohort
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from posthog.api.user import UserSerializer
 from posthog.tasks.calculate_cohort import calculate_cohort
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Count
 
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserSerializer(required=False, read_only=True)
+    count = serializers.SerializerMethodField()
 
     class Meta:
         model = Cohort
-        fields = ['id', 'name', 'groups', 'deleted', 'is_calculating', 'created_by', 'created_at', 'last_calculation']
+        fields = ['id', 'name', 'groups', 'deleted', 'is_calculating', 'created_by', 'created_at', 'last_calculation', 'count']
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context['request']
@@ -29,6 +30,10 @@ class CohortSerializer(serializers.ModelSerializer):
         calculate_cohort.delay(cohort_id=cohort.pk)
         return cohort
 
+    def get_count(self, action: Cohort) -> Optional[int]:
+        if hasattr(action, 'count'):
+            return action.count  # type: ignore
+        return None
 
 class CohortViewSet(viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
@@ -38,6 +43,8 @@ class CohortViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == 'list':  # type: ignore
             queryset = queryset.filter(deleted=False)
+
+        queryset = queryset.annotate(count=Count('people'))
         return queryset\
             .filter(team=self.request.user.team_set.get())\
             .select_related('created_by')\

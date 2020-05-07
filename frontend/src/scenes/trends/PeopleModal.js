@@ -9,11 +9,10 @@ export function PeopleModal() {
     const { people, filters } = useValues(trendsLogic({ id: null }))
     const { setShowingPeople } = useActions(trendsLogic({ dashboardItemId: null }))
 
-    const name = people ? people.action.name + (people.breakdown_value ? ' - ' + people.breakdown_value : '') : '...'
     const title =
         filters.shown_as === 'Stickiness'
-            ? `"${name}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
-            : `"${name}" on ${people?.day ? moment(people.day).format('ll') : '...'}`
+            ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
+            : `"${people?.label}" on ${people?.day ? moment(people.day).format('ll') : '...'}`
 
     return (
         <Modal title={title} onDismiss={() => setShowingPeople(false)}>

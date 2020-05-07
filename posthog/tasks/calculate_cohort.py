@@ -1,6 +1,9 @@
 from celery import shared_task
 from posthog.models import Cohort
 from posthog.celery import app
+from django.utils import timezone
+from django.db.models import Q
+from dateutil.relativedelta import relativedelta
 import logging
 import time
 
@@ -16,9 +19,8 @@ def calculate_cohort(cohort_id: int) -> None:
 
 
 def calculate_cohorts() -> None:
-    print('blablab')
     start_time = time.time()
-    for cohort in Cohort.objects.filter(is_calculating=False).order_by('id'):
+    for cohort in Cohort.objects.filter(Q(is_calculating=False) | Q(last_calculation__lte=timezone.now() - relativedelta(minutes=15))).order_by('id'):
         cohort_start = time.time()
         cohort.calculate_people()
         logger.info(' - Calculating cohort {} took {:.2f} seconds'.format(cohort.pk, (time.time() - cohort_start)))

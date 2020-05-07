@@ -105,9 +105,16 @@ export const trendsLogic = kea({
         setFilters: (filters, mergeFilters = true, fromUrl = false) => ({ filters, mergeFilters, fromUrl }),
         setDisplay: display => ({ display }),
 
-        loadPeople: (action, day, breakdown_value) => ({ action, day, breakdown_value }),
+        loadPeople: (action, label, day, breakdown_value) => ({ action, label, day, breakdown_value }),
         setShowingPeople: isShowing => ({ isShowing }),
-        setPeople: (people, count, action, day, breakdown_value) => ({ people, count, action, day, breakdown_value }),
+        setPeople: (people, count, action, label, day, breakdown_value) => ({
+            people,
+            count,
+            action,
+            label,
+            day,
+            breakdown_value,
+        }),
         setActiveView: type => ({ type }),
         setCachedUrl: (type, url) => ({ type, url }),
     }),
@@ -160,7 +167,7 @@ export const trendsLogic = kea({
         [actions.setDisplay]: async ({ display }) => {
             actions.setFilters({ display })
         },
-        [actions.loadPeople]: async ({ action, day, breakdown_value }, breakpoint) => {
+        [actions.loadPeople]: async ({ label, action, day, breakdown_value }, breakpoint) => {
             const params = filterClientSideParams({
                 ...values.filters,
                 entityId: action.id,
@@ -179,10 +186,10 @@ export const trendsLogic = kea({
             }
 
             const filterParams = toAPIParams(params)
-            actions.setPeople(null, null, action, day, breakdown_value)
+            actions.setPeople(null, null, action, label, day, breakdown_value)
             const people = await api.get(`api/action/people/?include_last_event=1&${filterParams}`)
             breakpoint()
-            actions.setPeople(people[0]?.people, people[0]?.count, action, day, breakdown_value)
+            actions.setPeople(people[0]?.people, people[0]?.count, action, label, day, breakdown_value)
         },
     }),
 
