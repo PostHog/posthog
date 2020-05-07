@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const dashboardLogic = kea({
     key: props => props.id,
@@ -15,8 +16,13 @@ export const dashboardLogic = kea({
         ],
     }),
 
-    selectors: ({ selectors }) => ({
+    selectors: ({ selectors, props }) => ({
         items: [() => [selectors.dashboard], dashboard => dashboard.items || []],
+        partialDashboard: [
+            () => [dashboardsModel.selectors.dashboards, selectors.dashboard],
+            (dashboards, dashboard) =>
+                Object.assign({}, dashboards.find(d => d.id === parseInt(props.id)) || {}, dashboard),
+        ],
     }),
 
     events: ({ actions }) => ({
