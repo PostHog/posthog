@@ -4,14 +4,21 @@ from typing import Dict, Any
 from django.db.models import QuerySet
 
 class DashboardSerializer(serializers.ModelSerializer):
+    items = serializers.SerializerMethodField()
     class Meta:
         model = Dashboard
-        fields = ['id', 'name', 'pinned']
+        fields = ['id', 'name', 'pinned', 'items', 'created_at', 'created_by']
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context['request']
         dashboard = Dashboard.objects.create(team=request.user.team_set.get(), **validated_data)
         return dashboard
+
+    def get_items(self, dashboard: Dashboard):
+        if self.context['view'].action == 'list':
+            return None
+        items = dashboard.items.filter(deleted=False).order_by('order').all()
+        return DashboardItemSerializer(items, many=True).data
 
 
 class DashboardsViewSet(viewsets.ModelViewSet):
@@ -22,6 +29,7 @@ class DashboardsViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == 'list':  # type: ignore
             queryset = queryset.filter(deleted=False)
+
         return queryset\
             .filter(team=self.request.user.team_set.get())\
             .order_by('name')

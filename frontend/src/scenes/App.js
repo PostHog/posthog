@@ -12,18 +12,13 @@ import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic, loadedScenes } from 'scenes/sceneLogic'
+import { SceneLoading } from 'lib/utils'
 
 export default function App() {
     const { user } = useValues(userLogic)
     const { scene, params } = useValues(sceneLogic)
 
-    const Scene =
-        loadedScenes[scene]?.component ||
-        (() => (
-            <div style={{ textAlign: 'center', marginTop: '20vh' }}>
-                <Spin />
-            </div>
-        ))
+    const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
 
     if (!user) {
         return null

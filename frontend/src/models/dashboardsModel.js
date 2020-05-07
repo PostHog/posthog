@@ -6,7 +6,7 @@ export const dashboardsModel = kea({
         dashboards: [
             [],
             {
-                loadDashboards: async () => (await api.get('api/dashboards')).results,
+                loadDashboards: async () => (await api.get('api/dashboard')).results,
             },
         ],
     }),

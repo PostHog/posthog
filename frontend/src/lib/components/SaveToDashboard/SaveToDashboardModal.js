@@ -14,7 +14,7 @@ export function SaveToDashboardModal({ closeModal, name: initialName, type, filt
 
     function save(event) {
         event.preventDefault()
-        api.create('api/dashboard', { filters, type, name, dashboard: dashboardId + 10 }).then(() => {
+        api.create('api/dashboard_item', { filters, type, name, dashboard: dashboardId }).then(() => {
             toast(
                 <div>
                     Panel added to dashboard.&nbsp;

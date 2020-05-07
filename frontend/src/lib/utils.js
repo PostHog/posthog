@@ -57,6 +57,12 @@ export const TableRowLoading = ({ colSpan = 1, asOverlay = false }) => (
     </tr>
 )
 
+export const SceneLoading = () => (
+    <div style={{ textAlign: 'center', marginTop: '20vh' }}>
+        <Spin />
+    </div>
+)
+
 export let CloseButton = props => {
     return (
         <span {...props} className={'close cursor-pointer ' + props.className} style={{ ...props.style }}>
