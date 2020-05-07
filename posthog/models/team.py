@@ -23,7 +23,7 @@ class TeamManager(models.Manager):
         ActionStep.objects.create(action=action, event="$pageview")
 
         dashboard = Dashboard.objects.create(
-            name="Default Dashboard",
+            name="Default",
             pinned=True,
             team=team
         )

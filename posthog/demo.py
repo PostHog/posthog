@@ -105,7 +105,7 @@ def _create_funnel(team: Team, base_url: str) -> None:
     })
 
     dashboard = Dashboard.objects.create(
-        name="Default Dashboard",
+        name="Default",
         pinned=True,
         team=team
     )

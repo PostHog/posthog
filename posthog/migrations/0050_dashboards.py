@@ -14,7 +14,7 @@ def forwards(apps, schema_editor):
     for team in teams:
         with transaction.atomic():
             dashboard = Dashboard.objects.create(
-                name="Default Dashboard",
+                name="Default",
                 pinned=True,
                 team=team
             )

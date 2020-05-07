@@ -29,7 +29,7 @@ class TestSignup(TestCase):
         self.assertEqual(action.steps.all()[0].event, '$pageview')
 
         dashboards = Dashboard.objects.filter(team=team).order_by('id')
-        self.assertEqual(dashboards[0].name, 'Default Dashboard')
+        self.assertEqual(dashboards[0].name, 'Default')
         self.assertEqual(dashboards[0].team, team)
 
         items = DashboardItem.objects.filter(team=team).order_by('id')
