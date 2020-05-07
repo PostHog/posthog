@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom'
 import { Modal, Input, Form } from 'antd'
 
 // Based on https://github.com/wangsijie/antd-prompt/blob/master/src/index.js
-// Adapted for ant.design v4
+// Adapted for ant.design v4 and added cancellation support
 
 function Prompt({ value, visible, afterClose, close, title, modalProps, rules, placeholder }) {
     const [form] = Form.useForm()
@@ -30,8 +30,14 @@ function Prompt({ value, visible, afterClose, close, title, modalProps, rules, p
     )
 }
 
-export function prompt(config) {
-    return new Promise((resolve, reject) => {
+export async function prompt(config) {
+    return await cancellablePrompt(config).promise
+}
+
+export function cancellablePrompt(config) {
+    let trigger = () => {}
+    const cancel = () => window.setTimeout(trigger, 1)
+    const promise = new Promise((resolve, reject) => {
         const div = document.createElement('div')
         document.body.appendChild(div)
         // eslint-disable-next-line no-use-before-define
@@ -62,6 +68,13 @@ export function prompt(config) {
             render(currentConfig)
         }
 
+        trigger = close
+
         render(currentConfig)
     })
+
+    return {
+        cancel,
+        promise,
+    }
 }

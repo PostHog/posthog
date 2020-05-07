@@ -13,8 +13,7 @@ import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Select, message } from 'antd'
-import { prompt } from 'lib/components/prompt'
+import { Select } from 'antd'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -37,30 +36,9 @@ const typeMap = {
 
 export function Dashboard({ id }) {
     const { partialDashboard, dashboardLoading, items } = useValues(dashboardLogic({ id }))
-    const { loadDashboard } = useActions(dashboardLogic({ id }))
+    const { loadDashboard, addNewDashboard } = useActions(dashboardLogic({ id }))
     const { user } = useValues(userLogic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
-
-    async function changeDashboard(id) {
-        if (id === 'new') {
-            try {
-                const name = await prompt({
-                    title: 'New dashboard',
-                    placeholder: 'Please enter a name',
-                    value: '',
-                    rules: [
-                        {
-                            required: true,
-                            message: 'You must enter name',
-                        },
-                    ],
-                })
-                message.success('Should now create a new dashboard with the name: ' + name)
-            } catch (e) {}
-        } else {
-            router.actions.push(`/dashboard/${id}`)
-        }
-    }
 
     return (
         <div>
@@ -71,7 +49,9 @@ export function Dashboard({ id }) {
                     <div>
                         <Select
                             value={partialDashboard?.id}
-                            onChange={changeDashboard}
+                            onChange={id =>
+                                id === 'new' ? addNewDashboard() : router.actions.push(`/dashboard/${id}`)
+                            }
                             bordered={false}
                             dropdownMatchSelectWidth={false}
                         >
