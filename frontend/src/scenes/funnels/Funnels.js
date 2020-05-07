@@ -7,7 +7,7 @@ export class Funnels extends Component {
     constructor(props) {
         super(props)
 
-        this.state = { loading: true }
+        this.state = { loading: true, funnels: [] }
         this.fetchFunnels = this.fetchFunnels.bind(this)
         this.fetchFunnels()
     }
