@@ -11,6 +11,7 @@ export class Cohorts extends Component {
 
         this.state = {
             loading: true,
+            cohorts: [],
         }
         this.fetchCohorts = this.fetchCohorts.bind(this)
         this.fetchCohorts()

@@ -8,6 +8,7 @@ export class ActionsTable extends Component {
         super(props)
 
         this.state = {
+            actions: [],
             newEvents: [],
             loading: true,
         }
