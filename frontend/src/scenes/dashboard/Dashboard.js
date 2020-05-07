@@ -1,6 +1,5 @@
-import React, { Component } from 'react'
+import React from 'react'
 import { combineUrl } from 'kea-router'
-import api from 'lib/api'
 import { Link } from 'lib/components/Link'
 import { DeleteWithUndo, Loading, SceneLoading } from 'lib/utils'
 import { FunnelViz } from '../funnels/FunnelViz'
@@ -8,31 +7,9 @@ import { ActionsLineGraph } from '../trends/ActionsLineGraph'
 import { ActionsTable } from '../trends/ActionsTable'
 import { ActionsPie } from '../trends/ActionsPie'
 import { Dropdown } from 'lib/components/Dropdown'
-import { kea, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-
-const dashboardLogic = kea({
-    key: props => props.id,
-
-    loaders: ({ props }) => ({
-        dashboard: [
-            {},
-            {
-                loadDashboard: async () => {
-                    return await api.get(`api/dashboard/${props.id}`)
-                },
-            },
-        ],
-    }),
-
-    selectors: ({ selectors }) => ({
-        items: [() => [selectors.dashboard], dashboard => dashboard.items || []],
-    }),
-
-    events: ({ actions }) => ({
-        afterMount: [actions.loadDashboard],
-    }),
-})
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 const typeMap = {
     ActionsLineGraph: {
