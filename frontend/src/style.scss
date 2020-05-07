@@ -247,3 +247,7 @@ label.disabled {
     cursor: pointer;
     margin-left: 8px;
 }
+
+.anticon {
+    vertical-align: 0 !important// antd fix of icons;
+}
