@@ -76,7 +76,7 @@ export function Trends() {
                                         />
                                         {filters.breakdown && (
                                             <CloseButton
-                                                onClick={() => setFilters({ breakdown: false })}
+                                                onClick={() => setFilters({ breakdown: false, breakdown_type: null })}
                                                 style={{ marginTop: 1, marginLeft: 10 }}
                                             />
                                         )}
