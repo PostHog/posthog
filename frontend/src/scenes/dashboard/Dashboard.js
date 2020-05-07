@@ -13,7 +13,8 @@ import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Select } from 'antd'
+import { Select, message } from 'antd'
+import { prompt } from 'lib/components/prompt'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -40,9 +41,22 @@ export function Dashboard({ id }) {
     const { user } = useValues(userLogic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
 
-    function changeDashboard(id) {
+    async function changeDashboard(id) {
         if (id === 'new') {
-            window.prompt('Name of the new dashboard?')
+            try {
+                const name = await prompt({
+                    title: 'New dashboard',
+                    placeholder: 'Please enter a name',
+                    value: '',
+                    rules: [
+                        {
+                            required: true,
+                            message: 'You must enter name',
+                        },
+                    ],
+                })
+                message.success('Should now create a new dashboard with the name: ' + name)
+            } catch (e) {}
         } else {
             router.actions.push(`/dashboard/${id}`)
         }
@@ -63,7 +77,7 @@ export function Dashboard({ id }) {
                         >
                             {dashboards.map(dashboard => (
                                 <Select.Option key={dashboard.id} value={parseInt(dashboard.id)}>
-                                    {dashboard.name || <span style={{ color: '#888' }}>Untitled</span>}
+                                    {dashboard.name || <span style={{ color: 'var(--gray)' }}>Untitled</span>}
                                 </Select.Option>
                             ))}
 
