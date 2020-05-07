@@ -1,4 +1,3 @@
-BEGIN;
 DO $$
 DECLARE
     partition_date TEXT;
@@ -68,13 +67,7 @@ DECLARE
 	start_of_day TEXT;
 	end_of_day TEXT;
 BEGIN 
-
-    EXECUTE ('CREATE TABLE temp_posthog_event_default AS TABLE posthog_event_default');
-    EXECUTE ('DROP TABLE posthog_event_default CASCADE');
     
-    range_begin := (SELECT date_trunc('day', MAX(timestamp)) as range_begin from posthog_event); -- start at the latest day that exists
-    range_end := (SELECT date_trunc('day', CURRENT_TIMESTAMP) as range_end) + interval '1 week'; -- Always be a week ahead
-
     -- If there is no master table then don't create
     IF NOT EXISTS
         (SELECT 1
@@ -84,13 +77,26 @@ BEGIN
         RETURN;
     END IF;
 
+    EXECUTE ('CREATE TABLE temp_posthog_event_default AS TABLE posthog_event_default');
+    EXECUTE ('DROP TABLE posthog_event_default CASCADE');
+
+    range_begin := (SELECT date_trunc('day', MAX(timestamp)) as range_begin from posthog_event); -- start at the latest day that exists
+    range_end := (SELECT date_trunc('day', CURRENT_TIMESTAMP) as range_end) + interval '1 week'; -- Always be a week ahead
+
+    IF range_begin IS NULL THEN
+        range_begin := (SELECT date_trunc('day', MIN(timestamp)) as range_begin from temp_posthog_event_default);
+    END IF;
+
+    IF range_begin IS NULL THEN
+        range_begin := (SELECT date_trunc('day', CURRENT_TIMESTAMP) as range_begin);
+    END IF;
+
     WHILE range_begin <= range_end
     LOOP
         partition_date := to_char(range_begin,'YYYY_MM_DD');
         partition_name := 'posthog_event_' || partition_date;
         start_of_day := to_char((range_begin),'YYYY_MM_DD');
         end_of_day := to_char((range_begin + interval '1 day'),'YYYY_MM_DD');
-
         IF NOT EXISTS
             (SELECT 1
             FROM   information_schema.tables 
@@ -116,5 +122,3 @@ RETURN;
 END
 $$
 LANGUAGE plpgsql;
-
-COMMIT;
