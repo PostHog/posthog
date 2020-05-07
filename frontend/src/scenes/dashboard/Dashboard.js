@@ -1,7 +1,8 @@
 import React, { Component } from 'react'
+import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { Link } from 'lib/components/Link'
-import { toParams, DeleteWithUndo, addUrlQuestion, Loading } from 'lib/utils'
+import { DeleteWithUndo, Loading } from 'lib/utils'
 import { FunnelViz } from '../funnels/FunnelViz'
 import { ActionsLineGraph } from '../trends/ActionsLineGraph'
 import { ActionsTable } from '../trends/ActionsTable'
@@ -24,15 +25,15 @@ export class Dashboard extends Component {
         let typeMap = {
             ActionsLineGraph: {
                 element: ActionsLineGraph,
-                link: filters => `/trends${addUrlQuestion(toParams(filters))}`,
+                link: filters => combineUrl('/trends', filters).url,
             },
             ActionsTable: {
                 element: ActionsTable,
-                link: filters => `/trends${addUrlQuestion(toParams(filters))}`,
+                link: filters => combineUrl('/trends', filters).url,
             },
             ActionsPie: {
                 element: ActionsPie,
-                link: filters => `/trends${addUrlQuestion(toParams(filters))}`,
+                link: filters => combineUrl('/trends', filters).url,
             },
             FunnelViz: {
                 element: FunnelViz,
@@ -87,7 +88,7 @@ export class Dashboard extends Component {
                             </div>
                         )
                     })}
-                {items && this.props.user.has_events && items.length == 0 && (
+                {items && this.props.user.has_events && items.length === 0 && (
                     <p>
                         You don't have any panels set up. <Link to="/trends">Click here to create one.</Link>
                     </p>

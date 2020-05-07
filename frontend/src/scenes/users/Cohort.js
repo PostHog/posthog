@@ -1,14 +1,9 @@
 import React, { Component } from 'react'
-import { addUrlQuestion, Card, CloseButton, fromParams } from 'lib/utils'
+import { Card, CloseButton, fromParams } from 'lib/utils'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { CohortGroup } from './CohortGroup'
 import { router } from 'kea-router'
-
-let toParams = obj =>
-    Object.entries(obj)
-        .map(([key, val]) => `${key}=${encodeURIComponent(val)}`)
-        .join('&')
 
 export class _Cohort extends Component {
     constructor(props) {
@@ -37,7 +32,7 @@ export class _Cohort extends Component {
             this.props.onChange(cohort.id)
             this.setState({ id: cohort.id })
             toast('Cohort saved.')
-            this.actions.push(`${this.props.location.pathname}${addUrlQuestion(toParams({ cohort: cohort.id }))}`)
+            this.actions.push(this.props.location.pathname, { cohort: cohort.id })
         }
         if (this.state.id) {
             return api.update('api/cohort/' + this.state.id, cohort).then(onResponse)

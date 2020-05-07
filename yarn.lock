@@ -4758,17 +4758,17 @@ kea-loaders@^0.1.1:
   resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.1.1.tgz#d6db27a48aecdd167cf08159aae8456659a2cc83"
   integrity sha512-0TLKdOOk7yS3PiUA6zTxeXRFLCV9cT5qmZLbj8GSqtFbvLsowipXhFk1vd/b65jKjq41/qfWdj38oUKb/jpojA==
 
-kea-router@^0.2.4:
-  version "0.2.4"
-  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-0.2.4.tgz#919df2bdad82976c57bbd031083d5e8a94051340"
-  integrity sha512-K1I5AyZYmH/sB0YKosfCYPFxIqjifVO8LdvaTSwIFi03sbbcqA4D3O9IucwMNG25M6Iu6lYyYCe3uXaqbY7OmQ==
+kea-router@^0.3.0:
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-0.3.0.tgz#2478b3669c769a5458f3b7a2157a370e203d43c6"
+  integrity sha512-ch8P9jIzRnCx1FL38uMgoDk7LQtI0/tyI+ROEnIwPmb5xkzeCeG8br0hfI+XDsrYzHTdrSE+YkGUaM1Xl5xugQ==
   dependencies:
     url-pattern "^1.0.3"
 
-kea@^2.0.0-beta.6:
-  version "2.0.0-beta.6"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.0.0-beta.6.tgz#eb207fb7494fc4cc57f2eea1e70f062ff74d596e"
-  integrity sha512-sqHxQY1ImuYkiIghaBgX6MN8QAQEBXBBje8NOf395ytgqGL68NDAKwVYKCs9S3kvREtLDmlVwuUhOmacKnf9Qg==
+kea@^2.0.0-beta.7:
+  version "2.0.0-beta.7"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.0.0-beta.7.tgz#a45009522af88d219ca4a47b3d9058a7577ccfd8"
+  integrity sha512-D2hYbIhuxFMEnn5E55BTrkyLU7sBUxi92di9IQwMNRNNrWrvDioHPB2P+JRs3LcRY8Tb+rOoJYy04M78biXffw==
 
 kind-of@^3.0.2, kind-of@^3.0.3, kind-of@^3.2.0:
   version "3.2.2"

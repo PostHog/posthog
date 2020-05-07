@@ -1,16 +1,19 @@
 import React from 'react'
-import { toParams } from '../utils'
+import { combineUrl } from 'kea-router'
 import PropTypes from 'prop-types'
 
 import { Property } from 'lib/components/Property'
 import { Link } from 'lib/components/Link'
 
 export function FilterPropertyLink({ property, value, filters, onClick }) {
-    const params = toParams({ ...filters, properties: { ...filters.properties, [property]: value } })
+    const { url } = combineUrl(window.location.pathname, {
+        ...filters,
+        properties: { ...filters.properties, [property]: value },
+    })
 
     return (
         <Link
-            to={`${window.location.pathname}${params ? '?' : ''}${params}`}
+            to={url}
             onClick={event => {
                 if (onClick) {
                     onClick(property, value)
