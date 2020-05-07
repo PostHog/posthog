@@ -1,20 +1,17 @@
 import React, { Component } from 'react'
-import { Card, CloseButton, fromParams } from '../../lib/utils'
-import api from '../../lib/api'
+import { Card, CloseButton, fromParams } from 'lib/utils'
+import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { CohortGroup } from './CohortGroup'
+import { router } from 'kea-router'
 
-let toParams = obj =>
-    Object.entries(obj)
-        .map(([key, val]) => `${key}=${encodeURIComponent(val)}`)
-        .join('&')
-
-export class Cohort extends Component {
+export class _Cohort extends Component {
     constructor(props) {
         super(props)
         this.state = {
             groups: window.location.search.indexOf('new_cohort') > -1 ? [{}] : [],
             id: fromParams()['cohort'],
+            name: '',
         }
         this.fetchProperties.call(this)
         this.fetchActions.call(this)
@@ -35,10 +32,7 @@ export class Cohort extends Component {
             this.props.onChange(cohort.id)
             this.setState({ id: cohort.id })
             toast('Cohort saved.')
-            this.props.history.push({
-                pathname: this.props.history.location.pathname,
-                search: toParams({ cohort: cohort.id }),
-            })
+            this.actions.push(this.props.location.pathname, { cohort: cohort.id })
         }
         if (this.state.id) {
             return api.update('api/cohort/' + this.state.id, cohort).then(onResponse)
@@ -67,7 +61,7 @@ export class Cohort extends Component {
     }
     render() {
         let { groups, properties, actions, name } = this.state
-        return groups.length == 0 ? (
+        return groups.length === 0 ? (
             <button
                 className="btn btn-sm btn-outline-success float-right"
                 style={{ marginBottom: '1rem', marginLeft: 12 }}
@@ -85,10 +79,7 @@ export class Cohort extends Component {
                                 onClick={() => {
                                     this.setState({ groups: [], id: false })
                                     this.props.onChange()
-                                    this.props.history.push({
-                                        pathname: this.props.history.location.pathname,
-                                        search: {},
-                                    })
+                                    this.actions.push(`${this.props.location.pathname}`)
                                 }}
                             />
                             {name || 'New cohort'}
@@ -148,3 +139,5 @@ export class Cohort extends Component {
         )
     }
 }
+
+export const Cohort = router(_Cohort)

@@ -1,6 +1,7 @@
 import React from 'react'
 import { Button, Table } from 'antd'
-import { Link } from 'react-router-dom'
+import api from 'lib/api'
+import { Link } from 'lib/components/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { DeleteOutlined } from '@ant-design/icons'
 import { deletePersonData } from 'lib/utils'

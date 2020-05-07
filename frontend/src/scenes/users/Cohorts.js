@@ -1,9 +1,9 @@
 import React, { Component } from 'react'
-import { Link } from 'react-router-dom'
-import { DeleteWithUndo, Loading } from '../../lib/utils'
+import { Link } from 'lib/components/Link'
+import { DeleteWithUndo, TableRowLoading } from 'lib/utils'
 import { Tooltip } from 'antd'
 import { ExportOutlined, DeleteOutlined } from '@ant-design/icons'
-import api from '../../lib/api'
+import api from 'lib/api'
 
 export class Cohorts extends Component {
     constructor(props) {
@@ -11,6 +11,7 @@ export class Cohorts extends Component {
 
         this.state = {
             loading: true,
+            cohorts: [],
         }
         this.fetchCohorts = this.fetchCohorts.bind(this)
         this.fetchCohorts()
@@ -29,12 +30,14 @@ export class Cohorts extends Component {
                 <br />
                 <br />
                 <table className="table" style={{ position: 'relative' }}>
-                    {loading && <Loading />}
-                    <tbody>
+                    <thead>
                         <tr>
                             <th>Cohort name</th>
                             <th>Actions</th>
                         </tr>
+                    </thead>
+                    <tbody>
+                        {loading && <TableRowLoading colSpan={2} asOverlay={cohorts.length > 0} />}
                         {cohorts &&
                             cohorts.map(cohort => (
                                 <tr key={cohort.id}>

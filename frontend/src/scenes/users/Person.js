@@ -5,18 +5,18 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { deletePersonData } from 'lib/utils'
 import { Button } from 'antd'
 
-export function Person({ match, history }) {
+export function Person({ distinctId, id }) {
     const [person, setPerson] = useState(null)
 
     useEffect(() => {
         let url = ''
-        if (match.params.distinct_id) {
-            url = `api/person/by_distinct_id/?distinct_id=${match.params.distinct_id}`
+        if (distinctId) {
+            url = `api/person/by_distinct_id/?distinct_id=${distinctId}`
         } else {
-            url = `api/person/${match.params.id}`
+            url = `api/person/${id}`
         }
         api.get(url).then(setPerson)
-    }, [match.params.distinct_id, match.params.id])
+    }, [distinctId, id])
 
     return person ? (
         <div>
@@ -45,7 +45,7 @@ export function Person({ match, history }) {
                     </tbody>
                 </table>
             </div>
-            <EventsTable fixedFilters={{ person_id: person.id }} history={history} />
+            <EventsTable fixedFilters={{ person_id: person.id }} />
         </div>
     ) : null
 }

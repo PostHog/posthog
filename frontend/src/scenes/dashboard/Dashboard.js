@@ -1,12 +1,13 @@
 import React, { Component } from 'react'
-import api from '../../lib/api'
-import { Link } from 'react-router-dom'
-import { toParams, DeleteWithUndo } from '../../lib/utils'
+import { combineUrl } from 'kea-router'
+import api from 'lib/api'
+import { Link } from 'lib/components/Link'
+import { DeleteWithUndo, Loading } from 'lib/utils'
 import { FunnelViz } from '../funnels/FunnelViz'
 import { ActionsLineGraph } from '../trends/ActionsLineGraph'
 import { ActionsTable } from '../trends/ActionsTable'
 import { ActionsPie } from '../trends/ActionsPie'
-import { Dropdown } from '../../lib/components/Dropdown'
+import { Dropdown } from 'lib/components/Dropdown'
 
 export class Dashboard extends Component {
     constructor(props) {
@@ -24,28 +25,19 @@ export class Dashboard extends Component {
         let typeMap = {
             ActionsLineGraph: {
                 element: ActionsLineGraph,
-                link: filters => ({
-                    pathname: '/trends',
-                    search: toParams(filters),
-                }),
+                link: filters => combineUrl('/trends', filters).url,
             },
             ActionsTable: {
                 element: ActionsTable,
-                link: filters => ({
-                    pathname: '/trends',
-                    search: toParams(filters),
-                }),
+                link: filters => combineUrl('/trends', filters).url,
             },
             ActionsPie: {
                 element: ActionsPie,
-                link: filters => ({
-                    pathname: '/trends',
-                    search: toParams(filters),
-                }),
+                link: filters => combineUrl('/trends', filters).url,
             },
             FunnelViz: {
                 element: FunnelViz,
-                link: filters => '/funnel/' + filters.funnel_id,
+                link: filters => `/funnel/${filters.funnel_id}`,
             },
         }
 
@@ -90,19 +82,13 @@ export class Dashboard extends Component {
                                             position: 'relative',
                                         }}
                                     >
-                                        {Panel ? (
-                                            Panel
-                                        ) : (
-                                            <div className="loading-overlay">
-                                                <div></div>
-                                            </div>
-                                        )}
+                                        {Panel ? Panel : <Loading />}
                                     </div>
                                 </div>
                             </div>
                         )
                     })}
-                {items && this.props.user.has_events && items.length == 0 && (
+                {items && this.props.user.has_events && items.length === 0 && (
                     <p>
                         You don't have any panels set up. <Link to="/trends">Click here to create one.</Link>
                     </p>

@@ -50,13 +50,13 @@ export class DateFilter extends Component {
         if (moment.isMoment(date_from)) return `${date_from.format('YYYY-MM-DD')} - ${date_to.format('YYYY-MM-DD')}`
         let name = 'Last 7 days'
         Object.entries(dateMapping).map(([key, value]) => {
-            if (value[0] == date_from && value[1] == date_to) name = key
+            if (value[0] === date_from && value[1] === date_to) name = key
         })[0]
         return name
     }
 
     onChange = v => {
-        if (v == 'Date range') {
+        if (v === 'Date range') {
             if (this.state.open) {
                 this.setState({ dateRangeOpen: true, open: false })
             }
@@ -93,7 +93,10 @@ export class DateFilter extends Component {
             dateRangeOpen: false,
             open: false,
         })
-        this.props.onChange(moment(this.state.rangeDateFrom), moment(this.state.rangeDateTo))
+        this.props.onChange(
+            moment(this.state.rangeDateFrom).format('YYYY-MM-DD'),
+            moment(this.state.rangeDateTo).format('YYYY-MM-DD')
+        )
     }
 
     render() {
@@ -124,7 +127,7 @@ export class DateFilter extends Component {
                                 onClickOutside={this.onClickOutside}
                                 rangeDateFrom={rangeDateFrom}
                                 rangeDateTo={rangeDateTo}
-                            ></DatePickerDropdown>
+                            />
                         )
                     } else if (this.state.open) {
                         return menu

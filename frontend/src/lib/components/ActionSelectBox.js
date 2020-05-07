@@ -1,10 +1,10 @@
 import React, { Component, useState } from 'react'
 import Select, { components } from 'react-select'
-import { ActionSelectInfo } from '../../scenes/trends/ActionSelectInfo'
+import { ActionSelectInfo } from 'scenes/trends/ActionSelectInfo'
 import { selectStyle } from '../utils'
 import PropTypes from 'prop-types'
 import ActionSelectTab from './ActionSelectTab'
-import { Link } from 'react-router-dom'
+import { Link } from 'lib/components/Link'
 
 const determineActiveTab = props => {
     if (props.selected) {
