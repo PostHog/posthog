@@ -18,7 +18,7 @@ BEGIN
     EXECUTE('ALTER TABLE posthog_element ADD COLUMN timestamp timestamp');
 
     range_begin := (SELECT date_trunc('day', MIN(timestamp)) as range_begin from posthog_event);
-    range_end := (SELECT date_trunc('day', CURRENT_TIMESTAMP) as range_end) + interval '1 day';
+    range_end := (SELECT date_trunc('day', CURRENT_TIMESTAMP) as range_end) + interval '1 week';
 
     -- Create the partitions from the earliest date until now
     WHILE range_begin <= range_end
