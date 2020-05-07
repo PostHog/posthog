@@ -10,7 +10,7 @@ class CohortSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Cohort
-        fields = ['id', 'name', 'groups', 'deleted', 'is_calculating', 'created_by', 'created_at']
+        fields = ['id', 'name', 'groups', 'deleted', 'is_calculating', 'created_by', 'created_at', 'last_calculation']
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context['request']
