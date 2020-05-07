@@ -708,25 +708,33 @@ class TestTrends(BaseTest):
             {'properties': {'name': 'person1'}},
             {'properties': {'name': 'person2'}},
         ])
+        action = Action.objects.create(name='watched movie', team=self.team)
+        ActionStep.objects.create(action=action, event='watched movie')
+
         with freeze_time('2020-01-04T13:01:01Z'):
             event_response = self.client.get('/api/action/trends/?date_from=-14d&breakdown=%s&breakdown_type=cohort&events=%s' % (jdumps([cohort.pk, cohort2.pk, cohort3.pk, 'all']), jdumps([{'id': "watched movie", "name": "watched movie", "type": "events", "order": 0}]))).json()
+            action_response = self.client.get('/api/action/trends/?date_from=-14d&breakdown=%s&breakdown_type=cohort&actions=%s' % (jdumps([cohort.pk, cohort2.pk, cohort3.pk, 'all']), jdumps([{'id': action.pk, "type": "actions", "order": 0}]))).json()
 
+        self.assertTrue(self._compare_entity_response(
+            event_response,
+            action_response,
+        ))
         self.assertEqual(event_response[0]['label'], 'watched movie - cohort1')
         self.assertEqual(event_response[1]['label'], 'watched movie - cohort2')
         self.assertEqual(event_response[2]['label'], 'watched movie - cohort3')
         self.assertEqual(event_response[3]['label'], 'watched movie - all users')
 
         self.assertEqual(sum(event_response[0]['data']), 1)
-        self.assertEqual(event_response[0]['breakdown_value'], 'cohort1')
+        self.assertEqual(event_response[0]['breakdown_value'], cohort.pk)
 
         self.assertEqual(sum(event_response[1]['data']), 3)
-        self.assertEqual(event_response[1]['breakdown_value'], 'cohort2')
+        self.assertEqual(event_response[1]['breakdown_value'], cohort2.pk)
 
         self.assertEqual(sum(event_response[2]['data']), 4)
-        self.assertEqual(event_response[2]['breakdown_value'], 'cohort3')
+        self.assertEqual(event_response[2]['breakdown_value'], cohort3.pk)
 
         self.assertEqual(sum(event_response[3]['data']), 7)
-        self.assertEqual(event_response[3]['breakdown_value'], 'all users')
+        self.assertEqual(event_response[3]['breakdown_value'], 'all')
 
         people = self.client.get(
             '/api/action/people/',
@@ -737,6 +745,7 @@ class TestTrends(BaseTest):
                 'entityId': 'watched movie',
                 'breakdown_type': 'cohort',
                 'breakdown_value': cohort.pk,
+                'breakdown': [cohort.pk] # this shouldn't do anything
             },
         ).json()
         self.assertEqual(len(people[0]['people']), 1)
@@ -752,6 +761,7 @@ class TestTrends(BaseTest):
                 'entityId': 'watched movie',
                 'breakdown_type': 'cohort',
                 'breakdown_value': 'all users',
+                'breakdown': [cohort.pk]
             },
         ).json()
         self.assertEqual(len(people[0]['people']), 4)

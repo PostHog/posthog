@@ -177,11 +177,6 @@ class ActionViewSet(viewsets.ModelViewSet):
                 filtered = dataframe.loc[dataframe['breakdown'] == value] if value else dataframe.loc[dataframe['breakdown'].isnull()]
                 df_dates = pd.DataFrame(filtered.groupby('date').mean(), index=time_index)
                 df_dates = df_dates.fillna(0)
-                if breakdown == 'cohorts':
-                    if value == 'cohort_all':
-                        value = 'all users'
-                    else:
-                        value = Cohort.objects.get(pk=value.replace('cohort_', '')).name
                 response[value] = {key: value[0] if len(value) > 0 else 0 for key, value in df_dates.iterrows()}
         else:
             dataframe = pd.DataFrame([], index=time_index)
@@ -251,7 +246,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         for cohort in cohorts:
             annotations['cohort_{}'.format(cohort.pk)] = Exists(
                 Person.objects.filter(
-                    cohort.people_filter({'id': OuterRef('id')}),
+                    cohort.people_filter({'person_id': OuterRef('id')}),
                     team=team,
                     id=OuterRef('person_id')
                 )
@@ -334,6 +329,21 @@ class ActionViewSet(viewsets.ModelViewSet):
             'count': sum(data)
         }
 
+    def _breakdown_label(self, entity: Entity, value: str) -> Dict[str, str]:
+        ret_dict = {}
+        if 'cohort_' not in value:
+            ret_dict['label'] = '{} - {}'.format(entity.name, value if value else 'undefined') 
+            ret_dict['breakdown_value'] = value if not pd.isna(value) else None
+        else:
+            if value == 'cohort_all':
+                ret_dict['label'] = '{} - all users'.format(entity.name) 
+                ret_dict['breakdown_value'] = 'all'
+            else:
+                cohort = Cohort.objects.get(pk=value.replace('cohort_', ''))
+                ret_dict['label'] = '{} - {}'.format(entity.name, cohort.name)
+                ret_dict['breakdown_value'] = cohort.pk
+        return ret_dict
+
     def _serialize_entity(self, entity: Entity, filter: Filter, request: request.Request, team: Team) -> List[Dict[str, Any]]:
         interval = request.GET.get('interval')
         if interval is None:
@@ -369,8 +379,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             for value, item in items.items():
                 new_dict = copy.deepcopy(serialized)
                 if value != 'Total':
-                    new_dict['label'] = '{} - {}'.format(entity.name, value if value else 'undefined') 
-                    new_dict['breakdown_value'] = value if not pd.isna(value) else None
+                    new_dict.update(self._breakdown_label(entity, value))
                 new_dict.update(append_data(dates_filled=list(item.items()), interval=interval))
                 response.append(new_dict)
         elif request.GET['shown_as'] == 'Stickiness':
@@ -443,7 +452,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             people = Person.objects\
                 .filter(team=team, id__in=[p['person_id'] for p in events[0:100]])
 
-            if request.GET.get('breakdown_type') == 'cohort' and request.GET.get('breakdown_value') != 'all users':
+            if request.GET.get('breakdown_type') == 'cohort' and request.GET.get('breakdown_value') != 'all':
                 people = people.filter(Cohort.objects.get(team=team, pk=request.GET['breakdown_value']).people_filter())
             return self._serialize_people(
                 people=people,

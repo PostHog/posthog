@@ -15,14 +15,18 @@ class TestCohort(BaseTest):
         person4 = Person.objects.create(distinct_ids=['person_4'], team=self.team)
 
         cohort = Cohort.objects.create(team=self.team, groups=[{'action_id': action.pk, 'days': 7}])
-        with self.assertNumQueries(2):
-            self.assertEqual([p for p in cohort.people], [person1])
+        cohort.calculate_people()
+        with self.assertNumQueries(1):
+            self.assertEqual([p for p in cohort.people.all()], [person1])
 
         cohort = Cohort.objects.create(team=self.team, groups=[{'properties': {'$os': 'Chrome'}}])
-        self.assertEqual([p for p in cohort.people], [person2])
+        cohort.calculate_people()
+        self.assertEqual([p for p in cohort.people.all()], [person2])
 
         cohort = Cohort.objects.create(team=self.team, groups=[{'properties': {'$os__icontains': 'Chr'}}])
-        self.assertEqual([p for p in cohort.people], [person2])
+        cohort.calculate_people()
+        self.assertEqual([p for p in cohort.people.all()], [person2])
 
         cohort = Cohort.objects.create(team=self.team, groups=[{'action_id': action.pk}, {'properties': {'$os': 'Chrome'}}])
-        self.assertCountEqual([p for p in cohort.people], [person1, person2])
+        cohort.calculate_people()
+        self.assertCountEqual([p for p in cohort.people.all()], [person1, person2])

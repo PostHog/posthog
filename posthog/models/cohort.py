@@ -1,11 +1,11 @@
-from django.db import models
+from django.db import models, connection, transaction
 from django.db.models import Q
+from django.contrib.postgres.fields import JSONField
+from django.utils import timezone
 from .person import Person
 from .action import Action
 from .event import Event
 from posthog.utils import properties_to_Q
-from django.utils import timezone
-from django.contrib.postgres.fields import JSONField
 from dateutil.relativedelta import relativedelta
 
 from typing import Any, Dict, Optional
@@ -26,9 +26,22 @@ class CohortManager(models.Manager):
         return cohort
 
 class Cohort(models.Model):
-    @property
-    def people(self):
-        return Person.objects.filter(self.people_filter(), team=self.team_id)
+    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    deleted: models.BooleanField = models.BooleanField(default=False)
+    groups: JSONField = JSONField(default=list)
+    people: models.ManyToManyField = models.ManyToManyField("Person", through='CohortPeople')
+
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)
+    created_at: models.DateTimeField = models.DateTimeField(
+        default=timezone.now, blank=True, null=True
+    )
+    is_calculating: models.BooleanField = models.BooleanField(default=True)
+    last_calculation: models.DateTimeField = models.DateTimeField(
+        blank=True, null=True
+    )
+
+    objects = CohortManager()
 
     def people_filter(self, extra_filter=None):
         filters = Q()
@@ -60,9 +73,36 @@ class Cohort(models.Model):
                 filters |= Q(properties)
         return filters
 
-    objects = CohortManager()
+    def calculate_people(self):
+        self.is_calculating = True
+        self.save()
+        event_query, params = (
+            Person.objects.filter(self.people_filter(), team=self.team)
+            .only("pk")
+            .query.sql_with_params()
+        )
 
-    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    deleted: models.BooleanField = models.BooleanField(default=False)
-    groups: JSONField = JSONField(default=list)
+        query = """
+        DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {};
+        INSERT INTO "posthog_cohortpeople" ("cohort_id", "person_id")
+        {}
+        ON CONFLICT DO NOTHING
+        """.format(
+            self.pk, event_query.replace("SELECT ", "SELECT {}, ".format(self.pk), 1)
+        )
+
+        cursor = connection.cursor()
+        with transaction.atomic():
+            cursor.execute(query, params)
+
+            self.is_calculating = False
+            self.last_calculation = timezone.now()
+            self.save()
+
+
+    def __str__(self):
+        return self.name
+
+class CohortPeople(models.Model):
+    cohort: models.ForeignKey = models.ForeignKey("Cohort", on_delete=models.CASCADE)
+    person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
