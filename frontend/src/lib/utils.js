@@ -188,11 +188,8 @@ export const operatorMap = {
 
 const operatorEntries = Object.entries(operatorMap).reverse()
 
-export const formatFilterName = str => {
-    for (let [key, value] of operatorEntries) {
-        if (str.includes(key)) return str.replace('__' + key, '') + ` ${value.split(' ')[0]} `
-    }
-    return str + ` ${operatorMap['exact'].split(' ')[0]} `
+export const formatProperty = property => {
+    return property.key + ` ${operatorMap[property.operator || 'exact'].split(' ')[0]} ` + property.value
 }
 
 export const deletePersonData = (person, callback) => {
