@@ -16,6 +16,10 @@ import { SceneLoading } from 'lib/utils'
 
 const darkerScenes = {
     dashboard: true,
+    trends: true,
+    funnel: true,
+    editFunnel: true,
+    paths: true,
 }
 
 export default function App() {
