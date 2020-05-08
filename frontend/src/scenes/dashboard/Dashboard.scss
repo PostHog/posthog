@@ -20,7 +20,15 @@
             }
         }
     }
-    .ant-btn .anticon {
-        vertical-align: baseline;
+    .dashboard-meta {
+        .ant-btn {
+            .anticon {
+                vertical-align: baseline;
+            }
+            margin-left: 10px;
+            &.button-box {
+                padding: 4px 8px;
+            }
+        }
     }
 }

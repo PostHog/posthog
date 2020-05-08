@@ -8,13 +8,12 @@ import { FunnelViz } from '../funnels/FunnelViz'
 import { ActionsLineGraph } from '../trends/ActionsLineGraph'
 import { ActionsTable } from '../trends/ActionsTable'
 import { ActionsPie } from '../trends/ActionsPie'
-import { Dropdown } from 'lib/components/Dropdown'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Button, Select } from 'antd'
-import { PushpinFilled, PushpinOutlined } from '@ant-design/icons'
+import { Button, Dropdown, Menu, Select } from 'antd'
+import { PushpinFilled, PushpinOutlined, EllipsisOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -38,7 +37,7 @@ const typeMap = {
 export function Dashboard({ id }) {
     const logic = dashboardLogic({ id: parseInt(id) })
     const { dashboard, dashboardItemsLoading, items } = useValues(logic)
-    const { loadDashboardItems, addNewDashboard } = useActions(logic)
+    const { loadDashboardItems, addNewDashboard, renameDashboard } = useActions(logic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard } = useActions(dashboardsModel)
     const { user } = useValues(userLogic)
@@ -68,7 +67,7 @@ export function Dashboard({ id }) {
                                 <Select.Option value="new">+ New Dashboard</Select.Option>
                             </Select>
                         </div>
-                        <div>
+                        <div className="dashboard-meta">
                             <Button
                                 type={dashboard.pinned ? 'primary' : ''}
                                 onClick={() =>
@@ -77,6 +76,22 @@ export function Dashboard({ id }) {
                             >
                                 {dashboard.pinned ? <PushpinFilled /> : <PushpinOutlined />} Pin
                             </Button>
+
+                            <Dropdown
+                                overlay={
+                                    <Menu>
+                                        <Menu.Item icon={<EditOutlined />} onClick={renameDashboard}>
+                                            Rename "{dashboard.name}"
+                                        </Menu.Item>
+                                        <Menu.Item icon={<DeleteOutlined />}>Delete</Menu.Item>
+                                    </Menu>
+                                }
+                                placement="bottomRight"
+                            >
+                                <Button className="button-box">
+                                    <EllipsisOutlined />
+                                </Button>
+                            </Dropdown>
                         </div>
                     </>
                 )}

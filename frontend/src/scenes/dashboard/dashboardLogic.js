@@ -10,6 +10,7 @@ export const dashboardLogic = kea({
 
     actions: () => ({
         addNewDashboard: true,
+        renameDashboard: true,
     }),
 
     loaders: ({ props }) => ({
@@ -40,7 +41,7 @@ export const dashboardLogic = kea({
         ],
     }),
 
-    listeners: ({ cache }) => ({
+    listeners: ({ cache, values }) => ({
         addNewDashboard: async () => {
             const { cancel, promise } = cancellablePrompt({
                 title: 'New dashboard',
@@ -58,6 +59,25 @@ export const dashboardLogic = kea({
             try {
                 const name = await promise
                 dashboardsModel.actions.addDashboard({ name })
+            } catch (e) {}
+        },
+        renameDashboard: async () => {
+            const { cancel, promise } = cancellablePrompt({
+                title: 'Rename dashboard',
+                placeholder: 'Please enter the new name',
+                value: values.dashboard.name,
+                rules: [
+                    {
+                        required: true,
+                        message: 'You must enter name',
+                    },
+                ],
+            })
+            cache.runOnClose = cancel
+
+            try {
+                const name = await promise
+                dashboardsModel.actions.renameDashboard({ id: values.dashboard.id, name })
             } catch (e) {}
         },
         [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {

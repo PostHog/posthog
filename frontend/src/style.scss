@@ -249,3 +249,8 @@ label.disabled {
     cursor: pointer;
     margin-left: 8px;
 }
+
+// TODO: this should not be necessary, but somehow it is...?
+.ant-dropdown-menu-item .anticon {
+    vertical-align: middle;
+}
