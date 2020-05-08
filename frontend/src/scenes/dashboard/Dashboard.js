@@ -13,23 +13,41 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Dropdown, Menu, Select } from 'antd'
-import { PushpinFilled, PushpinOutlined, EllipsisOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
+import {
+    PushpinFilled,
+    PushpinOutlined,
+    EllipsisOutlined,
+    EditOutlined,
+    DeleteOutlined,
+    LineChartOutlined,
+    TableOutlined,
+    PieChartOutlined,
+    FunnelPlotOutlined,
+} from '@ant-design/icons'
 
 const typeMap = {
     ActionsLineGraph: {
         element: ActionsLineGraph,
+        icon: LineChartOutlined,
+        viewText: 'View Graph',
         link: filters => combineUrl('/trends', filters).url,
     },
     ActionsTable: {
         element: ActionsTable,
+        icon: TableOutlined,
+        viewText: 'View Table',
         link: filters => combineUrl('/trends', filters).url,
     },
     ActionsPie: {
         element: ActionsPie,
+        icon: PieChartOutlined,
+        viewText: 'View Graph',
         link: filters => combineUrl('/trends', filters).url,
     },
     FunnelViz: {
         element: FunnelViz,
+        icon: FunnelPlotOutlined,
+        viewText: 'View Funnel',
         link: filters => `/funnel/${filters.funnel_id}`,
     },
 }
@@ -108,6 +126,8 @@ export function Dashboard({ id }) {
                 <div className="row">
                     {items.map(item => {
                         const Element = typeMap[item.type].element
+                        const Icon = typeMap[item.type].icon
+                        const viewText = typeMap[item.type].viewText
                         const link = typeMap[item.type].link(item.filters)
 
                         return (
@@ -121,10 +141,10 @@ export function Dashboard({ id }) {
                                             overlay={
                                                 <Menu>
                                                     <Menu.Item
-                                                        icon={<EditOutlined />}
+                                                        icon={<Icon />}
                                                         onClick={() => router.actions.push(link)}
                                                     >
-                                                        View graph
+                                                        {viewText}
                                                     </Menu.Item>
                                                     <Menu.Item icon={<DeleteOutlined />} className="text-danger">
                                                         <DeleteWithUndo
