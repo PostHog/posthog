@@ -4753,10 +4753,10 @@ json5@^2.1.0:
   dependencies:
     minimist "^1.2.0"
 
-kea-loaders@^0.1.1:
-  version "0.1.1"
-  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.1.1.tgz#d6db27a48aecdd167cf08159aae8456659a2cc83"
-  integrity sha512-0TLKdOOk7yS3PiUA6zTxeXRFLCV9cT5qmZLbj8GSqtFbvLsowipXhFk1vd/b65jKjq41/qfWdj38oUKb/jpojA==
+kea-loaders@^0.2.1:
+  version "0.2.1"
+  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.2.1.tgz#d842a26ca2765d4407f25be69713c50879dd5dab"
+  integrity sha512-rJ3i3b11tb26IFhBblPm/9LfXIxIGCWR40l/C3SeKGU74+THnbznRUhzAhA3C3GWOV1AilCBfFMYNlrrEDadsA==
 
 kea-router@^0.3.0:
   version "0.3.0"
@@ -5438,6 +5438,11 @@ npm-run-path@^4.0.0:
   integrity sha512-S48WzZW777zhNIrn7gxOlISNAqi9ZC/uQFnRdbeIHhZhCA6UqpkOT8T1G7BvfdgP4Er8gF4sUbaS0i7QvIfCWw==
   dependencies:
     path-key "^3.0.0"
+
+nprogress@^0.2.0:
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/nprogress/-/nprogress-0.2.0.tgz#cb8f34c53213d895723fcbab907e9422adbcafb1"
+  integrity sha1-y480xTIT2JVyP8urkH6UIq28r7E=
 
 nth-check@^1.0.2:
   version "1.0.2"
