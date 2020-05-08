@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { cancellablePrompt } from 'lib/components/prompt'
+import { router } from 'kea-router'
 import { message } from 'antd'
 
 export const dashboardLogic = kea({
@@ -56,9 +57,13 @@ export const dashboardLogic = kea({
             cache.runOnClose = cancel
 
             try {
-                await promise
-                message.success('Should now create a new dashboard with the name: ' + name)
+                const name = await promise
+                dashboardsModel.actions.addDashboard({ name })
             } catch (e) {}
+        },
+        [dashboardsModel.actions.addDashboardSuccess]: ({ newDashboard }) => {
+            message.success(`Dashboard "${newDashboard.name}" added!`)
+            router.actions.push(`/dashboard/${newDashboard.id}`)
         },
     }),
 })
