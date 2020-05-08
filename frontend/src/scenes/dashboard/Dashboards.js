@@ -1,21 +1,24 @@
 import React from 'react'
-import { kea, useValues } from 'kea'
+import { kea, useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Spin } from 'antd'
+import { Button, Spin } from 'antd'
 import { router } from 'kea-router'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 export const logic = kea({
-    connect: [dashboardsModel],
-    events: () => ({
-        afterMount: () => {
-            const { dashboards } = dashboardsModel.values
-            if (dashboards.length > 0) {
-                router.actions.push(`/dashboard/${dashboards[0].id}`)
-            }
-        },
+    actions: () => ({
+        redirectToFirstDashboard: true,
     }),
-    listeners: () => ({
-        [dashboardsModel.actions.loadDashboardsSuccess]: ({ dashboards }) => {
+    events: ({ actions }) => ({
+        afterMount: [actions.redirectToFirstDashboard],
+    }),
+    listeners: ({ sharedListeners }) => ({
+        redirectToFirstDashboard: sharedListeners.redirectToFirstDashboard,
+        [dashboardsModel.actions.loadDashboardsSuccess]: sharedListeners.redirectToFirstDashboard,
+    }),
+    sharedListeners: () => ({
+        redirectToFirstDashboard: () => {
+            const { dashboards } = dashboardsModel.values
             if (dashboards.length > 0) {
                 router.actions.push(`/dashboard/${dashboards[0].id}`)
             }
@@ -24,13 +27,22 @@ export const logic = kea({
 })
 
 export default function Dashboards() {
-    const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
+    const { dashboardsLoading } = useValues(dashboardsModel)
+    const { addNewDashboard } = useActions(newDashboardLogic({ key: `all-dashboards`, redirect: true }))
 
     if (dashboardsLoading) {
         return <Spin />
     }
 
-    // TODO: show "add new dash" if none present
+    return (
+        <div>
+            <h2>Dashboards</h2>
 
-    return <div>Choose the first dashboard from the list please</div>
+            <p>Please add a Dashboard!</p>
+
+            <Button type="primary" onClick={addNewDashboard}>
+                + Add new Dashboard
+            </Button>
+        </div>
+    )
 }

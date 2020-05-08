@@ -7,12 +7,14 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { PushpinFilled, PushpinOutlined, EllipsisOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
+import { newDashboardLogic } from './newDashboardLogic'
 
-export function DashboardHeader({ logic }) {
+export function DashboardHeader({ logic, id }) {
     const { dashboard } = useValues(logic)
-    const { addNewDashboard, renameDashboard } = useActions(logic)
+    const { renameDashboard } = useActions(logic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
+    const { addNewDashboard } = useActions(newDashboardLogic({ key: `dashboard-${id}`, redirect: true }))
 
     return (
         <div className="dashboard-header">

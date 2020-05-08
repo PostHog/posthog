@@ -17,7 +17,7 @@ export function Dashboard({ id }) {
 
     return (
         <div>
-            <DashboardHeader logic={logic} />
+            <DashboardHeader id={id} logic={logic} />
 
             {dashboardsLoading ? (
                 <SceneLoading />
@@ -32,7 +32,7 @@ export function Dashboard({ id }) {
                 <SceneLoading />
             ) : user.has_events ? (
                 <p>
-                    You don't have any panels set up. <Link to="/trends">Click here to add some.</Link>
+                    There are no panels on this dashboard. <Link to="/trends">Click here to add some!</Link>
                 </p>
             ) : (
                 <p />
