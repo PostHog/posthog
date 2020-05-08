@@ -452,7 +452,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             if request.GET.get('breakdown_type') == 'cohort' and request.GET.get('breakdown_value') != 'all':
                 events = events.filter(Exists(
                     CohortPeople.objects.filter(
-                        cohort=request.GET['breakdown_value'],
+                        cohort_id=int(request.GET['breakdown_value']),
                         person_id=OuterRef('person_id')
                     ).only('id')
                 ))
