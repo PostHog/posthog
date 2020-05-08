@@ -57,7 +57,7 @@ $body-color: #37352f;
 .posthog-title {
     font-weight: 500;
     font-size: 20px;
-    color: #333;
+    color: #fff;
     padding-left: 15px;
     margin-top: 8px;
 }
@@ -262,4 +262,8 @@ label.disabled {
 
 .ant-layout.bg-dashboard {
     background: hsla(210, 6%, 95%, 1);
+}
+
+.ant-menu-dark .ant-menu-inline.ant-menu-sub {
+    background: hsla(210, 19%, 19%, 1) !important;
 }

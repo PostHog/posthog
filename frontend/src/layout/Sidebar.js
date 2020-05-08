@@ -21,6 +21,7 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import whiteLogo from './_assets/white-logo.svg'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -30,7 +31,7 @@ function Logo() {
             className="row logo-row d-flex align-items-center justify-content-center"
             style={{ margin: 16, height: 42 }}
         >
-            <img className="logo" src="/static/posthog-logo.png" style={{ maxHeight: '100%' }} />
+            <img className="logo posthog-logo" src={whiteLogo} style={{ maxHeight: '100%' }} />
             <div className="posthog-title">PostHog</div>
         </div>
     )
@@ -76,8 +77,14 @@ export default function Sidebar(props) {
     }
 
     return (
-        <Layout.Sider breakpoint="lg" collapsedWidth="0" className="bg-light">
-            <Menu className="h-100 bg-light" selectedKeys={[activeScene]} openKeys={[openSubmenu]} mode="inline">
+        <Layout.Sider breakpoint="lg" collapsedWidth="0" className="bg-dark">
+            <Menu
+                className="h-100 bg-dark"
+                theme="dark"
+                selectedKeys={[activeScene]}
+                openKeys={[openSubmenu]}
+                mode="inline"
+            >
                 <Logo />
                 <Menu.Item key="trends" style={itemStyle}>
                     <RiseOutlined />
