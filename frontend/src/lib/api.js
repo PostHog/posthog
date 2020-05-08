@@ -6,9 +6,7 @@ function getCookie(name) {
             var cookie = cookies[i].trim()
             // Does this cookie string begin with the name we want?
             if (cookie.substring(0, name.length + 1) === name + '=') {
-                cookieValue = decodeURIComponent(
-                    cookie.substring(name.length + 1)
-                )
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1))
                 break
             }
         }
@@ -19,17 +17,12 @@ function getCookie(name) {
 class Api {
     get(url, error) {
         if (url.indexOf('http') !== 0) {
-            url =
-                '/' +
-                url +
-                (url.indexOf('?') == -1 && url[url.length - 1] != '/'
-                    ? '/'
-                    : '')
+            url = '/' + url + (url.indexOf('?') == -1 && url[url.length - 1] != '/' ? '/' : '')
         }
         return fetch(url).then(response => {
             if (!response.ok) {
                 return response.json().then(data => {
-                    throw data
+                    throw { status: response.status, ...data }
                 })
             }
             return response.json()
@@ -37,12 +30,7 @@ class Api {
     }
     update(url, data) {
         if (url.indexOf('http') !== 0) {
-            url =
-                '/' +
-                url +
-                (url.indexOf('?') == -1 && url[url.length - 1] != '/'
-                    ? '/'
-                    : '')
+            url = '/' + url + (url.indexOf('?') == -1 && url[url.length - 1] != '/' ? '/' : '')
         }
         return fetch(url, {
             method: 'PATCH',
@@ -54,7 +42,7 @@ class Api {
         }).then(response => {
             if (!response.ok) {
                 return response.json().then(data => {
-                    throw data
+                    throw { status: response.status, ...data }
                 })
             }
             return response.json()
@@ -62,12 +50,7 @@ class Api {
     }
     create(url, data) {
         if (url.indexOf('http') !== 0) {
-            url =
-                '/' +
-                url +
-                (url.indexOf('?') == -1 && url[url.length - 1] != '/'
-                    ? '/'
-                    : '')
+            url = '/' + url + (url.indexOf('?') == -1 && url[url.length - 1] != '/' ? '/' : '')
         }
         return fetch(url, {
             method: 'POST',
@@ -79,7 +62,7 @@ class Api {
         }).then(response => {
             if (!response.ok) {
                 return response.json().then(data => {
-                    throw data
+                    throw { status: response.status, ...data }
                 })
             }
             return response.json()
@@ -87,12 +70,7 @@ class Api {
     }
     delete(url, error) {
         if (url.indexOf('http') !== 0) {
-            url =
-                '/' +
-                url +
-                (url.indexOf('?') == -1 && url[url.length - 1] != '/'
-                    ? '/'
-                    : '')
+            url = '/' + url + (url.indexOf('?') == -1 && url[url.length - 1] != '/' ? '/' : '')
         }
         return fetch(url, {
             method: 'DELETE',
@@ -103,7 +81,7 @@ class Api {
         }).then(response => {
             if (!response.ok) {
                 return response.json().then(data => {
-                    throw data
+                    throw { status: response.status, ...data }
                 })
             }
             return response

@@ -2,9 +2,18 @@ import React from 'react'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import { delay } from 'lib/utils'
+import { SadHedgehog } from 'lib/components/SadHedgehog/SadHedgehog'
 
 export const loadedScenes = {
-    '404': { component: () => <div>404</div> },
+    '404': {
+        component: () => (
+            <div>
+                <h2>Error 404</h2>
+                <p>Page not found.</p>
+                <SadHedgehog />
+            </div>
+        ),
+    },
 }
 
 export const scenes = {

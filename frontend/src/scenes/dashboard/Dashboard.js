@@ -6,17 +6,27 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { SadHedgehog } from 'lib/components/SadHedgehog/SadHedgehog'
 
 export function Dashboard({ id }) {
     const logic = dashboardLogic({ id: parseInt(id) })
-    const { dashboardItemsLoading, items } = useValues(logic)
+    const { dashboard, dashboardItemsLoading, items } = useValues(logic)
     const { user } = useValues(userLogic)
+    const { dashboardsLoading } = useValues(dashboardsModel)
 
     return (
         <div>
             <DashboardHeader logic={logic} />
 
-            {items.length > 0 ? (
+            {dashboardsLoading ? (
+                <SceneLoading />
+            ) : !dashboard ? (
+                <>
+                    <p>Error 404! A dashboard with the ID {id} was not found!</p>
+                    <SadHedgehog />
+                </>
+            ) : items.length > 0 ? (
                 <DashboardItems logic={logic} />
             ) : dashboardItemsLoading ? (
                 <SceneLoading />

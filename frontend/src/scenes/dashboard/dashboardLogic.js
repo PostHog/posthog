@@ -18,8 +18,16 @@ export const dashboardLogic = kea({
             [],
             {
                 loadDashboardItems: async () => {
-                    const { items } = await api.get(`api/dashboard/${props.id}`)
-                    return items
+                    try {
+                        const { items } = await api.get(`api/dashboard/${props.id}`)
+                        return items
+                    } catch (error) {
+                        if (error.status === 404) {
+                            // silently escape
+                            return []
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -28,7 +36,7 @@ export const dashboardLogic = kea({
     selectors: ({ props }) => ({
         dashboard: [
             () => [dashboardsModel.selectors.dashboards],
-            dashboards => dashboards.find(d => d.id === props.id) || {},
+            dashboards => dashboards.find(d => d.id === props.id) || null,
         ],
     }),
 

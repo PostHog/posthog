@@ -22,55 +22,58 @@ export function DashboardHeader({ logic }) {
                 <>
                     <div>
                         <Select
-                            value={dashboard.id}
+                            value={dashboard?.id || null}
                             onChange={id =>
                                 id === 'new' ? addNewDashboard() : router.actions.push(`/dashboard/${id}`)
                             }
                             bordered={false}
                             dropdownMatchSelectWidth={false}
                         >
-                            {dashboards.map(dashboard => (
-                                <Select.Option key={dashboard.id} value={parseInt(dashboard.id)}>
-                                    {dashboard.name || <span style={{ color: 'var(--gray)' }}>Untitled</span>}
+                            {!dashboard ? <Select.Option value={null}>Not Found</Select.Option> : null}
+                            {dashboards.map(dash => (
+                                <Select.Option key={dash.id} value={parseInt(dash.id)}>
+                                    {dash.name || <span style={{ color: 'var(--gray)' }}>Untitled</span>}
                                 </Select.Option>
                             ))}
 
                             <Select.Option value="new">+ New Dashboard</Select.Option>
                         </Select>
                     </div>
-                    <div className="dashboard-meta">
-                        <Button
-                            type={dashboard.pinned ? 'primary' : ''}
-                            onClick={() =>
-                                dashboard.pinned ? unpinDashboard(dashboard.id) : pinDashboard(dashboard.id)
-                            }
-                        >
-                            {dashboard.pinned ? <PushpinFilled /> : <PushpinOutlined />} Pin
-                        </Button>
-
-                        <Dropdown
-                            trigger="click"
-                            overlay={
-                                <Menu>
-                                    <Menu.Item icon={<EditOutlined />} onClick={renameDashboard}>
-                                        Rename "{dashboard.name}"
-                                    </Menu.Item>
-                                    <Menu.Item
-                                        icon={<DeleteOutlined />}
-                                        onClick={() => deleteDashboard(dashboard.id)}
-                                        className="text-danger"
-                                    >
-                                        Delete
-                                    </Menu.Item>
-                                </Menu>
-                            }
-                            placement="bottomRight"
-                        >
-                            <Button className="button-box">
-                                <EllipsisOutlined />
+                    {dashboard ? (
+                        <div className="dashboard-meta">
+                            <Button
+                                type={dashboard.pinned ? 'primary' : ''}
+                                onClick={() =>
+                                    dashboard.pinned ? unpinDashboard(dashboard.id) : pinDashboard(dashboard.id)
+                                }
+                            >
+                                {dashboard.pinned ? <PushpinFilled /> : <PushpinOutlined />} Pin
                             </Button>
-                        </Dropdown>
-                    </div>
+
+                            <Dropdown
+                                trigger="click"
+                                overlay={
+                                    <Menu>
+                                        <Menu.Item icon={<EditOutlined />} onClick={renameDashboard}>
+                                            Rename "{dashboard.name}"
+                                        </Menu.Item>
+                                        <Menu.Item
+                                            icon={<DeleteOutlined />}
+                                            onClick={() => deleteDashboard(dashboard.id)}
+                                            className="text-danger"
+                                        >
+                                            Delete
+                                        </Menu.Item>
+                                    </Menu>
+                                }
+                                placement="bottomRight"
+                            >
+                                <Button className="button-box">
+                                    <EllipsisOutlined />
+                                </Button>
+                            </Dropdown>
+                        </div>
+                    ) : null}
                 </>
             )}
         </div>
