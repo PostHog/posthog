@@ -1,11 +1,11 @@
 import React from 'react'
 import { kea } from 'kea'
 import { router } from 'kea-router'
+import { delay } from 'lib/utils'
 
 export const loadedScenes = {
     '404': { component: () => <div>404</div> },
 }
-const delay = ms => new Promise(resolve => window.setTimeout(resolve, ms))
 
 export const scenes = {
     // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link

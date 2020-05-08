@@ -218,3 +218,5 @@ export const idToKey = (array, keyField = 'id') => {
     }
     return object
 }
+
+export const delay = ms => new Promise(resolve => window.setTimeout(resolve, ms))

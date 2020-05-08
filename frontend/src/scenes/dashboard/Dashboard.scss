@@ -17,6 +17,7 @@
             .ant-select-selection-item {
                 font-size: var(--dashboard-title-size);
                 line-height: var(--dashboard-title-size);
+                overflow: visible;
             }
         }
     }

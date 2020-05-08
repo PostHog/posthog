@@ -39,7 +39,7 @@ export function Dashboard({ id }) {
     const { dashboard, dashboardItemsLoading, items } = useValues(logic)
     const { loadDashboardItems, addNewDashboard, renameDashboard } = useActions(logic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
-    const { pinDashboard, unpinDashboard } = useActions(dashboardsModel)
+    const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const { user } = useValues(userLogic)
 
     return (
@@ -83,7 +83,12 @@ export function Dashboard({ id }) {
                                         <Menu.Item icon={<EditOutlined />} onClick={renameDashboard}>
                                             Rename "{dashboard.name}"
                                         </Menu.Item>
-                                        <Menu.Item icon={<DeleteOutlined />}>Delete</Menu.Item>
+                                        <Menu.Item
+                                            icon={<DeleteOutlined />}
+                                            onClick={() => deleteDashboard(dashboard.id)}
+                                        >
+                                            Delete
+                                        </Menu.Item>
                                     </Menu>
                                 }
                                 placement="bottomRight"

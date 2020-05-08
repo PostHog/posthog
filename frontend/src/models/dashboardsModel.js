@@ -1,8 +1,12 @@
 import { kea } from 'kea'
+import { router } from 'kea-router'
 import api from 'lib/api'
-import { idToKey } from 'lib/utils'
+import { delay, idToKey } from 'lib/utils'
 
 export const dashboardsModel = kea({
+    actions: () => ({
+        delayedDeleteDashboard: id => ({ id }),
+    }),
     loaders: () => ({
         rawDashboards: [
             {},
@@ -18,6 +22,7 @@ export const dashboardsModel = kea({
         dashboard: {
             addDashboard: async ({ name }) => await api.create('api/dashboard', { name }),
             renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),
+            deleteDashboard: async id => await api.delete(`api/dashboard/${id}`),
             pinDashboard: async id => await api.update(`api/dashboard/${id}`, { pinned: true }),
             unpinDashboard: async id => await api.update(`api/dashboard/${id}`, { pinned: false }),
         },
@@ -27,6 +32,11 @@ export const dashboardsModel = kea({
         rawDashboards: {
             addDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             renameDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+            deleteDashboardSuccess: state => state, // give us time to leave the page
+            delayedDeleteDashboard: (state, { id }) => {
+                const { [id]: _discard, ...rest } = state
+                return rest
+            },
             pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             unpinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
         },
@@ -42,5 +52,18 @@ export const dashboardsModel = kea({
 
     events: ({ actions }) => ({
         afterMount: actions.loadDashboards,
+    }),
+
+    listeners: ({ actions, values }) => ({
+        deleteDashboardSuccess: async ({ dashboard }) => {
+            const nextDashboard = [...values.pinnedDashboards, ...values.dashboards][0]
+            if (nextDashboard) {
+                router.actions.push(`/dashboard/${nextDashboard.id}`)
+            } else {
+                router.actions.push('/dashboard')
+            }
+            await delay(500)
+            actions.delayedDeleteDashboard(dashboard.id)
+        },
     }),
 })
