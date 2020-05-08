@@ -2,7 +2,7 @@ import React from 'react'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import { delay } from 'lib/utils'
-import { SadHedgehog } from 'lib/components/SadHedgehog/SadHedgehog'
+import { HedgehogOverlay } from 'lib/components/HedgehogOverlay/HedgehogOverlay'
 
 export const loadedScenes = {
     '404': {
@@ -10,7 +10,7 @@ export const loadedScenes = {
             <div>
                 <h2>Error 404</h2>
                 <p>Page not found.</p>
-                <SadHedgehog />
+                <HedgehogOverlay type="sad" />
             </div>
         ),
     },

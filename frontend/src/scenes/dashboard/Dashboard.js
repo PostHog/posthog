@@ -7,7 +7,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { SadHedgehog } from 'lib/components/SadHedgehog/SadHedgehog'
+import { HedgehogOverlay } from 'lib/components/HedgehogOverlay/HedgehogOverlay'
 
 export function Dashboard({ id }) {
     const logic = dashboardLogic({ id: parseInt(id) })
@@ -24,7 +24,7 @@ export function Dashboard({ id }) {
             ) : !dashboard ? (
                 <>
                     <p>Error 404! A dashboard with the ID {id} was not found!</p>
-                    <SadHedgehog />
+                    <HedgehogOverlay type="sad" />
                 </>
             ) : items.length > 0 ? (
                 <DashboardItems logic={logic} />
