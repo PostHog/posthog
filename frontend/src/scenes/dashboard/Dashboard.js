@@ -11,7 +11,7 @@ import { SadHedgehog } from 'lib/components/SadHedgehog/SadHedgehog'
 
 export function Dashboard({ id }) {
     const logic = dashboardLogic({ id: parseInt(id) })
-    const { dashboard, dashboardItemsLoading, items } = useValues(logic)
+    const { dashboard, itemsLoading, items } = useValues(logic)
     const { user } = useValues(userLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
@@ -28,7 +28,7 @@ export function Dashboard({ id }) {
                 </>
             ) : items.length > 0 ? (
                 <DashboardItems logic={logic} />
-            ) : dashboardItemsLoading ? (
+            ) : itemsLoading ? (
                 <SceneLoading />
             ) : user.has_events ? (
                 <p>
