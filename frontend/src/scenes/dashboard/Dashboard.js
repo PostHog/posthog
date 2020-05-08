@@ -13,7 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Dropdown, Menu, Select } from 'antd'
-import { PushpinFilled, PushpinOutlined, EllipsisOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
+import { PushpinFilled, PushpinOutlined, MoreOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -86,6 +86,7 @@ export function Dashboard({ id }) {
                                         <Menu.Item
                                             icon={<DeleteOutlined />}
                                             onClick={() => deleteDashboard(dashboard.id)}
+                                            className="text-danger"
                                         >
                                             Delete
                                         </Menu.Item>
@@ -94,7 +95,7 @@ export function Dashboard({ id }) {
                                 placement="bottomRight"
                             >
                                 <Button className="button-box">
-                                    <EllipsisOutlined />
+                                    <MoreOutlined />
                                 </Button>
                             </Dropdown>
                         </div>
@@ -114,23 +115,31 @@ export function Dashboard({ id }) {
                                     <h5 className="card-header">
                                         <Dropdown
                                             className="float-right"
-                                            buttonStyle={{
-                                                lineHeight: '1rem',
-                                                color: 'var(--gray)',
-                                                fontSize: '2rem',
-                                            }}
+                                            placement="bottomRight"
+                                            overlay={
+                                                <Menu>
+                                                    <Menu.Item
+                                                        icon={<EditOutlined />}
+                                                        onClick={() => router.actions.push(link)}
+                                                    >
+                                                        View graph
+                                                    </Menu.Item>
+                                                    <Menu.Item icon={<DeleteOutlined />} className="text-danger">
+                                                        <DeleteWithUndo
+                                                            object={item}
+                                                            className="text-danger"
+                                                            endpoint="dashboard_item"
+                                                            callback={loadDashboardItems}
+                                                        >
+                                                            Delete panel
+                                                        </DeleteWithUndo>
+                                                    </Menu.Item>
+                                                </Menu>
+                                            }
                                         >
-                                            <Link className="dropdown-item" to={link}>
-                                                View graph
-                                            </Link>
-                                            <DeleteWithUndo
-                                                object={item}
-                                                className="text-danger dropdown-item"
-                                                endpoint="dashboard_item"
-                                                callback={loadDashboardItems}
-                                            >
-                                                Delete panel
-                                            </DeleteWithUndo>
+                                            <span style={{ cursor: 'pointer', marginTop: -3 }}>
+                                                <MoreOutlined />
+                                            </span>
                                         </Dropdown>
                                         <Link to={link}>{item.name}</Link>
                                     </h5>
