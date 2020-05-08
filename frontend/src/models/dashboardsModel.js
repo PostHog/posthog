@@ -6,6 +6,7 @@ import { delay, idToKey } from 'lib/utils'
 export const dashboardsModel = kea({
     actions: () => ({
         delayedDeleteDashboard: id => ({ id }),
+        setLastVisitedDashboardId: id => ({ id }),
     }),
     loaders: () => ({
         rawDashboards: [
@@ -43,12 +44,21 @@ export const dashboardsModel = kea({
             pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             unpinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
         },
+        lastVisitedDashboardId: [
+            null,
+            {
+                setLastVisitedDashboardId: (_, { id }) => id,
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
         dashboards: [
             () => [selectors.rawDashboards],
-            rawDashboards => Object.values(rawDashboards).sort((a, b) => a.name.localeCompare(b.name)),
+            rawDashboards => {
+                const list = Object.values(rawDashboards).sort((a, b) => a.name.localeCompare(b.name))
+                return [...list.filter(d => d.pinned), ...list.filter(d => !d.pinned)]
+            },
         ],
         pinnedDashboards: [() => [selectors.dashboards], dashboards => dashboards.filter(d => d.pinned)],
     }),
@@ -69,5 +79,9 @@ export const dashboardsModel = kea({
             await delay(500)
             actions.delayedDeleteDashboard(id)
         },
+    }),
+
+    urlToAction: ({ actions }) => ({
+        '/dashboard/:id': ({ id }) => actions.setLastVisitedDashboardId(parseInt(id)),
     }),
 })

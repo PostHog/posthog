@@ -15,7 +15,7 @@ import {
     UsergroupAddOutlined,
     ContainerOutlined,
     PushpinOutlined,
-    LinkOutlined,
+    DashboardOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -104,7 +104,7 @@ export default function Sidebar(props) {
                         ))}
                         {unpinnedDashboard ? (
                             <Menu.Item key={`dashboard-${unpinnedDashboard.id}`} style={itemStyle}>
-                                <LinkOutlined />
+                                <DashboardOutlined />
                                 <span className="sidebar-label">{unpinnedDashboard.name}</span>
                                 <Link to={`/dashboard/${unpinnedDashboard.id}`} />
                             </Menu.Item>
