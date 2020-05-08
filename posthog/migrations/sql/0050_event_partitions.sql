@@ -4,8 +4,8 @@ DECLARE
 	partition_name TEXT;
     range_begin timestamp;
     range_end timestamp;
-	start_of_day TEXT;
-	end_of_day TEXT;
+	start_of_week TEXT;
+	end_of_week TEXT;
     new_table_name TEXT;
 BEGIN 
     new_table_name := 'new_posthog_event';
@@ -17,19 +17,19 @@ BEGIN
     EXECUTE('ALTER TABLE posthog_action_events ADD COLUMN timestamp timestamp;');
     EXECUTE('ALTER TABLE posthog_element ADD COLUMN timestamp timestamp');
 
-    range_begin := (SELECT date_trunc('day', MIN(timestamp)) as range_begin from posthog_event);
-    range_end := (SELECT date_trunc('day', CURRENT_TIMESTAMP) as range_end) + interval '1 week';
+    range_begin := (SELECT date_trunc('week', MIN(timestamp)) as range_begin from posthog_event);
+    range_end := (SELECT date_trunc('week', CURRENT_TIMESTAMP) as range_end) + interval '1 week';
 
     -- Create the partitions from the earliest date until now
     WHILE range_begin <= range_end
     LOOP
         partition_date := to_char(range_begin,'YYYY_MM_DD');
         partition_name := 'posthog_event_' || partition_date;
-        start_of_day := to_char((range_begin),'YYYY_MM_DD');
-        end_of_day := to_char((range_begin + interval '1 day'),'YYYY_MM_DD');
+        start_of_week := to_char((range_begin),'YYYY_MM_DD');
+        end_of_week := to_char((range_begin + interval '1 week'),'YYYY_MM_DD');
         RAISE NOTICE 'Partition created: %', partition_name;
-	    EXECUTE format('CREATE TABLE %I PARTITION OF public.new_posthog_event FOR VALUES FROM (''%s'') to (''%s'')', partition_name, start_of_day, end_of_day);
-        range_begin := range_begin + interval '1 day';
+	    EXECUTE format('CREATE TABLE %I PARTITION OF public.new_posthog_event FOR VALUES FROM (''%s'') to (''%s'')', partition_name, start_of_week, end_of_week);
+        range_begin := range_begin + interval '1 week';
     END LOOP;
     EXECUTE ('CREATE TABLE posthog_event_default PARTITION OF public.new_posthog_event DEFAULT');
 
@@ -64,8 +64,8 @@ DECLARE
 	partition_name TEXT;
     range_begin timestamp;
     range_end timestamp;
-	start_of_day TEXT;
-	end_of_day TEXT;
+	start_of_week TEXT;
+	end_of_week TEXT;
 BEGIN 
     
     -- If there is no master table then don't create
@@ -80,33 +80,33 @@ BEGIN
     EXECUTE ('CREATE TABLE temp_posthog_event_default AS TABLE posthog_event_default');
     EXECUTE ('DROP TABLE posthog_event_default CASCADE');
 
-    range_begin := (SELECT date_trunc('day', MIN(timestamp)) as range_begin from temp_posthog_event_default);
-    range_end := (SELECT date_trunc('day', CURRENT_TIMESTAMP) as range_end) + interval '1 week'; -- Always be a week ahead
+    range_begin := (SELECT date_trunc('week', MIN(timestamp)) as range_begin from temp_posthog_event_default);
+    range_end := (SELECT date_trunc('week', CURRENT_TIMESTAMP) as range_end) + interval '1 week'; -- Always be a week ahead
 
     IF range_begin IS NULL THEN
-        range_begin := (SELECT date_trunc('day', MAX(timestamp)) as range_begin from posthog_event);
+        range_begin := (SELECT date_trunc('week', MAX(timestamp)) as range_begin from posthog_event);
     END IF;
 
     IF range_begin IS NULL THEN
-        range_begin := (SELECT date_trunc('day', CURRENT_TIMESTAMP) as range_begin);
+        range_begin := (SELECT date_trunc('week', CURRENT_TIMESTAMP) as range_begin);
     END IF;
 
     WHILE range_begin <= range_end
     LOOP
         partition_date := to_char(range_begin,'YYYY_MM_DD');
         partition_name := 'posthog_event_' || partition_date;
-        start_of_day := to_char((range_begin),'YYYY_MM_DD');
-        end_of_day := to_char((range_begin + interval '1 day'),'YYYY_MM_DD');
+        start_of_week := to_char((range_begin),'YYYY_MM_DD');
+        end_of_week := to_char((range_begin + interval '1 week'),'YYYY_MM_DD');
         IF NOT EXISTS
             (SELECT 1
             FROM   information_schema.tables 
             WHERE  table_name = partition_name) 
         THEN
             RAISE NOTICE 'Partition created: %', partition_name;
-            EXECUTE format('CREATE TABLE %I PARTITION OF public.posthog_event FOR VALUES FROM (''%s'') to (''%s'')', partition_name, start_of_day, end_of_day);
+            EXECUTE format('CREATE TABLE %I PARTITION OF public.posthog_event FOR VALUES FROM (''%s'') to (''%s'')', partition_name, start_of_week, end_of_week);
         END IF;
 
-        range_begin := range_begin + interval '1 day';
+        range_begin := range_begin + interval '1 week';
     END LOOP;
 
     EXECUTE ('CREATE TABLE posthog_event_default PARTITION OF public.posthog_event DEFAULT');
