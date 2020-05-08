@@ -210,3 +210,11 @@ export const deletePersonData = (person, callback) => {
 }
 
 export const objectsEqual = (obj1, obj2) => JSON.stringify(obj1) === JSON.stringify(obj2)
+
+export const idToKey = (array, keyField = 'id') => {
+    const object = {}
+    for (const element of array) {
+        object[element[keyField]] = element
+    }
+    return object
+}

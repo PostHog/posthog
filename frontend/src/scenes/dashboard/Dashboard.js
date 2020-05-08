@@ -13,7 +13,8 @@ import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Select } from 'antd'
+import { Button, Select } from 'antd'
+import { PushpinFilled, PushpinOutlined } from '@ant-design/icons'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -35,37 +36,52 @@ const typeMap = {
 }
 
 export function Dashboard({ id }) {
-    const { partialDashboard, dashboardLoading, items } = useValues(dashboardLogic({ id }))
-    const { loadDashboard, addNewDashboard } = useActions(dashboardLogic({ id }))
-    const { user } = useValues(userLogic)
+    const logic = dashboardLogic({ id: parseInt(id) })
+    const { dashboard, dashboardItemsLoading, items } = useValues(logic)
+    const { loadDashboardItems, addNewDashboard } = useActions(logic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
+    const { pinDashboard, unpinDashboard } = useActions(dashboardsModel)
+    const { user } = useValues(userLogic)
 
     return (
         <div>
             <div className="dashboard-selection">
-                {dashboardsLoading && dashboardLoading ? (
+                {dashboardsLoading ? (
                     <Loading />
                 ) : (
-                    <div>
-                        <Select
-                            value={partialDashboard?.id}
-                            onChange={id =>
-                                id === 'new' ? addNewDashboard() : router.actions.push(`/dashboard/${id}`)
-                            }
-                            bordered={false}
-                            dropdownMatchSelectWidth={false}
-                        >
-                            {dashboards.map(dashboard => (
-                                <Select.Option key={dashboard.id} value={parseInt(dashboard.id)}>
-                                    {dashboard.name || <span style={{ color: 'var(--gray)' }}>Untitled</span>}
-                                </Select.Option>
-                            ))}
+                    <>
+                        <div>
+                            <Select
+                                value={dashboard.id}
+                                onChange={id =>
+                                    id === 'new' ? addNewDashboard() : router.actions.push(`/dashboard/${id}`)
+                                }
+                                bordered={false}
+                                dropdownMatchSelectWidth={false}
+                            >
+                                {dashboards.map(dashboard => (
+                                    <Select.Option key={dashboard.id} value={parseInt(dashboard.id)}>
+                                        {dashboard.name || <span style={{ color: 'var(--gray)' }}>Untitled</span>}
+                                    </Select.Option>
+                                ))}
 
-                            <Select.Option value="new">+ New Dashboard</Select.Option>
-                        </Select>
-                    </div>
+                                <Select.Option value="new">+ New Dashboard</Select.Option>
+                            </Select>
+                        </div>
+                        <div>
+                            <Button
+                                type={dashboard.pinned ? 'primary' : ''}
+                                onClick={() =>
+                                    dashboard.pinned ? unpinDashboard(dashboard.id) : pinDashboard(dashboard.id)
+                                }
+                            >
+                                {dashboard.pinned ? <PushpinFilled /> : <PushpinOutlined />} Pin
+                            </Button>
+                        </div>
+                    </>
                 )}
             </div>
+
             {items.length > 0 ? (
                 <div className="row">
                     {items.map(item => {
@@ -91,7 +107,7 @@ export function Dashboard({ id }) {
                                                 object={item}
                                                 className="text-danger dropdown-item"
                                                 endpoint="dashboard_item"
-                                                callback={loadDashboard}
+                                                callback={loadDashboardItems}
                                             >
                                                 Delete panel
                                             </DeleteWithUndo>
@@ -117,7 +133,7 @@ export function Dashboard({ id }) {
                         )
                     })}
                 </div>
-            ) : dashboardLoading ? (
+            ) : dashboardItemsLoading ? (
                 <SceneLoading />
             ) : user.has_events ? (
                 <p>

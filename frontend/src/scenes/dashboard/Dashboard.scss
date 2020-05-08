@@ -1,4 +1,7 @@
 .dashboard-selection {
+    display: flex;
+    justify-content: space-between;
+
     margin-top: -1rem;
     margin-bottom: 2rem;
 
@@ -16,5 +19,8 @@
                 line-height: var(--dashboard-title-size);
             }
         }
+    }
+    .ant-btn .anticon {
+        vertical-align: baseline;
     }
 }
