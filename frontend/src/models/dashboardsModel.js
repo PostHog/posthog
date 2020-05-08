@@ -36,7 +36,10 @@ export const dashboardsModel = kea({
         rawDashboards: {
             addDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             renameDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
-            deleteDashboardSuccess: (state, { id }) => ({ ...state, [id]: { ...state[id], deleted: true } }),
+            deleteDashboardSuccess: (state, { dashboard }) => ({
+                ...state,
+                [dashboard.id]: { ...state[dashboard.id], deleted: true },
+            }),
             delayedDeleteDashboard: (state, { id }) => {
                 // this gives us time to leave the /dashboard/:deleted_id page
                 const { [id]: _discard, ...rest } = state
@@ -57,9 +60,7 @@ export const dashboardsModel = kea({
         dashboards: [
             () => [selectors.rawDashboards],
             rawDashboards => {
-                const list = Object.values(rawDashboards)
-                    .filter(d => !d.deleted)
-                    .sort((a, b) => a.name.localeCompare(b.name))
+                const list = Object.values(rawDashboards).sort((a, b) => a.name.localeCompare(b.name))
                 return [...list.filter(d => d.pinned), ...list.filter(d => !d.pinned)]
             },
         ],
@@ -74,7 +75,9 @@ export const dashboardsModel = kea({
     listeners: ({ actions, values }) => ({
         deleteDashboardSuccess: async ({ dashboard }) => {
             const { id } = dashboard
-            const nextDashboard = [...values.pinnedDashboards, ...values.dashboards].filter(d => d.id !== id)[0]
+            const nextDashboard = [...values.pinnedDashboards, ...values.dashboards].find(
+                d => d.id !== id && !d.deleted
+            )
             if (nextDashboard) {
                 router.actions.push(`/dashboard/${nextDashboard.id}`)
             } else {

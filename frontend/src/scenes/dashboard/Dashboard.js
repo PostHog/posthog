@@ -23,7 +23,7 @@ export function Dashboard({ id }) {
                 <SceneLoading />
             ) : !dashboard ? (
                 <>
-                    <p>Error 404! A dashboard with the ID {id} was not found!</p>
+                    <p>A dashboard with the ID {id} was not found!</p>
                     <HedgehogOverlay type="sad" />
                 </>
             ) : items.length > 0 ? (

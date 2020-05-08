@@ -19,8 +19,9 @@ export const logic = kea({
     sharedListeners: () => ({
         redirectToFirstDashboard: () => {
             const { dashboards } = dashboardsModel.values
-            if (dashboards.length > 0) {
-                router.actions.push(`/dashboard/${dashboards[0].id}`)
+            const dashboard = dashboards.find(d => !d.deleted)
+            if (dashboard) {
+                router.actions.push(`/dashboard/${dashboard.id}`)
             }
         },
     }),
