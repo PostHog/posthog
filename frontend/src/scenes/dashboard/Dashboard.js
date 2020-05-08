@@ -13,7 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Dropdown, Menu, Select } from 'antd'
-import { PushpinFilled, PushpinOutlined, MoreOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
+import { PushpinFilled, PushpinOutlined, EllipsisOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -95,7 +95,7 @@ export function Dashboard({ id }) {
                                 placement="bottomRight"
                             >
                                 <Button className="button-box">
-                                    <MoreOutlined />
+                                    <EllipsisOutlined />
                                 </Button>
                             </Dropdown>
                         </div>
@@ -138,7 +138,7 @@ export function Dashboard({ id }) {
                                             }
                                         >
                                             <span style={{ cursor: 'pointer', marginTop: -3 }}>
-                                                <MoreOutlined />
+                                                <EllipsisOutlined />
                                             </span>
                                         </Dropdown>
                                         <Link to={link}>{item.name}</Link>
