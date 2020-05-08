@@ -448,11 +448,18 @@ class ActionViewSet(viewsets.ModelViewSet):
                     .filter(day_count=stickiness_days)
             else:
                 events = events.values('person_id').distinct()
+
+            if request.GET.get('breakdown_type') == 'cohort' and request.GET.get('breakdown_value') != 'all':
+                events = events.filter(Exists(
+                    CohortPeople.objects.filter(
+                        cohort=request.GET['breakdown_value'],
+                        person_id=OuterRef('person_id')
+                    ).only('id')
+                ))
+
             people = Person.objects\
                 .filter(team=team, id__in=[p['person_id'] for p in events[0:100]])
 
-            if request.GET.get('breakdown_type') == 'cohort' and request.GET.get('breakdown_value') != 'all':
-                people = people.filter(cohort=request.GET['breakdown_value'])
             return self._serialize_people(
                 people=people,
                 request=request
