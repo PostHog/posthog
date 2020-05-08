@@ -30,17 +30,73 @@
                 background: hsl(210, 8%, 95%);
                 border-radius: 100%;
                 padding: 4px;
-                &:hover,
-                &:active {
+                &:hover {
                     background: hsl(210, 8%, 90%);
                 }
             }
         }
     }
     .dashboard-item-content {
-        overflow: none;
+        overflow: hidden;
         height: 25vh;
         max-height: 30vh;
         position: relative;
+    }
+
+    &.blue,
+    &.purple,
+    &.green {
+        color: white;
+        canvas {
+            filter: invert(1) brightness(200%);
+        }
+        .dashboard-item-header .dashboard-item-title a {
+            color: white;
+        }
+        .svg-funnel-js__label .label__title {
+            opacity: 0.8;
+        }
+        .svg-funnel-js:not(.svg-funnel-js--vertical) .svg-funnel-js__label:not(:first-child) {
+            border-left: 1px solid rgba(255, 255, 255, 0.4);
+        }
+    }
+    &.blue {
+        background: hsl(212, 63%, 40%);
+        .dashboard-item-header .dashboard-item-settings .anticon {
+            background: hsl(212, 63%, 35%);
+            &:hover {
+                background: hsl(212, 63%, 30%);
+            }
+        }
+        .svg-funnel-js__container path {
+            fill: hsl(212, 63%, 60%);
+            stroke: hsl(212, 63%, 60%);
+        }
+    }
+    &.purple {
+        background: hsla(249, 46%, 51%, 1);
+        .dashboard-item-header .dashboard-item-settings .anticon {
+            background: hsla(249, 46%, 46%, 1);
+            &:hover {
+                background: hsla(249, 46%, 41%, 1);
+            }
+        }
+        .svg-funnel-js__container path {
+            fill: hsla(249, 46%, 65%, 1);
+            stroke: hsla(249, 46%, 65%, 1);
+        }
+    }
+    &.green {
+        background: hsla(145, 60%, 34%, 1);
+        .dashboard-item-header .dashboard-item-settings .anticon {
+            background: hsla(145, 60%, 29%, 1);
+            &:hover {
+                background: hsla(145, 60%, 24%, 1);
+            }
+        }
+        .svg-funnel-js__container path {
+            fill: hsla(145, 60%, 50%, 1);
+            stroke: hsla(145, 60%, 50%, 1);
+        }
     }
 }
