@@ -14,6 +14,10 @@ import { userLogic } from 'scenes/userLogic'
 import { sceneLogic, loadedScenes } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 
+const darkerScenes = {
+    dashboard: true,
+}
+
 export default function App() {
     const { user } = useValues(userLogic)
     const { scene, params } = useValues(sceneLogic)
@@ -27,7 +31,7 @@ export default function App() {
     return (
         <Layout className="bg-white">
             <Sidebar user={user} />
-            <Layout className="bg-white" style={{ height: '100vh' }}>
+            <Layout className={darkerScenes[scene] ? 'bg-dashboard' : 'bg-white'} style={{ height: '100vh' }}>
                 <div className="content py-3">
                     <TopContent user={user} />
                 </div>

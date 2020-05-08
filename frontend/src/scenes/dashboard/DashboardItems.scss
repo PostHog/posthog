@@ -1,0 +1,46 @@
+.dashboard-item {
+    display: block;
+    background: white;
+    padding: 15px;
+    box-shadow: 0 8px 10px rgba(0, 0, 0, 0.1);
+    border-radius: 5px;
+    margin-bottom: 30px;
+
+    .dashboard-item-header {
+        height: 32px;
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 15px;
+
+        .dashboard-item-title {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            padding-right: 15px;
+            a {
+                font-size: 14px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: hsla(210, 26%, 16%, 1);
+            }
+        }
+        .dashboard-item-settings {
+            .anticon {
+                background: hsl(210, 8%, 95%);
+                border-radius: 100%;
+                padding: 4px;
+                &:hover,
+                &:active {
+                    background: hsl(210, 8%, 90%);
+                }
+            }
+        }
+    }
+    .dashboard-item-content {
+        overflow: none;
+        height: 25vh;
+        max-height: 30vh;
+        position: relative;
+    }
+}

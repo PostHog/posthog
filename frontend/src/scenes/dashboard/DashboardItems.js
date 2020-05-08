@@ -1,3 +1,5 @@
+import './DashboardItems.scss'
+
 import { Dropdown, Menu } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { DeleteWithUndo, Loading } from 'lib/utils'
@@ -59,47 +61,46 @@ export function DashboardItems({ logic }) {
 
                 return (
                     <div className="col-6" key={item.id}>
-                        <div className="card">
-                            <h5 className="card-header">
-                                <Dropdown
-                                    className="float-right"
-                                    placement="bottomRight"
-                                    trigger="click"
-                                    overlay={
-                                        <Menu>
-                                            <Menu.Item icon={<Icon />} onClick={() => router.actions.push(link)}>
-                                                {viewText}
-                                            </Menu.Item>
-                                            <Menu.Item icon={<EditOutlined />} onClick={() => {}}>
-                                                Rename
-                                            </Menu.Item>
-                                            <Menu.Item icon={<DeleteOutlined />} className="text-danger">
-                                                <DeleteWithUndo
-                                                    object={item}
-                                                    className="text-danger"
-                                                    endpoint="dashboard_item"
-                                                    callback={loadDashboardItems}
-                                                >
-                                                    Delete
-                                                </DeleteWithUndo>
-                                            </Menu.Item>
-                                        </Menu>
-                                    }
-                                >
-                                    <span style={{ cursor: 'pointer', marginTop: -3 }}>
-                                        <EllipsisOutlined />
-                                    </span>
-                                </Dropdown>
-                                <Link to={link}>{item.name}</Link>
-                            </h5>
-                            <div
-                                style={{
-                                    overflowY: 'scroll',
-                                    height: '25vh',
-                                    maxHeight: '30vh',
-                                    position: 'relative',
-                                }}
-                            >
+                        <div className="dashboard-item">
+                            <div className="dashboard-item-header">
+                                <div className="dashboard-item-title">
+                                    <Link to={link} title={item.name}>
+                                        {item.name}
+                                    </Link>
+                                </div>
+                                <div className="dashboard-item-settings">
+                                    <Dropdown
+                                        className="float-right"
+                                        placement="bottomRight"
+                                        trigger="click"
+                                        overlay={
+                                            <Menu>
+                                                <Menu.Item icon={<Icon />} onClick={() => router.actions.push(link)}>
+                                                    {viewText}
+                                                </Menu.Item>
+                                                <Menu.Item icon={<EditOutlined />} onClick={() => {}}>
+                                                    Rename
+                                                </Menu.Item>
+                                                <Menu.Item icon={<DeleteOutlined />} className="text-danger">
+                                                    <DeleteWithUndo
+                                                        object={item}
+                                                        className="text-danger"
+                                                        endpoint="dashboard_item"
+                                                        callback={loadDashboardItems}
+                                                    >
+                                                        Delete
+                                                    </DeleteWithUndo>
+                                                </Menu.Item>
+                                            </Menu>
+                                        }
+                                    >
+                                        <span style={{ cursor: 'pointer', marginTop: -3 }}>
+                                            <EllipsisOutlined />
+                                        </span>
+                                    </Dropdown>
+                                </div>
+                            </div>
+                            <div className="dashboard-item-content">
                                 {Element ? <Element dashboardItemId={item.id} filters={item.filters} /> : <Loading />}
                             </div>
                         </div>
