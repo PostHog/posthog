@@ -22,7 +22,10 @@ export const dashboardsModel = kea({
         dashboard: {
             addDashboard: async ({ name }) => await api.create('api/dashboard', { name }),
             renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),
-            deleteDashboard: async id => await api.delete(`api/dashboard/${id}`),
+            deleteDashboard: async id => {
+                await api.delete(`api/dashboard/${id}`)
+                return { id }
+            },
             pinDashboard: async id => await api.update(`api/dashboard/${id}`, { pinned: true }),
             unpinDashboard: async id => await api.update(`api/dashboard/${id}`, { pinned: false }),
         },
@@ -56,14 +59,15 @@ export const dashboardsModel = kea({
 
     listeners: ({ actions, values }) => ({
         deleteDashboardSuccess: async ({ dashboard }) => {
-            const nextDashboard = [...values.pinnedDashboards, ...values.dashboards][0]
+            const { id } = dashboard
+            const nextDashboard = [...values.pinnedDashboards, ...values.dashboards].filter(d => d.id !== id)[0]
             if (nextDashboard) {
                 router.actions.push(`/dashboard/${nextDashboard.id}`)
             } else {
                 router.actions.push('/dashboard')
             }
             await delay(500)
-            actions.delayedDeleteDashboard(dashboard.id)
+            actions.delayedDeleteDashboard(id)
         },
     }),
 })

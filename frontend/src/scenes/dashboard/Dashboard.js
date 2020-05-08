@@ -78,6 +78,7 @@ export function Dashboard({ id }) {
                             </Button>
 
                             <Dropdown
+                                trigger="click"
                                 overlay={
                                     <Menu>
                                         <Menu.Item icon={<EditOutlined />} onClick={renameDashboard}>
@@ -116,6 +117,7 @@ export function Dashboard({ id }) {
                                         <Dropdown
                                             className="float-right"
                                             placement="bottomRight"
+                                            trigger="click"
                                             overlay={
                                                 <Menu>
                                                     <Menu.Item
