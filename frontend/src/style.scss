@@ -251,3 +251,6 @@ label.disabled {
 .anticon {
     vertical-align: 0 !important// antd fix of icons;
 }
+.ant-select-arrow .anticon {
+    vertical-align: top !important;
+}

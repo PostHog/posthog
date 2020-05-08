@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { router } from 'kea-router'
 
 export const cohortLogic = kea({
+    key: props => props.id || 'new',
     actions: () => ({
         saveCohort: cohort => ({ cohort }),
         setCohort: cohort => ({ cohort }),

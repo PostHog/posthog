@@ -5,17 +5,6 @@ from django.db import migrations, models
 import django.db.models.deletion
 import django.utils.timezone
 
-def migrate_calculate_cohorts(apps, schema_editor):
-    Cohort = apps.get_model('posthog', 'Cohort')
-    for cohort in Cohort.objects.all():
-        if cohort.team.users.count() == 1:
-            cohort.created_by = cohort.team.users.get()
-            cohort.save()
-
-
-def backwards(apps, schema_editor):
-    pass
-
 
 class Migration(migrations.Migration):
 
@@ -61,5 +50,4 @@ class Migration(migrations.Migration):
             model_name='cohortpeople',
             index=models.Index(fields=['cohort_id', 'person_id'], name='posthog_coh_cohort__89c25f_idx'),
         ),
-        migrations.RunPython(migrate_calculate_cohorts, backwards)
     ]
