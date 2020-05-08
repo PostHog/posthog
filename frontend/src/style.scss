@@ -254,3 +254,8 @@ label.disabled {
 .ant-dropdown-menu-item .anticon {
     vertical-align: middle;
 }
+
+.sidebar-label {
+    text-overflow: ellipsis;
+    overflow: hidden;
+}

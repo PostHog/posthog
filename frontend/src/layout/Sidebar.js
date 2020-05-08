@@ -81,7 +81,7 @@ export default function Sidebar(props) {
                 <Logo />
                 <Menu.Item key="trends" style={itemStyle}>
                     <RiseOutlined />
-                    <span>{'Trends'}</span>
+                    <span className="sidebar-label">{'Trends'}</span>
                     <Link to={'/trends'} />
                 </Menu.Item>
                 {pinnedDashboards.length > 0 || unpinnedDashboard ? (
@@ -90,7 +90,7 @@ export default function Sidebar(props) {
                         title={
                             <span style={itemStyle}>
                                 <HomeOutlined />
-                                <span>Dashboards</span>
+                                <span className="sidebar-label">Dashboards</span>
                             </span>
                         }
                         onTitleClick={() => (location.pathname !== firstDashboard ? push(firstDashboard) : null)}
@@ -98,14 +98,14 @@ export default function Sidebar(props) {
                         {pinnedDashboards.map(dashboard => (
                             <Menu.Item key={`dashboard-${dashboard.id}`} style={itemStyle}>
                                 <PushpinOutlined />
-                                <span>{dashboard.name}</span>
+                                <span className="sidebar-label">{dashboard.name}</span>
                                 <Link to={`/dashboard/${dashboard.id}`} />
                             </Menu.Item>
                         ))}
                         {unpinnedDashboard ? (
                             <Menu.Item key={`dashboard-${unpinnedDashboard.id}`} style={itemStyle}>
                                 <LinkOutlined />
-                                <span>{unpinnedDashboard.name}</span>
+                                <span className="sidebar-label">{unpinnedDashboard.name}</span>
                                 <Link to={`/dashboard/${unpinnedDashboard.id}`} />
                             </Menu.Item>
                         ) : null}
@@ -113,7 +113,7 @@ export default function Sidebar(props) {
                 ) : (
                     <Menu.Item key="dashboards" style={itemStyle}>
                         <HomeOutlined />
-                        <span>Dashboards</span>
+                        <span className="sidebar-label">Dashboards</span>
                         <Link to="/dashboard" />
                     </Menu.Item>
                 )}
@@ -122,24 +122,24 @@ export default function Sidebar(props) {
                     title={
                         <span style={itemStyle}>
                             <ContainerOutlined />
-                            <span>{'Events'}</span>
+                            <span className="sidebar-label">{'Events'}</span>
                         </span>
                     }
                     onTitleClick={() => (location.pathname !== '/events' ? push('/events') : null)}
                 >
                     <Menu.Item key="events" style={itemStyle}>
                         <ContainerOutlined />
-                        <span>{'All Events'}</span>
+                        <span className="sidebar-label">{'All Events'}</span>
                         <Link to={'/events'} />
                     </Menu.Item>
                     <Menu.Item key="actions" style={itemStyle}>
                         <AimOutlined />
-                        <span>{'Actions'}</span>
+                        <span className="sidebar-label">{'Actions'}</span>
                         <Link to={'/actions'} />
                     </Menu.Item>
                     <Menu.Item key="liveActions" style={itemStyle}>
                         <SyncOutlined />
-                        <span>{'Live Actions'}</span>
+                        <span className="sidebar-label">{'Live Actions'}</span>
                         <Link to={'/actions/live'} />
                     </Menu.Item>
                 </Menu.SubMenu>
@@ -148,40 +148,40 @@ export default function Sidebar(props) {
                     title={
                         <span style={itemStyle}>
                             <UserOutlined />
-                            <span>{'People'}</span>
+                            <span className="sidebar-label">{'People'}</span>
                         </span>
                     }
                     onTitleClick={() => (location.pathname !== '/people' ? push('/people') : null)}
                 >
                     <Menu.Item key="people" style={itemStyle}>
                         <UserOutlined />
-                        <span>{'All Users'}</span>
+                        <span className="sidebar-label">{'All Users'}</span>
                         <Link to={'/people'} />
                     </Menu.Item>
                     <Menu.Item key="cohorts" style={itemStyle}>
                         <UsergroupAddOutlined />
-                        <span>{'Cohorts'}</span>
+                        <span className="sidebar-label">{'Cohorts'}</span>
                         <Link to={'/people/cohorts'} />
                     </Menu.Item>
                 </Menu.SubMenu>
                 <Menu.Item key="funnels" style={itemStyle}>
                     <FunnelPlotOutlined />
-                    <span>{'Funnels'}</span>
+                    <span className="sidebar-label">{'Funnels'}</span>
                     <Link to={'/funnel'} />
                 </Menu.Item>
                 <Menu.Item key="paths" style={itemStyle}>
                     <ForkOutlined />
-                    <span>{'Paths'}</span>
+                    <span className="sidebar-label">{'Paths'}</span>
                     <Link to={'/paths'} />
                 </Menu.Item>
                 <Menu.Item key="setup" style={itemStyle}>
                     <SettingOutlined />
-                    <span>{'Setup'}</span>
+                    <span className="sidebar-label">{'Setup'}</span>
                     <Link to={'/setup'} />
                 </Menu.Item>
                 <Menu.Item key="invite" style={itemStyle} onClick={() => setInviteModalOpen(true)}>
                     <PlusOutlined />
-                    <span>{'Invite your team'}</span>
+                    <span className="sidebar-label">{'Invite your team'}</span>
                 </Menu.Item>
             </Menu>
 
