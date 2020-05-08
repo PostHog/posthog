@@ -4,7 +4,7 @@ import { Dropdown, Menu } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { DeleteWithUndo, Loading } from 'lib/utils'
 import { Link } from 'lib/components/Link'
-import React from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import {
     EllipsisOutlined,
@@ -14,6 +14,7 @@ import {
     TableOutlined,
     PieChartOutlined,
     FunnelPlotOutlined,
+    BgColorsOutlined,
 } from '@ant-design/icons'
 import { ActionsLineGraph } from 'scenes/trends/ActionsLineGraph'
 import { ActionsTable } from 'scenes/trends/ActionsTable'
@@ -47,9 +48,24 @@ const typeMap = {
     },
 }
 
+const allColors = {
+    white: 'White',
+    blue: 'Blue',
+    green: 'Green',
+    purple: 'Purple',
+}
+
+const allColorStyles = {
+    white: 'white',
+    blue: 'hsl(212, 63%, 40%)',
+    purple: 'hsla(249, 46%, 51%, 1)',
+    green: 'hsla(145, 60%, 34%, 1)',
+}
+
 export function DashboardItems({ logic }) {
     const { items } = useValues(logic)
     const { loadDashboardItems } = useActions(logic)
+    const [colors, setColors] = useState({})
 
     return (
         <div className="row">
@@ -61,7 +77,7 @@ export function DashboardItems({ logic }) {
 
                 return (
                     <div className="col-6" key={item.id}>
-                        <div className="dashboard-item">
+                        <div className={`dashboard-item ${colors[item.id]}`}>
                             <div className="dashboard-item-header">
                                 <div className="dashboard-item-title">
                                     <Link to={link} title={item.name}>
@@ -70,7 +86,38 @@ export function DashboardItems({ logic }) {
                                 </div>
                                 <div className="dashboard-item-settings">
                                     <Dropdown
-                                        className="float-right"
+                                        placement="bottomRight"
+                                        trigger="click"
+                                        overlay={
+                                            <Menu>
+                                                {Object.entries(allColors).map(([className, color]) => (
+                                                    <Menu.Item
+                                                        key={className}
+                                                        onClick={() => setColors({ ...colors, [item.id]: className })}
+                                                    >
+                                                        <span
+                                                            style={{
+                                                                background: allColorStyles[className],
+                                                                border: '1px solid #eee',
+                                                                display: 'inline-block',
+                                                                width: 13,
+                                                                height: 13,
+                                                                verticalAlign: 'middle',
+                                                                marginRight: 5,
+                                                                marginBottom: 1,
+                                                            }}
+                                                        />
+                                                        {color}
+                                                    </Menu.Item>
+                                                ))}
+                                            </Menu>
+                                        }
+                                    >
+                                        <span style={{ cursor: 'pointer', marginTop: -3 }}>
+                                            <BgColorsOutlined />
+                                        </span>
+                                    </Dropdown>
+                                    <Dropdown
                                         placement="bottomRight"
                                         trigger="click"
                                         overlay={

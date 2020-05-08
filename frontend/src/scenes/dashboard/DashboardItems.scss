@@ -17,7 +17,7 @@
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-            padding-right: 15px;
+            padding-right: 5px;
             a {
                 font-size: 14px;
                 text-transform: uppercase;
@@ -26,7 +26,9 @@
             }
         }
         .dashboard-item-settings {
+            white-space: nowrap;
             .anticon {
+                margin-left: 10px;
                 background: hsl(210, 8%, 95%);
                 border-radius: 100%;
                 padding: 4px;
