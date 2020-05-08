@@ -5,9 +5,9 @@ import { objectsEqual } from 'lib/utils'
 import { router } from 'kea-router'
 
 function parseProperties(input) {
-    if (Array.isArray) return input
+    if (Array.isArray(input) || !input) return input
     // Old style dict properties
-    return Object.entires(input).map(([key, value]) => {
+    return Object.entries(input).map(([key, value]) => {
         key = key.split('__')
         return {
             key: key[0],
@@ -118,6 +118,7 @@ export const propertyFilterLogic = kea({
                 // if we have an error accessing the filter value, the logic is gone and we should return
                 return
             }
+            properties = parseProperties(properties)
 
             if (!objectsEqual(properties || {}, filters)) {
                 // {} adds an empty row, which shows 'New Filter'
