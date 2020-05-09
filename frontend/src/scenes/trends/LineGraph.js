@@ -62,9 +62,7 @@ export class LineGraph extends Component {
                           datasetCopy.dotted = true
 
                           // if last date is still active show dotted line
-                          let inputDate = new Date(datasetCopy.days[datasetCopy.days.length - 1])
-                          let todaysDate = new Date()
-                          if (inputDate.setHours(0, 0, 0, 0) == todaysDate.setHours(0, 0, 0, 0)) {
+                          if (this.props.isInProgress) {
                               datasetCopy.borderDash = [10, 10]
                           }
 
