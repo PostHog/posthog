@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import { useHistory, NavLink } from 'react-router-dom'
-import { InviteTeam } from '../lib/components/InviteTeam'
+import { router } from 'kea-router'
+import { InviteTeam } from 'lib/components/InviteTeam'
 import { Menu, Layout, Modal } from 'antd'
 import {
     UserOutlined,
@@ -15,6 +15,9 @@ import {
     UsergroupAddOutlined,
     ContainerOutlined,
 } from '@ant-design/icons'
+import { useActions, useValues } from 'kea'
+import { Link } from 'lib/components/Link'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -30,40 +33,48 @@ function Logo() {
     )
 }
 
+// to show the right page in the sidebar
+const sceneOverride = {
+    action: 'actions',
+    funnel: 'funnels',
+    editFunnel: 'funnels',
+    person: 'people',
+}
+
+// to show the open submenu
+const submenuOverride = {
+    actions: 'events',
+    liveActions: 'events',
+    cohorts: 'people',
+}
+
 export default function Sidebar(props) {
-    let [inviteModalOpen, setInviteModalOpen] = useState(false)
-    let history = useHistory()
+    const [inviteModalOpen, setInviteModalOpen] = useState(false)
 
-    let matches = path => history.location.pathname.indexOf(path) > -1
+    const { scene, loadingScene } = useValues(sceneLogic)
+    const { location } = useValues(router)
+    const { push } = useActions(router)
 
-    let determineSubmenuOpen = () => {
-        if (matches('/action') || matches('events')) {
-            return ['events']
-        } else if (matches('people') || matches('/person')) {
-            return ['people']
-        } else {
-            return []
-        }
-    }
+    const activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
 
     return (
         <Layout.Sider breakpoint="lg" collapsedWidth="0" className="bg-light">
             <Menu
                 className="h-100 bg-light"
-                selectedKeys={[history.location.pathname]}
-                openKeys={determineSubmenuOpen()}
+                selectedKeys={[activeScene]}
+                openKeys={[submenuOverride[activeScene] || activeScene]}
                 mode="inline"
             >
-                <Logo></Logo>
-                <Menu.Item key={'/trends'} style={itemStyle}>
+                <Logo />
+                <Menu.Item key="trends" style={itemStyle}>
                     <RiseOutlined />
                     <span>{'Trends'}</span>
-                    <NavLink to={'/trends'}></NavLink>
+                    <Link to={'/trends'} />
                 </Menu.Item>
-                <Menu.Item key={'/dashboard'} style={itemStyle}>
+                <Menu.Item key="dashboard" style={itemStyle}>
                     <HomeOutlined />
                     <span>{'Dashboard'}</span>
-                    <NavLink to={'/dashboard'}></NavLink>
+                    <Link to={'/dashboard'} />
                 </Menu.Item>
                 <Menu.SubMenu
                     key="events"
@@ -73,22 +84,22 @@ export default function Sidebar(props) {
                             <span>{'Events'}</span>
                         </span>
                     }
-                    onTitleClick={() => (history.location.pathname != '/events' ? history.push('/events') : null)}
+                    onTitleClick={() => (location.pathname !== '/events' ? push('/events') : null)}
                 >
-                    <Menu.Item key={'/events'} style={itemStyle}>
+                    <Menu.Item key="events" style={itemStyle}>
                         <ContainerOutlined />
                         <span>{'All Events'}</span>
-                        <NavLink to={'/events'}></NavLink>
+                        <Link to={'/events'} />
                     </Menu.Item>
-                    <Menu.Item key={'/actions'} style={itemStyle}>
+                    <Menu.Item key="actions" style={itemStyle}>
                         <AimOutlined />
                         <span>{'Actions'}</span>
-                        <NavLink to={'/actions'}></NavLink>
+                        <Link to={'/actions'} />
                     </Menu.Item>
-                    <Menu.Item key={'/actions/live'} style={itemStyle}>
+                    <Menu.Item key="liveActions" style={itemStyle}>
                         <SyncOutlined />
                         <span>{'Live Actions'}</span>
-                        <NavLink to={'/actions/live'}></NavLink>
+                        <Link to={'/actions/live'} />
                     </Menu.Item>
                 </Menu.SubMenu>
                 <Menu.SubMenu
@@ -99,36 +110,36 @@ export default function Sidebar(props) {
                             <span>{'People'}</span>
                         </span>
                     }
-                    onTitleClick={() => (history.location.pathname != '/people' ? history.push('/people') : null)}
+                    onTitleClick={() => (location.pathname !== '/people' ? push('/people') : null)}
                 >
-                    <Menu.Item key={'/people'} style={itemStyle}>
+                    <Menu.Item key="people" style={itemStyle}>
                         <UserOutlined />
                         <span>{'All Users'}</span>
-                        <NavLink to={'/people'}></NavLink>
+                        <Link to={'/people'} />
                     </Menu.Item>
-                    <Menu.Item key={'/people/cohorts'} style={itemStyle}>
+                    <Menu.Item key="cohorts" style={itemStyle}>
                         <UsergroupAddOutlined />
                         <span>{'Cohorts'}</span>
-                        <NavLink to={'/people/cohorts'}></NavLink>
+                        <Link to={'/people/cohorts'} />
                     </Menu.Item>
                 </Menu.SubMenu>
-                <Menu.Item key={'/funnel'} style={itemStyle}>
+                <Menu.Item key="funnels" style={itemStyle}>
                     <FunnelPlotOutlined />
                     <span>{'Funnels'}</span>
-                    <NavLink to={'/funnel'}></NavLink>
+                    <Link to={'/funnel'} />
                 </Menu.Item>
-                <Menu.Item key={'/paths'} style={itemStyle}>
+                <Menu.Item key="paths" style={itemStyle}>
                     <ForkOutlined />
                     <span>{'Paths'}</span>
-                    <NavLink to={'/paths'}></NavLink>
+                    <Link to={'/paths'} />
                 </Menu.Item>
-                <Menu.Item key={'/setup'} style={itemStyle}>
+                <Menu.Item key="setup" style={itemStyle}>
                     <SettingOutlined />
                     <span>{'Setup'}</span>
-                    <NavLink to={'/setup'}></NavLink>
+                    <Link to={'/setup'} />
                 </Menu.Item>
-                <Menu.Item key={'invite'} style={itemStyle} onClick={() => setInviteModalOpen(true)}>
-                    <PlusOutlined></PlusOutlined>
+                <Menu.Item key="invite" style={itemStyle} onClick={() => setInviteModalOpen(true)}>
+                    <PlusOutlined />
                     <span>{'Invite your team'}</span>
                 </Menu.Item>
             </Menu>

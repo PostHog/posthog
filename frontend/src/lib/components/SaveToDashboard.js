@@ -2,7 +2,7 @@ import React, { Component } from 'react'
 import api from '../api'
 import { Modal } from './Modal'
 import { toast } from 'react-toastify'
-import { Link } from 'react-router-dom'
+import { Link } from 'lib/components/Link'
 import { Button } from 'antd'
 
 function momentToString(date) {

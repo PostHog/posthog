@@ -8,8 +8,7 @@ import { People } from './People'
 import { funnelLogic } from './funnelLogic'
 import { useValues, useActions } from 'kea'
 
-export function Funnel({ match }) {
-    const id = match.params.id
+export function Funnel({ id }) {
     const { funnel, funnelLoading, stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic({ id }))
     const { setFunnel } = useActions(funnelLogic({ id }))
     if (!funnel && funnelLoading) return <Loading />
@@ -56,7 +55,7 @@ export function Funnel({ match }) {
                     </div>
                 </Card>
             )}
-            {funnel.id && <People match={match} />}
+            {funnel.id && <People id={id} />}
         </div>
     )
 }

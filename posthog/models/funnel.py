@@ -77,6 +77,7 @@ class Funnel(models.Model):
                     **date_query
                 )
                 .filter(properties_to_Q(properties))
+                .filter(properties_to_Q(step['properties']) if step.get('properties') is not None else Q() )
                 .order_by("timestamp")
                 .values("timestamp")[:1]
             )
@@ -95,6 +96,7 @@ class Funnel(models.Model):
             "order": step.get("order"),
             "people": people if people else [],
             "count": len(people) if people else 0,
+            "type": step.get("type"),
         }
 
     def get_steps(self) -> List[Dict[str, Any]]:

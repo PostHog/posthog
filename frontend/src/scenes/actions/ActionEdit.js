@@ -1,8 +1,8 @@
-import React, { Component } from 'react'
-import api from '../../lib/api'
-import { uuid } from '../../lib/utils'
+import React, { Component, Fragment } from 'react'
+import api from 'lib/api'
+import { uuid } from 'lib/utils'
 import PropTypes from 'prop-types'
-import { Link } from 'react-router-dom'
+import { Link } from 'lib/components/Link'
 import { toast } from 'react-toastify'
 
 import { ActionStep } from './ActionStep'
@@ -127,7 +127,7 @@ export class ActionEdit extends Component {
                     {!isEditor && <br />}
 
                     {action.steps.map((step, index) => (
-                        <>
+                        <Fragment key={index}>
                             {index > 0 ? (
                                 <div
                                     style={{
@@ -164,7 +164,7 @@ export class ActionEdit extends Component {
                                     this.setState({ action: action, edited: true })
                                 }}
                             />
-                        </>
+                        </Fragment>
                     ))}
 
                     {!isEditor ? (
@@ -178,7 +178,7 @@ export class ActionEdit extends Component {
                                             edited: true,
                                         })
                                     }}
-                                    checked={action.post_to_slack}
+                                    checked={!!action.post_to_slack}
                                     disabled={!this.state.slackEnabled}
                                 />
                                 &nbsp;Post to Slack when this action is triggered.

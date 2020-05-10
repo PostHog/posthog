@@ -7,6 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 from django.db.models import Q, Count, Prefetch, functions, QuerySet
 from django.db import connection
+from django.utils.timezone import now
 from typing import Any, List, Dict, Optional, Tuple
 import pandas as pd
 import datetime
@@ -145,10 +146,6 @@ class ActionViewSet(viewsets.ModelViewSet):
             'month': 'M'
         }
         response = {}
-        # handle "today" date range
-        if date_from == date_to:
-            date_from = pd.Timestamp(ts_input=date_from).replace(hour=0)
-            date_to = pd.Timestamp(ts_input=date_to).replace(hour=23)
 
         time_index = pd.date_range(date_from, date_to, freq=freq_map[interval])
         if len(aggregates) > 0:
@@ -169,7 +166,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             response['total'] = {key: value[0] if len(value) > 0 else 0 for key, value in dataframe.iterrows()}
         return response
 
-    def _filter_events(self, filter: Filter) -> Q:
+    def _filter_events(self, filter: Filter, entity: Optional[Entity]=None) -> Q:
         filters = Q()
         if filter.date_from:
             filters &= Q(timestamp__gte=filter.date_from)
@@ -186,6 +183,8 @@ class ActionViewSet(viewsets.ModelViewSet):
             filters &= Q(timestamp__lte=filter.date_to + relativity)
         if filter.properties:
             filters &= properties_to_Q(filter.properties)
+        if entity and entity.properties:
+            filters &= properties_to_Q(entity.properties)
         return filters
 
     def _append_data(self, dates_filled: pd.DataFrame, interval: str) -> Dict:
@@ -240,7 +239,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         dates_filled = self._group_events_to_date(
             date_from=filter.date_from if filter.date_from else pd.Timestamp(aggregates[0][interval]),
-            date_to=filter.date_to,
+            date_to=filter.date_to if filter.date_to else now(),
             aggregates=aggregates,
             interval=interval,
             breakdown=breakdown
@@ -258,11 +257,11 @@ class ActionViewSet(viewsets.ModelViewSet):
         cursor.execute(query, params)
         return cursor.fetchall()
 
-    def _stickiness(self, filtered_events: QuerySet, filter: Filter) -> Dict[str, Any]:
-        range_days = (filter.date_to - filter.date_from).days + 2 if filter.date_from else 90
+    def _stickiness(self, filtered_events: QuerySet, entity: Entity, filter: Filter) -> Dict[str, Any]:
+        range_days = (filter.date_to - filter.date_from).days + 2 if filter.date_from and filter.date_to else 90
 
         events = filtered_events\
-            .filter(self._filter_events(filter))\
+            .filter(self._filter_events(filter, entity))\
             .values('person_id') \
             .annotate(day_count=Count(functions.TruncDay('timestamp'), distinct=True))\
             .filter(day_count__lte=range_days)
@@ -299,7 +298,8 @@ class ActionViewSet(viewsets.ModelViewSet):
             'action': {
                 'id': entity.id,
                 'name': entity.name,
-                'type': entity.type
+                'type': entity.type,
+                'properties': entity.properties
             },
             'label': entity.name,
             'count': 0,
@@ -309,7 +309,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         }
         response = []
         events = self._process_entity_for_events(entity=entity, team=team, order_by=None if request.GET.get('shown_as') == 'Stickiness' else '-timestamp')
-        events = events.filter(self._filter_events(filter))
+        events = events.filter(self._filter_events(filter, entity))
 
         if request.GET.get('shown_as', 'Volume') == 'Volume':
             items = self._aggregate_by_interval(
@@ -329,7 +329,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 response.append(new_dict)
         elif request.GET['shown_as'] == 'Stickiness':
             new_dict = copy.deepcopy(serialized)
-            new_dict.update(self._stickiness(filtered_events=events, filter=filter))
+            new_dict.update(self._stickiness(filtered_events=events, entity=entity, filter=filter))
             response.append(new_dict)
  
         return response
@@ -412,7 +412,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             })
             if entity.type == TREND_FILTER_TYPE_EVENTS:
                 filtered_events =  self._process_entity_for_events(entity, team=team, order_by=None)\
-                    .filter(self._filter_events(filter))
+                    .filter(self._filter_events(filter, entity))
             elif entity.type == TREND_FILTER_TYPE_ACTIONS:
                 actions = super().get_queryset()
                 actions = actions.filter(deleted=False)
@@ -420,7 +420,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     action = actions.get(pk=entity.id)
                 except Action.DoesNotExist:
                     return Response([])
-                filtered_events = self._process_entity_for_events(entity, team=team, order_by=None).filter(self._filter_events(filter))
+                filtered_events = self._process_entity_for_events(entity, team=team, order_by=None).filter(self._filter_events(filter, entity))
         
         people = _calculate_people(events=filtered_events)
         return Response([people])
