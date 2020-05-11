@@ -111,12 +111,12 @@ export const sceneLogic = kea({
         },
         loadScene: async ({ scene, params = {} }, breakpoint) => {
             if (values.scene === scene) {
-                actions.setScene(scene, params)
+                window.setTimeout(() => actions.setScene(scene, params), 0)
                 return
             }
 
             if (!scenes[scene]) {
-                actions.setScene('404', {})
+                window.setTimeout(() => actions.setScene('404', {}), 0)
                 return
             }
 
