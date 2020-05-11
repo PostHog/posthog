@@ -64,7 +64,7 @@ const allColorStyles = {
 
 export function DashboardItems({ logic }) {
     const { items } = useValues(logic)
-    const { loadDashboardItems } = useActions(logic)
+    const { loadDashboardItems, renameDashboardItem } = useActions(logic)
     const [colors, setColors] = useState({})
 
     return (
@@ -125,7 +125,10 @@ export function DashboardItems({ logic }) {
                                                 <Menu.Item icon={<Icon />} onClick={() => router.actions.push(link)}>
                                                     {viewText}
                                                 </Menu.Item>
-                                                <Menu.Item icon={<EditOutlined />} onClick={() => {}}>
+                                                <Menu.Item
+                                                    icon={<EditOutlined />}
+                                                    onClick={() => renameDashboardItem(item.id)}
+                                                >
                                                     Rename
                                                 </Menu.Item>
                                                 <Menu.Item icon={<DeleteOutlined />} className="text-danger">

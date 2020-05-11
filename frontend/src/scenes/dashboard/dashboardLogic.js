@@ -10,6 +10,8 @@ export const dashboardLogic = kea({
     actions: () => ({
         addNewDashboard: true,
         renameDashboard: true,
+        renameDashboardItem: id => ({ id }),
+        renameDashboardItemSuccess: item => ({ item }),
     }),
 
     loaders: ({ props }) => ({
@@ -32,6 +34,12 @@ export const dashboardLogic = kea({
         ],
     }),
 
+    reducers: () => ({
+        items: {
+            renameDashboardItemSuccess: (state, { item }) => state.map(i => (i.id === item.id ? item : i)),
+        },
+    }),
+
     selectors: ({ props }) => ({
         dashboard: [
             () => [dashboardsModel.selectors.dashboards],
@@ -43,7 +51,7 @@ export const dashboardLogic = kea({
         afterMount: [actions.loadDashboardItems],
     }),
 
-    listeners: ({ values, key }) => ({
+    listeners: ({ actions, values, key }) => ({
         addNewDashboard: async () => {
             prompt({ key: `new-dashboard-${key}` }).actions.prompt({
                 title: 'New dashboard',
@@ -65,6 +73,19 @@ export const dashboardLogic = kea({
                 value: values.dashboard.name,
                 error: 'You must enter name',
                 success: name => dashboardsModel.actions.renameDashboard({ id: values.dashboard.id, name }),
+            })
+        },
+
+        renameDashboardItem: async ({ id }) => {
+            prompt({ key: `rename-dashboard-item-${id}` }).actions.prompt({
+                title: 'Rename panel',
+                placeholder: 'Please enter the new name',
+                value: values.items.find(item => item.id === id)?.name,
+                error: 'You must enter name',
+                success: async name => {
+                    const item = await api.update(`api/dashboard_item/${id}`, { name })
+                    actions.renameDashboardItemSuccess(item)
+                },
             })
         },
     }),
