@@ -9,21 +9,13 @@ Description: This stack deploys a Fargate cluster that is in a VPC with both
 Parameters:
   StackName:
     Type: String
-    Default: production
+    Default: posthog
     Description: The name of the parent Fargate networking stack that you created. Necessary
                  to locate and reference resources created by that stack.
   ServiceName:
     Type: String
     Default: posthog 
     Description: A name for the service
-  PGConnectionString:
-    Type: String
-    Default: postgres://<username>:<password>@<host>:<port>/<db> 
-    Description: Postgres connection string 
-  ElastiCacheConnectionString:
-    Type: String
-    Default: redis://<host>:<port>/
-    Description: elasticache connection string 
   ImageUrl:
     Type: String
     Default: posthog/posthog:latest 
@@ -32,7 +24,7 @@ Parameters:
   ContainerPort:
     Type: Number
     Default: 8000
-    Description: What port number the application inside the docker container is binding to
+    Description: What port number the application inside the docker container is binding to. Don't change this unless you know what you are doing.
   ContainerCpu:
     Type: Number
     Default: 256
@@ -362,24 +354,20 @@ Resources:
         - !Ref PublicSubnetOne
         - !Ref PublicSubnetTwo
       SecurityGroups: [!Ref 'PublicLoadBalancerSG']
-      Listeners:
-        - LoadBalancerPort: '80'
-          InstancePort: !Ref ContainerPort
-          Protocol: HTTP
   # A dummy target group is used to setup the ALB to just drop traffic
   # initially, before any real service target groups have been added.
   DummyTargetGroupPublic:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      HealthCheckIntervalSeconds: 6
-      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: /_health
       HealthCheckProtocol: HTTP
-      HealthCheckTimeoutSeconds: 5
-      HealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 10 
+      HealthyThresholdCount: 10
       Name: !Join ['-', [!Ref 'AWS::StackName', 'drop-1']]
       Port: !Ref ContainerPort 
       Protocol: HTTP
-      UnhealthyThresholdCount: 2
+      UnhealthyThresholdCount: 10
       VpcId: !Ref 'VPC'
   PublicLoadBalancerListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -421,24 +409,20 @@ Resources:
         - !Ref PrivateSubnetOne
         - !Ref PrivateSubnetTwo
       SecurityGroups: [!Ref 'PrivateLoadBalancerSG']
-      Listeners:
-        - LoadBalancerPort: '80'
-          InstancePort: !Ref ContainerPort
-          Protocol: HTTP
   # This dummy target group is used to setup the ALB to just drop traffic
   # initially, before any real service target groups have been added.
   DummyTargetGroupPrivate:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      HealthCheckIntervalSeconds: 6
-      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: /_health
       HealthCheckProtocol: HTTP
-      HealthCheckTimeoutSeconds: 5
-      HealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 5
       Name: !Join ['-', [!Ref 'AWS::StackName', 'drop-2']]
       Port: !Ref ContainerPort
       Protocol: HTTP
-      UnhealthyThresholdCount: 2
+      UnhealthyThresholdCount: 10
       VpcId: !Ref 'VPC'
   PrivateLoadBalancerListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -543,6 +527,8 @@ Resources:
           Image: !Ref 'ImageUrl'
           PortMappings:
             - ContainerPort: !Ref 'ContainerPort'
+          LogConfiguration:
+            - LogDriver: awslogs
           Environment:
             - Name: DATABASE_URL
               Value: !Join ['', ['postgres://posthog:posthog@', !GetAtt [PosthogDB, Endpoint.Address], ':', !GetAtt [PosthogDB, Endpoint.Port], '/posthog']] 
@@ -555,7 +541,7 @@ Resources:
   RDSSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
-      Description: RDS Subnet Group
+      DBSubnetGroupDescription: RDS subnet group
       SubnetIds:
         - !Ref PrivateSubnetOne 
         - !Ref PrivateSubnetTwo
@@ -566,9 +552,9 @@ Resources:
       DBSubnetGroupName: !Ref RDSSubnetGroup
       AllocatedStorage: '5'
       DBInstanceClass: db.t2.small
-      Engine: PostgreSQL 
-      MasterUsername: posthog 
-      MasterUserPassword: posthog 
+      Engine: postgres
+      MasterUsername: posthog
+      MasterUserPassword: posthogadmin
     DeletionPolicy: Snapshot
 
   # The service. The service is a resource which allows you to run multiple
@@ -607,16 +593,16 @@ Resources:
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      HealthCheckIntervalSeconds: 6
-      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: /_health
       HealthCheckProtocol: HTTP
-      HealthCheckTimeoutSeconds: 5
-      HealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 10
       TargetType: ip
       Name: !Ref 'ServiceName'
       Port: !Ref 'ContainerPort'
       Protocol: HTTP
-      UnhealthyThresholdCount: 2
+      UnhealthyThresholdCount: 10
       VpcId: !Ref 'VPC'
 
   # Create a rule on the load balancer for routing traffic to the target group
@@ -648,7 +634,7 @@ Resources:
   ElasticacheSubnetGroup:
     Type: AWS::ElastiCache::SubnetGroup
     Properties:
-      Description: Cache Subnet Group
+      Description: Subnet for Redis 
       SubnetIds:
         - !Ref PrivateSubnetOne 
         - !Ref PrivateSubnetTwo
@@ -676,7 +662,6 @@ Conditions:
 # names so that the other task related CF templates can use them.
 Outputs:
   ClusterName:
-    Description: The name of the ECS cluster
     Value: !Ref 'ECSCluster'
     Export:
       Name: !Join [ ':', [ !Ref 'AWS::StackName', 'ClusterName' ] ]
