@@ -3,6 +3,7 @@ from django.db.models import Q
 from .person import Person
 from .action import Action
 from .event import Event
+from .filter import Filter
 from posthog.utils import properties_to_Q
 from django.utils import timezone
 from django.contrib.postgres.fields import JSONField
@@ -40,8 +41,8 @@ class Cohort(models.Model):
 
                 filters |= Q(persondistinctid__distinct_id__in=events)
             elif group.get("properties"):
-                properties = properties_to_Q(group["properties"])
-                filters |= Q(properties)
+                filter = Filter(data=group)
+                filters |= Q(filter.properties_to_Q())
         return filters
 
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
