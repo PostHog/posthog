@@ -2,11 +2,14 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
+import { message } from 'antd'
+import { router } from 'kea-router'
 
 export const dashboardLogic = kea({
     key: props => props.id,
 
     actions: () => ({
+        addNewDashboard: true,
         renameDashboard: true,
     }),
 
@@ -41,7 +44,22 @@ export const dashboardLogic = kea({
         afterMount: [actions.loadDashboardItems],
     }),
 
-    listeners: ({ cache, values, key }) => ({
+    listeners: ({ values, key }) => ({
+        addNewDashboard: async () => {
+            prompt({ key: `new-dashboard-${key}` }).actions.prompt({
+                title: 'New dashboard',
+                placeholder: 'Please enter a name',
+                value: '',
+                error: 'You must enter name',
+                success: name => dashboardsModel.actions.addDashboard({ name }),
+            })
+        },
+
+        [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
+            message.success(`Dashboard "${dashboard.name}" created!`)
+            router.actions.push(`/dashboard/${dashboard.id}`)
+        },
+
         renameDashboard: async () => {
             prompt({ key: `rename-dashboard-${key}` }).actions.prompt({
                 title: 'Rename dashboard',
@@ -49,7 +67,6 @@ export const dashboardLogic = kea({
                 value: values.dashboard.name,
                 error: 'You must enter name',
                 success: name => dashboardsModel.actions.renameDashboard({ id: values.dashboard.id, name }),
-                failure: () => {},
             })
         },
     }),

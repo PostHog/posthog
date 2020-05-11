@@ -4,33 +4,41 @@ import { router } from 'kea-router'
 import { message } from 'antd'
 import { prompt } from 'lib/logic/prompt'
 
-// This logic creates a modal to add a new dashboard. It's unique in that when the logic is unmounted,
-// for example when changing the URL, the modal is also closed. That would normally happen with the antd prompt.
-//
-// props:
-// - key - unique key for this logic
-// - redirect = true/false - redirect to the new dash once it's added
-export const newDashboardLogic = kea({
-    key: props => props.key,
-
+export const dashboardsLogic = kea({
     actions: () => ({
         addNewDashboard: true,
+        redirectToFirstDashboard: true,
     }),
 
-    listeners: ({ key, props }) => ({
+    events: ({ actions }) => ({
+        afterMount: [actions.redirectToFirstDashboard],
+    }),
+
+    listeners: ({ sharedListeners }) => ({
+        redirectToFirstDashboard: sharedListeners.redirectToFirstDashboard,
+        [dashboardsModel.actions.loadDashboardsSuccess]: sharedListeners.redirectToFirstDashboard,
+
         addNewDashboard: async () => {
-            prompt({ key: `new-dashboard-${key}` }).actions.prompt({
+            prompt({ key: `new-dashboard-dashboards` }).actions.prompt({
                 title: 'New dashboard',
                 placeholder: 'Please enter a name',
                 value: '',
                 error: 'You must enter name',
                 success: name => dashboardsModel.actions.addDashboard({ name }),
-                failure: () => {},
             })
         },
+
         [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
             message.success(`Dashboard "${dashboard.name}" created!`)
-            if (props.redirect) {
+            router.actions.push(`/dashboard/${dashboard.id}`)
+        },
+    }),
+
+    sharedListeners: () => ({
+        redirectToFirstDashboard: () => {
+            const { dashboards } = dashboardsModel.values
+            const dashboard = dashboards.find(d => !d.deleted)
+            if (dashboard) {
                 router.actions.push(`/dashboard/${dashboard.id}`)
             }
         },

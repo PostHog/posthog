@@ -1,36 +1,13 @@
 import React from 'react'
-import { kea, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Spin } from 'antd'
-import { router } from 'kea-router'
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
-
-export const logic = kea({
-    actions: () => ({
-        redirectToFirstDashboard: true,
-    }),
-    events: ({ actions }) => ({
-        afterMount: [actions.redirectToFirstDashboard],
-    }),
-    listeners: ({ sharedListeners }) => ({
-        redirectToFirstDashboard: sharedListeners.redirectToFirstDashboard,
-        [dashboardsModel.actions.loadDashboardsSuccess]: sharedListeners.redirectToFirstDashboard,
-    }),
-    sharedListeners: () => ({
-        redirectToFirstDashboard: () => {
-            const { dashboards } = dashboardsModel.values
-            const dashboard = dashboards.find(d => !d.deleted)
-            if (dashboard) {
-                router.actions.push(`/dashboard/${dashboard.id}`)
-            }
-        },
-    }),
-})
 
 export default function Dashboards() {
     const { dashboardsLoading, dashboards } = useValues(dashboardsModel)
-    const { addNewDashboard } = useActions(newDashboardLogic({ key: `all-dashboards`, redirect: true }))
+    const { addNewDashboard } = useActions(dashboardsLogic)
 
     if (dashboardsLoading) {
         return <Spin />
@@ -40,13 +17,15 @@ export default function Dashboards() {
         <div>
             <h2>Dashboards</h2>
 
-            {dashboards.length > 0 ? (
+            {dashboards.filter(d => !d.deleted).length > 0 ? (
                 <ul>
-                    {dashboards.map(({ id, name }) => (
-                        <li key={id}>
-                            <Link to={`/dashboard/${id}`}>{name || 'Untitled'}</Link>
-                        </li>
-                    ))}
+                    {dashboards
+                        .filter(d => !d.deleted)
+                        .map(({ id, name }) => (
+                            <li key={id}>
+                                <Link to={`/dashboard/${id}`}>{name || 'Untitled'}</Link>
+                            </li>
+                        ))}
                 </ul>
             ) : (
                 <p>Please add a Dashboard!</p>
