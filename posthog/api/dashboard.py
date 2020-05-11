@@ -4,7 +4,7 @@ from typing import Dict, Any
 from django.db.models import QuerySet
 
 class DashboardSerializer(serializers.ModelSerializer):
-    items = serializers.SerializerMethodField()
+    items = serializers.SerializerMethodField()  # type: ignore
     class Meta:
         model = Dashboard
         fields = ['id', 'name', 'pinned', 'items', 'created_at', 'created_by']
