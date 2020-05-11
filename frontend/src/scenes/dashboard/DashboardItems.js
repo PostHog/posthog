@@ -2,7 +2,7 @@ import './DashboardItems.scss'
 
 import { Dropdown, Menu } from 'antd'
 import { combineUrl, router } from 'kea-router'
-import { DeleteWithUndo, Loading } from 'lib/utils'
+import { deleteWithUndo, DeleteWithUndo, Loading } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
@@ -135,15 +135,18 @@ export function DashboardItems({ logic }) {
                                                 >
                                                     Rename
                                                 </Menu.Item>
-                                                <Menu.Item icon={<DeleteOutlined />} className="text-danger">
-                                                    <DeleteWithUndo
-                                                        object={item}
-                                                        className="text-danger"
-                                                        endpoint="dashboard_item"
-                                                        callback={loadDashboardItems}
-                                                    >
-                                                        Delete
-                                                    </DeleteWithUndo>
+                                                <Menu.Item
+                                                    icon={<DeleteOutlined />}
+                                                    onClick={() =>
+                                                        deleteWithUndo({
+                                                            object: item,
+                                                            endpoint: 'dashboard_item',
+                                                            callback: loadDashboardItems,
+                                                        })
+                                                    }
+                                                    className="text-danger"
+                                                >
+                                                    Delete
                                                 </Menu.Item>
                                             </Menu>
                                         }
