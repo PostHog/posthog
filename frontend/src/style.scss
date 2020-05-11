@@ -276,4 +276,8 @@ label.disabled {
 }
 .ant-message {
     z-index: 1070 !important;
+    .anticon {
+        top: 0;
+        vertical-align: middle;
+    }
 }
