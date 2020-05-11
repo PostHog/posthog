@@ -24,13 +24,9 @@ export const dashboardsModel = kea({
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
             addDashboard: async ({ name }) => await api.create('api/dashboard', { name, pinned: true }),
-            restoreDashboard: async dashboard => await api.create('api/dashboard', dashboard),
             renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),
-            deleteDashboard: async id => {
-                const dashboard = await api.get(`api/dashboard/${id}`)
-                await api.delete(`api/dashboard/${id}`)
-                return dashboard
-            },
+            deleteDashboard: async id => await api.update(`api/dashboard/${id}`, { deleted: true }),
+            restoreDashboard: async id => await api.update(`api/dashboard/${id}`, { deleted: false }),
             pinDashboard: async id => await api.update(`api/dashboard/${id}`, { pinned: true }),
             unpinDashboard: async id => await api.update(`api/dashboard/${id}`, { pinned: false }),
         },
@@ -95,7 +91,7 @@ export const dashboardsModel = kea({
                         href="#"
                         onClick={e => {
                             e.preventDefault()
-                            actions.restoreDashboard(dashboard)
+                            actions.restoreDashboard(dashboard.id)
                             toast.dismiss(toastId)
                         }}
                     >
