@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { delay, idToKey } from 'lib/utils'
 import { message } from 'antd'
+import React from 'react'
 
 export const dashboardsModel = kea({
     actions: () => ({
@@ -23,10 +24,12 @@ export const dashboardsModel = kea({
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
             addDashboard: async ({ name }) => await api.create('api/dashboard', { name }),
+            restoreDashboard: async dashboard => await api.create('api/dashboard', dashboard),
             renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),
             deleteDashboard: async id => {
+                const dashboard = await api.get(`api/dashboard/${id}`)
                 await api.delete(`api/dashboard/${id}`)
-                return { id }
+                return dashboard
             },
             pinDashboard: async id => await api.update(`api/dashboard/${id}`, { pinned: true }),
             unpinDashboard: async id => await api.update(`api/dashboard/${id}`, { pinned: false }),
@@ -36,6 +39,7 @@ export const dashboardsModel = kea({
     reducers: () => ({
         rawDashboards: {
             addDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+            restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             renameDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             deleteDashboardSuccess: (state, { dashboard }) => ({
                 ...state,
@@ -77,7 +81,28 @@ export const dashboardsModel = kea({
         addDashboardSuccess: ({ dashboard }) => {
             message.success(`Dashboard "${dashboard.name}" created!`)
         },
+
+        restoreDashboardSuccess: ({ dashboard }) => {
+            message.success(`Dashboard "${dashboard.name}" restored!`)
+            router.actions.push(`/dashboard/${dashboard.id}`)
+        },
+
         deleteDashboardSuccess: async ({ dashboard }) => {
+            message.success(
+                <span>
+                    Dashboard "{dashboard.name}" deleted!{' '}
+                    <a
+                        href="#"
+                        onClick={e => {
+                            e.preventDefault()
+                            actions.restoreDashboard(dashboard)
+                        }}
+                    >
+                        Undo
+                    </a>
+                </span>
+            )
+
             const { id } = dashboard
             const nextDashboard = [...values.pinnedDashboards, ...values.dashboards].find(
                 d => d.id !== id && !d.deleted

@@ -11,7 +11,17 @@ class DashboardSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context['request']
-        dashboard = Dashboard.objects.create(team=request.user.team_set.get(), **validated_data)
+        team = request.user.team_set.get()
+        dashboard = Dashboard.objects.create(team=team, **validated_data)
+
+        if request.data.get('items'):
+            for item in request.data['items']:
+                DashboardItem.objects.create(
+                    **{key: value for key, value in item.items() if key not in ('id', 'deleted', 'dashboard', 'team')},
+                    dashboard=dashboard,
+                    team=team,
+                )
+
         return dashboard
 
     def get_items(self, dashboard: Dashboard):
