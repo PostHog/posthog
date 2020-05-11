@@ -2,7 +2,7 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 
 import { Card, CloseButton, Loading } from 'lib/utils'
-import { SaveToDashboard } from 'lib/components/SaveToDashboard'
+import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DateFilter } from 'lib/components/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'

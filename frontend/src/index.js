@@ -13,7 +13,7 @@ resetContext({
     plugins: [
         routerPlugin,
         loadersPlugin({
-            onError({ error, reducerKey, actionKey, logic }) {
+            onFailure({ error, reducerKey, actionKey, logic }) {
                 toast.error(
                     <div>
                         <h1>Error loading "{reducerKey}".</h1>
@@ -21,7 +21,7 @@ resetContext({
                         <p className="error-message">"{error.message}"</p>
                     </div>
                 )
-                window.Sentry && window.Sentry.captureException(error)
+                window.Sentry ? window.Sentry.captureException(error) : console.error(error)
             },
         }),
     ],
