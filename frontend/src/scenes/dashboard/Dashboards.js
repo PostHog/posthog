@@ -4,35 +4,46 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Spin } from 'antd'
 import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
+import { PlusOutlined } from '@ant-design/icons'
 
 export default function Dashboards() {
-    const { dashboardsLoading, dashboards } = useValues(dashboardsModel)
+    const { dashboardsLoading } = useValues(dashboardsModel)
+    const { dashboards } = useValues(dashboardsLogic)
     const { addNewDashboard } = useActions(dashboardsLogic)
-
-    if (dashboardsLoading) {
-        return <Spin />
-    }
 
     return (
         <div>
-            <h2>Dashboards</h2>
+            <div style={{ marginBottom: 20 }}>
+                <Button onClick={addNewDashboard}>
+                    <PlusOutlined style={{ verticalAlign: 'baseline' }} />
+                    New Dashboard
+                </Button>
+            </div>
 
-            {dashboards.filter(d => !d.deleted).length > 0 ? (
-                <ul>
-                    {dashboards
-                        .filter(d => !d.deleted)
-                        .map(({ id, name }) => (
-                            <li key={id}>
-                                <Link to={`/dashboard/${id}`}>{name || 'Untitled'}</Link>
-                            </li>
-                        ))}
-                </ul>
+            {dashboardsLoading ? (
+                <Spin />
+            ) : dashboards.length > 0 ? (
+                <table className="table">
+                    <thead>
+                        <tr>
+                            <th>Dashboard name</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {dashboards
+                            .filter(d => !d.deleted)
+                            .map(({ id, name }) => (
+                                <tr key={id}>
+                                    <td>
+                                        <Link to={`/dashboard/${id}`}>{name || 'Untitled'}</Link>
+                                    </td>
+                                </tr>
+                            ))}
+                    </tbody>
+                </table>
             ) : (
                 <p>Please add a Dashboard!</p>
             )}
-            <Button type="primary" onClick={addNewDashboard}>
-                + Add new Dashboard
-            </Button>
         </div>
     )
 }

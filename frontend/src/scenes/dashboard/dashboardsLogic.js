@@ -6,24 +6,13 @@ import { prompt } from 'lib/logic/prompt'
 export const dashboardsLogic = kea({
     actions: () => ({
         addNewDashboard: true,
-        redirectToFirstDashboard: true,
     }),
 
-    events: ({ actions }) => ({
-        afterMount: [actions.redirectToFirstDashboard],
+    selectors: () => ({
+        dashboards: [() => [dashboardsModel.selectors.dashboards], dashboards => dashboards.filter(d => !d.deleted)],
     }),
 
     listeners: ({ actions }) => ({
-        [dashboardsModel.actions.loadDashboardsSuccess]: actions.redirectToFirstDashboard,
-
-        redirectToFirstDashboard: () => {
-            const { dashboards } = dashboardsModel.values
-            const dashboard = dashboards.find(d => !d.deleted)
-            if (dashboard) {
-                router.actions.push(`/dashboard/${dashboard.id}`)
-            }
-        },
-
         addNewDashboard: async () => {
             prompt({ key: `new-dashboard-dashboards` }).actions.prompt({
                 title: 'New dashboard',
