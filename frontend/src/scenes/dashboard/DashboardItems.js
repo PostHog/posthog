@@ -85,38 +85,42 @@ export function DashboardItems({ logic }) {
                                     </Link>
                                 </div>
                                 <div className="dashboard-item-settings">
-                                    <Dropdown
-                                        placement="bottomRight"
-                                        trigger="click"
-                                        overlay={
-                                            <Menu>
-                                                {Object.entries(allColors).map(([className, color]) => (
-                                                    <Menu.Item
-                                                        key={className}
-                                                        onClick={() => setColors({ ...colors, [item.id]: className })}
-                                                    >
-                                                        <span
-                                                            style={{
-                                                                background: allColorStyles[className],
-                                                                border: '1px solid #eee',
-                                                                display: 'inline-block',
-                                                                width: 13,
-                                                                height: 13,
-                                                                verticalAlign: 'middle',
-                                                                marginRight: 5,
-                                                                marginBottom: 1,
-                                                            }}
-                                                        />
-                                                        {color}
-                                                    </Menu.Item>
-                                                ))}
-                                            </Menu>
-                                        }
-                                    >
-                                        <span style={{ cursor: 'pointer', marginTop: -3 }}>
-                                            <BgColorsOutlined />
-                                        </span>
-                                    </Dropdown>
+                                    {false && (
+                                        <Dropdown
+                                            placement="bottomRight"
+                                            trigger="click"
+                                            overlay={
+                                                <Menu>
+                                                    {Object.entries(allColors).map(([className, color]) => (
+                                                        <Menu.Item
+                                                            key={className}
+                                                            onClick={() =>
+                                                                setColors({ ...colors, [item.id]: className })
+                                                            }
+                                                        >
+                                                            <span
+                                                                style={{
+                                                                    background: allColorStyles[className],
+                                                                    border: '1px solid #eee',
+                                                                    display: 'inline-block',
+                                                                    width: 13,
+                                                                    height: 13,
+                                                                    verticalAlign: 'middle',
+                                                                    marginRight: 5,
+                                                                    marginBottom: 1,
+                                                                }}
+                                                            />
+                                                            {color}
+                                                        </Menu.Item>
+                                                    ))}
+                                                </Menu>
+                                            }
+                                        >
+                                            <span style={{ cursor: 'pointer', marginTop: -3 }}>
+                                                <BgColorsOutlined />
+                                            </span>
+                                        </Dropdown>
+                                    )}
                                     <Dropdown
                                         placement="bottomRight"
                                         trigger="click"
