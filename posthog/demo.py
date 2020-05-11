@@ -1,4 +1,4 @@
-from posthog.models import Person, PersonDistinctId, Event, Element, Action, ActionStep, Funnel, Team, DashboardItem
+from posthog.models import Person, PersonDistinctId, Event, Element, Action, ActionStep, Funnel, Team, Dashboard, DashboardItem
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from django.http import HttpResponseNotFound, JsonResponse
@@ -104,7 +104,12 @@ def _create_funnel(team: Team, base_url: str) -> None:
         ]
     })
 
-    DashboardItem.objects.create(team=team, name='HogFlix signup -> watching movie', type='FunnelViz', filters={'funnel_id': funnel.pk})
+    dashboard = Dashboard.objects.create(
+        name="Default",
+        pinned=True,
+        team=team
+    )
+    DashboardItem.objects.create(team=team, dashboard=dashboard, name='HogFlix signup -> watching movie', type='FunnelViz', filters={'funnel_id': funnel.pk})
 
 def _recalculate(team: Team) -> None:
     actions = Action.objects.filter(team=team)

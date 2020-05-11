@@ -20,6 +20,7 @@ export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam
                 type="line"
                 datasets={results}
                 labels={results[0].labels}
+                isInProgress={!filters.date_to}
                 onClick={
                     dashboardItemId
                         ? null

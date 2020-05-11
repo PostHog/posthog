@@ -133,7 +133,7 @@ class TestTrends(BaseTest):
         sign_up_action = Action.objects.create(team=self.team, name='sign up')
         ActionStep.objects.create(action=sign_up_action, event='sign up')
 
-        person = Person.objects.create(team=self.team, distinct_ids=['blabla'])
+        person = Person.objects.create(team=self.team, distinct_ids=['blabla', 'anonymous_id'])
         secondTeam = Team.objects.create(api_token='token123')
 
         freeze_without_time = ['2019-12-24', '2020-01-01', '2020-01-02']
@@ -148,7 +148,7 @@ class TestTrends(BaseTest):
 
         with freeze_time(freeze_args[1]):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"$some_property": "value"})
-            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
+            Event.objects.create(team=self.team, event='sign up', distinct_id='anonymous_id')
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
         with freeze_time(freeze_args[2]):
             Event.objects.create(
@@ -363,6 +363,7 @@ class TestTrends(BaseTest):
     def test_dau_filtering(self):
         sign_up_action, person = self._create_events()
         with freeze_time('2020-01-02'):
+            Person.objects.create(team=self.team, distinct_ids=['someone_else'])
             Event.objects.create(team=self.team, event='sign up', distinct_id='someone_else')
         with freeze_time('2020-01-04'):
             action_response = self.client.get(

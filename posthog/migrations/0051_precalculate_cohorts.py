@@ -9,7 +9,7 @@ import django.utils.timezone
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0049_delete_funnelstep'),
+        ('posthog', '0050_dashboards'),
     ]
 
     operations = [

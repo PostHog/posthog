@@ -19,7 +19,7 @@ def backwards(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0050_precalculate_cohorts'),
+        ('posthog', '0051_precalculate_cohorts'),
     ]
 
     operations = [
