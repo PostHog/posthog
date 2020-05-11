@@ -1,5 +1,6 @@
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
+from django.db.models import Q
 from django.http import HttpRequest
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.utils import relative_date_parse
@@ -42,6 +43,7 @@ class Filter(PropertyMixin):
             self.entities.extend([Entity({**entity, 'type': TREND_FILTER_TYPE_ACTIONS}) for entity in data.get('actions', [])])
         if data.get('events'):
             self.entities.extend([Entity({**entity, 'type': TREND_FILTER_TYPE_EVENTS}) for entity in data.get('events', [])])
+        self.entities = sorted(self.entities, key=lambda entity: entity.order)
 
 
     def to_dict(self) -> Dict[str, Any]:
@@ -74,3 +76,13 @@ class Filter(PropertyMixin):
         if self._date_to:
             return relative_date_parse(self._date_to)
         return None
+
+    @property
+    def date_filter_Q(self) -> Q:
+        date_from = self.date_from
+        if not date_from:
+            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
+        filter = Q(timestamp__gte=date_from)
+        if self.date_to:
+            filter &= Q(timestamp__lte=self.date_to)
+        return filter

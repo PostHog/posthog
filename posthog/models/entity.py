@@ -37,4 +37,3 @@ class Entity(PropertyMixin):
             'math': self.math,
             'properties': [prop.to_dict() for prop in self.properties]
         }
-
