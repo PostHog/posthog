@@ -11,6 +11,7 @@ class DashboardSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context['request']
+        validated_data['created_by'] = request.user
         team = request.user.team_set.get()
         dashboard = Dashboard.objects.create(team=team, **validated_data)
 
