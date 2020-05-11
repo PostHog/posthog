@@ -502,7 +502,13 @@ Resources:
                 - 'logs:CreateLogStream'
                 - 'logs:PutLogEvents'
               Resource: '*'
-  
+ 
+              
+  PosthogLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: posthog 
+      RetentionInDays: 7 
   # The task definition. This is a simple metadata description of what
   # container to run, and what resource requirements it has.
   TaskDefinition:
@@ -512,8 +518,6 @@ Resources:
       Cpu: !Ref 'ContainerCpu'
       Memory: !Ref 'ContainerMemory'
       NetworkMode: awsvpc
-      LogConfiguration:
-        - LogDriver: awslogs
       RequiresCompatibilities:
         - FARGATE
       ExecutionRoleArn: !GetAtt 'ECSTaskExecutionRole.Arn'
@@ -524,13 +528,19 @@ Resources:
           - !Ref "AWS::NoValue"
       ContainerDefinitions:
         - Name: !Ref 'ServiceName'
+          Command:
+            - "./bin/docker"
           Cpu: !Ref 'ContainerCpu'
           Memory: !Ref 'ContainerMemory'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: us-east-1
+              awslogs-group: posthog 
+              awslogs-stream-prefix: posthog
           Image: !Ref 'ImageUrl'
           PortMappings:
             - ContainerPort: !Ref 'ContainerPort'
-          LogConfiguration:
-            - LogDriver: awslogs
           Environment:
             - Name: DATABASE_URL
               Value: !Join ['', ['postgres://posthog:posthog@', !GetAtt [PosthogDB, Endpoint.Address], ':', !GetAtt [PosthogDB, Endpoint.Port], '/posthog']] 
