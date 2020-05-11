@@ -47,7 +47,8 @@ export function DashboardHeader({ logic }) {
                                     dashboard.pinned ? unpinDashboard(dashboard.id) : pinDashboard(dashboard.id)
                                 }
                             >
-                                {dashboard.pinned ? <PushpinFilled /> : <PushpinOutlined />} Pin
+                                {dashboard.pinned ? <PushpinFilled /> : <PushpinOutlined />}{' '}
+                                {dashboard.pinned ? 'Pinned' : 'Pin'}
                             </Button>
 
                             <Dropdown
