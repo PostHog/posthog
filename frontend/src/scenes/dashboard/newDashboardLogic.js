@@ -1,8 +1,8 @@
 import { kea } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { cancellablePrompt } from 'lib/components/prompt'
 import { router } from 'kea-router'
 import { message } from 'antd'
+import { prompt } from 'lib/logic/prompt'
 
 // This logic creates a modal to add a new dashboard. It's unique in that when the logic is unmounted,
 // for example when changing the URL, the modal is also closed. That would normally happen with the antd prompt.
@@ -17,33 +17,16 @@ export const newDashboardLogic = kea({
         addNewDashboard: true,
     }),
 
-    events: ({ cache }) => ({
-        beforeUnmount: [
-            () => {
-                cache.runOnClose && cache.runOnClose()
-            },
-        ],
-    }),
-
-    listeners: ({ cache, props }) => ({
+    listeners: ({ key, props }) => ({
         addNewDashboard: async () => {
-            const { cancel, promise } = cancellablePrompt({
+            prompt({ key: `new-dashboard-${key}` }).actions.prompt({
                 title: 'New dashboard',
                 placeholder: 'Please enter a name',
                 value: '',
-                rules: [
-                    {
-                        required: true,
-                        message: 'You must enter name',
-                    },
-                ],
+                error: 'You must enter name',
+                success: name => dashboardsModel.actions.addDashboard({ name }),
+                failure: () => {},
             })
-            cache.runOnClose = cancel
-
-            try {
-                const name = await promise
-                dashboardsModel.actions.addDashboard({ name })
-            } catch (e) {}
         },
         [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
             message.success(`Dashboard "${dashboard.name}" created!`)

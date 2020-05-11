@@ -1,10 +1,65 @@
 import React from 'react'
 import ReactDOM from 'react-dom'
+import { kea } from 'kea'
 import { Modal, Input, Form } from 'antd'
+
+// This logic creates a modal to ask for an input. It's unique in that when the logic is unmounted,
+// for example when changing the URL, the modal is also closed. That would normally happen with the antd prompt.
+//
+// props:
+// - key - unique key for this logic
+//
+// actions:
+// - prompt({ title, placeholder, value, error, success, failure })
+export const prompt = kea({
+    key: props => props.key,
+
+    actions: () => ({
+        prompt: ({ title, placeholder, value, error, success, failure }) => ({
+            title,
+            placeholder,
+            value,
+            error,
+            success,
+            failure,
+        }),
+    }),
+
+    events: ({ cache }) => ({
+        beforeUnmount: [
+            () => {
+                cache.runOnClose && cache.runOnClose()
+            },
+        ],
+    }),
+
+    listeners: ({ cache }) => ({
+        prompt: async ({ title, placeholder, value, error, success, failure }) => {
+            const { cancel, promise } = cancellablePrompt({
+                title,
+                placeholder,
+                value,
+                rules: [
+                    {
+                        required: true,
+                        message: error,
+                    },
+                ],
+            })
+            cache.runOnClose = cancel
+
+            try {
+                const response = await promise
+                success && success(response)
+            } catch (error) {
+                failure && failure(error)
+            }
+        },
+    }),
+})
 
 // Based on https://github.com/wangsijie/antd-prompt/blob/master/src/index.js
 // Adapted for ant.design v4 and added cancellation support
-
 function Prompt({ value, visible, afterClose, close, title, modalProps, rules, placeholder }) {
     const [form] = Form.useForm()
     const onFinish = values => {
@@ -28,10 +83,6 @@ function Prompt({ value, visible, afterClose, close, title, modalProps, rules, p
             </Form>
         </Modal>
     )
-}
-
-export async function prompt(config) {
-    return await cancellablePrompt(config).promise
 }
 
 export function cancellablePrompt(config) {

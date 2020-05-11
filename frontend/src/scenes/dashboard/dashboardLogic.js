@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { cancellablePrompt } from 'lib/components/prompt'
+import { prompt } from 'lib/logic/prompt'
 
 export const dashboardLogic = kea({
     key: props => props.id,
@@ -37,34 +37,20 @@ export const dashboardLogic = kea({
         ],
     }),
 
-    events: ({ actions, cache }) => ({
+    events: ({ actions }) => ({
         afterMount: [actions.loadDashboardItems],
-        beforeUnmount: [
-            () => {
-                cache.runOnClose && cache.runOnClose()
-            },
-        ],
     }),
 
-    listeners: ({ cache, values }) => ({
+    listeners: ({ cache, values, key }) => ({
         renameDashboard: async () => {
-            const { cancel, promise } = cancellablePrompt({
+            prompt({ key: `rename-dashboard-${key}` }).actions.prompt({
                 title: 'Rename dashboard',
                 placeholder: 'Please enter the new name',
                 value: values.dashboard.name,
-                rules: [
-                    {
-                        required: true,
-                        message: 'You must enter name',
-                    },
-                ],
+                error: 'You must enter name',
+                success: name => dashboardsModel.actions.renameDashboard({ id: values.dashboard.id, name }),
+                failure: () => {},
             })
-            cache.runOnClose = cancel
-
-            try {
-                const name = await promise
-                dashboardsModel.actions.renameDashboard({ id: values.dashboard.id, name })
-            } catch (e) {}
         },
     }),
 })
