@@ -25,14 +25,23 @@ export const dashboardsModel = kea({
         dashboard: {
             addDashboard: async ({ name }) => await api.create('api/dashboard', { name, pinned: true }),
             renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),
-            deleteDashboard: async id => await api.update(`api/dashboard/${id}`, { deleted: true }),
-            restoreDashboard: async id => await api.update(`api/dashboard/${id}`, { deleted: false }),
+            deleteDashboard: async ({ id, redirect = true }) =>
+                await api.update(`api/dashboard/${id}`, { deleted: true }),
+            restoreDashboard: async ({ id, redirect = true }) =>
+                await api.update(`api/dashboard/${id}`, { deleted: false }),
             pinDashboard: async id => await api.update(`api/dashboard/${id}`, { pinned: true }),
             unpinDashboard: async id => await api.update(`api/dashboard/${id}`, { pinned: false }),
         },
     }),
 
     reducers: () => ({
+        redirect: [
+            true,
+            {
+                deleteDashboard: (state, { redirect }) => (typeof redirect !== 'undefined' ? redirect : state),
+                restoreDashboard: (state, { redirect }) => (typeof redirect !== 'undefined' ? redirect : state),
+            },
+        ],
         rawDashboards: {
             addDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
@@ -80,7 +89,9 @@ export const dashboardsModel = kea({
 
         restoreDashboardSuccess: ({ dashboard }) => {
             toast(`Dashboard "${dashboard.name}" restored!`)
-            router.actions.push(`/dashboard/${dashboard.id}`)
+            if (values.redirect) {
+                router.actions.push(`/dashboard/${dashboard.id}`)
+            }
         },
 
         deleteDashboardSuccess: async ({ dashboard }) => {
@@ -91,7 +102,7 @@ export const dashboardsModel = kea({
                         href="#"
                         onClick={e => {
                             e.preventDefault()
-                            actions.restoreDashboard(dashboard.id)
+                            actions.restoreDashboard({ id: dashboard.id, redirect: values.redirect })
                             toast.dismiss(toastId)
                         }}
                     >
@@ -104,12 +115,17 @@ export const dashboardsModel = kea({
             const nextDashboard = [...values.pinnedDashboards, ...values.dashboards].find(
                 d => d.id !== id && !d.deleted
             )
-            if (nextDashboard) {
-                router.actions.push(`/dashboard/${nextDashboard.id}`)
-            } else {
-                router.actions.push('/dashboard')
+
+            if (values.redirect) {
+                if (nextDashboard) {
+                    router.actions.push(`/dashboard/${nextDashboard.id}`)
+                } else {
+                    router.actions.push('/dashboard')
+                }
+
+                await delay(500)
             }
-            await delay(500)
+
             actions.delayedDeleteDashboard(id)
         },
     }),

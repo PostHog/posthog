@@ -6,9 +6,11 @@ import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
 import { PlusOutlined } from '@ant-design/icons'
 import { Table } from 'antd'
+import { PushpinFilled, PushpinOutlined, DeleteOutlined } from '@ant-design/icons'
 
 export default function Dashboards() {
     const { dashboardsLoading } = useValues(dashboardsModel)
+    const { deleteDashboard, unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { dashboards } = useValues(dashboardsLogic)
     const { addNewDashboard } = useActions(dashboardsLogic)
 
@@ -32,10 +34,33 @@ export default function Dashboards() {
                     pagination={{ pageSize: 100, hideOnSinglePage: true }}
                 >
                     <Table.Column
+                        title=""
+                        width={24}
+                        align="center"
+                        render={({ id, pinned }) => (
+                            <Link
+                                onClick={() => (pinned ? unpinDashboard(id) : pinDashboard(id))}
+                                style={{ color: 'rgba(0, 0, 0, 0.85)' }}
+                            >
+                                {pinned ? <PushpinFilled /> : <PushpinOutlined />}
+                            </Link>
+                        )}
+                    />
+                    <Table.Column
                         title="Dashboard"
                         dataIndex="name"
                         key="name"
                         render={(name, { id }) => <Link to={`/dashboard/${id}`}>{name || 'Untitled'}</Link>}
+                    />
+                    <Table.Column
+                        title="Actions"
+                        align="center"
+                        width={120}
+                        render={({ id }) => (
+                            <Link onClick={() => deleteDashboard({ id, redirect: false })} className="text-danger">
+                                <DeleteOutlined /> Delete
+                            </Link>
+                        )}
                     />
                 </Table>
             ) : (

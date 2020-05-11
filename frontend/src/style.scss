@@ -248,11 +248,6 @@ label.disabled {
     margin-left: 8px;
 }
 
-// TODO: this should not be necessary, but somehow it is...?
-.ant-dropdown-menu-item .anticon {
-    vertical-align: middle;
-}
-
 .sidebar-label {
     text-overflow: ellipsis;
     overflow: hidden;
@@ -274,8 +269,8 @@ label.disabled {
 }
 .ant-message {
     z-index: 1070 !important;
-    .anticon {
-        top: 0;
-        vertical-align: middle;
-    }
+}
+.anticon {
+    // not sure why this doesn't just work..
+    vertical-align: 0.125em !important;
 }

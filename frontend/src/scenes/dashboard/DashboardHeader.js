@@ -60,7 +60,7 @@ export function DashboardHeader({ logic }) {
                                         </Menu.Item>
                                         <Menu.Item
                                             icon={<DeleteOutlined />}
-                                            onClick={() => deleteDashboard(dashboard.id)}
+                                            onClick={() => deleteDashboard({ id: dashboard.id, redirect: true })}
                                             className="text-danger"
                                         >
                                             Delete

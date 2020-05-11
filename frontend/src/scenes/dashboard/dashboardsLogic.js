@@ -9,7 +9,10 @@ export const dashboardsLogic = kea({
     }),
 
     selectors: () => ({
-        dashboards: [() => [dashboardsModel.selectors.dashboards], dashboards => dashboards.filter(d => !d.deleted)],
+        dashboards: [
+            () => [dashboardsModel.selectors.dashboards],
+            dashboards => dashboards.filter(d => !d.deleted).sort((a, b) => a.name.localeCompare(b.name)),
+        ],
     }),
 
     listeners: ({ actions }) => ({
