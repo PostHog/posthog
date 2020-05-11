@@ -13,9 +13,16 @@ export const dashboardsLogic = kea({
         afterMount: [actions.redirectToFirstDashboard],
     }),
 
-    listeners: ({ sharedListeners }) => ({
-        redirectToFirstDashboard: sharedListeners.redirectToFirstDashboard,
-        [dashboardsModel.actions.loadDashboardsSuccess]: sharedListeners.redirectToFirstDashboard,
+    listeners: ({ actions }) => ({
+        [dashboardsModel.actions.loadDashboardsSuccess]: actions.redirectToFirstDashboard,
+
+        redirectToFirstDashboard: () => {
+            const { dashboards } = dashboardsModel.values
+            const dashboard = dashboards.find(d => !d.deleted)
+            if (dashboard) {
+                router.actions.push(`/dashboard/${dashboard.id}`)
+            }
+        },
 
         addNewDashboard: async () => {
             prompt({ key: `new-dashboard-dashboards` }).actions.prompt({
@@ -25,20 +32,6 @@ export const dashboardsLogic = kea({
                 error: 'You must enter name',
                 success: name => dashboardsModel.actions.addDashboard({ name }),
             })
-        },
-
-        [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
-            router.actions.push(`/dashboard/${dashboard.id}`)
-        },
-    }),
-
-    sharedListeners: () => ({
-        redirectToFirstDashboard: () => {
-            const { dashboards } = dashboardsModel.values
-            const dashboard = dashboards.find(d => !d.deleted)
-            if (dashboard) {
-                router.actions.push(`/dashboard/${dashboard.id}`)
-            }
         },
     }),
 })
