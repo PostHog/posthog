@@ -504,7 +504,7 @@ Resources:
               Resource: '*'
  
               
-  PosthogLogGroup:
+  LogGroup:
     Type: AWS::Logs::LogGroup
     Properties: 
       LogGroupName: posthog 
@@ -543,7 +543,7 @@ Resources:
             - ContainerPort: !Ref 'ContainerPort'
           Environment:
             - Name: DATABASE_URL
-              Value: !Join ['', ['postgres://posthog:posthog@', !GetAtt [PosthogDB, Endpoint.Address], ':', !GetAtt [PosthogDB, Endpoint.Port], '/posthog']] 
+              Value: !Join ['', ['postgres://posthog:posthogadmin@', !GetAtt [PosthogDB, Endpoint.Address], ':', !GetAtt [PosthogDB, Endpoint.Port], '/posthog']] 
             - Name: REDIS_URL
               Value: !Join ['', ['redis://', !GetAtt [PosthogDB, Endpoint.Address], ':6379' ]] 
             - Name: SECRET_KEY
