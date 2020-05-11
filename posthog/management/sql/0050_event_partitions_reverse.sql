@@ -11,8 +11,8 @@ FROM public.old_posthog_event;
 
 DROP TABLE old_posthog_event CASCADE;
 
-ALTER TABLE posthog_action_events DROP COLUMN timestamp;
-ALTER TABLE posthog_element DROP COLUMN timestamp;
+ALTER TABLE posthog_action_events DROP COLUMN timestamp, DROP COLUMN event;
+ALTER TABLE posthog_element DROP COLUMN timestamp, DROP COLUMN event;
 
 CREATE UNIQUE INDEX posthog_event_pkey ON public.posthog_event USING btree (id);
 CREATE INDEX posthog_event_team_id_a8b4c6dc ON public.posthog_event USING btree (team_id);
