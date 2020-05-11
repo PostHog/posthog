@@ -18,7 +18,7 @@ BEGIN
     EXECUTE('ALTER TABLE posthog_element ADD COLUMN timestamp timestamp');
 
     range_begin := (SELECT date_trunc('week', MIN(timestamp)) as range_begin from posthog_event);
-    range_end := (SELECT date_trunc('week', CURRENT_TIMESTAMP) as range_end) + interval '1 week';
+    range_end := (SELECT date_trunc('week', CURRENT_TIMESTAMP) as range_end) + interval '2 week';
 
     -- Create the partitions from the earliest date until now
     WHILE range_begin <= range_end
@@ -81,7 +81,7 @@ BEGIN
     EXECUTE ('DROP TABLE posthog_event_default CASCADE');
 
     range_begin := (SELECT date_trunc('week', MIN(timestamp)) as range_begin from temp_posthog_event_default);
-    range_end := (SELECT date_trunc('week', CURRENT_TIMESTAMP) as range_end) + interval '1 week'; -- Always be a week ahead
+    range_end := (SELECT date_trunc('week', CURRENT_TIMESTAMP) as range_end) + interval '2 week'; -- Always be a week ahead
 
     IF range_begin IS NULL THEN
         range_begin := (SELECT date_trunc('week', MAX(timestamp)) as range_begin from posthog_event);
