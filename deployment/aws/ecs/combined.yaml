@@ -25,6 +25,10 @@ Parameters:
     Type: Number
     Default: 8000
     Description: What port number the application inside the docker container is binding to. Don't change this unless you know what you are doing.
+  AllowedIpBlocks:
+    Type: String
+    Description: You can restrict access to PostHog by IP by passing ALLOWED_IP_BLOCKS. This is a comma separated list of CIDR blocks
+    Default: "0.0.0.0/0"
   ContainerCpu:
     Type: Number
     Default: 256
@@ -546,6 +550,8 @@ Resources:
               Value: !Join ['', ['postgres://posthog:posthogadmin@', !GetAtt [PosthogDB, Endpoint.Address], ':', !GetAtt [PosthogDB, Endpoint.Port], '/posthog']]
             - Name: REDIS_URL
               Value: !Join ['', ['redis://', !GetAtt [ElastiCacheCluster, RedisEndpoint.Address], ':', !GetAtt [ElastiCacheCluster, RedisEndpoint.Port] ]]
+            - Name: ALLOWED_IP_BLOCKS
+              Value: !Ref 'AllowedIpBlocks' 
             - Name: SECRET_KEY
               Value: Oh_PLz_chANGme
             - Name: DISABLE_SECURE_SSL_REDIRECT
