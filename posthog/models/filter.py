@@ -43,7 +43,7 @@ class Filter(PropertyMixin):
             self.entities.extend([Entity({**entity, 'type': TREND_FILTER_TYPE_ACTIONS}) for entity in data.get('actions', [])])
         if data.get('events'):
             self.entities.extend([Entity({**entity, 'type': TREND_FILTER_TYPE_EVENTS}) for entity in data.get('events', [])])
-        self.entities = sorted(self.entities, key=lambda entity: entity.order)
+        self.entities = sorted(self.entities, key=lambda entity: entity.order if entity.order else -1)
 
 
     def to_dict(self) -> Dict[str, Any]:
