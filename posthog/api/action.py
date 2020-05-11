@@ -1,21 +1,31 @@
-from posthog.models import Event, Team, Action, ActionStep, Element, User, Person, Filter, Entity
+from posthog.models import Event, Team, Action, ActionStep, Element, User, Person, Filter, Entity, Cohort, CohortPeople
 from posthog.utils import properties_to_Q, append_data
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from rest_framework import request, serializers, viewsets, authentication
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
-from django.db.models import Q, Count, Prefetch, functions, QuerySet
+from django.db.models import Q, Count, Prefetch, functions, QuerySet, OuterRef, Exists, Value, BooleanField
 from django.db import connection
 from django.utils.timezone import now
 from typing import Any, List, Dict, Optional, Tuple
+from typing import Any, List, Dict, Optional, Tuple, Union
 import pandas as pd
 import datetime
 import json
 import pytz
 import copy
+import numpy as np
 from dateutil.relativedelta import relativedelta
 from .person import PersonSerializer
+
+FREQ_MAP = {
+    'minute': '60S',
+    'hour': 'H',
+    'day': 'D',
+    'week': 'W',
+    'month': 'M'
+}
 
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
@@ -137,25 +147,33 @@ class ActionViewSet(viewsets.ModelViewSet):
             actions_list.sort(key=lambda action: action.get('count', action['id']), reverse=True)
         return Response({'results': actions_list})
 
-    def _group_events_to_date(self, date_from: datetime.datetime, date_to: datetime.datetime, aggregates: QuerySet, interval:str, breakdown: Optional[str]=None) -> Dict[str, Dict[datetime.datetime, int]]:
-        freq_map = {
-            'minute': '60S',
-            'hour': 'H',
-            'day': 'D',
-            'week': 'W',
-            'month': 'M'
-        }
+    def _build_dataframe(self, aggregates: QuerySet, interval: str, breakdown: Optional[str]=None) -> pd.DataFrame:
+        if breakdown == 'cohorts':
+            cohort_keys = [key for key in aggregates[0].keys() if key.startswith('cohort_')]
+            # Convert queryset with day, count, cohort_88, cohort_99, ... to multiple rows, for example:
+            # 2020-01-01..., 1, cohort_88
+            # 2020-01-01..., 3, cohort_99
+            dataframe = pd.melt(pd.DataFrame(aggregates), id_vars=[interval, 'count'], value_vars=cohort_keys, var_name='breakdown')\
+                .rename(columns={interval: 'date'})
+            # Filter out false values
+            dataframe = dataframe[dataframe['value'] == True]
+            # Sum dates with same cohort
+            dataframe = dataframe.groupby(['breakdown', 'date'], as_index=False).sum()
+        else:
+            dataframe = pd.DataFrame([{'date': a[interval], 'count': a['count'], 'breakdown': a[breakdown] if breakdown else 'Total'} for a in aggregates])
+        if interval == 'week':
+            dataframe['date'] = dataframe['date'].apply(lambda x: x - pd.offsets.Week(weekday=6))
+        elif interval == 'month':
+            dataframe['date'] = dataframe['date'].apply(lambda x: x - pd.offsets.MonthEnd(n=1))
+        return dataframe
+
+    def _group_events_to_date(self, date_from: datetime.datetime, date_to: datetime.datetime, aggregates: QuerySet, interval: str, breakdown: Optional[str]=None) -> Dict[str, Dict[datetime.datetime, int]]:
         response = {}
 
-        time_index = pd.date_range(date_from, date_to, freq=freq_map[interval])
+        time_index = pd.date_range(date_from, date_to, freq=FREQ_MAP[interval])
         if len(aggregates) > 0:
-            dataframe = pd.DataFrame([{'date': a[interval], 'count': a['count'], 'breakdown': a[breakdown] if breakdown else 'Total'} for a in aggregates])
-            if interval == 'week':
-                dataframe['date'] = dataframe['date'].apply(lambda x: x - pd.offsets.Week(weekday=6))
-            elif interval == 'month':
-                dataframe['date'] = dataframe['date'].apply(lambda x: x - pd.offsets.MonthEnd(n=1))
-
-            for _, value in dataframe['breakdown'].items():
+            dataframe = self._build_dataframe(aggregates, interval, breakdown)
+            for value in dataframe['breakdown'].unique():
                 filtered = dataframe.loc[dataframe['breakdown'] == value] if value else dataframe.loc[dataframe['breakdown'].isnull()]
                 df_dates = pd.DataFrame(filtered.groupby('date').mean(), index=time_index)
                 df_dates = df_dates.fillna(0)
@@ -222,16 +240,37 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         return { key: func }
 
-    def _aggregate_by_interval(self, filtered_events: QuerySet, entity: Entity, filter: Filter, interval: str, request: request.Request, breakdown: Optional[str]=None) -> Dict[str, Any]:
+    def _add_cohort_annotations(self, team: Team, breakdown: List[Union[int, str]]) -> Dict[str, Union[Value, Exists]]:
+        cohorts = Cohort.objects.filter(team=team, pk__in=[b for b in breakdown if b != 'all'])
+        annotations: Dict[str, Union[Value, Exists]] = {}
+        for cohort in cohorts:
+            annotations['cohort_{}'.format(cohort.pk)] = Exists(
+                CohortPeople.objects.filter(
+                    cohort=cohort.pk,
+                    person_id=OuterRef('person_id')
+                ).only('id')
+            )
+        if 'all' in breakdown:
+            annotations['cohort_all'] = Value(True, output_field=BooleanField())
+        return annotations
+
+    def _aggregate_by_interval(self, filtered_events: QuerySet, team: Team, entity: Entity, filter: Filter, interval: str, request: request.Request, breakdown: Optional[str]=None) -> Dict[str, Any]:
         interval_annotation = self._get_interval_annotation(interval)
         values = [interval]
         if breakdown:
-            values.append(breakdown)
+            if request.GET.get('breakdown_type') == 'cohort':
+                annotations = self._add_cohort_annotations(team, json.loads(request.GET['breakdown']))
+                values.extend(annotations.keys())
+                filtered_events = filtered_events.annotate(**annotations)
+                breakdown = 'cohorts'
+            else:
+                values.append(breakdown)
         aggregates = filtered_events\
             .annotate(**interval_annotation)\
             .values(*values)\
             .annotate(count=Count(1))\
             .order_by()
+
         if breakdown:
             aggregates = aggregates.order_by('-count')
 
@@ -289,6 +328,21 @@ class ActionViewSet(viewsets.ModelViewSet):
             'count': sum(data)
         }
 
+    def _breakdown_label(self, entity: Entity, value: str) -> Dict[str, Optional[str]]:
+        ret_dict: Dict[str, Optional[str]] = {}
+        if not value or 'cohort_' not in value:
+            ret_dict['label'] = '{} - {}'.format(entity.name, value if value else 'undefined') 
+            ret_dict['breakdown_value'] = value if value and not pd.isna(value) else None
+        else:
+            if value == 'cohort_all':
+                ret_dict['label'] = '{} - all users'.format(entity.name) 
+                ret_dict['breakdown_value'] = 'all'
+            else:
+                cohort = Cohort.objects.get(pk=value.replace('cohort_', ''))
+                ret_dict['label'] = '{} - {}'.format(entity.name, cohort.name)
+                ret_dict['breakdown_value'] = cohort.pk
+        return ret_dict
+
     def _serialize_entity(self, entity: Entity, filter: Filter, request: request.Request, team: Team) -> List[Dict[str, Any]]:
         interval = request.GET.get('interval')
         if interval is None:
@@ -314,6 +368,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         if request.GET.get('shown_as', 'Volume') == 'Volume':
             items = self._aggregate_by_interval(
                 filtered_events=events,
+                team=team,
                 entity=entity,
                 filter=filter,
                 interval=interval,
@@ -323,8 +378,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             for value, item in items.items():
                 new_dict = copy.deepcopy(serialized)
                 if value != 'Total':
-                    new_dict['label'] = '{} - {}'.format(entity.name, value if value else 'undefined') 
-                    new_dict['breakdown_value'] = value
+                    new_dict.update(self._breakdown_label(entity, value))
                 new_dict.update(append_data(dates_filled=list(item.items()), interval=interval))
                 response.append(new_dict)
         elif request.GET['shown_as'] == 'Stickiness':
@@ -394,6 +448,15 @@ class ActionViewSet(viewsets.ModelViewSet):
                     .filter(day_count=stickiness_days)
             else:
                 events = events.values('person_id').distinct()
+
+            if request.GET.get('breakdown_type') == 'cohort' and request.GET.get('breakdown_value') != 'all':
+                events = events.filter(Exists(
+                    CohortPeople.objects.filter(
+                        cohort_id=int(request.GET['breakdown_value']),
+                        person_id=OuterRef('person_id')
+                    ).only('id')
+                ))
+
             people = Person.objects\
                 .filter(team=team, id__in=[p['person_id'] for p in events[0:100]])
 

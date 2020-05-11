@@ -57,6 +57,7 @@ export const routes = {
     '/person_by_id/:id': 'person',
     '/person/:distinctId': 'person',
     '/people': 'people',
+    '/people/new_cohort': 'people',
     '/people/cohorts': 'cohorts',
 }
 

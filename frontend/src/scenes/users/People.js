@@ -39,10 +39,10 @@ export function People() {
             <h1>Users</h1>
             <Cohort onChange={setCohortId} />
             <Button
-                className="float-right"
                 type="default"
                 icon={<ExportOutlined />}
                 href={'/api/person.csv' + (cohortId ? '?cohort=' + cohortId : '')}
+                style={{ marginBottom: '1rem' }}
             >
                 Export
             </Button>

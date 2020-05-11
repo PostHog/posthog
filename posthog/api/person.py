@@ -48,11 +48,6 @@ class PersonViewSet(viewsets.ModelViewSet):
             return None
         return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
-    def _filter_cohort(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
-        cohort = Cohort.objects.get(team=team, pk=request.GET['cohort'])
-        queryset = queryset.filter(cohort.people_filter).order_by('id').distinct('id')
-        return queryset
-
     def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
         if request.GET.get('id'):
             people = request.GET['id'].split(',')
@@ -67,7 +62,7 @@ class PersonViewSet(viewsets.ModelViewSet):
                     contains.append(part)
             queryset = queryset.filter(properties__icontains=' '.join(contains))
         if request.GET.get('cohort'):
-            queryset = self._filter_cohort(request, queryset, team)
+            queryset = queryset.filter(cohort__id=request.GET['cohort'])
 
         queryset = queryset.prefetch_related(Prefetch('persondistinctid_set', to_attr='distinct_ids_cache'))
         return queryset
