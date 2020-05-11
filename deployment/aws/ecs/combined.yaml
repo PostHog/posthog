@@ -512,6 +512,8 @@ Resources:
       Cpu: !Ref 'ContainerCpu'
       Memory: !Ref 'ContainerMemory'
       NetworkMode: awsvpc
+      LogConfiguration:
+        - LogDriver: awslogs
       RequiresCompatibilities:
         - FARGATE
       ExecutionRoleArn: !GetAtt 'ECSTaskExecutionRole.Arn'
