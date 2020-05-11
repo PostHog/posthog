@@ -3,15 +3,39 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { Link } from 'lib/components/Link'
 import { Modal } from 'lib/components/Modal'
-import { useValues } from 'kea'
+import { kea, useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Input, Select } from 'antd'
+import { prompt } from 'lib/logic/prompt'
+
+const saveToDashboardModalLogic = kea({
+    actions: () => ({
+        addNewDashboard: true,
+    }),
+
+    listeners: ({ props }) => ({
+        addNewDashboard: async () => {
+            prompt({ key: `saveToDashboardModalLogic-new-dashboard` }).actions.prompt({
+                title: 'New dashboard',
+                placeholder: 'Please enter a name',
+                value: '',
+                error: 'You must enter name',
+                success: name => dashboardsModel.actions.addDashboard({ name }),
+            })
+        },
+
+        [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
+            props.setDashboardId && props.setDashboardId(dashboard.id)
+        },
+    }),
+})
 
 export function SaveToDashboardModal({ closeModal, name: initialName, type, filters }) {
     const { dashboards, lastVisitedDashboardId } = useValues(dashboardsModel)
     const [dashboardId, setDashboardId] = useState(
         lastVisitedDashboardId || (dashboards.length > 0 ? dashboards[0].id : null)
     )
+    const { addNewDashboard } = useActions(saveToDashboardModalLogic({ setDashboardId }))
     const [name, setName] = useState(initialName || '')
 
     function save(event) {
@@ -54,12 +78,17 @@ export function SaveToDashboardModal({ closeModal, name: initialName, type, filt
                 <br />
 
                 <label>Dashboard</label>
-                <Select value={dashboardId} onChange={setDashboardId} style={{ width: '100%' }}>
+                <Select
+                    value={dashboardId}
+                    onChange={id => (id === 'new' ? addNewDashboard() : setDashboardId(id))}
+                    style={{ width: '100%' }}
+                >
                     {dashboards.map(dashboard => (
                         <Select.Option key={dashboard.id} value={dashboard.id}>
                             {dashboard.name}
                         </Select.Option>
                     ))}
+                    <Select.Option value="new">+ New Dashboard</Select.Option>
                 </Select>
             </form>
         </Modal>

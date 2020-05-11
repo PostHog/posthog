@@ -267,3 +267,13 @@ label.disabled {
 .ant-menu-dark .ant-menu-inline.ant-menu-sub {
     background: hsla(210, 19%, 19%, 1) !important;
 }
+
+.ant-modal-mask {
+    z-index: 1050 !important;
+}
+.ant-modal-wrap {
+    z-index: 1060 !important;
+}
+.ant-message {
+    z-index: 1070 !important;
+}
