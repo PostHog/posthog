@@ -696,4 +696,4 @@ class TestTrends(BaseTest):
                 'actions': jdumps([{'id': watched_movie.id}]),
             },
         ).json()
-        self.assertEqual(len(response[0]['data']), 6)
+        self.assertEqual(len(response[0]['data']), 7)
