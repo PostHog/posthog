@@ -99,8 +99,13 @@ export default function Sidebar(props) {
                             <span className="sidebar-label">Dashboards</span>
                         </span>
                     }
-                    onTitleClick={() => (location.pathname !== firstDashboard ? push(firstDashboard) : null)}
+                    onTitleClick={() => (location.pathname !== '/dashboard' ? push('/dashboard') : null)}
                 >
+                    <Menu.Item key="dashboards" style={itemStyle}>
+                        <HomeOutlined />
+                        <span className="sidebar-label">All Dashboards</span>
+                        <Link to="/dashboard" />
+                    </Menu.Item>
                     {pinnedDashboards.map(dashboard => (
                         <Menu.Item key={`dashboard-${dashboard.id}`} style={itemStyle}>
                             <PushpinOutlined />
@@ -115,11 +120,6 @@ export default function Sidebar(props) {
                             <Link to={`/dashboard/${unpinnedDashboard.id}`} />
                         </Menu.Item>
                     ) : null}
-                    <Menu.Item key="dashboards" style={itemStyle}>
-                        <HomeOutlined />
-                        <span className="sidebar-label">All Dashboards</span>
-                        <Link to="/dashboard" />
-                    </Menu.Item>
                 </Menu.SubMenu>
                 <Menu.SubMenu
                     key="events"
