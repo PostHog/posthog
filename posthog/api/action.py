@@ -249,7 +249,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     def _process_math(self, query: QuerySet, entity: Entity):
         if entity.math == 'dau':
-            query = query.annotate(count=Count('distinct_id', distinct=True))
+            query = query.annotate(count=Count('person_id', distinct=True))
         return query
 
     def _execute_custom_sql(self, query, params):
