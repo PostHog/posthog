@@ -366,7 +366,11 @@ class ActionViewSet(viewsets.ModelViewSet):
             filter.entities = [Entity({'id': action.id, 'name': action.name, 'type': TREND_FILTER_TYPE_ACTIONS}) for action in actions]
 
         if not filter.date_from:
-            filter._date_from = Event.objects.filter(team=team).order_by('timestamp')[0].timestamp.isoformat()
+            filter._date_from = Event.objects.filter(team=team)\
+                .order_by('timestamp')[0]\
+                .timestamp\
+                .replace(hour=0, minute=0, second=0, microsecond=0)\
+                .isoformat()
 
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
