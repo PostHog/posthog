@@ -2,8 +2,8 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { delay, idToKey } from 'lib/utils'
-import { message } from 'antd'
 import React from 'react'
+import { toast } from 'react-toastify'
 
 export const dashboardsModel = kea({
     actions: () => ({
@@ -79,16 +79,16 @@ export const dashboardsModel = kea({
 
     listeners: ({ actions, values }) => ({
         addDashboardSuccess: ({ dashboard }) => {
-            message.success(`Dashboard "${dashboard.name}" created!`)
+            toast(`Dashboard "${dashboard.name}" created!`)
         },
 
         restoreDashboardSuccess: ({ dashboard }) => {
-            message.success(`Dashboard "${dashboard.name}" restored!`)
+            toast(`Dashboard "${dashboard.name}" restored!`)
             router.actions.push(`/dashboard/${dashboard.id}`)
         },
 
         deleteDashboardSuccess: async ({ dashboard }) => {
-            message.success(
+            const toastId = toast(
                 <span>
                     Dashboard "{dashboard.name}" deleted!{' '}
                     <a
@@ -96,6 +96,7 @@ export const dashboardsModel = kea({
                         onClick={e => {
                             e.preventDefault()
                             actions.restoreDashboard(dashboard)
+                            toast.dismiss(toastId)
                         }}
                     >
                         Undo
