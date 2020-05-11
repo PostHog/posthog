@@ -14,10 +14,11 @@ export default function Dashboards() {
     return (
         <div>
             <div style={{ marginBottom: 20 }}>
-                <Button onClick={addNewDashboard}>
+                <Button onClick={addNewDashboard} style={{ float: 'right' }}>
                     <PlusOutlined style={{ verticalAlign: 'baseline' }} />
                     New Dashboard
                 </Button>
+                <h1>Dashboards</h1>
             </div>
 
             {dashboardsLoading ? (
@@ -42,7 +43,9 @@ export default function Dashboards() {
                     </tbody>
                 </table>
             ) : (
-                <p>Please add a Dashboard!</p>
+                <p>
+                    You have no dashboards. <Link onClick={addNewDashboard}>Click here to add one!</Link>
+                </p>
             )}
         </div>
     )
