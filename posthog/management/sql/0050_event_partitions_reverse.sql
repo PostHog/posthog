@@ -1,4 +1,5 @@
 DROP FUNCTION update_partitions;
+DROP FUNCTION create_partitions;
 
 ALTER TABLE posthog_event rename to old_posthog_event;
 CREATE TABLE posthog_event (like old_posthog_event including defaults);
