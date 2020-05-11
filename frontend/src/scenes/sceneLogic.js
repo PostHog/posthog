@@ -1,15 +1,25 @@
 import React from 'react'
 import { kea } from 'kea'
 import { router } from 'kea-router'
+import { delay } from 'lib/utils'
+import { HedgehogOverlay } from 'lib/components/HedgehogOverlay/HedgehogOverlay'
 
 export const loadedScenes = {
-    '404': { component: () => <div>404</div> },
+    '404': {
+        component: () => (
+            <div>
+                <h2>Error 404</h2>
+                <p>Page not found.</p>
+                <HedgehogOverlay type="sad" />
+            </div>
+        ),
+    },
 }
-const delay = ms => new Promise(resolve => window.setTimeout(resolve, ms))
 
 export const scenes = {
     // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
 
+    dashboards: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboards'),
     dashboard: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
     events: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     person: () => import(/* webpackChunkName: 'person' */ './users/Person'),
@@ -31,7 +41,8 @@ export const redirects = {
 }
 
 export const routes = {
-    '/dashboard': 'dashboard',
+    '/dashboard': 'dashboards',
+    '/dashboard/:id': 'dashboard',
     '/action/:id': 'action',
     '/action': 'action',
     '/actions/live': 'liveActions',
