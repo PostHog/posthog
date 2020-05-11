@@ -33,5 +33,9 @@ export const dashboardsLogic = kea({
                 success: name => dashboardsModel.actions.addDashboard({ name }),
             })
         },
+
+        [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
+            router.actions.push(`/dashboard/${dashboard.id}`)
+        },
     }),
 })
