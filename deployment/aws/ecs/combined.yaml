@@ -58,6 +58,21 @@ Parameters:
     Default: ""
     Description: (Optional) An IAM role to give the service's containers if the code within needs to
                  access other AWS resources like S3 buckets, DynamoDB tables, etc
+  RDSNodeType:
+    Description: RDS node instance class, e.g. t3.micro(free tier). See https://aws.amazon.com/rds/instance-types/ 
+    Type: String
+    Default: db.t3.micro
+    ConstraintDescription: Node instance class not supported
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+      - db.t3.medium
+      - db.m5.large
+      - db.m5.xlarge
+      - db.m5.2xlarge
+      - db.m5.4xlarge
+      - db.m5.12xlarge
+      - db.m5.24xlarge
   CacheNodeType:
     Description: Cache node instance class, e.g. cache.t2.micro(free tier). See https://docs.aws.amazon.com/AmazonElastiCache/latest/UserGuide/CacheNodes.SelectSize.html
     Type: String
@@ -96,6 +111,41 @@ Parameters:
     AllowedValues:
       - true
       - false
+  EmailHost:
+    Description: SMTP Server to send emails from
+    Type: String 
+    Default: localhost 
+  EmailHost:
+    Description: SMTP Server port to send emails from
+    Type: Number 
+    Default: 578 
+  EmailHostUser:
+    Description: SMTP Server User
+    Type: String 
+    Default: EmailUser 
+  EmailHostPassword:
+    Description: SMTP Server Password 
+    Type: String 
+    Default: SuPeRSecret 
+  EmailUserTLS:
+    Description: Using TLS for email? 
+    Type: String 
+    Default: false 
+    AllowedValues:
+      - true
+      - false
+  EmailUserSSL:
+    Description: Using SSL for email? 
+    Type: String 
+    Default: false 
+    AllowedValues:
+      - true
+      - false
+  DefaultFromEmail:
+    Description: Who should the emails be from when Posthog sends email? 
+    Type: String 
+    Default: tim@posthog.com 
+
 Mappings:
   # Hard values for the subnet masks. These masks define
   # the range of internal IP addresses that can be assigned.
@@ -555,7 +605,21 @@ Resources:
             - Name: SECRET_KEY
               Value: Oh_PLz_chANGme
             - Name: DISABLE_SECURE_SSL_REDIRECT
-              Value: 1 
+              Value: Ref! 'DisableSecureSSLRedirect'
+            - Name: EMEAIL_HOST
+              Value: Ref! 'SmtpHost'
+            - Name: EMAIL_PORT
+              Value: Ref! 'EmailPort'
+            - Name: EMAIL_HOST_USER
+              Value: Ref! 'EmailHostUser'
+            - Name: EMAIL_HOST_PASSWORD
+              Value: Ref! 'EmailHostPassword'
+            - Name: EMAIL_USE_TLS
+              Value: Ref! 'EmailUseTLS'
+            - Name: EMAIL_USE_SSL
+              Value: Ref! 'EmailUseSSL'
+            - Name: DEFAULT_FROM_EMAIL
+              Value: Ref! 'DefaultFromEmail'
   RDSSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
@@ -571,7 +635,7 @@ Resources:
       VPCSecurityGroups:
         - !Ref 'FargateContainerSecurityGroup'
       AllocatedStorage: '5'
-      DBInstanceClass: db.t2.small
+      DBInstanceClass: !Ref RDSNodeType 
       Engine: postgres
       MasterUsername: posthog
       MasterUserPassword: posthogadmin
