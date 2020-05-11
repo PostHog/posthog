@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { delay, idToKey } from 'lib/utils'
+import { message } from 'antd'
 
 export const dashboardsModel = kea({
     actions: () => ({
@@ -73,6 +74,9 @@ export const dashboardsModel = kea({
     }),
 
     listeners: ({ actions, values }) => ({
+        addDashboardSuccess: ({ dashboard }) => {
+            message.success(`Dashboard "${dashboard.name}" created!`)
+        },
         deleteDashboardSuccess: async ({ dashboard }) => {
             const { id } = dashboard
             const nextDashboard = [...values.pinnedDashboards, ...values.dashboards].find(

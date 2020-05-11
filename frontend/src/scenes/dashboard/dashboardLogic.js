@@ -2,7 +2,6 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
-import { message } from 'antd'
 import { router } from 'kea-router'
 
 export const dashboardLogic = kea({
@@ -56,7 +55,6 @@ export const dashboardLogic = kea({
         },
 
         [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
-            message.success(`Dashboard "${dashboard.name}" created!`)
             router.actions.push(`/dashboard/${dashboard.id}`)
         },
 
