@@ -30,7 +30,7 @@
         "d3-sankey": "^0.12.3",
         "editor": "^1.0.0",
         "funnel-graph-js": "^1.4.1",
-        "kea": "^2.0.0-beta.7",
+        "kea": "^2.0.0-beta.8",
         "kea-loaders": "^0.2.1",
         "kea-router": "^0.3.0",
         "moment": "^2.24.0",

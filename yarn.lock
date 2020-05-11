@@ -4765,10 +4765,10 @@ kea-router@^0.3.0:
   dependencies:
     url-pattern "^1.0.3"
 
-kea@^2.0.0-beta.7:
-  version "2.0.0-beta.7"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.0.0-beta.7.tgz#a45009522af88d219ca4a47b3d9058a7577ccfd8"
-  integrity sha512-D2hYbIhuxFMEnn5E55BTrkyLU7sBUxi92di9IQwMNRNNrWrvDioHPB2P+JRs3LcRY8Tb+rOoJYy04M78biXffw==
+kea@^2.0.0-beta.8:
+  version "2.0.0-beta.8"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.0.0-beta.8.tgz#79d7a896c2448a7be9e2235b8760b6ed9daf5294"
+  integrity sha512-tgKXu437KQXx+aBan3oHuC2ROST7iwIP6zJWDVRL3ANJ8GIXbKbbZ5vx1/wyeKSTwFfilav/DUA974On1aQETQ==
 
 kind-of@^3.0.2, kind-of@^3.0.3, kind-of@^3.2.0:
   version "3.2.2"
