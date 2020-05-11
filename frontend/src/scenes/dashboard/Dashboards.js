@@ -5,6 +5,7 @@ import { Button, Spin } from 'antd'
 import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
 import { PlusOutlined } from '@ant-design/icons'
+import { Table } from 'antd'
 
 export default function Dashboards() {
     const { dashboardsLoading } = useValues(dashboardsModel)
@@ -24,24 +25,19 @@ export default function Dashboards() {
             {dashboardsLoading ? (
                 <Spin />
             ) : dashboards.length > 0 ? (
-                <table className="table">
-                    <thead>
-                        <tr>
-                            <th>Dashboard name</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {dashboards
-                            .filter(d => !d.deleted)
-                            .map(({ id, name }) => (
-                                <tr key={id}>
-                                    <td>
-                                        <Link to={`/dashboard/${id}`}>{name || 'Untitled'}</Link>
-                                    </td>
-                                </tr>
-                            ))}
-                    </tbody>
-                </table>
+                <Table
+                    dataSource={dashboards}
+                    rowKey="id"
+                    size="small"
+                    pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                >
+                    <Table.Column
+                        title="Dashboard"
+                        dataIndex="name"
+                        key="name"
+                        render={(name, { id }) => <Link to={`/dashboard/${id}`}>{name || 'Untitled'}</Link>}
+                    />
+                </Table>
             ) : (
                 <p>
                     You have no dashboards. <Link onClick={addNewDashboard}>Click here to add one!</Link>
