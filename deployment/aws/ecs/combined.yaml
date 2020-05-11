@@ -536,16 +536,16 @@ Resources:
             LogDriver: awslogs
             Options:
               awslogs-region: us-east-1
-              awslogs-group: posthog 
+              awslogs-group: posthog
               awslogs-stream-prefix: posthog
           Image: !Ref 'ImageUrl'
           PortMappings:
             - ContainerPort: !Ref 'ContainerPort'
           Environment:
             - Name: DATABASE_URL
-              Value: !Join ['', ['postgres://posthog:posthogadmin@', !GetAtt [PosthogDB, Endpoint.Address], ':', !GetAtt [PosthogDB, Endpoint.Port], '/posthog']] 
+              Value: !Join ['', ['postgres://posthog:posthogadmin@', !GetAtt [PosthogDB, Endpoint.Address], ':', !GetAtt [PosthogDB, Endpoint.Port], '/posthog']]
             - Name: REDIS_URL
-              Value: !Join ['', ['redis://', !GetAtt [PosthogDB, Endpoint.Address], ':6379' ]] 
+              Value: !Join ['', ['redis://', !GetAtt [ElastiCacheCluster, RedisEndpoint.Address], ':', !GetAtt [ElastiCacheCluster, RedisEndpoint.Port] ]]
             - Name: SECRET_KEY
               Value: Oh_PLz_chANGme
             - Name: DISABLE_SECURE_SSL_REDIRECT
@@ -560,8 +560,10 @@ Resources:
   PosthogDB:
     Type: AWS::RDS::DBInstance
     Properties:
-      DBName: PosthogDB 
+      DBName: posthog
       DBSubnetGroupName: !Ref RDSSubnetGroup
+      VPCSecurityGroups:
+        - !Ref 'FargateContainerSecurityGroup'
       AllocatedStorage: '5'
       DBInstanceClass: db.t2.small
       Engine: postgres
@@ -629,20 +631,6 @@ Resources:
           Values: [!Ref 'Path']
       ListenerArn: !Ref 'PublicLoadBalancerListener'
       Priority: !Ref 'Priority'
-  SecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: ElastiCache Security Group
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        -
-          IpProtocol: tcp
-          FromPort: !If [ IsRedis, 6379, 11211]
-          ToPort: !If [ IsRedis, 6379, 11211]
-      Tags:
-        -
-          Key: Name
-          Value: !Sub "${AWS::StackName}-ElastiCacheSecurityGroup"
   ElasticacheSubnetGroup:
     Type: AWS::ElastiCache::SubnetGroup
     Properties:
@@ -660,7 +648,7 @@ Resources:
       NumCacheNodes: !If [ IsRedis, 1, !Ref CacheNodeCount]
       CacheSubnetGroupName: !Ref ElasticacheSubnetGroup
       VpcSecurityGroupIds:
-        - !GetAtt SecurityGroup.GroupId
+        - !Ref 'FargateContainerSecurityGroup'
       Tags:
         - Key: Name
           Value: !Ref AWS::StackName
@@ -769,7 +757,7 @@ Outputs:
       Name: !Sub ${AWS::StackName}-ElastiCachePort
   ElastiCacheConnectionString:
     Description: ElastiCache Pre-built Connection String  
-    Value: !Join ['', ['redis://', !GetAtt ElastiCacheCluster.RedisEndpoint.Address, ':6379' ]]
+    Value: !Join ['', ['redis://', !GetAtt ElastiCacheCluster.RedisEndpoint.Address, ':', !GetAtt ElastiCacheCluster.RedisEndpoint.Port ]]
   PGConnectionString:
     Description: Connection string for the database
     Value: !Join ['', ['postgres://posthog:posthog@', !GetAtt [PosthogDB, Endpoint.Address], ':', !GetAtt [
