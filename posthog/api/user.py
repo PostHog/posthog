@@ -5,7 +5,8 @@ from django.contrib.auth import update_session_auth_hash
 from django.core.exceptions import ValidationError
 from django.shortcuts import redirect
 from django.conf import settings
-from posthog.models import Event
+from rest_framework import serializers
+from posthog.models import Event, User
 import requests
 
 import urllib.parse
@@ -137,3 +138,9 @@ def test_slack_webhook(request):
             return JsonResponse({'error': response.text})
     except:
         return JsonResponse({'error': 'invalid webhook url'})
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'first_name', 'email']
+

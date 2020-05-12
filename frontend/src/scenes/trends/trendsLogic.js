@@ -50,7 +50,7 @@ function cleanFilters(filters) {
         display: filters.session && filters.session === 'dist' ? 'ActionsTable' : filters.display,
         actions: Array.isArray(filters.actions) ? filters.actions : undefined,
         events: Array.isArray(filters.events) ? filters.events : undefined,
-        properties: filters.properties || {},
+        properties: filters.properties || [],
     }
 }
 
@@ -105,9 +105,16 @@ export const trendsLogic = kea({
         setFilters: (filters, mergeFilters = true, fromUrl = false) => ({ filters, mergeFilters, fromUrl }),
         setDisplay: display => ({ display }),
 
-        loadPeople: (action, day, breakdown_value) => ({ action, day, breakdown_value }),
+        loadPeople: (action, label, day, breakdown_value) => ({ action, label, day, breakdown_value }),
         setShowingPeople: isShowing => ({ isShowing }),
-        setPeople: (people, count, action, day, breakdown_value) => ({ people, count, action, day, breakdown_value }),
+        setPeople: (people, count, action, label, day, breakdown_value) => ({
+            people,
+            count,
+            action,
+            label,
+            day,
+            breakdown_value,
+        }),
         setActiveView: type => ({ type }),
         setCachedUrl: (type, url) => ({ type, url }),
     }),
@@ -160,11 +167,12 @@ export const trendsLogic = kea({
         [actions.setDisplay]: async ({ display }) => {
             actions.setFilters({ display })
         },
-        [actions.loadPeople]: async ({ action, day, breakdown_value }, breakpoint) => {
+        [actions.loadPeople]: async ({ label, action, day, breakdown_value }, breakpoint) => {
             const params = filterClientSideParams({
                 ...values.filters,
                 entityId: action.id,
                 type: action.type,
+                breakdown_value,
             })
 
             if (values.filters.shown_as === 'Stickiness') {
@@ -173,15 +181,20 @@ export const trendsLogic = kea({
                 params.date_from = day
                 params.date_to = day
             }
-            if (breakdown_value) {
-                params.properties = { ...params.properties, [params.breakdown]: breakdown_value }
+            // If breakdown type is cohort, we use breakdown_value
+            // If breakdown type is event, we just set another filter
+            if (breakdown_value && values.filters.breakdown_type != 'cohort') {
+                params.properties = [
+                    ...params.properties,
+                    { key: params.breakdown, value: breakdown_value, type: 'event' },
+                ]
             }
 
             const filterParams = toAPIParams(params)
-            actions.setPeople(null, null, action, day, breakdown_value)
+            actions.setPeople(null, null, action, label, day, breakdown_value)
             const people = await api.get(`api/action/people/?include_last_event=1&${filterParams}`)
             breakpoint()
-            actions.setPeople(people[0]?.people, people[0]?.count, action, day, breakdown_value)
+            actions.setPeople(people[0]?.people, people[0]?.count, action, label, day, breakdown_value)
         },
     }),
 

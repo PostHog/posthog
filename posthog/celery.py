@@ -1,5 +1,4 @@
 import os
-
 from celery import Celery
 from celery.schedules import crontab
 from django.conf import settings
@@ -32,6 +31,7 @@ def setup_periodic_tasks(sender, **kwargs):
         crontab(day_of_week='mon,fri'), # check twice a week
         update_event_partitions.s(),
     )
+    sender.add_periodic_task(15*60, calculate_cohort.s(), name='debug')
 
 @app.task
 def redis_heartbeat():
@@ -41,6 +41,11 @@ def redis_heartbeat():
 def update_event_partitions():
     with connection.cursor() as cursor:
         cursor.execute("DO $$ BEGIN IF (SELECT exists(select * from pg_proc where proname = 'update_partitions')) THEN PERFORM update_partitions(); END IF; END $$")
+
+@app.task
+def calculate_cohort():
+    from posthog.tasks.calculate_cohort import calculate_cohorts
+    calculate_cohorts()
 
 @app.task(bind=True)
 def debug_task(self):

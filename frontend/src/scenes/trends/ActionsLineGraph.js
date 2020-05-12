@@ -25,8 +25,8 @@ export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam
                     dashboardItemId
                         ? null
                         : point => {
-                              const { dataset, day } = point
-                              loadPeople(dataset.action || 'session', day, dataset.breakdown_value)
+                              const { dataset, day, label } = point
+                              loadPeople(dataset.action || 'session', dataset.label, day, dataset.breakdown_value)
                           }
                 }
             />
