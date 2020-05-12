@@ -87,8 +87,7 @@ export const propertyFilterLogic = kea({
             if (values.filters[values.filters.length - 1].key) actions.newFilter()
             if (props.onChange) {
                 if (cleanedFilters.length === 0) {
-                    actions.newFilter()
-                    return props.onChange({})
+                    return props.onChange([])
                 }
                 props.onChange(cleanedFilters)
             } else {
