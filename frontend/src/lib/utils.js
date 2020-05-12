@@ -111,7 +111,7 @@ export const deleteWithUndo = ({ undo = false, ...props }) => {
 }
 
 export const DeleteWithUndo = props => {
-    let { className, style, children } = props
+    const { className, style, children } = props
     return (
         <a
             href="#"
