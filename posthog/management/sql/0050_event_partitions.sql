@@ -26,8 +26,9 @@ BEGIN
     range_end := (SELECT date_trunc('week', CURRENT_TIMESTAMP) as range_end) + interval '1 week';
 
     -- Create the partitions from the earliest date until now
-
+    EXECUTE('CREATE TABLE posthog_event_partitions_manifest (event varchar(200) NOT NULL);');
     FOREACH row IN ARRAY $1 LOOP
+        EXECUTE format('INSERT INTO posthog_event_partitions_manifest (event) VALUES (''%s'')', row);
         partition_name := 'posthog_event_' || row;
         IF NOT EXISTS
             (SELECT 1
@@ -61,6 +62,7 @@ BEGIN
     END LOOP;
 
     partition_name := 'posthog_event_' || 'default';
+    EXECUTE ('INSERT INTO posthog_event_partitions_manifest (event) VALUES (''default'')');
     IF NOT EXISTS
         (SELECT 1
         FROM   information_schema.tables 
@@ -87,7 +89,7 @@ BEGIN
 
             temp_range_begin := temp_range_begin + interval '1 week';
         END LOOP;
-        EXECUTE format('CREATE TABLE "%s_timestamp" PARTITION OF public."%s" DEFAULT', partition_name, partition_name);
+        EXECUTE format('CREATE TABLE "%s_default" PARTITION OF public."%s" DEFAULT', partition_name, partition_name);
     END IF;
 
     -- Move all data from old table into new table
@@ -120,10 +122,13 @@ RETURNS VOID AS $$
 DECLARE
     partition_date TEXT;
 	partition_name TEXT;
+    event_table_name TEXT;
+    event_table_default_name TEXT;
     range_begin timestamp;
     range_end timestamp;
 	start_of_week TEXT;
 	end_of_week TEXT;
+    row RECORD;
 BEGIN 
     
     -- If there is no master table then don't create
@@ -135,46 +140,50 @@ BEGIN
         RETURN;
     END IF;
 
-    EXECUTE ('CREATE TABLE temp_posthog_event_default AS TABLE posthog_event_default');
-    EXECUTE ('DROP TABLE posthog_event_default CASCADE');
+    FOR row IN(SELECT * FROM posthog_event_partitions_manifest) LOOP
+        event_table_name := 'posthog_event_' || row.event;
+        event_table_default_name := 'temp_' || event_table_name || '_default';
+        EXECUTE format('CREATE TABLE %s AS TABLE %s_default' , event_table_default_name, event_table_name);
+        EXECUTE format('DROP TABLE %s_default CASCADE', event_table_name);
 
-    range_begin := (SELECT date_trunc('week', MIN(timestamp)) as range_begin from temp_posthog_event_default);
-    range_end := (SELECT date_trunc('week', CURRENT_TIMESTAMP) as range_end) + interval '1 week'; -- Always be a week ahead
+        EXECUTE format('SELECT date_trunc(''week'', MIN(timestamp)) as range_begin from %s' , event_table_default_name) INTO range_begin;
+        range_end := (SELECT date_trunc('week', CURRENT_TIMESTAMP) as range_end) + interval '1 week'; -- Always be a week ahead
 
-    IF range_begin IS NULL THEN
-        range_begin := (SELECT date_trunc('week', MAX(timestamp)) as range_begin from posthog_event);
-    END IF;
-
-    IF range_begin IS NULL THEN
-        range_begin := (SELECT date_trunc('week', CURRENT_TIMESTAMP) as range_begin);
-    END IF;
-
-    WHILE range_begin <= range_end
-    LOOP
-        partition_date := to_char(range_begin,'YYYY_MM_DD');
-        partition_name := 'posthog_event_' || partition_date;
-        start_of_week := to_char((range_begin),'YYYY_MM_DD');
-        end_of_week := to_char((range_begin + interval '1 week'),'YYYY_MM_DD');
-        IF NOT EXISTS
-            (SELECT 1
-            FROM   information_schema.tables 
-            WHERE  table_name = partition_name) 
-        THEN
-            RAISE NOTICE 'Partition created: %', partition_name;
-            EXECUTE format('CREATE TABLE %I PARTITION OF public.posthog_event FOR VALUES FROM (''%s'') to (''%s'')', partition_name, start_of_week, end_of_week);
+        IF range_begin IS NULL THEN
+             EXECUTE format('SELECT date_trunc(''week'', MAX(timestamp)) as range_begin from %s' , event_table_name) INTO range_begin;
         END IF;
 
-        range_begin := range_begin + interval '1 week';
+        IF range_begin IS NULL THEN
+            range_begin := (SELECT date_trunc('week', CURRENT_TIMESTAMP) as range_begin);
+        END IF;
+
+        WHILE range_begin <= range_end
+        LOOP
+            partition_date := to_char(range_begin,'YYYY_MM_DD');
+            partition_name := event_table_name || '_' || partition_date;
+            start_of_week := to_char((range_begin),'YYYY_MM_DD');
+            end_of_week := to_char((range_begin + interval '1 week'),'YYYY_MM_DD');
+            IF NOT EXISTS
+                (SELECT 1
+                FROM   information_schema.tables 
+                WHERE  table_name = partition_name) 
+            THEN
+                RAISE NOTICE 'Partition created: %', partition_name;
+                EXECUTE format('CREATE TABLE %I PARTITION OF %s FOR VALUES FROM (''%s'') to (''%s'')', partition_name, event_table_name, start_of_week, end_of_week);
+            END IF;
+
+            range_begin := range_begin + interval '1 week';
+        END LOOP;
+
+        EXECUTE format('CREATE TABLE %s_default PARTITION OF %s DEFAULT', event_table_name, event_table_name);
+
+        -- Move all data from old default table into new table
+        EXECUTE format('INSERT INTO %s (id, event, properties, elements, timestamp, team_id, distinct_id, elements_hash)
+        SELECT id, event, properties, elements, timestamp, team_id, distinct_id, elements_hash
+        FROM %s;', event_table_name, event_table_default_name);
+
+        EXECUTE format('DROP TABLE %s CASCADE', event_table_default_name);
     END LOOP;
-
-    EXECUTE ('CREATE TABLE posthog_event_default PARTITION OF public.posthog_event DEFAULT');
-
-    -- Move all data from old default table into new table
-    EXECUTE ('INSERT INTO public.posthog_event (id, event, properties, elements, timestamp, team_id, distinct_id, elements_hash)
-    SELECT id, event, properties, elements, timestamp, team_id, distinct_id, elements_hash
-    FROM public.temp_posthog_event_default;');
-
-    EXECUTE ('DROP TABLE temp_posthog_event_default CASCADE');
 
 RETURN;
 END

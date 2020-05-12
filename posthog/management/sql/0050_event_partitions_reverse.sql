@@ -11,6 +11,7 @@ SELECT id, event, properties, elements, timestamp, team_id, distinct_id, element
 FROM public.old_posthog_event;
 
 DROP TABLE old_posthog_event CASCADE;
+DROP TABLE posthog_event_partitions_manifest CASCADE;
 
 ALTER TABLE posthog_action_events DROP COLUMN timestamp, DROP COLUMN event;
 ALTER TABLE posthog_element DROP COLUMN timestamp, DROP COLUMN event;
