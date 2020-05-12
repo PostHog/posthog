@@ -68,6 +68,11 @@ export class ActionsPie extends Component {
                         height: '100%',
                     }}
                 >
+                    <LineGraph
+                        type="doughnut"
+                        datasets={data}
+                        labels={data[0].labels}
+                    />
                     <h1
                         style={{
                             position: 'absolute',
@@ -81,11 +86,6 @@ export class ActionsPie extends Component {
                             {total}
                         </div>
                     </h1>
-                    <LineGraph
-                        type="doughnut"
-                        datasets={data}
-                        labels={data[0].labels}
-                    />
                 </div>
             ) : (
                 <p style={{ textAlign: 'center', marginTop: '4rem' }}>
