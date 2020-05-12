@@ -96,6 +96,7 @@ class Funnel(models.Model):
             "order": step.get("order"),
             "people": people if people else [],
             "count": len(people) if people else 0,
+            "type": step.get("type"),
         }
 
     def get_steps(self) -> List[Dict[str, Any]]:

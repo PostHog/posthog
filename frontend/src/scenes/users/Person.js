@@ -2,26 +2,29 @@ import React, { useEffect, useState } from 'react'
 import { EventsTable } from '../events/EventsTable'
 import api from 'lib/api'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { toast } from 'react-toastify'
 import { deletePersonData } from 'lib/utils'
 import { Button } from 'antd'
 
-export function Person({ match, history }) {
+export function Person({ distinctId, id }) {
     const [person, setPerson] = useState(null)
 
     useEffect(() => {
         let url = ''
-        if (match.params.distinct_id) {
-            url = `api/person/by_distinct_id/?distinct_id=${match.params.distinct_id}`
+        if (distinctId) {
+            url = `api/person/by_distinct_id/?distinct_id=${distinctId}`
         } else {
-            url = `api/person/${match.params.id}`
+            url = `api/person/${id}`
         }
         api.get(url).then(setPerson)
-    }, [match.params.distinct_id, match.params.id])
+    }, [distinctId, id])
 
     return person ? (
         <div>
-            <Button className="float-right" danger onClick={() => deletePersonData(person)}>
+            <Button
+                className="float-right"
+                danger
+                onClick={() => deletePersonData(person, () => history.push('/people'))}
+            >
                 Delete all data on this person
             </Button>
             <h1>{person.name}</h1>
@@ -42,7 +45,7 @@ export function Person({ match, history }) {
                     </tbody>
                 </table>
             </div>
-            <EventsTable fixedFilters={{ person_id: person.id }} history={history} />
+            <EventsTable fixedFilters={{ person_id: person.id }} />
         </div>
     ) : null
 }

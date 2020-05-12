@@ -1,7 +1,7 @@
 import React from 'react'
-import { Card, Loading } from '../../lib/utils'
-import { Link } from 'react-router-dom'
-import { actionsModel } from '../../models/actionsModel'
+import { Card } from 'lib/utils'
+import { Link } from 'lib/components/Link'
+import { actionsModel } from '~/models/actionsModel'
 import { useValues, useActions } from 'kea'
 import { funnelLogic } from './funnelLogic'
 import { ActionFilter } from 'scenes/trends/ActionFilter/ActionFilter'
@@ -9,17 +9,21 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Button } from 'antd'
 import { userLogic } from 'scenes/userLogic'
 
-export function EditFunnel({ funnelId, onChange }) {
+export function EditFunnel({ funnelId }) {
     const { funnel, isStepsEmpty } = useValues(funnelLogic({ id: funnelId }))
     const { setFunnel, updateFunnel, createFunnel } = useActions(funnelLogic({ id: funnelId }))
     const { actions, actionsLoading } = useValues(actionsModel())
     const { eventProperties } = useValues(userLogic)
+
     return (
         <form
             onSubmit={e => {
                 e.preventDefault()
-                if (!funnel.id) return createFunnel(funnel)
-                updateFunnel(funnel)
+                if (!funnel.id) {
+                    createFunnel(funnel)
+                } else {
+                    updateFunnel(funnel)
+                }
             }}
         >
             <Card>
@@ -33,22 +37,22 @@ export function EditFunnel({ funnelId, onChange }) {
                         value={funnel.name || ''}
                         className="form-control"
                     />
-                    {!actionsLoading && actions.length == 0 && (
+                    {!actionsLoading && actions.length === 0 && (
                         <div className="alert alert-warning" style={{ marginTop: '1rem' }}>
                             You don't have any actions set up. <Link to="/actions">Click here to set up an action</Link>
                         </div>
                     )}
                     <br />
                     <ActionFilter
+                        filters={funnel.filters}
                         setFilters={filters => setFunnel({ filters }, false)}
-                        defaultFilters={funnel ? funnel.filters : {}}
-                        typeKey="edit-funnel"
+                        typeKey={`EditFunnel-${funnel.id || 'new'}`}
                     />
                     <br />
                     <hr />
                     <h4 className="secondary mt-3">Filters</h4>
                     <PropertyFilters
-                        pageKey="funnels"
+                        pageKey={`EditFunnel-${funnel.id || 'new'}`}
                         properties={eventProperties}
                         propertyFilters={funnel.filters.properties || []}
                         onChange={properties =>

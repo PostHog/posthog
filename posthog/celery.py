@@ -1,6 +1,6 @@
 import os
 
-from celery import Celery
+from celery import Celery, schedules
 from django.conf import settings
 import redis
 import time
@@ -26,12 +26,16 @@ redis_instance = redis.from_url(settings.REDIS_URL, db=0)
 def setup_periodic_tasks(sender, **kwargs):
     # Heartbeat every 10sec to make sure the worker is alive
     sender.add_periodic_task(10.0, redis_heartbeat.s(), name='10 sec heartbeat')
-
+    sender.add_periodic_task(15*60, calculate_cohort.s(), name='debug')
 
 @app.task
 def redis_heartbeat():
     redis_instance.set("POSTHOG_HEARTBEAT", int(time.time()))
 
+@app.task
+def calculate_cohort():
+    from posthog.tasks.calculate_cohort import calculate_cohorts
+    calculate_cohorts()
 
 @app.task(bind=True)
 def debug_task(self):

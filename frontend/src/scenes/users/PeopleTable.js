@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { Button, Table } from 'antd'
 import api from 'lib/api'
-import { Link } from 'react-router-dom'
+import { Link } from 'lib/components/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { DeleteOutlined } from '@ant-design/icons'
-
-import { toast } from 'react-toastify'
+import { deletePersonData } from 'lib/utils'
 
 export function PeopleTable({ people, loading, actions, onChange }) {
     let columns = [
@@ -19,25 +18,17 @@ export function PeopleTable({ people, loading, actions, onChange }) {
                 </Link>
             ),
         },
-        actions && {
+    ]
+    if (actions)
+        columns.push({
             title: 'Actions',
             render: person => (
-                <Button
-                    danger
-                    type="link"
-                    onClick={() => {
-                        window.confirm('Are you sure you want to delete this user? This cannot be undone') &&
-                            api.delete('api/person/' + person.id).then(() => {
-                                toast('Person succesfully deleted.')
-                                onChange()
-                            })
-                    }}
-                >
+                <Button danger type="link" onClick={() => deletePersonData(person, onChange)}>
                     <DeleteOutlined />
                 </Button>
             ),
-        },
-    ]
+        })
+
     return (
         <Table
             size="small"

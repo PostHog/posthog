@@ -7,10 +7,10 @@ import { PeopleTable } from './PeopleTable'
 import { Button } from 'antd'
 import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 
-export function People({ history }) {
+export function People() {
     const [loading, setLoading] = useState(true)
     const [people, setPeople] = useState(null)
-    const [search, setSearch] = useState(undefined)
+    const [search, setSearch] = useState('')
     const [cohortId, setCohortId] = useState(fromParams()['cohort'])
     const [pagination, setPagination] = useState({})
 
@@ -37,12 +37,12 @@ export function People({ history }) {
     return (
         <div>
             <h1>Users</h1>
-            <Cohort onChange={setCohortId} history={history} />
+            <Cohort onChange={setCohortId} />
             <Button
-                className="float-right"
                 type="default"
                 icon={<ExportOutlined />}
                 href={'/api/person.csv' + (cohortId ? '?cohort=' + cohortId : '')}
+                style={{ marginBottom: '1rem' }}
             >
                 Export
             </Button>

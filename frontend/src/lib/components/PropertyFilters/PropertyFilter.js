@@ -1,18 +1,17 @@
 import React from 'react'
 import Select from 'react-select'
-import { selectStyle, operatorMap } from '../../utils'
+import { selectStyle, operatorMap } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { useValues, useActions } from 'kea'
-import { propertyFilterLogic } from './propertyFilterLogic'
 
 const operatorOptions = Object.entries(operatorMap).map(([key, value]) => ({
     label: value,
     value: key,
 }))
 
-export function PropertyFilter({ index, endpoint, onChange, pageKey, onComplete }) {
-    const { properties, filters } = useValues(propertyFilterLogic({ onChange, pageKey }))
-    const { setFilter, remove } = useActions(propertyFilterLogic({ onChange, pageKey }))
+export function PropertyFilter({ index, endpoint, onComplete, logic }) {
+    const { properties, filters } = useValues(logic)
+    const { setFilter, remove } = useActions(logic)
     let item = filters[index]
     let key = Object.keys(item)[0] ? Object.keys(item)[0].split('__') : []
     let value = Object.values(item)[0]
@@ -68,7 +67,7 @@ export function PropertyFilter({ index, endpoint, onChange, pageKey, onComplete 
                             setFilter(index, key, value)
                         }}
                     />
-                    {(key[1] == 'gt' || key[1] == 'lt') && isNaN(value) && (
+                    {(key[1] === 'gt' || key[1] === 'lt') && isNaN(value) && (
                         <p className="text-danger">Value needs to be a number. Try "equals" or "contains" instead.</p>
                     )}
                 </div>
