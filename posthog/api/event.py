@@ -1,4 +1,4 @@
-from posthog.models import Event, Person, Element, Action, ElementGroup, Filter
+from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId
 from posthog.utils import properties_to_Q, friendly_time, request_to_date_query, append_data
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -70,7 +70,9 @@ class EventViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(timestamp__lt=request.GET['before'])
             elif key == 'person_id':
                 person = Person.objects.get(pk=request.GET['person_id'])
-                queryset = queryset.filter(distinct_id__in=person.distinct_ids)
+                queryset = queryset.filter(distinct_id__in=PersonDistinctId.objects.filter(
+                    person_id=request.GET['person_id']
+                ).values('distinct_id'))
             elif key == 'distinct_id':
                 queryset = queryset.filter(distinct_id=request.GET['distinct_id'])
             elif key == 'action_id':
