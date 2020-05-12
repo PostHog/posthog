@@ -15,6 +15,7 @@ export const dashboardLogic = kea({
         renameDashboardItem: id => ({ id }),
         renameDashboardItemSuccess: item => ({ item }),
         updateLayouts: layouts => ({ layouts }),
+        saveLayouts: true,
     }),
 
     loaders: ({ props }) => ({
@@ -127,6 +128,17 @@ export const dashboardLogic = kea({
                     const item = await api.update(`api/dashboard_item/${id}`, { name })
                     actions.renameDashboardItemSuccess(item)
                 },
+            })
+        },
+
+        updateLayouts: () => {
+            actions.saveLayouts()
+        },
+
+        saveLayouts: async (_, breakpoint) => {
+            await breakpoint(300)
+            await api.update(`api/dashboard_item/layouts`, {
+                items: values.items.map(item => ({ id: item.id, layouts: item.layouts })),
             })
         },
     }),

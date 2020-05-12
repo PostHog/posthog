@@ -1,4 +1,5 @@
 from rest_framework import request, response, serializers, viewsets
+from rest_framework.decorators import action
 from posthog.models import Dashboard, DashboardItem
 from typing import Dict, Any
 from django.db.models import QuerySet
@@ -49,7 +50,7 @@ class DashboardsViewSet(viewsets.ModelViewSet):
 class DashboardItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = DashboardItem
-        fields = ['id', 'name', 'filters', 'order', 'type', 'deleted', 'dashboard']
+        fields = ['id', 'name', 'filters', 'order', 'type', 'deleted', 'dashboard', 'layouts']
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
         request = self.context['request']
@@ -73,3 +74,12 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
             .filter(team=self.request.user.team_set.get())\
             .order_by('order')
 
+    @action(methods=['patch'], detail=False)
+    def layouts(self, request):
+        team = request.user.team_set.get()
+
+        for data in request.data['items']:
+            self.queryset.filter(team=team, pk=data['id']).update(layouts=data['layouts'])
+
+        serializer = self.get_serializer(self.queryset, many=True)
+        return response.Response(serializer.data)

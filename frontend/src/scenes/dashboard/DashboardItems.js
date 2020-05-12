@@ -17,8 +17,6 @@ export function DashboardItems({ logic }) {
     // make sure the dashboard takes up the right size
     useEffect(() => triggerResizeAfterADelay(), [])
 
-    console.log(layouts)
-
     return (
         <ReactGridLayout
             className="layout"
