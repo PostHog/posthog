@@ -98,6 +98,9 @@
             fill: var(--item-lighter);
             stroke: var(--item-lighter);
         }
+        h1 {
+            color: rgba(255, 255, 255, 0.9);
+        }
         table.table {
             color: white;
             tr td,

@@ -49,6 +49,8 @@ export function ActionsPie({ filters, color }) {
                         left: '50%',
                         top: '50%',
                         fontSize: '3rem',
+                        zIndex: 2,
+                        pointerEvents: 'none',
                     }}
                 >
                     <div style={{ marginLeft: '-50%', marginTop: -35 }}>{total}</div>
