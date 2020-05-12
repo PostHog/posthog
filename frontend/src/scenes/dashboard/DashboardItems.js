@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import RGL, { WidthProvider } from 'react-grid-layout'
 
 import DashboardItem from 'scenes/dashboard/DashboardItem'
-import { triggerResizeAfterADelay } from 'lib/utils'
+import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
 
 const ReactGridLayout = WidthProvider(RGL)
 
@@ -40,7 +40,20 @@ export function DashboardItems({ logic }) {
         <ReactGridLayout
             className="layout"
             layout={layout}
-            onLayoutChange={setLayout}
+            onLayoutChange={layout => {
+                setLayout(layout)
+                triggerResize()
+            }}
+            onResize={(layout, oldItem, newItem) => {
+                // Trigger the resize event for funnels, as they won't update their dimensions
+                // when their container is resized and must be recalculated.
+                // Skip this for other types as it slows down the interactions a bit.
+                const item = items.find(i => i.id === parseInt(newItem.i))
+                if (item?.type === 'FunnelViz') {
+                    triggerResize()
+                }
+            }}
+            onResizeStop={triggerResizeAfterADelay}
             draggableCancel=".anticon,.ant-dropdown"
             {...defaultProps}
         >
