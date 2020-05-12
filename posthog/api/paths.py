@@ -31,7 +31,7 @@ class PathsViewSet(viewsets.ViewSet):
                 path_type = "properties->> \'$screen\'"
             elif requested_type == "$autocapture":
                 event = "$autocapture"
-                path_type = "elements_hash"
+                path_type = "tag_name_source"
             elif requested_type == "custom_event":
                 event = None
                 path_type = "event"
@@ -57,6 +57,12 @@ class PathsViewSet(viewsets.ViewSet):
             ))
 
         sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
+
+        if event == "$autocapture":
+                element = 'SELECT \'<\'|| e."tag_name" || \'> \'  || e."text" as tag_name_source, e."text" as text_source FROM "posthog_element" e JOIN \
+                    ( SELECT group_id, MIN("posthog_element"."order") as minOrder FROM "posthog_element" GROUP BY group_id) e2 ON e.order = e2.minOrder AND e.group_id = e2.group_id where e.group_id = v2.group_id'
+                element_group = 'SELECT g."id" as group_id FROM "posthog_elementgroup" g where v1."elements_hash" = g."hash"'
+                sessions_sql = 'SELECT * FROM ({}) as v1 JOIN LATERAL ({}) as v2 on true JOIN LATERAL ({}) as v3 on true'.format(sessions_sql, element_group, element)
 
         cursor = connection.cursor()
         cursor.execute('\
@@ -90,8 +96,6 @@ class PathsViewSet(viewsets.ViewSet):
 
         for row in rows:
             resp.append({
-                'sourceLabel': row[0],
-                'targetLabel': row[1],
                 'source': row[0],
                 'target': row[1],
                 'value': row[2]

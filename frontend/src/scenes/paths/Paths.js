@@ -1,6 +1,6 @@
 import React, { Component } from 'react'
 import api from 'lib/api'
-import { toParams, Card } from 'lib/utils'
+import { toParams, Card, Loading } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter'
 import { Spin } from 'antd'
 import { PathSelect } from '~/lib/components/PathSelect'
@@ -148,7 +148,7 @@ export class Paths extends Component {
             // .attr("fill", d =>  'var(--blue)')
             .attr('opacity', 0.5)
             .append('title')
-            .text(d => `${stripHTTP(d.label)}\n${d.value.toLocaleString()}`)
+            .text(d => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
 
         const dropOffGradient = svg
             .append('defs')
@@ -222,9 +222,9 @@ export class Paths extends Component {
             .attr('text-anchor', d => (d.x0 < width / 2 ? 'start' : 'end'))
             .attr('display', d => (d.value > 0 ? 'inherit' : 'none'))
             .text(d =>
-                d.label.length > 35
-                    ? stripHTTP(d.label).substring(0, 6) + '...' + stripHTTP(d.label).slice(-15)
-                    : stripHTTP(d.label)
+                d.name.length > 35
+                    ? stripHTTP(d.name).substring(0, 6) + '...' + stripHTTP(d.name).slice(-15)
+                    : stripHTTP(d.name)
             )
 
         textSelection
@@ -232,7 +232,7 @@ export class Paths extends Component {
             .attr('fill-opacity', 0.7)
             .text(d => ` ${d.value.toLocaleString()}`)
 
-        textSelection.append('title').text(d => stripHTTP(d.label))
+        textSelection.append('title').text(d => stripHTTP(d.name))
 
         return textSelection.node()
     }
@@ -245,8 +245,8 @@ export class Paths extends Component {
                 {
                     paths: {
                         nodes: [
-                            ...paths.map(path => ({ name: path.source, label: path.sourceLabel })),
-                            ...paths.map(path => ({ name: path.target, label: path.targetLabel })),
+                            ...paths.map(path => ({ name: path.source })),
+                            ...paths.map(path => ({ name: path.target })),
                         ],
                         links: paths,
                     },
@@ -295,12 +295,10 @@ export class Paths extends Component {
                             <NoData />
                         ) : (
                             !dataLoaded && (
-                                <div style={{ paddingTop: '14rem', textAlign: 'center' }}>
+                                <div className="loading-overlay mt-5">
                                     <div />
-                                    <Spin />
+                                    <Loading />
                                     <br />
-                                    <br />
-                                    (This might take a while)
                                 </div>
                             )
                         )}

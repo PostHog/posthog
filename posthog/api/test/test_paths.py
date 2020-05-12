@@ -89,20 +89,20 @@ class TestPaths(BaseTest):
         Event.objects.create(distinct_id='person_4', event='custom_event_2', team=self.team)
         
         response = self.client.get('/api/paths/?type=custom_event').json()
-        self.assertEqual(response[0]['sourceLabel'], '1_custom_event_1', response)
-        self.assertEqual(response[0]['targetLabel'], '2_custom_event_2')
+        self.assertEqual(response[0]['source'], '1_custom_event_1', response)
+        self.assertEqual(response[0]['target'], '2_custom_event_2')
         self.assertEqual(response[0]['value'], 2)
 
-        self.assertEqual(response[1]['sourceLabel'], '1_custom_event_1')
-        self.assertEqual(response[1]['targetLabel'], '2_custom_event_3')
+        self.assertEqual(response[1]['source'], '1_custom_event_1')
+        self.assertEqual(response[1]['target'], '2_custom_event_3')
         self.assertEqual(response[1]['value'], 1)
 
-        self.assertEqual(response[2]['sourceLabel'], '1_custom_event_2')
-        self.assertEqual(response[2]['targetLabel'], '2_custom_event_1')
+        self.assertEqual(response[2]['source'], '1_custom_event_2')
+        self.assertEqual(response[2]['target'], '2_custom_event_1')
         self.assertEqual(response[2]['value'], 1)
 
-        self.assertEqual(response[3]['sourceLabel'], '2_custom_event_2', response[3])
-        self.assertEqual(response[3]['targetLabel'], '3_custom_event_3')
+        self.assertEqual(response[3]['source'], '2_custom_event_2', response[3])
+        self.assertEqual(response[3]['target'], '3_custom_event_3')
         self.assertEqual(response[3]['value'], 1)
 
     def test_screen_paths(self):
@@ -124,20 +124,20 @@ class TestPaths(BaseTest):
         Event.objects.create(properties={'$screen': '/pricing'}, distinct_id='person_4', event='$screen', team=self.team)
 
         response = self.client.get('/api/paths/?type=%24screen').json()
-        self.assertEqual(response[0]['sourceLabel'], '1_/', response)
-        self.assertEqual(response[0]['targetLabel'], '2_/pricing')
+        self.assertEqual(response[0]['source'], '1_/', response)
+        self.assertEqual(response[0]['target'], '2_/pricing')
         self.assertEqual(response[0]['value'], 2)
 
-        self.assertEqual(response[1]['sourceLabel'], '1_/')
-        self.assertEqual(response[1]['targetLabel'], '2_/about')
+        self.assertEqual(response[1]['source'], '1_/')
+        self.assertEqual(response[1]['target'], '2_/about')
         self.assertEqual(response[1]['value'], 1)
 
-        self.assertEqual(response[2]['sourceLabel'], '1_/pricing')
-        self.assertEqual(response[2]['targetLabel'], '2_/')
+        self.assertEqual(response[2]['source'], '1_/pricing')
+        self.assertEqual(response[2]['target'], '2_/')
         self.assertEqual(response[2]['value'], 1)
 
-        self.assertEqual(response[3]['sourceLabel'], '2_/pricing', response[3])
-        self.assertEqual(response[3]['targetLabel'], '3_/about')
+        self.assertEqual(response[3]['source'], '2_/pricing', response[3])
+        self.assertEqual(response[3]['target'], '3_/about')
         self.assertEqual(response[3]['value'], 1)
 
     def test_autocapture_paths(self):
@@ -171,12 +171,12 @@ class TestPaths(BaseTest):
             Element(href='/a-url-2', nth_child=0, nth_of_type=0, order=2)
         ])
         response = self.client.get('/api/paths/?type=%24autocapture').json()
-        self.assertEqual(response[0]['sourceLabel'], '1_<a> with text "hello"')
-        self.assertEqual(response[0]['targetLabel'], '2_<a> with text "goodbye"')
+        self.assertEqual(response[0]['source'], '1_<a> hello')
+        self.assertEqual(response[0]['target'], '2_<a> goodbye')
         self.assertEqual(response[0]['value'], 1)
 
-        self.assertEqual(response[1]['sourceLabel'], '1_<a> with text "hello1"')
-        self.assertEqual(response[1]['targetLabel'], '2_<a> with text "goodbye1"')
+        self.assertEqual(response[1]['source'], '1_<a> hello1')
+        self.assertEqual(response[1]['target'], '2_<a> goodbye1')
         self.assertEqual(response[1]['value'], 1)
 
     
