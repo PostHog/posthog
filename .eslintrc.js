@@ -20,5 +20,6 @@ module.exports = {
     rules: {
         'react/prop-types': [0],
         'react/no-unescaped-entities': [0],
+        'no-unused-vars': ['error', { ignoreRestSiblings: true }],
     },
 }
