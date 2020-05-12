@@ -25,10 +25,8 @@ export const dashboardsModel = kea({
         dashboard: {
             addDashboard: async ({ name }) => await api.create('api/dashboard', { name, pinned: true }),
             renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),
-            deleteDashboard: async ({ id, redirect = true }) =>
-                await api.update(`api/dashboard/${id}`, { deleted: true }),
-            restoreDashboard: async ({ id, redirect = true }) =>
-                await api.update(`api/dashboard/${id}`, { deleted: false }),
+            deleteDashboard: async ({ id }) => await api.update(`api/dashboard/${id}`, { deleted: true }),
+            restoreDashboard: async ({ id }) => await api.update(`api/dashboard/${id}`, { deleted: false }),
             pinDashboard: async id => await api.update(`api/dashboard/${id}`, { pinned: true }),
             unpinDashboard: async id => await api.update(`api/dashboard/${id}`, { pinned: false }),
         },

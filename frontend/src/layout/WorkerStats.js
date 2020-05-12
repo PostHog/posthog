@@ -12,7 +12,7 @@ export function WorkerStats() {
                 const { worker_heartbeat: workerHeartbeat } = stats
                 setHeartbeat(workerHeartbeat)
             })
-            .catch(error => {
+            .catch(() => {
                 setHeartbeat('error')
             })
     }
@@ -54,7 +54,7 @@ export function WorkerStats() {
                         <a
                             href="https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011"
                             target="_blank"
-                            rel="noopener"
+                            rel="noopener noreferrer"
                         >
                             see the documentation
                         </a>{' '}

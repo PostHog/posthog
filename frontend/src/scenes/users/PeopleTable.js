@@ -1,6 +1,5 @@
 import React from 'react'
 import { Button, Table } from 'antd'
-import api from 'lib/api'
 import { Link } from 'lib/components/Link'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { DeleteOutlined } from '@ant-design/icons'
@@ -12,21 +11,25 @@ export function PeopleTable({ people, loading, actions, onChange }) {
             title: 'Person',
             dataIndex: 'name',
             key: 'name',
-            render: (_, person) => (
-                <Link to={'/person/' + encodeURIComponent(person.distinct_ids[0])} className="ph-no-capture">
-                    {person.name}
-                </Link>
-            ),
+            render: function RenderName(_, person) {
+                return (
+                    <Link to={'/person/' + encodeURIComponent(person.distinct_ids[0])} className="ph-no-capture">
+                        {person.name}
+                    </Link>
+                )
+            },
         },
     ]
     if (actions)
         columns.push({
             title: 'Actions',
-            render: person => (
-                <Button danger type="link" onClick={() => deletePersonData(person, onChange)}>
-                    <DeleteOutlined />
-                </Button>
-            ),
+            render: function RenderActions(person) {
+                return (
+                    <Button danger type="link" onClick={() => deletePersonData(person, onChange)}>
+                        <DeleteOutlined />
+                    </Button>
+                )
+            },
         })
 
     return (
@@ -37,7 +40,9 @@ export function PeopleTable({ people, loading, actions, onChange }) {
             rowKey={person => person.id}
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             expandable={{
-                expandedRowRender: ({ properties }) => <PropertiesTable properties={properties} />,
+                expandedRowRender: function RenderPropertiesTable({ properties }) {
+                    return <PropertiesTable properties={properties} />
+                },
                 rowExpandable: ({ properties }) => Object.keys(properties).length > 0,
             }}
             dataSource={people}

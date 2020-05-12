@@ -64,7 +64,6 @@ export default function Sidebar(props) {
     let activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
     const openSubmenu = submenuOverride[activeScene] || activeScene
 
-    let firstDashboard = pinnedDashboards.length > 0 ? `/dashboard/${pinnedDashboards[0].id}` : '/dashboard'
     let unpinnedDashboard = null
     if (activeScene === 'dashboard') {
         const dashboardId = parseInt(location.pathname.split('/dashboard/')[1])

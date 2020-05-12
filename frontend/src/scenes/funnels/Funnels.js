@@ -28,7 +28,7 @@ export class Funnels extends Component {
                     <i>
                         If you need your users to carry out a series of actions in a row, funnels are a way of working
                         out where users are dropping off.{' '}
-                        <a href="https://github.com/PostHog/posthog/wiki/Funnels" target="_blank">
+                        <a href="https://docs.posthog.com/#/features/funnels" target="_blank" rel="noopener noreferrer">
                             See documentation
                         </a>
                     </i>

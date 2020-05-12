@@ -18,18 +18,20 @@ export class ActionEdit extends Component {
             slackEnabled: props.user && props.user.team && props.user.team.slack_incoming_webhook,
         }
         this.params = '?include_count=1' + (props.temporaryToken ? '&temporary_token=' + props.temporaryToken : '')
-        this.fetchAction.call(this)
+
+        if (this.props.actionId) {
+            this.state.focus = false
+            this.fetchAction.call(this)
+        } else {
+            this.state.action = { name: '', steps: [{ isNew: uuid() }] }
+        }
         this.onSubmit = this.onSubmit.bind(this)
     }
     fetchAction() {
-        if (this.props.actionId) {
-            this.state.focus = false
-            return api
-                .get(this.props.apiURL + 'api/action/' + this.props.actionId + '/' + this.params)
-                .then(action => this.setState({ action }))
-        }
+        return api
+            .get(this.props.apiURL + 'api/action/' + this.props.actionId + '/' + this.params)
+            .then(action => this.setState({ action }))
         // If it's a new action, add an empty step
-        this.state.action = { name: '', steps: [{ isNew: uuid() }] }
     }
     onSubmit(event, createNew) {
         if (!event.target.form.checkValidity() || !this.state.edited) return

@@ -4,7 +4,6 @@ import { ActionSelectInfo } from 'scenes/trends/ActionSelectInfo'
 import { selectStyle } from '../utils'
 import PropTypes from 'prop-types'
 import ActionSelectTab from './ActionSelectTab'
-import { Link } from 'lib/components/Link'
 
 const determineActiveTab = props => {
     if (props.selected) {
@@ -39,8 +38,12 @@ export function ActionSelectTabs(props) {
 }
 
 export class ActionSelectPanel extends Component {
-    state = {
-        infoOpen: false,
+    constructor(props) {
+        super(props)
+
+        this.state = {
+            infoOpen: false,
+        }
     }
 
     Option = props => {
@@ -53,7 +56,7 @@ export class ActionSelectPanel extends Component {
                         infoActionId: props.value,
                     })
                 }
-                onMouseOut={e => {
+                onMouseOut={() => {
                     this.setState({ infoOpen: false })
                 }}
             >

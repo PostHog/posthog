@@ -15,7 +15,7 @@ export const dashboardsLogic = kea({
         ],
     }),
 
-    listeners: ({ actions }) => ({
+    listeners: () => ({
         addNewDashboard: async () => {
             prompt({ key: `new-dashboard-dashboards` }).actions.prompt({
                 title: 'New dashboard',

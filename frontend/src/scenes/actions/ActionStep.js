@@ -146,12 +146,13 @@ export class ActionStep extends Component {
                         checked={this.state.selection.indexOf(props.item) > -1}
                         value={props.item}
                         onChange={e => {
+                            let { selection } = this.state
                             if (e.target.checked) {
-                                this.state.selection.push(props.item)
+                                selection.push(props.item)
                             } else {
-                                this.state.selection = this.state.selection.filter(i => i !== props.item)
+                                selection = selection.filter(i => i !== props.item)
                             }
-                            this.setState({ selection: this.state.selection }, () => this.sendStep(this.props.step))
+                            this.setState({ selection }, () => this.sendStep(this.props.step))
                         }}
                     />{' '}
                     {props.label} {props.extra_options}
@@ -249,7 +250,12 @@ export class ActionStep extends Component {
                         >
                             Select element on site <i className="fi flaticon-export" />
                         </AppEditorLink>
-                        <a href="https://docs.posthog.com/#/features/actions" target="_blank" style={{ marginLeft: 8 }}>
+                        <a
+                            href="https://docs.posthog.com/#/features/actions"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ marginLeft: 8 }}
+                        >
                             See documentation.
                         </a>{' '}
                     </span>

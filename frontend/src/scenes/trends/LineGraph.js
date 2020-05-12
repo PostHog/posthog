@@ -37,7 +37,7 @@ export class LineGraph extends Component {
 
     buildChart = () => {
         const myChartRef = this.chartRef.current.getContext('2d')
-        let { datasets, labels, options } = this.props
+        let { datasets, labels } = this.props
 
         if (typeof this.myLineChart !== 'undefined') this.myLineChart.destroy()
         const _this = this

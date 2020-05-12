@@ -2,7 +2,7 @@ import './DashboardItems.scss'
 
 import { Dropdown, Menu } from 'antd'
 import { combineUrl, router } from 'kea-router'
-import { deleteWithUndo, DeleteWithUndo, Loading } from 'lib/utils'
+import { deleteWithUndo, Loading } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
