@@ -80,7 +80,7 @@ export function Card(props) {
     )
 }
 
-export const deleteWithUndo = ({ undo, ...props }) => {
+export const deleteWithUndo = ({ undo = false, ...props }) => {
     api.update('api/' + props.endpoint + '/' + props.object.id, {
         ...props.object,
         deleted: !undo,
@@ -110,13 +110,14 @@ export const deleteWithUndo = ({ undo, ...props }) => {
     })
 }
 
-export const DeleteWithUndo = ({ className, style, children }) => {
+export const DeleteWithUndo = props => {
+    let { className, style, children } = props
     return (
         <a
             href="#"
             onClick={e => {
                 e.preventDefault()
-                deleteWithUndo()
+                deleteWithUndo(props)
             }}
             className={className}
             style={style}
