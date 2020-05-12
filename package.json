@@ -89,7 +89,8 @@
         }
     },
     "lint-staged": {
-        "*.{js,css,scss}": "prettier --write"
+        "*.{js,css,scss}": "prettier --write",
+        "*.js": "eslint frontend/src"
     },
     "optionalDependencies": {
         "fsevents": "^2.1.2"

@@ -3,6 +3,11 @@ module.exports = {
         browser: true,
         es6: true,
     },
+    settings: {
+        react: {
+            version: 'detect',
+        },
+    },
     extends: ['eslint:recommended', 'plugin:react/recommended'],
     globals: {
         Atomics: 'readonly',
@@ -16,7 +21,7 @@ module.exports = {
         ecmaVersion: 2018,
         sourceType: 'module',
     },
-    plugins: ['prettier'],
+    plugins: ['prettier', 'react'],
     rules: {
         'react/prop-types': [0],
         'react/no-unescaped-entities': [0],
