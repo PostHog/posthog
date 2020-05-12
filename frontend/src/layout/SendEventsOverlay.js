@@ -1,13 +1,13 @@
 import React, { Component } from 'react'
-import { withRouter } from 'react-router-dom'
-import { JSSnippet } from '../lib/components/JSSnippet'
+import { router } from 'kea-router'
+import { JSSnippet } from 'lib/components/JSSnippet'
 
-class SendEventsOverlay extends Component {
+class _SendEventsOverlay extends Component {
     constructor(props) {
         super(props)
         this.overlay = React.createRef()
         this.imageRef = React.createRef()
-        this.state = { path: this.props.history.location.pathname }
+        this.state = { path: this.props.location.pathname }
     }
     urlBackgroundMap = {
         '/': 'https://posthog.s3.eu-west-2.amazonaws.com/graphs.png',
@@ -20,15 +20,15 @@ class SendEventsOverlay extends Component {
         setTimeout(() => this.setState({ animate: true }), 1000)
     }
     componentDidUpdate(prevProps) {
-        if (this.state.path != this.props.history.location.pathname) {
+        if (this.state.path !== this.props.location.pathname) {
             this.setState({
                 animate: false,
-                path: this.props.history.location.pathname,
+                path: this.props.location.pathname,
             })
         }
     }
     render() {
-        let path = this.props.history.location.pathname
+        let path = this.props.location.pathname
         let image = this.urlBackgroundMap[path]
         let { animate } = this.state
         return !this.props.user.has_events && image ? (
@@ -78,4 +78,4 @@ class SendEventsOverlay extends Component {
     }
 }
 
-export default withRouter(SendEventsOverlay)
+export const SendEventsOverlay = router(_SendEventsOverlay)

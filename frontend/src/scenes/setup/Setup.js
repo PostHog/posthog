@@ -12,11 +12,13 @@ import { DeleteDemoData } from './DeleteDemoData'
 import { SlackIntegration } from 'scenes/setup/SlackIntegration'
 import { ChangePassword } from './ChangePassword'
 import { useAnchor } from 'lib/hooks/useAnchor'
+import { router } from 'kea-router'
 
-export function Setup({ history }) {
+export function Setup() {
     const { user } = useValues(userLogic)
+    const { location } = useValues(router)
 
-    useAnchor(history.location.hash)
+    useAnchor(location.hash)
 
     return (
         <div>

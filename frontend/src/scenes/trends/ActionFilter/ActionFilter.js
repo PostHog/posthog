@@ -1,28 +1,28 @@
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { entityFilterLogic } from './actionFilterLogic'
+import { entityFilterLogic } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 
-export function ActionFilter({ setFilters, defaultFilters, showMaths, typeKey, setDefaultIfEmpty }) {
-    const { allFilters } = useValues(entityFilterLogic({ setFilters, defaultFilters, typeKey, setDefaultIfEmpty }))
-    const { createNewFilter } = useActions(entityFilterLogic({ typeKey }))
+export function ActionFilter({ setFilters, filters, typeKey }) {
+    const logic = entityFilterLogic({ setFilters, filters, typeKey })
+
+    const { localFilters } = useValues(logic)
+    const { addFilter, setLocalFilters } = useActions(logic)
+
+    // No way around this. Somehow the ordering of the logic calling each other causes stale "localFilters"
+    // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
+    useEffect(() => {
+        setLocalFilters(filters)
+    }, [filters])
 
     return (
         <div>
-            {allFilters &&
-                allFilters.map((filter, index) => {
-                    return (
-                        <ActionFilterRow
-                            filter={filter}
-                            index={index}
-                            key={index}
-                            showMaths={showMaths}
-                            typeKey={typeKey}
-                        />
-                    )
-                })}
-            <Button type="primary" onClick={() => createNewFilter()} style={{ marginTop: '0.5rem' }}>
+            {localFilters &&
+                localFilters.map((filter, index) => (
+                    <ActionFilterRow logic={logic} filter={filter} index={index} key={index} />
+                ))}
+            <Button type="primary" onClick={() => addFilter()} style={{ marginTop: '0.5rem' }}>
                 Add action/event
             </Button>
         </div>

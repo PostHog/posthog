@@ -1,8 +1,8 @@
 import React, { Component } from 'react'
-import api from '../../lib/api'
+import api from 'lib/api'
 import FunnelGraph from 'funnel-graph-js'
-import { Link } from 'react-router-dom'
-import { Loading } from '../../lib/utils'
+import { Link } from 'lib/components/Link'
+import { Loading } from 'lib/utils'
 import PropTypes from 'prop-types'
 
 export class FunnelViz extends Component {
@@ -25,9 +25,7 @@ export class FunnelViz extends Component {
         window.removeEventListener('resize', this.buildChart)
     }
     fetchFunnel() {
-        api.get('api/funnel/' + this.props.filters.funnel_id).then(funnel =>
-            this.setState({ funnel }, this.buildChart)
-        )
+        api.get('api/funnel/' + this.props.filters.funnel_id).then(funnel => this.setState({ funnel }, this.buildChart))
     }
     componentDidUpdate(prevProps) {
         if (prevProps.funnel !== this.props.funnel && this.state.funnel) {
@@ -40,9 +38,7 @@ export class FunnelViz extends Component {
         let graph = new FunnelGraph({
             container: '.funnel-graph',
             data: {
-                labels: this.state.funnel.steps.map(
-                    step => `${step.name} (${step.count})`
-                ),
+                labels: this.state.funnel.steps.map(step => `${step.name} (${step.count})`),
                 values: this.state.funnel.steps.map(step => step.count),
                 colors: ['#66b0ff', 'var(--blue)'],
             },
@@ -60,17 +56,11 @@ export class FunnelViz extends Component {
         let { funnel } = this.state
         return funnel ? (
             funnel.steps.length > 0 ? (
-                <div
-                    ref={this.container}
-                    className="svg-funnel-js"
-                    style={{ height: '100%', width: '100%' }}
-                ></div>
+                <div ref={this.container} className="svg-funnel-js" style={{ height: '100%', width: '100%' }}></div>
             ) : (
                 <p style={{ margin: '1rem' }}>
                     This funnel doesn't have any steps.{' '}
-                    <Link to={'/funnel/' + funnel.id}>
-                        Click here to add some steps.
-                    </Link>
+                    <Link to={'/funnel/' + funnel.id}>Click here to add some steps.</Link>
                 </p>
             )
         ) : (

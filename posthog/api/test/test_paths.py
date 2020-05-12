@@ -2,6 +2,7 @@ from .base import BaseTest
 from posthog.models import Person, Event, Element
 from django.utils.timezone import now
 from dateutil.relativedelta import relativedelta
+from freezegun import freeze_time
 
 class TestPaths(BaseTest):
     TESTS_API = True
@@ -179,3 +180,21 @@ class TestPaths(BaseTest):
         self.assertEqual(response[1]['value'], 1)
 
     
+    def test_paths_in_window(self):
+        Person.objects.create(team=self.team, distinct_ids=['person_1'])
+
+        with freeze_time("2020-04-14T03:25:34.000Z"):
+            Event.objects.create(properties={'$current_url': '/'}, distinct_id='person_1', event='$pageview', team=self.team)
+        with freeze_time("2020-04-14T03:30:34.000Z"):
+            Event.objects.create(properties={'$current_url': '/about'}, distinct_id='person_1', event='$pageview', team=self.team)
+
+        with freeze_time("2020-04-15T03:25:34.000Z"):
+            Event.objects.create(properties={'$current_url': '/'}, distinct_id='person_1', event='$pageview', team=self.team)
+        with freeze_time("2020-04-15T03:30:34.000Z"):
+            Event.objects.create(properties={'$current_url': '/about'}, distinct_id='person_1', event='$pageview', team=self.team)
+
+        response = self.client.get('/api/paths/?date_from=2020-04-13').json()
+        self.assertEqual(response[0]['source'], '1_/')
+        self.assertEqual(response[0]['target'], '2_/about')
+        self.assertEqual(response[0]['value'], 2)
+

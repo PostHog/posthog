@@ -1,5 +1,32 @@
 # Changelog
 
+### 1.4.0 - Wednesday 6 May 2020
+
+- Added filtering of properties individually. For both trends and funnels, you can now add filters for each event/action individually
+![events](https://posthog.com/wp-content/uploads/2020/05/captured.gif)
+
+- Added Breakdown by properties in graph.
+![graph](https://posthog.com/wp-content/uploads/2020/05/captured-1.gif)
+
+- Session time series, you can now see how time spend in your app changes over time
+![session time series](https://posthog.com/wp-content/uploads/2020/05/Screenshot-2020-05-06-at-10.59.34.png)
+
+- Export cohorts as CSV
+![export cohorts](https://posthog.com/wp-content/uploads/2020/05/Screenshot-2020-05-06-at-10.53.26.png)
+
+- Edit frontend selector for actions in PostHog
+![frontend selector](https://posthog.com/wp-content/uploads/2020/05/Screenshot-2020-05-06-at-10.56.03.png)
+
+- Setup page redesign
+![setup page redesign](https://posthog.com/wp-content/uploads/2020/05/Screenshot-2020-05-06-at-11.13.06.png)
+
+- Restrict access to instance by IP address (#679, #682)
+- Fix today + hourly filtering not working (#700)
+- Fix timestamps if users had wrong dates set locally (#693, #697, #699)
+- Add $screen to events table (#681)
+- Add noindex to login/signup screens (#702)
+- Speed up cohorts page and use antd (#706)
+
 ### 1.3.0 - Wednesday 29 April 2020
 
 - We have added an Android library so you can now capture events in your Android app and send them to PostHog, we can automatically capture screen changes, and send any other events that you like

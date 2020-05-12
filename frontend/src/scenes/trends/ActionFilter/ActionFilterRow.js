@@ -1,42 +1,56 @@
-import React, { useRef } from 'react'
+import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { entityFilterLogic } from './actionFilterLogic'
 import { EntityTypes } from '../trendsLogic'
 import { CloseButton } from '~/lib/utils'
 import { Dropdown } from '~/lib/components/Dropdown'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { Tooltip } from 'antd'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { userLogic } from 'scenes/userLogic'
 
-export function ActionFilterRow({ filter, index, showMaths, typeKey }) {
+const determineFilterLabel = (visible, filter) => {
+    if (visible) return 'Hide Filters'
+
+    if (filter.properties && Object.keys(filter.properties).length > 0) {
+        return (
+            Object.keys(filter.properties).length + ' Filter' + (Object.keys(filter.properties).length === 1 ? '' : 's')
+        )
+    }
+    return 'Add Filters'
+}
+
+export function ActionFilterRow({ logic, filter, index }) {
     const node = useRef()
-    const { selectedFilter, entities } = useValues(entityFilterLogic({ typeKey }))
-    const { selectFilter, updateFilterMath, removeLocalFilter } = useActions(entityFilterLogic({ typeKey }))
+    const { selectedFilter, entities } = useValues(logic)
+    const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty } = useActions(logic)
+    const { eventProperties } = useValues(userLogic)
+    const [entityFilterVisible, setEntityFilterVisible] = useState(false)
 
-    let entity, dropDownCondition, onClick, onClose, onMathSelect, name, value, math
-    math = filter.math
-    onClose = () => {
+    let entity, name, value
+    let math = filter.math
+    const onClose = () => {
         removeLocalFilter({ value: filter.id, type: filter.type, index })
     }
-    onMathSelect = (_, math) => {
+    const onMathSelect = (_, math) => {
         updateFilterMath({ math, value: filter.id, type: filter.type, index: index })
     }
 
-    dropDownCondition = () => selectedFilter && selectedFilter.type == filter.type && selectedFilter.index == index
+    const dropDownCondition = () =>
+        selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index
 
-    onClick = () => {
-        if (selectedFilter && selectedFilter.type == filter.type && selectedFilter.index == index) selectFilter(null)
+    const onClick = () => {
+        if (selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index) selectFilter(null)
         else selectFilter({ filter, type: filter.type, index })
     }
 
-    if (filter.type == EntityTypes.NEW) {
+    if (filter.type === EntityTypes.NEW_ENTITY) {
         name = null
         value = null
     } else {
-        entity = entities[filter.type].filter(action => action.id == filter.id)[0] || {}
+        entity = entities[filter.type].filter(action => action.id === filter.id)[0] || {}
         name = entity.name || filter.name
         value = entity.id || filter.id
     }
-
     return (
         <div>
             <button
@@ -44,7 +58,6 @@ export function ActionFilterRow({ filter, index, showMaths, typeKey }) {
                 className="filter-action"
                 type="button"
                 onClick={onClick}
-                type="button"
                 style={{
                     border: 0,
                     padding: 0,
@@ -54,8 +67,10 @@ export function ActionFilterRow({ filter, index, showMaths, typeKey }) {
             >
                 {name || 'Select action'}
             </button>
-            {showMaths && <MathSelector math={math} index={index} onMathSelect={onMathSelect} />}
-
+            <MathSelector math={math} index={index} onMathSelect={onMathSelect} />
+            <div className="btn btn-sm btn-light" onClick={() => setEntityFilterVisible(!entityFilterVisible)}>
+                {determineFilterLabel(entityFilterVisible, filter)}
+            </div>
             <CloseButton
                 onClick={onClose}
                 style={{
@@ -65,16 +80,27 @@ export function ActionFilterRow({ filter, index, showMaths, typeKey }) {
                     marginTop: 3,
                 }}
             />
+            {entityFilterVisible && (
+                <div className="ml-4">
+                    <PropertyFilters
+                        pageKey={`${index}-${value}-filter`}
+                        properties={eventProperties}
+                        propertyFilters={filter.properties}
+                        onChange={properties => updateFilterProperty({ properties, index })}
+                        style={{ marginBottom: 0 }}
+                    />
+                </div>
+            )}
             {dropDownCondition() && (
                 <ActionFilterDropdown
-                    typeKey={typeKey}
+                    logic={logic}
                     onClickOutside={e => {
                         if (node.current.contains(e.target)) {
                             return
                         }
                         selectFilter(null)
                     }}
-                ></ActionFilterDropdown>
+                />
             )}
         </div>
     )

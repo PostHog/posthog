@@ -1,7 +1,9 @@
 import React, { Component } from 'react'
-import { Link } from 'react-router-dom'
-import { DeleteWithUndo, Loading } from '../../lib/utils'
-import api from '../../lib/api'
+import { Link } from 'lib/components/Link'
+import { DeleteWithUndo, TableRowLoading } from 'lib/utils'
+import { Tooltip } from 'antd'
+import { ExportOutlined, DeleteOutlined } from '@ant-design/icons'
+import api from 'lib/api'
 
 export class Cohorts extends Component {
     constructor(props) {
@@ -9,48 +11,44 @@ export class Cohorts extends Component {
 
         this.state = {
             loading: true,
+            cohorts: [],
         }
         this.fetchCohorts = this.fetchCohorts.bind(this)
         this.fetchCohorts()
     }
     fetchCohorts() {
-        api.get('api/cohort').then(cohorts =>
-            this.setState({ cohorts: cohorts.results, loading: false })
-        )
+        api.get('api/cohort').then(cohorts => this.setState({ cohorts: cohorts.results, loading: false }))
     }
     render() {
         let { cohorts, loading } = this.state
         return (
             <div>
                 <h1>Cohorts</h1>
-                <Link
-                    to={'/people?new_cohort='}
-                    className="btn btn-outline-success btn-sm"
-                >
+                <Link to={'/people?new_cohort='} className="btn btn-outline-success btn-sm">
                     + new cohort
                 </Link>
                 <br />
                 <br />
                 <table className="table" style={{ position: 'relative' }}>
-                    {loading && <Loading />}
-                    <tbody>
+                    <thead>
                         <tr>
                             <th>Cohort name</th>
                             <th>Actions</th>
                         </tr>
+                    </thead>
+                    <tbody>
+                        {loading && <TableRowLoading colSpan={2} asOverlay={cohorts.length > 0} />}
                         {cohorts &&
                             cohorts.map(cohort => (
                                 <tr key={cohort.id}>
                                     <td>
-                                        <Link
-                                            to={'/people?cohort=' + cohort.id}
-                                        >
-                                            {cohort.name}
-                                        </Link>
+                                        <Link to={'/people?cohort=' + cohort.id}>{cohort.name}</Link>
                                     </td>
                                     <td>
                                         <a href={'/api/person.csv?cohort=' + cohort.id}>
-                                            <i className="fi flaticon-export" />
+                                            <Tooltip title="Export all users in this cohort as a .csv file">
+                                                <ExportOutlined />
+                                            </Tooltip>
                                         </a>
                                         <DeleteWithUndo
                                             endpoint="cohort"
@@ -59,7 +57,7 @@ export class Cohorts extends Component {
                                             style={{ marginLeft: 8 }}
                                             callback={this.fetchCohorts}
                                         >
-                                            <i className="fi flaticon-basket" />
+                                            <DeleteOutlined />
                                         </DeleteWithUndo>
                                     </td>
                                 </tr>
