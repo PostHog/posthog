@@ -18,6 +18,8 @@ from .event import Event
 from .person import PersonDistinctId
 from .action import Action
 from .person import Person
+from .filter import Filter
+from .entity import Entity
 
 from posthog.utils import properties_to_Q, request_to_date_query
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
@@ -47,22 +49,21 @@ class Funnel(models.Model):
     def _annotate_steps(
         self,
         team_id: int,
-        funnel_steps: QuerySet,
-        date_query: Dict[str, datetime.date],
-        properties: Dict[str, str],
+        filter: Filter
     ) -> Dict[str, Subquery]:
         annotations = {}
-        for index, step in enumerate(funnel_steps):
+        for index, step in enumerate(filter.entities):
             filter_key = (
                 "event"
-                if step.get("type") == TREND_FILTER_TYPE_EVENTS
+                if step.type == TREND_FILTER_TYPE_EVENTS
                 else "action__pk"
             )
             annotations["step_{}".format(index)] = Subquery(
                 Event.objects.all()
                 .annotate(person_id=OuterRef("id"))
                 .filter(
-                    **{filter_key: step["id"]},
+                    filter.date_filter_Q,
+                    **{filter_key: step.id},
                     team_id=team_id,
                     distinct_id__in=Subquery(
                         PersonDistinctId.objects.filter(
@@ -74,44 +75,39 @@ class Funnel(models.Model):
                         if index > 0
                         else {}
                     ),
-                    **date_query
                 )
-                .filter(properties_to_Q(properties))
-                .filter(properties_to_Q(step['properties']) if step.get('properties') is not None else Q() )
+                .filter(filter.properties_to_Q())
+                .filter(step.properties_to_Q())
                 .order_by("timestamp")
                 .values("timestamp")[:1]
             )
         return annotations
 
     def _serialize_step(
-        self, step: Dict[str, Any], people: Optional[List[int]] = None
+        self, step: Entity, people: Optional[List[int]] = None
     ) -> Dict[str, Any]:
-        if step.get("type") == TREND_FILTER_TYPE_ACTIONS:
-            name = Action.objects.get(team=self.team_id, pk=step["id"]).name
+        if step.type == TREND_FILTER_TYPE_ACTIONS:
+            name = Action.objects.get(team=self.team_id, pk=step.id).name
         else:
-            name = step["id"]
+            name = step.id
         return {
-            "action_id": step["id"],
+            "action_id": step.id,
             "name": name,
-            "order": step.get("order"),
+            "order": step.order,
             "people": people if people else [],
             "count": len(people) if people else 0,
-            "type": step.get("type"),
+            "type": step.type,
         }
 
     def get_steps(self) -> List[Dict[str, Any]]:
-        funnel_steps = self.filters.get("actions", []) + self.filters.get("events", [])
-        properties = self.filters.get("properties", [])
-        funnel_steps = sorted(funnel_steps, key=lambda step: step["order"])
+        filter = Filter(data=self.filters)
         people = (
             Person.objects.all()
             .filter(team_id=self.team_id, persondistinctid__distinct_id__isnull=False)
             .annotate(
                 **self._annotate_steps(
                     team_id=self.team_id,
-                    funnel_steps=funnel_steps,
-                    date_query=request_to_date_query(self.filters),
-                    properties=properties,
+                    filter=filter
                 )
             )
             .filter(step_0__isnull=False)
@@ -119,7 +115,7 @@ class Funnel(models.Model):
         )
 
         steps = []
-        for index, funnel_step in enumerate(funnel_steps):
+        for index, funnel_step in enumerate(filter.entities):
             relevant_people = [
                 person.id
                 for person in people

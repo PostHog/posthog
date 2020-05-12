@@ -19,7 +19,7 @@ class TestCohort(BaseTest):
         with self.assertNumQueries(1):
             self.assertEqual([p for p in cohort.people.all()], [person1])
 
-        cohort = Cohort.objects.create(team=self.team, groups=[{'properties': {'$os': 'Chrome'}}])
+        cohort = Cohort.objects.create(team=self.team, groups=[{'properties': [{'key': '$os', 'value': 'Chrome'}]}])
         cohort.calculate_people()
         self.assertEqual([p for p in cohort.people.all()], [person2])
 

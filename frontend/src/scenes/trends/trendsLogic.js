@@ -50,7 +50,7 @@ function cleanFilters(filters) {
         display: filters.session && filters.session === 'dist' ? 'ActionsTable' : filters.display,
         actions: Array.isArray(filters.actions) ? filters.actions : undefined,
         events: Array.isArray(filters.events) ? filters.events : undefined,
-        properties: filters.properties || {},
+        properties: filters.properties || [],
     }
 }
 
@@ -181,8 +181,13 @@ export const trendsLogic = kea({
                 params.date_from = day
                 params.date_to = day
             }
+            // If breakdown type is cohort, we use breakdown_value
+            // If breakdown type is event, we just set another filter
             if (breakdown_value && values.filters.breakdown_type != 'cohort') {
-                params.properties = { ...params.properties, [params.breakdown]: breakdown_value }
+                params.properties = [
+                    ...params.properties,
+                    { key: params.breakdown, value: breakdown_value, type: 'event' },
+                ]
             }
 
             const filterParams = toAPIParams(params)
