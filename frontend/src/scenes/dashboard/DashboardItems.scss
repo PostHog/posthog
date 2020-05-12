@@ -69,6 +69,13 @@
         .svg-funnel-js:not(.svg-funnel-js--vertical) .svg-funnel-js__label:not(:first-child) {
             border-left: 1px solid rgba(255, 255, 255, 0.4);
         }
+        table.table {
+            color: white;
+            tr td,
+            tr th {
+                border-top-color: rgba(255, 255, 255, 0.2);
+            }
+        }
     }
     &.blue {
         background: hsl(212, 63%, 40%);

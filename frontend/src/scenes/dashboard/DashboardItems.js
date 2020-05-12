@@ -11,8 +11,7 @@ const ReactGridLayout = WidthProvider(Responsive)
 
 export function DashboardItems({ logic }) {
     const { items, layouts, breakpoints, cols } = useValues(logic)
-    const { loadDashboardItems, renameDashboardItem, updateLayouts } = useActions(logic)
-    const [colors, setColors] = useState({})
+    const { loadDashboardItems, renameDashboardItem, updateLayouts, updateItemColor } = useActions(logic)
 
     // make sure the dashboard takes up the right size
     useEffect(() => triggerResizeAfterADelay(), [])
@@ -43,14 +42,13 @@ export function DashboardItems({ logic }) {
             draggableCancel=".anticon,.ant-dropdown"
         >
             {items.map(item => (
-                <div key={item.id} className={`dashboard-item ${colors[item.id] || ''}`}>
+                <div key={item.id} className={`dashboard-item ${item.color || 'white'}`}>
                     <DashboardItem
                         key={item.id}
                         item={item}
                         loadDashboardItems={loadDashboardItems}
                         renameDashboardItem={renameDashboardItem}
-                        colors={colors}
-                        setColors={setColors}
+                        updateItemColor={updateItemColor}
                     />
                 </div>
             ))}

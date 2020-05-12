@@ -3,7 +3,6 @@ import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
-import { idToKey } from 'lib/utils'
 import React from 'react'
 
 export const dashboardLogic = kea({
@@ -16,6 +15,7 @@ export const dashboardLogic = kea({
         renameDashboardItemSuccess: item => ({ item }),
         updateLayouts: layouts => ({ layouts }),
         saveLayouts: true,
+        updateItemColor: (id, color) => ({ id, color }),
     }),
 
     loaders: ({ props }) => ({
@@ -55,6 +55,7 @@ export const dashboardLogic = kea({
 
                 return state.map(item => ({ ...item, layouts: itemLayouts[item.id] }))
             },
+            updateItemColor: (state, { id, color }) => state.map(i => (i.id === id ? { ...i, color } : i)),
         },
     }),
 
@@ -140,6 +141,10 @@ export const dashboardLogic = kea({
             await api.update(`api/dashboard_item/layouts`, {
                 items: values.items.map(item => ({ id: item.id, layouts: item.layouts })),
             })
+        },
+
+        updateItemColor: ({ id, color }) => {
+            api.update(`api/dashboard_item/${id}`, { color })
         },
     }),
 })

@@ -59,11 +59,12 @@ const allColorStyles = {
     green: 'hsla(145, 60%, 34%, 1)',
 }
 
-export default function DashboardItem({ item, colors, setColors, loadDashboardItems, renameDashboardItem }) {
+export default function DashboardItem({ item, updateItemColor, loadDashboardItems, renameDashboardItem }) {
     const Element = typeMap[item.type].element
     const Icon = typeMap[item.type].icon
     const viewText = typeMap[item.type].viewText
     const link = typeMap[item.type].link(item.filters)
+    const color = item.color || 'white'
 
     return (
         <div className="dashboard-item-container">
@@ -82,30 +83,25 @@ export default function DashboardItem({ item, colors, setColors, loadDashboardIt
                                 <Menu.Item icon={<Icon />} onClick={() => router.actions.push(link)}>
                                     {viewText}
                                 </Menu.Item>
-                                {false && (
-                                    <Menu.SubMenu key="colors" icon={<BgColorsOutlined />} title="Set Color">
-                                        {Object.entries(allColors).map(([className, color]) => (
-                                            <Menu.Item
-                                                key={className}
-                                                onClick={() => setColors({ ...colors, [item.id]: className })}
-                                            >
-                                                <span
-                                                    style={{
-                                                        background: allColorStyles[className],
-                                                        border: '1px solid #eee',
-                                                        display: 'inline-block',
-                                                        width: 13,
-                                                        height: 13,
-                                                        verticalAlign: 'middle',
-                                                        marginRight: 5,
-                                                        marginBottom: 1,
-                                                    }}
-                                                />
-                                                {color}
-                                            </Menu.Item>
-                                        ))}
-                                    </Menu.SubMenu>
-                                )}
+                                <Menu.SubMenu key="colors" icon={<BgColorsOutlined />} title="Set Color">
+                                    {Object.entries(allColors).map(([className, color]) => (
+                                        <Menu.Item key={className} onClick={() => updateItemColor(item.id, className)}>
+                                            <span
+                                                style={{
+                                                    background: allColorStyles[className],
+                                                    border: '1px solid #eee',
+                                                    display: 'inline-block',
+                                                    width: 13,
+                                                    height: 13,
+                                                    verticalAlign: 'middle',
+                                                    marginRight: 5,
+                                                    marginBottom: 1,
+                                                }}
+                                            />
+                                            {color}
+                                        </Menu.Item>
+                                    ))}
+                                </Menu.SubMenu>
                                 <Menu.Item icon={<EditOutlined />} onClick={() => renameDashboardItem(item.id)}>
                                     Rename
                                 </Menu.Item>
@@ -132,7 +128,16 @@ export default function DashboardItem({ item, colors, setColors, loadDashboardIt
                 </div>
             </div>
             <div className="dashboard-item-content">
-                {Element ? <Element dashboardItemId={item.id} filters={item.filters} /> : <Loading />}
+                {Element ? (
+                    <Element
+                        dashboardItemId={item.id}
+                        filters={item.filters}
+                        color={color}
+                        theme={color === 'white' ? 'light' : 'dark'}
+                    />
+                ) : (
+                    <Loading />
+                )}
             </div>
         </div>
     )

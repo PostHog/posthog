@@ -13,3 +13,4 @@ class DashboardItem(models.Model):
     type: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
     layouts: JSONField = JSONField(default=dict)
+    color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
