@@ -1,7 +1,7 @@
 import React, { Component } from 'react'
 import Chart from 'chart.js'
 import PropTypes from 'prop-types'
-import { formatFilterName } from '~/lib/utils'
+import { operatorMap } from '~/lib/utils'
 import _ from 'lodash'
 
 //--Chart Style Options--//
@@ -115,12 +115,14 @@ export class LineGraph extends Component {
                                           return null
                                       var label = entityData.chartLabel || entityData.label || ''
                                       if (entityData.action.properties && !_.isEmpty(entityData.action.properties)) {
-                                          label += ' ('
-                                          Object.entries(entityData.action.properties).forEach(([key, val], index) => {
-                                              if (index > 0) label += ', '
-                                              label += formatFilterName(key).split(' ')[1] + ' ' + val
-                                          })
-                                          label += ')'
+                                          label += ` (${entityData.action.properties
+                                              .map(
+                                                  property =>
+                                                      operatorMap[property.operator || 'exact'].split(' ')[0] +
+                                                      ' ' +
+                                                      property.value
+                                              )
+                                              .join(', ')})`
                                       }
 
                                       return label + ' - ' + tooltipItem.yLabel.toLocaleString()

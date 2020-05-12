@@ -200,9 +200,9 @@ class ActionViewSet(viewsets.ModelViewSet):
                 relativity = relativedelta(months=1) - relativity # go to last day of month instead of first of next
             filters &= Q(timestamp__lte=filter.date_to + relativity)
         if filter.properties:
-            filters &= properties_to_Q(filter.properties)
+            filters &= filter.properties_to_Q()
         if entity and entity.properties:
-            filters &= properties_to_Q(entity.properties)
+            filters &= entity.properties_to_Q()
         return filters
 
     def _append_data(self, dates_filled: pd.DataFrame, interval: str) -> Dict:
@@ -349,12 +349,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             interval = 'day'
 
         serialized: Dict[str, Any] = {
-            'action': {
-                'id': entity.id,
-                'name': entity.name,
-                'type': entity.type,
-                'properties': entity.properties
-            },
+            'action': entity.to_dict(),
             'label': entity.name,
             'count': 0,
             'data': [],
