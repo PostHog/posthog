@@ -10,19 +10,9 @@ import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
 const ReactGridLayout = WidthProvider(RGL)
 
 export function DashboardItems({ logic }) {
-    const { items } = useValues(logic)
-    const { loadDashboardItems, renameDashboardItem } = useActions(logic)
+    const { items, layouts } = useValues(logic)
+    const { loadDashboardItems, renameDashboardItem, updateLayouts } = useActions(logic)
     const [colors, setColors] = useState({})
-
-    const [layout, setLayout] = useState(
-        items.map((item, index) => ({
-            i: `${item.id}`,
-            x: index % 2 === 0 ? 0 : 6,
-            y: Math.floor(index / 2),
-            w: 6,
-            h: 5,
-        }))
-    )
 
     // make sure the dashboard takes up the right size
     useEffect(() => triggerResizeAfterADelay(), [])
@@ -39,9 +29,9 @@ export function DashboardItems({ logic }) {
     return (
         <ReactGridLayout
             className="layout"
-            layout={layout}
+            layout={layouts}
             onLayoutChange={layout => {
-                setLayout(layout)
+                updateLayouts(layout)
                 triggerResize()
             }}
             onResize={(layout, oldItem, newItem) => {

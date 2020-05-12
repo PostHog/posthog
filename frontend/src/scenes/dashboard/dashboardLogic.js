@@ -3,6 +3,7 @@ import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
+import { idToKey } from 'lib/utils'
 
 export const dashboardLogic = kea({
     key: props => props.id,
@@ -12,6 +13,7 @@ export const dashboardLogic = kea({
         renameDashboard: true,
         renameDashboardItem: id => ({ id }),
         renameDashboardItemSuccess: item => ({ item }),
+        updateLayouts: layouts => ({ layouts }),
     }),
 
     loaders: ({ props }) => ({
@@ -37,13 +39,35 @@ export const dashboardLogic = kea({
     reducers: () => ({
         items: {
             renameDashboardItemSuccess: (state, { item }) => state.map(i => (i.id === item.id ? item : i)),
+            updateLayouts: (state, { layouts }) => {
+                const layoutsById = idToKey(layouts, 'i')
+                return state.map(item => ({ ...item, layouts: layoutsById[item.id] || item.layouts }))
+            },
         },
     }),
 
-    selectors: ({ props }) => ({
+    selectors: ({ props, selectors }) => ({
         dashboard: [
             () => [dashboardsModel.selectors.dashboards],
             dashboards => dashboards.find(d => d.id === props.id) || null,
+        ],
+        layouts: [
+            () => [selectors.items],
+            items => {
+                return items.map((item, index) => {
+                    if (item.layouts) {
+                        return item.layouts
+                    } else {
+                        return {
+                            i: `${item.id}`,
+                            x: index % 2 === 0 ? 0 : 6,
+                            y: Math.floor(index / 2),
+                            w: 6,
+                            h: 5,
+                        }
+                    }
+                })
+            },
         ],
     }),
 
