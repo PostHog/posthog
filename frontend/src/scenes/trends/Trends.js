@@ -2,7 +2,7 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 
 import { Card, CloseButton, Loading } from 'lib/utils'
-import { SaveToDashboard } from 'lib/components/SaveToDashboard'
+import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DateFilter } from 'lib/components/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
@@ -68,13 +68,15 @@ export function Trends() {
                                     </h4>
                                     <Row>
                                         <BreakdownFilter
-                                            properties={eventProperties}
                                             breakdown={filters.breakdown}
-                                            onChange={breakdown => setFilters({ breakdown })}
+                                            breakdown_type={filters.breakdown_type}
+                                            onChange={(breakdown, breakdown_type) =>
+                                                setFilters({ breakdown, breakdown_type })
+                                            }
                                         />
                                         {filters.breakdown && (
                                             <CloseButton
-                                                onClick={() => setFilters({ breakdown: false })}
+                                                onClick={() => setFilters({ breakdown: false, breakdown_type: null })}
                                                 style={{ marginTop: 1, marginLeft: 10 }}
                                             />
                                         )}

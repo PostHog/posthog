@@ -20,12 +20,13 @@ export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam
                 type="line"
                 datasets={results}
                 labels={results[0].labels}
+                isInProgress={!filters.date_to}
                 onClick={
                     dashboardItemId
                         ? null
                         : point => {
-                              const { dataset, day } = point
-                              loadPeople(dataset.action || 'session', day, dataset.breakdown_value)
+                              const { dataset, day, label } = point
+                              loadPeople(dataset.action || 'session', dataset.label, day, dataset.breakdown_value)
                           }
                 }
             />

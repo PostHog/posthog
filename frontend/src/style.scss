@@ -55,7 +55,7 @@ $body-color: #37352f;
 .posthog-title {
     font-weight: 500;
     font-size: 20px;
-    color: #333;
+    color: #fff;
     padding-left: 15px;
     margin-top: 8px;
 }
@@ -246,4 +246,34 @@ label.disabled {
     color: $blue;
     cursor: pointer;
     margin-left: 8px;
+}
+
+.sidebar-label {
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+.ant-layout.bg-dashboard {
+    background: hsla(210, 6%, 95%, 1);
+}
+
+.ant-menu-dark .ant-menu-inline.ant-menu-sub {
+    background: hsla(210, 19%, 19%, 1) !important;
+}
+
+.ant-modal-mask {
+    z-index: 1050 !important;
+}
+.ant-modal-wrap {
+    z-index: 1060 !important;
+}
+.ant-message {
+    z-index: 1070 !important;
+}
+.anticon {
+    // not sure why this doesn't just work..
+    vertical-align: 0.125em !important;
+}
+.ant-select-arrow .anticon {
+    vertical-align: top !important;
 }

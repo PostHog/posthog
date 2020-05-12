@@ -57,6 +57,12 @@ export const TableRowLoading = ({ colSpan = 1, asOverlay = false }) => (
     </tr>
 )
 
+export const SceneLoading = () => (
+    <div style={{ textAlign: 'center', marginTop: '20vh' }}>
+        <Spin />
+    </div>
+)
+
 export let CloseButton = props => {
     return (
         <span {...props} className={'close cursor-pointer ' + props.className} style={{ ...props.style }}>
@@ -74,37 +80,37 @@ export function Card(props) {
     )
 }
 
-export let DeleteWithUndo = props => {
-    let deleteWithUndo = undo => {
-        api.update('api/' + props.endpoint + '/' + props.object.id, {
-            ...props.object,
-            deleted: undo ? false : true,
-        }).then(() => {
-            props.callback()
-            let response = (
-                <div>
-                    {!undo ? (
-                        <span>
-                            "<strong>{props.object.name}</strong>" deleted.{' '}
-                            <a
-                                href="#"
-                                onClick={e => {
-                                    e.preventDefault()
-                                    deleteWithUndo(true)
-                                }}
-                            >
-                                Click here to undo
-                            </a>
-                        </span>
-                    ) : (
-                        <span>Delete un-done</span>
-                    )}
-                </div>
-            )
-            toast(response, { toastId: 'delete-item-' + props.object.id })
-        })
-    }
+export const deleteWithUndo = ({ undo, ...props }) => {
+    api.update('api/' + props.endpoint + '/' + props.object.id, {
+        ...props.object,
+        deleted: !undo,
+    }).then(() => {
+        props.callback()
+        let response = (
+            <div>
+                {!undo ? (
+                    <span>
+                        "<strong>{props.object.name}</strong>" deleted.{' '}
+                        <a
+                            href="#"
+                            onClick={e => {
+                                e.preventDefault()
+                                deleteWithUndo({ undo: true, ...props })
+                            }}
+                        >
+                            Click here to undo
+                        </a>
+                    </span>
+                ) : (
+                    <span>Delete un-done</span>
+                )}
+            </div>
+        )
+        toast(response, { toastId: 'delete-item-' + props.object.id })
+    })
+}
 
+export const DeleteWithUndo = ({ className, style, children }) => {
     return (
         <a
             href="#"
@@ -112,10 +118,10 @@ export let DeleteWithUndo = props => {
                 e.preventDefault()
                 deleteWithUndo()
             }}
-            className={props.className}
-            style={props.style}
+            className={className}
+            style={style}
         >
-            {props.children}
+            {children}
         </a>
     )
 }
@@ -201,3 +207,13 @@ export const deletePersonData = (person, callback) => {
 }
 
 export const objectsEqual = (obj1, obj2) => JSON.stringify(obj1) === JSON.stringify(obj2)
+
+export const idToKey = (array, keyField = 'id') => {
+    const object = {}
+    for (const element of array) {
+        object[element[keyField]] = element
+    }
+    return object
+}
+
+export const delay = ms => new Promise(resolve => window.setTimeout(resolve, ms))

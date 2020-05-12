@@ -12,18 +12,21 @@ import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic, loadedScenes } from 'scenes/sceneLogic'
+import { SceneLoading } from 'lib/utils'
+
+const darkerScenes = {
+    dashboard: true,
+    trends: true,
+    funnel: true,
+    editFunnel: true,
+    paths: true,
+}
 
 export default function App() {
     const { user } = useValues(userLogic)
     const { scene, params } = useValues(sceneLogic)
 
-    const Scene =
-        loadedScenes[scene]?.component ||
-        (() => (
-            <div style={{ textAlign: 'center', marginTop: '20vh' }}>
-                <Spin />
-            </div>
-        ))
+    const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
 
     if (!user) {
         return null
@@ -32,7 +35,7 @@ export default function App() {
     return (
         <Layout className="bg-white">
             <Sidebar user={user} />
-            <Layout className="bg-white" style={{ height: '100vh' }}>
+            <Layout className={darkerScenes[scene] ? 'bg-dashboard' : 'bg-white'} style={{ height: '100vh' }}>
                 <div className="content py-3">
                     <TopContent user={user} />
                 </div>
