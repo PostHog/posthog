@@ -22,7 +22,7 @@ class Command(BaseCommand):
             return
         
         with connection.cursor() as cursor:
-            cursor.execute("""SELECT exists(select * from pg_proc where proname = \'create_partitions\')""")
+            cursor.execute("""SELECT exists(SELECT FROM information_schema.tables where table_name = \'posthog_event_default\')""")
             exists = cursor.fetchone()
             if exists[0]:
                 print('The event table has already been partitioned!')  
