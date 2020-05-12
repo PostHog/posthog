@@ -4,6 +4,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { idToKey } from 'lib/utils'
+import React from 'react'
 
 export const dashboardLogic = kea({
     key: props => props.id,
@@ -40,8 +41,18 @@ export const dashboardLogic = kea({
         items: {
             renameDashboardItemSuccess: (state, { item }) => state.map(i => (i.id === item.id ? item : i)),
             updateLayouts: (state, { layouts }) => {
-                const layoutsById = idToKey(layouts, 'i')
-                return state.map(item => ({ ...item, layouts: layoutsById[item.id] || item.layouts }))
+                let itemLayouts = {}
+                state.forEach(item => {
+                    itemLayouts[item.id] = {}
+                })
+
+                Object.entries(layouts).forEach(([col, layout]) => {
+                    layout.forEach(layoutItem => {
+                        itemLayouts[layoutItem.i][col] = layoutItem
+                    })
+                })
+
+                return state.map(item => ({ ...item, layouts: itemLayouts[item.id] }))
             },
         },
     }),
@@ -51,22 +62,28 @@ export const dashboardLogic = kea({
             () => [dashboardsModel.selectors.dashboards],
             dashboards => dashboards.find(d => d.id === props.id) || null,
         ],
+        breakpoints: [() => [], () => ({ lg: 1800, sm: 940, xs: 480, xxs: 0 })],
+        cols: [() => [], () => ({ lg: 24, sm: 12, xs: 6, xxs: 2 })],
         layouts: [
-            () => [selectors.items],
-            items => {
-                return items.map((item, index) => {
-                    if (item.layouts) {
-                        return item.layouts
-                    } else {
-                        return {
-                            i: `${item.id}`,
-                            x: index % 2 === 0 ? 0 : 6,
-                            y: Math.floor(index / 2),
-                            w: 6,
-                            h: 5,
+            () => [selectors.items, selectors.cols],
+            (items, cols) => {
+                const layouts = {}
+                Object.keys(cols).forEach(col => {
+                    layouts[col] = items.map((item, index) => {
+                        if (item.layouts && item.layouts[col]) {
+                            return item.layouts[col]
+                        } else {
+                            return {
+                                i: `${item.id}`,
+                                x: index % 2 === 0 ? 0 : 6,
+                                y: Math.floor(index / 2),
+                                w: 6,
+                                h: 5,
+                            }
                         }
-                    }
+                    })
                 })
+                return layouts
             },
         ],
     }),
