@@ -16,9 +16,17 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
 
         if options['reverse']:
+            print("Reversing partitions...")
             with connection.cursor() as cursor:
                 cursor.execute(load_sql('0050_event_partitions_reverse.sql'))
             return
+        
+        with connection.cursor() as cursor:
+            cursor.execute("""SELECT exists(select * from pg_proc where proname = \'create_partitions\')""")
+            exists = cursor.fetchone()
+            if exists[0]:
+                print('The event table has already been partitioned!')  
+                return
         
         elements = []
         if options['element']:
@@ -29,3 +37,5 @@ class Command(BaseCommand):
                 print("Partitioning...")
                 cursor.execute(load_sql('0050_event_partitions.sql'))
                 cursor.execute("""DO $$ BEGIN IF (SELECT exists(select * from pg_proc where proname = \'create_partitions\')) THEN PERFORM create_partitions(%s); END IF; END $$""", [elements])
+        else:
+            raise Exception('Postgres must be version 12 or greater to apply this partitioning')  
