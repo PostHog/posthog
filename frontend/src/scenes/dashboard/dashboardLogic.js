@@ -17,7 +17,6 @@ export const dashboardLogic = kea({
         renameDashboardItemSuccess: item => ({ item }),
         duplicateDashboardItem: (id, dashboardId, move = false) => ({ id, dashboardId, move }),
         duplicateDashboardItemSuccess: item => ({ item }),
-        updateItem: item => ({ item }),
         updateLayouts: layouts => ({ layouts }),
         saveLayouts: true,
         updateItemColor: (id, color) => ({ id, color }),
@@ -60,12 +59,8 @@ export const dashboardLogic = kea({
 
                 return state.map(item => ({ ...item, layouts: itemLayouts[item.id] }))
             },
-            updateItem: (state, { item }) => {
-                if (state.find(i => i.id === item.id)) {
-                    return state.map(i => (i.id === item.id ? item : i))
-                } else {
-                    return [...state, item]
-                }
+            [dashboardsModel.actions.updateDashboardItem]: (state, { item }) => {
+                return state.map(i => (i.id === item.id ? item : i))
             },
             updateItemColor: (state, { id, color }) => state.map(i => (i.id === id ? { ...i, color } : i)),
             duplicateDashboardItemSuccess: (state, { item }) =>
@@ -179,7 +174,7 @@ export const dashboardLogic = kea({
 
                 if (move) {
                     const deletedItem = await api.update(`api/dashboard_item/${item.id}`, { deleted: true })
-                    actions.updateItem(deletedItem)
+                    dashboardsModel.actions.updateDashboardItem(deletedItem)
 
                     const toastId = toast(
                         <div>
@@ -187,12 +182,13 @@ export const dashboardLogic = kea({
                             <Link
                                 onClick={async () => {
                                     toast.dismiss(toastId)
-                                    const [restoredItem] = await Promise.all([
+                                    const [restoredItem, deletedItem] = await Promise.all([
                                         api.update(`api/dashboard_item/${item.id}`, { deleted: false }),
                                         api.update(`api/dashboard_item/${addedItem.id}`, { deleted: true }),
                                     ])
                                     toast(<div>Panel move reverted!</div>)
-                                    actions.updateItem(restoredItem)
+                                    dashboardsModel.actions.updateDashboardItem(restoredItem)
+                                    dashboardsModel.actions.updateDashboardItem(deletedItem)
                                 }}
                             >
                                 Undo
