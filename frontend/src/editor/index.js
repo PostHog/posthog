@@ -63,7 +63,7 @@ class App extends Component {
             <Draggable handle='.drag-bar'>
                 <div className='box'>
                         <div className='drag-bar'>
-                            <img className="logo" src="https://posthog.com/wp-content/uploads/elementor/thumbs/Instagram-Post-1hedgehog-off-black-ok61e8eds76dma39iqao8cwbeihgdc2a9grtrwy6p4.png" />
+                            <img className="logo" src="https://posthog.com/Instagram-Post-1hedgehog-off-black-ok61e8eds76dma39iqao8cwbeihgdc2a9grtrwy6p4.png" />
                             <h3>PostHog</h3><br />
                         </div>
                         <ActionEdit
