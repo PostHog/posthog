@@ -35,6 +35,7 @@ export class PropertyValue extends Component {
                 autoFocus={!value}
                 style={{ width: '100%' }}
                 onChange={(_, { value }) => onSet(value)}
+                value={value}
                 onSearch={input => {
                     this.setState({ input })
                     if (!optionsCache[input]) this.loadPropertyValues(input)
