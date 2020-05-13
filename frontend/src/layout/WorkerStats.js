@@ -10,19 +10,19 @@ export function WorkerStats() {
     const openModal = () => setModalVisible(true)
     const closeModal = () => setModalVisible(false)
 
-    function updateHeartbeat() {
-        api.get('_stats/')
-            .then(stats => {
-                const { worker_heartbeat: workerHeartbeat } = stats
-                setHeartbeat(workerHeartbeat)
-            })
-            .catch(() => {
-                setHeartbeat('error')
-            })
+    async function updateHeartbeat() {
+        try {
+            const stats = await api.get('_stats/')
+            setHeartbeat(stats.worker_heartbeat)
+        } catch (error) {
+            setHeartbeat('error')
+        }
     }
 
     useEffect(() => {
         updateHeartbeat()
+        const interval = window.setInterval(updateHeartbeat, 30000)
+        return () => window.clearInterval(interval)
     }, [])
 
     return heartbeat !== null ? (
