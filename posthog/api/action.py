@@ -333,7 +333,7 @@ class ActionViewSet(viewsets.ModelViewSet):
     def _breakdown_label(self, entity: Entity, value: Any) -> Dict[str, Optional[str]]:
         ret_dict: Dict[str, Optional[str]] = {}
         if not value or not isinstance(value, str) or 'cohort_' not in value:
-            ret_dict['label'] = '{} - {}'.format(entity.name, value if value else 'Other') 
+            ret_dict['label'] = '{} - {}'.format(entity.name, value if value and not pd.isna(value) else 'Other') 
             ret_dict['breakdown_value'] = value if value and not pd.isna(value) else None
         else:
             if value == 'cohort_all':
