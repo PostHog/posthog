@@ -1,6 +1,6 @@
 import './DashboardItems.scss'
 
-import React, { useEffect } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { Responsive, WidthProvider } from 'react-grid-layout'
 
@@ -15,6 +15,8 @@ export function DashboardItems({ logic }) {
 
     // make sure the dashboard takes up the right size
     useEffect(() => triggerResizeAfterADelay(), [])
+    const isDragging = useRef(false)
+    const dragEndTimeout = useRef(null)
 
     return (
         <ReactGridLayout
@@ -39,6 +41,16 @@ export function DashboardItems({ logic }) {
                 }
             }}
             onResizeStop={triggerResizeAfterADelay}
+            onDrag={() => {
+                isDragging.current = true
+                window.clearTimeout(dragEndTimeout.current)
+            }}
+            onDragStop={() => {
+                window.clearTimeout(dragEndTimeout)
+                dragEndTimeout.current = window.setTimeout(() => {
+                    isDragging.current = false
+                }, 250)
+            }}
             draggableCancel=".anticon,.ant-dropdown"
         >
             {items.map(item => (
@@ -49,6 +61,7 @@ export function DashboardItems({ logic }) {
                         loadDashboardItems={loadDashboardItems}
                         renameDashboardItem={renameDashboardItem}
                         updateItemColor={updateItemColor}
+                        isDraggingRef={isDragging}
                     />
                 </div>
             ))}

@@ -46,7 +46,13 @@ const typeMap = {
     },
 }
 
-export default function DashboardItem({ item, updateItemColor, loadDashboardItems, renameDashboardItem }) {
+export default function DashboardItem({
+    item,
+    updateItemColor,
+    loadDashboardItems,
+    renameDashboardItem,
+    isDraggingRef,
+}) {
     const Element = typeMap[item.type].element
     const Icon = typeMap[item.type].icon
     const viewText = typeMap[item.type].viewText
@@ -57,7 +63,16 @@ export default function DashboardItem({ item, updateItemColor, loadDashboardItem
         <div className="dashboard-item-container">
             <div className="dashboard-item-header">
                 <div className="dashboard-item-title">
-                    <Link to={link} title={item.name}>
+                    <Link
+                        to={link}
+                        title={item.name}
+                        preventClick
+                        onClick={() => {
+                            if (!isDraggingRef.current) {
+                                router.actions.push(link)
+                            }
+                        }}
+                    >
                         {item.name}
                     </Link>
                 </div>
