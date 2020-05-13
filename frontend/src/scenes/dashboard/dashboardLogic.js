@@ -83,16 +83,14 @@ export const dashboardLogic = kea({
                 const layouts = {}
                 Object.keys(cols).forEach(col => {
                     layouts[col] = items.map(item => {
-                        if (item.layouts && item.layouts[col]) {
-                            return { ...item.layouts[col], i: `${item.id}` }
-                        } else {
-                            return {
-                                i: `${item.id}`,
-                                x: 0,
-                                y: Infinity,
-                                w: 6,
-                                h: 5,
-                            }
+                        const layout = item.layouts && item.layouts[col]
+                        const { x, y, w, h } = layout || {}
+                        return {
+                            i: `${item.id}`,
+                            x: Number.isInteger(x) ? x : 0,
+                            y: Number.isInteger(y) ? y : Infinity,
+                            w: w || 6,
+                            h: h || 2,
                         }
                     })
                 })
@@ -167,50 +165,51 @@ export const dashboardLogic = kea({
 
         duplicateDashboardItem: async ({ id, dashboardId, move }) => {
             const item = values.items.find(item => item.id === id)
-            if (item) {
-                const { id: _discard, ...rest } = item
-                const newItem = dashboardId ? { ...rest, dashboard: dashboardId } : { ...rest }
-                const addedItem = await api.create('api/dashboard_item', newItem)
+            if (!item) {
+                return
+            }
 
-                if (move) {
-                    const deletedItem = await api.update(`api/dashboard_item/${item.id}`, { deleted: true })
-                    dashboardsModel.actions.updateDashboardItem(deletedItem)
+            const { id: _discard, ...rest } = item
+            const newItem = dashboardId ? { ...rest, dashboard: dashboardId } : { ...rest }
+            const addedItem = await api.create('api/dashboard_item', newItem)
 
-                    const toastId = toast(
-                        <div>
-                            Panel moved to dashboard.&nbsp;
-                            <Link
-                                onClick={async () => {
-                                    toast.dismiss(toastId)
-                                    const [restoredItem, deletedItem] = await Promise.all([
-                                        api.update(`api/dashboard_item/${item.id}`, { deleted: false }),
-                                        api.update(`api/dashboard_item/${addedItem.id}`, { deleted: true }),
-                                    ])
-                                    toast(<div>Panel move reverted!</div>)
-                                    dashboardsModel.actions.updateDashboardItem(restoredItem)
-                                    dashboardsModel.actions.updateDashboardItem(deletedItem)
-                                }}
-                            >
-                                Undo
-                            </Link>
-                        </div>
-                    )
-                } else {
-                    actions.duplicateDashboardItemSuccess(addedItem)
+            if (move) {
+                const dashboard = dashboardsModel.values.rawDashboards[dashboardId]
+                const deletedItem = await api.update(`api/dashboard_item/${item.id}`, { deleted: true })
+                dashboardsModel.actions.updateDashboardItem(deletedItem)
 
-                    if (dashboardId) {
-                        const toastId = toast(
-                            <div>
-                                Panel added to dashboard.&nbsp;
-                                <Link to={`/dashboard/${dashboardId}`} onClick={() => toast.dismiss(toastId)}>
-                                    Click here to see it.
-                                </Link>
-                            </div>
-                        )
-                    } else {
-                        toast(<div>Panel duplicated!</div>)
-                    }
-                }
+                const toastId = toast(
+                    <div>
+                        Panel moved to <Link to={`/dashboard/${dashboard.id}`}>{dashboard.name}</Link>.&nbsp;
+                        <Link
+                            onClick={async () => {
+                                toast.dismiss(toastId)
+                                const [restoredItem, deletedItem] = await Promise.all([
+                                    api.update(`api/dashboard_item/${item.id}`, { deleted: false }),
+                                    api.update(`api/dashboard_item/${addedItem.id}`, { deleted: true }),
+                                ])
+                                toast(<div>Panel move reverted!</div>)
+                                dashboardsModel.actions.updateDashboardItem(restoredItem)
+                                dashboardsModel.actions.updateDashboardItem(deletedItem)
+                            }}
+                        >
+                            Undo
+                        </Link>
+                    </div>
+                )
+            } else if (!move && dashboardId) {
+                // copy
+                const toastId = toast(
+                    <div>
+                        Panel added to dashboard.&nbsp;
+                        <Link to={`/dashboard/${dashboardId}`} onClick={() => toast.dismiss(toastId)}>
+                            Click here to see it.
+                        </Link>
+                    </div>
+                )
+            } else {
+                actions.duplicateDashboardItemSuccess(addedItem)
+                toast(<div>Panel duplicated!</div>)
             }
         },
     }),
