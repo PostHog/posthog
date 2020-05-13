@@ -1,9 +1,15 @@
 import React from 'react'
-import { Modal } from '../lib/components/Modal'
+import { Button, Modal } from 'antd'
 
 export function ChangelogModal({ onDismiss }) {
     return (
-        <Modal onDismiss={onDismiss}>
+        <Modal
+            visible
+            onOk={onDismiss}
+            onCancel={onDismiss}
+            footer={<Button onClick={onDismiss}>Close</Button>}
+            style={{ top: 20, minWidth: '70%' }}
+        >
             <iframe
                 style={{
                     border: 0,
