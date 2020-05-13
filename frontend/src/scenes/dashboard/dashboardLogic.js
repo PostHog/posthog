@@ -89,7 +89,7 @@ export const dashboardLogic = kea({
                             return {
                                 i: `${item.id}`,
                                 x: 0,
-                                y: 0,
+                                y: Infinity,
                                 w: 6,
                                 h: 5,
                             }
