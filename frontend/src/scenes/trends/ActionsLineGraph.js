@@ -13,13 +13,12 @@ export function ActionsLineGraph({ dashboardItemId = null, filters: filtersParam
     useEffect(() => {
         loadResults()
     }, [toParams(otherFilters)])
-
     return results ? (
         filters.session || results.reduce((total, item) => total + item.count, 0) > 0 ? (
             <LineGraph
                 type="line"
                 datasets={results}
-                labels={results[0].labels}
+                labels={(results[0] && results[0].labels) || []}
                 isInProgress={!filters.date_to}
                 onClick={
                     dashboardItemId

@@ -114,7 +114,11 @@ export class LineGraph extends Component {
                                       if (entityData.dotted && !(tooltipItem.index == entityData.data.length - 1))
                                           return null
                                       var label = entityData.chartLabel || entityData.label || ''
-                                      if (entityData.action.properties && !_.isEmpty(entityData.action.properties)) {
+                                      if (
+                                          entityData.action &&
+                                          entityData.action.properties &&
+                                          !_.isEmpty(entityData.action.properties)
+                                      ) {
                                           label += ` (${entityData.action.properties
                                               .map(
                                                   property =>
