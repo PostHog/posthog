@@ -293,9 +293,9 @@ class TestTrends(BaseTest):
         self.assertEqual(action_response[0]['data'][23], 1.0)
 
     def test_all_dates_filtering(self):
-        self._create_events()
+        self._create_events(use_time=True)
         # automatically sets first day as first day of any events
-        with freeze_time('2020-01-04'):
+        with freeze_time('2020-01-04T15:01:01Z'):
             action_response = self.client.get('/api/action/trends/?date_from=all').json()
             event_response = self.client.get(
                 '/api/action/trends/',
@@ -308,6 +308,12 @@ class TestTrends(BaseTest):
         self.assertEqual(action_response[0]['data'][0], 1.0)
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
+
+
+        # test empty response
+        with freeze_time('2020-01-04'):
+            empty = self.client.get('/api/action/trends/?date_from=all&events=%s' % jdumps([{'id': 'blabla'}, {'id': 'sign up'}])).json()
+        self.assertEqual(empty[0]['data'][0], 0)
 
     def test_breakdown_filtering(self):
         self._create_events()
@@ -628,24 +634,24 @@ class TestTrends(BaseTest):
         watched_movie = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=watched_movie, event='watched movie')
         watched_movie.calculate_events()
-        action_response = self.client.get(
-            '/api/action/trends/',
-            data={
-                'shown_as': 'Stickiness',
-                'date_from': '2020-01-01',
-                'date_to': '2020-01-07',
-                'actions': jdumps([{'id': watched_movie.id}]),
-            },
-        ).json()
-        event_response = self.client.get(
-            '/api/action/trends/',
-            data={
-                'shown_as': 'Stickiness',
-                'date_from': '2020-01-01',
-                'date_to': '2020-01-07',
-                'events': jdumps([{'id': "watched movie"}]),
-            },
-        ).json()
+
+        with freeze_time('2020-01-08T13:01:01Z'):
+            action_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'shown_as': 'Stickiness',
+                    'actions': jdumps([{'id': watched_movie.id}]),
+                },
+            ).json()
+            event_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'shown_as': 'Stickiness',
+                    'date_from': '2020-01-01',
+                    'date_to': '2020-01-08',
+                    'events': jdumps([{'id': "watched movie"}]),
+                },
+            ).json()
         self.assertEqual(action_response[0]['count'], 4)
         self.assertEqual(action_response[0]['labels'][0], '1 day')
         self.assertEqual(action_response[0]['data'][0], 2)
@@ -692,10 +698,11 @@ class TestTrends(BaseTest):
                 'shown_as': 'Stickiness',
                 'date_from': 'all',
                 'date_to': '2020-01-07',
-                'actions': jdumps([{'id': watched_movie.id}]),
+                'events': jdumps([{'id': 'watched_movie'}]),
             },
         ).json()
-        self.assertEqual(len(response[0]['data']), 89)
+
+        self.assertEqual(len(response[0]['data']), 7)
 
     def test_breakdown_by_cohort(self):
         person1, person2, person3, person4 = self._create_multiple_people() 
