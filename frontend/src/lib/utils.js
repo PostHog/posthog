@@ -90,7 +90,7 @@ export const deleteWithUndo = ({ undo = false, ...props }) => {
             <div>
                 {!undo ? (
                     <span>
-                        "<strong>{props.object.name}</strong>" deleted.{' '}
+                        "<strong>{props.object.name || 'Untitled'}</strong>" deleted.{' '}
                         <a
                             href="#"
                             onClick={e => {

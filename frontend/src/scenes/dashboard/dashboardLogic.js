@@ -82,21 +82,73 @@ export const dashboardLogic = kea({
         layouts: [
             () => [selectors.items, selectors.cols],
             (items, cols) => {
-                const layouts = {}
+                const allLayouts = {}
                 Object.keys(cols).forEach(col => {
-                    layouts[col] = items.map(item => {
-                        const layout = item.layouts && item.layouts[col]
-                        const { x, y, w, h } = layout || {}
-                        return {
-                            i: `${item.id}`,
-                            x: Number.isInteger(x) ? x : 0,
-                            y: Number.isInteger(y) ? y : Infinity,
-                            w: w || 6,
-                            h: h || 2,
+                    const layouts = items
+                        .filter(i => !i.deleted)
+                        .map(item => {
+                            const layout = item.layouts && item.layouts[col]
+                            const { x, y, w, h } = layout || {}
+                            const width = Math.min(w || 6, cols[col])
+                            return {
+                                i: `${item.id}`,
+                                x: Number.isInteger(x) && x + width - 1 < cols[col] ? x : 0,
+                                y: Number.isInteger(y) ? y : Infinity,
+                                w: width,
+                                h: h || 2,
+                            }
+                        })
+
+                    const cleanLayouts = layouts.filter(({ y }) => y !== Infinity)
+
+                    // array of -1 for each column
+                    const lowestPoints = Array.from(Array(cols[col])).map(() => -1)
+
+                    // set the lowest point for each column
+                    cleanLayouts.forEach(({ x, y, w, h }) => {
+                        for (let i = x; i <= x + w - 1; i++) {
+                            lowestPoints[i] = Math.max(lowestPoints[i], y + h - 1)
                         }
                     })
+
+                    layouts
+                        .filter(({ y }) => y === Infinity)
+                        .forEach(({ i, w, h }) => {
+                            // how low are things in "w" consecutive of columns
+                            const segmentCount = cols[col] - w + 1
+                            const lowestSegments = Array.from(Array(segmentCount)).map(() => -1)
+                            for (let i = 0; i < segmentCount; i++) {
+                                for (let j = i; j <= i + w - 1; j++) {
+                                    lowestSegments[i] = Math.max(lowestSegments[i], lowestPoints[j])
+                                }
+                            }
+
+                            let lowestIndex = 0
+                            let lowestDepth = lowestSegments[0]
+
+                            lowestSegments.forEach((depth, index) => {
+                                if (depth < lowestDepth) {
+                                    lowestIndex = index
+                                    lowestDepth = depth
+                                }
+                            })
+
+                            cleanLayouts.push({
+                                i,
+                                x: lowestIndex,
+                                y: lowestDepth + 1,
+                                w,
+                                h,
+                            })
+
+                            for (let i = lowestIndex; i <= lowestIndex + w - 1; i++) {
+                                lowestPoints[i] = Math.max(lowestPoints[i], lowestDepth + h)
+                            }
+                        })
+
+                    allLayouts[col] = cleanLayouts
                 })
-                return layouts
+                return allLayouts
             },
         ],
     }),
@@ -171,8 +223,13 @@ export const dashboardLogic = kea({
                 return
             }
 
+            const layouts = {}
+            Object.entries(item.layouts || {}).forEach(([size, { w, h }]) => {
+                layouts[size] = { w, h }
+            })
+
             const { id: _discard, ...rest } = item
-            const newItem = dashboardId ? { ...rest, dashboard: dashboardId } : { ...rest }
+            const newItem = dashboardId ? { ...rest, dashboard: dashboardId, layouts } : { ...rest, layouts }
             const addedItem = await api.create('api/dashboard_item', newItem)
 
             const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
