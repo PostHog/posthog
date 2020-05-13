@@ -16,7 +16,6 @@
         "start": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack --config webpack.config.js --watch",
         "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-array",
         "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\"",
-        "eslint": "eslint frontend/src",
         "eslint:github-action": "eslint frontend/src"
     },
     "license": "MIT",
@@ -90,7 +89,7 @@
     },
     "lint-staged": {
         "*.{js,css,scss}": "prettier --write",
-        "*.js": "eslint frontend/src"
+        "*.js": "yarn run eslint"
     },
     "optionalDependencies": {
         "fsevents": "^2.1.2"
