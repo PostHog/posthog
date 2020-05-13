@@ -66,8 +66,6 @@ Object.entries(dashboardColorHSL).forEach(([key, [h, s, l]]) => {
 })
 
 export const getChartColors = backgroundColor => {
-    const theme = backgroundColor === 'white' ? 'light' : 'dark'
-
     if (backgroundColor === 'black') {
         const colors = []
         for (let i = 0; i < 10; i++) {
@@ -79,9 +77,9 @@ export const getChartColors = backgroundColor => {
         return colors
     }
 
-    return dashboardColorHSL[backgroundColor]
-        ? colorsForBackground(...dashboardColorHSL[backgroundColor])
-        : theme === 'dark'
-        ? darkWhites
-        : lightColors.map(color => getColorVar(color))
+    if (backgroundColor === 'white' || !backgroundColor) {
+        return lightColors.map(color => getColorVar(color))
+    }
+
+    return dashboardColorHSL[backgroundColor] ? colorsForBackground(...dashboardColorHSL[backgroundColor]) : darkWhites
 }
