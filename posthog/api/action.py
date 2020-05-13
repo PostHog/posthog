@@ -165,7 +165,6 @@ class ActionViewSet(viewsets.ModelViewSet):
             dataframe['date'] = dataframe['date'].apply(lambda x: x - pd.offsets.Week(weekday=6))
         elif interval == 'month':
             dataframe['date'] = dataframe['date'].apply(lambda x: x - pd.offsets.MonthEnd(n=1))
-        dataframe = dataframe.dropna()
         return dataframe
 
     def _group_events_to_date(self, date_from: Optional[datetime.datetime], date_to: Optional[datetime.datetime], aggregates: QuerySet, interval: str, breakdown: Optional[str]=None) -> Dict[str, Dict[datetime.datetime, int]]:
