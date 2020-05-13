@@ -56,7 +56,7 @@ class PropertyMixin:
                     person_Q,
                     team_id=OuterRef('team_id'),
                     id=OuterRef('person_id'),
-                )
+                ).only('pk')
             ))
 
         for property in [prop for prop in self.properties if prop.type == 'event']:
