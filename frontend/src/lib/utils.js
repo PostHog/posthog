@@ -221,7 +221,11 @@ export const delay = ms => new Promise(resolve => window.setTimeout(resolve, ms)
 // We need this so the dashboard resizes itself properly, as the available div width will still
 // change when the sidebar's expansion is animating.
 export const triggerResize = () => {
-    window.dispatchEvent(new Event('resize'))
+    try {
+        window.dispatchEvent(new Event('resize'))
+    } catch (error) {
+        // will break on IE11
+    }
 }
 export const triggerResizeAfterADelay = () => {
     for (const delay of [10, 100, 500, 750, 1000, 2000]) {
