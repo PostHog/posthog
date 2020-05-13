@@ -218,3 +218,15 @@ export const idToKey = (array, keyField = 'id') => {
 }
 
 export const delay = ms => new Promise(resolve => window.setTimeout(resolve, ms))
+
+// Trigger a window.reisize event a few times 0...2 sec after the menu was collapsed/expanded
+// We need this so the dashboard resizes itself properly, as the available div width will still
+// change when the sidebar's expansion is animating.
+export const triggerResize = () => {
+    window.dispatchEvent(new Event('resize'))
+}
+export const triggerResizeAfterADelay = () => {
+    for (const delay of [10, 100, 500, 750, 1000, 2000]) {
+        window.setTimeout(triggerResize, delay)
+    }
+}
