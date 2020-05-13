@@ -8,6 +8,8 @@ import { Link } from 'lib/components/Link'
 import React from 'react'
 
 export const dashboardLogic = kea({
+    connect: [dashboardsModel],
+
     key: props => props.id,
 
     actions: () => ({
@@ -173,14 +175,19 @@ export const dashboardLogic = kea({
             const newItem = dashboardId ? { ...rest, dashboard: dashboardId } : { ...rest }
             const addedItem = await api.create('api/dashboard_item', newItem)
 
+            const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
+
             if (move) {
-                const dashboard = dashboardsModel.values.rawDashboards[dashboardId]
                 const deletedItem = await api.update(`api/dashboard_item/${item.id}`, { deleted: true })
                 dashboardsModel.actions.updateDashboardItem(deletedItem)
 
                 const toastId = toast(
                     <div>
-                        Panel moved to <Link to={`/dashboard/${dashboard.id}`}>{dashboard.name}</Link>.&nbsp;
+                        Panel moved to{' '}
+                        <Link to={`/dashboard/${dashboard.id}`} onClick={() => toast.dismiss(toastId)}>
+                            {dashboard.name || 'Untitled'}
+                        </Link>
+                        .&nbsp;
                         <Link
                             onClick={async () => {
                                 toast.dismiss(toastId)
@@ -201,9 +208,9 @@ export const dashboardLogic = kea({
                 // copy
                 const toastId = toast(
                     <div>
-                        Panel added to dashboard.&nbsp;
-                        <Link to={`/dashboard/${dashboardId}`} onClick={() => toast.dismiss(toastId)}>
-                            Click here to see it.
+                        Panel copied to{' '}
+                        <Link to={`/dashboard/${dashboard.id}`} onClick={() => toast.dismiss(toastId)}>
+                            {dashboard.name || 'Untitled'}
                         </Link>
                     </div>
                 )
