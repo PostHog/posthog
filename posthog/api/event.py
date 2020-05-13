@@ -1,4 +1,4 @@
-from posthog.models import Event, Person, Element, Action, ElementGroup
+from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId
 from posthog.utils import properties_to_Q, friendly_time, request_to_date_query, append_data
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -70,13 +70,16 @@ class EventViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(timestamp__lt=request.GET['before'])
             elif key == 'person_id':
                 person = Person.objects.get(pk=request.GET['person_id'])
-                queryset = queryset.filter(distinct_id__in=person.distinct_ids)
+                queryset = queryset.filter(distinct_id__in=PersonDistinctId.objects.filter(
+                    person_id=request.GET['person_id']
+                ).values('distinct_id'))
             elif key == 'distinct_id':
                 queryset = queryset.filter(distinct_id=request.GET['distinct_id'])
             elif key == 'action_id':
                 queryset = queryset.filter_by_action(Action.objects.get(pk=value)) # type: ignore
             elif key == 'properties':
-                queryset = queryset.filter(properties_to_Q(json.loads(value)))
+                filter = Filter(data={'properties': json.loads(value)})
+                queryset = queryset.filter(filter.properties_to_Q())
         return queryset
 
     def _serialize_actions(self, event: Event) -> Dict:

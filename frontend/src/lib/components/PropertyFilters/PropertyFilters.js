@@ -4,11 +4,12 @@ import { Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { Popover, Row } from 'antd'
-import { CloseButton, formatFilterName } from '../../utils'
+import { CloseButton, formatFilterName, operatorMap } from 'lib/utils'
 
-function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, filters }) {
-    const { remove } = useActions(propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey }))
+function FilterRow({ endpoint, item, index, filters, logic }) {
+    const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
+    const { key, value, operator, type } = item
 
     let handleVisibleChange = visible => {
         if (!visible && Object.keys(item).length >= 0 && !item[Object.keys(item)[0]]) {
@@ -30,16 +31,15 @@ function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, 
                         key={index}
                         index={index}
                         endpoint={endpoint || 'event'}
-                        onChange={onChange}
                         onComplete={() => setOpen(false)}
-                        pageKey={pageKey}
+                        logic={logic}
                     />
                 }
             >
-                {Object.keys(item).length !== 0 ? (
+                {key ? (
                     <Button type="primary" shape="round" style={{ maxWidth: '85%' }}>
                         <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {formatFilterName(Object.keys(item)[0]) + item[Object.keys(item)[0]]}
+                            {key} {operatorMap[operator || 'exact'].split(' ')[0]} {value}
                         </span>
                     </Button>
                 ) : (
@@ -48,7 +48,7 @@ function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, 
                     </Button>
                 )}
             </Popover>
-            {index != filters.length - 1 && (
+            {index !== filters.length - 1 && (
                 <CloseButton
                     className="ml-1"
                     onClick={() => {
@@ -61,9 +61,9 @@ function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, 
     )
 }
 
-export function PropertyFilters(props) {
-    let { endpoint, propertyFilters, className, style, onChange, pageKey } = props
-    const { filters } = useValues(propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey }))
+export function PropertyFilters({ endpoint, propertyFilters, className, style, onChange, pageKey }) {
+    const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
+    const { filters } = useValues(logic)
 
     return (
         <div
@@ -79,7 +79,14 @@ export function PropertyFilters(props) {
                 {filters &&
                     filters.map((item, index) => {
                         return (
-                            <FilterRow key={index} {...props} item={item} index={index} filters={filters}></FilterRow>
+                            <FilterRow
+                                key={index === filters.length - 1 ? index : `${index}_${Object.keys(item)[0]}`}
+                                logic={logic}
+                                item={item}
+                                index={index}
+                                filters={filters}
+                                endpoint={endpoint}
+                            />
                         )
                     })}
             </div>

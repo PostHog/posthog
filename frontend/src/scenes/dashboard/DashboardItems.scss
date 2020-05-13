@@ -1,0 +1,171 @@
+.dashboard-item {
+    display: block;
+    background: white;
+    padding: 15px;
+    box-shadow: 0 8px 10px rgba(0, 0, 0, 0.1);
+    border-radius: 5px;
+    overflow: hidden;
+
+    .dashboard-item-container {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+    }
+
+    .dashboard-item-header {
+        height: 32px;
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 15px;
+
+        .dashboard-item-title {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            padding-right: 5px;
+            a {
+                font-size: 14px;
+                letter-spacing: 0.5px;
+                color: hsla(210, 26%, 16%, 1);
+                &:hover {
+                    text-decoration: underline;
+                }
+            }
+        }
+        .dashboard-item-settings {
+            white-space: nowrap;
+            .anticon {
+                margin-left: 10px;
+                background: hsl(210, 8%, 95%);
+                border-radius: 100%;
+                padding: 4px;
+                &:hover {
+                    background: hsl(210, 8%, 90%);
+                }
+            }
+        }
+    }
+    .dashboard-item-content {
+        overflow: hidden;
+        flex-grow: 1;
+        position: relative;
+    }
+
+    &.blue {
+        --item-background: hsl(212, 63%, 40%);
+        --item-darker: hsl(212, 63%, 35%);
+        --item-darkest: hsl(212, 63%, 30%);
+        --item-lighter: hsl(212, 63%, 60%);
+    }
+
+    &.purple {
+        --item-background: hsl(249, 46%, 51%);
+        --item-darker: hsl(249, 46%, 46%);
+        --item-darkest: hsl(249, 46%, 41%);
+        --item-lighter: hsl(249, 46%, 65%);
+    }
+
+    &.green {
+        --item-background: hsl(145, 60%, 34%);
+        --item-darker: hsl(145, 60%, 29%);
+        --item-darkest: hsl(145, 60%, 24%);
+        --item-lighter: hsl(145, 60%, 50%);
+    }
+
+    &.blue,
+    &.purple,
+    &.green {
+        color: white;
+        background: var(--item-background);
+        .dashboard-item-header .dashboard-item-title a {
+            color: white;
+        }
+        .dashboard-item-header .dashboard-item-settings .anticon {
+            background: var(--item-darker);
+            &:hover {
+                background: var(--item-darkest);
+            }
+        }
+        .svg-funnel-js__label .label__title {
+            opacity: 0.8;
+        }
+        .svg-funnel-js:not(.svg-funnel-js--vertical) .svg-funnel-js__label:not(:first-child) {
+            border-left: 1px solid rgba(255, 255, 255, 0.4);
+        }
+        .svg-funnel-js__container path {
+            fill: var(--item-lighter);
+            stroke: var(--item-lighter);
+        }
+        h1 {
+            color: rgba(255, 255, 255, 0.9);
+        }
+        table.table {
+            color: white;
+            tr td,
+            tr th {
+                border-top-color: rgba(255, 255, 255, 0.2);
+            }
+        }
+    }
+}
+
+.react-grid-layout {
+    position: relative;
+    transition: height 200ms ease;
+    margin-bottom: 50px;
+}
+.react-grid-item {
+    transition: all 200ms ease;
+    transition-property: left, top;
+}
+.react-grid-item.cssTransforms {
+    transition-property: transform;
+}
+.react-grid-item.resizing {
+    z-index: 1;
+    will-change: width, height;
+}
+
+.react-grid-item.react-draggable-dragging {
+    transition: none;
+    z-index: 3;
+    will-change: transform;
+}
+
+.react-grid-item.dropping {
+    visibility: hidden;
+}
+
+.react-grid-item.react-grid-placeholder {
+    background: red;
+    opacity: 0.2;
+    transition-duration: 100ms;
+    z-index: 2;
+    user-select: none;
+}
+
+.react-grid-item > .react-resizable-handle {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    bottom: 0;
+    right: 0;
+    cursor: se-resize;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+    content: '';
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    width: 5px;
+    height: 5px;
+    border-right: 2px solid rgba(0, 0, 0, 0.4);
+    border-bottom: 2px solid rgba(0, 0, 0, 0.4);
+}
+
+.react-resizable-hide > .react-resizable-handle {
+    display: none;
+}

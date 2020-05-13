@@ -1,6 +1,5 @@
 import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { entityFilterLogic } from './actionFilterLogic'
 import { EntityTypes } from '../trendsLogic'
 import { CloseButton } from '~/lib/utils'
 import { Dropdown } from '~/lib/components/Dropdown'
@@ -14,42 +13,41 @@ const determineFilterLabel = (visible, filter) => {
 
     if (filter.properties && Object.keys(filter.properties).length > 0) {
         return (
-            Object.keys(filter.properties).length + ' Filter' + (Object.keys(filter.properties).length == 1 ? '' : 's')
+            Object.keys(filter.properties).length + ' Filter' + (Object.keys(filter.properties).length === 1 ? '' : 's')
         )
     }
     return 'Add Filters'
 }
 
-export function ActionFilterRow({ filter, index, typeKey }) {
+export function ActionFilterRow({ logic, filter, index }) {
     const node = useRef()
-    const { selectedFilter, entities } = useValues(entityFilterLogic({ typeKey }))
-    const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty } = useActions(
-        entityFilterLogic({ typeKey })
-    )
+    const { selectedFilter, entities } = useValues(logic)
+    const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty } = useActions(logic)
     const { eventProperties } = useValues(userLogic)
     const [entityFilterVisible, setEntityFilterVisible] = useState(false)
 
-    let entity, dropDownCondition, onClick, onClose, onMathSelect, name, value, math
-    math = filter.math
-    onClose = () => {
+    let entity, name, value
+    let math = filter.math
+    const onClose = () => {
         removeLocalFilter({ value: filter.id, type: filter.type, index })
     }
-    onMathSelect = (_, math) => {
+    const onMathSelect = (_, math) => {
         updateFilterMath({ math, value: filter.id, type: filter.type, index: index })
     }
 
-    dropDownCondition = () => selectedFilter && selectedFilter.type == filter.type && selectedFilter.index == index
+    const dropDownCondition = () =>
+        selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index
 
-    onClick = () => {
-        if (selectedFilter && selectedFilter.type == filter.type && selectedFilter.index == index) selectFilter(null)
+    const onClick = () => {
+        if (selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index) selectFilter(null)
         else selectFilter({ filter, type: filter.type, index })
     }
 
-    if (filter.type == EntityTypes.NEW) {
+    if (filter.type === EntityTypes.NEW_ENTITY) {
         name = null
         value = null
     } else {
-        entity = entities[filter.type].filter(action => action.id == filter.id)[0] || {}
+        entity = entities[filter.type].filter(action => action.id === filter.id)[0] || {}
         name = entity.name || filter.name
         value = entity.id || filter.id
     }
@@ -60,7 +58,6 @@ export function ActionFilterRow({ filter, index, typeKey }) {
                 className="filter-action"
                 type="button"
                 onClick={onClick}
-                type="button"
                 style={{
                     border: 0,
                     padding: 0,
@@ -96,14 +93,14 @@ export function ActionFilterRow({ filter, index, typeKey }) {
             )}
             {dropDownCondition() && (
                 <ActionFilterDropdown
-                    typeKey={typeKey}
+                    logic={logic}
                     onClickOutside={e => {
                         if (node.current.contains(e.target)) {
                             return
                         }
                         selectFilter(null)
                     }}
-                ></ActionFilterDropdown>
+                />
             )}
         </div>
     )

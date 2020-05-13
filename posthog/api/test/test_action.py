@@ -2,7 +2,7 @@ from json import dumps as jdumps
 
 from freezegun import freeze_time
 
-from posthog.models import Action, ActionStep, Element, Event, Person, Team
+from posthog.models import Action, ActionStep, Element, Event, Person, Team, Cohort
 from .base import BaseTest
 
 
@@ -133,7 +133,7 @@ class TestTrends(BaseTest):
         sign_up_action = Action.objects.create(team=self.team, name='sign up')
         ActionStep.objects.create(action=sign_up_action, event='sign up')
 
-        person = Person.objects.create(team=self.team, distinct_ids=['blabla'])
+        person = Person.objects.create(team=self.team, distinct_ids=['blabla', 'anonymous_id'])
         secondTeam = Team.objects.create(api_token='token123')
 
         freeze_without_time = ['2019-12-24', '2020-01-01', '2020-01-02']
@@ -148,7 +148,7 @@ class TestTrends(BaseTest):
 
         with freeze_time(freeze_args[1]):
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"$some_property": "value"})
-            Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
+            Event.objects.create(team=self.team, event='sign up', distinct_id='anonymous_id')
             Event.objects.create(team=self.team, event='sign up', distinct_id='blabla')
         with freeze_time(freeze_args[2]):
             Event.objects.create(
@@ -369,6 +369,7 @@ class TestTrends(BaseTest):
     def test_dau_filtering(self):
         sign_up_action, person = self._create_events()
         with freeze_time('2020-01-02'):
+            Person.objects.create(team=self.team, distinct_ids=['someone_else'])
             Event.objects.create(team=self.team, event='sign up', distinct_id='someone_else')
         with freeze_time('2020-01-04'):
             action_response = self.client.get(
@@ -608,23 +609,27 @@ class TestTrends(BaseTest):
             remove=[],
         ))
 
-    def test_stickiness(self):
-        person1 = Person.objects.create(team=self.team, distinct_ids=['person1'])
+    def _create_multiple_people(self):
+        person1 = Person.objects.create(team=self.team, distinct_ids=['person1'], properties={'name': 'person1'})
         Event.objects.create(team=self.team, event='watched movie', distinct_id='person1', timestamp='2020-01-01T12:00:00Z')
 
-        Person.objects.create(team=self.team, distinct_ids=['person2'])
+        person2 = Person.objects.create(team=self.team, distinct_ids=['person2'], properties={'name': 'person2'})
         Event.objects.create(team=self.team, event='watched movie', distinct_id='person2', timestamp='2020-01-01T12:00:00Z')
         Event.objects.create(team=self.team, event='watched movie', distinct_id='person2', timestamp='2020-01-02T12:00:00Z')
         # same day
         Event.objects.create(team=self.team, event='watched movie', distinct_id='person2', timestamp='2020-01-02T12:00:00Z')
 
-        Person.objects.create(team=self.team, distinct_ids=['person3'])
+        person3 = Person.objects.create(team=self.team, distinct_ids=['person3'], properties={'name': 'person3'})
         Event.objects.create(team=self.team, event='watched movie', distinct_id='person3', timestamp='2020-01-01T12:00:00Z')
         Event.objects.create(team=self.team, event='watched movie', distinct_id='person3', timestamp='2020-01-02T12:00:00Z')
         Event.objects.create(team=self.team, event='watched movie', distinct_id='person3', timestamp='2020-01-03T12:00:00Z')
 
-        Person.objects.create(team=self.team, distinct_ids=['person4'])
+        person4 =Person.objects.create(team=self.team, distinct_ids=['person4'], properties={'name': 'person4'})
         Event.objects.create(team=self.team, event='watched movie', distinct_id='person4', timestamp='2020-01-05T12:00:00Z')
+        return (person1, person2, person3, person4)
+
+    def test_stickiness(self):
+        person1 = self._create_multiple_people()[0]
 
         watched_movie = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=watched_movie, event='watched movie')
@@ -697,3 +702,79 @@ class TestTrends(BaseTest):
             },
         ).json()
         self.assertEqual(len(response[0]['data']), 7)
+
+    def test_breakdown_by_cohort(self):
+        person1, person2, person3, person4 = self._create_multiple_people() 
+        cohort = Cohort.objects.create(name='cohort1', team=self.team, groups=[
+           {'properties': {'name': 'person1'}} 
+        ])
+        cohort2 = Cohort.objects.create(name='cohort2', team=self.team, groups=[
+           {'properties': {'name': 'person2'}} 
+        ])
+        cohort3 = Cohort.objects.create(name='cohort3', team=self.team, groups=[
+            {'properties': {'name': 'person1'}},
+            {'properties': {'name': 'person2'}},
+        ])
+        cohort.calculate_people()
+        cohort2.calculate_people()
+        cohort3.calculate_people()
+        action = Action.objects.create(name='watched movie', team=self.team)
+        ActionStep.objects.create(action=action, event='watched movie')
+        action.calculate_events()
+
+        with freeze_time('2020-01-04T13:01:01Z'):
+            event_response = self.client.get('/api/action/trends/?date_from=-14d&breakdown=%s&breakdown_type=cohort&events=%s' % (jdumps([cohort.pk, cohort2.pk, cohort3.pk, 'all']), jdumps([{'id': "watched movie", "name": "watched movie", "type": "events", "order": 0}]))).json()
+            action_response = self.client.get('/api/action/trends/?date_from=-14d&breakdown=%s&breakdown_type=cohort&actions=%s' % (jdumps([cohort.pk, cohort2.pk, cohort3.pk, 'all']), jdumps([{'id': action.pk, "type": "actions", "order": 0}]))).json()
+
+        self.assertEqual(event_response[0]['label'], 'watched movie - cohort1')
+        self.assertEqual(event_response[1]['label'], 'watched movie - cohort2')
+        self.assertEqual(event_response[2]['label'], 'watched movie - cohort3')
+        self.assertEqual(event_response[3]['label'], 'watched movie - all users')
+
+        self.assertEqual(sum(event_response[0]['data']), 1)
+        self.assertEqual(event_response[0]['breakdown_value'], cohort.pk)
+
+        self.assertEqual(sum(event_response[1]['data']), 3)
+        self.assertEqual(event_response[1]['breakdown_value'], cohort2.pk)
+
+        self.assertEqual(sum(event_response[2]['data']), 4)
+        self.assertEqual(event_response[2]['breakdown_value'], cohort3.pk)
+
+        self.assertEqual(sum(event_response[3]['data']), 7)
+        self.assertEqual(event_response[3]['breakdown_value'], 'all')
+
+        self.assertTrue(self._compare_entity_response(
+            event_response,
+            action_response,
+        ))
+
+        people = self.client.get(
+            '/api/action/people/',
+            data={
+                'date_from': '2020-01-01',
+                'date_to': '2020-01-07',
+                'type': 'events',
+                'entityId': 'watched movie',
+                'breakdown_type': 'cohort',
+                'breakdown_value': cohort.pk,
+                'breakdown': [cohort.pk] # this shouldn't do anything
+            },
+        ).json()
+        self.assertEqual(len(people[0]['people']), 1)
+        self.assertEqual(people[0]['people'][0]['id'], person1.pk)
+
+        # all people
+        people = self.client.get(
+            '/api/action/people/',
+            data={
+                'date_from': '2020-01-01',
+                'date_to': '2020-01-07',
+                'type': 'events',
+                'entityId': 'watched movie',
+                'breakdown_type': 'cohort',
+                'breakdown_value': 'all',
+                'breakdown': [cohort.pk]
+            },
+        ).json()
+        self.assertEqual(len(people[0]['people']), 4)
+        self.assertEqual(people[0]['people'][0]['id'], person1.pk)
