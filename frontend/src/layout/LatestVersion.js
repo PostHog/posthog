@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useValues } from 'kea'
 import api from './../lib/api'
+import { Button } from 'antd'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { userLogic } from 'scenes/userLogic'
 
@@ -20,24 +21,14 @@ export function LatestVersion() {
             {latestVersion ? (
                 <span style={{ marginRight: 32 }}>
                     {latestVersion === user.posthog_version && (
-                        <a
-                            href="#"
-                            onClick={() => setChangelogOpen(true)}
-                            className="text-success"
-                            style={{ marginRight: 16 }}
-                        >
+                        <Button onClick={() => setChangelogOpen(true)} type="link" style={{ color: 'var(--green)' }}>
                             PostHog up-to-date
-                        </a>
+                        </Button>
                     )}
                     {latestVersion !== user.posthog_version && (
-                        <a
-                            href="#"
-                            onClick={() => setChangelogOpen(true)}
-                            className="text-danger"
-                            style={{ marginRight: 16 }}
-                        >
+                        <Button type="link" onClick={() => setChangelogOpen(true)} style={{ color: 'var(--red)' }}>
                             New version available
-                        </a>
+                        </Button>
                     )}
                 </span>
             ) : null}
