@@ -43,6 +43,7 @@
         "react-dnd": "^10.0.2",
         "react-dom": ">= 16.8",
         "react-draggable": "^4.2.0",
+        "react-grid-layout": "^0.18.3",
         "react-redux": "^7.2.0",
         "react-select": "^3.0.8",
         "react-shadow": "^17.4.0",
