@@ -634,24 +634,24 @@ class TestTrends(BaseTest):
         watched_movie = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=watched_movie, event='watched movie')
         watched_movie.calculate_events()
-        action_response = self.client.get(
-            '/api/action/trends/',
-            data={
-                'shown_as': 'Stickiness',
-                'date_from': '2020-01-01',
-                'date_to': '2020-01-07',
-                'actions': jdumps([{'id': watched_movie.id}]),
-            },
-        ).json()
-        event_response = self.client.get(
-            '/api/action/trends/',
-            data={
-                'shown_as': 'Stickiness',
-                'date_from': '2020-01-01',
-                'date_to': '2020-01-07',
-                'events': jdumps([{'id': "watched movie"}]),
-            },
-        ).json()
+
+        with freeze_time('2020-01-08T13:01:01Z'):
+            action_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'shown_as': 'Stickiness',
+                    'actions': jdumps([{'id': watched_movie.id}]),
+                },
+            ).json()
+            event_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'shown_as': 'Stickiness',
+                    'date_from': '2020-01-01',
+                    'date_to': '2020-01-08',
+                    'events': jdumps([{'id': "watched movie"}]),
+                },
+            ).json()
         self.assertEqual(action_response[0]['count'], 4)
         self.assertEqual(action_response[0]['labels'][0], '1 day')
         self.assertEqual(action_response[0]['data'][0], 2)
@@ -698,9 +698,10 @@ class TestTrends(BaseTest):
                 'shown_as': 'Stickiness',
                 'date_from': 'all',
                 'date_to': '2020-01-07',
-                'actions': jdumps([{'id': watched_movie.id}]),
+                'events': jdumps([{'id': 'watched_movie'}]),
             },
         ).json()
+
         self.assertEqual(len(response[0]['data']), 7)
 
     def test_breakdown_by_cohort(self):

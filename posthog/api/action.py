@@ -167,7 +167,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             dataframe['date'] = dataframe['date'].apply(lambda x: x - pd.offsets.MonthEnd(n=1))
         return dataframe
 
-    def _group_events_to_date(self, date_from: datetime.datetime, date_to: datetime.datetime, aggregates: QuerySet, interval: str, breakdown: Optional[str]=None) -> Dict[str, Dict[datetime.datetime, int]]:
+    def _group_events_to_date(self, date_from: Optional[datetime.datetime], date_to: Optional[datetime.datetime], aggregates: QuerySet, interval: str, breakdown: Optional[str]=None) -> Dict[str, Dict[datetime.datetime, int]]:
         response = {}
 
         time_index = pd.date_range(date_from, date_to, freq=FREQ_MAP[interval])
@@ -278,7 +278,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         dates_filled = self._group_events_to_date(
             date_from=filter.date_from,
-            date_to=filter.date_to if filter.date_to else now(),
+            date_to=filter.date_to,
             aggregates=aggregates,
             interval=interval,
             breakdown=breakdown
@@ -420,6 +420,8 @@ class ActionViewSet(viewsets.ModelViewSet):
                 .timestamp\
                 .replace(hour=0, minute=0, second=0, microsecond=0)\
                 .isoformat()
+        if not filter.date_to:
+            filter._date_to = now().isoformat()
 
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
