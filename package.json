@@ -90,7 +90,7 @@
     },
     "lint-staged": {
         "*.{js,css,scss}": "prettier --write",
-        "*.js": "yarn run eslint"
+        "*.js": "eslint"
     },
     "optionalDependencies": {
         "fsevents": "^2.1.2"
