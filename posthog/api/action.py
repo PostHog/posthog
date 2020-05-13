@@ -466,6 +466,8 @@ class ActionViewSet(viewsets.ModelViewSet):
             people = Person.objects\
                 .filter(team=team, id__in=[p['person_id'] for p in events[0:100]])
 
+            people = people.prefetch_related(Prefetch('persondistinctid_set', to_attr='distinct_ids_cache'))
+
             return self._serialize_people(
                 people=people,
                 request=request
