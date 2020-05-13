@@ -53,6 +53,8 @@
         position: relative;
     }
 
+    // sync this with lib/colors.js
+
     &.blue {
         --item-background: hsl(212, 63%, 40%);
         --item-darker: hsl(212, 63%, 35%);
@@ -74,9 +76,17 @@
         --item-lighter: hsl(145, 60%, 50%);
     }
 
+    &.black {
+        --item-background: hsl(0, 0%, 14%);
+        --item-darker: hsl(0, 0%, 9%);
+        --item-darkest: hsl(0, 0%, 4%);
+        --item-lighter: hsl(0, 0%, 40%);
+    }
+
     &.blue,
     &.purple,
-    &.green {
+    &.green,
+    &.black {
         color: white;
         background: var(--item-background);
         .dashboard-item-header .dashboard-item-title a {

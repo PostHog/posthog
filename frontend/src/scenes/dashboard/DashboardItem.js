@@ -17,6 +17,7 @@ import {
     FunnelPlotOutlined,
     BgColorsOutlined,
 } from '@ant-design/icons'
+import { dashboardColorNames, dashboardColors } from 'lib/colors'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -45,20 +46,6 @@ const typeMap = {
     },
 }
 
-const allColors = {
-    white: 'White',
-    blue: 'Blue',
-    green: 'Green',
-    purple: 'Purple',
-}
-
-const allColorStyles = {
-    white: 'white',
-    blue: 'hsl(212, 63%, 40%)',
-    purple: 'hsla(249, 46%, 51%, 1)',
-    green: 'hsla(145, 60%, 34%, 1)',
-}
-
 export default function DashboardItem({ item, updateItemColor, loadDashboardItems, renameDashboardItem }) {
     const Element = typeMap[item.type].element
     const Icon = typeMap[item.type].icon
@@ -84,11 +71,11 @@ export default function DashboardItem({ item, updateItemColor, loadDashboardItem
                                     {viewText}
                                 </Menu.Item>
                                 <Menu.SubMenu key="colors" icon={<BgColorsOutlined />} title="Set Color">
-                                    {Object.entries(allColors).map(([className, color]) => (
+                                    {Object.entries(dashboardColorNames).map(([className, color]) => (
                                         <Menu.Item key={className} onClick={() => updateItemColor(item.id, className)}>
                                             <span
                                                 style={{
-                                                    background: allColorStyles[className],
+                                                    background: dashboardColors[className],
                                                     border: '1px solid #eee',
                                                     display: 'inline-block',
                                                     width: 13,
