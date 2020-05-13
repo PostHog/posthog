@@ -57,6 +57,9 @@
         flex-grow: 1;
         position: relative;
     }
+    .dashboard-item-container.table .dashboard-item-content {
+        overflow: auto;
+    }
 
     // sync this with lib/colors.js
 

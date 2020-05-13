@@ -21,24 +21,28 @@ import { dashboardColorNames, dashboardColors } from 'lib/colors'
 
 const typeMap = {
     ActionsLineGraph: {
+        className: 'graph',
         element: ActionsLineGraph,
         icon: LineChartOutlined,
         viewText: 'View graph',
         link: filters => combineUrl('/trends', filters).url,
     },
     ActionsTable: {
+        className: 'table',
         element: ActionsTable,
         icon: TableOutlined,
         viewText: 'View table',
         link: filters => combineUrl('/trends', filters).url,
     },
     ActionsPie: {
+        className: 'pie',
         element: ActionsPie,
         icon: PieChartOutlined,
         viewText: 'View graph',
         link: filters => combineUrl('/trends', filters).url,
     },
     FunnelViz: {
+        className: 'funnel',
         element: FunnelViz,
         icon: FunnelPlotOutlined,
         viewText: 'View funnel',
@@ -53,6 +57,7 @@ export default function DashboardItem({
     renameDashboardItem,
     isDraggingRef,
 }) {
+    const className = typeMap[item.type].className
     const Element = typeMap[item.type].element
     const Icon = typeMap[item.type].icon
     const viewText = typeMap[item.type].viewText
@@ -60,7 +65,7 @@ export default function DashboardItem({
     const color = item.color || 'white'
 
     return (
-        <div className="dashboard-item-container">
+        <div className={`dashboard-item-container ${className}`}>
             <div className="dashboard-item-header">
                 <div className="dashboard-item-title">
                     <Link
