@@ -64,6 +64,7 @@ export default function DashboardItem({
             <div className="dashboard-item-header">
                 <div className="dashboard-item-title">
                     <Link
+                        draggable={false}
                         to={link}
                         title={item.name}
                         preventClick

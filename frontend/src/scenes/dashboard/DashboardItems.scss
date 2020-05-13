@@ -5,6 +5,7 @@
     box-shadow: 0 8px 10px rgba(0, 0, 0, 0.1);
     border-radius: 5px;
     overflow: hidden;
+    z-index: 3;
 
     &.react-draggable-dragging {
         box-shadow: 0 8px 10px rgba(0, 0, 0, 0.4), 0 20px 20px rgba(0, 0, 0, 0.4);
