@@ -52,7 +52,7 @@ class EventViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
 
         team = self.request.user.team_set.get()
-        queryset = queryset.add_person_id(team.pk)
+        queryset = queryset.add_person_id(team.pk) # type: ignore
 
         if self.action == 'list' or self.action == 'sessions': # type: ignore
             queryset = self._filter_request(self.request, queryset)
