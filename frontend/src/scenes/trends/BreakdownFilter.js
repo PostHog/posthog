@@ -1,5 +1,4 @@
 import React, { useState } from 'react'
-import { selectStyle } from '../../lib/utils'
 import { Select, Tabs, Popover, Button } from 'antd'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
@@ -17,7 +16,6 @@ function PropertyFilter({ breakdown, onChange }) {
             placeholder={'Break down by'}
             value={breakdown ? breakdown : undefined}
             onChange={(_, { value }) => onChange(value)}
-            styles={selectStyle}
             filterOption={(input, option) => option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0}
         >
             {Object.entries(eventProperties).map(([key, item]) => {
@@ -44,7 +42,6 @@ function CohortFilter({ breakdown, onChange }) {
             onChange={value => {
                 onChange(value.length > 0 ? value : null, 'cohort')
             }}
-            styles={selectStyle}
             filterOption={(input, option) => option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0}
         >
             <Select.Option value={'all'} type="cohort" label={'all users'}>
