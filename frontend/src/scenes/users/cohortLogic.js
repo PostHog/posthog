@@ -27,7 +27,7 @@ export const cohortLogic = kea({
         },
     }),
 
-    reducers: ({ props, values }) => ({
+    reducers: () => ({
         pollTimeout: [
             null,
             {

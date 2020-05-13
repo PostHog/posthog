@@ -22,6 +22,7 @@ import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import whiteLogo from './_assets/white-logo.svg'
+import { triggerResizeAfterADelay } from 'lib/utils'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -64,7 +65,6 @@ export default function Sidebar(props) {
     let activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
     const openSubmenu = submenuOverride[activeScene] || activeScene
 
-    let firstDashboard = pinnedDashboards.length > 0 ? `/dashboard/${pinnedDashboards[0].id}` : '/dashboard'
     let unpinnedDashboard = null
     if (activeScene === 'dashboard') {
         const dashboardId = parseInt(location.pathname.split('/dashboard/')[1])
@@ -77,7 +77,7 @@ export default function Sidebar(props) {
     }
 
     return (
-        <Layout.Sider breakpoint="lg" collapsedWidth="0" className="bg-dark">
+        <Layout.Sider breakpoint="lg" collapsedWidth="0" className="bg-dark" onCollapse={triggerResizeAfterADelay}>
             <Menu
                 className="h-100 bg-dark"
                 theme="dark"

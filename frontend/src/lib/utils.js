@@ -17,7 +17,7 @@ export let toParams = obj => {
         return encodeURIComponent(val)
     }
     return Object.entries(obj)
-        .filter(([key, val]) => val)
+        .filter(item => item[1])
         .map(([key, val]) => `${key}=${handleVal(val)}`)
         .join('&')
 }
@@ -80,7 +80,7 @@ export function Card(props) {
     )
 }
 
-export const deleteWithUndo = ({ undo, ...props }) => {
+export const deleteWithUndo = ({ undo = false, ...props }) => {
     api.update('api/' + props.endpoint + '/' + props.object.id, {
         ...props.object,
         deleted: !undo,
@@ -110,13 +110,14 @@ export const deleteWithUndo = ({ undo, ...props }) => {
     })
 }
 
-export const DeleteWithUndo = ({ className, style, children }) => {
+export const DeleteWithUndo = props => {
+    const { className, style, children } = props
     return (
         <a
             href="#"
             onClick={e => {
                 e.preventDefault()
-                deleteWithUndo()
+                deleteWithUndo(props)
             }}
             className={className}
             style={style}
@@ -192,8 +193,6 @@ export const operatorMap = {
     lt: '< lower than',
 }
 
-const operatorEntries = Object.entries(operatorMap).reverse()
-
 export const formatProperty = property => {
     return property.key + ` ${operatorMap[property.operator || 'exact'].split(' ')[0]} ` + property.value
 }
@@ -217,3 +216,15 @@ export const idToKey = (array, keyField = 'id') => {
 }
 
 export const delay = ms => new Promise(resolve => window.setTimeout(resolve, ms))
+
+// Trigger a window.reisize event a few times 0...2 sec after the menu was collapsed/expanded
+// We need this so the dashboard resizes itself properly, as the available div width will still
+// change when the sidebar's expansion is animating.
+export const triggerResize = () => {
+    window.dispatchEvent(new Event('resize'))
+}
+export const triggerResizeAfterADelay = () => {
+    for (const delay of [10, 100, 500, 750, 1000, 2000]) {
+        window.setTimeout(triggerResize, delay)
+    }
+}

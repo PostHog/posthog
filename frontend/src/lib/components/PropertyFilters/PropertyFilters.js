@@ -4,12 +4,12 @@ import { Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { Popover, Row } from 'antd'
-import { CloseButton, formatFilterName, operatorMap } from 'lib/utils'
+import { CloseButton, operatorMap } from 'lib/utils'
 
 function FilterRow({ endpoint, item, index, filters, logic }) {
     const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
-    const { key, value, operator, type } = item
+    const { key, value, operator } = item
 
     let handleVisibleChange = visible => {
         if (!visible && Object.keys(item).length >= 0 && !item[Object.keys(item)[0]]) {

@@ -50,14 +50,14 @@ export class PropertyValue extends Component {
                         this.select = ref
                     }}
                     // This is a series of hacks to make the text editable
-                    inputValue={isEditing ? this.state.input : ''}
+                    inputValue={isEditing ? input : ''}
                     onFocus={() => this.setState({ isEditing: true })}
                     onInputChange={(input, actionMeta) => {
                         if (actionMeta.action === 'input-change') {
                             this.setState({ input })
                             return input
                         }
-                        return this.state.input
+                        return input
                     }}
                 />
             </span>

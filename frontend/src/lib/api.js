@@ -15,7 +15,7 @@ function getCookie(name) {
 }
 
 class Api {
-    get(url, error) {
+    get(url) {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') == -1 && url[url.length - 1] != '/' ? '/' : '')
         }
@@ -68,7 +68,7 @@ class Api {
             return response.json()
         })
     }
-    delete(url, error) {
+    delete(url) {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') == -1 && url[url.length - 1] != '/' ? '/' : '')
         }

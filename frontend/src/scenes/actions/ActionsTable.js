@@ -41,7 +41,11 @@ export class ActionsTable extends Component {
                         Funnels, Live actions and Trends.
                         <br />
                         <br />
-                        <a href="https://github.com/PostHog/posthog/wiki/Actions" target="_blank">
+                        <a
+                            href="https://github.com/PostHog/posthog/wiki/Actions"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
                             See documentation
                         </a>
                     </i>

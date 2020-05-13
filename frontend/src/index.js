@@ -13,7 +13,7 @@ resetContext({
     plugins: [
         routerPlugin,
         loadersPlugin({
-            onFailure({ error, reducerKey, actionKey, logic }) {
+            onFailure({ error, reducerKey, actionKey }) {
                 toast.error(
                     <div>
                         <h1>Error loading "{reducerKey}".</h1>

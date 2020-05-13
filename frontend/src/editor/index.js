@@ -82,10 +82,7 @@ class App extends Component {
             this.state.actions = [{ id: props.actionId }]
             this.state.openActionId = props.actionId
         } else {
-            if (
-                this.state.actions.filter(action => action.id === false)
-                    .length == 0
-            )
+            if (this.state.actions.filter(action => action.id === false).length == 0)
                 this.state.actions.push({ id: false })
         }
         this.onActionSave = this.onActionSave.bind(this)
@@ -113,22 +110,12 @@ class App extends Component {
         let { actions, openActionId } = this.state
         return (
             <root.div>
-                <link
-                    href={this.props.apiURL + 'static/main.css'}
-                    rel="stylesheet"
-                    crossorigin="anonymous"
-                />
+                <link href={this.props.apiURL + 'static/main.css'} rel="stylesheet" crossOrigin="anonymous" />
                 <style>{styles}</style>
                 <Draggable handle=".drag-bar">
                     <div className="box">
                         <div className="drag-bar">
-                            <img
-                                className="logo"
-                                src={
-                                    this.props.apiURL +
-                                    'static/posthog-logo.png'
-                                }
-                            />
+                            <img className="logo" src={this.props.apiURL + 'static/posthog-logo.png'} />
                             <h3>PostHog</h3>
                             <br />
                         </div>
@@ -154,15 +141,11 @@ class App extends Component {
                                     </div>
                                     <ActionEdit
                                         apiURL={this.props.apiURL}
-                                        temporaryToken={
-                                            this.props.temporaryToken
-                                        }
+                                        temporaryToken={this.props.temporaryToken}
                                         actionId={action.id}
                                         simmer={window.simmer}
                                         onSave={this.onActionSave}
-                                        showNewActionButton={
-                                            index == actions.length - 1
-                                        }
+                                        showNewActionButton={index == actions.length - 1}
                                         isEditor={true}
                                     />
                                 </div>
