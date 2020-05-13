@@ -21,7 +21,7 @@ export function PropertyFilter({ index, endpoint, onComplete, logic }) {
                     onChange={(_, new_key) => setFilter(index, new_key.value, undefined, operator, new_key.type)}
                     style={{ width: '100%' }}
                 >
-                    {eventProperties && (
+                    {eventProperties.length > 0 && (
                         <Select.OptGroup key="Event properties" lable="Event properties">
                             {eventProperties.map(item => (
                                 <Select.Option key={item.value} value={item.value} type="event">
