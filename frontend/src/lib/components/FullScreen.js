@@ -1,5 +1,4 @@
-/* global window */
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 
 export function FullScreen({ onExit }) {
     const selector = 'aside.ant-layout-sider, .layout-top-content'
