@@ -14,17 +14,30 @@ export function Funnels() {
             title: 'Funnel Name',
             dataIndex: 'name',
             key: 'name',
-            render: (_, funnel) => <Link to={`/funnel/${funnel.id}`}>{funnel.name}</Link>,
+            render: function RenderName(_, funnel) {
+                return <Link to={`/funnel/${funnel.id}`}>{funnel.name}</Link>
+            },
         },
         {
             title: 'Actions',
-            render: funnel => (
-                <span>
-                    <DeleteWithUndo endpoint="funnel" object={funnel} className="text-danger" callback={loadFunnels}>
-                        <i className="fi flaticon-basket" />
-                    </DeleteWithUndo>
-                </span>
-            ),
+            render: function RenderActions(_, funnel) {
+                return (
+                    <span>
+                        <Link to={`/funnel/${funnel.id}`}>
+                            <i className="fi flaticon-edit" />
+                        </Link>
+                        <DeleteWithUndo
+                            endpoint="funnel"
+                            object={funnel}
+                            className="text-danger"
+                            style={{ marginLeft: 8 }}
+                            callback={loadFunnels}
+                        >
+                            <i className="fi flaticon-basket" />
+                        </DeleteWithUndo>
+                    </span>
+                )
+            },
         },
     ]
     return (
@@ -34,7 +47,7 @@ export function Funnels() {
                 <i>
                     If you need your users to carry out a series of actions in a row, funnels are a way of working out
                     where users are dropping off.{' '}
-                    <a href="https://github.com/PostHog/posthog/wiki/Funnels" target="_blank">
+                    <a href="https://github.com/PostHog/posthog/wiki/Funnels" target="_blank" rel="noopener noreferrer">
                         See documentation
                     </a>
                 </i>
