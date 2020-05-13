@@ -32,8 +32,8 @@ export const propertyFilterLogic = kea({
     }),
 
     loaders: () => ({
-        properties: {
-            loadPeopleProperties: async () => {
+        personProperties: {
+            loadPersonProperties: async () => {
                 return (await api.get('api/person/properties')).map(property => ({
                     label: property.name,
                     value: property.name,
@@ -43,10 +43,9 @@ export const propertyFilterLogic = kea({
     }),
 
     reducers: ({ actions, props }) => ({
-        properties: [
+        eventProperties: [
             [],
             {
-                [actions.loadPeoplePropertiesSuccess]: (_, { properties }) => properties,
                 [actions.setProperties]: (_, { properties }) => properties,
             },
         ],
@@ -129,9 +128,8 @@ export const propertyFilterLogic = kea({
     events: ({ actions, props }) => ({
         afterMount: () => {
             actions.newFilter()
-            if (props.endpoint === 'person') {
-                actions.loadPeopleProperties()
-            } else {
+            actions.loadPersonProperties()
+            if (props.endpoint !== 'person') {
                 actions.setProperties(userLogic.values.eventProperties)
             }
         },

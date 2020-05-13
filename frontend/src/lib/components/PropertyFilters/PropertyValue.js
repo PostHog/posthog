@@ -1,66 +1,56 @@
 import React, { Component } from 'react'
 import api from '../../api'
-import AsyncCreatableSelect from 'react-select/async-creatable/dist/react-select.esm'
-import { selectStyle, debounce } from '../../utils'
+import { Select } from 'antd'
+import { debounce } from '../../utils'
 import PropTypes from 'prop-types'
 
 export class PropertyValue extends Component {
     constructor(props) {
         super(props)
-        this.state = { input: props.value }
+        this.state = {
+            input: '',
+            optionsCache: [],
+            options: [],
+        }
         this.loadPropertyValues = debounce(this.loadPropertyValues.bind(this), 250)
-        this.ref = React.createRef()
+        this.loadPropertyValues('')
     }
-    loadPropertyValues(value, callback) {
+    loadPropertyValues(value) {
         let key = this.props.propertyKey.split('__')[0]
+        this.setState({ optionsCache: { ...this.state.optionsCache, [value]: true } })
         api.get('api/' + this.props.endpoint + '/values/?key=' + key + (value ? '&value=' + value : '')).then(
             propValues =>
-                callback(
-                    propValues.map(property => ({
-                        label: property.name ? property.name : '(empty)',
-                        value: property.name,
-                    }))
-                )
+                this.setState({
+                    options: [...new Set([...this.state.options, ...propValues.map(option => option.name)])],
+                })
         )
     }
     render() {
-        let { propertyKey, onSet, value } = this.props
-        let { isEditing, input } = this.state
+        let { onSet, value } = this.props
+        let { input, optionsCache, options } = this.state
+        options = options.filter(option => input === '' || option.toLowerCase().indexOf(input.toLowerCase()) > -1)
         return (
-            <span ref={this.ref} className="property-value">
-                <AsyncCreatableSelect
-                    loadOptions={this.loadPropertyValues}
-                    defaultOptions={true}
-                    cacheOptions
-                    formatCreateLabel={inputValue => 'Specify: ' + inputValue}
-                    allowCreateWhileLoading={true}
-                    createOptionPosition="first"
-                    key={propertyKey} // forces a reload of the component when the property changes
-                    placeholder="Property value"
-                    style={{ width: 200 }}
-                    value={{ label: value, value: value }}
-                    onChange={out => {
-                        onSet(propertyKey, out.value)
-                        this.setState({ input: out.value })
-                        this.select.blur()
-                    }}
-                    autoFocus={!value}
-                    styles={selectStyle}
-                    ref={ref => {
-                        this.select = ref
-                    }}
-                    // This is a series of hacks to make the text editable
-                    inputValue={isEditing ? input : ''}
-                    onFocus={() => this.setState({ isEditing: true })}
-                    onInputChange={(input, actionMeta) => {
-                        if (actionMeta.action === 'input-change') {
-                            this.setState({ input })
-                            return input
-                        }
-                        return input
-                    }}
-                />
-            </span>
+            <Select
+                showSearch
+                autoFocus={!value}
+                style={{ width: '100%' }}
+                onChange={(_, { value }) => onSet(value)}
+                onSearch={input => {
+                    this.setState({ input })
+                    if (!optionsCache[input]) this.loadPropertyValues(input)
+                }}
+            >
+                {input && (
+                    <Select.Option key={input} value={input}>
+                        Specify: {input}
+                    </Select.Option>
+                )}
+                {options.map(option => (
+                    <Select.Option key={option} value={option}>
+                        {option}
+                    </Select.Option>
+                ))}
+            </Select>
         )
     }
 }
