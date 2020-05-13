@@ -54,7 +54,6 @@ class PropertyMixin:
             filters &= Q(Exists(
                 Person.objects.filter(
                     person_Q,
-                    team_id=OuterRef('team_id'),
                     id=OuterRef('person_id'),
                 ).only('pk')
             ))
