@@ -3,7 +3,7 @@ import 'react-datepicker/dist/react-datepicker.css'
 
 import React from 'react'
 import { useValues } from 'kea'
-import { Layout, Spin } from 'antd'
+import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
 import Sidebar from '~/layout/Sidebar'

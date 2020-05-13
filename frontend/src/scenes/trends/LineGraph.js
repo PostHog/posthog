@@ -38,7 +38,7 @@ export class LineGraph extends Component {
 
     buildChart = () => {
         const myChartRef = this.chartRef.current.getContext('2d')
-        let { datasets, labels, options } = this.props
+        let { datasets, labels } = this.props
 
         const axisLabelColor = this.props.color === 'white' ? '#333' : 'rgba(255,255,255,0.8)'
         const axisLineColor = this.props.color === 'white' ? '#ddd' : 'rgba(255,255,255,0.2)'

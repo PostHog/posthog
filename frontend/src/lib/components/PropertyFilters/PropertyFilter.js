@@ -11,7 +11,7 @@ const operatorOptions = Object.entries(operatorMap).map(([key, value]) => ({
 
 export function PropertyFilter({ index, endpoint, onComplete, logic }) {
     const { properties, filters } = useValues(logic)
-    const { setFilter, remove } = useActions(logic)
+    const { setFilter } = useActions(logic)
     let { key, value, operator, type } = filters[index]
     return (
         <div className="row" style={{ margin: '0.5rem -15px', minWidth: key ? 700 : 200 }}>

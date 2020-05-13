@@ -17,7 +17,7 @@ export let toParams = obj => {
         return encodeURIComponent(val)
     }
     return Object.entries(obj)
-        .filter(([key, val]) => val)
+        .filter(item => item[1])
         .map(([key, val]) => `${key}=${handleVal(val)}`)
         .join('&')
 }
@@ -192,8 +192,6 @@ export const operatorMap = {
     gt: '> greater than',
     lt: '< lower than',
 }
-
-const operatorEntries = Object.entries(operatorMap).reverse()
 
 export const formatProperty = property => {
     return property.key + ` ${operatorMap[property.operator || 'exact'].split(' ')[0]} ` + property.value

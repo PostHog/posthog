@@ -4,7 +4,7 @@ import { PropertyFilters } from '../../lib/components/PropertyFilters/PropertyFi
 import Select from 'react-select'
 
 import { actionsModel } from '~/models/actionsModel'
-import { useValues, useActions } from 'kea'
+import { useValues } from 'kea'
 
 function DayChoice({ days, name, group, onChange }) {
     return (
@@ -23,7 +23,7 @@ function DayChoice({ days, name, group, onChange }) {
     )
 }
 
-export function CohortGroup({ onChange, onRemove, group, index, properties }) {
+export function CohortGroup({ onChange, onRemove, group, index }) {
     const { actionsGrouped, actions } = useValues(actionsModel)
     const [selected, setSelected] = useState((group.action_id && 'action') || (group.properties && 'property'))
 

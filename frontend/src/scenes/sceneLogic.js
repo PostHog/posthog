@@ -6,13 +6,15 @@ import { HedgehogOverlay } from 'lib/components/HedgehogOverlay/HedgehogOverlay'
 
 export const loadedScenes = {
     '404': {
-        component: () => (
-            <div>
-                <h2>Error 404</h2>
-                <p>Page not found.</p>
-                <HedgehogOverlay type="sad" />
-            </div>
-        ),
+        component: function Error404() {
+            return (
+                <div>
+                    <h2>Error 404</h2>
+                    <p>Page not found.</p>
+                    <HedgehogOverlay type="sad" />
+                </div>
+            )
+        },
     },
 }
 

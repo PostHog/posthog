@@ -19,7 +19,7 @@ export function People() {
         if (scrollTop)
             document.querySelector('section.ant-layout > .content').parentNode.scrollTo({ top: 0, behavior: 'smooth' })
         api.get(
-            url ? url : `api/person/?${!!search ? 'search=' + search : ''}${cohortId ? '&cohort=' + cohortId : ''}`
+            url ? url : `api/person/?${search ? 'search=' + search : ''}${cohortId ? '&cohort=' + cohortId : ''}`
         ).then(data => {
             setPeople(data.results)
             setLoading(false)

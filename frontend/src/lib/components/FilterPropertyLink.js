@@ -14,7 +14,7 @@ export function FilterPropertyLink({ property, value, filters, onClick }) {
     return (
         <Link
             to={url}
-            onClick={event => {
+            onClick={() => {
                 if (onClick) {
                     onClick(property, value)
                 }

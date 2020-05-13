@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React from 'react'
 import { Card, CloseButton, fromParams } from 'lib/utils'
 import { CohortGroup } from './CohortGroup'
 import { cohortLogic } from './cohortLogic'
@@ -70,9 +70,9 @@ export function Cohort({ onChange }) {
                                 }}
                             />
                         ))
-                        .reduce((prev, curr) => [
+                        .reduce((prev, curr, index) => [
                             prev,
-                            <div className="secondary" style={{ textAlign: 'center', margin: 8 }}>
+                            <div key={index} className="secondary" style={{ textAlign: 'center', margin: 8 }}>
                                 {' '}
                                 OR{' '}
                             </div>,

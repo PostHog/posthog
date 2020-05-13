@@ -3,7 +3,6 @@ import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
-import React from 'react'
 
 export const dashboardLogic = kea({
     key: props => props.id,

@@ -1,4 +1,4 @@
-import React, { Component, useState } from 'react'
+import React, { useState } from 'react'
 import { selectStyle } from '../../lib/utils'
 import { Select, Tabs, Popover, Button } from 'antd'
 import { useValues } from 'kea'

@@ -1,4 +1,4 @@
-import React, { Component } from 'react'
+import React from 'react'
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
 import moment from 'moment'
@@ -16,19 +16,27 @@ export function Cohorts() {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            render: (_, cohort) => <Link to={'/people?cohort=' + cohort.id}>{cohort.name}</Link>,
+            render: function RenderName(_, cohort) {
+                return <Link to={'/people?cohort=' + cohort.id}>{cohort.name}</Link>
+            },
         },
         {
             title: 'Users in cohort',
-            render: (_, cohort) => cohort.count.toLocaleString(),
+            render: function RenderCount(_, cohort) {
+                return cohort.count.toLocaleString()
+            },
         },
         {
             title: 'Created at',
-            render: (_, cohort) => (cohort.created_at ? moment(cohort.created_at).format('LLL') : '-'),
+            render: function RenderCreatedAt(_, cohort) {
+                return cohort.created_at ? moment(cohort.created_at).format('LLL') : '-'
+            },
         },
         {
             title: 'Created by',
-            render: (_, cohort) => (cohort.created_by ? cohort.created_by.first_name || cohort.created_by.email : '-'),
+            render: function RenderCreatedBy(_, cohort) {
+                return cohort.created_by ? cohort.created_by.first_name || cohort.created_by.email : '-'
+            },
         },
         {
             title: (
@@ -39,35 +47,38 @@ export function Cohorts() {
                     </Tooltip>
                 </span>
             ),
-            render: (_, cohort) =>
-                cohort.is_calculating ? (
+            render: function RenderCalculation(_, cohort) {
+                return cohort.is_calculating ? (
                     <span>
                         Calculating <Spin />
                     </span>
                 ) : (
                     moment(cohort.last_calculation).fromNow()
-                ),
+                )
+            },
         },
         {
             title: 'Actions',
-            render: cohort => (
-                <span>
-                    <a href={'/api/person.csv?cohort=' + cohort.id}>
-                        <Tooltip title="Export all users in this cohort as a .csv file">
-                            <ExportOutlined />
-                        </Tooltip>
-                    </a>
-                    <DeleteWithUndo
-                        endpoint="cohort"
-                        object={cohort}
-                        className="text-danger"
-                        style={{ marginLeft: 8 }}
-                        callback={loadCohorts}
-                    >
-                        <DeleteOutlined />
-                    </DeleteWithUndo>
-                </span>
-            ),
+            render: function RenderActions(cohort) {
+                return (
+                    <span>
+                        <a href={'/api/person.csv?cohort=' + cohort.id}>
+                            <Tooltip title="Export all users in this cohort as a .csv file">
+                                <ExportOutlined />
+                            </Tooltip>
+                        </a>
+                        <DeleteWithUndo
+                            endpoint="cohort"
+                            object={cohort}
+                            className="text-danger"
+                            style={{ marginLeft: 8 }}
+                            callback={loadCohorts}
+                        >
+                            <DeleteOutlined />
+                        </DeleteWithUndo>
+                    </span>
+                )
+            },
         },
     ]
 

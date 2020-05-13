@@ -1,7 +1,7 @@
 import React from 'react'
 import { kea, useActions, useValues } from 'kea'
 import { Button, Input, Tooltip } from 'antd'
-import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
+import { DeleteOutlined } from '@ant-design/icons'
 
 import { userLogic } from '../userLogic'
 
