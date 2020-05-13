@@ -5168,10 +5168,10 @@ jsx-ast-utils@^2.2.3:
     array-includes "^3.0.3"
     object.assign "^4.1.0"
 
-kea-loaders@^0.2.1:
-  version "0.2.1"
-  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.2.1.tgz#d842a26ca2765d4407f25be69713c50879dd5dab"
-  integrity sha512-rJ3i3b11tb26IFhBblPm/9LfXIxIGCWR40l/C3SeKGU74+THnbznRUhzAhA3C3GWOV1AilCBfFMYNlrrEDadsA==
+kea-loaders@^0.2.2:
+  version "0.2.2"
+  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.2.2.tgz#36bbdf6472a28266fb309f7c18618e8db3c397f2"
+  integrity sha512-0GnS0i4ZoJ6Xx+sMr6HBeXv8o5dPDkM+y6mpNqdi7yFuejio/SWD4PKKOej8wMBKmeveCPRrYi8rjIFlQCd2wQ==
 
 kea-router@^0.3.0:
   version "0.3.0"

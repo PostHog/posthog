@@ -32,7 +32,7 @@
         "editor": "^1.0.0",
         "funnel-graph-js": "^1.4.1",
         "kea": "^2.0.0-beta.8",
-        "kea-loaders": "^0.2.1",
+        "kea-loaders": "^0.2.2",
         "kea-router": "^0.3.0",
         "moment": "^2.24.0",
         "posthog-js": "1.0.7-beta.0",
