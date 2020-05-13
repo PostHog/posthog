@@ -16,6 +16,9 @@ import {
     PieChartOutlined,
     FunnelPlotOutlined,
     BgColorsOutlined,
+    BlockOutlined,
+    CopyOutlined,
+    DeliveredProcedureOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 
@@ -52,10 +55,13 @@ const typeMap = {
 
 export default function DashboardItem({
     item,
+    dashboardId,
     updateItemColor,
     loadDashboardItems,
     renameDashboardItem,
+    duplicateDashboardItem,
     isDraggingRef,
+    dashboards,
 }) {
     const className = typeMap[item.type].className
     const Element = typeMap[item.type].element
@@ -63,6 +69,7 @@ export default function DashboardItem({
     const viewText = typeMap[item.type].viewText
     const link = typeMap[item.type].link(item.filters)
     const color = item.color || 'white'
+    const otherDashboards = dashboards.filter(d => d.id !== dashboardId)
 
     return (
         <div className={`dashboard-item-container ${className}`}>
@@ -91,6 +98,9 @@ export default function DashboardItem({
                                 <Menu.Item icon={<Icon />} onClick={() => router.actions.push(link)}>
                                     {viewText}
                                 </Menu.Item>
+                                <Menu.Item icon={<EditOutlined />} onClick={() => renameDashboardItem(item.id)}>
+                                    Rename
+                                </Menu.Item>
                                 <Menu.SubMenu key="colors" icon={<BgColorsOutlined />} title="Set Color">
                                     {Object.entries(dashboardColorNames).map(([className, color]) => (
                                         <Menu.Item key={className} onClick={() => updateItemColor(item.id, className)}>
@@ -110,8 +120,32 @@ export default function DashboardItem({
                                         </Menu.Item>
                                     ))}
                                 </Menu.SubMenu>
-                                <Menu.Item icon={<EditOutlined />} onClick={() => renameDashboardItem(item.id)}>
-                                    Rename
+                                {otherDashboards.length > 0 ? (
+                                    <Menu.SubMenu key="copy" icon={<CopyOutlined />} title="Copy to...">
+                                        {otherDashboards.map(dashboard => (
+                                            <Menu.Item
+                                                key={dashboard.id}
+                                                onClick={() => duplicateDashboardItem(item.id, dashboard.id)}
+                                            >
+                                                {dashboard.name}
+                                            </Menu.Item>
+                                        ))}
+                                    </Menu.SubMenu>
+                                ) : null}
+                                {otherDashboards.length > 0 ? (
+                                    <Menu.SubMenu key="move" icon={<DeliveredProcedureOutlined />} title="Move to...">
+                                        {otherDashboards.map(dashboard => (
+                                            <Menu.Item
+                                                key={dashboard.id}
+                                                onClick={() => duplicateDashboardItem(item.id, dashboard.id, true)}
+                                            >
+                                                {dashboard.name}
+                                            </Menu.Item>
+                                        ))}
+                                    </Menu.SubMenu>
+                                ) : null}
+                                <Menu.Item icon={<BlockOutlined />} onClick={() => duplicateDashboardItem(item.id)}>
+                                    Duplicate
                                 </Menu.Item>
                                 <Menu.Item
                                     icon={<DeleteOutlined />}

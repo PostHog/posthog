@@ -6,12 +6,20 @@ import { Responsive, WidthProvider } from 'react-grid-layout'
 
 import DashboardItem from 'scenes/dashboard/DashboardItem'
 import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 const ReactGridLayout = WidthProvider(Responsive)
 
 export function DashboardItems({ logic }) {
-    const { items, layouts, breakpoints, cols } = useValues(logic)
-    const { loadDashboardItems, renameDashboardItem, updateLayouts, updateItemColor } = useActions(logic)
+    const { dashboards } = useValues(dashboardsModel)
+    const { dashboard, items, layouts, breakpoints, cols } = useValues(logic)
+    const {
+        loadDashboardItems,
+        renameDashboardItem,
+        updateLayouts,
+        updateItemColor,
+        duplicateDashboardItem,
+    } = useActions(logic)
 
     // make sure the dashboard takes up the right size
     useEffect(() => triggerResizeAfterADelay(), [])
@@ -57,11 +65,14 @@ export function DashboardItems({ logic }) {
                 <div key={item.id} className={`dashboard-item ${item.color || 'white'}`}>
                     <DashboardItem
                         key={item.id}
+                        dashboardId={dashboard.id}
                         item={item}
                         loadDashboardItems={loadDashboardItems}
                         renameDashboardItem={renameDashboardItem}
+                        duplicateDashboardItem={duplicateDashboardItem}
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
+                        dashboards={dashboards}
                     />
                 </div>
             ))}

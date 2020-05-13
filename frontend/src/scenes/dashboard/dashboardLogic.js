@@ -3,6 +3,9 @@ import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
+import { toast } from 'react-toastify'
+import { Link } from 'lib/components/Link'
+import React from 'react'
 
 export const dashboardLogic = kea({
     key: props => props.id,
@@ -12,13 +15,16 @@ export const dashboardLogic = kea({
         renameDashboard: true,
         renameDashboardItem: id => ({ id }),
         renameDashboardItemSuccess: item => ({ item }),
+        duplicateDashboardItem: (id, dashboardId, move = false) => ({ id, dashboardId, move }),
+        duplicateDashboardItemSuccess: item => ({ item }),
+        updateItem: item => ({ item }),
         updateLayouts: layouts => ({ layouts }),
         saveLayouts: true,
         updateItemColor: (id, color) => ({ id, color }),
     }),
 
     loaders: ({ props }) => ({
-        items: [
+        allItems: [
             [],
             {
                 loadDashboardItems: async () => {
@@ -37,8 +43,8 @@ export const dashboardLogic = kea({
         ],
     }),
 
-    reducers: () => ({
-        items: {
+    reducers: ({ props }) => ({
+        allItems: {
             renameDashboardItemSuccess: (state, { item }) => state.map(i => (i.id === item.id ? item : i)),
             updateLayouts: (state, { layouts }) => {
                 let itemLayouts = {}
@@ -54,11 +60,22 @@ export const dashboardLogic = kea({
 
                 return state.map(item => ({ ...item, layouts: itemLayouts[item.id] }))
             },
+            updateItem: (state, { item }) => {
+                if (state.find(i => i.id === item.id)) {
+                    return state.map(i => (i.id === item.id ? item : i))
+                } else {
+                    return [...state, item]
+                }
+            },
             updateItemColor: (state, { id, color }) => state.map(i => (i.id === id ? { ...i, color } : i)),
+            duplicateDashboardItemSuccess: (state, { item }) =>
+                item.dashboard === parseInt(props.id) ? [...state, item] : state,
         },
     }),
 
     selectors: ({ props, selectors }) => ({
+        items: [() => [selectors.allItems], allItems => allItems.filter(i => !i.deleted)],
+        itemsLoading: [() => [selectors.allItemsLoading], allItemsLoading => allItemsLoading],
         dashboard: [
             () => [dashboardsModel.selectors.dashboards],
             dashboards => dashboards.find(d => d.id === props.id) || null,
@@ -70,14 +87,14 @@ export const dashboardLogic = kea({
             (items, cols) => {
                 const layouts = {}
                 Object.keys(cols).forEach(col => {
-                    layouts[col] = items.map((item, index) => {
+                    layouts[col] = items.map(item => {
                         if (item.layouts && item.layouts[col]) {
-                            return item.layouts[col]
+                            return { ...item.layouts[col], i: `${item.id}` }
                         } else {
                             return {
                                 i: `${item.id}`,
-                                x: index % 2 === 0 ? 0 : 6,
-                                y: Math.floor(index / 2),
+                                x: 0,
+                                y: 0,
                                 w: 6,
                                 h: 5,
                             }
@@ -138,12 +155,67 @@ export const dashboardLogic = kea({
         saveLayouts: async (_, breakpoint) => {
             await breakpoint(300)
             await api.update(`api/dashboard_item/layouts`, {
-                items: values.items.map(item => ({ id: item.id, layouts: item.layouts })),
+                items: values.items.map(item => {
+                    const layouts = {}
+                    Object.entries(item.layouts).forEach(([key, layout]) => {
+                        const { i, ...rest } = layout
+                        layouts[key] = rest
+                    })
+                    return { id: item.id, layouts }
+                }),
             })
         },
 
         updateItemColor: ({ id, color }) => {
             api.update(`api/dashboard_item/${id}`, { color })
+        },
+
+        duplicateDashboardItem: async ({ id, dashboardId, move }) => {
+            const item = values.items.find(item => item.id === id)
+            if (item) {
+                const { id: _discard, ...rest } = item
+                const newItem = dashboardId ? { ...rest, dashboard: dashboardId } : { ...rest }
+                const addedItem = await api.create('api/dashboard_item', newItem)
+
+                if (move) {
+                    const deletedItem = await api.update(`api/dashboard_item/${item.id}`, { deleted: true })
+                    actions.updateItem(deletedItem)
+
+                    const toastId = toast(
+                        <div>
+                            Panel moved to dashboard.&nbsp;
+                            <Link
+                                onClick={async () => {
+                                    toast.dismiss(toastId)
+                                    const [restoredItem] = await Promise.all([
+                                        api.update(`api/dashboard_item/${item.id}`, { deleted: false }),
+                                        api.update(`api/dashboard_item/${addedItem.id}`, { deleted: true }),
+                                    ])
+                                    toast(<div>Panel move reverted!</div>)
+                                    actions.updateItem(restoredItem)
+                                }}
+                            >
+                                Undo
+                            </Link>
+                        </div>
+                    )
+                } else {
+                    actions.duplicateDashboardItemSuccess(addedItem)
+
+                    if (dashboardId) {
+                        const toastId = toast(
+                            <div>
+                                Panel added to dashboard.&nbsp;
+                                <Link to={`/dashboard/${dashboardId}`} onClick={() => toast.dismiss(toastId)}>
+                                    Click here to see it.
+                                </Link>
+                            </div>
+                        )
+                    } else {
+                        toast(<div>Panel duplicated!</div>)
+                    }
+                }
+            }
         },
     }),
 })
