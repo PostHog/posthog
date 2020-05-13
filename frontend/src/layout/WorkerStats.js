@@ -1,10 +1,14 @@
 import React, { useEffect, useState } from 'react'
 import api from './../lib/api'
 import { Modal, Button } from 'antd'
+import { WarningOutlined } from '@ant-design/icons'
 
 export function WorkerStats() {
     const [heartbeat, setHeartbeat] = useState(null)
-    const [showErrorModal, setShowErrorModal] = useState(false)
+    const [modalVisible, setModalVisible] = useState(false)
+
+    const openModal = () => setModalVisible(true)
+    const closeModal = () => setModalVisible(false)
 
     function updateHeartbeat() {
         api.get('_stats/')
@@ -29,25 +33,28 @@ export function WorkerStats() {
                         color: heartbeat === 'offline' || heartbeat === 'error' ? 'red' : 'orange',
                         cursor: 'pointer',
                     }}
-                    onClick={() => setShowErrorModal(true)}
+                    onClick={openModal}
                 >
-                    ⚠️ Configuration Error
+                    <WarningOutlined /> Configuration Error
                 </span>
             ) : null}
-            <Modal visible={showErrorModal} footer={<Button onClick={() => setShowErrorModal(false)}>Close</Button>}>
+            <Modal
+                visible={modalVisible}
+                onOk={closeModal}
+                onCancel={closeModal}
+                footer={<Button onClick={closeModal}>Close</Button>}
+            >
                 <h2>Configuration Issue</h2>
                 <p>
                     Starting with <strong>PostHog 1.1.0</strong>, every installation <em>requires</em> a background
                     worker to function properly.
                 </p>
-                <p>
-                    We can't seem to reach your worker. There could be a few reasons for this.
-                    <ol>
-                        <li>Your Redis server wasn't started or is down</li>
-                        <li>Your worker wasn't started or is down</li>
-                        <li>Your web server has trouble reaching Redis</li>
-                    </ol>
-                </p>
+                <p>We can't seem to reach your worker. There could be a few reasons for this.</p>
+                <ol>
+                    <li>Your Redis server wasn't started or is down</li>
+                    <li>Your worker wasn't started or is down</li>
+                    <li>Your web server has trouble reaching Redis</li>
+                </ol>
                 <p>
                     Please{' '}
                     <a
