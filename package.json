@@ -17,7 +17,7 @@
         "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-array",
         "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\"",
         "eslint:github-action": "eslint frontend/src",
-        "e2e": "python manage.py runserver & yarn run wait-on http://localhost:8000/ && behave"
+        "e2e": "DEBUG=1 python manage.py runserver & yarn run wait-on http://localhost:8000/ && behave"
     },
     "license": "MIT",
     "dependencies": {
