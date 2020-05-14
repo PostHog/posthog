@@ -4,7 +4,7 @@ import { userLogic } from 'scenes/userLogic'
 import { objectsEqual } from 'lib/utils'
 import { router } from 'kea-router'
 
-function parseProperties(input) {
+export function parseProperties(input) {
     if (Array.isArray(input) || !input) return input
     // Old style dict properties
     return Object.entries(input).map(([key, value]) => {
