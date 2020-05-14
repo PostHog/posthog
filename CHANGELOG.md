@@ -3,11 +3,11 @@
 ### 1.5.0 - Wednesday 13 May 2020
 
 - [Multiple dashboards](https://github.com/PostHog/posthog/pull/740)
-![](https://posthog.com/static/changelog/multiple-dashboards.png)
+![](https://posthog.com/changelog/multiple-dashboards.png)
 - [Dark-er mode](https://github.com/PostHog/posthog/pull/740)
-![](https://posthog.com/static/changelog/dark-sidebar.png)
+![](https://posthog.com/changelog/dark-sidebar.png)
 - [Break down by cohort](https://github.com/PostHog/posthog/pull/690)
-![](https://posthog.com/static/changelog/breakdown-cohort.png)
+![](https://posthog.com/changelog/breakdown-cohort.png)
 
 
 - [Big refactor of how we do routing in the app](https://github.com/PostHog/posthog/pull/717) which means going backwards and forwards should work a lot smoother
