@@ -63,6 +63,10 @@
 
     // sync this with lib/colors.js
 
+    .loading-overlay {
+        background: transparent;
+    }
+
     &.blue {
         --item-background: hsl(212, 63%, 40%);
         --item-darker: hsl(212, 63%, 35%);
@@ -95,6 +99,9 @@
     &.purple,
     &.green,
     &.black {
+        .loading-overlay {
+            filter: brightness(300%);
+        }
         color: white;
         background: var(--item-background);
         .dashboard-item-header .dashboard-item-title a {
