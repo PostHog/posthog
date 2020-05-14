@@ -6,11 +6,11 @@ const actionContains = (action, event) => {
 }
 
 export const actionsModel = kea({
-    loaders: () => ({
+    loaders: ({ props }) => ({
         actions: {
             __default: [],
             loadActions: async () => {
-                const response = await api.get('api/action')
+                const response = await api.get(`api/action/?${props.params ? props.params : ''}`)
                 return response.results
             },
         },
