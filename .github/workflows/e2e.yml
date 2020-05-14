@@ -43,12 +43,12 @@ jobs:
           python -m pip install -r requirements.txt
         if: steps.cache.outputs.cache-hit != 'true'
 
-      - name: E2E
+      - name: Prepare server
         env:
           DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
           REDIS_URL: 'redis://localhost'
         run: |
           python manage.py migrate
-          python manage.py runserver
-          sleep 5
-          behave
+
+      - name: Run tests
+        run: yarn run e2e

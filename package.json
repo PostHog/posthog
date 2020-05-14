@@ -16,7 +16,8 @@
         "start": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack --config webpack.config.js --watch",
         "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-array",
         "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\"",
-        "eslint:github-action": "eslint frontend/src"
+        "eslint:github-action": "eslint frontend/src",
+        "e2e": "python manage.py runserver & yarn run wait-on http://localhost:8000/ && behave"
     },
     "license": "MIT",
     "dependencies": {
@@ -54,7 +55,8 @@
         "sass": "^1.26.2",
         "simmerjs": "^0.5.6",
         "style.css": "^1.0.0",
-        "styled-components": "^5.0.1"
+        "styled-components": "^5.0.1",
+        "wait-on": "^5.0.0"
     },
     "devDependencies": {
         "@babel/plugin-proposal-class-properties": "^7.8.3",
