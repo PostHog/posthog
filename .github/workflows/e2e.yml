@@ -51,4 +51,7 @@ jobs:
           python manage.py migrate
 
       - name: Run tests
+        env:
+          DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+          REDIS_URL: 'redis://localhost'
         run: yarn run e2e
