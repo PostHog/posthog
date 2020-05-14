@@ -2,10 +2,9 @@ import React, { useState } from 'react'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { Link } from 'lib/components/Link'
-import { Modal } from 'lib/components/Modal'
 import { kea, useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Input, Select } from 'antd'
+import { Input, Select, Modal } from 'antd'
 import { prompt } from 'lib/logic/prompt'
 
 const saveToDashboardModalLogic = kea({
@@ -53,13 +52,12 @@ export function SaveToDashboardModal({ closeModal, name: initialName, type, filt
 
     return (
         <Modal
+            onOk={save}
+            onCancel={closeModal}
+            visible
             title="Add graph to dashboard"
             onDismiss={closeModal}
-            footer={
-                <button type="submit" className="btn btn-success" onClick={save}>
-                    Add panel to dashboard
-                </button>
-            }
+            okText="Add panel to dashboard"
         >
             <form onSubmit={save}>
                 <label>Panel name on dashboard</label>
