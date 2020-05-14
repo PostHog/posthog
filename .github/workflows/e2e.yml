@@ -57,4 +57,4 @@ jobs:
         env:
           DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
           REDIS_URL: 'redis://localhost'
-        run: yarn start & DEBUG=1 python3 manage.py runserver
+        run: yarn build & DEBUG=1 python3 manage.py runserver & yarn run wait-on http://localhost:8000
