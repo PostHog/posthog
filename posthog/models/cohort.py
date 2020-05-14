@@ -6,7 +6,6 @@ from .person import Person
 from .action import Action
 from .event import Event
 from .filter import Filter
-from posthog.utils import properties_to_Q
 from dateutil.relativedelta import relativedelta
 
 from typing import Any, Dict, Optional

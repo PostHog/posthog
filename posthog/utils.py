@@ -67,23 +67,6 @@ def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.date]:
         resp['timestamp__lte'] = date_to + relativedelta(days=1)
     return resp
 
-def properties_to_Q(properties: Dict[str, str]) -> Q:
-    filters = Q()
-
-    if not properties:
-        return filters
-
-    for key, value in properties.items():
-        if key.endswith('__is_not'):
-            key = key.replace('__is_not', '')
-            filters &= Q(~Q(**{'properties__{}'.format(key): value}) | ~Q(properties__has_key=key))
-        elif key.endswith('__not_icontains'):
-            key = key.replace('__not_icontains', '')
-            filters &= Q(~Q(**{'properties__{}__icontains'.format(key): value}) | ~Q(properties__has_key=key))
-        else:
-            filters &= Q(**{'properties__{}'.format(key): value})
-    return filters
-
 def render_template(template_name: str, request: HttpRequest, context=None) -> HttpResponse:
     from posthog.models import Team
     if context is None:
