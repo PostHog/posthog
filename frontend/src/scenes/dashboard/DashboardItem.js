@@ -28,28 +28,36 @@ const typeMap = {
         element: ActionsLineGraph,
         icon: LineChartOutlined,
         viewText: 'View graph',
-        link: filters => combineUrl('/trends', filters).url,
+        link: ({ filters, id, dashboard, name }) =>
+            combineUrl('/trends', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
     },
     ActionsTable: {
         className: 'table',
         element: ActionsTable,
         icon: TableOutlined,
         viewText: 'View table',
-        link: filters => combineUrl('/trends', filters).url,
+        link: ({ filters, id, dashboard, name }) =>
+            combineUrl('/trends', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
     },
     ActionsPie: {
         className: 'pie',
         element: ActionsPie,
         icon: PieChartOutlined,
         viewText: 'View graph',
-        link: filters => combineUrl('/trends', filters).url,
+        link: ({ filters, id, dashboard, name }) =>
+            combineUrl('/trends', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
     },
     FunnelViz: {
         className: 'funnel',
         element: FunnelViz,
         icon: FunnelPlotOutlined,
         viewText: 'View funnel',
-        link: filters => `/funnel/${filters.funnel_id}`,
+        link: ({ filters, id, dashboard, name }) =>
+            combineUrl(
+                `/funnel/${filters.funnel_id}`,
+                {},
+                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
+            ).url,
     },
 }
 
@@ -67,7 +75,7 @@ export default function DashboardItem({
     const Element = typeMap[item.type].element
     const Icon = typeMap[item.type].icon
     const viewText = typeMap[item.type].viewText
-    const link = typeMap[item.type].link(item.filters)
+    const link = typeMap[item.type].link(item)
     const color = item.color || 'white'
     const otherDashboards = dashboards.filter(d => d.id !== dashboardId)
 

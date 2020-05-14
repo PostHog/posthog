@@ -1,9 +1,11 @@
 import React, { useState } from 'react'
 import { Button } from 'antd'
 import { SaveToDashboardModal } from './SaveToDashboardModal'
+import { router } from 'kea-router'
 
 export function SaveToDashboard({ name, type, filters }) {
     const [openModal, setOpenModal] = useState(false)
+    const [{ fromItem, fromItemName, fromDashboard }] = useState(router.values.hashParams)
 
     return (
         <span className="save-to-dashboard">
@@ -13,10 +15,13 @@ export function SaveToDashboard({ name, type, filters }) {
                     name={name}
                     type={type}
                     filters={filters}
+                    fromItem={fromItem}
+                    fromDashboard={fromDashboard}
+                    fromItemName={fromItemName}
                 />
             )}
             <Button onClick={() => setOpenModal(true)} type="primary">
-                Add to dashboard
+                {fromItem ? 'Update Dashboard' : 'Add to dashboard'}
             </Button>
         </span>
     )
