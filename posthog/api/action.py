@@ -173,6 +173,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         time_index = pd.date_range(date_from, date_to, freq=FREQ_MAP[interval])
         if len(aggregates) > 0:
             dataframe = self._build_dataframe(aggregates, interval, breakdown)
+            dataframe = dataframe.astype({'breakdown': str})
             for value in dataframe['breakdown'].unique():
                 filtered = dataframe.loc[dataframe['breakdown'] == value] if value else dataframe.loc[dataframe['breakdown'].isnull()]
                 df_dates = pd.DataFrame(filtered.groupby('date').mean(), index=time_index)
@@ -333,7 +334,7 @@ class ActionViewSet(viewsets.ModelViewSet):
     def _breakdown_label(self, entity: Entity, value: Any) -> Dict[str, Optional[str]]:
         ret_dict: Dict[str, Optional[str]] = {}
         if not value or not isinstance(value, str) or 'cohort_' not in value:
-            ret_dict['label'] = '{} - {}'.format(entity.name, value if value and not pd.isna(value) else 'Other') 
+            ret_dict['label'] = '{} - {}'.format(entity.name, value if value and value != "None" and value != "nan" else 'Other') 
             ret_dict['breakdown_value'] = value if value and not pd.isna(value) else None
         else:
             if value == 'cohort_all':
