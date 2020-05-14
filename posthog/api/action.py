@@ -1,5 +1,5 @@
 from posthog.models import Event, Team, Action, ActionStep, Element, User, Person, Filter, Entity, Cohort, CohortPeople
-from posthog.utils import properties_to_Q, append_data
+from posthog.utils import append_data
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from rest_framework import request, serializers, viewsets, authentication
 from rest_framework.response import Response
