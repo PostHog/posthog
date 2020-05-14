@@ -38,6 +38,12 @@ export const colorsForBackground = (hue, saturation = 63, lightness = 40) => [
     `hsl(${hue + hueDiff * 6}, ${saturation}%, ${lightness}%)`,
     `hsl(${hue + hueDiff * 6}, ${saturation}%, ${lightness - 20}%)`,
     `hsl(${hue + hueDiff * 6}, ${saturation + 40}%, ${lightness + 40}%)`,
+    `hsl(${hue - hueDiff * 9}, ${saturation}%, ${lightness}%)`,
+    `hsl(${hue - hueDiff * 9}, ${saturation}%, ${lightness - 20}%)`,
+    `hsl(${hue - hueDiff * 9}, ${saturation + 40}%, ${lightness + 40}%)`,
+    `hsl(${hue + hueDiff * 9}, ${saturation}%, ${lightness}%)`,
+    `hsl(${hue + hueDiff * 9}, ${saturation}%, ${lightness - 20}%)`,
+    `hsl(${hue + hueDiff * 9}, ${saturation + 40}%, ${lightness + 40}%)`,
 ]
 
 export const dashboardColorNames = {
@@ -68,8 +74,8 @@ Object.entries(dashboardColorHSL).forEach(([key, [h, s, l]]) => {
 export const getChartColors = backgroundColor => {
     if (backgroundColor === 'black') {
         const colors = []
-        for (let i = 0; i < 10; i++) {
-            const h = (40 + i * 160) % 360
+        for (let i = 0; i < 20; i++) {
+            const h = ((40 + i * 160) % 360) + (i > 10 ? 40 : 0)
             const s = i > 0 ? 30 : 10
             const l = 90 - (i % 5) * 10 //  (i % 2 === 0 ? i : (10 - i)) * 7
             colors.push(cssHSL(h, s, l))
