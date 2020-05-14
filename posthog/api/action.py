@@ -331,7 +331,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             'count': sum(data)
         }
 
-    def _breakdown_label(self, entity: Entity, value: Any) -> Dict[str, Optional[str]]:
+    def _breakdown_label(self, entity: Entity, value: Union[str, int]) -> Dict[str, Optional[str]]:
         ret_dict: Dict[str, Optional[str]] = {}
         if not value or not isinstance(value, str) or 'cohort_' not in value:
             ret_dict['label'] = '{} - {}'.format(entity.name, value if value and value != "None" and value != "nan" else 'Other') 
