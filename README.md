@@ -12,7 +12,7 @@ PostHog is open source product analytics, built for developers. Automate the col
 
 See [PostHog docs](https://docs.posthog.com) for in-depth walk throughs on functionality.
 
-![PostHog dashboard screenshot](https://posthog.com/wp-content/uploads/2020/02/Screenshot-2020-02-13-at-23.14.36-2.png)
+![PostHog dashboard screenshot](https://posthog.com/static/product-trends-f644ae65a56982adadef67771d2aacf8.png)
 
 Join the [PostHog Users Slack](https://join.slack.com/t/posthogusers/shared_invite/enQtOTY0MzU5NjAwMDY3LTc2MWQ0OTZlNjhkODk3ZDI3NDVjMDE1YjgxY2I4ZjI4MzJhZmVmNjJkN2NmMGJmMzc2N2U3Yjc3ZjI5NGFlZDQ) if you need help, want to chat, or are thinking of a new feature idea.
 
