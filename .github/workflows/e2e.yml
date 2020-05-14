@@ -42,6 +42,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
         if: steps.cache.outputs.cache-hit != 'true'
+    
+      - name: Install wait-on
+        run: yarn add wait-on
 
       - name: Prepare server
         env:
