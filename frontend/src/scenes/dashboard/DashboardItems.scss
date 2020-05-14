@@ -185,32 +185,84 @@
     z-index: 10;
 }
 
-.dashboard-item-handle {
-    position: absolute;
-    width: 20px;
-    height: 20px;
-    bottom: 0;
-    right: 0;
-    z-index: 10;
-    pointer-events: none;
-}
-
-.dashboard-item-handle::after {
-    content: '';
-    position: absolute;
-    right: 3px;
-    bottom: 3px;
-    width: 5px;
-    height: 5px;
-    border-right: 2px solid rgba(0, 0, 0, 0.4);
-    border-bottom: 2px solid rgba(0, 0, 0, 0.4);
-}
-
 .react-resizable-hide > .react-resizable-handle {
     display: none;
 }
 
+.react-grid-item > .react-resizable-handle {
+    //background: red;
+}
+
+.react-grid-item {
+    & > .react-resizable-handle.react-resizable-handle-sw {
+        bottom: -10px;
+        left: -10px;
+        cursor: sw-resize;
+        transform: rotate(90deg);
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-se {
+        bottom: -10px;
+        right: -10px;
+        cursor: se-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-nw {
+        top: -10px;
+        left: -10px;
+        cursor: nw-resize;
+        transform: rotate(180deg);
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-ne {
+        top: -10px;
+        right: -10px;
+        cursor: ne-resize;
+        transform: rotate(270deg);
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-w,
+    & > .react-resizable-handle.react-resizable-handle-e {
+        top: 30px;
+        bottom: 30px;
+        height: auto;
+        cursor: ew-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-w {
+        left: -10px;
+        height: auto;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-e {
+        right: -10px;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-n,
+    & > .react-resizable-handle.react-resizable-handle-s {
+        left: 30px;
+        right: 30px;
+        width: auto;
+        cursor: ns-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-n {
+        top: -10px;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-s {
+        bottom: -10px;
+    }
+}
+
 .react-grid-layout.layout.dragging-items {
+    cursor: move;
+    will-change: transform;
+
+    .dashboard-item {
+        will-change: transform;
+    }
+
     .dashboard-item:nth-child(7n) {
         animation-delay: -0.75s;
         animation-duration: 0.25s;

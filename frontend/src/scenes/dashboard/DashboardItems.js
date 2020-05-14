@@ -42,6 +42,7 @@ export function DashboardItems({ logic }) {
                 triggerResize()
             }}
             breakpoints={breakpoints}
+            resizeHandles={['s', 'e', 'se']}
             cols={cols}
             onResize={(layout, oldItem, newItem) => {
                 // Trigger the resize event for funnels, as they won't update their dimensions
@@ -77,7 +78,6 @@ export function DashboardItems({ logic }) {
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         dashboards={dashboards}
-                        draggingEnabled={draggingEnabled}
                     />
                 </div>
             ))}

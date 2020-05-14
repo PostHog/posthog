@@ -70,7 +70,6 @@ export default function DashboardItem({
     duplicateDashboardItem,
     isDraggingRef,
     dashboards,
-    draggingEnabled,
 }) {
     const className = typeMap[item.type].className
     const Element = typeMap[item.type].element
@@ -199,7 +198,6 @@ export default function DashboardItem({
                     )}
                 </div>
             </div>
-            {draggingEnabled ? <span className="dashboard-item-handle" /> : null}
         </div>
     )
 }

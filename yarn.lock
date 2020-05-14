@@ -1225,6 +1225,17 @@
   resolved "https://registry.yarnpkg.com/@iarna/toml/-/toml-2.2.3.tgz#f060bf6eaafae4d56a7dac618980838b0696e2ab"
   integrity sha512-FmuxfCuolpLl0AnQ2NHSzoUKWEJDFl63qXjzdoWBVyFCXzMGm1spBzk7LeHNoVCiWCF7mRVms9e6jEV9+MoPbg==
 
+"@mariusandra/react-grid-layout@0.18.3":
+  version "0.18.3"
+  resolved "https://registry.yarnpkg.com/@mariusandra/react-grid-layout/-/react-grid-layout-0.18.3.tgz#6d1f844882222cf2b9f08a1b4aae4789229180f6"
+  integrity sha512-fuXwL/fZWorKtqJ0LMhVhVCH8XrTkVs0C00HSioNJe7tH9D33S3a4+JPd8tzjaMNEcfGkkuTjKJ09+B6LnQZnA==
+  dependencies:
+    classnames "2.x"
+    lodash.isequal "^4.0.0"
+    prop-types "^15.0.0"
+    react-draggable "^4.0.0"
+    react-resizable "^1.10.0"
+
 "@mrmlnc/readdir-enhanced@^2.2.1":
   version "2.2.1"
   resolved "https://registry.yarnpkg.com/@mrmlnc/readdir-enhanced/-/readdir-enhanced-2.2.1.tgz#524af240d1a360527b730475ecfa1344aa540dde"
@@ -7596,17 +7607,6 @@ react-draggable@^4.2.0:
     classnames "^2.2.5"
     prop-types "^15.6.0"
 
-react-grid-layout@^0.18.3:
-  version "0.18.3"
-  resolved "https://registry.yarnpkg.com/react-grid-layout/-/react-grid-layout-0.18.3.tgz#4f9540199f35211077eae0aa5bc83096a672c39c"
-  integrity sha512-lHkrk941Tk5nTwZPa9uj6ttHBT0VehSHwEhWbINBJKvM1GRaFNOefvjcuxSyuCI5JWjVUP+Qm3ARt2470AlxMA==
-  dependencies:
-    classnames "2.x"
-    lodash.isequal "^4.0.0"
-    prop-types "^15.0.0"
-    react-draggable "^4.0.0"
-    react-resizable "^1.9.0"
-
 react-input-autosize@^2.2.2:
   version "2.2.2"
   resolved "https://registry.yarnpkg.com/react-input-autosize/-/react-input-autosize-2.2.2.tgz#fcaa7020568ec206bc04be36f4eb68e647c4d8c2"
@@ -7670,7 +7670,7 @@ react-redux@^7.2.0:
     prop-types "^15.7.2"
     react-is "^16.9.0"
 
-react-resizable@^1.9.0:
+react-resizable@^1.10.0:
   version "1.10.1"
   resolved "https://registry.yarnpkg.com/react-resizable/-/react-resizable-1.10.1.tgz#f0c2cf1d83b3470b87676ce6d6b02bbe3f4d8cd4"
   integrity sha512-Jd/bKOKx6+19NwC4/aMLRu/J9/krfxlDnElP41Oc+oLiUWs/zwV1S9yBfBZRnqAwQb6vQ/HRSk3bsSWGSgVbpw==
