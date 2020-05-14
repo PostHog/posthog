@@ -63,7 +63,7 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
         if (selectedFilter && selectedFilter.type === EntityTypes.ACTIONS && entityType === EntityTypes.ACTIONS) {
             const action = entities[selectedFilter.type].filter(a => a.id === selectedFilter.filter.id)[0]
             return (
-                <a href={'/action/' + selectedFilter.filter.id} target="_blank">
+                <a href={'/action/' + selectedFilter.filter.id} target="_blank" rel="noopener noreferrer">
                     Edit "{action.name}" <i className="fi flaticon-export" />
                 </a>
             )

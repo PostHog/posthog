@@ -24,7 +24,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
         newEvents,
         highlightEvents,
     } = useValues(logic)
-    const { updateProperty, setSelectedEvent, fetchNextEvents, flipSort, prependNewEvents } = useActions(logic)
+    const { setSelectedEvent, fetchNextEvents, flipSort, prependNewEvents } = useActions(logic)
     const {
         location: { search },
     } = useValues(router)
@@ -74,7 +74,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
                                     selectedEvent={selectedEvent}
                                     properties={properties}
                                     setSelectedEvent={setSelectedEvent}
-                                    setFilter={updateProperty}
                                     filtersEnabled={filtersEnabled}
                                     showLinkToPerson={showLinkToPerson}
                                 />

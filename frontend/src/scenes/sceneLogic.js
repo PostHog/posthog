@@ -6,13 +6,15 @@ import { HedgehogOverlay } from 'lib/components/HedgehogOverlay/HedgehogOverlay'
 
 export const loadedScenes = {
     '404': {
-        component: () => (
-            <div>
-                <h2>Error 404</h2>
-                <p>Page not found.</p>
-                <HedgehogOverlay type="sad" />
-            </div>
-        ),
+        component: function Error404() {
+            return (
+                <div>
+                    <h2>Error 404</h2>
+                    <p>Page not found.</p>
+                    <HedgehogOverlay type="sad" />
+                </div>
+            )
+        },
     },
 }
 
@@ -57,6 +59,7 @@ export const routes = {
     '/person_by_id/:id': 'person',
     '/person/:distinctId': 'person',
     '/people': 'people',
+    '/people/new_cohort': 'people',
     '/people/cohorts': 'cohorts',
 }
 
@@ -132,7 +135,10 @@ export const sceneLogic = kea({
                     }
                 } else {
                     loadedScenes[scene] = {
-                        component: Object.keys(others).length === 1 ? others[Object.keys(others)[0]] : Error404,
+                        component:
+                            Object.keys(others).length === 1
+                                ? others[Object.keys(others)[0]]
+                                : loadedScenes['404'].component,
                         logic: logic,
                     }
                 }

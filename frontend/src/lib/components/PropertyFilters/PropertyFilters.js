@@ -4,11 +4,12 @@ import { Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { Popover, Row } from 'antd'
-import { CloseButton, formatFilterName } from 'lib/utils'
+import { CloseButton, operatorMap } from 'lib/utils'
 
 function FilterRow({ endpoint, item, index, filters, logic }) {
     const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
+    const { key, value, operator } = item
 
     let handleVisibleChange = visible => {
         if (!visible && Object.keys(item).length >= 0 && !item[Object.keys(item)[0]]) {
@@ -35,10 +36,10 @@ function FilterRow({ endpoint, item, index, filters, logic }) {
                     />
                 }
             >
-                {Object.keys(item).length !== 0 ? (
+                {key ? (
                     <Button type="primary" shape="round" style={{ maxWidth: '85%' }}>
                         <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {formatFilterName(Object.keys(item)[0]) + item[Object.keys(item)[0]]}
+                            {key} {operatorMap[operator || 'exact'].split(' ')[0]} {value}
                         </span>
                     </Button>
                 ) : (

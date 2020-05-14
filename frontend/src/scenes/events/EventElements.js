@@ -14,6 +14,7 @@ export function EventElements({ event }) {
             {elements.map((element, index) => (
                 <pre
                     className="code"
+                    key={index}
                     style={{
                         margin: 0,
                         padding: 0,
@@ -25,7 +26,7 @@ export function EventElements({ event }) {
                     &lt;{element.tag_name}
                     {element.attr_id && ' id="' + element.attr_id + '"'}
                     {Object.entries(element.attributes).map(([key, value]) => (
-                        <span>
+                        <span key={key}>
                             {' '}
                             {key.replace('attr__', '')}="{value}"
                         </span>

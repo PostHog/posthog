@@ -3,7 +3,7 @@ import { Card } from '../../lib/utils'
 
 export class ActionSelectInfo extends Component {
     infoDiv = React.createRef()
-    componentDidMount(prevProps) {
+    componentDidMount() {
         if (!this.infoDiv.current) return
         let rect = this.props.boundingRect
         this.infoDiv.current.style.top = rect.top - rect.height / 2 + 'px'

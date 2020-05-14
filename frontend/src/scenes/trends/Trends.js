@@ -16,10 +16,8 @@ import { ShownAsFilter } from './ShownAsFilter'
 import { PeopleModal } from './PeopleModal'
 import { trendsLogic, ViewType } from './trendsLogic'
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { userLogic } from 'scenes/userLogic'
 import { Tabs, Row, Col, Tooltip } from 'antd'
 import { SessionFilter } from 'lib/components/SessionsFilter'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
 
 const { TabPane } = Tabs
 
@@ -32,8 +30,6 @@ const displayMap = {
 export function Trends() {
     const { filters, resultsLoading, showingPeople, activeView } = useValues(trendsLogic({ dashboardItemId: null }))
     const { setFilters, setDisplay, setActiveView } = useActions(trendsLogic({ dashboardItemId: null }))
-    const { eventProperties } = useValues(userLogic)
-    const size = useWindowSize()
 
     return (
         <div className="actions-graph">
@@ -68,13 +64,15 @@ export function Trends() {
                                     </h4>
                                     <Row>
                                         <BreakdownFilter
-                                            properties={eventProperties}
                                             breakdown={filters.breakdown}
-                                            onChange={breakdown => setFilters({ breakdown })}
+                                            breakdown_type={filters.breakdown_type}
+                                            onChange={(breakdown, breakdown_type) =>
+                                                setFilters({ breakdown, breakdown_type })
+                                            }
                                         />
                                         {filters.breakdown && (
                                             <CloseButton
-                                                onClick={() => setFilters({ breakdown: false })}
+                                                onClick={() => setFilters({ breakdown: false, breakdown_type: null })}
                                                 style={{ marginTop: 1, marginLeft: 10 }}
                                             />
                                         )}

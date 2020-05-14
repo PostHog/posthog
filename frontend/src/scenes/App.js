@@ -3,7 +3,7 @@ import 'react-datepicker/dist/react-datepicker.css'
 
 import React from 'react'
 import { useValues } from 'kea'
-import { Layout, Spin } from 'antd'
+import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
 import Sidebar from '~/layout/Sidebar'
@@ -36,7 +36,7 @@ export default function App() {
         <Layout className="bg-white">
             <Sidebar user={user} />
             <Layout className={darkerScenes[scene] ? 'bg-dashboard' : 'bg-white'} style={{ height: '100vh' }}>
-                <div className="content py-3">
+                <div className="content py-3 layout-top-content">
                     <TopContent user={user} />
                 </div>
                 <Layout.Content className="pl-5 pr-5 pt-3">

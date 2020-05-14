@@ -135,7 +135,7 @@ export class DateFilter extends Component {
                 }}
             >
                 {[
-                    ...Object.entries(dateMapping).map(([key, value]) => {
+                    ...Object.entries(dateMapping).map(([key]) => {
                         return (
                             <Select.Option key={key} value={key}>
                                 {key}

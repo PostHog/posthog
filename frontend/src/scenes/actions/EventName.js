@@ -1,7 +1,5 @@
-import React, { Component } from 'react'
-import api from '../../lib/api'
+import React from 'react'
 import Select from 'react-select'
-import PropTypes from 'prop-types'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
@@ -19,7 +17,7 @@ export function EventName({ value, onChange }) {
             />
             <br />
             {eventNamesGrouped[0].options.length === 0 && "You haven't sent any custom events."}{' '}
-            <a href="https://docs.posthog.com/#/integrations" target="_blank">
+            <a href="https://docs.posthog.com/#/integrations" target="_blank" rel="noopener noreferrer">
                 See documentation
             </a>{' '}
             on how to send custom events in lots of languages.

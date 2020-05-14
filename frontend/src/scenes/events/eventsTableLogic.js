@@ -20,7 +20,6 @@ export const eventsTableLogic = kea({
 
     actions: () => ({
         setProperties: properties => ({ properties }),
-        updateProperty: (key, value) => ({ key, value }),
         fetchEvents: (nextParams = null) => ({ nextParams }),
         fetchEventsSuccess: (events, hasNext = false, isNext = false) => ({ events, hasNext, isNext }),
         fetchNextEvents: true,
@@ -38,10 +37,9 @@ export const eventsTableLogic = kea({
         // we use it to NOT update the filters when the user moves away from this path, yet the scene is still active
         initialPathname: [state => router.selectors.location(state).pathname, { noop: a => a }],
         properties: [
-            {},
+            [],
             {
                 setProperties: (_, { properties }) => properties,
-                updateProperty: (state, { key, value }) => ({ ...state, [key]: value }),
             },
         ],
         isLoading: [
@@ -133,9 +131,6 @@ export const eventsTableLogic = kea({
         setProperties: () => {
             return [router.values.location.pathname, values.propertiesForUrl]
         },
-        updateProperty: () => {
-            return [router.values.location.pathname, values.propertiesForUrl]
-        },
     }),
 
     urlToAction: ({ actions, values }) => ({
@@ -159,9 +154,6 @@ export const eventsTableLogic = kea({
 
     listeners: ({ actions, values, props }) => ({
         setProperties: () => {
-            actions.fetchEvents()
-        },
-        updateProperty: () => {
             actions.fetchEvents()
         },
         flipSort: () => {

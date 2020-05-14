@@ -1,6 +1,7 @@
 from .base import BaseTest
 from posthog.models import Event, Person, Element, Action, ActionStep, Team
 from freezegun import freeze_time
+import json
 
 
 class TestEvents(BaseTest):
@@ -27,6 +28,15 @@ class TestEvents(BaseTest):
         with self.assertNumQueries(7):
             response = self.client.get('/api/event/?event=event_name').json()
         self.assertEqual(response['results'][0]['event'], 'event_name')
+
+    def test_filter_events_by_properties(self):
+        person = Person.objects.create(properties={'email': 'tim@posthog.com'}, team=self.team, distinct_ids=["2", 'some-random-uid'])
+        Event.objects.create(event='event_name',team=self.team, distinct_id="2", properties={"$browser": 'Chrome'})
+        event2 = Event.objects.create(event='event_name',team=self.team, distinct_id="2", properties={"$browser": 'Safari'})
+
+        with self.assertNumQueries(7):
+            response = self.client.get('/api/event/?properties=%s' % (json.dumps([{'key': '$browser', 'value': 'Safari'}]))).json()
+        self.assertEqual(response['results'][0]['id'], event2.pk)
 
     def test_filter_by_person(self):
         person = Person.objects.create(properties={'email': 'tim@posthog.com'}, distinct_ids=["2", 'some-random-uid'], team=self.team)

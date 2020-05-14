@@ -117,7 +117,6 @@ export class Paths extends Component {
             .nodeWidth(15)
             // .nodePadding()
             .size([width, height])
-        let color = name => this.d3.scaleOrdinal(this.d3.interpolateBlues())(name.replace(/ .*/, ''))
 
         const { nodes, links } = sankey({
             nodes: paths.nodes.map(d => Object.assign({}, d)),
@@ -172,7 +171,7 @@ export class Paths extends Component {
             .selectAll('g')
             .data(links)
             .join('g')
-            .attr('stroke', d => 'var(--blue)')
+            .attr('stroke', () => 'var(--blue)')
             .attr('opacity', 0.3)
             .style('mix-blend-mode', 'multiply')
 
@@ -184,7 +183,7 @@ export class Paths extends Component {
 
         link.append('g')
             .append('path')
-            .attr('d', (data, b, c) => {
+            .attr('d', data => {
                 if (data.source.layer == 0) return
                 let height =
                     data.source.y1 -
