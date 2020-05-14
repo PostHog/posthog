@@ -12,7 +12,7 @@ const ReactGridLayout = WidthProvider(Responsive)
 
 export function DashboardItems({ logic }) {
     const { dashboards } = useValues(dashboardsModel)
-    const { dashboard, items, layouts, breakpoints, cols } = useValues(logic)
+    const { dashboard, items, layouts, breakpoints, cols, draggingEnabled } = useValues(logic)
     const {
         loadDashboardItems,
         renameDashboardItem,
@@ -23,12 +23,16 @@ export function DashboardItems({ logic }) {
 
     // make sure the dashboard takes up the right size
     useEffect(() => triggerResizeAfterADelay(), [])
+
+    // can not click links when dragging and 250ms after
     const isDragging = useRef(false)
     const dragEndTimeout = useRef(null)
 
     return (
         <ReactGridLayout
-            className="layout"
+            className={`layout${draggingEnabled ? ' dragging-items' : ''}`}
+            isDraggable={draggingEnabled}
+            isResizable={draggingEnabled}
             layouts={layouts}
             rowHeight={50}
             margin={[20, 20]}
@@ -62,7 +66,7 @@ export function DashboardItems({ logic }) {
             draggableCancel=".anticon,.ant-dropdown"
         >
             {items.map(item => (
-                <div key={item.id} className={`dashboard-item ${item.color || 'white'}`}>
+                <div key={item.id} className="dashboard-item-wrapper">
                     <DashboardItem
                         key={item.id}
                         dashboardId={dashboard.id}
@@ -73,6 +77,7 @@ export function DashboardItems({ logic }) {
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         dashboards={dashboards}
+                        draggingEnabled={draggingEnabled}
                     />
                 </div>
             ))}

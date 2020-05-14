@@ -20,6 +20,10 @@ $badge-font-weight: 400;
 $body-bg: #fffefc;
 $body-color: #37352f;
 
+:root {
+    --gray-background: hsla(210, 6%, 95%, 1);
+}
+
 // bootstrap components
 @import 'node_modules/bootstrap/scss/_root';
 @import 'node_modules/bootstrap/scss/utilities';
@@ -254,7 +258,7 @@ label.disabled {
 }
 
 .ant-layout.bg-dashboard {
-    background: hsla(210, 6%, 95%, 1);
+    background: var(--gray-background);
 }
 
 .ant-menu-dark .ant-menu-inline.ant-menu-sub {

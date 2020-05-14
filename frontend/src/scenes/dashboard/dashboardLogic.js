@@ -22,6 +22,7 @@ export const dashboardLogic = kea({
         updateLayouts: layouts => ({ layouts }),
         saveLayouts: true,
         updateItemColor: (id, color) => ({ id, color }),
+        setDraggingEnabled: draggingEnabled => ({ draggingEnabled }),
     }),
 
     loaders: ({ props }) => ({
@@ -71,6 +72,12 @@ export const dashboardLogic = kea({
             duplicateDashboardItemSuccess: (state, { item }) =>
                 item.dashboard === parseInt(props.id) ? [...state, item] : state,
         },
+        draggingEnabled: [
+            false,
+            {
+                setDraggingEnabled: (_, { draggingEnabled }) => draggingEnabled,
+            },
+        ],
     }),
 
     selectors: ({ props, selectors }) => ({
@@ -160,7 +167,7 @@ export const dashboardLogic = kea({
         afterMount: [actions.loadDashboardItems],
     }),
 
-    listeners: ({ actions, values, key }) => ({
+    listeners: ({ actions, values, key, cache }) => ({
         addNewDashboard: async () => {
             prompt({ key: `new-dashboard-${key}` }).actions.prompt({
                 title: 'New dashboard',
@@ -277,6 +284,43 @@ export const dashboardLogic = kea({
             } else {
                 actions.duplicateDashboardItemSuccess(addedItem)
                 toast(<div>Panel duplicated!</div>)
+            }
+        },
+
+        setDraggingEnabled: ({ draggingEnabled }) => {
+            if (draggingEnabled) {
+                if (!cache.toastId) {
+                    cache.toastId = toast(
+                        <>
+                            Started drag mode! <Link onClick={() => actions.setDraggingEnabled(false)}>Click here</Link>{' '}
+                            or on the back button to stop.
+                        </>,
+                        { autoClose: false, onClick: () => actions.setDraggingEnabled(false) }
+                    )
+                }
+            } else {
+                if (cache.toastId) {
+                    toast.dismiss(cache.toastId)
+                    cache.toastId = null
+                }
+            }
+        },
+    }),
+
+    actionToUrl: ({ key }) => ({
+        setDraggingEnabled: ({ draggingEnabled }) => [
+            `/dashboard/${key}`,
+            {},
+            { dragging: draggingEnabled || undefined },
+        ],
+    }),
+
+    urlToAction: ({ key, actions }) => ({
+        [`/dashboard/${key}`]: (_, __, { dragging }) => {
+            if (dragging) {
+                actions.setDraggingEnabled(true)
+            } else {
+                actions.setDraggingEnabled(false)
             }
         },
     }),

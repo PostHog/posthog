@@ -1,7 +1,7 @@
 import './DashboardHeader.scss'
 
 import { Loading, triggerResizeAfterADelay } from 'lib/utils'
-import { Button, Dropdown, Menu, Select } from 'antd'
+import { Button, Dropdown, Menu, Select, Tooltip } from 'antd'
 import { router } from 'kea-router'
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
@@ -14,12 +14,13 @@ import {
     DeleteOutlined,
     FullscreenOutlined,
     FullscreenExitOutlined,
+    DragOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
 
 export function DashboardHeader({ logic }) {
-    const { dashboard } = useValues(logic)
-    const { addNewDashboard, renameDashboard } = useActions(logic)
+    const { dashboard, draggingEnabled } = useValues(logic)
+    const { addNewDashboard, renameDashboard, setDraggingEnabled } = useActions(logic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [fullScreen, setFullScreen] = useState(false)
@@ -52,6 +53,21 @@ export function DashboardHeader({ logic }) {
                     </div>
                     {dashboard ? (
                         <div className="dashboard-meta">
+                            <Tooltip
+                                title={
+                                    draggingEnabled
+                                        ? 'Click here to disable dragging'
+                                        : 'Click here or long press on a panel to enable dragging'
+                                }
+                            >
+                                <Button
+                                    type={draggingEnabled ? 'primary' : ''}
+                                    onClick={() => setDraggingEnabled(!draggingEnabled)}
+                                >
+                                    <DragOutlined /> {draggingEnabled ? 'Drag ON' : 'Drag OFF'}
+                                </Button>
+                            </Tooltip>
+
                             {!fullScreen ? (
                                 <Button
                                     type={dashboard.pinned ? 'primary' : ''}
