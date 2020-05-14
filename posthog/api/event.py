@@ -1,5 +1,5 @@
 from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId
-from posthog.utils import properties_to_Q, friendly_time, request_to_date_query, append_data
+from posthog.utils import friendly_time, request_to_date_query, append_data
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from django.db.models import QuerySet, F, Prefetch

@@ -21,7 +21,7 @@ from .person import Person
 from .filter import Filter
 from .entity import Entity
 
-from posthog.utils import properties_to_Q, request_to_date_query
+from posthog.utils import request_to_date_query
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 
 
