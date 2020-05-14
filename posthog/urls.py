@@ -180,11 +180,14 @@ urlpatterns = urlpatterns + [
 ]
 
 if settings.DEBUG:
+    import debug_toolbar 
+
     @csrf_exempt
     def debug(request):
         assert False, locals()
     urlpatterns += [
-        path('debug/', debug)
+        path('debug/', debug),
+        path('__debug__/', include(debug_toolbar.urls)),
     ]
 
 urlpatterns += [

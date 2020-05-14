@@ -85,7 +85,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'loginas',
     'corsheaders',
-    'social_django'
+    'social_django',
+    'debug_toolbar'
 ]
 
 MIDDLEWARE = [
@@ -98,9 +99,13 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware'
+    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'debug_toolbar.middleware.DebugToolbarMiddleware'
 ]
-INTERNAL_IPS = ['127.0.0.1']
+INTERNAL_IPS = [
+    '127.0.0.1',
+    '172.18.0.1' # Docker IP
+    ]
 CORS_ORIGIN_ALLOW_ALL = True
 
 ROOT_URLCONF = 'posthog.urls'
