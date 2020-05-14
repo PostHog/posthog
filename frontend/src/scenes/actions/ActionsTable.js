@@ -95,7 +95,7 @@ export function ActionsTable() {
             <Table
                 size="small"
                 columns={columns}
-                loading={!actions && actionsLoading}
+                loading={actionsLoading}
                 rowKey={action => action.id}
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
                 dataSource={actions}
