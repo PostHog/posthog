@@ -95,7 +95,7 @@ export const dashboardLogic = kea({
                                 x: Number.isInteger(x) && x + width - 1 < cols[col] ? x : 0,
                                 y: Number.isInteger(y) ? y : Infinity,
                                 w: width,
-                                h: h || 2,
+                                h: h || 5,
                             }
                         })
 
