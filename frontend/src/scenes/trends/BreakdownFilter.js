@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { selectStyle } from '../../lib/utils'
-import { Select, Tabs, Popover, Button } from 'antd'
+import { Tooltip, Select, Tabs, Popover, Button } from 'antd'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { cohortsModel } from '../../models/cohortsModel'
@@ -78,8 +78,9 @@ function Content({ breakdown, breakdown_type, onChange }) {
     )
 }
 
-export function BreakdownFilter({ breakdown, breakdown_type, onChange }) {
+export function BreakdownFilter({ filters, onChange }) {
     const { cohorts } = useValues(cohortsModel)
+    const { breakdown, breakdown_type, shown_as } = filters
     let [open, setOpen] = useState(false)
     let label = breakdown
     if (breakdown_type === 'cohort' && breakdown) {
@@ -106,9 +107,13 @@ export function BreakdownFilter({ breakdown, breakdown_type, onChange }) {
             trigger="click"
             placement="bottomLeft"
         >
-            <Button shape="round" type={breakdown ? 'primary' : 'default'}>
-                {label || 'Add breakdown'}
-            </Button>
+            <Tooltip
+                title={shown_as == 'Stickiness' && 'Break down by is not yet available in combination with Stickiness'}
+            >
+                <Button shape="round" type={breakdown ? 'primary' : 'default'} disabled={shown_as == 'Stickiness'}>
+                    {label || 'Add breakdown'}
+                </Button>
+            </Tooltip>
         </Popover>
     )
 }
