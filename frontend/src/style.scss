@@ -270,6 +270,9 @@ label.disabled {
 .ant-message {
     z-index: 1070 !important;
 }
+.ant-select-dropdown {
+    z-index: 1065 !important;
+}
 .anticon {
     // not sure why this doesn't just work..
     vertical-align: 0.125em !important;
