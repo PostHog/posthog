@@ -1,20 +1,30 @@
 import './DashboardItems.scss'
 
-import React, { useEffect } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { Responsive, WidthProvider } from 'react-grid-layout'
 
 import DashboardItem from 'scenes/dashboard/DashboardItem'
 import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 const ReactGridLayout = WidthProvider(Responsive)
 
 export function DashboardItems({ logic }) {
-    const { items, layouts, breakpoints, cols } = useValues(logic)
-    const { loadDashboardItems, renameDashboardItem, updateLayouts, updateItemColor } = useActions(logic)
+    const { dashboards } = useValues(dashboardsModel)
+    const { dashboard, items, layouts, breakpoints, cols } = useValues(logic)
+    const {
+        loadDashboardItems,
+        renameDashboardItem,
+        updateLayouts,
+        updateItemColor,
+        duplicateDashboardItem,
+    } = useActions(logic)
 
     // make sure the dashboard takes up the right size
     useEffect(() => triggerResizeAfterADelay(), [])
+    const isDragging = useRef(false)
+    const dragEndTimeout = useRef(null)
 
     return (
         <ReactGridLayout
@@ -39,16 +49,30 @@ export function DashboardItems({ logic }) {
                 }
             }}
             onResizeStop={triggerResizeAfterADelay}
+            onDrag={() => {
+                isDragging.current = true
+                window.clearTimeout(dragEndTimeout.current)
+            }}
+            onDragStop={() => {
+                window.clearTimeout(dragEndTimeout)
+                dragEndTimeout.current = window.setTimeout(() => {
+                    isDragging.current = false
+                }, 250)
+            }}
             draggableCancel=".anticon,.ant-dropdown"
         >
             {items.map(item => (
                 <div key={item.id} className={`dashboard-item ${item.color || 'white'}`}>
                     <DashboardItem
                         key={item.id}
+                        dashboardId={dashboard.id}
                         item={item}
                         loadDashboardItems={loadDashboardItems}
                         renameDashboardItem={renameDashboardItem}
+                        duplicateDashboardItem={duplicateDashboardItem}
                         updateItemColor={updateItemColor}
+                        isDraggingRef={isDragging}
+                        dashboards={dashboards}
                     />
                 </div>
             ))}

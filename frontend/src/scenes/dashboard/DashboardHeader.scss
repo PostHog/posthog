@@ -7,6 +7,10 @@
 
     --dashboard-title-size: 32px;
 
+    &.full-screen {
+        margin-top: 1rem;
+    }
+
     .ant-select-single {
         line-height: var(--dashboard-title-size);
         .ant-select-selector {
