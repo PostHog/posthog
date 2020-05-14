@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 import { Link } from 'lib/components/Link'
 import { kea, useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Input, Select, Modal, Radio } from 'antd'
+import { Input, Select, Modal, Radio, Alert } from 'antd'
 import { prompt } from 'lib/logic/prompt'
 
 const saveToDashboardModalLogic = kea({
@@ -49,7 +49,9 @@ export function SaveToDashboardModal({
     const { addNewDashboard } = useActions(saveToDashboardModalLogic({ setDashboardId }))
     const [name, setName] = useState(fromItemName || initialName || '')
     const [visible, setVisible] = useState(true)
-    const [newItem, setNewItem] = useState(!fromItem)
+    const [newItem, setNewItem] = useState(type === 'FunnelViz' || !fromItem)
+    const fromDashboardName =
+        (fromDashboard ? dashboards.find(d => d.id === parseInt(fromDashboard)) : null)?.name || 'Untitled'
 
     async function save(event) {
         event.preventDefault()
@@ -77,7 +79,7 @@ export function SaveToDashboardModal({
             okText={newItem ? 'Add panel to dashboard' : 'Update panel on dashboard'}
         >
             <form onSubmit={save}>
-                {fromItem ? (
+                {fromItem && type !== 'FunnelViz' ? (
                     <Radio.Group
                         onChange={e => setNewItem(e.target.value === 'true')}
                         value={`${newItem}`}
@@ -90,6 +92,25 @@ export function SaveToDashboardModal({
                             Add as a new panel
                         </Radio>
                     </Radio.Group>
+                ) : null}
+                {fromItem && type === 'FunnelViz' ? (
+                    <div style={{ marginBottom: 30 }}>
+                        <Alert
+                            message="Already on a dashboard"
+                            description={
+                                <>
+                                    <p>
+                                        This funnel is already saved on the Dashboard{' '}
+                                        <Link to={`/dashboard/${fromDashboard}`}>{fromDashboardName}</Link> as "
+                                        <strong>{fromItemName}</strong>" and updated automatically.
+                                    </p>
+                                    <p style={{ marginBottom: 0 }}>You can still add it to another dashboard.</p>
+                                </>
+                            }
+                            type="warning"
+                            showIcon
+                        />
+                    </div>
                 ) : null}
                 {newItem ? (
                     <>
