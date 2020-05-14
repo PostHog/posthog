@@ -107,6 +107,7 @@ export function Trends() {
                 </Col>
                 <Col xs={24} xl={18}>
                     <Card
+                        id="chart"
                         title={
                             <div className="float-right pt-1 pb-1">
                                 <IntervalFilter setFilters={setFilters} filters={filters} disabled={filters.session} />
@@ -133,9 +134,9 @@ export function Trends() {
                                         position: 'relative',
                                     }}
                                 >
-                                    {resultsLoading && <Loading />}
+                                    {resultsLoading && <Loading dataAttr="loading" />}
                                     {(!filters.display || filters.display === 'ActionsLineGraph') && (
-                                        <ActionsLineGraph />
+                                        <ActionsLineGraph dataAttr="line-graph" />
                                     )}
                                     {filters.display === 'ActionsTable' && <ActionsTable filters={filters} />}
                                     {filters.display === 'ActionsPie' && <ActionsPie filters={filters} />}

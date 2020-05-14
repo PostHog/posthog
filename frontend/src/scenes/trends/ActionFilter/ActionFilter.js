@@ -22,7 +22,12 @@ export function ActionFilter({ setFilters, filters, typeKey }) {
                 localFilters.map((filter, index) => (
                     <ActionFilterRow logic={logic} filter={filter} index={index} key={index} />
                 ))}
-            <Button type="primary" onClick={() => addFilter()} style={{ marginTop: '0.5rem' }}>
+            <Button
+                dataAttr="add-action-event"
+                type="primary"
+                onClick={() => addFilter()}
+                style={{ marginTop: '0.5rem' }}
+            >
                 Add action/event
             </Button>
         </div>

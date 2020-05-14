@@ -42,8 +42,8 @@ export let percentage = division =>
           })
         : ''
 
-export let Loading = () => (
-    <div className="loading-overlay">
+export let Loading = props => (
+    <div className="loading-overlay" {...props}>
         <div></div>
         <Spin />
     </div>

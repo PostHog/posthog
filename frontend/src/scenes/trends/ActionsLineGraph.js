@@ -4,7 +4,7 @@ import { LineGraph } from './LineGraph'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
-export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filters: filtersParam }) {
+export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filters: filtersParam, ...props }) {
     const { filters, results } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
     const { loadResults, loadPeople } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
 
@@ -29,6 +29,7 @@ export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filt
                               loadPeople(dataset.action || 'session', dataset.label, day, dataset.breakdown_value)
                           }
                 }
+                {...props}
             />
         ) : (
             <p style={{ textAlign: 'center', paddingTop: '4rem' }}>
