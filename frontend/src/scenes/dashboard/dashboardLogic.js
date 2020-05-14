@@ -55,6 +55,9 @@ export const dashboardLogic = kea({
 
                 Object.entries(layouts).forEach(([col, layout]) => {
                     layout.forEach(layoutItem => {
+                        if (!itemLayouts[layoutItem.i]) {
+                            itemLayouts[layoutItem.i] = {}
+                        }
                         itemLayouts[layoutItem.i][col] = layoutItem
                     })
                 })
