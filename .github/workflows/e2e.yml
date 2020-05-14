@@ -43,8 +43,8 @@ jobs:
           python -m pip install -r requirements.txt
         if: steps.cache.outputs.cache-hit != 'true'
     
-      - name: Install wait-on
-        run: yarn add wait-on
+      - name: Install frontend dependencies
+        run: yarn install
 
       - name: Prepare server
         env:
@@ -57,4 +57,4 @@ jobs:
         env:
           DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
           REDIS_URL: 'redis://localhost'
-        run: DEBUG=1 python3 manage.py runserver 8080
+        run: yarn start & DEBUG=1 python3 manage.py runserver
