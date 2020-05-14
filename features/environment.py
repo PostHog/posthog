@@ -5,7 +5,7 @@ from features.pages.trends import TrendsPage
 def before_all(context):
     base_url = 'http://localhost:8000'
 
-    context.browser = Browser('chrome')
+    context.browser = Browser('chrome', headless=True)
     context.TrendsPage = TrendsPage(context.browser, base_url)
 
     context.browser.visit(base_url)
