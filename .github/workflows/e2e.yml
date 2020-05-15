@@ -6,14 +6,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v1
+      # Install Node.js
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 12
       - name: Prepare server
         run: docker-compose -f docker-compose.dev.yml up -d
       - name: Check running containers
         run: docker ps -a
       - name: Check logs
         run: docker logs posthog_server
+      - name: Install cypress
+        run: yarn add cypress
+
       - name: Cypress run
-        uses: cypress-io/github-action@v1
-        with:
-          wait-on: 'http://localhost:8000'
-          wait-on-timeout: 240
+        run: |
+          sleep 60
+          yarn run cypress run --config-file cypress.json
