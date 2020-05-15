@@ -146,6 +146,7 @@ def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[dat
 
 @shared_task
 def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str]) -> None:
+    print("IM EXECUTED HERE")
     if data['event'] == '$create_alias':
         _alias(previous_distinct_id=data['properties']['alias'], distinct_id=distinct_id, team_id=team_id)
 
