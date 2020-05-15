@@ -83,3 +83,30 @@ class TestPropertiesToQ(BaseTest):
         events = Event.objects.add_person_id(self.team.pk).filter(filter.properties_to_Q())
         self.assertEqual(events[0], event2)
         self.assertEqual(len(events), 1)
+
+    def test_boolean_filters(self):
+        event1 = Event.objects.create(team=self.team, event='$pageview')
+        event2 = Event.objects.create(team=self.team, event='$pageview', properties={'is_first_user': True})
+        filter = Filter(data={
+            'properties': [{'key': 'is_first_user', 'value': 'true'}]
+        })
+        events = Event.objects.filter(filter.properties_to_Q())
+        self.assertEqual(events[0], event2)
+        self.assertEqual(len(events), 1)
+
+    def test_is_set(self):
+        event1 = Event.objects.create(team=self.team, event='$pageview')
+        event2 = Event.objects.create(team=self.team, event='$pageview', properties={'is_first_user': True})
+        filter = Filter(data={
+            'properties': [{'key': 'is_first_user', 'operator': 'is_set', 'value': 'false'}]
+        })
+        events = Event.objects.filter(filter.properties_to_Q())
+        self.assertEqual(events[0], event1)
+        self.assertEqual(len(events), 1)
+
+        filter = Filter(data={
+            'properties': [{'key': 'is_first_user', 'operator': 'is_set', 'value': 'true'}]
+        })
+        events = Event.objects.filter(filter.properties_to_Q())
+        self.assertEqual(events[0], event2)
+        self.assertEqual(len(events), 1)

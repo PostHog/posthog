@@ -191,6 +191,7 @@ export const operatorMap = {
     not_icontains: "∌ doesn't contain",
     gt: '> greater than',
     lt: '< lower than',
+    is_set: '! is set',
 }
 
 export const formatProperty = property => {

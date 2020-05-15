@@ -73,6 +73,7 @@ export function PropertyFilter({ index, endpoint, onComplete, logic }) {
                         endpoint={endpoint}
                         key={key}
                         propertyKey={key}
+                        operator={operator}
                         value={value}
                         onSet={value => {
                             onComplete()

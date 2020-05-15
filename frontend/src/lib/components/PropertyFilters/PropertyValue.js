@@ -10,23 +10,28 @@ export class PropertyValue extends Component {
         this.state = {
             input: '',
             optionsCache: [],
-            options: [],
+            options: props.operator === 'is_set' ? ['true', 'false'] : [],
         }
+
         this.loadPropertyValues = debounce(this.loadPropertyValues.bind(this), 250)
-        this.loadPropertyValues('')
+        if (this.props.operator !== 'is_set') {
+            this.loadPropertyValues('')
+        }
     }
-    loadPropertyValues(value) {
+    loadPropertyValues(input) {
         let key = this.props.propertyKey.split('__')[0]
-        this.setState({ optionsCache: { ...this.state.optionsCache, [value]: true } })
-        api.get('api/' + this.props.endpoint + '/values/?key=' + key + (value ? '&value=' + value : '')).then(
+
+        this.setState({ input, optionsCache: { ...this.state.optionsCache, [input]: 'loading' } })
+        api.get('api/' + this.props.endpoint + '/values/?key=' + key + (input ? '&value=' + input : '')).then(
             propValues =>
                 this.setState({
                     options: [...new Set([...this.state.options, ...propValues.map(option => option.name)])],
+                    optionsCache: { ...this.state.optionsCache, [input]: true },
                 })
         )
     }
     render() {
-        let { onSet, value } = this.props
+        let { onSet, value, operator } = this.props
         let { input, optionsCache, options } = this.state
         options = options.filter(option => input === '' || option.toLowerCase().indexOf(input.toLowerCase()) > -1)
         return (
@@ -36,9 +41,9 @@ export class PropertyValue extends Component {
                 style={{ width: '100%' }}
                 onChange={(_, { value }) => onSet(value)}
                 value={value}
+                loading={optionsCache[input] === 'loading'}
                 onSearch={input => {
-                    this.setState({ input })
-                    if (!optionsCache[input]) this.loadPropertyValues(input)
+                    if (!optionsCache[input] && operator !== 'is_set') this.loadPropertyValues(input)
                 }}
             >
                 {input && (
@@ -48,6 +53,8 @@ export class PropertyValue extends Component {
                 )}
                 {options.map(option => (
                     <Select.Option key={option} value={option}>
+                        {option === true && 'true'}
+                        {option === false && 'false'}
                         {option}
                     </Select.Option>
                 ))}

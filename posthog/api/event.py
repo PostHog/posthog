@@ -6,7 +6,7 @@ from django.db.models import QuerySet, F, Prefetch
 from django.db.models.functions import Lag
 from django.db import connection
 from django.db.models.expressions import Window
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 import json
 import datetime
 
@@ -43,6 +43,13 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
                 return ElementSerializer(event.elements_group.element_set.all().order_by('order'), many=True).data
         elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by('order')
         return ElementSerializer(elements, many=True).data
+
+def convert_bool(input: Union[str, bool]) -> str:
+    if isinstance(input, bool):
+        if input == True:
+            return 'true'
+        return 'false'
+    return input
 
 class EventViewSet(viewsets.ModelViewSet):
     queryset = Event.objects.all()
@@ -176,7 +183,7 @@ class EventViewSet(viewsets.ModelViewSet):
             LIMIT 50;
         """.format(where), params)
 
-        return response.Response([{'name': value.value} for value in values])
+        return response.Response([{'name': convert_bool(value.value)} for value in values])
 
     @action(methods=['GET'], detail=False)
     def sessions(self, request: request.Request) -> response.Response:
