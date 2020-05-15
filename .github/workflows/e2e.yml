@@ -2,7 +2,7 @@ name: e2e
 on: [push]
 jobs:
   cypress-run:
-    runs-on: ubuntu-16.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v1
