@@ -18,7 +18,9 @@ function PropertyFilter({ breakdown, onChange }) {
             value={breakdown ? breakdown : undefined}
             onChange={(_, { value }) => onChange(value)}
             styles={selectStyle}
-            filterOption={(input, option) => option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0}
+            filterOption={(input, option) =>
+                option.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+            }
         >
             {Object.entries(eventProperties).map(([key, item]) => {
                 return (
@@ -45,7 +47,9 @@ function CohortFilter({ breakdown, onChange }) {
                 onChange(value.length > 0 ? value : null, 'cohort')
             }}
             styles={selectStyle}
-            filterOption={(input, option) => option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0}
+            filterOption={(input, option) =>
+                option.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+            }
         >
             <Select.Option value={'all'} type="cohort" label={'all users'}>
                 All users*
