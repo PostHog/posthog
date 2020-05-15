@@ -12,6 +12,7 @@ services:
     image: "redis:alpine"
     container_name: posthog_redis
   web:
+    container_name: posthog_server
     build:
       context: .
       dockerfile: dev.Dockerfile

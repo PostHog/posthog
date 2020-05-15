@@ -8,6 +8,10 @@ jobs:
         uses: actions/checkout@v1
       - name: Prepare server
         run: docker-compose -f docker-compose.dev.yml up -d
+      - name: Check running containers
+        run: docker ps -a
+      - name: Check logs
+        run: docker logs posthog_server
       - name: Cypress run
         uses: cypress-io/github-action@v1
         with:
