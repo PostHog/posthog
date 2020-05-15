@@ -28,4 +28,6 @@ COPY . /code/
 RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 EXPOSE 8000
+RUN yarn install
+RUN yarn build
 CMD ["./bin/docker-dev"]
