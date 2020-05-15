@@ -16,3 +16,4 @@ jobs:
         uses: cypress-io/github-action@v1
         with:
           wait-on: 'http://localhost:8000'
+          wait-on-timeout: 240
