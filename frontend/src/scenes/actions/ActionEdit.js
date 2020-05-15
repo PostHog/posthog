@@ -183,7 +183,7 @@ export class ActionEdit extends Component {
                                     checked={!!action.post_to_slack}
                                     disabled={!this.state.slackEnabled}
                                 />
-                                &nbsp;Post to Slack when this action is triggered.
+                                &nbsp;Post to Slack/Teams when this action is triggered.
                             </label>
                             <Link to="/setup#slack">
                                 <small>Configure</small>

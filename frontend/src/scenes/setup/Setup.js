@@ -41,7 +41,7 @@ export function Setup() {
             This key is write-only, in that it can only create new events. It can't read any events or any of your other
             data stored on PostHog.
             <Divider />
-            <h2 id="slack">Slack Integration</h2>
+            <h2 id="slack">Slack or Teams Integration</h2>
             <SlackIntegration />
             <Divider />
             <h2 id="invite">Invite your team</h2>
