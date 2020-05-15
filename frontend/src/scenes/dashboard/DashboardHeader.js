@@ -53,17 +53,6 @@ export function DashboardHeader({ logic }) {
                     </div>
                     {dashboard ? (
                         <div className="dashboard-meta">
-                            <Tooltip title={'Click here or long press on a panel to move them around.'}>
-                                <Button
-                                    className="button-box-when-small enable-dragging-button"
-                                    type={draggingEnabled ? 'primary' : ''}
-                                    onClick={draggingEnabled ? disableDragging : enableDragging}
-                                >
-                                    <DragOutlined />
-                                    <span className="hide-when-small">{draggingEnabled ? 'Drag ON' : 'Drag OFF'}</span>
-                                </Button>
-                            </Tooltip>
-
                             {!fullScreen ? (
                                 <Tooltip title={dashboard.pinned ? 'Pinned into sidebar' : 'Pin into sidebar'}>
                                     <Button
@@ -78,6 +67,19 @@ export function DashboardHeader({ logic }) {
                                     </Button>
                                 </Tooltip>
                             ) : null}
+
+                            <Tooltip title={'Click here or long press on a panel to rearrange the dashboard.'}>
+                                <Button
+                                    className="button-box-when-small enable-dragging-button"
+                                    type={draggingEnabled ? 'primary' : ''}
+                                    onClick={draggingEnabled ? disableDragging : enableDragging}
+                                >
+                                    <DragOutlined />
+                                    <span className="hide-when-small">
+                                        {draggingEnabled ? 'Rearranging' : 'Rearrange'}
+                                    </span>
+                                </Button>
+                            </Tooltip>
 
                             <Tooltip title={fullScreen ? 'Presentation Mode Activated' : 'Activate Presentation Mode'}>
                                 <Button
