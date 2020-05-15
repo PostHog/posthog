@@ -17,7 +17,7 @@ jobs:
       - name: Check logs
         run: docker logs posthog_server
       - name: Install cypress
-        run: yarn add cypress
+        run: yarn install
 
       - name: Cypress run
         run: |
