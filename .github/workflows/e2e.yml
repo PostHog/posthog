@@ -1,4 +1,4 @@
-name: After server responds
+name: e2e
 on: [push]
 jobs:
   cypress-run:
@@ -6,9 +6,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v1
+      - name: Prepare server
+        run: docker-compose -f docker-compose.dev.yml up -d
       - name: Cypress run
         uses: cypress-io/github-action@v1
         with:
-          start: npm start
-          # quote the url to be safe against YML parsing surprises
-          wait-on: 'http://localhost:8080'
+          wait-on: 'http://localhost:8000'
