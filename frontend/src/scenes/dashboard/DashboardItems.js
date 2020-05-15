@@ -33,6 +33,24 @@ export function DashboardItems({ logic }) {
 
     useEscapeKey(disableDragging)
 
+    useEffect(() => {
+        function clickOnBackground(e) {
+            if (
+                draggingEnabled &&
+                !e.target.matches(
+                    '.dashboard-item, .dashboard-item *, .enable-dragging-button, .enable-dragging-button *'
+                )
+            ) {
+                disableDragging()
+            }
+        }
+
+        if (draggingEnabled) {
+            window.addEventListener('click', clickOnBackground)
+            return () => window.removeEventListener('click', clickOnBackground)
+        }
+    }, [draggingEnabled])
+
     return (
         <ReactGridLayout
             className={`layout${draggingEnabled ? ' dragging-items' : ''}`}

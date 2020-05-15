@@ -55,7 +55,7 @@ export function DashboardHeader({ logic }) {
                         <div className="dashboard-meta">
                             <Tooltip title={'Click here or long press on a panel to move them around.'}>
                                 <Button
-                                    className="button-box-when-small"
+                                    className="button-box-when-small enable-dragging-button"
                                     type={draggingEnabled ? 'primary' : ''}
                                     onClick={draggingEnabled ? disableDragging : enableDragging}
                                 >
