@@ -38,5 +38,5 @@ jobs:
 
       - name: Run tests
         run: |
-          sleep 5
+          sleep 30
           behave
