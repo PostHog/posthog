@@ -299,10 +299,18 @@ export const dashboardLogic = kea({
             if (!cache.draggingToastId) {
                 cache.draggingToastId = toast(
                     <>
-                        Started drag mode! <Link onClick={() => actions.disableDragging()}>Click here</Link> or on the
-                        back button to stop.
+                        <p className="headline">Rearranging panels!</p>
+                        <p>
+                            <Link onClick={() => actions.disableDragging()}>Click here</Link> or on the back button to
+                            stop.
+                        </p>
                     </>,
-                    { autoClose: false, onClick: () => actions.disableDragging(), closeButton: false }
+                    {
+                        autoClose: false,
+                        onClick: () => actions.disableDragging(),
+                        closeButton: false,
+                        className: 'drag-items-toast',
+                    }
                 )
             }
         },
