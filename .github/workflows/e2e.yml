@@ -13,7 +13,7 @@ jobs:
       - run: yarn install
       
       - name: Prepare server
-        run: docker-compose -f docker-compose.dev.yml up -d
+        run: docker-compose -f docker-compose.e2e.yml up -d
       - name: Check running containers
         run: docker ps -a
       - name: Check logs
