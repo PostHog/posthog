@@ -6,6 +6,7 @@ import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import { Link } from 'lib/components/Link'
 import React from 'react'
+import { clearDOMTextSelection } from 'lib/utils'
 
 export const dashboardLogic = kea({
     connect: [dashboardsModel],
@@ -296,6 +297,10 @@ export const dashboardLogic = kea({
         },
 
         enableDragging: () => {
+            clearDOMTextSelection()
+            window.setTimeout(clearDOMTextSelection, 200)
+            window.setTimeout(clearDOMTextSelection, 1000)
+
             if (!cache.draggingToastId) {
                 cache.draggingToastId = toast(
                     <>
