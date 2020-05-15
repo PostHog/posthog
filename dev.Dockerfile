@@ -30,4 +30,4 @@ RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectst
 EXPOSE 8000
 RUN yarn install
 RUN yarn build
-CMD ["./bin/docker-dev", "&", "tail", "-f", "/dev/null"]
+CMD ["./bin/docker-dev"]
