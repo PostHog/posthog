@@ -261,6 +261,10 @@
 
     .dashboard-item {
         will-change: transform;
+        .dashboard-item-header,
+        .dashboard-item-content {
+            pointer-events: none;
+        }
     }
 
     .dashboard-item:nth-child(7n) {

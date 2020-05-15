@@ -165,8 +165,14 @@ export const dashboardLogic = kea({
         ],
     }),
 
-    events: ({ actions }) => ({
+    events: ({ actions, cache }) => ({
         afterMount: [actions.loadDashboardItems],
+        beforeUnmount: () => {
+            if (cache.draggingToastId) {
+                toast.dismiss(cache.draggingToastId)
+                cache.draggingToastId = null
+            }
+        },
     }),
 
     listeners: ({ actions, values, key, cache }) => ({
@@ -296,7 +302,7 @@ export const dashboardLogic = kea({
                         Started drag mode! <Link onClick={() => actions.disableDragging()}>Click here</Link> or on the
                         back button to stop.
                     </>,
-                    { autoClose: false, onClick: () => actions.disableDragging() }
+                    { autoClose: false, onClick: () => actions.disableDragging(), closeButton: false }
                 )
             }
         },
