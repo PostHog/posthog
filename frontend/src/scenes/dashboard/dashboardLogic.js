@@ -22,7 +22,8 @@ export const dashboardLogic = kea({
         updateLayouts: layouts => ({ layouts }),
         saveLayouts: true,
         updateItemColor: (id, color) => ({ id, color }),
-        setDraggingEnabled: draggingEnabled => ({ draggingEnabled }),
+        enableDragging: true,
+        disableDragging: true,
     }),
 
     loaders: ({ props }) => ({
@@ -75,7 +76,8 @@ export const dashboardLogic = kea({
         draggingEnabled: [
             false,
             {
-                setDraggingEnabled: (_, { draggingEnabled }) => draggingEnabled,
+                enableDragging: () => true,
+                disableDragging: () => false,
             },
         ],
     }),
@@ -287,40 +289,37 @@ export const dashboardLogic = kea({
             }
         },
 
-        setDraggingEnabled: ({ draggingEnabled }) => {
-            if (draggingEnabled) {
-                if (!cache.toastId) {
-                    cache.toastId = toast(
-                        <>
-                            Started drag mode! <Link onClick={() => actions.setDraggingEnabled(false)}>Click here</Link>{' '}
-                            or on the back button to stop.
-                        </>,
-                        { autoClose: false, onClick: () => actions.setDraggingEnabled(false) }
-                    )
-                }
-            } else {
-                if (cache.toastId) {
-                    toast.dismiss(cache.toastId)
-                    cache.toastId = null
-                }
+        enableDragging: () => {
+            if (!cache.draggingToastId) {
+                cache.draggingToastId = toast(
+                    <>
+                        Started drag mode! <Link onClick={() => actions.disableDragging()}>Click here</Link> or on the
+                        back button to stop.
+                    </>,
+                    { autoClose: false, onClick: () => actions.disableDragging() }
+                )
+            }
+        },
+
+        disableDragging: () => {
+            if (cache.draggingToastId) {
+                toast.dismiss(cache.draggingToastId)
+                cache.draggingToastId = null
             }
         },
     }),
 
     actionToUrl: ({ key }) => ({
-        setDraggingEnabled: ({ draggingEnabled }) => [
-            `/dashboard/${key}`,
-            {},
-            { dragging: draggingEnabled || undefined },
-        ],
+        enableDragging: () => [`/dashboard/${key}`, {}, { dragging: true }],
+        disableDragging: () => `/dashboard/${key}`,
     }),
 
     urlToAction: ({ key, actions }) => ({
         [`/dashboard/${key}`]: (_, __, { dragging }) => {
             if (dragging) {
-                actions.setDraggingEnabled(true)
+                actions.enableDragging()
             } else {
-                actions.setDraggingEnabled(false)
+                actions.disableDragging()
             }
         },
     }),

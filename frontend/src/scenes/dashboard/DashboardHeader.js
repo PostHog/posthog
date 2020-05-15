@@ -20,7 +20,7 @@ import { FullScreen } from 'lib/components/FullScreen'
 
 export function DashboardHeader({ logic }) {
     const { dashboard, draggingEnabled } = useValues(logic)
-    const { addNewDashboard, renameDashboard, setDraggingEnabled } = useActions(logic)
+    const { addNewDashboard, renameDashboard, enableDragging, disableDragging } = useActions(logic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [fullScreen, setFullScreen] = useState(false)
@@ -62,7 +62,7 @@ export function DashboardHeader({ logic }) {
                             >
                                 <Button
                                     type={draggingEnabled ? 'primary' : ''}
-                                    onClick={() => setDraggingEnabled(!draggingEnabled)}
+                                    onClick={draggingEnabled ? disableDragging : enableDragging}
                                 >
                                     <DragOutlined /> {draggingEnabled ? 'Drag ON' : 'Drag OFF'}
                                 </Button>

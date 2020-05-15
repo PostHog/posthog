@@ -21,6 +21,7 @@ import {
     DeliveredProcedureOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
+import { useLongPress } from 'lib/hooks/useLongPress'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -61,7 +62,7 @@ const typeMap = {
     },
 }
 
-export default function DashboardItem({
+export function DashboardItem({
     item,
     dashboardId,
     updateItemColor,
@@ -70,6 +71,7 @@ export default function DashboardItem({
     duplicateDashboardItem,
     isDraggingRef,
     dashboards,
+    enableDragging,
 }) {
     const className = typeMap[item.type].className
     const Element = typeMap[item.type].element
@@ -79,8 +81,10 @@ export default function DashboardItem({
     const color = item.color || 'white'
     const otherDashboards = dashboards.filter(d => d.id !== dashboardId)
 
+    const longPressProps = useLongPress(enableDragging, 500)
+
     return (
-        <div key={item.id} className={`dashboard-item ${item.color || 'white'}`}>
+        <div key={item.id} className={`dashboard-item ${item.color || 'white'}`} {...longPressProps}>
             <div className={`dashboard-item-container ${className}`}>
                 <div className="dashboard-item-header">
                     <div className="dashboard-item-title">

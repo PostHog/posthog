@@ -4,9 +4,10 @@ import React, { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { Responsive, WidthProvider } from 'react-grid-layout'
 
-import DashboardItem from 'scenes/dashboard/DashboardItem'
+import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 
 const ReactGridLayout = WidthProvider(Responsive)
 
@@ -19,6 +20,8 @@ export function DashboardItems({ logic }) {
         updateLayouts,
         updateItemColor,
         duplicateDashboardItem,
+        enableDragging,
+        disableDragging,
     } = useActions(logic)
 
     // make sure the dashboard takes up the right size
@@ -27,6 +30,8 @@ export function DashboardItems({ logic }) {
     // can not click links when dragging and 250ms after
     const isDragging = useRef(false)
     const dragEndTimeout = useRef(null)
+
+    useEscapeKey(disableDragging)
 
     return (
         <ReactGridLayout
@@ -78,6 +83,7 @@ export function DashboardItems({ logic }) {
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         dashboards={dashboards}
+                        enableDragging={enableDragging}
                     />
                 </div>
             ))}
