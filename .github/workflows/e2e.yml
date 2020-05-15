@@ -10,16 +10,4 @@ jobs:
       - uses: actions/setup-node@v1
         with:
           node-version: 12
-      - name: Prepare server
-        run: docker-compose -f docker-compose.dev.yml up -d
-      - name: Check running containers
-        run: docker ps -a
-      - name: Check logs
-        run: docker logs posthog_server
-      - name: Install cypress
-        run: yarn install
-
-      - name: Cypress run
-        run: |
-          sleep 60
-          yarn run cypress run --config-file cypress.json
+      - run: yarn install
