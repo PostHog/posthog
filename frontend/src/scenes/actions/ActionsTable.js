@@ -82,7 +82,7 @@ export function ActionsTable() {
                     Funnels, Live actions and Trends.
                     <br />
                     <br />
-                    <a href="https://docs.posthog.com/#/features/actions" target="_blank" rel="noopener noreferrer">
+                    <a href="https://posthog.com/docs/features/actions" target="_blank" rel="noopener noreferrer">
                         See documentation
                     </a>
                 </i>
