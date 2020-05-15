@@ -38,7 +38,7 @@ export function DashboardItems({ logic }) {
             if (
                 draggingEnabled &&
                 !e.target.matches(
-                    '.dashboard-item, .dashboard-item *, .enable-dragging-button, .enable-dragging-button *'
+                    '.dashboard-item, .dashboard-item *, .enable-dragging-button, .enable-dragging-button *, .react-resizable-handle'
                 )
             ) {
                 disableDragging()
