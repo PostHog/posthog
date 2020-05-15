@@ -11,3 +11,8 @@ jobs:
         with:
           node-version: 12
       - run: yarn install
+    
+
+      - name: Cypress run
+        run: |
+          yarn run cypress run --config-file cypress.json
