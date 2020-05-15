@@ -83,9 +83,9 @@ export function SlackIntegration() {
     return (
         <div>
             <label>
-                Enter your Slack or Microsoft Teams webhook URL here. Read the docs to find out how to get this URL for
+                Enter your Slack or Microsoft Teams webhook URL here. Read the docs to find out how to get this URL for{' '}
                 <a href="https://posthog.com/docs/integrations/slack">Slack</a> or{' '}
-                <a href="https://posthog.com/docs/integrations/microsoft-teams">Slack</a>
+                <a href="https://posthog.com/docs/integrations/microsoft-teams">Microsoft Teams</a>
             </label>
             <div style={{ marginBottom: 5 }}>
                 <Input
