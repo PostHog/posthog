@@ -7,16 +7,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:12
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports: ['5432:5432']
-        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-
     steps:
       - uses: actions/checkout@v1
         with:
@@ -42,19 +32,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
         if: steps.cache.outputs.cache-hit != 'true'
-    
-      - name: Install frontend dependencies
-        run: yarn install
 
       - name: Prepare server
-        env:
-          DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-          REDIS_URL: 'redis://localhost'
-        run: |
-          python manage.py migrate
+        run: docker-compose -f docker-compose.dev.yml up -d
 
       - name: Run tests
-        env:
-          DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-          REDIS_URL: 'redis://localhost'
-        run: yarn start & DEBUG=1 python3 manage.py runserver
+        run: behave
