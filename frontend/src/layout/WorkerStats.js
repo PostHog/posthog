@@ -35,7 +35,8 @@ export function WorkerStats() {
                     }}
                     onClick={openModal}
                 >
-                    <WarningOutlined /> Configuration Error
+                    <WarningOutlined />
+                    <span className="hide-when-small"> Configuration Error</span>
                 </span>
             ) : null}
             <Modal
