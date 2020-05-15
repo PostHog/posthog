@@ -2,7 +2,7 @@ import './DashboardItems.scss'
 
 import React, { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { Responsive, WidthProvider } from 'react-grid-layout'
+import { Responsive, WidthProvider } from '@mariusandra/react-grid-layout'
 
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
