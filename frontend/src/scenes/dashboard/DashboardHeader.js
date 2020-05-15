@@ -32,7 +32,7 @@ export function DashboardHeader({ logic }) {
                 <Loading />
             ) : (
                 <>
-                    <div>
+                    <div className="dashboard-select">
                         <Select
                             value={dashboard?.id || null}
                             onChange={id =>
