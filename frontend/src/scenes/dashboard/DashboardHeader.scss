@@ -34,6 +34,16 @@
             &.button-box {
                 padding: 4px 8px;
             }
+            @media (max-width: 750px) {
+                &.button-box-when-small {
+                    padding: 4px 8px;
+                }
+            }
+        }
+    }
+    @media (max-width: 750px) {
+        .hide-when-small {
+            display: none;
         }
     }
 }

@@ -53,42 +53,43 @@ export function DashboardHeader({ logic }) {
                     </div>
                     {dashboard ? (
                         <div className="dashboard-meta">
-                            <Tooltip
-                                title={
-                                    draggingEnabled
-                                        ? 'Click here to disable dragging'
-                                        : 'Click here or long press on a panel to enable dragging'
-                                }
-                            >
+                            <Tooltip title={'Click here or long press on a panel to move them around.'}>
                                 <Button
+                                    className="button-box-when-small"
                                     type={draggingEnabled ? 'primary' : ''}
                                     onClick={draggingEnabled ? disableDragging : enableDragging}
                                 >
-                                    <DragOutlined /> {draggingEnabled ? 'Drag ON' : 'Drag OFF'}
+                                    <DragOutlined />
+                                    <span className="hide-when-small">{draggingEnabled ? 'Drag ON' : 'Drag OFF'}</span>
                                 </Button>
                             </Tooltip>
 
                             {!fullScreen ? (
-                                <Button
-                                    type={dashboard.pinned ? 'primary' : ''}
-                                    onClick={() =>
-                                        dashboard.pinned ? unpinDashboard(dashboard.id) : pinDashboard(dashboard.id)
-                                    }
-                                >
-                                    {dashboard.pinned ? <PushpinFilled /> : <PushpinOutlined />}{' '}
-                                    {dashboard.pinned ? 'Pinned' : 'Pin'}
-                                </Button>
+                                <Tooltip title={dashboard.pinned ? 'Pinned into sidebar' : 'Pin into sidebar'}>
+                                    <Button
+                                        className="button-box-when-small"
+                                        type={dashboard.pinned ? 'primary' : ''}
+                                        onClick={() =>
+                                            dashboard.pinned ? unpinDashboard(dashboard.id) : pinDashboard(dashboard.id)
+                                        }
+                                    >
+                                        {dashboard.pinned ? <PushpinFilled /> : <PushpinOutlined />}
+                                        <span className="hide-when-small">{dashboard.pinned ? 'Pinned' : 'Pin'}</span>
+                                    </Button>
+                                </Tooltip>
                             ) : null}
 
-                            <Button
-                                className="button-box"
-                                onClick={() => {
-                                    setFullScreen(!fullScreen)
-                                    triggerResizeAfterADelay()
-                                }}
-                            >
-                                {fullScreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
-                            </Button>
+                            <Tooltip title={fullScreen ? 'Presentation Mode Activated' : 'Activate Presentation Mode'}>
+                                <Button
+                                    className="button-box"
+                                    onClick={() => {
+                                        setFullScreen(!fullScreen)
+                                        triggerResizeAfterADelay()
+                                    }}
+                                >
+                                    {fullScreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                                </Button>
+                            </Tooltip>
 
                             {!fullScreen ? (
                                 <Dropdown
