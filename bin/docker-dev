@@ -3,4 +3,7 @@
 set -e
 python manage.py migrate
 
-python manage.py runserver 0.0.0.0:8000 & ./bin/start-worker & ./bin/start-frontend
+yarn install
+yarn build 
+
+python manage.py runserver 0.0.0.0:8000 & ./bin/start-worker
