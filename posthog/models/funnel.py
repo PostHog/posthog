@@ -1,4 +1,5 @@
-from collections import namedtuple
+from collections import defaultdict
+import datetime
 
 from django.db import models
 from django.contrib.postgres.fields import JSONField, ArrayField
@@ -24,6 +25,7 @@ from .action import Action
 from .person import Person
 from .filter import Filter
 from .entity import Entity
+from .utils import namedtuplefetchall
 
 from posthog.utils import properties_to_Q, request_to_date_query
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
@@ -37,55 +39,6 @@ class Funnel(models.Model):
     )
     deleted: models.BooleanField = models.BooleanField(default=False)
     filters: JSONField = JSONField(default=dict)
-
-    def _order_people_in_step(
-        self, steps: List[Dict[str, Any]], people: List[int]
-    ) -> List[int]:
-        def order(person):
-            score = 0
-            for step in steps:
-                if person in step["people"]:
-                    score += 1
-            return (score, person)
-
-        return sorted(people, key=order, reverse=True)
-
-    def _annotate_steps(
-        self,
-        team_id: int,
-        filter: Filter
-    ) -> Dict[str, Subquery]:
-        annotations = {}
-        for index, step in enumerate(filter.entities):
-            filter_key = (
-                "event"
-                if step.type == TREND_FILTER_TYPE_EVENTS
-                else "action__pk"
-            )
-            annotations["step_{}".format(index)] = Subquery(
-                Event.objects.all()
-                .annotate(person_id=OuterRef("id"))
-                .filter(
-                    filter.date_filter_Q,
-                    **{filter_key: step.id},
-                    team_id=team_id,
-                    distinct_id__in=Subquery(
-                        PersonDistinctId.objects.filter(
-                            team_id=team_id, person_id=OuterRef("person_id")
-                        ).values("distinct_id")
-                    ),
-                    **(
-                        {"timestamp__gt": OuterRef("step_{}".format(index - 1))}
-                        if index > 0
-                        else {}
-                    ),
-                )
-                .filter(filter.properties_to_Q())
-                .filter(step.properties_to_Q())
-                .order_by("timestamp")
-                .values("timestamp")[:1]
-            )
-        return annotations
 
     def _gen_lateral_bodies(
         self,
@@ -130,13 +83,11 @@ class Funnel(models.Model):
             "type": step.type,
         }
 
-    def namedtuplefetchall(self, cursor):
-        "Return all rows from a cursor as a namedtuple"
-        desc = cursor.description
-        nt_result = namedtuple('Result', [col[0] for col in desc])
-        return [nt_result(*row) for row in cursor.fetchall()]
-
     def _build_query(self, query_bodies: dict):
+        """Build query using lateral joins using a combination of Django generated SQL
+           and sql built using psycopg2
+        """
+
         ON_TRUE = "ON TRUE"
         LEFT_JOIN_LATERAL = "LEFT JOIN LATERAL"
         QUERY_HEADER = "SELECT {people}, {step}.distinct_id, {fields} FROM "
@@ -205,21 +156,20 @@ class Funnel(models.Model):
             qstring = self._build_query(self._gen_lateral_bodies(
                 team_id=self.team_id,
                 filter=filter)).as_string(cursor.connection)
-            print(qstring)
             cursor.execute(qstring)
-            people = self.namedtuplefetchall(cursor)
+            people = namedtuplefetchall(cursor)
         steps = []
+
+        person_score = defaultdict(int)
         for index, funnel_step in enumerate(filter.entities):
-            relevant_people = [
-                person.id
-                for person in people
-                if getattr(person, "step_{}".format(index))
-            ]
+            relevant_people = []
+            for person in people:
+                if getattr(person, "step_{}".format(index)):
+                    person_score[person.id] = max(person_score[person.id], index)
+                    relevant_people.append(person.id)
             steps.append(self._serialize_step(funnel_step, relevant_people))
 
         if len(steps) > 0:
             for index, _ in enumerate(steps):
-                steps[index]["people"] = self._order_people_in_step(
-                    steps, steps[index]["people"]
-                )[0:100]
+                steps[index]["people"] = sorted(steps[index]["people"], key=lambda p: person_score[p], reverse=True)[0:100]
         return steps
