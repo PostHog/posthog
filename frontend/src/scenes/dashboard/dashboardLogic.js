@@ -306,8 +306,8 @@ export const dashboardLogic = kea({
                     <>
                         <p className="headline">Rearranging panels!</p>
                         <p>
-                            <Link onClick={() => actions.disableDragging()}>Click here</Link> or on the back button to
-                            stop.
+                            <Link onClick={() => actions.disableDragging()}>Click here</Link>, the <u>ESC key</u> or the{' '}
+                            <u>back button</u> to stop.
                         </p>
                     </>,
                     {
