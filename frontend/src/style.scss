@@ -265,6 +265,11 @@ label.disabled {
     background: hsla(210, 19%, 19%, 1) !important;
 }
 
+.ant-menu-dark .ant-divider {
+    opacity: 0.1;
+    margin: 16px 0;
+}
+
 .ant-modal-mask {
     z-index: 1050 !important;
 }

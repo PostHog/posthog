@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { router } from 'kea-router'
 import { InviteTeam } from 'lib/components/InviteTeam'
-import { Menu, Layout, Modal } from 'antd'
+import { Menu, Layout, Modal, Divider } from 'antd'
 import {
     UserOutlined,
     ForkOutlined,
@@ -82,11 +82,7 @@ export default function Sidebar(props) {
                 mode="inline"
             >
                 <Logo />
-                <Menu.Item key="trends" style={itemStyle}>
-                    <RiseOutlined />
-                    <span className="sidebar-label">{'Trends'}</span>
-                    <Link to={'/trends'} />
-                </Menu.Item>
+
                 {pinnedDashboards.map(dashboard => (
                     <Menu.Item key={`dashboard-${dashboard.id}`} style={itemStyle}>
                         <LineChartOutlined />
@@ -94,6 +90,14 @@ export default function Sidebar(props) {
                         <Link to={`/dashboard/${dashboard.id}`} />
                     </Menu.Item>
                 ))}
+                {pinnedDashboards.length > 0 ? <Divider /> : null}
+
+                <Menu.Item key="trends" style={itemStyle}>
+                    <RiseOutlined />
+                    <span className="sidebar-label">{'Trends'}</span>
+                    <Link to={'/trends'} />
+                </Menu.Item>
+
                 <Menu.Item key="dashboards" style={itemStyle}>
                     <FundOutlined />
                     <span className="sidebar-label">Dashboards</span>
