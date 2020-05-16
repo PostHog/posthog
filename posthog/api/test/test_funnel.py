@@ -57,7 +57,6 @@ class TestGetFunnel(BaseTest):
 
     def _signup_event(self, **kwargs):
         sign_up = Event.objects.create(team=self.team, event='user signed up', **kwargs)
-
     def _pay_event(self, **kwargs):
         sign_up = Event.objects.create(team=self.team, elements=[
             Element(tag_name='button', text='Pay $10')
@@ -126,6 +125,7 @@ class TestGetFunnel(BaseTest):
         with self.assertNumQueries(7):
             response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
         self.assertEqual(response['steps'][0]['name'], 'user signed up')
+        import pdb; pdb.set_trace()
         self.assertEqual(response['steps'][0]['count'], 4)
         # check ordering of people in first step
         self.assertEqual(response['steps'][0]['people'], [person_stopped_after_movie.pk, person_stopped_after_pay.pk, person_wrong_order.pk, person_stopped_after_signup.pk])

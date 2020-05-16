@@ -1,5 +1,4 @@
 from collections import defaultdict
-import datetime
 
 from django.db import models
 from django.contrib.postgres.fields import JSONField, ArrayField
@@ -20,9 +19,7 @@ from typing import List, Dict, Any, Optional
 from psycopg2 import sql
 
 from .event import Event
-from .person import PersonDistinctId
 from .action import Action
-from .person import Person
 from .filter import Filter
 from .entity import Entity
 from .utils import namedtuplefetchall
@@ -156,6 +153,7 @@ class Funnel(models.Model):
             qstring = self._build_query(self._gen_lateral_bodies(
                 team_id=self.team_id,
                 filter=filter)).as_string(cursor.connection)
+            print("~~~~~~~~~~~~~~~~~~~~~~~~~\n", qstring)
             cursor.execute(qstring)
             people = namedtuplefetchall(cursor)
         steps = []
