@@ -186,7 +186,7 @@ class Funnel(models.Model):
             relevant_people = []
             for person in people:
                 if getattr(person, "step_{}".format(index)):
-                    person_score[person.id] = max(person_score[person.id], index)
+                    person_score[person.id] += 1
                     relevant_people.append(person.id)
             steps.append(self._serialize_step(funnel_step, relevant_people))
 
