@@ -50,15 +50,14 @@ class Funnel(models.Model):
                 if step.type == TREND_FILTER_TYPE_EVENTS
                 else "action__pk"
             )
-            people = PersonDistinctId.objects.values("person_id").filter(distinct_id=OuterRef("distinct_id"))
             annotations["step_{}".format(index)] = Event.objects.values("distinct_id")\
-                .annotate(person_id=Subquery(people), step_ts=Min("timestamp"))\
+                .annotate(step_ts=Min("timestamp"))\
                 .filter(
                     filter.date_filter_Q,
                     **{filter_key: step.id},
                     team_id=team_id,
                     **(
-                        {"person_id": "1234321"}
+                        {"distinct_id": "1234321"}
                         if index > 0
                         else {}
                     ),
@@ -102,9 +101,8 @@ class Funnel(models.Model):
                          [sql.Identifier("posthog_person"), sql.Identifier("properties")],
                          [sql.Identifier("posthog_person"), sql.Identifier("is_user_id")]]
         QUERY_FOOTER = sql.SQL("""
-            JOIN posthog_persondistinctid pdi ON pdi.distinct_id = {step0}.distinct_id
-            JOIN posthog_person ON pdi.person_id = posthog_person.id
-            WHERE {step0}.distinct_id IS NOT NULL
+            JOIN posthog_person ON posthog_person.id = {step0}.person_id
+            WHERE {step0}.person_id IS NOT NULL
             GROUP BY {group_by}""")
 
         person_fields = sql.SQL(",").join([sql.SQL(".").join(col) for col in PERSON_FIELDS])
@@ -129,8 +127,10 @@ class Funnel(models.Model):
         i = 0
         for step, qb in query_bodies.items():
             q = sql.SQL(qb.decode('utf-8')
-                        .replace("1234321", "{prev_step_person_id}")
-                        .replace("'2000-01-01T00:00:00+00:00'::timestamptz", "{prev_step_ts}"))
+                        .replace("'1234321'", "{prev_step_person_id}")
+                        .replace("'2000-01-01T00:00:00+00:00'::timestamptz", "{prev_step_ts}")
+                        .replace('"posthog_event"."distinct_id"', '"pdi"."person_id"')
+                        .replace('FROM "posthog_event"', 'FROM posthog_event JOIN posthog_persondistinctid pdi ON pdi.distinct_id = posthog_event.distinct_id'))
             if i == 0:
                 base_body = sql.SQL(LAT_JOIN_BODY).format(
                     query=q,
@@ -177,6 +177,7 @@ class Funnel(models.Model):
             qstring = self._build_query(self._gen_lateral_bodies(
                 team_id=self.team_id,
                 filter=filter)).as_string(cursor.connection)
+            print("~~~~~~~~~~~~~~~~~~~~~~~~~\n", qstring)
             cursor.execute(qstring)
             people = namedtuplefetchall(cursor)
         steps = []
