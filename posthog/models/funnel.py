@@ -177,7 +177,6 @@ class Funnel(models.Model):
             qstring = self._build_query(self._gen_lateral_bodies(
                 team_id=self.team_id,
                 filter=filter)).as_string(cursor.connection)
-            print("~~~~~~~~~~~~~~~~~~~~~~~~~\n", qstring)
             cursor.execute(qstring)
             people = namedtuplefetchall(cursor)
         steps = []
