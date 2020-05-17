@@ -20,6 +20,7 @@ from psycopg2 import sql
 
 from .event import Event
 from .action import Action
+from .person import PersonDistinctId
 from .filter import Filter
 from .entity import Entity
 from .utils import namedtuplefetchall
@@ -49,18 +50,24 @@ class Funnel(models.Model):
                 if step.type == TREND_FILTER_TYPE_EVENTS
                 else "action__pk"
             )
+            people = PersonDistinctId.objects.values("person_id").filter(distinct_id=OuterRef("distinct_id"))
             annotations["step_{}".format(index)] = Event.objects.values("distinct_id")\
-                .annotate(step_ts=Min("timestamp"))\
+                .annotate(person_id=Subquery(people), step_ts=Min("timestamp"))\
                 .filter(
                     filter.date_filter_Q,
                     **{filter_key: step.id},
                     team_id=team_id,
                     **(
-                        {"distinct_id": "{prev_step_distinct_id}"}
+                        {"person_id": "1234321"}
                         if index > 0
                         else {}
                     ),
-                ).filter(filter.properties_to_Q())\
+                    **(
+                        {"timestamp__gte": '2000-01-01'}
+                        if index > 0
+                        else {}
+                    ),
+            ).filter(filter.properties_to_Q())\
                 .filter(step.properties_to_Q())
         return annotations
 
@@ -87,7 +94,7 @@ class Funnel(models.Model):
 
         ON_TRUE = "ON TRUE"
         LEFT_JOIN_LATERAL = "LEFT JOIN LATERAL"
-        QUERY_HEADER = "SELECT {people}, {step}.distinct_id, {fields} FROM "
+        QUERY_HEADER = "SELECT {people}, {fields} FROM "
         LAT_JOIN_BODY = """({query}) {step} {on_true} {join}"""
         PERSON_FIELDS = [[sql.Identifier("posthog_person"), sql.Identifier("id")],
                          [sql.Identifier("posthog_person"), sql.Identifier("created_at")],
@@ -96,24 +103,34 @@ class Funnel(models.Model):
                          [sql.Identifier("posthog_person"), sql.Identifier("is_user_id")]]
         QUERY_FOOTER = sql.SQL("""
             JOIN posthog_persondistinctid pdi ON pdi.distinct_id = {step0}.distinct_id
-            JOIN posthog_person ON pdi.id = posthog_person.id
-            WHERE {step0}.distinct_id IS NOT NULL""")
+            JOIN posthog_person ON pdi.person_id = posthog_person.id
+            WHERE {step0}.distinct_id IS NOT NULL
+            GROUP BY {group_by}""")
 
         person_fields = sql.SQL(",").join([sql.SQL(".").join(col) for col in PERSON_FIELDS])
 
         steps = [sql.Identifier(step) for step, query in query_bodies.items()]
-        select_steps = [sql.Composed([step, sql.SQL("."), sql.Identifier("step_ts"), sql.SQL(" as "), step]) for step in steps]
+        select_steps = [sql.Composed([
+            sql.SQL("MIN("),
+            step,
+            sql.SQL("."),
+            sql.Identifier("step_ts"),
+            sql.SQL(") as "),
+            step
+        ]) for step in steps]
         lateral_joins = []
         with connection.cursor() as cursor:
             query_bodies = {step: cursor.mogrify(*q.query.sql_with_params()) for step, q in query_bodies.items()}
         query = sql.SQL(QUERY_HEADER).format(
-            step=steps[0],
+            # step=steps[0],
             fields=sql.SQL(',').join(select_steps),
             people=person_fields
         )
         i = 0
         for step, qb in query_bodies.items():
-            q = sql.SQL(qb.decode('utf-8').replace("'{", "{").replace("}'", "}"))
+            q = sql.SQL(qb.decode('utf-8')
+                        .replace("1234321", "{prev_step_person_id}")
+                        .replace("'2000-01-01T00:00:00+00:00'::timestamptz", "{prev_step_ts}"))
             if i == 0:
                 base_body = sql.SQL(LAT_JOIN_BODY).format(
                     query=q,
@@ -123,7 +140,10 @@ class Funnel(models.Model):
                 )
                 lateral_joins.append(base_body)
             elif i == len(query_bodies) - 1:
-                q = q.format(prev_step_distinct_id=sql.Composed([steps[i-1], sql.SQL("."), sql.Identifier("distinct_id")]))
+                q = q.format(
+                    prev_step_person_id=sql.Composed([steps[i-1], sql.SQL("."), sql.Identifier("person_id")]),
+                    prev_step_ts=sql.Composed([steps[i-1], sql.SQL("."), sql.Identifier("step_ts")])
+                )
                 base_body = sql.SQL(LAT_JOIN_BODY).format(
                     query=q,
                     step=sql.SQL(step),
@@ -132,7 +152,10 @@ class Funnel(models.Model):
                 )
                 lateral_joins.append(base_body)
             else:
-                q = q.format(prev_step_distinct_id=sql.Composed([steps[i-1], sql.SQL("."), sql.Identifier("distinct_id")]))
+                q = q.format(
+                    prev_step_person_id=sql.Composed([steps[i-1], sql.SQL("."), sql.Identifier("person_id")]),
+                    prev_step_ts=sql.Composed([steps[i - 1], sql.SQL("."), sql.Identifier("step_ts")])
+                )
                 base_body = sql.SQL(LAT_JOIN_BODY).format(
                     query=q,
                     step=sql.SQL(step),
@@ -142,7 +165,8 @@ class Funnel(models.Model):
                 lateral_joins.append(base_body)
             i += 1
         query_footer = QUERY_FOOTER.format(
-            step0=steps[0]
+            step0=steps[0],
+            group_by=person_fields
         )
         query = query + sql.SQL(" ").join(lateral_joins) + query_footer
         return query
