@@ -16,7 +16,7 @@ from django.db.models import (
 )
 from typing import List, Dict, Any, Optional
 
-from psycopg2 import sql
+from psycopg2 import sql # type: ignore
 
 from .event import Event
 from .action import Action
@@ -177,12 +177,11 @@ class Funnel(models.Model):
             qstring = self._build_query(self._gen_lateral_bodies(
                 team_id=self.team_id,
                 filter=filter)).as_string(cursor.connection)
-            print("~~~~~~~~~~~~~~~~~~~~~~~~~\n", qstring)
             cursor.execute(qstring)
             people = namedtuplefetchall(cursor)
         steps = []
 
-        person_score = defaultdict(int)
+        person_score: Dict = defaultdict(int)
         for index, funnel_step in enumerate(filter.entities):
             relevant_people = []
             for person in people:
