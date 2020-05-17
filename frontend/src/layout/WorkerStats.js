@@ -58,7 +58,7 @@ export function WorkerStats() {
                 <p>
                     Please{' '}
                     <a
-                        href="https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011"
+                        href="https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
                         target="_blank"
                         rel="noopener noreferrer"
                     >
