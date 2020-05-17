@@ -49,7 +49,7 @@ class _SendEventsOverlay extends Component {
                         into the header, you can be up and running in minutes! You can put this snippet on any domain,
                         and it'll capture users across.
                         <JSSnippet user={this.props.user} />
-                        <a href="https://docs.posthog.com/#/integrations">Using Python/Ruby/Node/Go/PHP instead?</a>
+                        <a href="https://posthog.com/docs/integrations">Using Python/Ruby/Node/Go/PHP instead?</a>
                         <br />
                         <br />
                         {window.location.href.indexOf('127.0.0.1') > -1 && (
