@@ -3,7 +3,7 @@ import './Sidebar.scss'
 import React, { useState } from 'react'
 import { router } from 'kea-router'
 import { InviteTeam } from 'lib/components/InviteTeam'
-import { Menu, Layout, Modal, Divider } from 'antd'
+import { Menu, Layout, Modal } from 'antd'
 import {
     UserOutlined,
     ForkOutlined,
@@ -92,7 +92,7 @@ export default function Sidebar(props) {
                         <Link to={`/dashboard/${dashboard.id}`} />
                     </Menu.Item>
                 ))}
-                {pinnedDashboards.length > 0 ? <Divider /> : null}
+                {pinnedDashboards.length > 0 ? <Menu.Divider /> : null}
 
                 <Menu.Item key="trends" style={itemStyle}>
                     <RiseOutlined />

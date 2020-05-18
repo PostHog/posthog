@@ -252,22 +252,8 @@ label.disabled {
     margin-left: 8px;
 }
 
-.sidebar-label {
-    text-overflow: ellipsis;
-    overflow: hidden;
-}
-
 .ant-layout.bg-dashboard {
     background: var(--gray-background);
-}
-
-.ant-menu-dark .ant-menu-inline.ant-menu-sub {
-    background: hsla(210, 19%, 19%, 1) !important;
-}
-
-.ant-menu-dark .ant-divider {
-    opacity: 0.1;
-    margin: 16px 0;
 }
 
 .ant-modal-mask {
