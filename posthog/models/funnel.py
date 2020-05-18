@@ -50,7 +50,7 @@ class Funnel(models.Model):
                 if step.type == TREND_FILTER_TYPE_EVENTS
                 else "action__pk"
             )
-            annotations["step_{}".format(index)] = Event.objects.values("distinct_id")\
+            event = Event.objects.values("distinct_id")\
                 .annotate(step_ts=Min("timestamp"))\
                 .filter(
                     filter.date_filter_Q,
@@ -66,8 +66,18 @@ class Funnel(models.Model):
                         if index > 0
                         else {}
                     ),
-            ).filter(filter.properties_to_Q())\
+                    ).filter(filter.properties_to_Q())\
                 .filter(step.properties_to_Q())
+            with connection.cursor() as cursor:
+                event_string = cursor.mogrify(*event.query.sql_with_params())
+            query = sql.SQL(event_string.decode('utf-8')
+                            .replace("'1234321'", "{prev_step_person_id}")
+                            .replace("'2000-01-01T00:00:00+00:00'::timestamptz", "{prev_step_ts}")
+                            .replace('"posthog_event"."distinct_id"', '"pdi"."person_id"')
+                            .replace('FROM "posthog_event"',
+                                     'FROM posthog_event JOIN posthog_persondistinctid pdi'
+                                     + ' ON pdi.distinct_id = posthog_event.distinct_id'))
+            annotations["step_{}".format(index)] = query
         return annotations
 
     def _serialize_step(
@@ -117,33 +127,36 @@ class Funnel(models.Model):
             step
         ]) for step in steps]
         lateral_joins = []
-        with connection.cursor() as cursor:
-            query_bodies = {step: cursor.mogrify(*q.query.sql_with_params()) for step, q in query_bodies.items()}
         query = sql.SQL(QUERY_HEADER).format(
-            # step=steps[0],
             fields=sql.SQL(',').join(select_steps),
             people=person_fields
         )
         i = 0
         for step, qb in query_bodies.items():
-            q = sql.SQL(qb.decode('utf-8')
-                        .replace("'1234321'", "{prev_step_person_id}")
-                        .replace("'2000-01-01T00:00:00+00:00'::timestamptz", "{prev_step_ts}")
-                        .replace('"posthog_event"."distinct_id"', '"pdi"."person_id"')
-                        .replace('FROM "posthog_event"', 'FROM posthog_event JOIN posthog_persondistinctid pdi ON pdi.distinct_id = posthog_event.distinct_id'))
             if i == 0:
+                # Generate first lateral join body
+                # The join conditions are different for first, middles, and last
+
+                # For the first step we include the alias, lateral join, but not 'ON TRUE'
                 base_body = sql.SQL(LAT_JOIN_BODY).format(
-                    query=q,
+                    query=qb,
                     step=sql.SQL(step),
                     on_true=sql.SQL(""),
                     join=sql.SQL(LEFT_JOIN_LATERAL)
                 )
                 lateral_joins.append(base_body)
             elif i == len(query_bodies) - 1:
-                q = q.format(
+                # Generate last lateral join body
+                # The join conditions are different for first, middles, and last
+                # For the last step we include the alias, 'ON TRUE', but not another `LATERAL JOIN`
+
+                # For each step after the first we must reference the previous step's person_id and step_ts
+                q = qb.format(
                     prev_step_person_id=sql.Composed([steps[i-1], sql.SQL("."), sql.Identifier("person_id")]),
                     prev_step_ts=sql.Composed([steps[i-1], sql.SQL("."), sql.Identifier("step_ts")])
                 )
+
+                # For the last step we include the alias, 'ON TRUE', but not another `LATERAL JOIN`
                 base_body = sql.SQL(LAT_JOIN_BODY).format(
                     query=q,
                     step=sql.SQL(step),
@@ -152,10 +165,16 @@ class Funnel(models.Model):
                 )
                 lateral_joins.append(base_body)
             else:
-                q = q.format(
+                # Generate middle lateral join body
+                # The join conditions are different for first, middles, and last
+
+                # For each step after the first we must reference the previous step's person_id and step_ts
+                q = qb.format(
                     prev_step_person_id=sql.Composed([steps[i-1], sql.SQL("."), sql.Identifier("person_id")]),
                     prev_step_ts=sql.Composed([steps[i - 1], sql.SQL("."), sql.Identifier("step_ts")])
                 )
+
+                # For the middle steps we include the alias, 'ON TRUE', and `LATERAL JOIN`
                 base_body = sql.SQL(LAT_JOIN_BODY).format(
                     query=q,
                     step=sql.SQL(step),
