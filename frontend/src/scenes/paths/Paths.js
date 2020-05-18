@@ -3,9 +3,8 @@ import api from 'lib/api'
 import { toParams, Card, Loading } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter'
 import { PathSelect } from '~/lib/components/PathSelect'
-import { Row } from 'antd'
+import { Row, Modal, Button } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
-import { CloseButton } from '~/lib/utils'
 
 let stripHTTP = url => {
     url = url.replace(/(^[0-9]+_)/, '')
@@ -227,10 +226,12 @@ export class Paths extends Component {
                     : stripHTTP(d.name)
             )
             .on('click', async node => {
-                let result = await api.get('api/event/' + node.id)
-                this.setState({
-                    eventelements: result,
-                })
+                if (this.state.filter.type == '$autocapture') {
+                    let result = await api.get('api/event/' + node.id)
+                    this.setState({
+                        eventelements: result,
+                    })
+                }
             })
             .style('cursor', this.state.filter.type == '$autocapture' ? 'pointer' : 'auto')
 
@@ -277,27 +278,6 @@ export class Paths extends Component {
         return (
             <div>
                 <h1>Paths</h1>
-                {this.state.filter.type == '$autocapture' && (
-                    <Card
-                        title={
-                            this.state.eventelements ? (
-                                <Row justify="end">
-                                    <CloseButton
-                                        onClick={() => {
-                                            this.setState({ eventelements: null })
-                                        }}
-                                    />
-                                </Row>
-                            ) : null
-                        }
-                    >
-                        {this.state.eventelements ? (
-                            <EventElements event={this.state.eventelements}></EventElements>
-                        ) : (
-                            <div style={{ margin: 20 }}>Click on a tag to see related DOM tree</div>
-                        )}
-                    </Card>
-                )}
                 <Card
                     title={
                         <Row justify="space-between">
@@ -318,6 +298,9 @@ export class Paths extends Component {
                         </Row>
                     }
                 >
+                    {this.state.filter.type == '$autocapture' && (
+                        <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
+                    )}
                     <div ref={this.canvas} className="paths" style={{ height: '90vh' }}>
                         {dataLoaded && paths && paths.nodes.length === 0 ? (
                             <NoData />
@@ -332,6 +315,20 @@ export class Paths extends Component {
                         )}
                     </div>
                 </Card>
+                <Modal
+                    visible={this.state.eventelements}
+                    onOk={() => this.setState({ eventelements: null })}
+                    onCancel={() => this.setState({ eventelements: null })}
+                    closable={false}
+                    style={{ minWidth: '50%' }}
+                    footer={[
+                        <Button key="submit" type="primary" onClick={() => this.setState({ eventelements: null })}>
+                            Ok
+                        </Button>,
+                    ]}
+                >
+                    {this.state.eventelements && <EventElements event={this.state.eventelements}></EventElements>}
+                </Modal>
             </div>
         )
     }
