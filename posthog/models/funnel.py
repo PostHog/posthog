@@ -134,10 +134,16 @@ class Funnel(models.Model):
         )
         i = 0
         for step, qb in query_bodies.items():
+            if i > 0:
+                # For each step after the first we must reference the previous step's person_id and step_ts
+                q = qb.format(
+                    prev_step_person_id=sql.Composed([steps[i-1], sql.SQL("."), sql.Identifier("person_id")]),
+                    prev_step_ts=sql.Composed([steps[i-1], sql.SQL("."), sql.Identifier("step_ts")])
+                )
+
             if i == 0:
                 # Generate first lateral join body
                 # The join conditions are different for first, middles, and last
-
                 # For the first step we include the alias, lateral join, but not 'ON TRUE'
                 base_body = sql.SQL(LAT_JOIN_BODY).format(
                     query=qb,
@@ -149,13 +155,6 @@ class Funnel(models.Model):
             elif i == len(query_bodies) - 1:
                 # Generate last lateral join body
                 # The join conditions are different for first, middles, and last
-
-                # For each step after the first we must reference the previous step's person_id and step_ts
-                q = qb.format(
-                    prev_step_person_id=sql.Composed([steps[i-1], sql.SQL("."), sql.Identifier("person_id")]),
-                    prev_step_ts=sql.Composed([steps[i-1], sql.SQL("."), sql.Identifier("step_ts")])
-                )
-
                 # For the last step we include the alias, 'ON TRUE', but not another `LATERAL JOIN`
                 base_body = sql.SQL(LAT_JOIN_BODY).format(
                     query=q,
@@ -167,13 +166,6 @@ class Funnel(models.Model):
             else:
                 # Generate middle lateral join body
                 # The join conditions are different for first, middles, and last
-
-                # For each step after the first we must reference the previous step's person_id and step_ts
-                q = qb.format(
-                    prev_step_person_id=sql.Composed([steps[i-1], sql.SQL("."), sql.Identifier("person_id")]),
-                    prev_step_ts=sql.Composed([steps[i - 1], sql.SQL("."), sql.Identifier("step_ts")])
-                )
-
                 # For the middle steps we include the alias, 'ON TRUE', and `LATERAL JOIN`
                 base_body = sql.SQL(LAT_JOIN_BODY).format(
                     query=q,
