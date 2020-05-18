@@ -66,6 +66,7 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
         old_person.delete()
 
 def _store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
+    # In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
     save = False
     if event not in team.event_names:
         save = True
