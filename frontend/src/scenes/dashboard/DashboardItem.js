@@ -81,7 +81,12 @@ export function DashboardItem({
     const color = item.color || 'white'
     const otherDashboards = dashboards.filter(d => d.id !== dashboardId)
 
-    const longPressProps = useLongPress(enableWobblyDragging, { ms: 500, touch: true, click: false })
+    const longPressProps = useLongPress(enableWobblyDragging, {
+        ms: 500,
+        touch: true,
+        click: false,
+        exclude: 'table, table *',
+    })
 
     return (
         <div key={item.id} className={`dashboard-item ${item.color || 'white'}`} {...longPressProps}>

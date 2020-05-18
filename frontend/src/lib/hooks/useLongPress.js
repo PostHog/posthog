@@ -12,7 +12,10 @@ function diffInCoords(e, initialCoords) {
     return Math.abs(coords[0] - initialCoords[0]) + Math.abs(coords[1] - initialCoords[1])
 }
 
-export function useLongPress(callback = () => {}, { ms = 300, pixelDistance = 10, touch = true, click = true }) {
+export function useLongPress(
+    callback = () => {},
+    { ms = 300, pixelDistance = 10, touch = true, click = true, exclude = '' }
+) {
     const [startLongPress, setStartLongPress] = useState(false)
     const [initialCoords, setInitialCoords] = useState(null)
 
@@ -31,6 +34,9 @@ export function useLongPress(callback = () => {}, { ms = 300, pixelDistance = 10
     }, [callback, ms, startLongPress])
 
     function start(e) {
+        if (exclude && e.target.matches(exclude)) {
+            return
+        }
         setInitialCoords(getCoords(e))
         setStartLongPress(true)
     }
