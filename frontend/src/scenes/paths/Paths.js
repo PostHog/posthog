@@ -2,9 +2,10 @@ import React, { Component } from 'react'
 import api from 'lib/api'
 import { toParams, Card, Loading } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter'
-import { Spin } from 'antd'
 import { PathSelect } from '~/lib/components/PathSelect'
 import { Row } from 'antd'
+import { EventElements } from 'scenes/events/EventElements'
+import { CloseButton } from '~/lib/utils'
 
 let stripHTTP = url => {
     url = url.replace(/(^[0-9]+_)/, '')
@@ -225,6 +226,13 @@ export class Paths extends Component {
                     ? stripHTTP(d.name).substring(0, 6) + '...' + stripHTTP(d.name).slice(-15)
                     : stripHTTP(d.name)
             )
+            .on('click', async node => {
+                let result = await api.get('api/event/' + node.id)
+                this.setState({
+                    eventelements: result,
+                })
+            })
+            .style('cursor', this.state.filter.type == '$autocapture' ? 'pointer' : 'auto')
 
         textSelection
             .append('tspan')
@@ -244,8 +252,8 @@ export class Paths extends Component {
                 {
                     paths: {
                         nodes: [
-                            ...paths.map(path => ({ name: path.source })),
-                            ...paths.map(path => ({ name: path.target })),
+                            ...paths.map(path => ({ name: path.source, id: path.source_id })),
+                            ...paths.map(path => ({ name: path.target, id: path.target_id })),
                         ],
                         links: paths,
                     },
@@ -269,6 +277,27 @@ export class Paths extends Component {
         return (
             <div>
                 <h1>Paths</h1>
+                {this.state.filter.type == '$autocapture' && (
+                    <Card
+                        title={
+                            this.state.eventelements ? (
+                                <Row justify="end">
+                                    <CloseButton
+                                        onClick={() => {
+                                            this.setState({ eventelements: null })
+                                        }}
+                                    />
+                                </Row>
+                            ) : null
+                        }
+                    >
+                        {this.state.eventelements ? (
+                            <EventElements event={this.state.eventelements}></EventElements>
+                        ) : (
+                            <div style={{ margin: 20 }}>Click on a tag to see related DOM tree</div>
+                        )}
+                    </Card>
+                )}
                 <Card
                     title={
                         <Row justify="space-between">

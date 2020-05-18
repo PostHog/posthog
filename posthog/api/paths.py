@@ -66,12 +66,14 @@ class PathsViewSet(viewsets.ViewSet):
 
         cursor = connection.cursor()
         cursor.execute('\
-        SELECT source_event, target_event, count(*) from (\
-            SELECT event_number || \'_\' || path_type as target_event,LAG(event_number || \'_\' || path_type, 1) OVER (\
+        SELECT source_event, target_event, MAX(target_id), MAX(source_id), count(*) from (\
+            SELECT event_number || \'_\' || path_type as target_event, id as target_id, LAG(event_number || \'_\' || path_type, 1) OVER (\
                             PARTITION BY session\
-                            ) AS source_event from \
+                            ) AS source_event , LAG(id, 1) OVER (\
+                            PARTITION BY session\
+                            ) AS source_id from \
         (\
-            SELECT {} as path_type, sessionified.session\
+            SELECT {} as path_type, id, sessionified.session\
                 ,ROW_NUMBER() OVER (\
                         PARTITION BY distinct_id\
                         ,session ORDER BY timestamp\
@@ -98,7 +100,9 @@ class PathsViewSet(viewsets.ViewSet):
             resp.append({
                 'source': row[0],
                 'target': row[1],
-                'value': row[2]
+                'target_id': row[2],
+                'source_id': row[3],
+                'value': row[4]
             })
 
         
