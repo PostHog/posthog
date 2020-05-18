@@ -57,13 +57,6 @@ beforeEach(() => {
     cy.visit('http://localhost:8000')
 })
 
-// TODO: investigate further. issue seems to be with framework in runner
-const resizeObserverLoopErrRe = /^ResizeObserver loop limit exceeded/
-
 Cypress.on('uncaught:exception', err => {
-    if (resizeObserverLoopErrRe.test(err.message)) {
-        // returning false here prevents Cypress from
-        // failing the test
-        return false
-    }
+    return false
 })
