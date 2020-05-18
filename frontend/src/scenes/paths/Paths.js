@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { toParams, Card, Loading } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter'
 import { PathSelect } from '~/lib/components/PathSelect'
-import { Row, Modal, Button } from 'antd'
+import { Row, Modal, Button, Spin } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
 
 let stripHTTP = url => {
@@ -70,11 +70,12 @@ export class Paths extends Component {
             },
             d3Loaded: false,
             sankeyLoaded: false,
+            modalVisible: false,
         }
-        this.fetchPaths = this.fetchPaths.bind(this)
-        this.canvas = React.createRef()
 
+        this.canvas = React.createRef()
         this.fetchPaths()
+
         import('d3').then(d3 => {
             this.d3 = d3
             this.setState({ d3Loaded: true })
@@ -227,6 +228,10 @@ export class Paths extends Component {
             )
             .on('click', async node => {
                 if (this.state.filter.type == '$autocapture') {
+                    this.setState({
+                        modalVisible: true,
+                        eventelements: null,
+                    })
                     let result = await api.get('api/event/' + node.id)
                     this.setState({
                         eventelements: result,
@@ -316,18 +321,30 @@ export class Paths extends Component {
                     </div>
                 </Card>
                 <Modal
-                    visible={this.state.eventelements}
-                    onOk={() => this.setState({ eventelements: null })}
-                    onCancel={() => this.setState({ eventelements: null })}
+                    visible={this.state.modalVisible}
+                    onOk={() => this.setState({ modalVisible: false })}
+                    onCancel={() => this.setState({ modalVisible: false })}
                     closable={false}
                     style={{ minWidth: '50%' }}
                     footer={[
-                        <Button key="submit" type="primary" onClick={() => this.setState({ eventelements: null })}>
+                        <Button key="submit" type="primary" onClick={() => this.setState({ modalVisible: false })}>
                             Ok
                         </Button>,
                     ]}
+                    bodyStyle={
+                        !this.state.eventelements
+                            ? {
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                              }
+                            : {}
+                    }
                 >
-                    {this.state.eventelements && <EventElements event={this.state.eventelements}></EventElements>}
+                    {this.state.eventelements ? (
+                        <EventElements event={this.state.eventelements}></EventElements>
+                    ) : (
+                        <Spin />
+                    )}
                 </Modal>
             </div>
         )
