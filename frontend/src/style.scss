@@ -20,6 +20,10 @@ $badge-font-weight: 400;
 $body-bg: #fffefc;
 $body-color: #37352f;
 
+:root {
+    --gray-background: hsla(210, 6%, 95%, 1);
+}
+
 // bootstrap components
 @import 'node_modules/bootstrap/scss/_root';
 @import 'node_modules/bootstrap/scss/utilities';
@@ -248,17 +252,8 @@ label.disabled {
     margin-left: 8px;
 }
 
-.sidebar-label {
-    text-overflow: ellipsis;
-    overflow: hidden;
-}
-
 .ant-layout.bg-dashboard {
-    background: hsla(210, 6%, 95%, 1);
-}
-
-.ant-menu-dark .ant-menu-inline.ant-menu-sub {
-    background: hsla(210, 19%, 19%, 1) !important;
+    background: var(--gray-background);
 }
 
 .ant-modal-mask {
@@ -279,4 +274,17 @@ label.disabled {
 }
 .ant-select-arrow .anticon {
     vertical-align: top !important;
+}
+
+// less content padding in low resolutions
+.ant-layout .ant-layout-content.pl-5.pr-5.pt-3,
+.ant-layout .content.py-3.layout-top-content {
+    @media (min-width: 480px) and (max-width: 639px) {
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+    }
+    @media (max-width: 479px) {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
 }

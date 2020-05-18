@@ -1,10 +1,16 @@
 import React, { Component } from 'react'
 import api from 'lib/api'
-import { toParams, Card } from 'lib/utils'
+import { toParams, Card, Loading } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter'
-import { Spin } from 'antd'
+import { PathSelect } from '~/lib/components/PathSelect'
+import { Row, Modal, Button, Spin } from 'antd'
+import { EventElements } from 'scenes/events/EventElements'
 
-let stripHTTP = url => url.replace(/(^[0-9]+_\w+:|^)\/\//, '')
+let stripHTTP = url => {
+    url = url.replace(/(^[0-9]+_)/, '')
+    url = url.replace(/(^\w+:|^)\/\//, '')
+    return url
+}
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
@@ -64,11 +70,12 @@ export class Paths extends Component {
             },
             d3Loaded: false,
             sankeyLoaded: false,
+            modalVisible: false,
         }
-        this.fetchPaths = this.fetchPaths.bind(this)
-        this.canvas = React.createRef()
 
+        this.canvas = React.createRef()
         this.fetchPaths()
+
         import('d3').then(d3 => {
             this.d3 = d3
             this.setState({ d3Loaded: true })
@@ -201,7 +208,7 @@ export class Paths extends Component {
                 return d.value - d.source.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
             })
 
-        link.append('title').text(d => `${d.source.name} → ${d.target.name}\n${d.value.toLocaleString()}`)
+        link.append('title').text(d => `${d.source.label} → ${d.target.label}\n${d.value.toLocaleString()}`)
 
         var textSelection = svg
             .append('g')
@@ -219,6 +226,19 @@ export class Paths extends Component {
                     ? stripHTTP(d.name).substring(0, 6) + '...' + stripHTTP(d.name).slice(-15)
                     : stripHTTP(d.name)
             )
+            .on('click', async node => {
+                if (this.state.filter.type == '$autocapture') {
+                    this.setState({
+                        modalVisible: true,
+                        eventelements: null,
+                    })
+                    let result = await api.get('api/event/' + node.id)
+                    this.setState({
+                        eventelements: result,
+                    })
+                }
+            })
+            .style('cursor', this.state.filter.type == '$autocapture' ? 'pointer' : 'auto')
 
         textSelection
             .append('tspan')
@@ -238,8 +258,8 @@ export class Paths extends Component {
                 {
                     paths: {
                         nodes: [
-                            ...paths.map(path => ({ name: path.source })),
-                            ...paths.map(path => ({ name: path.target })),
+                            ...paths.map(path => ({ name: path.source, id: path.source_id })),
+                            ...paths.map(path => ({ name: path.target, id: path.target_id })),
                         ],
                         links: paths,
                     },
@@ -265,38 +285,67 @@ export class Paths extends Component {
                 <h1>Paths</h1>
                 <Card
                     title={
-                        <span>
-                            <span className="float-right">
-                                <DateFilter
-                                    onChange={(date_from, date_to) =>
-                                        this.updateFilter({
-                                            date_from,
-                                            date_to,
-                                        })
-                                    }
-                                    dateFrom={filter.date_from}
-                                    dateTo={filter.date_to}
-                                />
-                            </span>
-                        </span>
+                        <Row justify="space-between">
+                            <Row align="middle">
+                                Path Type:
+                                <PathSelect onChange={value => this.updateFilter({ type: value })} />
+                            </Row>
+                            <DateFilter
+                                onChange={(date_from, date_to) =>
+                                    this.updateFilter({
+                                        date_from,
+                                        date_to,
+                                    })
+                                }
+                                dateFrom={filter.date_from}
+                                dateTo={filter.date_to}
+                            />
+                        </Row>
                     }
                 >
+                    {this.state.filter.type == '$autocapture' && (
+                        <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
+                    )}
                     <div ref={this.canvas} className="paths" style={{ height: '90vh' }}>
                         {dataLoaded && paths && paths.nodes.length === 0 ? (
                             <NoData />
                         ) : (
                             !dataLoaded && (
-                                <div style={{ paddingTop: '14rem', textAlign: 'center' }}>
+                                <div className="loading-overlay mt-5">
                                     <div />
-                                    <Spin />
+                                    <Loading />
                                     <br />
-                                    <br />
-                                    (This might take a while)
                                 </div>
                             )
                         )}
                     </div>
                 </Card>
+                <Modal
+                    visible={this.state.modalVisible}
+                    onOk={() => this.setState({ modalVisible: false })}
+                    onCancel={() => this.setState({ modalVisible: false })}
+                    closable={false}
+                    style={{ minWidth: '50%' }}
+                    footer={[
+                        <Button key="submit" type="primary" onClick={() => this.setState({ modalVisible: false })}>
+                            Ok
+                        </Button>,
+                    ]}
+                    bodyStyle={
+                        !this.state.eventelements
+                            ? {
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                              }
+                            : {}
+                    }
+                >
+                    {this.state.eventelements ? (
+                        <EventElements event={this.state.eventelements}></EventElements>
+                    ) : (
+                        <Spin />
+                    )}
+                </Modal>
             </div>
         )
     }

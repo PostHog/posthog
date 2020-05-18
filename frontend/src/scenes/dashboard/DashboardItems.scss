@@ -1,14 +1,16 @@
 .dashboard-item {
     display: block;
     background: white;
-    padding: 15px;
+    height: 100%;
+    padding: 0;
+    position: relative;
     box-shadow: 0 8px 10px rgba(0, 0, 0, 0.1);
     border-radius: 5px;
     overflow: hidden;
     z-index: 3;
 
     &.react-draggable-dragging {
-        box-shadow: 0 8px 10px rgba(0, 0, 0, 0.4), 0 20px 20px rgba(0, 0, 0, 0.4);
+        box-shadow: 0 20px 20px rgba(0, 0, 0, 0.3);
     }
 
     .dashboard-item-container {
@@ -19,11 +21,11 @@
     }
 
     .dashboard-item-header {
-        height: 32px;
+        padding: 15px 15px 7px 15px;
+        height: 52px;
         width: 100%;
         display: flex;
         justify-content: space-between;
-        margin-bottom: 15px;
 
         .dashboard-item-title {
             overflow: hidden;
@@ -53,15 +55,29 @@
         }
     }
     .dashboard-item-content {
+        padding: 8px 15px 15px 15px;
         overflow: hidden;
         flex-grow: 1;
         position: relative;
+        .graph-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
     }
     .dashboard-item-container.table .dashboard-item-content {
         overflow: auto;
     }
 
     // sync this with lib/colors.js
+
+    .loading-overlay {
+        background: transparent;
+    }
+
+    table.table {
+        margin: 0;
+    }
 
     &.blue {
         --item-background: hsl(212, 63%, 40%);
@@ -95,12 +111,16 @@
     &.purple,
     &.green,
     &.black {
+        .loading-overlay {
+            filter: brightness(300%);
+        }
         color: white;
         background: var(--item-background);
         .dashboard-item-header .dashboard-item-title a {
             color: white;
         }
         .dashboard-item-header .dashboard-item-settings .anticon {
+            color: rgba(255, 255, 255, 0.8);
             background: var(--item-darker);
             &:hover {
                 background: var(--item-darkest);
@@ -157,33 +177,178 @@
 }
 
 .react-grid-item.react-grid-placeholder {
-    background: red;
-    opacity: 0.2;
+    background: rgba(0, 0, 0, 0.15);
+    filter: blur(6px);
+    border-radius: 5px;
     transition-duration: 100ms;
     z-index: 2;
     user-select: none;
 }
-
-.react-grid-item > .react-resizable-handle {
-    position: absolute;
-    width: 20px;
-    height: 20px;
-    bottom: 0;
-    right: 0;
-    cursor: se-resize;
-}
-
-.react-grid-item > .react-resizable-handle::after {
-    content: '';
-    position: absolute;
-    right: 3px;
-    bottom: 3px;
-    width: 5px;
-    height: 5px;
-    border-right: 2px solid rgba(0, 0, 0, 0.4);
-    border-bottom: 2px solid rgba(0, 0, 0, 0.4);
-}
-
 .react-resizable-hide > .react-resizable-handle {
     display: none;
+}
+.react-grid-item {
+    & > .react-resizable-handle {
+        position: absolute;
+        width: 40px;
+        height: 40px;
+        bottom: -10px;
+        right: -10px;
+        cursor: se-resize;
+        z-index: 10;
+    }
+    & > .react-resizable-handle.react-resizable-handle-se {
+        cursor: se-resize;
+    }
+    & > .react-resizable-handle.react-resizable-handle-e {
+        top: 0;
+        bottom: 30px;
+        width: 25px;
+        height: auto;
+        cursor: ew-resize;
+    }
+    & > .react-resizable-handle.react-resizable-handle-s {
+        left: 0;
+        right: 30px;
+        height: 25px;
+        width: auto;
+        cursor: ns-resize;
+    }
+}
+.react-grid-layout.layout.dragging-items.wobbly .react-grid-item {
+    & > .react-resizable-handle {
+        width: 40px;
+        height: 40px;
+    }
+    & > .react-resizable-handle.react-resizable-handle-e {
+        top: 0;
+        bottom: 30px;
+        height: auto;
+    }
+    & > .react-resizable-handle.react-resizable-handle-s {
+        left: 0;
+        right: 30px;
+        width: auto;
+    }
+}
+.react-grid-layout.layout.dragging-items .dashboard-item {
+    .dashboard-item-header {
+        cursor: move;
+    }
+    table {
+        cursor: auto;
+    }
+}
+.react-grid-layout.layout.dragging-items.wobbly {
+    margin-bottom: 200px;
+    will-change: transform;
+
+    .dashboard-item {
+        cursor: move;
+        will-change: transform;
+        .dashboard-item-header,
+        .dashboard-item-content {
+            pointer-events: none;
+        }
+    }
+
+    .dashboard-item:nth-child(7n) {
+        animation-delay: -0.75s;
+        animation-duration: 0.25s;
+    }
+
+    .dashboard-item:nth-child(7n + 1) {
+        animation-delay: -0.5s;
+        animation-duration: 0.3s;
+    }
+
+    .dashboard-item:nth-child(7n + 2) {
+        animation-delay: -0.05s;
+        animation-duration: 0.27s;
+    }
+
+    .dashboard-item:nth-child(7n + 3) {
+        animation-delay: -0.2s;
+        animation-duration: 0.33s;
+    }
+
+    .dashboard-item:nth-child(7n + 4) {
+        animation-delay: -0.31s;
+        animation-duration: 0.24s;
+    }
+
+    .dashboard-item:nth-child(7n + 5) {
+        animation-delay: -0.15s;
+        animation-duration: 0.25s;
+    }
+
+    .dashboard-item:nth-child(7n + 6) {
+        animation-delay: -0.2s;
+        animation-duration: 0.22s;
+    }
+
+    .dashboard-item-wrapper:nth-child(2n) .dashboard-item {
+        animation-name: keyframes1;
+        animation-iteration-count: infinite;
+        transform-origin: 50% 10%;
+    }
+
+    .dashboard-item-wrapper:nth-child(2n-1) .dashboard-item {
+        animation-name: keyframes2;
+        animation-iteration-count: infinite;
+        animation-direction: alternate;
+        transform-origin: 30% 5%;
+    }
+
+    @keyframes keyframes1 {
+        0% {
+            transform: rotate(-0.5deg);
+            animation-timing-function: ease-in;
+        }
+
+        50% {
+            transform: rotate(0.75deg);
+            animation-timing-function: ease-out;
+        }
+    }
+
+    @keyframes keyframes2 {
+        0% {
+            transform: rotate(0.5deg);
+            animation-timing-function: ease-in;
+        }
+
+        50% {
+            transform: rotate(-0.75deg);
+            animation-timing-function: ease-out;
+        }
+    }
+}
+
+.Toastify .drag-items-toast {
+    background: hsla(210, 10%, 12%, 1);
+    color: hsla(220, 9%, 92%, 1);
+    padding: 15px 30px;
+    text-align: center;
+    border-radius: 5px;
+    @media (max-width: 480px) {
+        border-radius: 0;
+    }
+    p {
+        margin-bottom: 10px;
+    }
+    p:last-child {
+        margin-bottom: 0;
+    }
+    .headline {
+        font-size: 150%;
+    }
+    a {
+        color: white;
+        text-decoration: underline;
+        white-space: nowrap;
+    }
+    u {
+        white-space: nowrap;
+    }
 }
