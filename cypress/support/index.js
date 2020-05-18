@@ -33,8 +33,8 @@ beforeEach(() => {
                 .should('have.value', 'name')
 
             cy.get('#inputEmail')
-                .type('fake@email.com')
-                .should('have.value', 'fake@email.com')
+                .type('fake@posthog.com')
+                .should('have.value', 'fake@posthog.com')
 
             cy.get('#inputPassword')
                 .type('password')
@@ -43,8 +43,8 @@ beforeEach(() => {
             cy.get('.btn').click()
         } else if (url.includes('login')) {
             cy.get('#inputEmail')
-                .type('fake@email.com')
-                .should('have.value', 'fake@email.com')
+                .type('fake@posthog.com')
+                .should('have.value', 'fake@posthog.com')
 
             cy.get('#inputPassword')
                 .type('password')
