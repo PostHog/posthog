@@ -20,6 +20,7 @@ app.config_from_object('django.conf:settings', namespace='CELERY')
 # Load task modules from all registered Django app configs.
 app.autodiscover_tasks()
 
+# Make sure Redis doesn't add too many connections
 # https://stackoverflow.com/questions/47106592/redis-connections-not-being-released-after-celery-task-is-complete
 app.conf.broker_pool_limit = 0
 
