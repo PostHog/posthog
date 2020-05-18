@@ -197,23 +197,24 @@ class EventManager(models.QuerySet):
                         team_id=kwargs["team_id"], elements=kwargs.pop("elements")
                     ).hash
             event = super().create(*args, **kwargs)
+
             should_post_to_slack = False
             relations = []
             for action in event.actions:
                 relations.append(
-                    action.events.through(action_id=action.pk, event=event)
+                    action.events.through(action_id=action.pk, event_id=event.pk)
                 )
                 if action.post_to_slack:
                     should_post_to_slack = True
 
             Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
-
+            team = kwargs.get('team', event.team)
             if (
                 should_post_to_slack
-                and event.team
-                and event.team.slack_incoming_webhook
+                and team
+                and team.slack_incoming_webhook
             ):
-                post_event_to_slack.delay(event.id, site_url)
+                post_event_to_slack.delay(event.pk, site_url)
 
             return event
 
@@ -237,12 +238,17 @@ class Event(models.Model):
     @property
     def actions(self) -> List:
         actions = (
-            Action.objects.filter(team_id=self.team_id, steps__event=self.event)
+            Action.objects.filter(
+                team_id=self.team_id,
+                steps__event=self.event # filter by event name to narrow down
+            )
             .distinct("id")
             .prefetch_related(
                 Prefetch("steps", queryset=ActionStep.objects.order_by("id"))
             )
         )
+        if len(actions) == 0:
+            return []
         events: models.QuerySet[Any] = Event.objects.filter(pk=self.pk)
         for action in actions:
             events = events.annotate(

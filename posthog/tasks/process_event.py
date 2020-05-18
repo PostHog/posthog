@@ -65,8 +65,8 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
 
         old_person.delete()
 
-def _store_names_and_properties(team_id: int, event: str, properties: Dict) -> None:
-    team = Team.objects.get(pk=team_id)
+def _store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
+    # In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
     save = False
     if event not in team.event_names:
         save = True
@@ -97,17 +97,18 @@ def _capture(ip: str, site_url: str, team_id: int, event: str, distinct_id: str,
             ) for index, el in enumerate(elements)
         ]
     properties["$ip"] = ip
+    team = Team.objects.only('slack_incoming_webhook', 'event_names', 'event_properties').get(pk=team_id)
 
     Event.objects.create(
         event=event,
         distinct_id=distinct_id,
         properties=properties,
-        team_id=team_id,
+        team=team,
         site_url=site_url,
         **({'timestamp': timestamp} if timestamp else {}),
         **({'elements': elements_list} if elements_list else {})
     )
-    _store_names_and_properties(team_id=team_id, event=event, properties=properties)
+    _store_names_and_properties(team=team, event=event, properties=properties)
     # try to create a new person
     try:
         Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
