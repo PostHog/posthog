@@ -20,7 +20,6 @@ from psycopg2 import sql # type: ignore
 
 from .event import Event
 from .action import Action
-from .person import PersonDistinctId
 from .filter import Filter
 from .entity import Entity
 from .utils import namedtuplefetchall
