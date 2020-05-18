@@ -55,7 +55,13 @@ export function ActionsPie({ filters, color }) {
                 >
                     <div style={{ marginLeft: '-50%', marginTop: -35 }}>{total}</div>
                 </h1>
-                <LineGraph color={color} type="doughnut" datasets={data} labels={data[0].labels} />
+                <LineGraph
+                    dataattr="trend-pie-graph"
+                    color={color}
+                    type="doughnut"
+                    datasets={data}
+                    labels={data[0].labels}
+                />
             </div>
         ) : (
             <p style={{ textAlign: 'center', marginTop: '4rem' }}>We couldn't find any matching actions.</p>

@@ -30,7 +30,7 @@ export class ActionsTable extends Component {
         let { filters } = this.props
         return data ? (
             data[0] && (filters.session || data[0].labels) ? (
-                <table className="table">
+                <table className="table" dataattr="trend-table-graph">
                     <tbody>
                         <tr>
                             <th style={{ width: 100 }}>{filters.session ? 'Session Attribute' : 'Action'}</th>

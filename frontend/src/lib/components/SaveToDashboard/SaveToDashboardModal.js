@@ -61,7 +61,7 @@ export function SaveToDashboardModal({
             await api.update(`api/dashboard_item/${fromItem}`, { filters, type })
         }
         toast(
-            <div>
+            <div dataattr="success-toast">
                 {newItem ? 'Panel added to dashboard.' : 'Panel updated!'}&nbsp;
                 <Link to={`/dashboard/${dashboardId}`}>Click here to see it.</Link>
             </div>

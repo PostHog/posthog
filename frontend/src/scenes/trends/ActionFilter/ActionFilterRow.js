@@ -54,6 +54,7 @@ export function ActionFilterRow({ logic, filter, index }) {
     return (
         <div>
             <button
+                dataattr={'trend-element-subject-' + index}
                 ref={node}
                 className="filter-action"
                 type="button"

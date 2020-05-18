@@ -16,6 +16,7 @@ export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filt
     return results ? (
         filters.session || results.reduce((total, item) => total + item.count, 0) > 0 ? (
             <LineGraph
+                dataattr="trend-line-graph"
                 type="line"
                 color={color}
                 datasets={results}
