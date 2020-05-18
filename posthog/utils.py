@@ -160,3 +160,10 @@ def get_ip_address(request: HttpRequest) -> str:
     else:
         ip = request.META.get('REMOTE_ADDR')    ### Real IP address of client Machine
     return ip
+
+def dict_from_cursor_fetchall(cursor):
+    columns = [col[0] for col in cursor.description]
+    return [
+        dict(zip(columns, row))
+        for row in cursor.fetchall()
+    ]
