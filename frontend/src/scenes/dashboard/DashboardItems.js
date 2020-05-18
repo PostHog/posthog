@@ -7,9 +7,9 @@ import { Responsive, WidthProvider } from '@mariusandra/react-grid-layout'
 import { DashboardItem } from 'scenes/dashboard/DashboardItem'
 import { triggerResize, triggerResizeAfterADelay } from 'lib/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 
 const ReactGridLayout = WidthProvider(Responsive)
+const noop = () => {}
 
 export function DashboardItems({ logic }) {
     const { dashboards } = useValues(dashboardsModel)
@@ -20,8 +20,7 @@ export function DashboardItems({ logic }) {
         updateLayouts,
         updateItemColor,
         duplicateDashboardItem,
-        enableDragging,
-        disableDragging,
+        enableWobblyDragging,
     } = useActions(logic)
 
     // make sure the dashboard takes up the right size
@@ -31,31 +30,14 @@ export function DashboardItems({ logic }) {
     const isDragging = useRef(false)
     const dragEndTimeout = useRef(null)
 
-    useEscapeKey(disableDragging)
-
-    useEffect(() => {
-        function clickOnBackground(e) {
-            if (
-                draggingEnabled &&
-                !e.target.matches(
-                    '.dashboard-item, .dashboard-item *, .enable-dragging-button, .enable-dragging-button *, .react-resizable-handle'
-                )
-            ) {
-                disableDragging()
-            }
-        }
-
-        if (draggingEnabled) {
-            window.addEventListener('click', clickOnBackground)
-            return () => window.removeEventListener('click', clickOnBackground)
-        }
-    }, [draggingEnabled])
-
     return (
         <ReactGridLayout
-            className={`layout${draggingEnabled ? ' dragging-items' : ''}`}
-            isDraggable={draggingEnabled}
-            isResizable={draggingEnabled}
+            className={`layout${draggingEnabled !== 'off' ? ' dragging-items' : ''}${
+                draggingEnabled === 'wobbly' ? ' wobbly' : ''
+            }`}
+            isDraggable={draggingEnabled !== 'off'}
+            isResizable={draggingEnabled !== 'off'}
+            draggableHandle={draggingEnabled === 'wobbly' ? '' : '.dashboard-item-header'}
             layouts={layouts}
             rowHeight={50}
             margin={[20, 20]}
@@ -101,7 +83,7 @@ export function DashboardItems({ logic }) {
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         dashboards={dashboards}
-                        enableDragging={enableDragging}
+                        enableWobblyDragging={draggingEnabled !== 'off' ? noop : enableWobblyDragging}
                     />
                 </div>
             ))}

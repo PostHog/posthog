@@ -71,7 +71,7 @@ export function DashboardItem({
     duplicateDashboardItem,
     isDraggingRef,
     dashboards,
-    enableDragging,
+    enableWobblyDragging,
 }) {
     const className = typeMap[item.type].className
     const Element = typeMap[item.type].element
@@ -81,7 +81,7 @@ export function DashboardItem({
     const color = item.color || 'white'
     const otherDashboards = dashboards.filter(d => d.id !== dashboardId)
 
-    const longPressProps = useLongPress(enableDragging, 500)
+    const longPressProps = useLongPress(enableWobblyDragging, { ms: 500, touch: true, click: false })
 
     return (
         <div key={item.id} className={`dashboard-item ${item.color || 'white'}`} {...longPressProps}>
@@ -191,12 +191,14 @@ export function DashboardItem({
                 </div>
                 <div className="dashboard-item-content">
                     {Element ? (
-                        <Element
-                            dashboardItemId={item.id}
-                            filters={item.filters}
-                            color={color}
-                            theme={color === 'white' ? 'light' : 'dark'}
-                        />
+                        <div className="graph-container">
+                            <Element
+                                dashboardItemId={item.id}
+                                filters={item.filters}
+                                color={color}
+                                theme={color === 'white' ? 'light' : 'dark'}
+                            />
+                        </div>
                     ) : (
                         <Loading />
                     )}

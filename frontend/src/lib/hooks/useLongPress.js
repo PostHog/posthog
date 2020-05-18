@@ -12,14 +12,17 @@ function diffInCoords(e, initialCoords) {
     return Math.abs(coords[0] - initialCoords[0]) + Math.abs(coords[1] - initialCoords[1])
 }
 
-export function useLongPress(callback = () => {}, ms = 300, pixelDistance = 10) {
+export function useLongPress(callback = () => {}, { ms = 300, pixelDistance = 10, touch = true, click = true }) {
     const [startLongPress, setStartLongPress] = useState(false)
     const [initialCoords, setInitialCoords] = useState(null)
 
     useEffect(() => {
         let timerId
         if (startLongPress) {
-            timerId = setTimeout(callback, ms)
+            timerId = setTimeout(() => {
+                callback()
+                stop()
+            }, ms)
         }
 
         return () => {
@@ -44,13 +47,20 @@ export function useLongPress(callback = () => {}, ms = 300, pixelDistance = 10) 
         setStartLongPress(false)
     }
 
-    return {
-        onMouseDown: start,
-        onMouseMove: move,
-        onMouseUp: stop,
-        onMouseLeave: stop,
-        onTouchStart: start,
-        onTouchMove: move,
-        onTouchEnd: stop,
+    let events = {}
+
+    if (touch) {
+        events.onTouchStart = start
+        events.onTouchMove = move
+        events.onTouchEnd = stop
     }
+
+    if (click) {
+        events.onMouseDown = start
+        events.onMouseMove = move
+        events.onMouseUp = stop
+        events.onMouseLeave = stop
+    }
+
+    return events
 }

@@ -14,7 +14,8 @@ import {
     DeleteOutlined,
     FullscreenOutlined,
     FullscreenExitOutlined,
-    DragOutlined,
+    LockOutlined,
+    UnlockOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
 
@@ -71,12 +72,12 @@ export function DashboardHeader({ logic }) {
                             <Tooltip title={'Click here or long press on a panel to rearrange the dashboard.'}>
                                 <Button
                                     className="button-box-when-small enable-dragging-button"
-                                    type={draggingEnabled ? 'primary' : ''}
-                                    onClick={draggingEnabled ? disableDragging : enableDragging}
+                                    type={draggingEnabled === 'off' ? 'primary' : ''}
+                                    onClick={draggingEnabled === 'off' ? enableDragging : disableDragging}
                                 >
-                                    <DragOutlined />
+                                    {draggingEnabled !== 'off' ? <UnlockOutlined /> : <LockOutlined />}
                                     <span className="hide-when-small">
-                                        {draggingEnabled ? 'Rearranging' : 'Rearrange'}
+                                        {draggingEnabled !== 'off' ? 'Lock Dragging' : 'Dragging Locked'}
                                     </span>
                                 </Button>
                             </Tooltip>

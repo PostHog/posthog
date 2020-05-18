@@ -2,7 +2,7 @@
     display: block;
     background: white;
     height: 100%;
-    padding: 15px;
+    padding: 0;
     position: relative;
     box-shadow: 0 8px 10px rgba(0, 0, 0, 0.1);
     border-radius: 5px;
@@ -21,11 +21,11 @@
     }
 
     .dashboard-item-header {
-        height: 32px;
+        padding: 15px 15px 7px 15px;
+        height: 52px;
         width: 100%;
         display: flex;
         justify-content: space-between;
-        margin-bottom: 15px;
 
         .dashboard-item-title {
             overflow: hidden;
@@ -55,9 +55,15 @@
         }
     }
     .dashboard-item-content {
+        padding: 8px 15px 15px 15px;
         overflow: hidden;
         flex-grow: 1;
         position: relative;
+        .graph-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
     }
     .dashboard-item-container.table .dashboard-item-content {
         overflow: auto;
@@ -173,93 +179,61 @@
     z-index: 2;
     user-select: none;
 }
-
-.react-grid-item > .react-resizable-handle,
-.react-grid-item .dashboard-item > .react-resizable-handle {
-    position: absolute;
-    width: 40px;
-    height: 40px;
-    bottom: -10px;
-    right: -10px;
-    cursor: se-resize;
-    z-index: 10;
-}
-
 .react-resizable-hide > .react-resizable-handle {
     display: none;
 }
-
-.react-grid-item > .react-resizable-handle {
-    //background: red;
-}
-
 .react-grid-item {
-    & > .react-resizable-handle.react-resizable-handle-sw {
-        bottom: -10px;
-        left: -10px;
-        cursor: sw-resize;
-        transform: rotate(90deg);
-    }
-
-    & > .react-resizable-handle.react-resizable-handle-se {
+    & > .react-resizable-handle {
+        position: absolute;
+        width: 40px;
+        height: 40px;
         bottom: -10px;
         right: -10px;
         cursor: se-resize;
+        z-index: 10;
     }
-
-    & > .react-resizable-handle.react-resizable-handle-nw {
-        top: -10px;
-        left: -10px;
-        cursor: nw-resize;
-        transform: rotate(180deg);
+    & > .react-resizable-handle.react-resizable-handle-se {
+        cursor: se-resize;
     }
-
-    & > .react-resizable-handle.react-resizable-handle-ne {
-        top: -10px;
-        right: -10px;
-        cursor: ne-resize;
-        transform: rotate(270deg);
-    }
-
-    & > .react-resizable-handle.react-resizable-handle-w,
     & > .react-resizable-handle.react-resizable-handle-e {
-        top: 30px;
+        top: 0;
         bottom: 30px;
+        width: 25px;
         height: auto;
         cursor: ew-resize;
     }
-
-    & > .react-resizable-handle.react-resizable-handle-w {
-        left: -10px;
-        height: auto;
-    }
-
-    & > .react-resizable-handle.react-resizable-handle-e {
-        right: -10px;
-    }
-
-    & > .react-resizable-handle.react-resizable-handle-n,
     & > .react-resizable-handle.react-resizable-handle-s {
-        left: 30px;
+        left: 0;
         right: 30px;
+        height: 25px;
         width: auto;
         cursor: ns-resize;
     }
-
-    & > .react-resizable-handle.react-resizable-handle-n {
-        top: -10px;
+}
+.react-grid-layout.layout.dragging-items.wobbly .react-grid-item {
+    & > .react-resizable-handle {
+        width: 40px;
+        height: 40px;
     }
-
+    & > .react-resizable-handle.react-resizable-handle-e {
+        top: 0;
+        bottom: 30px;
+        height: auto;
+    }
     & > .react-resizable-handle.react-resizable-handle-s {
-        bottom: -10px;
+        left: 0;
+        right: 30px;
+        width: auto;
     }
 }
-
-.react-grid-layout.layout.dragging-items {
+.react-grid-layout.layout.dragging-items .dashboard-item-header {
     cursor: move;
+}
+.react-grid-layout.layout.dragging-items.wobbly {
     will-change: transform;
 
     .dashboard-item {
+        cursor: move;
         will-change: transform;
         .dashboard-item-header,
         .dashboard-item-content {

@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import { Link } from 'lib/components/Link'
 import React from 'react'
-import { clearDOMTextSelection } from 'lib/utils'
+import isAndroidOrIOS, { clearDOMTextSelection } from 'lib/utils'
 
 export const dashboardLogic = kea({
     connect: [dashboardsModel],
@@ -24,6 +24,7 @@ export const dashboardLogic = kea({
         saveLayouts: true,
         updateItemColor: (id, color) => ({ id, color }),
         enableDragging: true,
+        enableWobblyDragging: true,
         disableDragging: true,
     }),
 
@@ -75,10 +76,11 @@ export const dashboardLogic = kea({
                 item.dashboard === parseInt(props.id) ? [...state, item] : state,
         },
         draggingEnabled: [
-            false,
+            () => (isAndroidOrIOS() ? 'off' : 'on'),
             {
-                enableDragging: () => true,
-                disableDragging: () => false,
+                enableDragging: () => 'on',
+                enableWobblyDragging: () => 'wobbly',
+                disableDragging: () => 'off',
             },
         ],
     }),
@@ -296,7 +298,7 @@ export const dashboardLogic = kea({
             }
         },
 
-        enableDragging: () => {
+        enableWobblyDragging: () => {
             clearDOMTextSelection()
             window.setTimeout(clearDOMTextSelection, 200)
             window.setTimeout(clearDOMTextSelection, 1000)
@@ -306,8 +308,7 @@ export const dashboardLogic = kea({
                     <>
                         <p className="headline">Rearranging panels!</p>
                         <p>
-                            <Link onClick={() => actions.disableDragging()}>Click here</Link>, the <u>ESC key</u> or the{' '}
-                            <u>back button</u> to stop.
+                            <Link onClick={() => actions.disableDragging()}>Click here</Link> to stop.
                         </p>
                     </>,
                     {
@@ -319,26 +320,16 @@ export const dashboardLogic = kea({
                 )
             }
         },
-
-        disableDragging: () => {
+        enableDragging: () => {
             if (cache.draggingToastId) {
                 toast.dismiss(cache.draggingToastId)
                 cache.draggingToastId = null
             }
         },
-    }),
-
-    actionToUrl: ({ key }) => ({
-        enableDragging: () => [`/dashboard/${key}`, {}, { dragging: true }],
-        disableDragging: () => `/dashboard/${key}`,
-    }),
-
-    urlToAction: ({ key, actions }) => ({
-        [`/dashboard/${key}`]: (_, __, { dragging }) => {
-            if (dragging) {
-                actions.enableDragging()
-            } else {
-                actions.disableDragging()
+        disableDragging: () => {
+            if (cache.draggingToastId) {
+                toast.dismiss(cache.draggingToastId)
+                cache.draggingToastId = null
             }
         },
     }),
