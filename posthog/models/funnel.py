@@ -24,7 +24,6 @@ from .filter import Filter
 from .entity import Entity
 from .utils import namedtuplefetchall
 
-from posthog.utils import properties_to_Q, request_to_date_query
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 
 
@@ -39,8 +38,8 @@ class Funnel(models.Model):
 
     def _gen_lateral_bodies(
         self,
-        team_id,
-        filter
+        team_id: int,
+        filter: Filter
     ):
         annotations = {}
         for index, step in enumerate(filter.entities):
@@ -147,7 +146,6 @@ class Funnel(models.Model):
             elif i == len(query_bodies) - 1:
                 # Generate last lateral join body
                 # The join conditions are different for first, middles, and last
-                # For the last step we include the alias, 'ON TRUE', but not another `LATERAL JOIN`
 
                 # For each step after the first we must reference the previous step's person_id and step_ts
                 q = qb.format(
