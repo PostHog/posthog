@@ -85,7 +85,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'loginas',
     'corsheaders',
-    'social_django'j
+    'social_django'
 ]
 
 MIDDLEWARE = [
@@ -103,7 +103,7 @@ MIDDLEWARE = [
 
 # Load debug_toolbar if we can (DEBUG and Dev modes)
 try:
-    import debug_toolbar
+    import debug_toolbar # type: ignore
     INSTALLED_APPS.append('debug_toolbar')
     MIDDLEWARE.append('debug_toolbar.middleware.DebugToolbarMiddleware')
 except ImportError:

@@ -180,7 +180,7 @@ urlpatterns = urlpatterns + [
 ]
 
 if settings.DEBUG:
-    import debug_toolbar 
+    import debug_toolbar # type: ignore
 
     @csrf_exempt
     def debug(request):
