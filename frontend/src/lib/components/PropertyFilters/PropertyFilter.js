@@ -4,7 +4,7 @@ import { operatorMap } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { useValues, useActions } from 'kea'
 
-export function PropertyFilter({ index, endpoint, onComplete, logic }) {
+export function PropertyFilter({ index, onComplete, logic }) {
     const { eventProperties, personProperties, filters } = useValues(logic)
     const { setFilter } = useActions(logic)
     let { key, value, operator, type } = filters[index]
@@ -70,7 +70,7 @@ export function PropertyFilter({ index, endpoint, onComplete, logic }) {
             {key && (
                 <div className="col-5 pl-0">
                     <PropertyValue
-                        endpoint={endpoint}
+                        type={type}
                         key={key}
                         propertyKey={key}
                         value={value}

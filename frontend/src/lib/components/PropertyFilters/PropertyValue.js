@@ -18,11 +18,10 @@ export class PropertyValue extends Component {
     loadPropertyValues(value) {
         let key = this.props.propertyKey.split('__')[0]
         this.setState({ optionsCache: { ...this.state.optionsCache, [value]: true } })
-        api.get('api/' + this.props.endpoint + '/values/?key=' + key + (value ? '&value=' + value : '')).then(
-            propValues =>
-                this.setState({
-                    options: [...new Set([...this.state.options, ...propValues.map(option => option.name)])],
-                })
+        api.get('api/' + this.props.type + '/values/?key=' + key + (value ? '&value=' + value : '')).then(propValues =>
+            this.setState({
+                options: [...new Set([...this.state.options, ...propValues.map(option => option.name)])],
+            })
         )
     }
     render() {

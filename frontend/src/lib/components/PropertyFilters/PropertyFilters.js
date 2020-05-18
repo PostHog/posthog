@@ -85,7 +85,6 @@ export function PropertyFilters({ endpoint, propertyFilters, className, style, o
                                 item={item}
                                 index={index}
                                 filters={filters}
-                                endpoint={endpoint}
                             />
                         )
                     })}
