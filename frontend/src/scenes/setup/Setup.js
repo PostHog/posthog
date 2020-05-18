@@ -28,20 +28,20 @@ export function Setup() {
             <h2 id="snippet">Integrate PostHog</h2>
             To integrate PostHog, copy + paste the following snippet to your website. Ideally, put it just above the{' '}
             <pre style={{ display: 'inline' }}>&lt;/head&gt;</pre> tag.{' '}
-            <a href="https://docs.posthog.com/#/integrations/js-integration">
+            <a href="https://posthog.com/docs/integrations/js-integration">
                 See docs for instructions on how to identify users.
             </a>
             <JSSnippet user={user} />
-            <a href="https://docs.posthog.com/#/integrations">Using Python/Ruby/Node/Go/PHP instead?</a>
+            <a href="https://posthog.com/docs/integrations">Using Python/Ruby/Node/Go/PHP/iOS/Android instead?</a>
             <Divider />
             <h2 id="apikey">API key</h2>
             You can use this api key in any of our
-            <a href="https://docs.posthog.com/#/integrations"> libraries</a>.
+            <a href="https://posthog.com/docs/integrations"> libraries</a>.
             <pre className="code">{user.team.api_token}</pre>
             This key is write-only, in that it can only create new events. It can't read any events or any of your other
             data stored on PostHog.
             <Divider />
-            <h2 id="slack">Slack Integration</h2>
+            <h2 id="slack">Slack or Teams Integration</h2>
             <SlackIntegration />
             <Divider />
             <h2 id="invite">Invite your team</h2>

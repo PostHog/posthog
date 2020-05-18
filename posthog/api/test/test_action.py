@@ -155,7 +155,7 @@ class TestTrends(BaseTest):
                 team=self.team,
                 event='sign up',
                 distinct_id='blabla',
-                properties={"$some_property": "other_value"},
+                properties={"$some_property": "other_value", "$some_numerical_prop": 80},
             )
             Event.objects.create(team=self.team, event='no events', distinct_id='blabla')
 
@@ -322,20 +322,32 @@ class TestTrends(BaseTest):
             action_response = self.client.get('/api/action/trends/?date_from=-14d&breakdown=$some_property').json()
             event_response = self.client.get('/api/action/trends/?date_from=-14d&properties={}&actions=[]&display=ActionsTable&interval=day&breakdown=$some_property&events=%s' % jdumps([{'id': "sign up", "name": "sign up", "type": "events", "order": 0}, {'id': "no events"}])).json()
 
-        self.assertEqual(event_response[0]['label'], 'sign up - undefined')
+        self.assertEqual(event_response[0]['label'], 'sign up - Other')
         self.assertEqual(event_response[1]['label'], 'sign up - other_value')
         self.assertEqual(event_response[2]['label'], 'sign up - value')
-        self.assertEqual(event_response[3]['label'], 'no events - undefined')
+        self.assertEqual(event_response[3]['label'], 'no events - Other')
 
         self.assertEqual(sum(event_response[0]['data']), 2)
         self.assertEqual(event_response[0]['data'][4+7], 2)
-        self.assertEqual(event_response[0]['breakdown_value'], None)
+        self.assertEqual(event_response[0]['breakdown_value'], 'None')
 
         self.assertEqual(sum(event_response[1]['data']), 1)
         self.assertEqual(event_response[1]['data'][5+7], 1)
         self.assertEqual(event_response[1]['breakdown_value'], 'other_value')
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
+
+        # check numerical breakdown
+        with freeze_time('2020-01-04T13:01:01Z'):
+            action_response = self.client.get('/api/action/trends/?date_from=-14d&breakdown=$some_numerical_prop').json()
+            event_response = self.client.get('/api/action/trends/?date_from=-14d&properties={}&actions=[]&display=ActionsTable&interval=day&breakdown=$some_numerical_prop&events=%s' % jdumps([{'id': "sign up", "name": "sign up", "type": "events", "order": 0}, {'id': "no events"}])).json()
+        self.assertEqual(event_response[0]['label'], 'sign up - Other')
+        self.assertEqual(event_response[0]['count'], 4.0)
+        self.assertEqual(event_response[1]['label'], 'sign up - 80.0')
+        self.assertEqual(event_response[1]['count'], 1.0)
+
+        self.assertTrue(self._compare_entity_response(action_response, event_response))
+
 
     def test_action_filtering(self):
         sign_up_action, person = self._create_events()
@@ -399,7 +411,7 @@ class TestTrends(BaseTest):
 
         self.assertEqual(event_response[0]['label'], 'sign up - other_value')
         self.assertEqual(event_response[1]['label'], 'sign up - value')
-        self.assertEqual(event_response[2]['label'], 'sign up - undefined')
+        self.assertEqual(event_response[2]['label'], 'sign up - Other')
 
         self.assertEqual(sum(event_response[0]['data']), 1)
         self.assertEqual(event_response[0]['data'][5], 1)

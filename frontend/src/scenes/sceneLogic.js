@@ -57,7 +57,7 @@ export const routes = {
     '/setup': 'setup',
     '/events': 'events',
     '/person_by_id/:id': 'person',
-    '/person/:distinctId': 'person',
+    '/person/*': 'person',
     '/people': 'people',
     '/people/new_cohort': 'people',
     '/people/cohorts': 'cohorts',

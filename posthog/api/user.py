@@ -130,10 +130,7 @@ def test_slack_webhook(request):
         response = requests.post(webhook, verify=False, json=message)
 
         if response.ok:
-            if response.text == 'ok':
-                return JsonResponse({'success': True})
-            else:
-                return JsonResponse({'error': 'invalid webhook url'})
+            return JsonResponse({'success': True})
         else:
             return JsonResponse({'error': response.text})
     except:
