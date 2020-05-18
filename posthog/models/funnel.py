@@ -68,6 +68,9 @@ class Funnel(models.Model):
                 .filter(step.properties_to_Q())
             with connection.cursor() as cursor:
                 event_string = cursor.mogrify(*event.query.sql_with_params())
+            # Replace placeholders injected by the Django ORM
+            # We do this because the Django ORM doesn't easily allow us to parameterize sql identifiers
+            # This is probably the most hacky part of the entire query generation
             query = sql.SQL(event_string.decode('utf-8')
                             .replace("'1234321'", "{prev_step_person_id}")
                             .replace("'2000-01-01T00:00:00+00:00'::timestamptz", "{prev_step_ts}")
