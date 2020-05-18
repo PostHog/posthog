@@ -75,6 +75,10 @@
         background: transparent;
     }
 
+    table.table {
+        margin: 0;
+    }
+
     &.blue {
         --item-background: hsl(212, 63%, 40%);
         --item-darker: hsl(212, 63%, 35%);
@@ -116,6 +120,7 @@
             color: white;
         }
         .dashboard-item-header .dashboard-item-settings .anticon {
+            color: rgba(255, 255, 255, 0.8);
             background: var(--item-darker);
             &:hover {
                 background: var(--item-darkest);
@@ -226,8 +231,13 @@
         width: auto;
     }
 }
-.react-grid-layout.layout.dragging-items .dashboard-item-header {
-    cursor: move;
+.react-grid-layout.layout.dragging-items .dashboard-item {
+    .dashboard-item-header {
+        cursor: move;
+    }
+    table {
+        cursor: auto;
+    }
 }
 .react-grid-layout.layout.dragging-items.wobbly {
     margin-bottom: 200px;

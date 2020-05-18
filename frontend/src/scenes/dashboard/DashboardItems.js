@@ -37,7 +37,6 @@ export function DashboardItems({ logic }) {
             }`}
             isDraggable={draggingEnabled !== 'off'}
             isResizable={draggingEnabled !== 'off'}
-            draggableHandle={draggingEnabled === 'wobbly' ? '' : '.dashboard-item-header'}
             layouts={layouts}
             rowHeight={50}
             margin={[20, 20]}
@@ -69,7 +68,7 @@ export function DashboardItems({ logic }) {
                     isDragging.current = false
                 }, 250)
             }}
-            draggableCancel=".anticon,.ant-dropdown"
+            draggableCancel=".anticon,.ant-dropdown,table"
         >
             {items.map(item => (
                 <div key={item.id} className="dashboard-item-wrapper">
