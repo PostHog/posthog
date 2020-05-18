@@ -115,7 +115,11 @@ export function SlackIntegration() {
 
             {isSaved && (
                 <span className="text-success" style={{ marginLeft: 10 }}>
-                    {editedWebhook ? 'All good! You should see a message on Slack!' : 'Slack integration removed!'}
+                    {editedWebhook
+                        ? `All good! You should see a message on ${
+                              editedWebhook.indexOf('slack.com') > -1 ? 'Slack' : 'Teams'
+                          }.`
+                        : 'Integration removed'}
                 </span>
             )}
         </div>
