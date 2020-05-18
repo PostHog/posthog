@@ -85,8 +85,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'loginas',
     'corsheaders',
-    'social_django',
-    'debug_toolbar'
+    'social_django'j
 ]
 
 MIDDLEWARE = [
@@ -99,9 +98,17 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
-    'debug_toolbar.middleware.DebugToolbarMiddleware'
+    'whitenoise.middleware.WhiteNoiseMiddleware'
 ]
+
+# Load debug_toolbar if we can (DEBUG and Dev modes)
+try:
+    import debug_toolbar
+    INSTALLED_APPS.append('debug_toolbar')
+    MIDDLEWARE.append('debug_toolbar.middleware.DebugToolbarMiddleware')
+except ImportError:
+    pass
+
 INTERNAL_IPS = [
     '127.0.0.1',
     '172.18.0.1' # Docker IP
