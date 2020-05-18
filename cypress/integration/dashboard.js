@@ -1,15 +1,14 @@
 describe('Dashboards', () => {
     beforeEach(() => {
-        cy.get(':nth-child(3) > .ant-menu-submenu-title').click()
+        cy.get('[dataattr=menu-item-dashboards]').click()
     })
 
     it('Dashboards loaded', () => {
-        cy.wait(500)
-        cy.get('h1').contains('Dashboards')
+        cy.get('h1').should('contain', 'Dashboards')
     })
 
     it('Should have default dashboard', () => {
         cy.get('[data-row-key="1"] > :nth-child(2) > a').click()
-        cy.get('.ant-select-selector').contains('Default')
+        cy.get('.ant-select-selector').should('contain', 'Default')
     })
 })

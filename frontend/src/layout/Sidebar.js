@@ -92,6 +92,7 @@ export default function Sidebar(props) {
                     <Link to={'/trends'} />
                 </Menu.Item>
                 <Menu.SubMenu
+                    dataattr="menu-item-dashboards"
                     key="dashboards"
                     title={
                         <span style={itemStyle}>
