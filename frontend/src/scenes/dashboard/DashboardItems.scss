@@ -230,6 +230,7 @@
     cursor: move;
 }
 .react-grid-layout.layout.dragging-items.wobbly {
+    margin-bottom: 200px;
     will-change: transform;
 
     .dashboard-item {
