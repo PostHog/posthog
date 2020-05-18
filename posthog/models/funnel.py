@@ -151,7 +151,6 @@ class Funnel(models.Model):
                     on_true=sql.SQL(""),
                     join=sql.SQL(LEFT_JOIN_LATERAL)
                 )
-                lateral_joins.append(base_body)
             elif i == len(query_bodies) - 1:
                 # Generate last lateral join body
                 # The join conditions are different for first, middles, and last
@@ -162,7 +161,6 @@ class Funnel(models.Model):
                     on_true=sql.SQL(ON_TRUE),
                     join=sql.SQL("")
                 )
-                lateral_joins.append(base_body)
             else:
                 # Generate middle lateral join body
                 # The join conditions are different for first, middles, and last
@@ -173,7 +171,7 @@ class Funnel(models.Model):
                     on_true=sql.SQL(ON_TRUE),
                     join=sql.SQL(LEFT_JOIN_LATERAL)
                 )
-                lateral_joins.append(base_body)
+            lateral_joins.append(base_body)
             i += 1
         query_footer = QUERY_FOOTER.format(
             step0=steps[0],
