@@ -1,21 +1,22 @@
+import './Sidebar.scss'
+
 import React, { useState } from 'react'
 import { router } from 'kea-router'
 import { InviteTeam } from 'lib/components/InviteTeam'
-import { Menu, Layout, Modal } from 'antd'
+import { Menu, Layout, Modal, Divider } from 'antd'
 import {
     UserOutlined,
     ForkOutlined,
     FunnelPlotOutlined,
     SettingOutlined,
     RiseOutlined,
-    HomeOutlined,
     PlusOutlined,
     SyncOutlined,
     AimOutlined,
     UsergroupAddOutlined,
     ContainerOutlined,
-    PushpinOutlined,
-    DashboardOutlined,
+    LineChartOutlined,
+    FundOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -44,6 +45,7 @@ const sceneOverride = {
     funnel: 'funnels',
     editFunnel: 'funnels',
     person: 'people',
+    dashboard: 'dashboards',
 }
 
 // to show the open submenu
@@ -51,7 +53,6 @@ const submenuOverride = {
     actions: 'events',
     liveActions: 'events',
     cohorts: 'people',
-    dashboard: 'dashboards',
 }
 
 export default function Sidebar(props) {
@@ -65,14 +66,11 @@ export default function Sidebar(props) {
     let activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
     const openSubmenu = submenuOverride[activeScene] || activeScene
 
-    let unpinnedDashboard = null
-    if (activeScene === 'dashboard') {
+    if (activeScene === 'dashboards') {
         const dashboardId = parseInt(location.pathname.split('/dashboard/')[1])
-        activeScene = `dashboard-${dashboardId}`
-
-        const dashboard = dashboards.find(d => d.id === dashboardId)
-        if (dashboard && !dashboard.pinned) {
-            unpinnedDashboard = dashboard
+        const dashboard = dashboardId && dashboards.find(d => d.id === dashboardId)
+        if (dashboard && dashboard.pinned) {
+            activeScene = `dashboard-${dashboardId}`
         }
     }
 
@@ -86,41 +84,28 @@ export default function Sidebar(props) {
                 mode="inline"
             >
                 <Logo />
+
+                {pinnedDashboards.map(dashboard => (
+                    <Menu.Item key={`dashboard-${dashboard.id}`} style={itemStyle}>
+                        <LineChartOutlined />
+                        <span className="sidebar-label">{dashboard.name}</span>
+                        <Link to={`/dashboard/${dashboard.id}`} />
+                    </Menu.Item>
+                ))}
+                {pinnedDashboards.length > 0 ? <Divider /> : null}
+
                 <Menu.Item key="trends" style={itemStyle}>
                     <RiseOutlined />
                     <span className="sidebar-label">{'Trends'}</span>
                     <Link to={'/trends'} />
                 </Menu.Item>
-                <Menu.SubMenu
-                    key="dashboards"
-                    title={
-                        <span style={itemStyle}>
-                            <HomeOutlined />
-                            <span className="sidebar-label">Dashboards</span>
-                        </span>
-                    }
-                    onTitleClick={() => (location.pathname !== '/dashboard' ? push('/dashboard') : null)}
-                >
-                    <Menu.Item key="dashboards" style={itemStyle}>
-                        <HomeOutlined />
-                        <span className="sidebar-label">All Dashboards</span>
-                        <Link to="/dashboard" />
-                    </Menu.Item>
-                    {pinnedDashboards.map(dashboard => (
-                        <Menu.Item key={`dashboard-${dashboard.id}`} style={itemStyle}>
-                            <PushpinOutlined />
-                            <span className="sidebar-label">{dashboard.name}</span>
-                            <Link to={`/dashboard/${dashboard.id}`} />
-                        </Menu.Item>
-                    ))}
-                    {unpinnedDashboard ? (
-                        <Menu.Item key={`dashboard-${unpinnedDashboard.id}`} style={itemStyle}>
-                            <DashboardOutlined />
-                            <span className="sidebar-label">{unpinnedDashboard.name}</span>
-                            <Link to={`/dashboard/${unpinnedDashboard.id}`} />
-                        </Menu.Item>
-                    ) : null}
-                </Menu.SubMenu>
+
+                <Menu.Item key="dashboards" style={itemStyle}>
+                    <FundOutlined />
+                    <span className="sidebar-label">Dashboards</span>
+                    <Link to="/dashboard" />
+                </Menu.Item>
+
                 <Menu.SubMenu
                     key="events"
                     title={

@@ -1,7 +1,7 @@
 import './DashboardHeader.scss'
 
 import { Loading, triggerResizeAfterADelay } from 'lib/utils'
-import { Button, Dropdown, Menu, Select } from 'antd'
+import { Button, Dropdown, Menu, Select, Tooltip } from 'antd'
 import { router } from 'kea-router'
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
@@ -14,12 +14,14 @@ import {
     DeleteOutlined,
     FullscreenOutlined,
     FullscreenExitOutlined,
+    LockOutlined,
+    UnlockOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
 
 export function DashboardHeader({ logic }) {
-    const { dashboard } = useValues(logic)
-    const { addNewDashboard, renameDashboard } = useActions(logic)
+    const { dashboard, draggingEnabled } = useValues(logic)
+    const { addNewDashboard, renameDashboard, enableDragging, disableDragging } = useActions(logic)
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [fullScreen, setFullScreen] = useState(false)
@@ -31,7 +33,7 @@ export function DashboardHeader({ logic }) {
                 <Loading />
             ) : (
                 <>
-                    <div>
+                    <div className="dashboard-select">
                         <Select
                             value={dashboard?.id || null}
                             onChange={id =>
@@ -53,26 +55,44 @@ export function DashboardHeader({ logic }) {
                     {dashboard ? (
                         <div className="dashboard-meta">
                             {!fullScreen ? (
-                                <Button
-                                    type={dashboard.pinned ? 'primary' : ''}
-                                    onClick={() =>
-                                        dashboard.pinned ? unpinDashboard(dashboard.id) : pinDashboard(dashboard.id)
-                                    }
-                                >
-                                    {dashboard.pinned ? <PushpinFilled /> : <PushpinOutlined />}{' '}
-                                    {dashboard.pinned ? 'Pinned' : 'Pin'}
-                                </Button>
+                                <Tooltip title={dashboard.pinned ? 'Pinned into sidebar' : 'Pin into sidebar'}>
+                                    <Button
+                                        className="button-box-when-small"
+                                        type={dashboard.pinned ? 'primary' : ''}
+                                        onClick={() =>
+                                            dashboard.pinned ? unpinDashboard(dashboard.id) : pinDashboard(dashboard.id)
+                                        }
+                                    >
+                                        {dashboard.pinned ? <PushpinFilled /> : <PushpinOutlined />}
+                                        <span className="hide-when-small">{dashboard.pinned ? 'Pinned' : 'Pin'}</span>
+                                    </Button>
+                                </Tooltip>
                             ) : null}
 
-                            <Button
-                                className="button-box"
-                                onClick={() => {
-                                    setFullScreen(!fullScreen)
-                                    triggerResizeAfterADelay()
-                                }}
-                            >
-                                {fullScreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
-                            </Button>
+                            <Tooltip title={'Click here or long press on a panel to rearrange the dashboard.'}>
+                                <Button
+                                    className="button-box-when-small enable-dragging-button"
+                                    type={draggingEnabled === 'off' ? 'primary' : ''}
+                                    onClick={draggingEnabled === 'off' ? enableDragging : disableDragging}
+                                >
+                                    {draggingEnabled !== 'off' ? <UnlockOutlined /> : <LockOutlined />}
+                                    <span className="hide-when-small">
+                                        {draggingEnabled !== 'off' ? 'Lock Dragging' : 'Dragging Locked'}
+                                    </span>
+                                </Button>
+                            </Tooltip>
+
+                            <Tooltip title={fullScreen ? 'Presentation Mode Activated' : 'Activate Presentation Mode'}>
+                                <Button
+                                    className="button-box"
+                                    onClick={() => {
+                                        setFullScreen(!fullScreen)
+                                        triggerResizeAfterADelay()
+                                    }}
+                                >
+                                    {fullScreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                                </Button>
+                            </Tooltip>
 
                             {!fullScreen ? (
                                 <Dropdown
