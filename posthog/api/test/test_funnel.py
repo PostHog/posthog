@@ -56,15 +56,15 @@ class TestGetFunnel(BaseTest):
     TESTS_API = True
 
     def _signup_event(self, **kwargs):
-        sign_up = Event.objects.create(team=self.team, event='user signed up', **kwargs)
+        Event.objects.create(team=self.team, event='user signed up', **kwargs)
 
     def _pay_event(self, **kwargs):
-        sign_up = Event.objects.create(team=self.team, elements=[
+        Event.objects.create(team=self.team, elements=[
             Element(tag_name='button', text='Pay $10')
         ], **kwargs)
 
     def _movie_event(self, **kwargs):
-        sign_up = Event.objects.create(team=self.team, elements=[
+        Event.objects.create(team=self.team, elements=[
             Element(tag_name='a', href='/movie')
         ], **kwargs)
 
@@ -128,7 +128,7 @@ class TestGetFunnel(BaseTest):
         self.assertEqual(response['steps'][0]['name'], 'user signed up')
         self.assertEqual(response['steps'][0]['count'], 4)
         # check ordering of people in first step
-        self.assertEqual(response['steps'][0]['people'], [person_stopped_after_movie.pk, person_stopped_after_pay.pk, person_wrong_order.pk, person_stopped_after_signup.pk])
+        self.assertEqual(response['steps'][0]['people'], [person_stopped_after_movie.pk, person_stopped_after_pay.pk, person_stopped_after_signup.pk, person_wrong_order.pk])
         self.assertEqual(response['steps'][1]['name'], 'paid')
         self.assertEqual(response['steps'][1]['count'], 2)
         self.assertEqual(response['steps'][2]['name'], 'watched movie')

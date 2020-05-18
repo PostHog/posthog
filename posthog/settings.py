@@ -100,7 +100,19 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware'
 ]
-INTERNAL_IPS = ['127.0.0.1']
+
+# Load debug_toolbar if we can (DEBUG and Dev modes)
+try:
+    import debug_toolbar
+    INSTALLED_APPS.append('debug_toolbar')
+    MIDDLEWARE.append('debug_toolbar.middleware.DebugToolbarMiddleware')
+except ImportError:
+    pass
+
+INTERNAL_IPS = [
+    '127.0.0.1',
+    '172.18.0.1' # Docker IP
+    ]
 CORS_ORIGIN_ALLOW_ALL = True
 
 ROOT_URLCONF = 'posthog.urls'

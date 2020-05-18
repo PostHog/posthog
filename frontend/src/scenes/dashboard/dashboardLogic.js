@@ -6,6 +6,7 @@ import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import { Link } from 'lib/components/Link'
 import React from 'react'
+import isAndroidOrIOS, { clearDOMTextSelection } from 'lib/utils'
 
 export const dashboardLogic = kea({
     connect: [dashboardsModel],
@@ -22,6 +23,9 @@ export const dashboardLogic = kea({
         updateLayouts: layouts => ({ layouts }),
         saveLayouts: true,
         updateItemColor: (id, color) => ({ id, color }),
+        enableDragging: true,
+        enableWobblyDragging: true,
+        disableDragging: true,
     }),
 
     loaders: ({ props }) => ({
@@ -71,6 +75,14 @@ export const dashboardLogic = kea({
             duplicateDashboardItemSuccess: (state, { item }) =>
                 item.dashboard === parseInt(props.id) ? [...state, item] : state,
         },
+        draggingEnabled: [
+            () => (isAndroidOrIOS() ? 'off' : 'on'),
+            {
+                enableDragging: () => 'on',
+                enableWobblyDragging: () => 'wobbly',
+                disableDragging: () => 'off',
+            },
+        ],
     }),
 
     selectors: ({ props, selectors }) => ({
@@ -156,11 +168,17 @@ export const dashboardLogic = kea({
         ],
     }),
 
-    events: ({ actions }) => ({
+    events: ({ actions, cache }) => ({
         afterMount: [actions.loadDashboardItems],
+        beforeUnmount: () => {
+            if (cache.draggingToastId) {
+                toast.dismiss(cache.draggingToastId)
+                cache.draggingToastId = null
+            }
+        },
     }),
 
-    listeners: ({ actions, values, key }) => ({
+    listeners: ({ actions, values, key, cache }) => ({
         addNewDashboard: async () => {
             prompt({ key: `new-dashboard-${key}` }).actions.prompt({
                 title: 'New dashboard',
@@ -277,6 +295,41 @@ export const dashboardLogic = kea({
             } else {
                 actions.duplicateDashboardItemSuccess(addedItem)
                 toast(<div>Panel duplicated!</div>)
+            }
+        },
+
+        enableWobblyDragging: () => {
+            clearDOMTextSelection()
+            window.setTimeout(clearDOMTextSelection, 200)
+            window.setTimeout(clearDOMTextSelection, 1000)
+
+            if (!cache.draggingToastId) {
+                cache.draggingToastId = toast(
+                    <>
+                        <p className="headline">Rearranging panels!</p>
+                        <p>
+                            <Link onClick={() => actions.disableDragging()}>Click here</Link> to stop.
+                        </p>
+                    </>,
+                    {
+                        autoClose: false,
+                        onClick: () => actions.disableDragging(),
+                        closeButton: false,
+                        className: 'drag-items-toast',
+                    }
+                )
+            }
+        },
+        enableDragging: () => {
+            if (cache.draggingToastId) {
+                toast.dismiss(cache.draggingToastId)
+                cache.draggingToastId = null
+            }
+        },
+        disableDragging: () => {
+            if (cache.draggingToastId) {
+                toast.dismiss(cache.draggingToastId)
+                cache.draggingToastId = null
             }
         },
     }),
