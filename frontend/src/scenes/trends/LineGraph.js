@@ -202,7 +202,7 @@ export class LineGraph extends Component {
 
     render() {
         return (
-            <div className="graph-container" dataattr={this.props.dataattr}>
+            <div className="graph-container" data-attr={this.props['data-attr']}>
                 <canvas ref={this.chartRef} />
             </div>
         )

@@ -56,7 +56,7 @@ export function ActionsPie({ filters, color }) {
                     <div style={{ marginLeft: '-50%', marginTop: -35 }}>{total}</div>
                 </h1>
                 <LineGraph
-                    dataattr="trend-pie-graph"
+                    data-attr="trend-pie-graph"
                     color={color}
                     type="doughnut"
                     datasets={data}

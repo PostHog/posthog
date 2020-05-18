@@ -43,7 +43,7 @@ function FilterRow({ endpoint, item, index, filters, logic, pageKey }) {
                         </span>
                     </Button>
                 ) : (
-                    <Button type="default" shape="round" dataattr={'new-prop-filter-' + pageKey}>
+                    <Button type="default" shape="round" data-attr={'new-prop-filter-' + pageKey}>
                         {'New Filter'}
                     </Button>
                 )}

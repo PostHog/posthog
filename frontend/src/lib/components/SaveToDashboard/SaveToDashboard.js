@@ -20,7 +20,7 @@ export function SaveToDashboard({ name, type, filters }) {
                     fromItemName={fromItemName}
                 />
             )}
-            <Button onClick={() => setOpenModal(true)} type="primary" dataattr="save-to-dashboard-button">
+            <Button onClick={() => setOpenModal(true)} type="primary" data-attr="save-to-dashboard-button">
                 {fromItem && type !== 'FunnelViz' ? 'Update Dashboard' : 'Add to dashboard'}
             </Button>
         </span>

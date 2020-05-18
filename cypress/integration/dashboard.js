@@ -1,6 +1,6 @@
 describe('Dashboards', () => {
     beforeEach(() => {
-        cy.get('[dataattr=menu-item-dashboards]').click()
+        cy.get('[data-attr=menu-item-dashboards]').click()
     })
 
     it('Dashboards loaded', () => {

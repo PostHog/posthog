@@ -12,12 +12,12 @@ export function ShownAsFilter({ filters, onChange }) {
                         onChange={value => onChange(value)}
                         style={{ width: 200 }}
                         disabled={filters.breakdown}
-                        dataattr="shownas-filter"
+                        data-attr="shownas-filter"
                     >
-                        <Select.Option dataattr="shownas-volume-option" value={'Volume'}>
+                        <Select.Option data-attr="shownas-volume-option" value={'Volume'}>
                             {'Volume'}
                         </Select.Option>
-                        <Select.Option dataattr="shownas-stickiness-option" value={'Stickiness'}>
+                        <Select.Option data-attr="shownas-stickiness-option" value={'Stickiness'}>
                             {'Stickiness'}
                         </Select.Option>
                     </Select>

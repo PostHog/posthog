@@ -100,7 +100,7 @@ export default function Sidebar(props) {
                     <Link to={'/trends'} />
                 </Menu.Item>
 
-                <Menu.Item key="dashboards" style={itemStyle} dataattr="menu-item-dashboards">
+                <Menu.Item key="dashboards" style={itemStyle} data-attr="menu-item-dashboards">
                     <FundOutlined />
                     <span className="sidebar-label">Dashboards</span>
                     <Link to="/dashboard" />

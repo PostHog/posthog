@@ -91,7 +91,7 @@ export function Trends() {
                                     </h4>
                                     <ShownAsFilter filters={filters} onChange={shown_as => setFilters({ shown_as })} />
                                 </TabPane>
-                                <TabPane tab="Sessions" key={ViewType.SESSIONS} dataattr="trends-sessions-tab">
+                                <TabPane tab="Sessions" key={ViewType.SESSIONS} data-attr="trends-sessions-tab">
                                     <SessionFilter value={filters.session} onChange={v => setFilters({ session: v })} />
                                     <hr />
                                     <h4 className="secondary">Filters</h4>

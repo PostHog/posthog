@@ -27,7 +27,7 @@ export function IntervalFilter({ filters, setFilters, disabled = false }) {
                 }
                 setFilters({ interval: key })
             }}
-            dataattr="interval-filter"
+            data-attr="interval-filter"
         >
             {Object.entries(intervalMapping).map(([key, value]) => {
                 return (
