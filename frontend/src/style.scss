@@ -289,3 +289,16 @@ label.disabled {
 .ant-select-arrow .anticon {
     vertical-align: top !important;
 }
+
+// less content padding in low resolutions
+.ant-layout .ant-layout-content.pl-5.pr-5.pt-3,
+.ant-layout .content.py-3.layout-top-content {
+    @media (min-width: 480px) and (max-width: 639px) {
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+    }
+    @media (max-width: 479px) {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+}

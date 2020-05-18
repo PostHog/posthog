@@ -1,3 +1,5 @@
+import './Sidebar.scss'
+
 import React, { useState } from 'react'
 import { router } from 'kea-router'
 import { InviteTeam } from 'lib/components/InviteTeam'
