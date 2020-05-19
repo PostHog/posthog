@@ -32,7 +32,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
     const showLinkToPerson = !fixedFilters?.person_id
 
     return (
-        <div className="events">
+        <div className="events" data-attr="events-table">
             {filtersEnabled ? <PropertyFilters pageKey="EventsTable" /> : null}
             <table className="table" style={{ position: 'relative' }}>
                 <thead>

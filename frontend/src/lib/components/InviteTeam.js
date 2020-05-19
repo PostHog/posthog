@@ -15,7 +15,7 @@ export class InviteTeam extends Component {
     render() {
         let url = window.location.origin
         return (
-            <div>
+            <div data-attr="invite-team-modal">
                 <br />
                 Send your team the following URL:
                 <br />
