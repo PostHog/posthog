@@ -64,8 +64,7 @@ export function Trends() {
                                     </h4>
                                     <Row>
                                         <BreakdownFilter
-                                            breakdown={filters.breakdown}
-                                            breakdown_type={filters.breakdown_type}
+                                            filters={filters}
                                             onChange={(breakdown, breakdown_type) =>
                                                 setFilters({ breakdown, breakdown_type })
                                             }
@@ -90,10 +89,7 @@ export function Trends() {
                                             <small className="info">info</small>
                                         </Tooltip>
                                     </h4>
-                                    <ShownAsFilter
-                                        shown_as={filters.shown_as}
-                                        onChange={shown_as => setFilters({ shown_as })}
-                                    />
+                                    <ShownAsFilter filters={filters} onChange={shown_as => setFilters({ shown_as })} />
                                 </TabPane>
                                 <TabPane tab="Sessions" key={ViewType.SESSIONS}>
                                     <SessionFilter value={filters.session} onChange={v => setFilters({ session: v })} />

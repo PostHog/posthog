@@ -21,6 +21,7 @@ import {
     DeliveredProcedureOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
+import { useLongPress } from 'lib/hooks/useLongPress'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -61,7 +62,7 @@ const typeMap = {
     },
 }
 
-export default function DashboardItem({
+export function DashboardItem({
     item,
     dashboardId,
     updateItemColor,
@@ -70,6 +71,7 @@ export default function DashboardItem({
     duplicateDashboardItem,
     isDraggingRef,
     dashboards,
+    enableWobblyDragging,
 }) {
     const className = typeMap[item.type].className
     const Element = typeMap[item.type].element
@@ -79,115 +81,133 @@ export default function DashboardItem({
     const color = item.color || 'white'
     const otherDashboards = dashboards.filter(d => d.id !== dashboardId)
 
+    const longPressProps = useLongPress(enableWobblyDragging, {
+        ms: 500,
+        touch: true,
+        click: false,
+        exclude: 'table, table *',
+    })
+
     return (
-        <div className={`dashboard-item-container ${className}`}>
-            <div className="dashboard-item-header">
-                <div className="dashboard-item-title">
-                    <Link
-                        draggable={false}
-                        to={link}
-                        title={item.name}
-                        preventClick
-                        onClick={() => {
-                            if (!isDraggingRef.current) {
-                                router.actions.push(link)
+        <div key={item.id} className={`dashboard-item ${item.color || 'white'}`} {...longPressProps}>
+            <div className={`dashboard-item-container ${className}`}>
+                <div className="dashboard-item-header">
+                    <div className="dashboard-item-title">
+                        <Link
+                            draggable={false}
+                            to={link}
+                            title={item.name}
+                            preventClick
+                            onClick={() => {
+                                if (!isDraggingRef.current) {
+                                    router.actions.push(link)
+                                }
+                            }}
+                        >
+                            {item.name}
+                        </Link>
+                    </div>
+                    <div className="dashboard-item-settings">
+                        <Dropdown
+                            placement="bottomRight"
+                            trigger="click"
+                            overlay={
+                                <Menu>
+                                    <Menu.Item icon={<Icon />} onClick={() => router.actions.push(link)}>
+                                        {viewText}
+                                    </Menu.Item>
+                                    <Menu.Item icon={<EditOutlined />} onClick={() => renameDashboardItem(item.id)}>
+                                        Rename
+                                    </Menu.Item>
+                                    <Menu.SubMenu key="colors" icon={<BgColorsOutlined />} title="Set Color">
+                                        {Object.entries(dashboardColorNames).map(([className, color]) => (
+                                            <Menu.Item
+                                                key={className}
+                                                onClick={() => updateItemColor(item.id, className)}
+                                            >
+                                                <span
+                                                    style={{
+                                                        background: dashboardColors[className],
+                                                        border: '1px solid #eee',
+                                                        display: 'inline-block',
+                                                        width: 13,
+                                                        height: 13,
+                                                        verticalAlign: 'middle',
+                                                        marginRight: 5,
+                                                        marginBottom: 1,
+                                                    }}
+                                                />
+                                                {color}
+                                            </Menu.Item>
+                                        ))}
+                                    </Menu.SubMenu>
+                                    {otherDashboards.length > 0 ? (
+                                        <Menu.SubMenu key="copy" icon={<CopyOutlined />} title="Copy to...">
+                                            {otherDashboards.map(dashboard => (
+                                                <Menu.Item
+                                                    key={dashboard.id}
+                                                    onClick={() => duplicateDashboardItem(item.id, dashboard.id)}
+                                                >
+                                                    {dashboard.name}
+                                                </Menu.Item>
+                                            ))}
+                                        </Menu.SubMenu>
+                                    ) : null}
+                                    {otherDashboards.length > 0 ? (
+                                        <Menu.SubMenu
+                                            key="move"
+                                            icon={<DeliveredProcedureOutlined />}
+                                            title="Move to..."
+                                        >
+                                            {otherDashboards.map(dashboard => (
+                                                <Menu.Item
+                                                    key={dashboard.id}
+                                                    onClick={() => duplicateDashboardItem(item.id, dashboard.id, true)}
+                                                >
+                                                    {dashboard.name}
+                                                </Menu.Item>
+                                            ))}
+                                        </Menu.SubMenu>
+                                    ) : null}
+                                    <Menu.Item icon={<BlockOutlined />} onClick={() => duplicateDashboardItem(item.id)}>
+                                        Duplicate
+                                    </Menu.Item>
+                                    <Menu.Item
+                                        icon={<DeleteOutlined />}
+                                        onClick={() =>
+                                            deleteWithUndo({
+                                                object: item,
+                                                endpoint: 'dashboard_item',
+                                                callback: loadDashboardItems,
+                                            })
+                                        }
+                                        className="text-danger"
+                                    >
+                                        Delete
+                                    </Menu.Item>
+                                </Menu>
                             }
-                        }}
-                    >
-                        {item.name}
-                    </Link>
+                        >
+                            <span style={{ cursor: 'pointer', marginTop: -3 }}>
+                                <EllipsisOutlined />
+                            </span>
+                        </Dropdown>
+                    </div>
                 </div>
-                <div className="dashboard-item-settings">
-                    <Dropdown
-                        placement="bottomRight"
-                        trigger="click"
-                        overlay={
-                            <Menu>
-                                <Menu.Item icon={<Icon />} onClick={() => router.actions.push(link)}>
-                                    {viewText}
-                                </Menu.Item>
-                                <Menu.Item icon={<EditOutlined />} onClick={() => renameDashboardItem(item.id)}>
-                                    Rename
-                                </Menu.Item>
-                                <Menu.SubMenu key="colors" icon={<BgColorsOutlined />} title="Set Color">
-                                    {Object.entries(dashboardColorNames).map(([className, color]) => (
-                                        <Menu.Item key={className} onClick={() => updateItemColor(item.id, className)}>
-                                            <span
-                                                style={{
-                                                    background: dashboardColors[className],
-                                                    border: '1px solid #eee',
-                                                    display: 'inline-block',
-                                                    width: 13,
-                                                    height: 13,
-                                                    verticalAlign: 'middle',
-                                                    marginRight: 5,
-                                                    marginBottom: 1,
-                                                }}
-                                            />
-                                            {color}
-                                        </Menu.Item>
-                                    ))}
-                                </Menu.SubMenu>
-                                {otherDashboards.length > 0 ? (
-                                    <Menu.SubMenu key="copy" icon={<CopyOutlined />} title="Copy to...">
-                                        {otherDashboards.map(dashboard => (
-                                            <Menu.Item
-                                                key={dashboard.id}
-                                                onClick={() => duplicateDashboardItem(item.id, dashboard.id)}
-                                            >
-                                                {dashboard.name}
-                                            </Menu.Item>
-                                        ))}
-                                    </Menu.SubMenu>
-                                ) : null}
-                                {otherDashboards.length > 0 ? (
-                                    <Menu.SubMenu key="move" icon={<DeliveredProcedureOutlined />} title="Move to...">
-                                        {otherDashboards.map(dashboard => (
-                                            <Menu.Item
-                                                key={dashboard.id}
-                                                onClick={() => duplicateDashboardItem(item.id, dashboard.id, true)}
-                                            >
-                                                {dashboard.name}
-                                            </Menu.Item>
-                                        ))}
-                                    </Menu.SubMenu>
-                                ) : null}
-                                <Menu.Item icon={<BlockOutlined />} onClick={() => duplicateDashboardItem(item.id)}>
-                                    Duplicate
-                                </Menu.Item>
-                                <Menu.Item
-                                    icon={<DeleteOutlined />}
-                                    onClick={() =>
-                                        deleteWithUndo({
-                                            object: item,
-                                            endpoint: 'dashboard_item',
-                                            callback: loadDashboardItems,
-                                        })
-                                    }
-                                    className="text-danger"
-                                >
-                                    Delete
-                                </Menu.Item>
-                            </Menu>
-                        }
-                    >
-                        <span style={{ cursor: 'pointer', marginTop: -3 }}>
-                            <EllipsisOutlined />
-                        </span>
-                    </Dropdown>
+                <div className="dashboard-item-content">
+                    {Element ? (
+                        <div className="graph-container">
+                            <Element
+                                dashboardItemId={item.id}
+                                filters={item.filters}
+                                color={color}
+                                theme={color === 'white' ? 'light' : 'dark'}
+                            />
+                        </div>
+                    ) : (
+                        <Loading />
+                    )}
                 </div>
-            </div>
-            <div className="dashboard-item-content">
-                {Element ? (
-                    <Element
-                        dashboardItemId={item.id}
-                        filters={item.filters}
-                        color={color}
-                        theme={color === 'white' ? 'light' : 'dark'}
-                    />
-                ) : (
-                    <Loading />
-                )}
             </div>
         </div>
     )

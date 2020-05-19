@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Select, Tabs, Popover, Button } from 'antd'
+import { Tooltip, Select, Tabs, Popover, Button } from 'antd'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { cohortsModel } from '../../models/cohortsModel'
@@ -16,7 +16,9 @@ function PropertyFilter({ breakdown, onChange }) {
             placeholder={'Break down by'}
             value={breakdown ? breakdown : undefined}
             onChange={(_, { value }) => onChange(value)}
-            filterOption={(input, option) => option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0}
+            filterOption={(input, option) =>
+                option.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+            }
         >
             {Object.entries(eventProperties).map(([key, item]) => {
                 return (
@@ -42,7 +44,9 @@ function CohortFilter({ breakdown, onChange }) {
             onChange={value => {
                 onChange(value.length > 0 ? value : null, 'cohort')
             }}
-            filterOption={(input, option) => option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0}
+            filterOption={(input, option) =>
+                option.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+            }
         >
             <Select.Option value={'all'} type="cohort" label={'all users'}>
                 All users*
@@ -75,8 +79,9 @@ function Content({ breakdown, breakdown_type, onChange }) {
     )
 }
 
-export function BreakdownFilter({ breakdown, breakdown_type, onChange }) {
+export function BreakdownFilter({ filters, onChange }) {
     const { cohorts } = useValues(cohortsModel)
+    const { breakdown, breakdown_type, shown_as } = filters
     let [open, setOpen] = useState(false)
     let label = breakdown
     if (breakdown_type === 'cohort' && breakdown) {
@@ -103,9 +108,13 @@ export function BreakdownFilter({ breakdown, breakdown_type, onChange }) {
             trigger="click"
             placement="bottomLeft"
         >
-            <Button shape="round" type={breakdown ? 'primary' : 'default'}>
-                {label || 'Add breakdown'}
-            </Button>
+            <Tooltip
+                title={shown_as == 'Stickiness' && 'Break down by is not yet available in combination with Stickiness'}
+            >
+                <Button shape="round" type={breakdown ? 'primary' : 'default'} disabled={shown_as == 'Stickiness'}>
+                    {label || 'Add breakdown'}
+                </Button>
+            </Tooltip>
         </Popover>
     )
 }

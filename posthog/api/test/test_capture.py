@@ -17,6 +17,7 @@ class TestCapture(BaseTest):
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode('utf-8')).decode('utf-8')
 
+    @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')
     def test_capture_event(self, patch_process_event):
         data = {
@@ -46,6 +47,7 @@ class TestCapture(BaseTest):
             'team_id': self.team.pk,
         })
 
+    @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')
     def test_multiple_events(self, patch_process_event):
         self.client.post('/track/', data={
@@ -66,6 +68,7 @@ class TestCapture(BaseTest):
         })
         self.assertEqual(patch_process_event.call_count, 2)
 
+    @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')
     def test_emojis_in_text(self, patch_process_event):
         self.team.api_token = 'xp9qT2VLY76JJg'
@@ -76,18 +79,21 @@ class TestCapture(BaseTest):
 
         self.assertEqual(patch_process_event.call_args[1]['data']['properties']['$elements'][0]['$el_text'], '💻 Writing code')
 
+    @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')
     def test_incorrect_padding(self, patch_process_event):
         response = self.client.get('/e/?data=eyJldmVudCI6IndoYXRldmVmciIsInByb3BlcnRpZXMiOnsidG9rZW4iOiJ0b2tlbjEyMyIsImRpc3RpbmN0X2lkIjoiYXNkZiJ9fQ', content_type='application/json', HTTP_REFERER='https://localhost')
         self.assertEqual(response.json()['status'], 1)
         self.assertEqual(patch_process_event.call_args[1]['data']['event'], 'whatevefr')
 
+    @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')
     def test_ignore_empty_request(self, patch_process_event):
         response = self.client.get('/e/?data=', content_type='application/json', HTTP_ORIGIN='https://localhost')
         self.assertEqual(response.content, b"1")
         self.assertEqual(patch_process_event.call_count, 0)
 
+    @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')
     def test_batch(self, patch_process_event):
         data = {
@@ -110,6 +116,7 @@ class TestCapture(BaseTest):
             'team_id': self.team.pk,
         })
 
+    @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')
     def test_batch_gzip(self, patch_process_event):
         data = {
@@ -178,6 +185,7 @@ class TestCapture(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()['message'], "You need to set a distinct_id.")
 
+    @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')
     def test_engage(self, patch_process_event):
         response = self.client.get('/engage/?data=%s' % quote(self._dict_to_json({
@@ -201,6 +209,7 @@ class TestCapture(BaseTest):
             'team_id': self.team.pk,
         })
 
+    @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')
     def test_python_library(self, patch_process_event):
         self.client.post('/track/', data={
@@ -215,6 +224,7 @@ class TestCapture(BaseTest):
         arguments = patch_process_event.call_args[1]
         self.assertEqual(arguments['team_id'], self.team.pk)
 
+    @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')
     def test_js_library_underscore_sent_at(self, patch_process_event):
         now = timezone.now()
@@ -247,6 +257,7 @@ class TestCapture(BaseTest):
             tomorrow.isoformat()
         )
 
+    @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')
     def test_sent_at_field(self, patch_process_event):
         now = timezone.now()
@@ -272,5 +283,3 @@ class TestCapture(BaseTest):
         timediff = arguments['sent_at'].timestamp() - tomorrow_sent_at.timestamp()
         self.assertLess(abs(timediff), 1)
         self.assertEqual(arguments['data']['timestamp'], tomorrow.isoformat())
-
-

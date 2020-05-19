@@ -4,8 +4,13 @@
 #
 #    pip-compile requirements/dev.in
 #
+--index-url https://pypi.python.org/simple
+
+asgiref==3.2.7            # via django
 attrs==19.3.0             # via flake8-bugbear
 click==7.1.1              # via pip-tools
+django-debug-toolbar==2.2  # via -r requirements/dev.in
+django==3.0.6             # via django-debug-toolbar
 entrypoints==0.3          # via flake8
 flake8-bugbear==20.1.4    # via -r requirements/dev.in
 flake8-colors==0.1.6      # via -r requirements/dev.in
@@ -15,11 +20,15 @@ flake8-import-order==0.18.1  # via -r requirements/dev.in
 flake8-logging-format==0.6.0  # via -r requirements/dev.in
 flake8-print==3.1.4       # via -r requirements/dev.in
 flake8==3.7.9             # via -r requirements/dev.in, flake8-bugbear, flake8-colors, flake8-commas, flake8-comprehensions, flake8-print
+importlib-metadata==1.6.0  # via flake8-comprehensions
 mccabe==0.6.1             # via flake8
 pip-tools==5.0.0          # via -r requirements/dev.in
 pycodestyle==2.5.0        # via flake8, flake8-import-order, flake8-print
 pyflakes==2.1.1           # via flake8
+pytz==2020.1              # via django
 six==1.14.0               # via flake8-print, pip-tools
+sqlparse==0.3.1           # via django, django-debug-toolbar
+zipp==3.1.0               # via importlib-metadata
 
 # The following packages are considered to be unsafe in a requirements file:
 # pip
