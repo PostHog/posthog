@@ -69,7 +69,11 @@ export function ActionFilterRow({ logic, filter, index }) {
                 {name || 'Select action'}
             </button>
             <MathSelector math={math} index={index} onMathSelect={onMathSelect} />
-            <div className="btn btn-sm btn-light" onClick={() => setEntityFilterVisible(!entityFilterVisible)}>
+            <div
+                className="btn btn-sm btn-light"
+                onClick={() => setEntityFilterVisible(!entityFilterVisible)}
+                data-attr={'show-prop-filter-' + index}
+            >
                 {determineFilterLabel(entityFilterVisible, filter)}
             </div>
             <CloseButton
@@ -114,6 +118,7 @@ function MathSelector(props) {
             title={items[items.map(i => i.toLowerCase()).indexOf(props.math)] || 'Total'}
             buttonClassName="btn btn-sm btn-light"
             style={{ marginLeft: 32, marginRight: 16 }}
+            data-attr={'math-selector-' + props.index}
         >
             <Tooltip
                 placement="right"
@@ -128,7 +133,12 @@ function MathSelector(props) {
                 placement="right"
                 title="Daily Active Users. Selecting DAU will mean a user performing an event 3 times on one day counts as 1."
             >
-                <a href="#" className="dropdown-item" onClick={() => props.onMathSelect(props.index, 'dau')}>
+                <a
+                    href="#"
+                    className="dropdown-item"
+                    onClick={() => props.onMathSelect(props.index, 'dau')}
+                    data-attr={'dau-option-' + props.index}
+                >
                     DAU
                 </a>
             </Tooltip>

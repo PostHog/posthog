@@ -14,6 +14,21 @@ describe('Trends actions & events', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
+    it('DAU on 1 element', () => {
+        cy.get('[data-attr=math-selector-0]').click()
+        cy.get('[data-attr=dau-option-0]').click()
+        cy.get('[data-attr=trend-line-graph]').should('exist')
+    })
+
+    it('Apply specific filter on default pageview event', () => {
+        cy.get('[data-attr=show-prop-filter-0]').click()
+        cy.get('[data-attr=new-prop-filter-0-\\$pageview-filter]').click()
+        cy.contains('$current_url').click()
+        cy.get('[data-attr=prop-val]').click()
+        cy.contains(Cypress.config().baseUrl + '/demo/1/').click()
+        cy.get('[data-attr=trend-line-graph]').should('exist')
+    })
+
     it('Apply 1 overall filter', () => {
         cy.contains('Add action/event').click()
         cy.get('[data-attr=trend-element-subject-1]').click()

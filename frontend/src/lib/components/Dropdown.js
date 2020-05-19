@@ -29,6 +29,7 @@ export class Dropdown extends Component {
                     marginTop: -6,
                     ...this.props.style,
                 }}
+                data-attr={this.props['data-attr']}
             >
                 <a
                     className={'cursor-pointer ' + this.props.buttonClassName}
