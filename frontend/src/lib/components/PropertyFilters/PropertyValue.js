@@ -18,16 +18,15 @@ export class PropertyValue extends Component {
             this.loadPropertyValues('')
         }
     }
-    loadPropertyValues(input) {
+    loadPropertyValues(value) {
         let key = this.props.propertyKey.split('__')[0]
 
-        this.setState({ input, optionsCache: { ...this.state.optionsCache, [input]: 'loading' } })
-        api.get('api/' + this.props.endpoint + '/values/?key=' + key + (input ? '&value=' + input : '')).then(
-            propValues =>
-                this.setState({
-                    options: [...new Set([...this.state.options, ...propValues.map(option => option.name)])],
-                    optionsCache: { ...this.state.optionsCache, [input]: true },
-                })
+        this.setState({ input: value, optionsCache: { ...this.state.optionsCache, [value]: 'loading' } })
+        api.get('api/' + this.props.type + '/values/?key=' + key + (value ? '&value=' + value : '')).then(propValues =>
+            this.setState({
+                options: [...new Set([...this.state.options, ...propValues.map(option => option.name)])],
+                optionsCache: { ...this.state.optionsCache, [value]: true },
+            })
         )
     }
     render() {
