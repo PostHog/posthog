@@ -281,7 +281,7 @@ export class Paths extends Component {
                         </span>
                     }
                 >
-                    <div ref={this.canvas} className="paths" style={{ height: '90vh' }}>
+                    <div ref={this.canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
                         {dataLoaded && paths && paths.nodes.length === 0 ? (
                             <NoData />
                         ) : (

@@ -69,6 +69,23 @@ describe('Trends actions & events', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
+    it('Apply property breakdown', () => {
+        cy.get('[data-attr=add-breakdown-button]').click()
+        cy.get('[data-attr=prop-breakdown-select]').click()
+        cy.get('[data-attr=prop-breakdown-3]').click()
+
+        cy.get('[data-attr=trend-line-graph]').should('exist')
+    })
+
+    it('Apply all users cohort breakdown', () => {
+        cy.get('[data-attr=add-breakdown-button]').click()
+        cy.contains('Cohort').click()
+        cy.get('[data-attr=cohort-breakdown-select]').click()
+        cy.get('[data-attr=cohort-breakdown-all-users]').click()
+
+        cy.get('[data-attr=trend-line-graph]').should('exist')
+    })
+
     it('Save to dashboard', () => {
         cy.get('[data-attr=save-to-dashboard-button]').click()
         cy.contains('Add panel to dashboard').click()

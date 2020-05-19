@@ -5,5 +5,6 @@ describe('Paths', () => {
 
     it('Paths loaded', () => {
         cy.get('h1').should('contain', 'Paths')
+        cy.get('[data-attr=paths-viz]').should('exist')
     })
 })
