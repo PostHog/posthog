@@ -11,11 +11,12 @@ class ProcessEvent(BaseTest):
     def test_capture_new_person(self) -> None:
         user = self._create_user('tim')
         action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action1, selector='a')
+        ActionStep.objects.create(action=action1, selector='a', event='$autocapture')
         action2 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action2, selector='a')
+        ActionStep.objects.create(action=action2, selector='a', event='$autocapture')
+        team_id = self.team.pk
 
-        with self.assertNumQueries(18):
+        with self.assertNumQueries(19):
             process_event(2, '', '', {
                 'event': '$autocapture',
                 'properties': {
@@ -26,7 +27,7 @@ class ProcessEvent(BaseTest):
                         {'tag_name': 'div', 'nth_child': 1, 'nth_of_type': 2, '$el_text': '💻'}
                     ]
                 },
-            }, self.team.pk, now().isoformat(), now().isoformat())
+            }, team_id, now().isoformat(), now().isoformat())
 
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
         event = Event.objects.get()
