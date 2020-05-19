@@ -108,6 +108,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         people = people\
             .values(key)\
             .annotate(count=Count('id'))\
+            .filter(**{'{}__isnull'.format(key): False})\
             .order_by('-count')
 
         if request.GET.get('value'):

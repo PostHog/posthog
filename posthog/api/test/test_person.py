@@ -49,6 +49,7 @@ class TestPerson(BaseTest):
         self.assertEqual(response[0]['count'], 2)
         self.assertEqual(response[1]['name'], 'qwerty')
         self.assertEqual(response[1]['count'], 1)
+        self.assertEqual(len(response), 2)
 
         response = self.client.get('/api/person/values/?key=random_prop&value=qw').json()
         self.assertEqual(response[0]['name'], 'qwerty')
