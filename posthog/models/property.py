@@ -57,11 +57,21 @@ class Property:
 class PropertyMixin:
     properties: List[Property] = []
 
-    def properties_to_Q(self) -> Q:
+    def properties_to_Q(self, is_person_query: bool=False) -> Q:
+        """
+        Converts a filter to Q, for use in Django ORM .filter()
+        If you're filtering a Person QuerySet, use is_person_query to avoid doing an unnecessary nested loop
+        """
         filters = Q()
 
         if len(self.properties) == 0:
             return filters
+
+        if is_person_query:
+            for property in self.properties:
+                filters &= property.property_to_Q()
+            return filters
+
         person_properties = [prop for prop in self.properties if prop.type == 'person']
         if len(person_properties) > 0:
             person_Q = Q()
