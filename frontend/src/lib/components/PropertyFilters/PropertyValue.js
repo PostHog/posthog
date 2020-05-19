@@ -10,13 +10,11 @@ export class PropertyValue extends Component {
         this.state = {
             input: '',
             optionsCache: [],
-            options: props.operator === 'is_set' ? ['true', 'false'] : [],
+            options: [],
         }
 
         this.loadPropertyValues = debounce(this.loadPropertyValues.bind(this), 250)
-        if (this.props.operator !== 'is_set') {
-            this.loadPropertyValues('')
-        }
+        this.loadPropertyValues('')
     }
     loadPropertyValues(value) {
         let key = this.props.propertyKey.split('__')[0]
@@ -32,6 +30,7 @@ export class PropertyValue extends Component {
     render() {
         let { onSet, value, operator } = this.props
         let { input, optionsCache, options } = this.state
+        if (operator === 'is_set') options = ['true', 'false']
         options = options.filter(
             option => input === '' || (option && option.toLowerCase().indexOf(input.toLowerCase()) > -1)
         )
@@ -65,6 +64,6 @@ export class PropertyValue extends Component {
 }
 PropertyValue.propTypes = {
     propertyKey: PropTypes.string.isRequired,
-    value: PropTypes.any.isRequired,
+    value: PropTypes.any,
     onSet: PropTypes.func.isRequired,
 }

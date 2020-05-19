@@ -57,7 +57,12 @@ export function PropertyFilter({ index, onComplete, logic }) {
                             label: operatorMap[operator] || '= equals',
                         }}
                         placeholder="Property key"
-                        onChange={(_, operator) => setFilter(index, key, value, operator.value, type)}
+                        onChange={(_, new_operator) => {
+                            let new_value = value
+                            if (operator === 'is_set') new_value = undefined
+                            if (new_operator.value === 'is_set') new_value = 'true'
+                            setFilter(index, key, new_value, new_operator.value, type)
+                        }}
                     >
                         {Object.keys(operatorMap).map(operator => (
                             <Select.Option key={operator} value={operator}>
@@ -71,7 +76,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                 <div className="col-5 pl-0">
                     <PropertyValue
                         type={type}
-                        key={key + operator}
+                        key={key}
                         propertyKey={key}
                         operator={operator}
                         value={value}
