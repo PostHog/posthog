@@ -32,7 +32,9 @@ export class PropertyValue extends Component {
     render() {
         let { onSet, value, operator } = this.props
         let { input, optionsCache, options } = this.state
-        options = options.filter(option => input === '' || option.toLowerCase().indexOf(input.toLowerCase()) > -1)
+        options = options.filter(
+            option => input === '' || (option && option.toLowerCase().indexOf(input.toLowerCase()) > -1)
+        )
         return (
             <Select
                 showSearch

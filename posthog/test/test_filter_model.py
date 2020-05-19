@@ -1,5 +1,6 @@
 from posthog.api.test.base import BaseTest
 from posthog.models import Filter, Property, Event, Person
+import json
 
 class TestFilter(BaseTest):
     def test_old_style_properties(self):
@@ -108,5 +109,15 @@ class TestPropertiesToQ(BaseTest):
             'properties': [{'key': 'is_first_user', 'operator': 'is_set', 'value': 'true'}]
         })
         events = Event.objects.filter(filter.properties_to_Q())
-        self.assertEqual(events[0], event2)
+
+    def test_json_object(self):
+        person1 = Person.objects.create(team=self.team, distinct_ids=['person1'], properties={'name': {'first_name': 'Mary', 'last_name': 'Smith'}})
+        event1 = Event.objects.create(team=self.team, distinct_id='person1', event='$pageview', properties={'$current_url': 'https://something.com'})
+        filter = Filter(data={
+            'properties': [
+                {'key': 'name', 'value': json.dumps({'first_name': 'Mary', 'last_name': 'Smith'}), 'type': 'person'}
+            ] 
+        })
+        events = Event.objects.add_person_id(self.team.pk).filter(filter.properties_to_Q())
+        self.assertEqual(events[0], event1)
         self.assertEqual(len(events), 1)

@@ -1,12 +1,13 @@
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from django.db.models import Q
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Union
 from django.template.loader import get_template
 from django.http import HttpResponse, JsonResponse, HttpRequest
 from dateutil import parser
 
 import datetime
+import json
 import re
 import os
 import pytz
@@ -150,3 +151,12 @@ def dict_from_cursor_fetchall(cursor):
         dict(zip(columns, row))
         for row in cursor.fetchall()
     ]
+
+def convert_property_value(input: Union[str, bool, dict, list]) -> str:
+    if isinstance(input, bool):
+        if input == True:
+            return 'true'
+        return 'false'
+    if isinstance(input, dict) or isinstance(input, list):
+        return json.dumps(input, sort_keys=True)
+    return input

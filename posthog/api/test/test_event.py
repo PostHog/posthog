@@ -125,6 +125,7 @@ class TestEvents(BaseTest):
         Event.objects.create(team=self.team, properties={'random_prop': 'qwerty'})
         Event.objects.create(team=self.team, properties={'random_prop': True})
         Event.objects.create(team=self.team, properties={'random_prop': False})
+        Event.objects.create(team=self.team, properties={'random_prop': {'first_name': 'Mary', 'last_name': 'Smith'}})
         Event.objects.create(team=self.team, properties={'something_else': 'qwerty'})
         team2 = Team.objects.create()
         Event.objects.create(team=team2, properties={'random_prop': 'abcd'})
@@ -133,7 +134,8 @@ class TestEvents(BaseTest):
         self.assertEqual(response[1]['name'], 'qwerty')
         self.assertEqual(response[2]['name'], 'false')
         self.assertEqual(response[3]['name'], 'true')
-        self.assertEqual(len(response), 4)
+        self.assertEqual(response[4]['name'], '{"first_name": "Mary", "last_name": "Smith"}')
+        self.assertEqual(len(response), 5)
 
         response = self.client.get('/api/event/values/?key=random_prop&value=qw').json()
         self.assertEqual(response[0]['name'], 'qwerty')

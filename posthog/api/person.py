@@ -1,4 +1,5 @@
 from posthog.models import Event, Team, Person, PersonDistinctId, Cohort
+from posthog.utils import convert_property_value
 from rest_framework import serializers, viewsets, response, request
 from rest_framework.decorators import action
 from rest_framework.settings import api_settings
@@ -112,5 +113,5 @@ class PersonViewSet(viewsets.ModelViewSet):
         if request.GET.get('value'):
             people = people.extra(where=["properties ->> %s LIKE %s"], params=[request.GET['key'], '%{}%'.format(request.GET['value'])])
 
-        return response.Response([{'name': event[key], 'count': event['count']} for event in people[:50]])
+        return response.Response([{'name': convert_property_value(event[key]), 'count': event['count']} for event in people[:50]])
 

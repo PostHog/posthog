@@ -1,5 +1,6 @@
 from django.db.models import Q, Exists, OuterRef
 from .person import Person
+import json
 from typing import List, Optional, Union, Dict, Any
 
 
@@ -36,7 +37,12 @@ class Property:
             return True
         if value == 'false':
             return False
-        return value
+        if isinstance(value, int):
+            return value
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return value
 
     def property_to_Q(self) -> Q:
         value = self._parse_value(self.value)
