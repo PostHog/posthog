@@ -1,8 +1,0 @@
-#!/bin/bash
-set -e
-
-dropdb --if-exists posthog_e2e_test
-createdb posthog_e2e_test
-DEBUG=1 DATABASE_URL=postgresql://postgres:postgres@localhost/posthog_e2e_test python manage.py migrate
-DEBUG=1 DATABASE_URL=postgresql://postgres:postgres@localhost/posthog_e2e_test python manage.py runserver 8080 & 
-yarn run cypress open

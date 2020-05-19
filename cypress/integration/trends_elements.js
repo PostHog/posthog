@@ -22,7 +22,7 @@ describe('Trends actions & events', () => {
         cy.get('[data-attr=new-prop-filter-trends-filters]').click()
         cy.contains('$current_url').click()
         cy.get('[data-attr=prop-val]').click()
-        cy.contains('http://localhost:8000/demo/1/').click()
+        cy.contains(Cypress.config().baseUrl + '/demo/1/').click()
 
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })

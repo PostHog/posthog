@@ -14,7 +14,7 @@ describe('Trends sessions', () => {
         cy.get('[data-attr=new-prop-filter-trends-sessions]').click()
         cy.contains('$current_url').click()
         cy.get('[data-attr=prop-val]').click()
-        cy.contains('http://localhost:8000/demo/1/').click()
+        cy.contains(Cypress.config().baseUrl + '/demo/1/').click()
 
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
