@@ -71,7 +71,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                 <div className="col-5 pl-0">
                     <PropertyValue
                         type={type}
-                        key={key}
+                        key={key + operator}
                         propertyKey={key}
                         operator={operator}
                         value={value}
