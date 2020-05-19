@@ -87,7 +87,7 @@ export function ActionsTable() {
                     </a>
                 </i>
             </p>
-            <LinkButton to={'/action'} type="primary">
+            <LinkButton to={'/action'} type="primary" data-attr="create-action">
                 + New Action
             </LinkButton>
             <br />

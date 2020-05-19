@@ -27,7 +27,7 @@ export function EditFunnel({ funnelId }) {
             }}
         >
             <Card>
-                <div className="card-body">
+                <div className="card-body" data-attr="funnel-editor">
                     <input
                         required
                         placeholder="User drop off through signup"
@@ -36,6 +36,7 @@ export function EditFunnel({ funnelId }) {
                         onChange={e => setFunnel({ name: e.target.value })}
                         value={funnel.name || ''}
                         className="form-control"
+                        data-attr="edit-funnel-input"
                     />
                     {!actionsLoading && actions.length === 0 && (
                         <div className="alert alert-warning" style={{ marginTop: '1rem' }}>
@@ -65,7 +66,12 @@ export function EditFunnel({ funnelId }) {
                         style={{ marginBottom: 0 }}
                     />
                     <hr />
-                    <Button type="primary mt-3" htmlType="submit" disabled={isStepsEmpty}>
+                    <Button
+                        type="primary mt-3"
+                        htmlType="submit"
+                        disabled={isStepsEmpty}
+                        data-attr="save-funnel-button"
+                    >
                         Save funnel
                     </Button>
                     <br />

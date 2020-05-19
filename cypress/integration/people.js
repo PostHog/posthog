@@ -7,6 +7,11 @@ describe('People', () => {
         cy.get('h1').should('contain', 'Users')
     })
 
+    it('Go to new cohort from people screen', () => {
+        cy.get('[data-attr=create-cohort]').click()
+        cy.get('span').should('contain', 'New cohort')
+    })
+
     it('All people route works', () => {
         cy.get('[data-attr=menu-item-cohorts]').click()
         cy.get('[data-attr=menu-item-all-people]').click()

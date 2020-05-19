@@ -56,7 +56,12 @@ export class FunnelViz extends Component {
         let { funnel } = this.state
         return funnel ? (
             funnel.steps.length > 0 ? (
-                <div ref={this.container} className="svg-funnel-js" style={{ height: '100%', width: '100%' }}></div>
+                <div
+                    data-attr="funnel-viz"
+                    ref={this.container}
+                    className="svg-funnel-js"
+                    style={{ height: '100%', width: '100%' }}
+                ></div>
             ) : (
                 <p style={{ margin: '1rem' }}>
                     This funnel doesn't have any steps.{' '}
