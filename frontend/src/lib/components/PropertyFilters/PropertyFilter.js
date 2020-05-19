@@ -48,7 +48,7 @@ export function PropertyFilter({ index, endpoint, onComplete, logic }) {
                 </div>
             )}
             {key && (
-                <div className="col-5 pl-0">
+                <div className="col-5 pl-0" data-attr="prop-val">
                     <PropertyValue
                         endpoint={endpoint}
                         key={key}
