@@ -1,7 +1,7 @@
 describe('Trends sessions', () => {
     beforeEach(() => {
         // given
-        cy.visit('http://localhost:8000/')
+        cy.visit('/')
         cy.contains('Sessions').click()
     })
 

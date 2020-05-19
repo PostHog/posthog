@@ -1,7 +1,7 @@
 import './commands'
 
 beforeEach(() => {
-    cy.visit('http://localhost:8000')
+    cy.visit('/')
 
     cy.url().then(url => {
         if (url.includes('setup_admin')) {
@@ -34,8 +34,8 @@ beforeEach(() => {
             cy.get('.btn').click()
         }
     })
-    cy.visit('http://localhost:8000/demo')
-    cy.visit('http://localhost:8000')
+    cy.visit('/demo')
+    cy.visit('/')
 })
 
 Cypress.on('uncaught:exception', err => {

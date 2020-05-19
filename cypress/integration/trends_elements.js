@@ -1,7 +1,7 @@
 describe('Trends actions & events', () => {
     beforeEach(() => {
         // given
-        cy.visit('http://localhost:8000/')
+        cy.visit('/')
     })
 
     it('Add a pageview action filter', () => {
