@@ -20,7 +20,7 @@ export function LatestVersion() {
     return (
         <>
             {latestVersion ? (
-                <span style={{ marginRight: 32 }}>
+                <span style={{ marginRight: 32 }} data-attr="version-status-button">
                     {latestVersion === user.posthog_version && (
                         <Button onClick={() => setChangelogOpen(true)} type="link" style={{ color: 'var(--green)' }}>
                             <span className="hide-when-small">

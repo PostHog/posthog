@@ -11,6 +11,7 @@ export function ChangelogModal({ onDismiss }) {
             style={{ top: 20, minWidth: '70%' }}
         >
             <iframe
+                data-attr="changelog-modal"
                 style={{
                     border: 0,
                     width: '100%',
