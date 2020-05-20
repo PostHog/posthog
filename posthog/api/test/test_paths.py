@@ -107,21 +107,21 @@ class TestPaths(BaseTest):
 
     def test_screen_paths(self):
         person1 = Person.objects.create(team=self.team, distinct_ids=['person_1'])
-        Event.objects.create(properties={'$screen': '/'}, distinct_id='person_1', event='$screen', team=self.team)
-        Event.objects.create(properties={'$screen': '/about'}, distinct_id='person_1', event='$screen', team=self.team)
+        Event.objects.create(properties={'$screen_name': '/'}, distinct_id='person_1', event='$screen', team=self.team)
+        Event.objects.create(properties={'$screen_name': '/about'}, distinct_id='person_1', event='$screen', team=self.team)
 
         person2 = Person.objects.create(team=self.team, distinct_ids=['person_2'])
-        Event.objects.create(properties={'$screen': '/'}, distinct_id='person_2', event='$screen', team=self.team)
-        Event.objects.create(properties={'$screen': '/pricing'}, distinct_id='person_2', event='$screen', team=self.team)
-        Event.objects.create(properties={'$screen': '/about'}, distinct_id='person_2', event='$screen', team=self.team)
+        Event.objects.create(properties={'$screen_name': '/'}, distinct_id='person_2', event='$screen', team=self.team)
+        Event.objects.create(properties={'$screen_name': '/pricing'}, distinct_id='person_2', event='$screen', team=self.team)
+        Event.objects.create(properties={'$screen_name': '/about'}, distinct_id='person_2', event='$screen', team=self.team)
 
         person3 = Person.objects.create(team=self.team, distinct_ids=['person_3'])
-        Event.objects.create(properties={'$screen': '/pricing'}, distinct_id='person_3', event='$screen', team=self.team)
-        Event.objects.create(properties={'$screen': '/'}, distinct_id='person_3', event='$screen', team=self.team)
+        Event.objects.create(properties={'$screen_name': '/pricing'}, distinct_id='person_3', event='$screen', team=self.team)
+        Event.objects.create(properties={'$screen_name': '/'}, distinct_id='person_3', event='$screen', team=self.team)
 
         person3 = Person.objects.create(team=self.team, distinct_ids=['person_4'])
-        Event.objects.create(properties={'$screen': '/'}, distinct_id='person_4', event='$screen', team=self.team)
-        Event.objects.create(properties={'$screen': '/pricing'}, distinct_id='person_4', event='$screen', team=self.team)
+        Event.objects.create(properties={'$screen_name': '/'}, distinct_id='person_4', event='$screen', team=self.team)
+        Event.objects.create(properties={'$screen_name': '/pricing'}, distinct_id='person_4', event='$screen', team=self.team)
 
         response = self.client.get('/api/paths/?type=%24screen').json()
         self.assertEqual(response[0]['source'], '1_/', response)
