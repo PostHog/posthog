@@ -3,9 +3,9 @@ import { kea, useActions, useValues } from 'kea'
 import { Spin, Button, List } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 
-import { userLogic } from '../../../scenes/userLogic'
-import api from '../../api'
-import { toParams } from '../../utils'
+import { userLogic } from 'scenes/userLogic'
+import api from 'lib/api'
+import { toParams } from 'lib/utils'
 import { UrlRow } from './UrlRow'
 import { toast } from 'react-toastify'
 

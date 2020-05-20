@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 
 import { EditAppUrls } from './EditAppUrls'
 import { appEditorUrl } from './utils'
-import { userLogic } from '../../../scenes/userLogic'
+import { userLogic } from 'scenes/userLogic'
 import { Modal } from 'antd'
 
 export function AppEditorLink({ actionId, style, className, children }) {
