@@ -28,7 +28,7 @@ class PathsViewSet(viewsets.ViewSet):
         if requested_type:
             if requested_type == "$screen":
                 event = "$screen"
-                path_type = "properties->> \'$screen\'"
+                path_type = "properties->> \'$screen_name\'"
             elif requested_type == "$autocapture":
                 event = "$autocapture"
                 path_type = "tag_name_source"
