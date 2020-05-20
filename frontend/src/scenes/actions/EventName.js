@@ -3,18 +3,21 @@ import { Select } from 'antd'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
-export function EventName({ onChange }) {
+export function EventName({ value, onChange }) {
     const { eventNamesGrouped } = useValues(userLogic)
 
     return (
         <span>
             <Select
                 showSearch
+                allowClear
                 style={{ width: '100%' }}
                 onChange={onChange}
                 filterOption={(input, option) =>
                     option.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
                 }
+                disabled={eventNamesGrouped[0].options.length === 0}
+                value={value}
             >
                 {eventNamesGrouped.map(typeGroup => {
                     if (typeGroup['options'].length > 0) {
