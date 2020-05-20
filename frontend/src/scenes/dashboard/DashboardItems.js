@@ -70,7 +70,7 @@ export function DashboardItems({ logic }) {
             }}
             draggableCancel=".anticon,.ant-dropdown,table"
         >
-            {items.map(item => (
+            {items.map((item, index) => (
                 <div key={item.id} className="dashboard-item-wrapper">
                     <DashboardItem
                         key={item.id}
@@ -83,6 +83,7 @@ export function DashboardItems({ logic }) {
                         isDraggingRef={isDragging}
                         dashboards={dashboards}
                         enableWobblyDragging={draggingEnabled !== 'off' ? noop : enableWobblyDragging}
+                        index={index}
                     />
                 </div>
             ))}
