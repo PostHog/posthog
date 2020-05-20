@@ -7,6 +7,11 @@ describe('Funnels', () => {
         cy.get('h1').should('contain', 'Funnels')
     })
 
+    it('Click on a funnel', () => {
+        cy.get('[data-attr=funnel-link-0]').click()
+        cy.get('[data-attr=funnel-editor]').should('exist')
+    })
+
     it('Go to new funnel screen', () => {
         cy.get('[data-attr=create-funnel]').click()
         cy.get('[data-attr=funnel-editor]').should('exist')

@@ -15,14 +15,17 @@ export function ActionsTable() {
             title: 'Action ID',
             dataIndex: 'name',
             key: 'name',
-            render: function RenderName(_, action) {
-                return <Link to={'/action/' + action.id}>{action.name}</Link>
+            render: function RenderName(_, action, index) {
+                return (
+                    <Link data-attr={'action-link-' + index} to={'/action/' + action.id}>
+                        {action.name}
+                    </Link>
+                )
             },
         },
         {
             title: 'Volume',
             render: function RenderVolume(_, action) {
-                console.log(action)
                 return <span>{action.count}</span>
             },
         },

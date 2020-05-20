@@ -8,6 +8,11 @@ describe('Actions', () => {
         cy.get('h1').should('contain', 'Actions')
     })
 
+    it('Click on an action', () => {
+        cy.get('[data-attr=action-link-0]').click()
+        cy.get('h1').should('contain', 'Edit action')
+    })
+
     it('Go to new action screen', () => {
         cy.get('[data-attr=create-action]').click()
         cy.get('h1').should('contain', 'New action')

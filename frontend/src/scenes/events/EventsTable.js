@@ -76,6 +76,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
                                     setSelectedEvent={setSelectedEvent}
                                     filtersEnabled={filtersEnabled}
                                     showLinkToPerson={showLinkToPerson}
+                                    index={index}
                                 />
                                 {selectedEvent === event.id && (
                                     <tr>

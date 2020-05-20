@@ -14,16 +14,20 @@ export function Funnels() {
             title: 'Funnel Name',
             dataIndex: 'name',
             key: 'name',
-            render: function RenderName(_, funnel) {
-                return <Link to={`/funnel/${funnel.id}`}>{funnel.name}</Link>
+            render: function RenderName(_, funnel, index) {
+                return (
+                    <Link data-attr={'funnel-link-' + index} to={`/funnel/${funnel.id}`}>
+                        {funnel.name}
+                    </Link>
+                )
             },
         },
         {
             title: 'Actions',
-            render: function RenderActions(_, funnel) {
+            render: function RenderActions(_, funnel, index) {
                 return (
                     <span>
-                        <Link to={`/funnel/${funnel.id}`}>
+                        <Link to={`/funnel/${funnel.id}`} data-attr={'funnel-edit-' + index}>
                             <i className="fi flaticon-edit" />
                         </Link>
                         <DeleteWithUndo
