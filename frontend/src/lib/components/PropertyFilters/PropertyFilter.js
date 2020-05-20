@@ -73,7 +73,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                 </div>
             )}
             {key && (
-                <div className="col-5 pl-0">
+                <div className="col-5 pl-0" data-attr="prop-val">
                     <PropertyValue
                         type={type}
                         key={key}

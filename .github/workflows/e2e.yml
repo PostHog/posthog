@@ -1,0 +1,25 @@
+name: e2e
+on: [pull_request]
+jobs:
+  cypress-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+      # Install Node.js
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 12
+      - run: yarn install
+      
+      - name: Prepare server
+        run: docker-compose -f docker-compose.e2e.yml up -d
+      - name: Check running containers
+        run: docker ps -a
+      - name: Check logs
+        run: docker logs posthog_server
+
+      - name: Cypress run
+        run: |
+          sleep 60
+          yarn run cypress run --config-file cypress.json
