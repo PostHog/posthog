@@ -7,9 +7,11 @@
 ![](https://posthog.com/static/6c585ad804ad3855cf916b530a99e9d0/05ed2/presentation-mode.png)
 
 - [Dashboard resizing](https://github.com/PostHog/posthog/pull/746)
+
 ![](https://posthog.com/images/a73d77c1d5e05f0a5337acc967b178ce/dashboards-moving.gif)
 
 - [Paths works with events](https://github.com/PostHog/posthog/pull/692)
+
 ![](https://posthog.com/images/91e2b9a8274bfba62fda39dc31cf0fb7/paths-with-events.gif)
 
 - [Dashboard mobile support](https://github.com/PostHog/posthog/pull/775)
