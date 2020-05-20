@@ -1,5 +1,37 @@
 # Changelog
 
+### 1.6.0 - Wednesday 20 May 2020
+
+- [Dashboard presentation mode](https://github.com/PostHog/posthog/pull/753)
+
+![](https://posthog.com/static/6c585ad804ad3855cf916b530a99e9d0/05ed2/presentation-mode.png)
+
+- [Dashboard resizing](https://github.com/PostHog/posthog/pull/746)
+
+![](https://posthog.com/images/a73d77c1d5e05f0a5337acc967b178ce/dashboards-moving.gif)
+
+- [Paths works with events](https://github.com/PostHog/posthog/pull/692)
+
+![](https://posthog.com/images/91e2b9a8274bfba62fda39dc31cf0fb7/paths-with-events.gif)
+
+- [Dashboard mobile support](https://github.com/PostHog/posthog/pull/775)
+- [Microsoft Teams support](https://posthog.com/docs/integrations/microsoft-teams)
+- [You can now use](https://github.com/PostHog/posthog/pull/768) the django-debug-toolbar to diagnoze performance issues better
+- We added [ES Lint](https://eslint.org/), for JavaScript linting.
+- We fixed [property filter array issue](https://github.com/PostHog/posthog/pull/769)
+- [Optimize funnel rendering](https://github.com/PostHog/posthog/pull/792) is a major improvement in speed for those with many events - now 1 order of magnitude faster. 
+- [Multiple filters with same key](https://github.com/PostHog/posthog/pull/738), fixed a bug that means you can now have multiple filters that are the same ie $current_url doesn't equal A and $current_url doesn't equal B
+- [Event partioning](https://github.com/PostHog/posthog/pull/733), which speeds up trends and paths pages in particular. Learn more about [scaling PostHog](/docs/scaling-posthog).
+- The component Deletewithundo wasn't working because of property mixup, [now it is](https://github.com/PostHog/posthog/pull/750)!
+- [Funnels](https://github.com/PostHog/posthog/pull/751) and [Actions](https://github.com/PostHog/posthog/pull/757) now use Ant Design
+- We temporarily [removed stickiness breakdowns](https://github.com/PostHog/posthog/pull/774), as they were causing issues.
+- [Better handling of breakdown views](https://github.com/PostHog/posthog/pull/758) when users don't have the property.
+- [Fixed an issue](https://github.com/PostHog/posthog/pull/725) with viewing certain queries over all time.
+- [Resolved an issue](https://github.com/PostHog/posthog/pull/748) with sessions where null conditions were missing
+- Fixed the [cohort input search](https://github.com/PostHog/posthog/pull/785) bug
+- Solved [a bug with navigating to users](https://github.com/PostHog/posthog/issues/794)
+- [Improved our event insertion scalability](https://github.com/PostHog/posthog/pull/797)
+
 ### 1.5.0 - Wednesday 13 May 2020
 
 - [Multiple dashboards](https://github.com/PostHog/posthog/pull/740)
