@@ -6,7 +6,7 @@
         <h1 class="h3 mb-3 font-weight-normal">Log in to <a href='https://posthog.com'>PostHog</a></h1>
 
         {% if error %}
-        <p>Your username and password didn't match. Please try again.</p>
+        <p data-attr="login-error">Your username and password didn't match. Please try again.</p>
         {% endif %}
         <div class='field'>
             <input type="email" name='email' id="inputEmail" placeholder="" value="{{ email }}" required autofocus>

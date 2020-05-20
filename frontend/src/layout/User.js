@@ -6,7 +6,9 @@ import { userLogic } from 'scenes/userLogic'
 const options = (
     <Menu>
         <Menu.Item key="0">
-            <a href="/logout">Logout</a>
+            <a href="/logout" data-attr="user-options-logout">
+                Logout
+            </a>
         </Menu.Item>
     </Menu>
 )
@@ -16,7 +18,9 @@ export function User() {
 
     return (
         <Dropdown overlay={options}>
-            <span className="btn btn-sm btn-light">{user.email}</span>
+            <span data-attr="user-options-dropdown" className="btn btn-sm btn-light">
+                {user.email}
+            </span>
         </Dropdown>
     )
 }
