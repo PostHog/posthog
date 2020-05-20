@@ -112,7 +112,7 @@ class Funnel(models.Model):
         ON_TRUE = "ON TRUE"
         LEFT_JOIN_LATERAL = "LEFT JOIN LATERAL"
         QUERY_HEADER = "SELECT {people}, {fields} FROM "
-        LAT_JOIN_BODY = """({query}) {step} {on_true} {join}"""
+        LAT_JOIN_BODY = """({query}) {step} {on_true} {join}""" if len(query_bodies) > 1 else """({query}) {step} {on_true} """
         PERSON_FIELDS = [[sql.Identifier("posthog_person"), sql.Identifier("id")],
                          [sql.Identifier("posthog_person"), sql.Identifier("created_at")],
                          [sql.Identifier("posthog_person"), sql.Identifier("team_id")],
