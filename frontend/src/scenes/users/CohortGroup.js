@@ -24,7 +24,7 @@ function DayChoice({ days, name, group, onChange }) {
 }
 
 export function CohortGroup({ onChange, onRemove, group, index }) {
-    const { actionsGrouped, actions } = useValues(actionsModel)
+    const { actionsGrouped } = useValues(actionsModel)
     const [selected, setSelected] = useState((group.action_id && 'action') || (group.properties && 'property'))
     return (
         <Card title={false} style={{ margin: 0 }}>
@@ -94,7 +94,7 @@ export function CohortGroup({ onChange, onRemove, group, index }) {
                                         if (typeGroup['options'].length > 0) {
                                             return (
                                                 <Select.OptGroup key={typeGroup['label']} label={typeGroup['label']}>
-                                                    {typeGroup['options'].map((item, index) => (
+                                                    {typeGroup['options'].map(item => (
                                                         <Select.Option key={item.value} value={item.value}>
                                                             {item.label}
                                                         </Select.Option>

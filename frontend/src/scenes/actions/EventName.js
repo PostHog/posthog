@@ -3,7 +3,7 @@ import { Select } from 'antd'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
-export function EventName({ value, onChange }) {
+export function EventName({ onChange }) {
     const { eventNamesGrouped } = useValues(userLogic)
 
     return (
@@ -20,7 +20,7 @@ export function EventName({ value, onChange }) {
                     if (typeGroup['options'].length > 0) {
                         return (
                             <Select.OptGroup key={typeGroup['label']} label={typeGroup['label']}>
-                                {typeGroup['options'].map((item, index) => (
+                                {typeGroup['options'].map(item => (
                                     <Select.Option key={item.value} value={item.value}>
                                         {item.label}
                                     </Select.Option>
