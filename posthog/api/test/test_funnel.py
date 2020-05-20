@@ -191,17 +191,17 @@ class TestGetFunnel(BaseTest):
         ActionStep.objects.create(action=action_play_movie, tag_name='a', href='/movie')
         filters = {
             'events': [
-                {'id': 'user signed up', 'type': 'events', 'order': 0, 'properties': {'$browser': 'Safari'}},
+                {'id': 'user signed up', 'type': 'events', 'order': 0, 'properties': [{'key': '$browser', 'value': 'Safari'}]},
             ],
             'actions': [
-                {'id': action_credit_card.pk, 'type': 'actions', 'order': 1},
-                {'id': action_play_movie.pk, 'type': 'actions', 'order': 2, 'properties': {'$browser': 'Firefox'}},
+                {'id': action_credit_card.pk, 'type': 'actions', 'order': 1, 'properties': [{'key': '$browser', 'value': 'Safari', 'type': 'person'}]},
+                {'id': action_play_movie.pk, 'type': 'actions', 'order': 2, 'properties': [{'key': '$browser', 'value': 'Firefox'}]},
             ]
         }
         funnel = self._basic_funnel(filters=filters)
 
         # events
-        with_property = Person.objects.create(distinct_ids=["with_property"], team=self.team)
+        with_property = Person.objects.create(distinct_ids=["with_property"], team=self.team, properties={'$browser': 'Safari'})
         self._signup_event(distinct_id='with_property', properties={'$browser': 'Safari'})
         self._pay_event(distinct_id='with_property', properties={'$browser': 'Safari'})
         self._movie_event(distinct_id='with_property')

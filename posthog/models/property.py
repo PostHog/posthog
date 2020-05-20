@@ -1,5 +1,6 @@
 from django.db.models import Q, Exists, OuterRef
 from .person import Person
+import json
 from typing import List, Optional, Union, Dict, Any
 
 
@@ -31,21 +32,46 @@ class Property:
             'type': self.type
         }
 
+    def _parse_value(self, value: Union[int, str]) -> Union[int, str, bool]:
+        if value == 'true':
+            return True
+        if value == 'false':
+            return False
+        if isinstance(value, int):
+            return value
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return value
+
     def property_to_Q(self) -> Q:
+        value = self._parse_value(self.value)
         if self.operator == 'is_not':
-            return Q(~Q(**{'properties__{}'.format(self.key): self.value}) | ~Q(properties__has_key=self.key))
+            return Q(~Q(**{'properties__{}'.format(self.key): value}) | ~Q(properties__has_key=self.key))
         if self.operator == 'not_icontains':
-            return Q(~Q(**{'properties__{}__icontains'.format(self.key): self.value}) | ~Q(properties__has_key=self.key))
-        return Q(**{'properties__{}{}'.format(self.key, '__{}'.format(self.operator) if self.operator else ''): self.value})
+            return Q(~Q(**{'properties__{}__icontains'.format(self.key): value}) | ~Q(properties__has_key=self.key))
+        if self.operator == 'is_set':
+            return Q(**{'properties__{}__isnull'.format(self.key): not value})
+        return Q(**{'properties__{}{}'.format(self.key, '__{}'.format(self.operator) if self.operator else ''): value})
 
 class PropertyMixin:
     properties: List[Property] = []
 
-    def properties_to_Q(self) -> Q:
+    def properties_to_Q(self, is_person_query: bool=False) -> Q:
+        """
+        Converts a filter to Q, for use in Django ORM .filter()
+        If you're filtering a Person QuerySet, use is_person_query to avoid doing an unnecessary nested loop
+        """
         filters = Q()
 
         if len(self.properties) == 0:
             return filters
+
+        if is_person_query:
+            for property in self.properties:
+                filters &= property.property_to_Q()
+            return filters
+
         person_properties = [prop for prop in self.properties if prop.type == 'person']
         if len(person_properties) > 0:
             person_Q = Q()
@@ -54,9 +80,8 @@ class PropertyMixin:
             filters &= Q(Exists(
                 Person.objects.filter(
                     person_Q,
-                    team_id=OuterRef('team_id'),
                     id=OuterRef('person_id'),
-                )
+                ).only('pk')
             ))
 
         for property in [prop for prop in self.properties if prop.type == 'event']:

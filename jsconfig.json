@@ -7,5 +7,6 @@
       "~/*": ["./*"]
     }
   },
-  "include": ["frontend/**/*"]
+  "include": ["frontend/**/*"],
+  "exclude": ["node_modules/**/*", "staticfiles/**/*"]
 }

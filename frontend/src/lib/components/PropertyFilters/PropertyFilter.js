@@ -1,60 +1,92 @@
 import React from 'react'
-import Select from 'react-select'
-import { selectStyle, operatorMap } from 'lib/utils'
+import { Select } from 'antd'
+import { operatorMap } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { useValues, useActions } from 'kea'
 
-const operatorOptions = Object.entries(operatorMap).map(([key, value]) => ({
-    label: value,
-    value: key,
-}))
-
-export function PropertyFilter({ index, endpoint, onComplete, logic }) {
-    const { properties, filters } = useValues(logic)
+export function PropertyFilter({ index, onComplete, logic }) {
+    const { eventProperties, personProperties, filters } = useValues(logic)
     const { setFilter } = useActions(logic)
     let { key, value, operator, type } = filters[index]
     return (
         <div className="row" style={{ margin: '0.5rem -15px', minWidth: key ? 700 : 200 }}>
-            {properties && (
-                <div className={key ? 'col-4' : 'col'}>
-                    <Select
-                        options={properties}
-                        value={[{ label: key, value: key }]}
-                        isLoading={!properties}
-                        placeholder="Property key"
-                        onChange={item => setFilter(index, item.value, value, operator, type)}
-                        styles={selectStyle}
-                        autoFocus={!key}
-                        openMenuOnFocus={true}
-                    />
-                </div>
-            )}
+            <div className={key ? 'col-4' : 'col'}>
+                <Select
+                    showSearch
+                    autoFocus={!key}
+                    defaultOpen={!key}
+                    placeholder="Property key"
+                    value={key}
+                    filterOption={(input, option) => option.children?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
+                    onChange={(_, new_key) => setFilter(index, new_key.children, undefined, operator, new_key.type)}
+                    style={{ width: '100%' }}
+                >
+                    {eventProperties.length > 0 && (
+                        <Select.OptGroup key="Event properties" lable="Event properties">
+                            {eventProperties.map((item, index) => (
+                                <Select.Option
+                                    key={'event_' + item.value}
+                                    value={'event_' + item.value}
+                                    type="event"
+                                    data-attr={'prop-filter-event-' + index}
+                                >
+                                    {item.value}
+                                </Select.Option>
+                            ))}
+                        </Select.OptGroup>
+                    )}
+                    {personProperties && (
+                        <Select.OptGroup key="User properties" lable="User properties">
+                            {personProperties.map((item, index) => (
+                                <Select.Option
+                                    key={'person_' + item.value}
+                                    value={'person_' + item.value}
+                                    type="person"
+                                    data-attr={'prop-filter-person-' + index}
+                                >
+                                    {item.value}
+                                </Select.Option>
+                            ))}
+                        </Select.OptGroup>
+                    )}
+                </Select>
+            </div>
 
             {key && (
                 <div className="col-3 pl-0">
                     <Select
-                        options={operatorOptions}
-                        style={{ width: 200 }}
-                        value={[
-                            {
-                                label: operatorMap[operator] || '= equals',
-                                value: operator,
-                            },
-                        ]}
+                        style={{ width: '100%' }}
+                        defaultActiveFirstOption
+                        labelInValue
+                        value={{
+                            value: operator || '=',
+                            label: operatorMap[operator] || '= equals',
+                        }}
                         placeholder="Property key"
-                        onChange={operator => setFilter(index, key, value, operator.value, type)}
-                        styles={selectStyle}
-                    />
+                        onChange={(_, new_operator) => {
+                            let new_value = value
+                            if (operator === 'is_set') new_value = undefined
+                            if (new_operator.value === 'is_set') new_value = 'true'
+                            setFilter(index, key, new_value, new_operator.value, type)
+                        }}
+                    >
+                        {Object.keys(operatorMap).map(operator => (
+                            <Select.Option key={operator} value={operator}>
+                                {operatorMap[operator] || '= equals'}
+                            </Select.Option>
+                        ))}
+                    </Select>
                 </div>
             )}
             {key && (
-                <div className="col-5 pl-0" data-attr="prop-val">
+                <div className="col-5 pl-0">
                     <PropertyValue
-                        endpoint={endpoint}
+                        type={type}
                         key={key}
                         propertyKey={key}
+                        operator={operator}
                         value={value}
-                        onSet={(key, value) => {
+                        onSet={value => {
                             onComplete()
                             setFilter(index, key, value, operator, type)
                         }}

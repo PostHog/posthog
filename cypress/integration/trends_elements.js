@@ -20,9 +20,9 @@ describe('Trends actions & events', () => {
         cy.contains('Pageviews').click()
 
         cy.get('[data-attr=new-prop-filter-trends-filters]').click()
-        cy.contains('$current_url').click()
+        cy.get('[data-attr=prop-filter-event-1]').click()
         cy.get('[data-attr=prop-val]').click()
-        cy.contains(Cypress.config().baseUrl + '/demo/1/').click()
+        cy.get('[data-attr=prop-val-0]').click()
 
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })

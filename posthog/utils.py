@@ -1,12 +1,13 @@
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from django.db.models import Q
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Union
 from django.template.loader import get_template
 from django.http import HttpResponse, JsonResponse, HttpRequest
 from dateutil import parser
 
 import datetime
+import json
 import re
 import os
 import pytz
@@ -66,23 +67,6 @@ def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.date]:
     if date_to:
         resp['timestamp__lte'] = date_to + relativedelta(days=1)
     return resp
-
-def properties_to_Q(properties: Dict[str, str]) -> Q:
-    filters = Q()
-
-    if not properties:
-        return filters
-
-    for key, value in properties.items():
-        if key.endswith('__is_not'):
-            key = key.replace('__is_not', '')
-            filters &= Q(~Q(**{'properties__{}'.format(key): value}) | ~Q(properties__has_key=key))
-        elif key.endswith('__not_icontains'):
-            key = key.replace('__not_icontains', '')
-            filters &= Q(~Q(**{'properties__{}__icontains'.format(key): value}) | ~Q(properties__has_key=key))
-        else:
-            filters &= Q(**{'properties__{}'.format(key): value})
-    return filters
 
 def render_template(template_name: str, request: HttpRequest, context=None) -> HttpResponse:
     from posthog.models import Team
@@ -167,3 +151,12 @@ def dict_from_cursor_fetchall(cursor):
         dict(zip(columns, row))
         for row in cursor.fetchall()
     ]
+
+def convert_property_value(input: Union[str, bool, dict, list]) -> str:
+    if isinstance(input, bool):
+        if input == True:
+            return 'true'
+        return 'false'
+    if isinstance(input, dict) or isinstance(input, list):
+        return json.dumps(input, sort_keys=True)
+    return input
