@@ -45,14 +45,15 @@ export class PropertyValue extends Component {
                 onSearch={input => {
                     if (!optionsCache[input] && operator !== 'is_set') this.loadPropertyValues(input)
                 }}
+                data-attr="prop-val"
             >
                 {input && (
                     <Select.Option key={input} value={input}>
                         Specify: {input}
                     </Select.Option>
                 )}
-                {options.map(option => (
-                    <Select.Option key={option} value={option}>
+                {options.map((option, index) => (
+                    <Select.Option key={option} value={option} data-attr={'prop-val-' + index}>
                         {option === true && 'true'}
                         {option === false && 'false'}
                         {option}

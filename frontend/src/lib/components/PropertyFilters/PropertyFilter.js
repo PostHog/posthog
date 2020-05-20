@@ -23,8 +23,13 @@ export function PropertyFilter({ index, onComplete, logic }) {
                 >
                     {eventProperties.length > 0 && (
                         <Select.OptGroup key="Event properties" lable="Event properties">
-                            {eventProperties.map(item => (
-                                <Select.Option key={'event_' + item.value} value={'event_' + item.value} type="event">
+                            {eventProperties.map((item, index) => (
+                                <Select.Option
+                                    key={'event_' + item.value}
+                                    value={'event_' + item.value}
+                                    type="event"
+                                    data-attr={'prop-filter-event-' + index}
+                                >
                                     {item.value}
                                 </Select.Option>
                             ))}
@@ -32,11 +37,12 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     )}
                     {personProperties && (
                         <Select.OptGroup key="User properties" lable="User properties">
-                            {personProperties.map(item => (
+                            {personProperties.map((item, index) => (
                                 <Select.Option
                                     key={'person_' + item.value}
                                     value={'person_' + item.value}
                                     type="person"
+                                    data-attr={'prop-filter-person-' + index}
                                 >
                                     {item.value}
                                 </Select.Option>
@@ -73,7 +79,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                 </div>
             )}
             {key && (
-                <div className="col-5 pl-0" data-attr="prop-val">
+                <div className="col-5 pl-0">
                     <PropertyValue
                         type={type}
                         key={key}
