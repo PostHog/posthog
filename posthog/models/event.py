@@ -240,7 +240,8 @@ class Event(models.Model):
         actions = (
             Action.objects.filter(
                 team_id=self.team_id,
-                steps__event=self.event # filter by event name to narrow down
+                steps__event=self.event, # filter by event name to narrow down
+                deleted=False
             )
             .distinct("id")
             .prefetch_related(
