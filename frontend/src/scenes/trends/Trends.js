@@ -121,6 +121,7 @@ export function Trends() {
                                     onChange={e => {
                                         setFilters({ compare: e.target.checked })
                                     }}
+                                    checked={filters.compare}
                                     style={{ marginLeft: 8, marginRight: 6 }}
                                 >
                                     Compare Previous

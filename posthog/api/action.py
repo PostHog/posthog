@@ -363,7 +363,6 @@ class ActionViewSet(viewsets.ModelViewSet):
         response = []
         events = self._process_entity_for_events(entity=entity, team=team, order_by=None if request.GET.get('shown_as') == 'Stickiness' else '-timestamp')
         events = events.filter(self._filter_events(filter, entity))
-
         if request.GET.get('shown_as', 'Volume') == 'Volume':
             items = self._aggregate_by_interval(
                 filtered_events=events,
@@ -416,8 +415,8 @@ class ActionViewSet(viewsets.ModelViewSet):
         diff = filter.date_to - filter.date_from
         compared_from = filter.date_from  - diff
         compared_filter = Filter(request=request)
-        compared_filter._date_from = compared_from.isoformat()
-        compared_filter._date_to = compared_to.isoformat()
+        compared_filter._date_from = compared_from.date().isoformat()
+        compared_filter._date_to = compared_to.date().isoformat()
         return compared_filter
 
     @action(methods=['GET'], detail=False)
@@ -461,6 +460,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             )
             if compare and compared_filter:
                 trend_entity = self._convert_to_comparison(trend_entity, filter, '{}-{}'.format(trend_entity[0]['label'], 'current'))
+                entities_list.extend(trend_entity)
 
                 compared_trend_entity = self._serialize_entity(
                     entity=entity,
@@ -468,10 +468,11 @@ class ActionViewSet(viewsets.ModelViewSet):
                     request=request,
                     team=team
                 )
-                compared_trend_entity = self._convert_to_comparison(compared_trend_entity, filter, '{}-{}'.format(compared_trend_entity[0]['label'], 'previous'))
-                entities_list.extend(compared_trend_entity) 
                 
-            entities_list.extend(trend_entity)
+                compared_trend_entity = self._convert_to_comparison(compared_trend_entity, compared_filter, '{}-{}'.format(compared_trend_entity[0]['label'], 'previous'))
+                entities_list.extend(compared_trend_entity) 
+            else:
+                entities_list.extend(trend_entity)
             
         return Response(entities_list)
 

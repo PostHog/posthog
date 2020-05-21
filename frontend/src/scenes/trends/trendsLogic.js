@@ -51,7 +51,6 @@ function cleanFilters(filters) {
         actions: Array.isArray(filters.actions) ? filters.actions : undefined,
         events: Array.isArray(filters.events) ? filters.events : undefined,
         properties: filters.properties || [],
-        compare: false,
     }
 }
 

@@ -52,7 +52,7 @@ def relative_date_parse(input: str) -> datetime.datetime:
 
 def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.date]:
     if filters.get('date_from'):
-        date_from = relative_date_parse(filters['date_from']).date()
+        date_from = relative_date_parse(filters['date_from'])
         if filters['date_from'] == 'all':
             date_from = None # type: ignore
     else:
@@ -60,7 +60,7 @@ def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.date]:
 
     date_to = None
     if filters.get('date_to'):
-        date_to = relative_date_parse(filters['date_to']).date()
+        date_to = relative_date_parse(filters['date_to'])
 
     resp = {}
     if date_from:

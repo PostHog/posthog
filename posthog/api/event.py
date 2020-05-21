@@ -1,3 +1,4 @@
+from datetime import datetime
 from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId
 from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value
 from rest_framework import request, response, serializers, viewsets
@@ -8,7 +9,8 @@ from django.db import connection
 from django.db.models.expressions import Window
 from typing import Any, Dict, List, Union
 import json
-import datetime
+from django.utils.timezone import now
+import pandas as pd
 
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
@@ -180,12 +182,43 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(methods=['GET'], detail=False)
     def sessions(self, request: request.Request) -> response.Response:
-        events = self.get_queryset().filter(**request_to_date_query(request.GET.dict())) 
+        compare = request.GET.get('compare')
+        team = self.request.user.team_set.get()
+        date_filter = request_to_date_query(request.GET.dict())
+
+        if not date_filter.get('timestamp__gte'):
+             date_filter['timestamp__gte'] = Event.objects.filter(team=team)\
+                .order_by('timestamp')[0]\
+                .timestamp\
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        if not date_filter.get('timestamp__lte'):
+            date_filter['timestamp__lte'] = now()
+
+        events = self.get_queryset().filter(**date_filter) 
+        compared_events = QuerySet()
+        if compare and request.GET.get('date_from') != 'all':
+            compared_to = date_filter['timestamp__gte']
+            diff = date_filter['timestamp__lte'].date() - date_filter['timestamp__gte'].date()
+            compared_from = date_filter['timestamp__gte'] - diff
+            date_filter['timestamp__gte'] = compared_from
+            date_filter['timestamp__lte'] = compared_to
+            compared_events = self.get_queryset().filter(**date_filter) 
+
         session_type = self.request.GET.get('session')
-        calculated = self.calculate_sessions(events, session_type)
+        calculated = self.calculate_sessions(events, session_type, date_filter)
+        compared_calculated = None
+        if compare and request.GET.get('date_from') != 'all':
+            compared_calculated = self.calculate_sessions(compared_events, session_type, date_filter)
+            calculated.extend(compared_calculated)
+            for entity in calculated:
+                days = [i for i in range(len(entity['days']))]
+                labels = ['{} {}'.format('Day', i) for i in range(len(entity['labels']))]
+                entity.update({'labels': labels, 'days': days})
+
         return response.Response(calculated)
 
-    def calculate_sessions(self, events, session_type):
+    def calculate_sessions(self, events: QuerySet, session_type: str, date_filter):
         sessions = events\
             .annotate(previous_timestamp=Window(
                 expression=Lag('timestamp', default=None),
@@ -240,15 +273,21 @@ class EventViewSet(viewsets.ModelViewSet):
             cursor = connection.cursor()
             cursor.execute(average_length_time(all_sessions), sessions_sql_params)
             time_series_avg = cursor.fetchall()
-            time_series_avg_friendly: List = [(item[0], round(item[1])) for item in time_series_avg]
+            time_series_avg_friendly = []
+            if time_series_avg:
+                time_series_avg_friendly = [(item[0], round(item[1])) for item in time_series_avg]
+            else: 
+                date_range = pd.date_range(date_filter['timestamp__gte'].date(), date_filter['timestamp__lte'].date(), freq='D')
+                time_series_avg_friendly = [(day, 0) for day in date_range]
+
             time_series_data = append_data(time_series_avg_friendly, math=None)
 
             # calculate average
             totals = [sum(x) for x in list(zip(*time_series_avg))[2:4]]
-            overall_average = totals[0] / totals[1]
+            overall_average = totals[0] / totals[1] if totals else 0
             avg_formatted = friendly_time(overall_average)
             avg_split = avg_formatted.split(' ')
-
+            
             time_series_data.update({'label': 'Average Duration of Session ({})'.format(avg_split[1]), 'count': int(avg_split[0])})
             time_series_data.update({"chartLabel": 'Average Duration of Session (seconds)'})
 
