@@ -196,10 +196,11 @@ class EventViewSet(viewsets.ModelViewSet):
             date_filter['timestamp__lte'] = now()
 
         events = self.get_queryset().filter(**date_filter) 
-        compared_events = QuerySet()
+        compared_events: QuerySet = QuerySet()
+
         if compare and request.GET.get('date_from') != 'all':
             compared_to = date_filter['timestamp__gte']
-            diff = date_filter['timestamp__lte'].date() - date_filter['timestamp__gte'].date()
+            diff = date_filter['timestamp__lte'] - date_filter['timestamp__gte']
             compared_from = date_filter['timestamp__gte'] - diff
             date_filter['timestamp__gte'] = compared_from
             date_filter['timestamp__lte'] = compared_to
@@ -208,13 +209,17 @@ class EventViewSet(viewsets.ModelViewSet):
         session_type = self.request.GET.get('session')
         calculated = self.calculate_sessions(events, session_type, date_filter)
         compared_calculated = None
+
+        # get compared period
         if compare and request.GET.get('date_from') != 'all':
             compared_calculated = self.calculate_sessions(compared_events, session_type, date_filter)
             calculated.extend(compared_calculated)
-            for entity in calculated:
-                days = [i for i in range(len(entity['days']))]
-                labels = ['{} {}'.format('Day', i) for i in range(len(entity['labels']))]
-                entity.update({'labels': labels, 'days': days})
+        
+        # relabel
+        for entity in calculated:
+            days = [i for i in range(len(entity['days']))]
+            labels = ['{} {}'.format('Day', i) for i in range(len(entity['labels']))]
+            entity.update({'labels': labels, 'days': days})
 
         return response.Response(calculated)
 

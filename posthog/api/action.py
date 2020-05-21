@@ -404,9 +404,9 @@ class ActionViewSet(viewsets.ModelViewSet):
         return QuerySet()
 
     def _convert_to_comparison(self, trend_entity: List[Dict[str, Any]], filter: Filter, label: str) -> List[Dict[str, Any]]:
-        days = [i for i in range(len(trend_entity[0]['days']))]
-        labels = ['{} {}'.format(filter.interval, i) for i in range(len(trend_entity[0]['labels']))]
         for entity in trend_entity:
+            days = [i for i in range(len(entity['days']))]
+            labels = ['{} {}'.format(filter.interval, i) for i in range(len(entity['labels']))]
             entity.update({'labels': labels, 'days': days, 'label': label})
         return trend_entity
     

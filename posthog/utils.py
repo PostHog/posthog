@@ -50,13 +50,13 @@ def relative_date_parse(input: str) -> datetime.datetime:
             date = date - relativedelta(month=12, day=31)
     return date.replace(hour=0, minute=0, second=0, microsecond=0)
 
-def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.date]:
+def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.datetime]:
     if filters.get('date_from'):
         date_from = relative_date_parse(filters['date_from'])
         if filters['date_from'] == 'all':
             date_from = None # type: ignore
     else:
-        date_from = datetime.date.today() - relativedelta(days=7)
+        date_from = datetime.datetime.today() - relativedelta(days=7)
 
     date_to = None
     if filters.get('date_to'):
