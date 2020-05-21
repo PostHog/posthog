@@ -68,6 +68,26 @@ class TestGetFunnel(BaseTest):
             Element(tag_name='a', href='/movie')
         ], **kwargs)
 
+    def _single_step_funnel(self, properties=None, filters=None):
+        if filters is None:
+            filters =  {
+                'events': [
+                    {'id': 'user signed up', 'type': 'events', 'order': 0},
+                ],
+            }
+
+        if properties is not None:
+            filters.update({
+                'properties': properties
+            })
+
+        funnel = Funnel.objects.create(
+            team=self.team,
+            name='funnel',
+            filters=filters
+        )
+        return funnel
+
     def _basic_funnel(self, properties=None, filters=None):
         action_credit_card = Action.objects.create(team=self.team, name='paid')
         ActionStep.objects.create(action=action_credit_card, tag_name='button', text='Pay $10')
@@ -96,6 +116,23 @@ class TestGetFunnel(BaseTest):
             filters=filters
         )
         return funnel
+
+    def test_funnel_with_single_step(self):
+        funnel = self._single_step_funnel()
+
+        # event
+        person1_stopped_after_signup = Person.objects.create(distinct_ids=["stopped_after_signup1"], team=self.team)
+        self._signup_event(distinct_id='stopped_after_signup1')
+
+        person2_stopped_after_signup = Person.objects.create(distinct_ids=["stopped_after_signup2"], team=self.team)
+        self._signup_event(distinct_id='stopped_after_signup2')
+
+        with self.assertNumQueries(5):
+            response = self.client.get('/api/funnel/{}/'.format(funnel.pk)).json()
+        self.assertEqual(response['steps'][0]['name'], 'user signed up')
+        self.assertEqual(response['steps'][0]['count'], 2)
+        # check ordering of people in first step
+        self.assertEqual(response['steps'][0]['people'], [person1_stopped_after_signup.pk, person2_stopped_after_signup.pk])
 
     def test_funnel_events(self):
         funnel = self._basic_funnel()
