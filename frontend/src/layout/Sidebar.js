@@ -85,8 +85,12 @@ export default function Sidebar(props) {
             >
                 <Logo />
 
-                {pinnedDashboards.map(dashboard => (
-                    <Menu.Item key={`dashboard-${dashboard.id}`} style={itemStyle}>
+                {pinnedDashboards.map((dashboard, index) => (
+                    <Menu.Item
+                        key={`dashboard-${dashboard.id}`}
+                        style={itemStyle}
+                        data-attr={'pinned-dashboard-' + index}
+                    >
                         <LineChartOutlined />
                         <span className="sidebar-label">{dashboard.name}</span>
                         <Link to={`/dashboard/${dashboard.id}`} />
