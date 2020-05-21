@@ -22,17 +22,13 @@ export class InviteTeam extends Component {
                 <br />
                 <div>
                     <Input
+                        data-attr="copy-invite-to-clipboard-input"
                         type="text"
                         ref={this.urlRef}
                         value={url + '/signup/' + this.props.user.team.signup_token}
-                        disabled={true}
                         suffix={
                             <Tooltip title="Copy to Clipboard">
-                                <Button
-                                    onClick={this.copyToClipboard.bind(this)}
-                                    type="default"
-                                    icon={<CopyOutlined />}
-                                />
+                                <Button onClick={this.copyToClipboard} type="default" icon={<CopyOutlined />} />
                             </Tooltip>
                         }
                     />
