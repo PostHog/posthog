@@ -4,13 +4,16 @@
 #
 #    pip-compile requirements/dev.in
 #
---index-url https://pypi.python.org/simple
-
+appnope==0.1.0            # via ipython
 asgiref==3.2.7            # via django
 attrs==19.3.0             # via flake8-bugbear
+backcall==0.1.0           # via ipython
 click==7.1.1              # via pip-tools
+decorator==4.4.2          # via ipython, traitlets
 django-debug-toolbar==2.2  # via -r requirements/dev.in
-django==3.0.6             # via django-debug-toolbar
+django-stubs==1.5.0       # via -r requirements/dev.in, djangorestframework-stubs
+django==3.0.6             # via django-debug-toolbar, django-stubs
+djangorestframework-stubs==1.1.0  # via -r requirements/dev.in
 entrypoints==0.3          # via flake8
 flake8-bugbear==20.1.4    # via -r requirements/dev.in
 flake8-colors==0.1.6      # via -r requirements/dev.in
@@ -20,14 +23,35 @@ flake8-import-order==0.18.1  # via -r requirements/dev.in
 flake8-logging-format==0.6.0  # via -r requirements/dev.in
 flake8-print==3.1.4       # via -r requirements/dev.in
 flake8==3.7.9             # via -r requirements/dev.in, flake8-bugbear, flake8-colors, flake8-commas, flake8-comprehensions, flake8-print
+freezegun==0.3.15         # via -r requirements/dev.in
 importlib-metadata==1.6.0  # via flake8-comprehensions
+ipdb==0.13.2              # via -r requirements/dev.in
+ipython-genutils==0.2.0   # via traitlets
+ipython==7.14.0           # via ipdb
+jedi==0.17.0              # via ipython
 mccabe==0.6.1             # via flake8
+mypy-extensions==0.4.3    # via -r requirements/dev.in, mypy
+mypy==0.770               # via -r requirements/dev.in, django-stubs, djangorestframework-stubs
+packaging==20.4           # via -r requirements/dev.in
+parso==0.7.0              # via jedi
+pexpect==4.8.0            # via ipython
+pickleshare==0.7.5        # via ipython
 pip-tools==5.0.0          # via -r requirements/dev.in
+prompt-toolkit==3.0.5     # via ipython
+ptyprocess==0.6.0         # via pexpect
 pycodestyle==2.5.0        # via flake8, flake8-import-order, flake8-print
 pyflakes==2.1.1           # via flake8
+pygments==2.6.1           # via ipython
+pyparsing==2.4.7          # via packaging
+python-dateutil==2.8.1    # via freezegun
 pytz==2020.1              # via django
-six==1.14.0               # via flake8-print, pip-tools
+six==1.14.0               # via flake8-print, freezegun, packaging, pip-tools, python-dateutil, traitlets
 sqlparse==0.3.1           # via django, django-debug-toolbar
+tblib==1.6.0              # via -r requirements/dev.in
+traitlets==4.3.3          # via ipython
+typed-ast==1.4.1          # via mypy
+typing-extensions==3.7.4.2  # via django-stubs, djangorestframework-stubs, mypy
+wcwidth==0.1.9            # via prompt-toolkit
 zipp==3.1.0               # via importlib-metadata
 
 # The following packages are considered to be unsafe in a requirements file:
