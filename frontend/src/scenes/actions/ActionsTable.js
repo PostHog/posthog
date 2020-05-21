@@ -22,7 +22,6 @@ export function ActionsTable() {
         {
             title: 'Volume',
             render: function RenderVolume(_, action) {
-                console.log(action)
                 return <span>{action.count}</span>
             },
         },

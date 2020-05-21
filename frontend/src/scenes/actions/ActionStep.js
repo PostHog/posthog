@@ -226,10 +226,10 @@ export class ActionStep extends Component {
                         <label>Event name</label>
                         <EventName
                             value={step.event}
-                            onChange={item =>
+                            onChange={value =>
                                 this.sendStep({
                                     ...step,
-                                    event: item.value,
+                                    event: value,
                                 })
                             }
                         />
