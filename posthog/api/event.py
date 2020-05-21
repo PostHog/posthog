@@ -1,6 +1,6 @@
 from datetime import datetime
 from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId
-from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value
+from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value, get_compare_period_dates
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from django.db.models import QuerySet, F, Prefetch
@@ -180,12 +180,21 @@ class EventViewSet(viewsets.ModelViewSet):
 
         return response.Response([{'name': convert_property_value(value.value)} for value in values])
 
+    def _handle_compared(self, date_filter: Dict[str, datetime], session_type: str) -> List[Dict[str, Any]]:
+        date_from, date_to = get_compare_period_dates(date_filter['timestamp__gte'],  date_filter['timestamp__lte'])
+        date_filter['timestamp__gte'] = date_from
+        date_filter['timestamp__lte'] = date_to
+        compared_events = self.get_queryset().filter(**date_filter)
+
+        compared_calculated = self.calculate_sessions(compared_events, session_type, date_filter)
+
+        return compared_calculated
+
     @action(methods=['GET'], detail=False)
     def sessions(self, request: request.Request) -> response.Response:
-        compare = request.GET.get('compare')
         team = self.request.user.team_set.get()
         date_filter = request_to_date_query(request.GET.dict())
-
+        print(date_filter)
         if not date_filter.get('timestamp__gte'):
              date_filter['timestamp__gte'] = Event.objects.filter(team=team)\
                 .order_by('timestamp')[0]\
@@ -195,35 +204,28 @@ class EventViewSet(viewsets.ModelViewSet):
         if not date_filter.get('timestamp__lte'):
             date_filter['timestamp__lte'] = now()
 
-        events = self.get_queryset().filter(**date_filter) 
-        compared_events: QuerySet = QuerySet()
+        print(date_filter)
 
-        if compare and request.GET.get('date_from') != 'all':
-            compared_to = date_filter['timestamp__gte']
-            diff = date_filter['timestamp__lte'] - date_filter['timestamp__gte']
-            compared_from = date_filter['timestamp__gte'] - diff
-            date_filter['timestamp__gte'] = compared_from
-            date_filter['timestamp__lte'] = compared_to
-            compared_events = self.get_queryset().filter(**date_filter) 
+        events = self.get_queryset().filter(**date_filter) 
 
         session_type = self.request.GET.get('session')
         calculated = self.calculate_sessions(events, session_type, date_filter)
-        compared_calculated = None
 
         # get compared period
+        compare = request.GET.get('compare')
         if compare and request.GET.get('date_from') != 'all':
-            compared_calculated = self.calculate_sessions(compared_events, session_type, date_filter)
+            compared_calculated = self._handle_compared(date_filter, session_type)
             calculated.extend(compared_calculated)
         
-        # relabel
-        for entity in calculated:
-            days = [i for i in range(len(entity['days']))]
-            labels = ['{} {}'.format('Day', i) for i in range(len(entity['labels']))]
-            entity.update({'labels': labels, 'days': days})
+            # relabel
+            for entity in calculated:
+                days = [i for i in range(len(entity['days']))]
+                labels = ['{} {}'.format('Day', i) for i in range(len(entity['labels']))]
+                entity.update({'labels': labels, 'days': days})
 
         return response.Response(calculated)
 
-    def calculate_sessions(self, events: QuerySet, session_type: str, date_filter):
+    def calculate_sessions(self, events: QuerySet, session_type: str, date_filter) -> List[Dict[str, Any]]:
         sessions = events\
             .annotate(previous_timestamp=Window(
                 expression=Lag('timestamp', default=None),
@@ -279,11 +281,8 @@ class EventViewSet(viewsets.ModelViewSet):
             cursor.execute(average_length_time(all_sessions), sessions_sql_params)
             time_series_avg = cursor.fetchall()
             time_series_avg_friendly = []
-            if time_series_avg:
-                time_series_avg_friendly = [(item[0], round(item[1])) for item in time_series_avg]
-            else: 
-                date_range = pd.date_range(date_filter['timestamp__gte'].date(), date_filter['timestamp__lte'].date(), freq='D')
-                time_series_avg_friendly = [(day, 0) for day in date_range]
+            date_range = pd.date_range(date_filter['timestamp__gte'].date(), date_filter['timestamp__lte'].date(), freq='D')
+            time_series_avg_friendly = [(day, round(time_series_avg[index][1] if index < len(time_series_avg) else 0)) for index, day in enumerate(date_range)]
 
             time_series_data = append_data(time_series_avg_friendly, math=None)
 

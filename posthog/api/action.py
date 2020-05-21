@@ -1,5 +1,5 @@
 from posthog.models import Event, Team, Action, ActionStep, Element, User, Person, Filter, Entity, Cohort, CohortPeople
-from posthog.utils import append_data
+from posthog.utils import append_data, get_compare_period_dates
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from rest_framework import request, serializers, viewsets, authentication
 from rest_framework.response import Response
@@ -411,12 +411,10 @@ class ActionViewSet(viewsets.ModelViewSet):
         return trend_entity
     
     def _determine_compared_filter(self, filter, request):
-        compared_to = filter.date_from
-        diff = filter.date_to - filter.date_from
-        compared_from = filter.date_from  - diff
+        date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
         compared_filter = Filter(request=request)
-        compared_filter._date_from = compared_from.date().isoformat()
-        compared_filter._date_to = compared_to.date().isoformat()
+        compared_filter._date_from = date_from.date().isoformat()
+        compared_filter._date_to = date_to.date().isoformat()
         return compared_filter
 
     @action(methods=['GET'], detail=False)

@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Union
 from django.template.loader import get_template
 from django.http import HttpResponse, JsonResponse, HttpRequest
 from dateutil import parser
+from typing import Tuple
 
 import datetime
 import json
@@ -57,6 +58,7 @@ def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.datetim
             date_from = None # type: ignore
     else:
         date_from = datetime.datetime.today() - relativedelta(days=7)
+        date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
     date_to = None
     if filters.get('date_to'):
@@ -64,9 +66,9 @@ def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.datetim
 
     resp = {}
     if date_from:
-        resp['timestamp__gte'] = date_from
+        resp['timestamp__gte'] = date_from.replace(tzinfo=pytz.UTC)
     if date_to:
-        resp['timestamp__lte'] = date_to + relativedelta(days=1)
+        resp['timestamp__lte'] = (date_to + relativedelta(days=1)).replace(tzinfo=pytz.UTC)
     return resp
 
 def render_template(template_name: str, request: HttpRequest, context=None) -> HttpResponse:
@@ -166,3 +168,9 @@ def convert_property_value(input: Union[str, bool, dict, list]) -> str:
     if isinstance(input, dict) or isinstance(input, list):
         return json.dumps(input, sort_keys=True)
     return input
+
+def get_compare_period_dates(date_from: datetime.datetime, date_to: datetime.datetime) -> Tuple[datetime.datetime,datetime.datetime]:
+    new_date_to = date_from
+    diff = date_to - date_from
+    new_date_from = date_from - diff
+    return new_date_from, new_date_to
