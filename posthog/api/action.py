@@ -17,6 +17,7 @@ import pytz
 import copy
 import numpy as np
 from dateutil.relativedelta import relativedelta
+import dateutil
 from .person import PersonSerializer
 
 FREQ_MAP = {
@@ -403,11 +404,28 @@ class ActionViewSet(viewsets.ModelViewSet):
             return Event.objects.filter_by_event_with_people(event=entity.id, team_id=team.pk, order_by=order_by)
         return QuerySet()
 
+    def _convert_to_comparison(self, trend_entity: List[Dict[str, Any]], filter: Filter, label: str) -> List[Dict[str, Any]]:
+        days = [i for i in range(len(trend_entity[0]['days']))]
+        labels = ['{} {}'.format(filter.interval, i) for i in range(len(trend_entity[0]['labels']))]
+        for entity in trend_entity:
+            entity.update({'labels': labels, 'days': days, 'label': label})
+        return trend_entity
+    
+    def _determine_compared_filter(self, filter, request):
+        compared_to = filter.date_from
+        diff = filter.date_to - filter.date_from
+        compared_from = filter.date_from  - diff
+        compared_filter = Filter(request=request)
+        compared_filter._date_from = compared_from.isoformat()
+        compared_filter._date_to = compared_to.isoformat()
+        return compared_filter
+
     @action(methods=['GET'], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         actions = self.get_queryset()
         actions = actions.filter(deleted=False)
         team = request.user.team_set.get()
+        compare = request.GET.get('compare')
         entities_list = []
         filter = Filter(request=request)
 
@@ -424,6 +442,10 @@ class ActionViewSet(viewsets.ModelViewSet):
         if not filter.date_to:
             filter._date_to = now().isoformat()
 
+        compared_filter = None
+        if compare:
+            compared_filter = self._determine_compared_filter(filter, request)
+
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 try:
@@ -437,7 +459,20 @@ class ActionViewSet(viewsets.ModelViewSet):
                 request=request,
                 team=team
             )
+            if compare and compared_filter:
+                trend_entity = self._convert_to_comparison(trend_entity, filter, '{}-{}'.format(trend_entity[0]['label'], 'current'))
+
+                compared_trend_entity = self._serialize_entity(
+                    entity=entity,
+                    filter=compared_filter,
+                    request=request,
+                    team=team
+                )
+                compared_trend_entity = self._convert_to_comparison(compared_trend_entity, filter, '{}-{}'.format(compared_trend_entity[0]['label'], 'previous'))
+                entities_list.extend(compared_trend_entity) 
+                
             entities_list.extend(trend_entity)
+            
         return Response(entities_list)
 
     @action(methods=['GET'], detail=False)
