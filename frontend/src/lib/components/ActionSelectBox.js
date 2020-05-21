@@ -72,6 +72,7 @@ export class ActionSelectPanel extends Component {
                         option.children.props.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
                     }
                     value={this.determineValue(this.props.active)}
+                    listHeight={300}
                 >
                     {this.props.options.map(typeGroup => {
                         if (typeGroup['options'].length > 0) {
