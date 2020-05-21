@@ -15,7 +15,7 @@ export function OptOutCapture() {
             <br />
             <br />
             We also understand there are many reasons why people don't want to or aren't allowed to send this usage
-            data. Just tick the box below to opt out of this.
+            data. If you would like to anonymize your personal usage data, just tick the box below.
             <br />
             <br />
             <Switch
