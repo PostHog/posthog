@@ -135,7 +135,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'posthog.wsgi.application'
 
-
 # Social Auth
 
 SOCIAL_AUTH_POSTGRES_JSONFIELD = True

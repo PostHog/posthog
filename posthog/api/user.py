@@ -12,6 +12,7 @@ import requests
 import urllib.parse
 import secrets
 import json
+import os
 import posthoganalytics
 
 def user(request):
@@ -30,8 +31,14 @@ def user(request):
             team.save()
 
         if 'user' in data:
-            request.user.email_opt_in = data['user'].get('email_opt_in')
-            posthoganalytics.identify(request.user.distinct_id, {'email_opt_in': request.user.email_opt_in})
+            request.user.email_opt_in = data['user'].get('email_opt_in', request.user.email_opt_in)
+            request.user.anonymize_data = data['user'].get('anonymize_data', request.user.anonymize_data)
+            posthoganalytics.identify(request.user.distinct_id, {
+                'email_opt_in': request.user.email_opt_in,
+                'anonymize_data': request.user.anonymize_data,
+                'email': request.user.email if not request.user.anonymize_data else None,
+                'is_signed_up': True
+            })
             request.user.save()
 
     return JsonResponse({
@@ -41,6 +48,7 @@ def user(request):
         'email': request.user.email,
         'has_events': Event.objects.filter(team=team).exists(),
         'email_opt_in': request.user.email_opt_in,
+        'anonymize_data': request.user.anonymize_data,
         'team': {
             'app_urls': team.app_urls,
             'api_token': team.api_token,
@@ -50,6 +58,7 @@ def user(request):
             'event_names': team.event_names,
             'event_properties': team.event_properties
         },
+        'opt_out_capture': os.environ.get('OPT_OUT_CAPTURE'),
         'posthog_version': settings.VERSION if hasattr(settings, 'VERSION') else None
     })
 

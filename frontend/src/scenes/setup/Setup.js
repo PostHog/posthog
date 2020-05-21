@@ -57,7 +57,7 @@ export function Setup() {
             <h2 id="password">Change Password</h2>
             <ChangePassword />
             <Divider />
-            <h2 id="optout">Opt out of capturing</h2>
+            <h2 id="optout">Anonymize data collection</h2>
             <OptOutCapture />
             <Divider />
             <h2>Security and feature updates</h2>

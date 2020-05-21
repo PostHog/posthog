@@ -15,23 +15,25 @@ export function OptOutCapture() {
             <br />
             <br />
             We also understand there are many reasons why people don't want to or aren't allowed to send this usage
-            data. Just tick the box below to opt out of this.
+            data. If you would like to anonymize your personal usage data, just tick the box below.
             <br />
             <br />
             <Switch
                 onChange={checked => {
                     api.update('api/user', {
-                        team: { opt_out_capture: checked },
+                        user: {
+                            anonymize_data: checked,
+                        },
                     }).then(() => setSaved(true))
                 }}
-                defaultChecked={user.team.opt_out_capture}
+                defaultChecked={user.anonymize_data}
             />
             <label
                 style={{
                     marginLeft: '10px',
                 }}
             >
-                Opt-out of sending usage data to PostHog.
+                Anonymize my data
             </label>
             {saved && (
                 <p className="text-success">
