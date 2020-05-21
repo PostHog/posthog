@@ -10,9 +10,9 @@ describe('Live Actions', () => {
 
     it('Apply 1 overall filter', () => {
         cy.get('[data-attr=new-prop-filter-LiveActionsTable]').click()
-        cy.contains('$current_url').click()
+        cy.get('[data-attr=prop-filter-event-0]').click()
         cy.get('[data-attr=prop-val]').click()
-        cy.contains(Cypress.config().baseUrl + '/demo/1/').click()
+        cy.get('[data-attr=prop-val-0]').click()
 
         cy.get('[data-attr=live-actions-table').should('exist')
     })

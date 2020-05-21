@@ -23,9 +23,9 @@ describe('Trends actions & events', () => {
     it('Apply specific filter on default pageview event', () => {
         cy.get('[data-attr=show-prop-filter-0]').click()
         cy.get('[data-attr=new-prop-filter-0-\\$pageview-filter]').click()
-        cy.contains('$current_url').click()
+        cy.get('[data-attr=prop-filter-event-1]').click()
         cy.get('[data-attr=prop-val]').click()
-        cy.contains(Cypress.config().baseUrl + '/demo/1/').click()
+        cy.get('[data-attr=prop-val-0]').click()
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
