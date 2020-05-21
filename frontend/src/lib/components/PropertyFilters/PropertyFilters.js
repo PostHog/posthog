@@ -3,6 +3,7 @@ import { PropertyFilter } from './PropertyFilter'
 import { Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { Popover, Row } from 'antd'
 import { CloseButton, operatorMap } from 'lib/utils'
 
@@ -26,19 +27,12 @@ function FilterRow({ item, index, filters, logic, pageKey }) {
                 defaultVisible={false}
                 visible={open}
                 placement="bottomLeft"
-                content={
-                    <PropertyFilter
-                        key={index}
-                        index={index}
-                        onComplete={() => setOpen(false)}
-                        logic={logic}
-                    />
-                }
+                content={<PropertyFilter key={index} index={index} onComplete={() => setOpen(false)} logic={logic} />}
             >
                 {key ? (
                     <Button type="primary" shape="round" style={{ maxWidth: '85%' }}>
                         <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {key} {operatorMap[operator || 'exact'].split(' ')[0]} {value}
+                            {keyMapping[key]?.label || key} {operatorMap[operator || 'exact'].split(' ')[0]} {value}
                         </span>
                     </Button>
                 ) : (
