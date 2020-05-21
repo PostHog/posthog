@@ -7,13 +7,4 @@ describe('Live Actions', () => {
     it('Live actions loaded', () => {
         cy.get('[data-attr=live-actions-table').should('exist')
     })
-
-    it('Apply 1 overall filter', () => {
-        cy.get('[data-attr=new-prop-filter-LiveActionsTable]').click()
-        cy.get('[data-attr=prop-filter-event-0]').click()
-        cy.get('[data-attr=prop-val]').click()
-        cy.get('[data-attr=prop-val-0]').click()
-
-        cy.get('[data-attr=live-actions-table').should('exist')
-    })
 })
