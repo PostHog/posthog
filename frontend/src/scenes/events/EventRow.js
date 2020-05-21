@@ -50,7 +50,7 @@ export function EventRow({
                 let value = event.properties[param]
 
                 if (param === '$current_url' && !value) {
-                    param = '$screen'
+                    param = '$screen_name'
                     value = event.properties[param]
                 }
 

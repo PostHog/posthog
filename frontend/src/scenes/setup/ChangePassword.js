@@ -26,19 +26,18 @@ export class ChangePassword extends Component {
                 newPassword: this.state.newPassword,
             })
             toast.success('Password changed')
-        } catch (response) {
-            toast.error(response.error)
-        } finally {
             this.setState({
                 oldPassword: '',
                 newPassword: '',
             })
+        } catch (response) {
+            toast.error(response.error)
         }
     }
 
     render() {
         return (
-            <div>
+            <form onSubmit={this.save}>
                 <label>Old Password</label>
                 <br />
                 <Input.Password
@@ -47,6 +46,7 @@ export class ChangePassword extends Component {
                     onChange={this.handleChange}
                     value={this.state.oldPassword}
                     style={{ maxWidth: 400 }}
+                    autoComplete="current-password"
                 />
                 <br />
                 <label>New Password</label>
@@ -57,19 +57,14 @@ export class ChangePassword extends Component {
                     onChange={this.handleChange}
                     value={this.state.newPassword}
                     style={{ maxWidth: 400 }}
+                    autoComplete="new-password"
                 />
                 <br />
                 <br />
-                <Button
-                    type="primary"
-                    onClick={e => {
-                        e.preventDefault()
-                        this.save()
-                    }}
-                >
+                <Button type="primary" htmlType="submit">
                     Change Password
                 </Button>
-            </div>
+            </form>
         )
     }
 }

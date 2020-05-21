@@ -6,7 +6,7 @@ import { propertyFilterLogic } from './propertyFilterLogic'
 import { Popover, Row } from 'antd'
 import { CloseButton, operatorMap } from 'lib/utils'
 
-function FilterRow({ endpoint, item, index, filters, logic, pageKey }) {
+function FilterRow({ item, index, filters, logic, pageKey }) {
     const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
     const { key, value, operator } = item
@@ -30,7 +30,6 @@ function FilterRow({ endpoint, item, index, filters, logic, pageKey }) {
                     <PropertyFilter
                         key={index}
                         index={index}
-                        endpoint={endpoint || 'event'}
                         onComplete={() => setOpen(false)}
                         logic={logic}
                     />
@@ -85,7 +84,6 @@ export function PropertyFilters({ endpoint, propertyFilters, className, style, o
                                 item={item}
                                 index={index}
                                 filters={filters}
-                                endpoint={endpoint}
                                 pageKey={pageKey}
                             />
                         )

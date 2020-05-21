@@ -12,6 +12,8 @@ from django.db.models import (
     F,
     signals,
     Prefetch,
+    IntegerField,
+    Value,
     QuerySet,
 )
 from typing import List, Dict, Any, Optional
@@ -49,7 +51,10 @@ class Funnel(models.Model):
                 else "action__pk"
             )
             event = Event.objects.values("distinct_id")\
-                .annotate(step_ts=Min("timestamp"))\
+                .annotate(
+                    step_ts=Min("timestamp"),
+                    person_id=Value("99999999", IntegerField())
+                )\
                 .filter(
                     filter.date_filter_Q,
                     **{filter_key: step.id},
@@ -75,6 +80,8 @@ class Funnel(models.Model):
                             .replace("'1234321'", "{prev_step_person_id}")
                             .replace("'2000-01-01T00:00:00+00:00'::timestamptz", "{prev_step_ts}")
                             .replace('"posthog_event"."distinct_id"', '"pdi"."person_id"')
+                            .replace('99999999', '"pdi"."person_id"')
+                            .replace(', "pdi"."person_id" AS "person_id"', '')
                             .replace('FROM "posthog_event"',
                                      'FROM posthog_event JOIN posthog_persondistinctid pdi'
                                      + ' ON pdi.distinct_id = posthog_event.distinct_id'))
@@ -105,7 +112,7 @@ class Funnel(models.Model):
         ON_TRUE = "ON TRUE"
         LEFT_JOIN_LATERAL = "LEFT JOIN LATERAL"
         QUERY_HEADER = "SELECT {people}, {fields} FROM "
-        LAT_JOIN_BODY = """({query}) {step} {on_true} {join}"""
+        LAT_JOIN_BODY = """({query}) {step} {on_true} {join}""" if len(query_bodies) > 1 else """({query}) {step} {on_true} """
         PERSON_FIELDS = [[sql.Identifier("posthog_person"), sql.Identifier("id")],
                          [sql.Identifier("posthog_person"), sql.Identifier("created_at")],
                          [sql.Identifier("posthog_person"), sql.Identifier("team_id")],

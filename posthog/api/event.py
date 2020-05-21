@@ -1,12 +1,12 @@
 from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId
-from posthog.utils import properties_to_Q, friendly_time, request_to_date_query, append_data
+from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from django.db.models import QuerySet, F, Prefetch
 from django.db.models.functions import Lag
 from django.db import connection
 from django.db.models.expressions import Window
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 import json
 import datetime
 
@@ -50,14 +50,17 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
+
+        team = self.request.user.team_set.get()
+        queryset = queryset.add_person_id(team.pk) # type: ignore
+
         if self.action == 'list' or self.action == 'sessions': # type: ignore
             queryset = self._filter_request(self.request, queryset)
         
         order_by = self.request.GET.get('orderBy')
         order_by = ['-timestamp'] if not order_by else list(json.loads(order_by))
-        
         return queryset\
-            .filter(team=self.request.user.team_set.get())\
+            .filter(team=team)\
             .order_by(*order_by)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
@@ -173,7 +176,7 @@ class EventViewSet(viewsets.ModelViewSet):
             LIMIT 50;
         """.format(where), params)
 
-        return response.Response([{'name': value.value} for value in values])
+        return response.Response([{'name': convert_property_value(value.value)} for value in values])
 
     @action(methods=['GET'], detail=False)
     def sessions(self, request: request.Request) -> response.Response:
