@@ -182,7 +182,9 @@ export class LineGraph extends Component {
                                               : undefined,
                                       day:
                                           typeof point._index !== 'undefined' && dataset.days
-                                              ? dataset.days[point._index]
+                                              ? dataset['compare']
+                                                  ? dataset.dates[point._index]
+                                                  : dataset.days[point._index]
                                               : undefined,
                                       value:
                                           typeof point._index !== 'undefined' && dataset.data

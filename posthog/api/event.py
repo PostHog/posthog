@@ -190,11 +190,18 @@ class EventViewSet(viewsets.ModelViewSet):
 
         return compared_calculated
 
+    def _convert_to_comparison(self, trend_entity: List[Dict[str, Any]], label: str) -> List[Dict[str, Any]]:
+        for entity in trend_entity:
+            days = [i for i in range(len(entity['days']))]
+            labels = ['{} {}'.format('Day', i) for i in range(len(entity['labels']))]
+            entity.update({'labels': labels, 'days': days, 'chartLabel': '{}-{}'.format(entity['label'], label), 'dates': entity['days'], 'compare': True})
+        return trend_entity
+
     @action(methods=['GET'], detail=False)
     def sessions(self, request: request.Request) -> response.Response:
         team = self.request.user.team_set.get()
         date_filter = request_to_date_query(request.GET.dict())
-        print(date_filter)
+
         if not date_filter.get('timestamp__gte'):
              date_filter['timestamp__gte'] = Event.objects.filter(team=team)\
                 .order_by('timestamp')[0]\
@@ -204,24 +211,21 @@ class EventViewSet(viewsets.ModelViewSet):
         if not date_filter.get('timestamp__lte'):
             date_filter['timestamp__lte'] = now()
 
-        print(date_filter)
-
         events = self.get_queryset().filter(**date_filter) 
 
         session_type = self.request.GET.get('session')
-        calculated = self.calculate_sessions(events, session_type, date_filter)
+        calculated = []
 
         # get compared period
         compare = request.GET.get('compare')
         if compare and request.GET.get('date_from') != 'all':
+            calculated = self.calculate_sessions(events, session_type, date_filter)
+            calculated = self._convert_to_comparison(calculated, 'current')
             compared_calculated = self._handle_compared(date_filter, session_type)
-            calculated.extend(compared_calculated)
-        
-            # relabel
-            for entity in calculated:
-                days = [i for i in range(len(entity['days']))]
-                labels = ['{} {}'.format('Day', i) for i in range(len(entity['labels']))]
-                entity.update({'labels': labels, 'days': days})
+            converted_compared_calculated = self._convert_to_comparison(compared_calculated, 'previous')
+            calculated.extend(converted_compared_calculated)
+        else:
+            calculated = self.calculate_sessions(events, session_type, date_filter)
 
         return response.Response(calculated)
 

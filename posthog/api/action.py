@@ -407,7 +407,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         for entity in trend_entity:
             days = [i for i in range(len(entity['days']))]
             labels = ['{} {}'.format(filter.interval, i) for i in range(len(entity['labels']))]
-            entity.update({'labels': labels, 'days': days, 'label': label})
+            entity.update({'labels': labels, 'days': days, 'label': label, 'dates': entity['days'], 'compare': True})
         return trend_entity
     
     def _determine_compared_filter(self, filter, request):
@@ -457,7 +457,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 team=team
             )
             if compare and compared_filter:
-                trend_entity = self._convert_to_comparison(trend_entity, filter, '{}-{}'.format(trend_entity[0]['label'], 'current'))
+                trend_entity = self._convert_to_comparison(trend_entity, filter, '{}-{}'.format(entity.name, 'current'))
                 entities_list.extend(trend_entity)
 
                 compared_trend_entity = self._serialize_entity(
@@ -467,7 +467,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     team=team
                 )
                 
-                compared_trend_entity = self._convert_to_comparison(compared_trend_entity, compared_filter, '{}-{}'.format(compared_trend_entity[0]['label'], 'previous'))
+                compared_trend_entity = self._convert_to_comparison(compared_trend_entity, compared_filter, '{}-{}'.format(entity.name, 'previous'))
                 entities_list.extend(compared_trend_entity) 
             else:
                 entities_list.extend(trend_entity)
