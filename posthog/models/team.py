@@ -64,12 +64,15 @@ class Team(models.Model):
         models.CharField(max_length=200, null=True, blank=True), default=list
     )
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    opt_out_capture: models.BooleanField = models.BooleanField(default=False)
     slack_incoming_webhook: models.CharField = models.CharField(
         max_length=200, null=True, blank=True
     )
     event_names: JSONField = JSONField(default=list)
     event_properties: JSONField = JSONField(default=list)
+
+    # DEPRECATED: this field is deprecated in favour of OPT_OUT_CAPTURE env variable and anonymized data
+    # However, we still honor teams that have set this previously
+    opt_out_capture: models.BooleanField = models.BooleanField(default=False)
 
     objects = TeamManager()
 

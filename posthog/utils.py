@@ -1,5 +1,6 @@
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
+from django.conf import settings
 from django.db.models import Q
 from typing import Dict, Any, List, Union
 from django.template.loader import get_template
@@ -85,6 +86,11 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
             context.update({
                 'opt_out_capture': team.first().opt_out_capture, # type: ignore
             })
+
+    if os.environ.get('OPT_OUT_CAPTURE'):
+        context.update({
+            'opt_out_capture': True
+        })
 
     if os.environ.get('SENTRY_DSN'):
         context.update({

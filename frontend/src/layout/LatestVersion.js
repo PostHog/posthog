@@ -8,8 +8,10 @@ import { CheckOutlined, WarningOutlined } from '@ant-design/icons'
 
 export function LatestVersion() {
     const { user } = useValues(userLogic)
+    if (user.opt_out_capture) return null
     const [latestVersion, setLatestVersion] = useState(null)
     const [changelogOpen, setChangelogOpen] = useState(false)
+    const isApp = window.location.href.indexOf('app.posthog.com') > -1
 
     useEffect(() => {
         api.get('https://update.posthog.com/versions').then(versions => {
@@ -21,25 +23,41 @@ export function LatestVersion() {
         <>
             {latestVersion ? (
                 <span style={{ marginRight: 32 }}>
-                    {latestVersion === user.posthog_version && (
+                    {isApp ? (
                         <Button onClick={() => setChangelogOpen(true)} type="link" style={{ color: 'var(--green)' }}>
-                            <span className="hide-when-small">
-                                <CheckOutlined /> PostHog up-to-date
-                            </span>
-                            <span className="show-when-small">
-                                <CheckOutlined /> {latestVersion}
-                            </span>
+                            New features
                         </Button>
-                    )}
-                    {latestVersion !== user.posthog_version && (
-                        <Button type="link" onClick={() => setChangelogOpen(true)} style={{ color: 'var(--red)' }}>
-                            <span className="hide-when-small">
-                                <WarningOutlined /> New version available
-                            </span>
-                            <span className="show-when-small">
-                                <WarningOutlined /> Upgrade!
-                            </span>
-                        </Button>
+                    ) : (
+                        <span>
+                            {latestVersion === user.posthog_version && (
+                                <Button
+                                    onClick={() => setChangelogOpen(true)}
+                                    type="link"
+                                    style={{ color: 'var(--green)' }}
+                                >
+                                    <span className="hide-when-small">
+                                        <CheckOutlined /> PostHog up-to-date
+                                    </span>
+                                    <span className="show-when-small">
+                                        <CheckOutlined /> {latestVersion}
+                                    </span>
+                                </Button>
+                            )}
+                            {latestVersion !== user.posthog_version && (
+                                <Button
+                                    type="link"
+                                    onClick={() => setChangelogOpen(true)}
+                                    style={{ color: 'var(--red)' }}
+                                >
+                                    <span className="hide-when-small">
+                                        <WarningOutlined /> New version available
+                                    </span>
+                                    <span className="show-when-small">
+                                        <WarningOutlined /> Upgrade!
+                                    </span>
+                                </Button>
+                            )}
+                        </span>
                     )}
                 </span>
             ) : null}
