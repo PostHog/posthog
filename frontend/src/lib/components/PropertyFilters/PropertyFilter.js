@@ -20,6 +20,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     filterOption={(input, option) => option.children?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
                     onChange={(_, new_key) => setFilter(index, new_key.children, undefined, operator, new_key.type)}
                     style={{ width: '100%' }}
+                    virtual={false}
                 >
                     {eventProperties.length > 0 && (
                         <Select.OptGroup key="Event properties" lable="Event properties">
