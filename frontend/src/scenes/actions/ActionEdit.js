@@ -60,7 +60,7 @@ export class ActionEdit extends Component {
         }
         let steps = this.state.action.steps.map(step => {
             if (step.event == '$pageview') step.selection = ['url', 'url_matching']
-            if (step.event != '$pageview' && step.event != '$autocapture') step.selection = []
+            if (step.event != '$pageview' && step.event != '$autocapture') step.selection = ['properties']
             if (!step.selection) return step
             let data = {}
             Object.keys(step).map(key => {

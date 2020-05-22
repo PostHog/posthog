@@ -15,12 +15,13 @@ export function EventName({ value, onChange }) {
                 disabled={eventNamesGrouped[0].options.length === 0}
                 value={value ? { label: value, value } : null}
             />
-            <br />
-            {eventNamesGrouped[0].options.length === 0 && "You haven't sent any custom events."}{' '}
-            <a href="https://docs.posthog.com/#/integrations" target="_blank" rel="noopener noreferrer">
-                See documentation
-            </a>{' '}
-            on how to send custom events in lots of languages.
+            <small>
+                {eventNamesGrouped[0].options.length === 0 && "You haven't sent any custom events."}{' '}
+                <a href="https://posthog.com/docs/integrations" target="_blank" rel="noopener noreferrer">
+                    See documentation
+                </a>{' '}
+                on how to send custom events in lots of languages.
+            </small>
         </span>
     )
 }

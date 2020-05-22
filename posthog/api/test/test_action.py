@@ -41,6 +41,10 @@ class TestCreateAction(BaseTest):
         self.assertEqual(response['detail'], 'action-exists')
 
         # test update
+        event2 = Event.objects.create(team=self.team, event='$autocapture', properties={'$browser': 'Chrome'}, elements=[
+            Element(tag_name='button', order=0, text='sign up NOW'),
+            Element(tag_name='div', order=1),
+        ])
         response = self.client.patch('/api/action/%s/' % action.pk, data={
             'name': 'user signed up 2',
             'steps': [{
@@ -48,6 +52,7 @@ class TestCreateAction(BaseTest):
                 "isNew": "asdf",
                 "text": "sign up NOW",
                 "selector": "div > button",
+                "properties": [{'key': '$browser', 'value': 'Chrome'}],
                 "url": None,
             }, {'href': '/a-new-link'}],
         }, content_type='application/json', HTTP_ORIGIN='http://testserver').json()
@@ -56,6 +61,7 @@ class TestCreateAction(BaseTest):
         self.assertEqual(action.name, 'user signed up 2')
         self.assertEqual(steps[0].text, 'sign up NOW')
         self.assertEqual(steps[1].href, '/a-new-link')
+        self.assertEqual(action.events.get(), event2)
         self.assertEqual(action.events.count(), 1)
 
         # test queries

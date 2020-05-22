@@ -1,6 +1,7 @@
 import React, { Component } from 'react'
 import { EventName } from './EventName'
 import { AppEditorLink } from '../../lib/components/AppEditorLink/AppEditorLink'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 
 let getSafeText = el => {
@@ -232,6 +233,11 @@ export class ActionStep extends Component {
                                     event: item.value,
                                 })
                             }
+                        />
+                        <PropertyFilters
+                            propertyFilters={step.properties}
+                            pageKey={'action-edit'}
+                            onChange={properties => this.sendStep({ ...step, properties })}
                         />
                     </div>
                 )}

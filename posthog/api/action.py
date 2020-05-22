@@ -30,7 +30,7 @@ FREQ_MAP = {
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = ActionStep
-        fields = ['id', 'event', 'tag_name', 'text', 'href', 'selector', 'url', 'name', 'url_matching']
+        fields = ['id', 'event', 'tag_name', 'text', 'href', 'selector', 'url', 'name', 'url_matching', 'properties']
 
 
 class ActionSerializer(serializers.HyperlinkedModelSerializer):
