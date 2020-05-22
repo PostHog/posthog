@@ -1,6 +1,6 @@
 from datetime import datetime
 from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId
-from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value, get_compare_period_dates, convert_to_comparison
+from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value, get_compare_period_dates
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from django.db.models import QuerySet, F, Prefetch
@@ -220,9 +220,9 @@ class EventViewSet(viewsets.ModelViewSet):
         compare = request.GET.get('compare')
         if compare and request.GET.get('date_from') != 'all':
             calculated = self.calculate_sessions(events, session_type, date_filter)
-            calculated = convert_to_comparison(calculated, 'day', 'current')
+            calculated = self._convert_to_comparison(calculated, 'current')
             compared_calculated = self._handle_compared(date_filter, session_type)
-            converted_compared_calculated = convert_to_comparison(compared_calculated, 'day', 'previous')
+            converted_compared_calculated = self._convert_to_comparison(compared_calculated, 'previous')
             calculated.extend(converted_compared_calculated)
         else:
             calculated = self.calculate_sessions(events, session_type, date_filter)
