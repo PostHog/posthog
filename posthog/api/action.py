@@ -478,9 +478,13 @@ class ActionViewSet(viewsets.ModelViewSet):
         if request.GET.get('session'):
             filtered_events = Event.objects.filter(team=team).filter(self._filter_events(filter)).add_person_id(team.pk)
         else:
-            if len(filter.entities) != 1:
-                return Response([])
-            entity = filter.entities[0]
+            if len(filter.entities) >= 1:
+                entity = filter.entities[0]
+            else:
+                entity = Entity({
+                    'id': request.GET['entityId'],
+                    'type': request.GET['type']
+                })
 
             if entity.type == TREND_FILTER_TYPE_EVENTS:
                 filtered_events =  self._process_entity_for_events(entity, team=team, order_by=None)\
