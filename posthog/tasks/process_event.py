@@ -157,8 +157,8 @@ def _marshal_team_object(team: str) -> Team:
 
 @shared_task
 def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team: str, now: str, sent_at: Optional[str]) -> None:
-    team = _marshal_team_object(team)
-    team_id = team.id
+    teamObj: Team = _marshal_team_object(team)
+    team_id = teamObj.id
 
     if data['event'] == '$create_alias':
         _alias(previous_distinct_id=data['properties']['alias'], distinct_id=distinct_id, team_id=team_id)
@@ -172,7 +172,7 @@ def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team: st
     _capture(
         ip=ip,
         site_url=site_url,
-        team=team,
+        team=teamObj,
         event=data['event'],
         distinct_id=distinct_id,
         properties=data.get('properties', data.get('$set', {})),
