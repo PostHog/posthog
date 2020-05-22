@@ -25,7 +25,7 @@ export function WorkerStats() {
         return () => window.clearInterval(interval)
     }, [])
 
-    return heartbeat !== null ? (
+    return heartbeat !== null && window.location.href.indexOf('app.posthog.com') <= -1 ? (
         <span>
             {heartbeat === 'offline' || heartbeat === 'error' || heartbeat > 90 ? (
                 <span
