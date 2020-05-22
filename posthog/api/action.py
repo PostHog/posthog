@@ -406,7 +406,7 @@ class ActionViewSet(viewsets.ModelViewSet):
     def _convert_to_comparison(self, trend_entity: List[Dict[str, Any]], filter: Filter, label: str) -> List[Dict[str, Any]]:
         for entity in trend_entity:
             days = [i for i in range(len(entity['days']))]
-            labels = ['{} {}'.format(filter.interval, i) for i in range(len(entity['labels']))]
+            labels = ['{} {}'.format(filter.interval if filter.interval is not None else 'day', i) for i in range(len(entity['labels']))]
             entity.update({'labels': labels, 'days': days, 'label': label, 'dates': entity['days'], 'compare': True})
         return trend_entity
     
