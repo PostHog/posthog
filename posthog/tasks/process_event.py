@@ -150,14 +150,14 @@ def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[dat
     return now_datetime
 
 
-def _marshal_team_object(team: str) -> Team:
-    """Marshals a Team object from a django JSON serialized team object"""
+def _unmarshal_team_object(team: str) -> Team:
+    """Unmarshals a Team object from a django JSON serialized team object"""
     return serializers.deserialize('json', team).__next__().object
 
 
 @shared_task
 def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team: str, now: str, sent_at: Optional[str]) -> None:
-    teamObj: Team = _marshal_team_object(team)
+    teamObj: Team = _unmarshal_team_object(team)
     team_id = teamObj.id
 
     if data['event'] == '$create_alias':
