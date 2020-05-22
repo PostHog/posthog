@@ -116,7 +116,6 @@ class EventManager(models.QuerySet):
         groups = groups.filter(**filter)
         return {"elements_hash__in": groups.values_list("hash", flat=True)}
 
-    # TODO: There is a like in here...I bet it's slow
     def filter_by_url(self, action_step: ActionStep, subquery: QuerySet):
         if not action_step.url:
             return subquery
