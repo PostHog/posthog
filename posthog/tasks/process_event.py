@@ -1,4 +1,5 @@
 from celery import shared_task
+from django.core import serializers
 from posthog.models import Person, Element, Event, Team, PersonDistinctId
 from typing import Union, Dict, Optional
 from dateutil.relativedelta import relativedelta
@@ -78,7 +79,13 @@ def _store_names_and_properties(team: Team, event: str, properties: Dict) -> Non
     if save:
         team.save()
 
-def _capture(ip: str, site_url: str, team_id: int, event: str, distinct_id: str, properties: Dict, timestamp: Union[datetime.datetime, str]) -> None:
+def _capture(ip: str,
+             site_url: str,
+             team: Team,
+             event: str,
+             distinct_id: str,
+             properties: Dict,
+             timestamp: Union[datetime.datetime, str]) -> None:
     elements = properties.get('$elements')
     elements_list = None
     if elements:
@@ -97,23 +104,20 @@ def _capture(ip: str, site_url: str, team_id: int, event: str, distinct_id: str,
             ) for index, el in enumerate(elements)
         ]
     properties["$ip"] = ip
-    team = Team.objects.only('slack_incoming_webhook', 'event_names', 'event_properties').get(pk=team_id)
 
     Event.objects.create(
         event=event,
         distinct_id=distinct_id,
         properties=properties,
-        team=team,
+        team_id=team.id,
         site_url=site_url,
         **({'timestamp': timestamp} if timestamp else {}),
         **({'elements': elements_list} if elements_list else {})
     )
     _store_names_and_properties(team=team, event=event, properties=properties)
-    # try to create a new person
-    try:
-        Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-    except IntegrityError: 
-        pass # person already exists, which is fine
+
+    if not Person.objects.distinct_ids_exist(team_id=team.id, distinct_ids=[str(distinct_id)]):
+        Person.objects.create(team_id=team.id, distinct_ids=[str(distinct_id)])
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
     try:
@@ -145,8 +149,17 @@ def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[dat
         return now_datetime - relativedelta(microseconds=data['offset'] * 1000)
     return now_datetime
 
+
+def _marshal_team_object(team: str) -> Team:
+    """Marshals a Team object from a django JSON serialized team object"""
+    return serializers.deserialize('json', team).__next__().object
+
+
 @shared_task
-def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str]) -> None:
+def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team: str, now: str, sent_at: Optional[str]) -> None:
+    team = _marshal_team_object(team)
+    team_id = team.id
+
     if data['event'] == '$create_alias':
         _alias(previous_distinct_id=data['properties']['alias'], distinct_id=distinct_id, team_id=team_id)
 
@@ -159,9 +172,10 @@ def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team_id:
     _capture(
         ip=ip,
         site_url=site_url,
-        team_id=team_id,
+        team=team,
         event=data['event'],
         distinct_id=distinct_id,
         properties=data.get('properties', data.get('$set', {})),
         timestamp=_handle_timestamp(data, now, sent_at)
     )
+

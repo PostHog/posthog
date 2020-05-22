@@ -13,6 +13,11 @@ class PersonManager(models.Manager):
             person.add_distinct_ids(distinct_ids)
             return person
 
+    @staticmethod
+    def distinct_ids_exist(team_id: int, distinct_ids: List[str]) -> bool:
+        if PersonDistinctId.objects.filter(team_id=team_id, distinct_id__in=distinct_ids).count() == len(distinct_ids):
+            return True
+        return False
 
 class Person(models.Model):
     @property

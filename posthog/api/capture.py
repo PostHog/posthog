@@ -1,3 +1,4 @@
+from django.core import serializers
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
@@ -13,7 +14,7 @@ import json
 import base64
 import gzip
 
-TEAM_ID_CACHE: Dict[str, int] = {}
+TEAM_ID_CACHE: Dict[str, str] = {}
 
 def cors_response(request, response):
     if not request.META.get('HTTP_ORIGIN'):
@@ -107,12 +108,12 @@ def get_event(request):
     if not token:
         return cors_response(request, JsonResponse({'code': 'validation', 'message': "No api_key set. You can find your API key in the /setup page in posthog"}, status=400))
 
-    team_id = TEAM_ID_CACHE.get(token)
-    if not team_id:
+    team = TEAM_ID_CACHE.get(token)
+    if not team:
         try:
-            team_id = Team.objects.only('pk').get(api_token=token).pk
-            if team_id:
-                TEAM_ID_CACHE[token] = team_id
+            team = serializers.serialize('json', [Team.objects.get(api_token=token)])
+            if team:
+                TEAM_ID_CACHE[token] = team
         except Team.DoesNotExist:
             return cors_response(request, JsonResponse({'code': 'validation', 'message': "API key is incorrect. You can find your API key in the /setup page in PostHog."}, status=400))
 
@@ -138,8 +139,8 @@ def get_event(request):
             ip=get_ip_address(request),
             site_url=request.build_absolute_uri('/')[:-1],
             data=event,
-            team_id=team_id,
-            now=now,
+            team=team,
+            now=now.isoformat(),
             sent_at=sent_at,
         )
 
