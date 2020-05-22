@@ -15,8 +15,12 @@ export function ActionsTable() {
             title: 'Action ID',
             dataIndex: 'name',
             key: 'name',
-            render: function RenderName(_, action) {
-                return <Link to={'/action/' + action.id}>{action.name}</Link>
+            render: function RenderName(_, action, index) {
+                return (
+                    <Link data-attr={'action-link-' + index} to={'/action/' + action.id}>
+                        {action.name}
+                    </Link>
+                )
             },
         },
         {
@@ -86,7 +90,7 @@ export function ActionsTable() {
                     </a>
                 </i>
             </p>
-            <LinkButton to={'/action'} type="primary">
+            <LinkButton to={'/action'} type="primary" data-attr="create-action">
                 + New Action
             </LinkButton>
             <br />

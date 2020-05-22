@@ -160,7 +160,12 @@ export class ActionStep extends Component {
                 {props.item == 'selector' ? (
                     <textarea className="form-control" onChange={onChange} value={this.props.step[props.item] || ''} />
                 ) : (
-                    <input className="form-control" onChange={onChange} value={this.props.step[props.item] || ''} />
+                    <input
+                        data-attr="edit-action-url-input"
+                        className="form-control"
+                        onChange={onChange}
+                        value={this.props.step[props.item] || ''}
+                    />
                 )}
             </div>
         )
@@ -217,6 +222,7 @@ export class ActionStep extends Component {
                             )
                         }}
                         className={'btn ' + (step.event == '$pageview' ? 'btn-secondary' : 'btn-light')}
+                        data-attr="action-step-pageview"
                     >
                         Page view
                     </button>

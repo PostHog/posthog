@@ -72,6 +72,7 @@ export function DashboardItem({
     isDraggingRef,
     dashboards,
     enableWobblyDragging,
+    index,
 }) {
     const className = typeMap[item.type].className
     const Element = typeMap[item.type].element
@@ -89,7 +90,12 @@ export function DashboardItem({
     })
 
     return (
-        <div key={item.id} className={`dashboard-item ${item.color || 'white'}`} {...longPressProps}>
+        <div
+            key={item.id}
+            className={`dashboard-item ${item.color || 'white'}`}
+            {...longPressProps}
+            data-attr={'dashboard-item-' + index}
+        >
             <div className={`dashboard-item-container ${className}`}>
                 <div className="dashboard-item-header">
                     <div className="dashboard-item-title">
