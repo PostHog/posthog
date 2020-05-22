@@ -20,6 +20,7 @@ const appUrlsLogic = kea({
 
     loaders: ({ values }) => ({
         suggestions: {
+            __default: [],
             loadSuggestions: async () => {
                 let params = {
                     events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
@@ -123,7 +124,7 @@ export function EditAppUrls({ actionId, allowNavigation }) {
                 {appUrls.length === 0 && <List.Item>No url set yet.</List.Item>}
                 <List.Item>
                     Suggestions: {suggestionsLoading && <Spin />}{' '}
-                    {!suggestionsLoading && suggestions.length === 0 && 'No suggestions found.'}
+                    {!suggestionsLoading && (!suggestions || suggestions.length === 0) && 'No suggestions found.'}
                 </List.Item>
                 {suggestions &&
                     suggestions.slice(0, loadMore ? suggestions.length : 5).map(url => (
