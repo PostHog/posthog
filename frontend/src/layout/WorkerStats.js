@@ -26,12 +26,14 @@ export function WorkerStats() {
     }, [])
 
     return heartbeat !== null ? (
-        <span style={{ marginRight: 32, marginLeft: -16 }}>
+        <span>
             {heartbeat === 'offline' || heartbeat === 'error' || heartbeat > 90 ? (
                 <span
                     style={{
                         color: heartbeat === 'offline' || heartbeat === 'error' ? 'red' : 'orange',
                         cursor: 'pointer',
+                        marginRight: 32,
+                        marginLeft: 16,
                     }}
                     onClick={openModal}
                 >

@@ -282,7 +282,7 @@ export class Paths extends Component {
 
         return (
             <div>
-                <h1>Paths</h1>
+                <h1 className="page-header">Paths</h1>
                 <Card
                     title={
                         <Row justify="space-between">

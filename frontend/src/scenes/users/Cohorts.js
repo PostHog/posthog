@@ -84,7 +84,7 @@ export function Cohorts() {
 
     return (
         <div>
-            <h1>Cohorts</h1>
+            <h1 className="page-header">Cohorts</h1>
             <LinkButton to={'/people/new_cohort'} type="primary" data-attr="create-cohort">
                 + new cohort
             </LinkButton>
