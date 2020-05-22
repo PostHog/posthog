@@ -23,6 +23,7 @@ export function Cohort({ onChange }) {
             style={{ marginBottom: '1rem', marginRight: 12 }}
             onClick={() => setCohort({ groups: [{}] })}
             type="primary"
+            data-attr="create-cohort"
         >
             + new cohort
         </Button>
