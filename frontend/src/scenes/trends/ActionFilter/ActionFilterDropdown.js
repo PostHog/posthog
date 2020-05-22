@@ -56,7 +56,7 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
     const { entities, selectedFilter, filters } = useValues(logic)
     const { updateFilter } = useActions(logic)
 
-    const dropDownOnSelect = item => updateFilter({ type: entityType, value: item.value, index: selectedFilter.index })
+    const dropDownOnSelect = value => updateFilter({ type: entityType, value: value, index: selectedFilter.index })
     const dropDownOnHover = value => entities[entityType].filter(a => a.id === value)[0]
 
     const redirect = () => {
@@ -92,7 +92,6 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
             return null
         }
     }
-
     return (
         <ActionSelectPanel
             key={panelIndex}
@@ -101,7 +100,7 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
             defaultMenuIsOpen={true}
             onSelect={dropDownOnSelect}
             onHover={dropDownOnHover}
-            active={null}
+            active={selectedFilter}
             redirect={redirect()}
             message={message()}
         />

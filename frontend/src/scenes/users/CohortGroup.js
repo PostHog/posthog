@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Card, CloseButton } from '../../lib/utils'
 import { PropertyFilters } from '../../lib/components/PropertyFilters/PropertyFilters'
-import Select from 'react-select'
+import { Select } from 'antd'
 
 import { actionsModel } from '~/models/actionsModel'
 import { useValues } from 'kea'
@@ -24,9 +24,8 @@ function DayChoice({ days, name, group, onChange }) {
 }
 
 export function CohortGroup({ onChange, onRemove, group, index }) {
-    const { actionsGrouped, actions } = useValues(actionsModel)
+    const { actionsGrouped } = useValues(actionsModel)
     const [selected, setSelected] = useState((group.action_id && 'action') || (group.properties && 'property'))
-
     return (
         <Card title={false} style={{ margin: 0 }}>
             <div className="card-body">
@@ -81,17 +80,30 @@ export function CohortGroup({ onChange, onRemove, group, index }) {
                         {selected == 'action' && (
                             <div style={{ marginTop: '1rem', width: 350 }}>
                                 <Select
-                                    options={actionsGrouped}
+                                    showSearch
                                     placeholder="Select action..."
-                                    onChange={item => onChange({ action_id: item.value })}
-                                    value={{
-                                        label:
-                                            actions.length > 0 &&
-                                            group.action_id &&
-                                            actions.filter(action => action.id == group.action_id)[0].name,
-                                        value: group.action_id,
-                                    }}
-                                />
+                                    style={{ width: '100%' }}
+                                    onChange={value => onChange({ action_id: value })}
+                                    filterOption={(input, option) =>
+                                        option.children &&
+                                        option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+                                    }
+                                    value={group.action_id}
+                                >
+                                    {actionsGrouped.map(typeGroup => {
+                                        if (typeGroup['options'].length > 0) {
+                                            return (
+                                                <Select.OptGroup key={typeGroup['label']} label={typeGroup['label']}>
+                                                    {typeGroup['options'].map(item => (
+                                                        <Select.Option key={item.value} value={item.value}>
+                                                            {item.label}
+                                                        </Select.Option>
+                                                    ))}
+                                                </Select.OptGroup>
+                                            )
+                                        }
+                                    })}
+                                </Select>
                             </div>
                         )}
                     </div>

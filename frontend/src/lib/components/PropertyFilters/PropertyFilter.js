@@ -17,13 +17,15 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     defaultOpen={!key}
                     placeholder="Property key"
                     value={key}
-                    filterOption={(input, option) => option.children?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
+                    filterOption={(input, option) =>
+                        option.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+                    }
                     onChange={(_, new_key) => setFilter(index, new_key.children, undefined, operator, new_key.type)}
                     style={{ width: '100%' }}
                     virtual={false}
                 >
                     {eventProperties.length > 0 && (
-                        <Select.OptGroup key="Event properties" lable="Event properties">
+                        <Select.OptGroup key="Event properties" label="Event properties">
                             {eventProperties.map((item, index) => (
                                 <Select.Option
                                     key={'event_' + item.value}
@@ -37,7 +39,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                         </Select.OptGroup>
                     )}
                     {personProperties && (
-                        <Select.OptGroup key="User properties" lable="User properties">
+                        <Select.OptGroup key="User properties" label="User properties">
                             {personProperties.map((item, index) => (
                                 <Select.Option
                                     key={'person_' + item.value}
