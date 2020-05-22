@@ -8,7 +8,7 @@ describe('Cohorts', () => {
     })
 
     it('Go to new cohort from cohorts screen', () => {
-        cy.get('[data-attr=create-cohort]').click()
+        cy.get('[data-attr=create-cohort]').click({ force: true })
         cy.get('span').should('contain', 'New cohort')
     })
 })
