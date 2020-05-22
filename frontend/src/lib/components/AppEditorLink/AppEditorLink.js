@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
 import { useValues } from 'kea'
 
-import { ChooseURLModal } from './ChooseURLModal'
+import { EditAppUrls } from './EditAppUrls'
 import { appEditorUrl } from './utils'
-import { userLogic } from '../../../scenes/userLogic'
+import { userLogic } from 'scenes/userLogic'
+import { Modal, Button } from 'antd'
 
 export function AppEditorLink({ actionId, style, className, children }) {
     const [modalOpen, setModalOpen] = useState(false)
@@ -23,12 +24,18 @@ export function AppEditorLink({ actionId, style, className, children }) {
             >
                 {children}
             </a>
-            {modalOpen && (
-                <ChooseURLModal
-                    actionId={actionId}
-                    dismissModal={() => setModalOpen(false)}
-                />
-            )}
+            <Modal
+                visible={modalOpen}
+                title={
+                    actionId
+                        ? 'Choose the domain on which to edit this action'
+                        : 'Choose the domain on which to create this action'
+                }
+                footer={<Button onClick={() => setModalOpen(false)}>Close</Button>}
+                onCancel={() => setModalOpen(false)}
+            >
+                <EditAppUrls actionId={actionId} allowNavigation={true} dismissModal={() => setModalOpen(false)} />
+            </Modal>
         </>
     )
 }
