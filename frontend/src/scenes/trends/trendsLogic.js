@@ -1,19 +1,57 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { fromParams, toParams } from 'lib/utils'
-import { propertiesModel } from '~/models/propertiesModel'
+import { objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
+import { userLogic } from 'scenes/userLogic'
+import { router } from 'kea-router'
+
+export const EntityTypes = {
+    ACTIONS: 'actions',
+    EVENTS: 'events',
+    NEW_ENTITY: 'new_entity',
+}
+
+export const disableMinuteFor = {
+    dStart: false,
+    '-1d': false,
+    '-7d': true,
+    '-14d': true,
+    '-30d': true,
+    '-90d': true,
+    mStart: true,
+    '-1mStart': true,
+    yStart: true,
+    all: true,
+}
+
+export const disableHourFor = {
+    dStart: false,
+    '-1d': false,
+    '-7d': false,
+    '-14d': false,
+    '-30d': false,
+    '-90d': true,
+    mStart: false,
+    '-1mStart': false,
+    yStart: true,
+    all: true,
+}
+
+export const ViewType = {
+    FILTERS: 'FILTERS',
+    SESSIONS: 'SESSIONS',
+}
 
 function cleanFilters(filters) {
-    if (filters.breakdown && filters.display !== 'ActionsTable') {
-        return {
-            ...filters,
-            display: 'ActionsTable',
-        }
+    return {
+        ...filters,
+        interval: autocorrectInterval(filters),
+        display: filters.session && filters.session === 'dist' ? 'ActionsTable' : filters.display,
+        actions: Array.isArray(filters.actions) ? filters.actions : undefined,
+        events: Array.isArray(filters.events) ? filters.events : undefined,
+        properties: filters.properties || [],
     }
-
-    return filters
 }
 
 function filterClientSideParams(filters) {
@@ -27,173 +65,197 @@ function filterClientSideParams(filters) {
     return newFilters
 }
 
-function filtersFromParams() {
-    let filters = fromParams()
-    filters.actions = filters.actions && JSON.parse(filters.actions)
-    filters.actions = Array.isArray(filters.actions) ? filters.actions : undefined
-    filters.properties = filters.properties ? JSON.parse(filters.properties) : {}
+function autocorrectInterval({ date_from, interval }) {
+    if (!interval) return 'day' // undefined/uninitialized
 
-    return cleanFilters(filters)
+    const minute_disabled = disableMinuteFor[date_from] && interval === 'minute'
+    const hour_disabled = disableHourFor[date_from] && interval === 'hour'
+
+    if (minute_disabled) {
+        return 'hour'
+    } else if (hour_disabled) {
+        return 'day'
+    } else {
+        return interval
+    }
 }
 
+// props:
+// - dashboardItemId
+// - filters
 export const trendsLogic = kea({
     key: props => props.dashboardItemId || 'all_trends',
 
     connect: {
-        values: [propertiesModel, ['properties'], actionsModel, ['actions']],
-        actions: [actionsModel, ['loadActionsSuccess']],
+        values: [userLogic, ['eventNames'], actionsModel, ['actions']],
     },
 
     loaders: ({ values }) => ({
         results: {
-            loadResults: async () => {
-                return await api.get('api/action/trends/?' + toParams(filterClientSideParams(values.filters)))
+            loadResults: async (_, breakpoint) => {
+                let response
+                if (values.activeView === ViewType.SESSIONS) {
+                    response = await api.get(
+                        'api/event/sessions/?' + toAPIParams(filterClientSideParams(values.filters))
+                    )
+                } else {
+                    response = await api.get(
+                        'api/action/trends/?' + toAPIParams(filterClientSideParams(values.filters))
+                    )
+                }
+                breakpoint()
+                return response
             },
         },
     }),
 
     actions: () => ({
-        setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
+        setFilters: (filters, mergeFilters = true, fromUrl = false) => ({ filters, mergeFilters, fromUrl }),
         setDisplay: display => ({ display }),
-        setDefaultActionIfEmpty: true,
 
-        showPeople: (action, day) => ({ action, day }),
-        loadPeople: (action, day) => ({ action, day }),
-        hidePeople: true,
-        setPeople: (people, count) => ({ people, count }),
+        loadPeople: (action, label, day, breakdown_value) => ({ action, label, day, breakdown_value }),
+        setShowingPeople: isShowing => ({ isShowing }),
+        setPeople: (people, count, action, label, day, breakdown_value) => ({
+            people,
+            count,
+            action,
+            label,
+            day,
+            breakdown_value,
+        }),
+        setActiveView: type => ({ type }),
+        setCachedUrl: (type, url) => ({ type, url }),
     }),
 
-    reducers: ({ actions }) => ({
+    reducers: ({ actions, props }) => ({
         filters: [
-            {},
+            props.dashboardItemId ? props.filters : state => cleanFilters(router.selectors.searchParams(state)),
             {
-                [actions.setFilters]: (state, { filters, mergeFilters }) =>
-                    cleanFilters({
+                [actions.setFilters]: (state, { filters, mergeFilters }) => {
+                    return cleanFilters({
                         ...(mergeFilters ? state : {}),
                         ...filters,
-                    }),
+                    })
+                },
             },
         ],
         people: [
             null,
             {
                 [actions.setFilters]: () => null,
-                [actions.setPeople]: (_, { people }) => people,
+                [actions.setPeople]: (_, people) => people,
             },
         ],
-        peopleCount: [
-            null,
+        cachedUrls: [
+            {},
             {
-                [actions.setFilters]: () => null,
-                [actions.setPeople]: (_, { count }) => count,
+                [actions.setCachedUrl]: (state, { type, url }) => ({ ...state, [type]: url }),
+            },
+        ],
+        showingPeople: [
+            false,
+            {
+                [actions.loadPeople]: () => true,
+                [actions.setShowingPeople]: (_, { isShowing }) => isShowing,
             },
         ],
     }),
 
     selectors: ({ selectors }) => ({
-        showingPeople: [() => [selectors.filters], filters => !!(filters.people_action && filters.people_day)],
+        activeView: [() => [selectors.filters], filters => (filters.session ? ViewType.SESSIONS : ViewType.FILTERS)],
         peopleAction: [
             () => [selectors.filters, selectors.actions],
             (filters, actions) =>
                 filters.people_action ? actions.find(a => a.id === parseInt(filters.people_action)) : null,
         ],
-        peopleDay: [() => [selectors.filters], (filters, actions) => filters.people_day],
+        peopleDay: [() => [selectors.filters], filters => filters.people_day],
     }),
 
-    listeners: ({ actions, values, props }) => ({
-        [actions.loadActionsSuccess]: () => {
-            if (!props.dashboardItemId) {
-                actions.setDefaultActionIfEmpty()
-            }
-        },
-        [actions.setDefaultActionIfEmpty]: () => {
-            if (!values.filters.actions && values.actions.length > 0) {
-                actions.setFilters({
-                    actions: [
-                        {
-                            id: values.actions[values.actions.length - 1].id,
-                        },
-                    ],
-                })
-            }
-        },
+    listeners: ({ actions, values }) => ({
         [actions.setDisplay]: async ({ display }) => {
             actions.setFilters({ display })
         },
-        [actions.showPeople]: async ({ action, day }) => {
-            actions.setFilters({
-                ...values.filters,
-                people_day: day,
-                people_action: action.id,
-            })
-        },
-        [actions.hidePeople]: async () => {
-            actions.setFilters({
-                ...values.filters,
-                people_day: '',
-                people_action: '',
-            })
-        },
-        [actions.setFilters]: async ({ filters }) => {
-            if (filters.people_day && filters.people_action) {
-                actions.loadPeople(filters.people_action, filters.people_day)
-            }
-        },
-        [actions.loadPeople]: async ({ day, action }) => {
+        [actions.loadPeople]: async ({ label, action, day, breakdown_value }, breakpoint) => {
             const params = filterClientSideParams({
                 ...values.filters,
-                actions: [{ id: action }],
+                entityId: action.id,
+                type: action.type,
+                breakdown_value,
             })
 
-            if (`${day}`.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            if (values.filters.shown_as === 'Stickiness') {
+                params.stickiness_days = day
+            } else {
                 params.date_from = day
                 params.date_to = day
-            } else {
-                params.stickiness_days = day
+            }
+            // If breakdown type is cohort, we use breakdown_value
+            // If breakdown type is event, we just set another filter
+            if (breakdown_value && values.filters.breakdown_type != 'cohort') {
+                params.properties = [
+                    ...params.properties,
+                    { key: params.breakdown, value: breakdown_value, type: 'event' },
+                ]
             }
 
-            const filterParams = toParams(params)
+            const filterParams = toAPIParams(params)
+            actions.setPeople(null, null, action, label, day, breakdown_value)
             const people = await api.get(`api/action/people/?include_last_event=1&${filterParams}`)
-
-            if (day === values.filters.people_day && action === values.filters.people_action) {
-                actions.setPeople(people[0]?.people, people[0]?.count)
-            }
+            breakpoint()
+            actions.setPeople(people[0]?.people, people[0]?.count, action, label, day, breakdown_value)
         },
     }),
 
     actionToUrl: ({ actions, values, props }) => ({
-        [actions.setFilters]: () => {
-            if (!props.dashboardItemId) {
-                const url = `/trends?${toParams(values.filters)}`
-                // temporary check to disable double back button
-                // as react-router and kea-router don't sync super well
-                if (window.location.pathname + window.location.search !== url) {
-                    return url
-                }
+        [actions.setFilters]: ({ fromUrl }) => {
+            if (props.dashboardItemId) {
+                return // don't use the URL if on the dashboard
             }
+            if (!fromUrl) {
+                return ['/trends', values.filters]
+            }
+        },
+        [actions.setActiveView]: ({ type }) => {
+            if (props.dashboardItemId) {
+                return // don't use the URL if on the dashboard
+            }
+            actions.setCachedUrl(values.activeView, window.location.pathname + window.location.search)
+            const cachedUrl = values.cachedUrls[type]
+            if (cachedUrl) {
+                return cachedUrl
+            }
+            return ['/trends', type === ViewType.SESSIONS ? { session: 'avg' } : {}]
         },
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        '/trends': () => {
-            if (!props.dashboardItemId) {
-                const newFilters = filtersFromParams()
-
-                if (toParams(newFilters) !== toParams(values.filters)) {
-                    actions.setFilters(newFilters, false)
-                }
-            }
-        },
-    }),
-
-    events: ({ actions, props }) => ({
-        afterMount: () => {
+        '/trends': (_, searchParams) => {
             if (props.dashboardItemId) {
-                // on dashboard
-                actions.setFilters(props.filters, false)
-            } else {
-                actions.setFilters(filtersFromParams(), false)
-                actions.setDefaultActionIfEmpty()
+                return // don't use the URL if on the dashboard
+            }
+
+            const cleanSearchParams = cleanFilters(searchParams)
+
+            // opening /trends without any params, just open $pageview, $screen or the first random event
+            if (Object.keys(searchParams).length === 0 && values.eventNames && values.eventNames[0]) {
+                const event = values.eventNames.includes('$pageview')
+                    ? '$pageview'
+                    : values.eventNames.includes('$screen')
+                    ? '$screen'
+                    : values.eventNames[0]
+
+                cleanSearchParams[EntityTypes.EVENTS] = [
+                    {
+                        id: event,
+                        name: event,
+                        type: EntityTypes.EVENTS,
+                        order: 0,
+                    },
+                ]
+            }
+
+            if (!objectsEqual(cleanSearchParams, values.filters)) {
+                actions.setFilters(cleanSearchParams, false, true)
             }
         },
     }),

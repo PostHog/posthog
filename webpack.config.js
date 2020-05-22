@@ -3,21 +3,25 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 
 module.exports = {
     mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
+    devtool: process.env.NODE_ENV === 'production' ? 'source-map' : 'inline-source-map',
     entry: {
         main: './frontend/src/index.js',
         editor: './frontend/src/editor/index.js',
     },
+    watchOptions: {
+        ignored: /node_modules/,
+    },
     output: {
         path: path.resolve(__dirname, 'frontend', 'dist'),
         filename: '[name].js',
-        publicPath: '/static/'
+        publicPath: '/static/',
     },
     resolve: {
         alias: {
             '~': path.resolve(__dirname, 'frontend', 'src'),
             lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),
             scenes: path.resolve(__dirname, 'frontend', 'src', 'scenes'),
-        }
+        },
     },
     module: {
         rules: [

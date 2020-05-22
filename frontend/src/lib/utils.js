@@ -2,25 +2,22 @@ import React from 'react'
 import api from './api'
 import { toast } from 'react-toastify'
 import PropTypes from 'prop-types'
+import { Spin } from 'antd'
 
 export function uuid() {
     return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
-        (
-            c ^
-            (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))
-        ).toString(16)
+        (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16)
     )
 }
 
 export let toParams = obj => {
     let handleVal = val => {
-        if (val._isAMomentObject)
-            return encodeURIComponent(val.format('YYYY-MM-DD'))
+        if (val._isAMomentObject) return encodeURIComponent(val.format('YYYY-MM-DD'))
         val = typeof val === 'object' ? JSON.stringify(val) : val
         return encodeURIComponent(val)
     }
     return Object.entries(obj)
-        .filter(([key, val]) => val)
+        .filter(item => item[1])
         .map(([key, val]) => `${key}=${handleVal(val)}`)
         .join('&')
 }
@@ -36,35 +33,39 @@ export let fromParams = () =>
               }, {})
         : {}
 
-export let colors = [
-    'success',
-    'secondary',
-    'warning',
-    'primary',
-    'danger',
-    'info',
-    'dark',
-    'light',
-]
+export let colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
 export let percentage = division =>
-    division.toLocaleString(undefined, {
-        style: 'percent',
-        maximumFractionDigits: 2,
-    })
+    division
+        ? division.toLocaleString(undefined, {
+              style: 'percent',
+              maximumFractionDigits: 2,
+          })
+        : ''
 
 export let Loading = () => (
     <div className="loading-overlay">
         <div></div>
+        <Spin />
+    </div>
+)
+
+export const TableRowLoading = ({ colSpan = 1, asOverlay = false }) => (
+    <tr className={asOverlay ? 'loading-overlay over-table' : ''}>
+        <td colSpan={colSpan} style={{ padding: 50, textAlign: 'center' }}>
+            <Spin />
+        </td>
+    </tr>
+)
+
+export const SceneLoading = () => (
+    <div style={{ textAlign: 'center', marginTop: '20vh' }}>
+        <Spin />
     </div>
 )
 
 export let CloseButton = props => {
     return (
-        <span
-            {...props}
-            className={'close cursor-pointer ' + props.className}
-            style={{ ...props.style }}
-        >
+        <span {...props} className={'close cursor-pointer ' + props.className} style={{ ...props.style }}>
             <span aria-hidden="true">&times;</span>
         </span>
     )
@@ -72,60 +73,56 @@ export let CloseButton = props => {
 
 export function Card(props) {
     return (
-        <div
-            {...props}
-            className={'card ' + props.className}
-            style={props.style}
-            title=""
-        >
+        <div {...props} className={'card ' + props.className} style={props.style} title="">
             {props.title && <div className="card-header">{props.title}</div>}
             {props.children}
         </div>
     )
 }
 
-export let DeleteWithUndo = props => {
-    let deleteWithUndo = undo => {
-        api.update('api/' + props.endpoint + '/' + props.object.id, {
-            ...props.object,
-            deleted: undo ? false : true,
-        }).then(() => {
-            props.callback()
-            let response = (
-                <div>
-                    {!undo ? (
-                        <span>
-                            "<strong>{props.object.name}</strong>" deleted.{' '}
-                            <a
-                                href="#"
-                                onClick={e => {
-                                    e.preventDefault()
-                                    deleteWithUndo(true)
-                                }}
-                            >
-                                Click here to undo
-                            </a>
-                        </span>
-                    ) : (
-                        <span>Delete un-done</span>
-                    )}
-                </div>
-            )
-            toast(response, { toastId: 'delete-item-' + props.object.id })
-        })
-    }
+export const deleteWithUndo = ({ undo = false, ...props }) => {
+    api.update('api/' + props.endpoint + '/' + props.object.id, {
+        ...props.object,
+        deleted: !undo,
+    }).then(() => {
+        props.callback()
+        let response = (
+            <div>
+                {!undo ? (
+                    <span>
+                        "<strong>{props.object.name || 'Untitled'}</strong>" deleted.{' '}
+                        <a
+                            href="#"
+                            onClick={e => {
+                                e.preventDefault()
+                                deleteWithUndo({ undo: true, ...props })
+                            }}
+                        >
+                            Click here to undo
+                        </a>
+                    </span>
+                ) : (
+                    <span>Delete un-done</span>
+                )}
+            </div>
+        )
+        toast(response, { toastId: 'delete-item-' + props.object.id })
+    })
+}
 
+export const DeleteWithUndo = props => {
+    const { className, style, children } = props
     return (
         <a
             href="#"
             onClick={e => {
                 e.preventDefault()
-                deleteWithUndo()
+                deleteWithUndo(props)
             }}
-            className={props.className}
-            style={props.style}
+            className={className}
+            style={style}
         >
-            {props.children}
+            {children}
         </a>
     )
 }
@@ -139,24 +136,6 @@ DeleteWithUndo.propTypes = {
     style: PropTypes.object,
 }
 
-export let JSSnippet = props => {
-    let url =
-        window.location.origin == 'https://app.posthog.com'
-            ? 'https://t.posthog.com'
-            : window.location.origin
-    return (
-        <pre className="code">
-            {`<script src="${url}/static/array.js"></script>`}
-            <br />
-            {`<script>`}
-            <br />
-            {`posthog.init('${props.user.team.api_token}', {api_host: '${url}'})`}
-            <br />
-            {`</script>`}
-            <br />
-        </pre>
-    )
-}
 export let selectStyle = {
     control: base => ({
         ...base,
@@ -199,4 +178,77 @@ export let debounce = (func, wait, immediate) => {
         timeout = setTimeout(later, wait)
         if (callNow) func.apply(context, args)
     }
+}
+
+export const capitalizeFirstLetter = string => {
+    return string.charAt(0).toUpperCase() + string.slice(1)
+}
+
+export const operatorMap = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    icontains: '∋ contains',
+    not_icontains: "∌ doesn't contain",
+    gt: '> greater than',
+    lt: '< lower than',
+    is_set: '✓ is set',
+}
+
+export const formatProperty = property => {
+    return property.key + ` ${operatorMap[property.operator || 'exact'].split(' ')[0]} ` + property.value
+}
+
+export const deletePersonData = (person, callback) => {
+    window.confirm('Are you sure you want to delete this user? This cannot be undone') &&
+        api.delete('api/person/' + person.id).then(() => {
+            toast('Person succesfully deleted.')
+            if (callback) callback()
+        })
+}
+
+export const objectsEqual = (obj1, obj2) => JSON.stringify(obj1) === JSON.stringify(obj2)
+
+export const idToKey = (array, keyField = 'id') => {
+    const object = {}
+    for (const element of array) {
+        object[element[keyField]] = element
+    }
+    return object
+}
+
+export const delay = ms => new Promise(resolve => window.setTimeout(resolve, ms))
+
+// Trigger a window.reisize event a few times 0...2 sec after the menu was collapsed/expanded
+// We need this so the dashboard resizes itself properly, as the available div width will still
+// change when the sidebar's expansion is animating.
+export const triggerResize = () => {
+    try {
+        window.dispatchEvent(new Event('resize'))
+    } catch (error) {
+        // will break on IE11
+    }
+}
+export const triggerResizeAfterADelay = () => {
+    for (const delay of [10, 100, 500, 750, 1000, 2000]) {
+        window.setTimeout(triggerResize, delay)
+    }
+}
+
+export function clearDOMTextSelection() {
+    if (window.getSelection) {
+        if (window.getSelection().empty) {
+            // Chrome
+            window.getSelection().empty()
+        } else if (window.getSelection().removeAllRanges) {
+            // Firefox
+            window.getSelection().removeAllRanges()
+        }
+    } else if (document.selection) {
+        // IE?
+        document.selection.empty()
+    }
+}
+
+export default function isAndroidOrIOS() {
+    return typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent)
 }

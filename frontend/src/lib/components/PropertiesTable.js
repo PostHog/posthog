@@ -1,12 +1,12 @@
-import React, { Component } from 'react'
+import React from 'react'
 import PropTypes from 'prop-types'
 
 export function PropertiesTable({ properties }) {
     if (Array.isArray(properties))
         return (
             <div>
-                {properties.map(item => (
-                    <span>
+                {properties.map((item, index) => (
+                    <span key={index}>
                         <PropertiesTable properties={item} />
                         <br />
                     </span>
@@ -20,12 +20,10 @@ export function PropertiesTable({ properties }) {
                     {Object.keys(properties)
                         .sort()
                         .map(key => (
-                            <tr>
+                            <tr key={key}>
                                 <th>{key}</th>
                                 <td>
-                                    <PropertiesTable
-                                        properties={properties[key]}
-                                    />
+                                    <PropertiesTable properties={properties[key]} />
                                 </td>
                             </tr>
                         ))}

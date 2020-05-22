@@ -6,5 +6,7 @@
       "scenes/*": ["./src/scenes/*"],
       "~/*": ["./*"]
     }
-  }
+  },
+  "include": ["frontend/**/*"],
+  "exclude": ["node_modules/**/*", "staticfiles/**/*"]
 }

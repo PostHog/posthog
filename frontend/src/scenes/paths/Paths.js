@@ -1,9 +1,16 @@
 import React, { Component } from 'react'
-import api from '../../lib/api'
-import { toParams, Card } from '../../lib/utils'
-import { DateFilter } from '../../lib/components/DateFilter'
+import api from 'lib/api'
+import { toParams, Card, Loading } from 'lib/utils'
+import { DateFilter } from 'lib/components/DateFilter'
+import { PathSelect } from '~/lib/components/PathSelect'
+import { Row, Modal, Button, Spin } from 'antd'
+import { EventElements } from 'scenes/events/EventElements'
 
-let stripHTTP = url => url.replace(/(^[0-9]+_\w+:|^)\/\//, '')
+let stripHTTP = url => {
+    url = url.replace(/(^[0-9]+_)/, '')
+    url = url.replace(/(^\w+:|^)\/\//, '')
+    return url
+}
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
@@ -43,10 +50,8 @@ function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
 function NoData() {
     return (
         <div style={{ padding: '1rem' }}>
-            We don't have enough data to show anything here. You might need to
-            send us some frontend (JS) events, as we use the{' '}
-            <pre style={{ display: 'inline' }}>$current_url</pre> property to
-            calculate paths.
+            We don't have enough data to show anything here. You might need to send us some frontend (JS) events, as we
+            use the <pre style={{ display: 'inline' }}>$current_url</pre> property to calculate paths.
         </div>
     )
 }
@@ -65,11 +70,12 @@ export class Paths extends Component {
             },
             d3Loaded: false,
             sankeyLoaded: false,
+            modalVisible: false,
         }
-        this.fetchPaths = this.fetchPaths.bind(this)
-        this.canvas = React.createRef()
 
+        this.canvas = React.createRef()
         this.fetchPaths()
+
         import('d3').then(d3 => {
             this.d3 = d3
             this.setState({ d3Loaded: true })
@@ -112,10 +118,6 @@ export class Paths extends Component {
             .nodeWidth(15)
             // .nodePadding()
             .size([width, height])
-        let color = name =>
-            this.d3.scaleOrdinal(this.d3.interpolateBlues())(
-                name.replace(/ .*/, '')
-            )
 
         const { nodes, links } = sankey({
             nodes: paths.nodes.map(d => Object.assign({}, d)),
@@ -141,9 +143,7 @@ export class Paths extends Component {
                         if (c === undefined) c = link.color
                         else if (c !== link.color) c = null
                     }
-                return (this.d3.color(c) || this.d3.color('#dddddd')).darker(
-                    0.5
-                )
+                return (this.d3.color(c) || this.d3.color('#dddddd')).darker(0.5)
             })
             // .attr("fill", d =>  'var(--blue)')
             .attr('opacity', 0.5)
@@ -172,7 +172,7 @@ export class Paths extends Component {
             .selectAll('g')
             .data(links)
             .join('g')
-            .attr('stroke', d => 'var(--blue)')
+            .attr('stroke', () => 'var(--blue)')
             .attr('opacity', 0.3)
             .style('mix-blend-mode', 'multiply')
 
@@ -184,26 +184,13 @@ export class Paths extends Component {
 
         link.append('g')
             .append('path')
-            .attr('d', (data, b, c) => {
+            .attr('d', data => {
                 if (data.source.layer == 0) return
                 let height =
                     data.source.y1 -
                     data.source.y0 -
-                    data.source.sourceLinks.reduce(
-                        (prev, curr) => prev + curr.width,
-                        0
-                    )
-                return rounded_rect(
-                    0,
-                    0,
-                    30,
-                    height,
-                    Math.min(25, height),
-                    false,
-                    true,
-                    false,
-                    false
-                )
+                    data.source.sourceLinks.reduce((prev, curr) => prev + curr.width, 0)
+                return rounded_rect(0, 0, 30, height, Math.min(25, height), false, true, false, false)
             })
             .attr('fill', 'url(#dropoff-gradient)')
             .attr('stroke-width', 0)
@@ -212,35 +199,19 @@ export class Paths extends Component {
                     'translate(' +
                     Math.round(data.source.x1) +
                     ',' +
-                    Math.round(
-                        data.source.y0 +
-                            data.source.sourceLinks.reduce(
-                                (prev, curr) => prev + curr.width,
-                                0
-                            )
-                    ) +
+                    Math.round(data.source.y0 + data.source.sourceLinks.reduce((prev, curr) => prev + curr.width, 0)) +
                     ')'
                 )
             })
             .append('tspan')
             .text(d => {
-                return (
-                    d.value -
-                    d.source.sourceLinks.reduce(
-                        (prev, curr) => prev + curr.value,
-                        0
-                    )
-                )
+                return d.value - d.source.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
             })
 
-        link.append('title').text(
-            d =>
-                `${d.source.name} → ${
-                    d.target.name
-                }\n${d.value.toLocaleString()}`
-        )
+        link.append('title').text(d => `${d.source.label} → ${d.target.label}\n${d.value.toLocaleString()}`)
 
-        svg.append('g')
+        var textSelection = svg
+            .append('g')
             .style('font-size', '12px')
             .selectAll('text')
             .data(nodes)
@@ -250,13 +221,33 @@ export class Paths extends Component {
             .attr('dy', '0.35em')
             .attr('text-anchor', d => (d.x0 < width / 2 ? 'start' : 'end'))
             .attr('display', d => (d.value > 0 ? 'inherit' : 'none'))
-            .text(d => stripHTTP(d.name))
+            .text(d =>
+                d.name.length > 35
+                    ? stripHTTP(d.name).substring(0, 6) + '...' + stripHTTP(d.name).slice(-15)
+                    : stripHTTP(d.name)
+            )
+            .on('click', async node => {
+                if (this.state.filter.type == '$autocapture') {
+                    this.setState({
+                        modalVisible: true,
+                        eventelements: null,
+                    })
+                    let result = await api.get('api/event/' + node.id)
+                    this.setState({
+                        eventelements: result,
+                    })
+                }
+            })
+            .style('cursor', this.state.filter.type == '$autocapture' ? 'pointer' : 'auto')
 
+        textSelection
             .append('tspan')
             .attr('fill-opacity', 0.7)
             .text(d => ` ${d.value.toLocaleString()}`)
 
-        return svg.node()
+        textSelection.append('title').text(d => stripHTTP(d.name))
+
+        return textSelection.node()
     }
 
     fetchPaths = () => {
@@ -267,8 +258,8 @@ export class Paths extends Component {
                 {
                     paths: {
                         nodes: [
-                            ...paths.map(path => ({ name: path.source })),
-                            ...paths.map(path => ({ name: path.target })),
+                            ...paths.map(path => ({ name: path.source, id: path.source_id })),
+                            ...paths.map(path => ({ name: path.target, id: path.target_id })),
                         ],
                         links: paths,
                     },
@@ -281,56 +272,80 @@ export class Paths extends Component {
 
     updateFilter = changes => {
         this.setState(
-            { filter: { ...this.state.filter, ...changes }, rendered: false },
+            { filter: { ...this.state.filter, ...changes }, rendered: false, dataLoaded: false },
             this.fetchPaths
         )
     }
 
     render() {
-        let { paths, rendered, filter, dataLoaded } = this.state
+        let { paths, filter, dataLoaded } = this.state
 
         return (
             <div>
                 <h1>Paths</h1>
                 <Card
                     title={
-                        <span>
-                            <span className="float-right">
-                                <DateFilter
-                                    onChange={(date_from, date_to) =>
-                                        this.updateFilter({
-                                            date_from,
-                                            date_to,
-                                        })
-                                    }
-                                    dateFrom={filter.date_from}
-                                    dateTo={filter.date_to}
-                                />
-                            </span>
-                        </span>
+                        <Row justify="space-between">
+                            <Row align="middle">
+                                Path Type:
+                                <PathSelect onChange={value => this.updateFilter({ type: value })} />
+                            </Row>
+                            <DateFilter
+                                onChange={(date_from, date_to) =>
+                                    this.updateFilter({
+                                        date_from,
+                                        date_to,
+                                    })
+                                }
+                                dateFrom={filter.date_from}
+                                dateTo={filter.date_to}
+                            />
+                        </Row>
                     }
                 >
-                    <div
-                        ref={this.canvas}
-                        className="paths"
-                        style={{ height: '90vh' }}
-                    >
+                    {this.state.filter.type == '$autocapture' && (
+                        <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
+                    )}
+                    <div ref={this.canvas} className="paths" style={{ height: '90vh' }}>
                         {dataLoaded && paths && paths.nodes.length === 0 ? (
                             <NoData />
                         ) : (
                             !dataLoaded && (
-                                <div
-                                    className="loading-overlay"
-                                    style={{ paddingTop: '14rem' }}
-                                >
+                                <div className="loading-overlay mt-5">
                                     <div />
+                                    <Loading />
                                     <br />
-                                    (This might take a while)
                                 </div>
                             )
                         )}
                     </div>
                 </Card>
+                <Modal
+                    visible={this.state.modalVisible}
+                    onOk={() => this.setState({ modalVisible: false })}
+                    onCancel={() => this.setState({ modalVisible: false })}
+                    closable={false}
+                    style={{ minWidth: '50%' }}
+                    footer={[
+                        <Button key="submit" type="primary" onClick={() => this.setState({ modalVisible: false })}>
+                            Ok
+                        </Button>,
+                    ]}
+                    bodyStyle={
+                        !this.state.eventelements
+                            ? {
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                              }
+                            : {}
+                    }
+                >
+                    {this.state.eventelements ? (
+                        <EventElements event={this.state.eventelements}></EventElements>
+                    ) : (
+                        <Spin />
+                    )}
+                </Modal>
             </div>
         )
     }

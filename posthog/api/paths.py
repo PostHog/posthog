@@ -1,85 +1,110 @@
 from rest_framework import viewsets
 from rest_framework.response import Response
-from posthog.models import Event, PersonDistinctId, Team
-from posthog.utils import relative_date_parse
+from posthog.models import Event, PersonDistinctId, Team, ElementGroup, Element
+from posthog.utils import request_to_date_query, dict_from_cursor_fetchall
 from django.db.models import Subquery, OuterRef, Count, QuerySet
+from django.db import connection
 from typing import List, Optional
-from django.utils.timezone import now
-from dateutil.relativedelta import relativedelta
-import datetime
 
+from django.db.models.expressions import Window
+from django.db.models.functions import Lag
+from django.db.models import F
+from django.db import connection
 
 # At the moment, paths don't support users changing distinct_ids midway through.
 # See: https://github.com/PostHog/posthog/issues/185
 class PathsViewSet(viewsets.ViewSet):
     def _event_subquery(self, event: str, key: str):
         return Event.objects.filter(pk=OuterRef(event)).values(key)[:1]
+    
+    def _determine_path_type(self, request):
+        requested_type = request.GET.get('type', None)
+        
+        # Default
+        event: Optional[str] = "$pageview"
+        path_type = "properties->> \'$current_url\'"
 
-    def _add_event_and_url_at_position(self, aggregate: QuerySet, team: Team, index: int, date_from, date_to, urls: Optional[List[str]]=None) -> QuerySet:
-        event_key = 'event_{}'.format(index)
-        # adds event_1, url_1, event_2, url_2 etc for each Person
-        return aggregate.annotate(**{
-            event_key: Subquery(
-                Event.objects.filter(
-                    team=team,
-                    timestamp__gte=date_from,
-                    timestamp__lte=date_to + relativedelta(days=1),
-                    event='$pageview',
-                    distinct_id=OuterRef('distinct_id'),
-                    **{'properties__$current_url__isnull': False},
-                    **({'timestamp__gt': OuterRef('timestamp_{}'.format(index - 1))} if index > 1 else {})
-                )\
-                .exclude(**({'properties__$current_url': OuterRef('url_{}'.format(index -1))} if index > 1 else {}))\
-                .order_by('id').values('pk')[:1]
-            ),
-            'timestamp_{}'.format(index): self._event_subquery(event_key, 'timestamp'),
-            'url_{}'.format(index): self._event_subquery(event_key, 'properties__$current_url')
-        })
+        # determine requested type
+        if requested_type:
+            if requested_type == "$screen":
+                event = "$screen"
+                path_type = "properties->> \'$screen_name\'"
+            elif requested_type == "$autocapture":
+                event = "$autocapture"
+                path_type = "tag_name_source"
+            elif requested_type == "custom_event":
+                event = None
+                path_type = "event"
+        return event, path_type
 
+    # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
+    # To avoid unexpected results should convert date range to timestamps with timezone.
     def list(self, request):
         team = request.user.team_set.get()
         resp = []
-        aggregate = PersonDistinctId.objects.filter(team=team)
+        date_query = request_to_date_query(request.GET)
+        event, path_type = self._determine_path_type(request)
 
-        if request.GET.get('date_from'):
-            date_from = relative_date_parse(request.GET['date_from'])
-            if request.GET['date_from'] == 'all':
-                date_from = None # type: ignore
-        else:
-            date_from = datetime.date.today() - relativedelta(days=7)
+        sessions = Event.objects.filter(
+                team=team,
+                **({"event":event} if event else {'event__regex':'^[^\$].*'}), #anything without $ (default)
+                **date_query
+            )\
+            .annotate(previous_timestamp=Window(
+                expression=Lag('timestamp', default=None),
+                partition_by=F('distinct_id'),
+                order_by=F('timestamp').asc()
+            ))
 
-        if request.GET.get('date_to'):
-            date_to = relative_date_parse(request.GET['date_to'])
-        else:
-            date_to = datetime.date.today()
+        sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
 
-        aggregate = self._add_event_and_url_at_position(aggregate, team, 1, date_from, date_to)
-        urls = False
+        if event == "$autocapture":
+                element = 'SELECT \'<\'|| e."tag_name" || \'> \'  || e."text" as tag_name_source, e."text" as text_source FROM "posthog_element" e JOIN \
+                    ( SELECT group_id, MIN("posthog_element"."order") as minOrder FROM "posthog_element" GROUP BY group_id) e2 ON e.order = e2.minOrder AND e.group_id = e2.group_id where e.group_id = v2.group_id'
+                element_group = 'SELECT g."id" as group_id FROM "posthog_elementgroup" g where v1."elements_hash" = g."hash"'
+                sessions_sql = 'SELECT * FROM ({}) as v1 JOIN LATERAL ({}) as v2 on true JOIN LATERAL ({}) as v3 on true'.format(sessions_sql, element_group, element)
 
-        for index in range(1, 4):
-            aggregate = self._add_event_and_url_at_position(aggregate, team, index+1, date_from, date_to)
-            first_url_key = 'url_{}'.format(index)
-            second_url_key = 'url_{}'.format(index + 1)
-            rows = aggregate\
-                .filter(
-                    **({'{}__in'.format(first_url_key): urls} if urls else {}),
-                    **{'{}__isnull'.format(second_url_key): False}
-                )\
-                .values(
-                    first_url_key,
-                    second_url_key
-                )\
-                .annotate(count=Count('pk'))\
-                .order_by('-count')[0: 6]
+        cursor = connection.cursor()
+        cursor.execute('\
+        SELECT source_event, target_event, MAX(target_id), MAX(source_id), count(*) from (\
+            SELECT event_number || \'_\' || path_type as target_event, id as target_id, LAG(event_number || \'_\' || path_type, 1) OVER (\
+                            PARTITION BY session\
+                            ) AS source_event , LAG(id, 1) OVER (\
+                            PARTITION BY session\
+                            ) AS source_id from \
+        (\
+            SELECT {} as path_type, id, sessionified.session\
+                ,ROW_NUMBER() OVER (\
+                        PARTITION BY distinct_id\
+                        ,session ORDER BY timestamp\
+                        ) AS event_number\
+        FROM (\
+            SELECT events_notated.*, SUM(new_session) OVER (\
+                ORDER BY distinct_id\
+                        ,timestamp\
+                ) AS session\
+            FROM (\
+                SELECT *, CASE WHEN EXTRACT(\'EPOCH\' FROM (timestamp - previous_timestamp)) >= (60 * 30) OR previous_timestamp IS NULL THEN 1 ELSE 0 END AS new_session\
+                FROM ({}) AS inner_sessions \
+            ) as events_notated \
+        ) as sessionified\
+        ) as final\
+        where event_number <= 4\
+        ) as counts\
+        where source_event is not null and target_event is not null and SUBSTRING(source_event, 3) != SUBSTRING(target_event, 3)\
+        group by source_event, target_event order by count desc limit 15\
+        '.format(path_type, sessions_sql), sessions_sql_params)
+        rows = cursor.fetchall()
 
-            urls = []
-            for row in rows:
-                resp.append({
-                    'source': '{}_{}'.format(index, row[first_url_key]),
-                    'target': '{}_{}'.format(index + 1, row[second_url_key]),
-                    'value': row['count']
-                })
-                urls.append(row[second_url_key])
+        for row in rows:
+            resp.append({
+                'source': row[0],
+                'target': row[1],
+                'target_id': row[2],
+                'source_id': row[3],
+                'value': row[4]
+            })
 
+        
         resp = sorted(resp, key=lambda x: x['value'], reverse=True)
         return Response(resp)

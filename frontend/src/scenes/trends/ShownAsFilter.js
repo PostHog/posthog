@@ -1,21 +1,28 @@
-import React, { Component } from 'react'
-import Select from 'react-select'
-import { selectStyle } from '../../lib/utils'
-export function ShownAsFilter({ shown_as, onChange }) {
-    let options = ['Volume', 'Stickiness']
+import React from 'react'
+import { Select, Row, Tooltip } from 'antd'
+
+export function ShownAsFilter({ filters, onChange }) {
     return (
         <div>
-            <div style={{ width: 200 }}>
-                <Select
-                    options={[
-                        { label: 'Volume', value: 'Volume' },
-                        { label: 'Stickiness', value: 'Stickiness' },
-                    ]}
-                    styles={selectStyle}
-                    value={{ label: shown_as || 'Volume', value: shown_as }}
-                    onChange={item => onChange(item.value)}
-                />
-            </div>
+            <Row>
+                <Tooltip title={filters.breakdown && 'Shown as is not yet available in combination with breakdown'}>
+                    <Select
+                        defaultValue={filters.shown_as}
+                        value={filters.shown_as || 'Volume'}
+                        onChange={value => onChange(value)}
+                        style={{ width: 200 }}
+                        disabled={filters.breakdown}
+                        data-attr="shownas-filter"
+                    >
+                        <Select.Option data-attr="shownas-volume-option" value={'Volume'}>
+                            {'Volume'}
+                        </Select.Option>
+                        <Select.Option data-attr="shownas-stickiness-option" value={'Stickiness'}>
+                            {'Stickiness'}
+                        </Select.Option>
+                    </Select>
+                </Tooltip>
+            </Row>
         </div>
     )
 }

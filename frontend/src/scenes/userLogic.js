@@ -24,6 +24,29 @@ export const userLogic = kea({
         afterMount: actions.loadUser,
     }),
 
+    selectors: ({ selectors }) => ({
+        eventProperties: [
+            () => [selectors.user],
+            user => user.team.event_properties.map(property => ({ value: property, label: property })),
+        ],
+        eventNames: [() => [selectors.user], user => user.team.event_names],
+        eventNamesGrouped: [
+            () => [selectors.user],
+            user => {
+                let data = [
+                    { label: 'Custom events', options: [] },
+                    { label: 'PostHog events', options: [] },
+                ]
+                user.team.event_names.forEach(name => {
+                    let format = { label: name, value: name }
+                    if (name[0] == '$') return data[1].options.push(format)
+                    data[0].options.push(format)
+                })
+                return data
+            },
+        ],
+    }),
+
     listeners: ({ actions }) => ({
         [actions.loadUser]: async () => {
             try {
@@ -40,6 +63,7 @@ export const userLogic = kea({
                         window.posthog.identify(user.distinct_id)
                         window.posthog.register({
                             posthog_version: user.posthog_version,
+                            has_slack_webhook: !!user.team?.slack_incoming_webhook,
                         })
                     }
                 }
