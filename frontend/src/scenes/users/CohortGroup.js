@@ -66,7 +66,7 @@ export function CohortGroup({ onChange, onRemove, group, index }) {
                         {selected == 'property' && (
                             <PropertyFilters
                                 endpoint="person"
-                                pageKey="cohort"
+                                pageKey={'cohort_' + index}
                                 className=" "
                                 onChange={properties =>
                                     onChange({
