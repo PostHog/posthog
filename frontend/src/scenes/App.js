@@ -39,7 +39,7 @@ export default function App() {
                 <div className="content py-3 layout-top-content">
                     <TopContent user={user} />
                 </div>
-                <Layout.Content className="pl-5 pr-5 pt-3">
+                <Layout.Content className="pl-5 pr-5 pt-3" data-attr="layout-content">
                     <SendEventsOverlay user={user} />
                     <Scene user={user} {...params} />
                     <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />

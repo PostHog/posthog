@@ -7,7 +7,7 @@ export function EventDetails({ event }) {
     const [selected, setSelected] = useState('properties')
 
     return (
-        <div className="row">
+        <div className="row" data-attr="event-details">
             <div className="col-2">
                 <div className="nav flex-column nav-pills" id="v-pills-tab" role="tablist" aria-orientation="vertical">
                     <a
