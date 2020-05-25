@@ -24,6 +24,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import whiteLogo from './_assets/white-logo.svg'
 import { triggerResizeAfterADelay } from 'lib/utils'
+import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -63,6 +64,12 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
     const { location } = useValues(router)
     const { push } = useActions(router)
     const { dashboards, pinnedDashboards } = useValues(dashboardsModel)
+
+    useEscapeKey(() => {
+        if (!sidebarCollapsed && window.innerWidth <= 991) {
+            collapseSidebar()
+        }
+    }, [sidebarCollapsed])
 
     let activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
     const openSubmenu = submenuOverride[activeScene] || activeScene
