@@ -42,7 +42,8 @@ if not DEBUG and not TEST:
     if os.environ.get('SENTRY_DSN'):
         sentry_sdk.init(
             dsn=os.environ['SENTRY_DSN'],
-            integrations=[DjangoIntegration()]
+            integrations=[DjangoIntegration()],
+            request_bodies="always",
         )
 
 if os.environ.get('DISABLE_SECURE_SSL_REDIRECT'):
