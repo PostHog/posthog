@@ -58,18 +58,17 @@ const submenuOverride = {
 
 export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
     const [inviteModalOpen, setInviteModalOpen] = useState(false)
-    const collapseSidebar = () => setSidebarCollapsed(true)
-
+    const collapseSidebar = () => {
+        if (!sidebarCollapsed && window.innerWidth <= 991) {
+            setSidebarCollapsed(true)
+        }
+    }
     const { scene, loadingScene } = useValues(sceneLogic)
     const { location } = useValues(router)
     const { push } = useActions(router)
     const { dashboards, pinnedDashboards } = useValues(dashboardsModel)
 
-    useEscapeKey(() => {
-        if (!sidebarCollapsed && window.innerWidth <= 991) {
-            collapseSidebar()
-        }
-    }, [sidebarCollapsed])
+    useEscapeKey(collapseSidebar, [sidebarCollapsed])
 
     let activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
     const openSubmenu = submenuOverride[activeScene] || activeScene
