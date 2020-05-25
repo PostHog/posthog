@@ -30,13 +30,12 @@ export function NewActionButton() {
                     <Col xs={11}>
                         <Card
                             title="From event or pageview"
-                            data-attr="new-action-pageview"
                             onClick={() => {
                                 router.actions.push('/action')
                             }}
                             size="small"
                         >
-                            <div style={{ textAlign: 'center', fontSize: 40 }}>
+                            <div style={{ textAlign: 'center', fontSize: 40 }} data-attr="new-action-pageview">
                                 <EditOutlined />
                             </div>
                         </Card>
