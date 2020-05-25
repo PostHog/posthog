@@ -289,3 +289,15 @@ label.disabled {
         padding-right: 1rem !important;
     }
 }
+.property-key-info-logo {
+    margin-right: 6px;
+    display: inline-block;
+    vertical-align: top;
+    height: 19px;
+    width: 15px;
+    background-image: url('/static/posthog-logo.png');
+    background-size: cover;
+}
+.ant-select-selection-item .property-key-info-logo {
+    vertical-align: text-bottom;
+}
