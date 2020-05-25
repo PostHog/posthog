@@ -111,6 +111,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             key={`dashboard-${dashboard.id}`}
                             style={itemStyle}
                             data-attr={'pinned-dashboard-' + index}
+                            title=""
                         >
                             <LineChartOutlined />
                             <span className="sidebar-label">{dashboard.name}</span>
@@ -118,7 +119,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         </Menu.Item>
                     ))}
 
-                    <Menu.Item key="dashboards" style={itemStyle} data-attr="menu-item-dashboards">
+                    <Menu.Item key="dashboards" style={itemStyle} data-attr="menu-item-dashboards" title="">
                         <FundOutlined />
                         <span className="sidebar-label">Dashboards</span>
                         <Link to="/dashboard" onClick={collapseSidebar} />
@@ -126,7 +127,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
 
                     {pinnedDashboards.length > 0 ? <Menu.Divider /> : null}
 
-                    <Menu.Item key="trends" style={itemStyle} data-attr="menu-item-trends">
+                    <Menu.Item key="trends" style={itemStyle} data-attr="menu-item-trends" title="">
                         <RiseOutlined />
                         <span className="sidebar-label">{'Trends'}</span>
                         <Link to={'/trends'} onClick={collapseSidebar} />
