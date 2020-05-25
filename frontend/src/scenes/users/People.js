@@ -36,7 +36,7 @@ export function People() {
 
     return (
         <div>
-            <h1>Users</h1>
+            <h1 className="page-header">Users</h1>
             <Cohort onChange={setCohortId} />
             <Button
                 type="default"

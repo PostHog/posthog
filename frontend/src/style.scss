@@ -195,6 +195,11 @@ hr {
 h5.modal-title {
     font-size: 120%;
 }
+
+h1.page-header {
+    font-size: 24px;
+}
+
 button.no-style {
     background: none;
     border: none;
@@ -245,7 +250,7 @@ label.disabled {
 .info {
     color: $blue;
     cursor: pointer;
-    margin-left: 8px;
+    margin-left: 5px;
 }
 
 .ant-layout.bg-dashboard {
@@ -283,6 +288,19 @@ label.disabled {
         padding-left: 1rem !important;
         padding-right: 1rem !important;
     }
+}
+
+.property-key-info-logo {
+    margin-right: 6px;
+    display: inline-block;
+    vertical-align: top;
+    height: 19px;
+    width: 15px;
+    background-image: url('/static/posthog-logo.png');
+    background-size: cover;
+}
+.ant-select-selection-item .property-key-info-logo {
+    vertical-align: text-bottom;
 }
 
 .Toastify__progress-bar--default {

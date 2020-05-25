@@ -25,13 +25,15 @@ export function WorkerStats() {
         return () => window.clearInterval(interval)
     }, [])
 
-    return heartbeat !== null ? (
-        <span style={{ marginRight: 32, marginLeft: -16 }}>
+    return heartbeat !== null && window.location.href.indexOf('app.posthog.com') <= -1 ? (
+        <span>
             {heartbeat === 'offline' || heartbeat === 'error' || heartbeat > 90 ? (
                 <span
                     style={{
                         color: heartbeat === 'offline' || heartbeat === 'error' ? 'red' : 'orange',
                         cursor: 'pointer',
+                        marginRight: 32,
+                        marginLeft: 16,
                     }}
                     onClick={openModal}
                 >

@@ -6,6 +6,12 @@ import { Button } from 'antd'
 
 import { useValues, useActions } from 'kea'
 import { router } from 'kea-router'
+import _ from 'lodash'
+
+const isSubmitDisabled = cohorts => {
+    if (cohorts && cohorts.groups) return !cohorts.groups.some(group => !_.isEmpty(group))
+    return true
+}
 
 export function Cohort({ onChange }) {
     const { setCohort, saveCohort } = useActions(cohortLogic({ onChange, id: fromParams()['cohort'] }))
@@ -80,7 +86,12 @@ export function Cohort({ onChange }) {
                             curr,
                         ])}
 
-                    <Button type="primary" htmlType="submit" style={{ marginTop: '1rem' }}>
+                    <Button
+                        type="primary"
+                        htmlType="submit"
+                        disabled={isSubmitDisabled(cohort)}
+                        style={{ marginTop: '1rem' }}
+                    >
                         Save cohort
                     </Button>
                     <Button

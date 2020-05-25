@@ -77,7 +77,7 @@ export function ActionsTable() {
 
     return (
         <div>
-            <h1>Actions</h1>
+            <h1 className="page-header">Actions</h1>
             <p style={{ maxWidth: 600 }}>
                 <i>
                     Actions are PostHog’s way of easily cleaning up a large amount of Event data. Actions consist of one

@@ -22,7 +22,7 @@ export function LatestVersion() {
     return (
         <>
             {latestVersion ? (
-                <span style={{ marginRight: 32 }}>
+                <span>
                     {isApp ? (
                         <Button onClick={() => setChangelogOpen(true)} type="link" style={{ color: 'var(--green)' }}>
                             New features
