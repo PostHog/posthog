@@ -146,6 +146,7 @@ class EventManager(models.QuerySet):
         )
 
     def query_db_by_action(self, action, order_by="-timestamp") -> models.QuerySet:
+        events = self
         any_step = Q()
         steps = action.steps.all()
         if len(steps) == 0:
@@ -198,9 +199,7 @@ class EventManager(models.QuerySet):
             event = super().create(*args, **kwargs)
 
             should_post_to_slack = False
-
             relations = []
-            # associate actions to an event
             for action in event.actions:
                 relations.append(
                     action.events.through(action_id=action.pk, event_id=event.pk)
@@ -209,7 +208,6 @@ class EventManager(models.QuerySet):
                     should_post_to_slack = True
 
             Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
-
             team = kwargs.get('team', event.team)
             if (
                 should_post_to_slack
@@ -252,7 +250,6 @@ class Event(models.Model):
         )
         if len(actions) == 0:
             return []
-
         events: models.QuerySet[Any] = Event.objects.filter(pk=self.pk)
         for action in actions:
             events = events.annotate(
@@ -262,8 +259,8 @@ class Event(models.Model):
                     .values("id")[:1]
                 }
             )
+        event = [event for event in events][0]
 
-        event = events[0]
         return [
             action
             for action in actions

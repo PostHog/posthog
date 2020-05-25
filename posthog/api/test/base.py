@@ -1,4 +1,3 @@
-from django.core import serializers
 from django.test import TestCase
 from posthog.models import User, Team
 from django.test import Client
@@ -21,7 +20,3 @@ class BaseTest(TestCase):
             self.client = Client()
             self.user = self._create_user('user1', password=self.TESTS_PASSWORD)
             self.client.force_login(self.user)
-
-    @property
-    def jsonTeam(self):
-        return serializers.serialize('json', [self.team])

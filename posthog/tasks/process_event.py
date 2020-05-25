@@ -9,7 +9,8 @@ from sentry_sdk import capture_exception
 from django.db import IntegrityError
 import datetime
 
-def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed:bool = True) -> None:
+
+def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True) -> None:
     old_person: Optional[Person] = None
     new_person: Optional[Person] = None
 
@@ -66,6 +67,7 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
 
         old_person.delete()
 
+
 def _store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
     # In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
     save = False
@@ -79,9 +81,10 @@ def _store_names_and_properties(team: Team, event: str, properties: Dict) -> Non
     if save:
         team.save()
 
+
 def _capture(ip: str,
              site_url: str,
-             team: Team,
+             team_id: int,
              event: str,
              distinct_id: str,
              properties: Dict,
@@ -104,20 +107,22 @@ def _capture(ip: str,
             ) for index, el in enumerate(elements)
         ]
     properties["$ip"] = ip
+    team = Team.objects.only('slack_incoming_webhook', 'event_names', 'event_properties').get(pk=team_id)
 
     Event.objects.create(
         event=event,
         distinct_id=distinct_id,
         properties=properties,
-        team_id=team.id,
+        team=team,
         site_url=site_url,
         **({'timestamp': timestamp} if timestamp else {}),
         **({'elements': elements_list} if elements_list else {})
     )
     _store_names_and_properties(team=team, event=event, properties=properties)
 
-    if not Person.objects.distinct_ids_exist(team_id=team.id, distinct_ids=[str(distinct_id)]):
-        Person.objects.create(team_id=team.id, distinct_ids=[str(distinct_id)])
+    if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
+        Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
     try:
@@ -130,6 +135,7 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
             person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
     person.properties.update(properties)
     person.save()
+
 
 def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[datetime.datetime, str]:
     if data.get('timestamp'):
@@ -150,16 +156,8 @@ def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[dat
     return now_datetime
 
 
-def _unmarshal_team_object(team: str) -> Team:
-    """Unmarshals a Team object from a django JSON serialized team object"""
-    return serializers.deserialize('json', team).__next__().object
-
-
 @shared_task
-def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team: str, now: str, sent_at: Optional[str]) -> None:
-    teamObj: Team = _unmarshal_team_object(team)
-    team_id = teamObj.id
-
+def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str]) -> None:
     if data['event'] == '$create_alias':
         _alias(previous_distinct_id=data['properties']['alias'], distinct_id=distinct_id, team_id=team_id)
 
@@ -172,10 +170,9 @@ def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team: st
     _capture(
         ip=ip,
         site_url=site_url,
-        team=teamObj,
+        team_id=team_id,
         event=data['event'],
         distinct_id=distinct_id,
         properties=data.get('properties', data.get('$set', {})),
         timestamp=_handle_timestamp(data, now, sent_at)
     )
-

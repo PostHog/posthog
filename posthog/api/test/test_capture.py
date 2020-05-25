@@ -33,7 +33,7 @@ class TestCapture(BaseTest):
         }
         now = timezone.now()
         with freeze_time(now):
-            with self.assertNumQueries(2):
+            with self.assertNumQueries(1):
                 response = self.client.get('/e/?data=%s' % quote(self._dict_to_json(data)), content_type='application/json', HTTP_ORIGIN='https://localhost')
         self.assertEqual(response.get('access-control-allow-origin'), 'https://localhost')
         arguments = patch_process_event.call_args[1]
@@ -44,7 +44,7 @@ class TestCapture(BaseTest):
             'ip': '127.0.0.1',
             'site_url': 'http://testserver',
             'data': data,
-            'team': self.jsonTeam,
+            'team_id': self.team.pk,
         })
 
     @patch('posthog.api.capture.TEAM_ID_CACHE', {})
@@ -113,7 +113,7 @@ class TestCapture(BaseTest):
             'ip': '127.0.0.1',
             'site_url': 'http://testserver',
             'data': data,
-            'team': self.jsonTeam,
+            'team_id': self.team.pk,
         })
 
     @patch('posthog.api.capture.TEAM_ID_CACHE', {})
@@ -139,7 +139,7 @@ class TestCapture(BaseTest):
             'ip': '127.0.0.1',
             'site_url': 'http://testserver',
             'data': data['batch'][0],
-            'team': self.jsonTeam,
+            'team_id': self.team.pk,
         })
 
     def test_batch_incorrect_token(self):
@@ -206,7 +206,7 @@ class TestCapture(BaseTest):
             'distinct_id': '3',
             'ip': '127.0.0.1',
             'site_url': 'http://testserver',
-            'team': self.jsonTeam,
+            'team_id': self.team.pk,
         })
 
     @patch('posthog.api.capture.TEAM_ID_CACHE', {})
@@ -222,7 +222,7 @@ class TestCapture(BaseTest):
             'api_key': self.team.api_token # main difference in this test
         })
         arguments = patch_process_event.call_args[1]
-        self.assertEqual(arguments['team'], self.jsonTeam)
+        self.assertEqual(arguments['team_id'], self.team.pk)
 
     @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')
