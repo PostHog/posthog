@@ -5,6 +5,7 @@ import { Select } from 'antd'
 
 import { actionsModel } from '~/models/actionsModel'
 import { useValues } from 'kea'
+import _ from 'lodash'
 
 function DayChoice({ days, name, group, onChange }) {
     return (
@@ -35,14 +36,20 @@ export function CohortGroup({ onChange, onRemove, group, index }) {
                     {selected == 'action' && ' done '}
                     <div className="btn-group" style={{ margin: '0 8px' }}>
                         <button
-                            onClick={() => setSelected('action')}
+                            onClick={() => {
+                                setSelected('action')
+                                onChange({})
+                            }}
                             type="button"
                             className={'btn btn-sm ' + (selected == 'action' ? 'btn-secondary' : 'btn-light')}
                         >
                             action
                         </button>
                         <button
-                            onClick={() => setSelected('property')}
+                            onClick={() => {
+                                setSelected('property')
+                                onChange({})
+                            }}
                             type="button"
                             className={'btn btn-sm ' + (selected == 'property' ? 'btn-secondary' : 'btn-light')}
                         >
@@ -68,10 +75,14 @@ export function CohortGroup({ onChange, onRemove, group, index }) {
                                 pageKey={'cohort_' + index}
                                 className=" "
                                 onChange={properties =>
-                                    onChange({
-                                        properties: properties,
-                                        days: group.days,
-                                    })
+                                    onChange(
+                                        !_.isEmpty(properties)
+                                            ? {
+                                                  properties: properties,
+                                                  days: group.days,
+                                              }
+                                            : {}
+                                    )
                                 }
                                 propertyFilters={group.properties || {}}
                                 style={{ margin: '1rem 0 0' }}
