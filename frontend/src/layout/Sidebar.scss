@@ -24,16 +24,17 @@
     aside.ant-layout-sider {
         position: absolute;
         z-index: 1103;
-        height: 100vh;
         box-shadow: 10px 0 20px rgba(0, 0, 0, 0.2);
-
-        .ant-layout-sider-children {
-            overflow-y: scroll;
-        }
     }
 }
 
 aside.ant-layout-sider {
+    height: 100vh;
+
+    .ant-layout-sider-children {
+        overflow-y: scroll;
+    }
+
     .ant-layout-sider-zero-width-trigger {
         top: 10px;
     }
