@@ -284,3 +284,7 @@ label.disabled {
         padding-right: 1rem !important;
     }
 }
+
+.Toastify__progress-bar--default {
+    background: var(--success) !important;
+}

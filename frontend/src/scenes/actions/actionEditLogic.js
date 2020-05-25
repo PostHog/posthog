@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { uuid } from 'lib/utils'
+import { toast } from 'react-toastify'
 
 export const actionEditLogic = kea({
     key: props => props.id || 'new',
@@ -67,6 +68,7 @@ export const actionEditLogic = kea({
                     throw response
                 }
             }
+            toast('Action saved')
             props.onSave(action, values.createNew)
         },
     }),

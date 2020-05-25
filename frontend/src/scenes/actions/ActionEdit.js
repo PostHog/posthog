@@ -77,9 +77,10 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                             isEditor={isEditor}
                             actionId={action.id}
                             simmer={simmer}
+                            isOnlyStep={action.steps.length === 1}
                             onDelete={() => {
-                                action.steps = action.steps.filter(s => s.id != step.id)
-                                setAction(action)
+                                setAction({ ...action, steps: action.steps.filter(s => s.id != step.id) })
+                                setEdited(true)
                             }}
                             onChange={newStep => {
                                 setAction({

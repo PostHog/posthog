@@ -311,7 +311,7 @@ export class ActionStep extends Component {
         )
     }
     render() {
-        let { step, isEditor, actionId } = this.props
+        let { step, isEditor, actionId, isOnlyStep } = this.props
 
         return (
             <div
@@ -322,7 +322,7 @@ export class ActionStep extends Component {
                 }}
             >
                 <div className={isEditor ? '' : 'card-body'}>
-                    {(!isEditor || step.event === '$autocapture' || !step.event) && (
+                    {!isOnlyStep && (!isEditor || step.event === '$autocapture' || !step.event) && (
                         <button
                             style={{
                                 margin: isEditor ? '12px 12px 0px 0px' : '-3px 0 0 0',
