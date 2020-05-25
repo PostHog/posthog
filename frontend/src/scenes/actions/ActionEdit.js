@@ -138,6 +138,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                         type="submit"
                         disabled={!edited}
                         onClick={() => saveAction()}
+                        data-attr="save-action-button"
                         className={
                             edited ? 'btn-success btn btn-sm float-right' : 'btn-secondary btn btn-sm float-right'
                         }
@@ -154,7 +155,6 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                                 saveAction()
                             }}
                             className="btn btn-secondary btn-sm float-right"
-                            data-attr="save-action-button"
                         >
                             Save & new action
                         </button>
