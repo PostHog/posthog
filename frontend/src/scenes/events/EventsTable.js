@@ -33,6 +33,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
 
     return (
         <div className="events" data-attr="events-table">
+            <h1 className="page-header">Events</h1>
             {filtersEnabled ? <PropertyFilters pageKey="EventsTable" /> : null}
             <table className="table" style={{ position: 'relative' }}>
                 <thead>

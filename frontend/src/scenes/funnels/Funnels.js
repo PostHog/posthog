@@ -46,7 +46,7 @@ export function Funnels() {
     ]
     return (
         <div>
-            <h1>Funnels</h1>
+            <h1 className="page-header">Funnels</h1>
             <p style={{ maxWidth: 600 }}>
                 <i>
                     If you need your users to carry out a series of actions in a row, funnels are a way of working out

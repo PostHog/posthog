@@ -21,7 +21,7 @@ export default function Dashboards() {
                     <PlusOutlined style={{ verticalAlign: 'baseline' }} />
                     New Dashboard
                 </Button>
-                <h1>Dashboards</h1>
+                <h1 className="page-header">Dashboards</h1>
             </div>
 
             {dashboardsLoading ? (
