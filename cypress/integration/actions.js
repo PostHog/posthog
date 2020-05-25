@@ -13,8 +13,13 @@ describe('Actions', () => {
         cy.get('h1').should('contain', 'Edit action')
     })
 
-    it('Go to new action screen', () => {
+    it('Open new action modal', () => {
         cy.get('[data-attr=create-action]').click()
+        cy.get('.ant-card-head-title').should('contain', 'event or pageview')
+    })
+
+    it('Go to new action page', () => {
+        cy.get('[data-attr=new-action-pageview]').click()
         cy.get('h1').should('contain', 'New action')
     })
 

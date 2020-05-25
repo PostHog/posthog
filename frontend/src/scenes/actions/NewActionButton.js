@@ -9,7 +9,7 @@ export function NewActionButton() {
     let [appUrlsVisible, setAppUrlsVisible] = useState(false)
     return (
         <>
-            <Button type="primary" onClick={() => setVisible(true)}>
+            <Button type="primary" onClick={() => setVisible(true)} data-attr="create-action">
                 + New Action
             </Button>
             <Modal
@@ -30,6 +30,7 @@ export function NewActionButton() {
                     <Col xs={11}>
                         <Card
                             title="From event or pageview"
+                            data-attr="new-action-pageview"
                             onClick={() => {
                                 router.actions.push('/action')
                             }}
