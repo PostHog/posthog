@@ -28,6 +28,7 @@ services:
       SECRET_KEY: "<randomly generated secret key>"
       DEBUG: 1
       DISABLE_SECURE_SSL_REDIRECT: 1
+      OPT_OUT_CAPTURE: 1
     depends_on:
       - db
       - redis

@@ -118,6 +118,7 @@ export class ActionEdit extends Component {
                                 edited: e.target.value ? true : false,
                             })
                         }
+                        data-attr="edit-action-input"
                     />
 
                     {action.count > -1 && (
@@ -213,6 +214,7 @@ export class ActionEdit extends Component {
                                     ? 'btn-success btn btn-sm float-right'
                                     : 'btn-secondary btn btn-sm float-right'
                             }
+                            data-attr="save-action-button"
                         >
                             Save action
                         </button>

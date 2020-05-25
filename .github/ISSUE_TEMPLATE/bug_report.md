@@ -23,15 +23,8 @@ labels: bug
 
 
 
-**Desktop (optional: please complete the following information):**
- - OS:
- - Browser: 
- - Version: 
-
-**Smartphone (optional: please complete the following information):**
- - Device: 
- - OS: 
- - Browser 
- - Version 
+**Hosted or self hosted?:**
+- hosted/self-hosted
+- (if self-hosted) what version?
 
 **Additional context**

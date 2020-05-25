@@ -306,7 +306,7 @@ export class Paths extends Component {
                     {this.state.filter.type == '$autocapture' && (
                         <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
                     )}
-                    <div ref={this.canvas} className="paths" style={{ height: '90vh' }}>
+                    <div ref={this.canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
                         {dataLoaded && paths && paths.nodes.length === 0 ? (
                             <NoData />
                         ) : (

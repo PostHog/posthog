@@ -19,10 +19,11 @@ function PropertyFilter({ breakdown, onChange }) {
             filterOption={(input, option) =>
                 option.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
             }
+            data-attr="prop-breakdown-select"
         >
-            {Object.entries(eventProperties).map(([key, item]) => {
+            {Object.entries(eventProperties).map(([key, item], index) => {
                 return (
-                    <Select.Option key={key} value={item.value}>
+                    <Select.Option key={key} value={item.value} data-attr={'prop-breakdown-' + index}>
                         {item.label}
                     </Select.Option>
                 )
@@ -47,14 +48,21 @@ function CohortFilter({ breakdown, onChange }) {
             filterOption={(input, option) =>
                 option.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
             }
+            data-attr="cohort-breakdown-select"
         >
-            <Select.Option value={'all'} type="cohort" label={'all users'}>
+            <Select.Option value={'all'} type="cohort" label={'all users'} data-attr="cohort-breakdown-all-users">
                 All users*
             </Select.Option>
             {cohorts &&
-                cohorts.map(item => {
+                cohorts.map((item, index) => {
                     return (
-                        <Select.Option key={item.id} value={item.id} type="cohort" label={item.name}>
+                        <Select.Option
+                            key={item.id}
+                            value={item.id}
+                            type="cohort"
+                            label={item.name}
+                            data-attr={'cohort-breakdown-' + index}
+                        >
                             {item.name}
                         </Select.Option>
                     )
@@ -111,7 +119,12 @@ export function BreakdownFilter({ filters, onChange }) {
             <Tooltip
                 title={shown_as == 'Stickiness' && 'Break down by is not yet available in combination with Stickiness'}
             >
-                <Button shape="round" type={breakdown ? 'primary' : 'default'} disabled={shown_as == 'Stickiness'}>
+                <Button
+                    shape="round"
+                    type={breakdown ? 'primary' : 'default'}
+                    disabled={shown_as == 'Stickiness'}
+                    data-attr="add-breakdown-button"
+                >
                     {label || 'Add breakdown'}
                 </Button>
             </Tooltip>
