@@ -17,7 +17,7 @@ export function EventName({ value, onChange }) {
                     option.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
                 }
                 disabled={eventNamesGrouped[0].options.length === 0}
-                value={value ? { label: value, value } : null}
+                value={value}
             >
                 {eventNamesGrouped.map(typeGroup => {
                     if (typeGroup['options'].length > 0) {

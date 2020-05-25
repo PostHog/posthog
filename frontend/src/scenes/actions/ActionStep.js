@@ -272,22 +272,18 @@ export class ActionStep extends Component {
                         </a>{' '}
                     </span>
                 )}
-                {(isEditor || step.selector || step.href || step.text) && (
-                    <span>
-                        <this.Option
-                            item="href"
-                            label="Link href"
-                            selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') + '"]'}
-                        />
-                        <this.Option item="text" label="Text" />
-                        <this.Option item="selector" label="Selector" selector={step.selector} />
-                        <this.Option
-                            item="url"
-                            extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
-                            label="URL"
-                        />
-                    </span>
-                )}
+                <this.Option
+                    item="href"
+                    label="Link href"
+                    selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') + '"]'}
+                />
+                <this.Option item="text" label="Text" />
+                <this.Option item="selector" label="Selector" selector={step.selector} />
+                <this.Option
+                    item="url"
+                    extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
+                    label="URL"
+                />
             </div>
         )
     }
