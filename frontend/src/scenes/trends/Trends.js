@@ -18,6 +18,7 @@ import { trendsLogic, ViewType } from './trendsLogic'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { Tabs, Row, Col, Tooltip } from 'antd'
 import { SessionFilter } from 'lib/components/SessionsFilter'
+import { InfoCircleOutlined } from '@ant-design/icons'
 
 const { TabPane } = Tabs
 
@@ -59,7 +60,10 @@ export function Trends() {
                                             placement="right"
                                             title="Use breakdown to see the volume of events for each variation of that property. For example, breaking down by $current_url will give you the event volume for each url your users have visited."
                                         >
-                                            <small className="info">info</small>
+                                            <InfoCircleOutlined
+                                                className="info"
+                                                style={{ color: '#007bff' }}
+                                            ></InfoCircleOutlined>
                                         </Tooltip>
                                     </h4>
                                     <Row>
@@ -86,7 +90,10 @@ export function Trends() {
                                             performed an action on Monday and again on Friday, it would be shown 
                                             as "2 days".'
                                         >
-                                            <small className="info">info</small>
+                                            <InfoCircleOutlined
+                                                className="info"
+                                                style={{ color: '#007bff' }}
+                                            ></InfoCircleOutlined>
                                         </Tooltip>
                                     </h4>
                                     <ShownAsFilter filters={filters} onChange={shown_as => setFilters({ shown_as })} />
