@@ -1,9 +1,8 @@
 import React, { Component, useState } from 'react'
-import Select, { components } from 'react-select'
 import { ActionSelectInfo } from 'scenes/trends/ActionSelectInfo'
-import { selectStyle } from '../utils'
 import PropTypes from 'prop-types'
 import ActionSelectTab from './ActionSelectTab'
+import { Select } from 'antd'
 
 const determineActiveTab = props => {
     if (props.selected) {
@@ -46,28 +45,14 @@ export class ActionSelectPanel extends Component {
         }
     }
 
-    Option = props => {
-        return (
-            <div
-                onMouseOver={e =>
-                    this.setState({
-                        infoOpen: true,
-                        infoBoundingRect: e.target.getBoundingClientRect(),
-                        infoActionId: props.value,
-                    })
-                }
-                onMouseOut={() => {
-                    this.setState({ infoOpen: false })
-                }}
-            >
-                <components.Option {...props} />
-            </div>
-        )
+    determineValue = active => {
+        if (active && active.filter && active.filter.type === this.props.title) return active.filter.id
+        return null
     }
 
     render() {
         return (
-            <div style={{ padding: '1rem', height: '90%', width: '100%' }}>
+            <div style={{ padding: '1rem', height: '90%', width: '100%' }} id="action-select-popup">
                 {this.props.redirect}
                 {this.state.infoOpen && (
                     <ActionSelectInfo
@@ -77,19 +62,45 @@ export class ActionSelectPanel extends Component {
                     />
                 )}
                 <Select
-                    onBlur={e => {
-                        if (e.relatedTarget && e.relatedTarget.tagName == 'A') return
-                        this.setState({ infoOpen: false })
-                    }}
+                    getPopupContainer={() => document.getElementById('action-select-popup')}
+                    showSearch
+                    defaultOpen
                     onChange={this.props.onSelect}
-                    defaultMenuIsOpen={this.props.defaultMenuIsOpen}
-                    autoFocus={true}
-                    value={this.props.active}
-                    className="select-box-select"
-                    styles={selectStyle}
-                    components={{ Option: this.Option }}
-                    options={this.props.options}
-                />
+                    style={{ width: '100%' }}
+                    filterOption={(input, option) =>
+                        option.children &&
+                        option.children.props.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
+                    }
+                    value={this.determineValue(this.props.active)}
+                    listHeight={300}
+                >
+                    {this.props.options.map(typeGroup => {
+                        if (typeGroup['options'].length > 0) {
+                            return (
+                                <Select.OptGroup key={typeGroup['label']} label={typeGroup['label']}>
+                                    {typeGroup['options'].map(item => (
+                                        <Select.Option key={item.value} value={item.value}>
+                                            <div
+                                                onMouseOver={e =>
+                                                    this.setState({
+                                                        infoOpen: true,
+                                                        infoBoundingRect: e.target.getBoundingClientRect(),
+                                                        infoActionId: item.value,
+                                                    })
+                                                }
+                                                onMouseOut={() => {
+                                                    this.setState({ infoOpen: false })
+                                                }}
+                                            >
+                                                {item.label}
+                                            </div>
+                                        </Select.Option>
+                                    ))}
+                                </Select.OptGroup>
+                            )
+                        }
+                    })}
+                </Select>
                 {this.props.message}
             </div>
         )

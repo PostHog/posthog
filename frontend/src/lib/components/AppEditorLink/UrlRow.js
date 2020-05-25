@@ -1,43 +1,46 @@
 import React, { useState } from 'react'
 
 import { appEditorUrl, defaultUrl } from './utils'
+import { Input, Button, List } from 'antd'
+import { DeleteOutlined, EditOutlined } from '@ant-design/icons'
 
-export function UrlRow({ actionId, url, saveUrl, deleteUrl }) {
+export function UrlRow({ actionId, url, saveUrl, deleteUrl, allowNavigation }) {
     const [isEditing, setIsEditing] = useState(url === defaultUrl)
     const [savedValue, setSavedValue] = useState(url || defaultUrl)
     const [editedValue, setEditedValue] = useState(url || defaultUrl)
 
     return (
-        <li className="list-group-item">
+        <List.Item>
             {isEditing ? (
-                <div key="form" style={{ display: 'flex', width: '100%' }}>
-                    <input
+                <form
+                    key="form"
+                    style={{ display: 'flex', width: '100%' }}
+                    onSubmit={e => {
+                        e.preventDefault()
+                        if (editedValue === defaultUrl) {
+                            deleteUrl()
+                        } else {
+                            saveUrl(editedValue)
+                            setIsEditing(false)
+                            setSavedValue(editedValue)
+                        }
+                    }}
+                >
+                    <Input
                         value={editedValue}
                         onChange={e => setEditedValue(e.target.value)}
                         autoFocus
+                        required
                         style={{ flex: '1' }}
                         type="url"
-                        className="form-control"
                         placeholder={defaultUrl}
                     />
-                    <button
-                        className="btn btn-primary"
-                        style={{ marginLeft: 5 }}
-                        onClick={() => {
-                            if (editedValue === defaultUrl) {
-                                deleteUrl()
-                            } else {
-                                saveUrl(editedValue, () => {
-                                    setIsEditing(false)
-                                    setSavedValue(editedValue)
-                                })
-                            }
-                        }}
-                    >
+                    <Button style={{ marginLeft: 5 }} htmlType="submit" type="primary">
                         Save
-                    </button>
-                    <button
-                        className="btn btn-outline-secondary"
+                    </Button>
+                    <Button
+                        type="secondary"
+                        htmlType="button"
                         style={{ marginLeft: 5 }}
                         onClick={() => {
                             if (url === defaultUrl) {
@@ -49,8 +52,8 @@ export function UrlRow({ actionId, url, saveUrl, deleteUrl }) {
                         }}
                     >
                         Cancel
-                    </button>
-                </div>
+                    </Button>
+                </form>
             ) : typeof url === 'undefined' ? (
                 <div key="add-new">
                     <a
@@ -64,26 +67,19 @@ export function UrlRow({ actionId, url, saveUrl, deleteUrl }) {
                     </a>
                 </div>
             ) : (
-                <div key="list">
-                    <div style={{ float: 'right' }}>
-                        <button
-                            className="no-style"
-                            onClick={() => setIsEditing(true)}
-                        >
-                            <i className="fi flaticon-edit text-primary" />
-                        </button>
-                        <button
-                            className="no-style text-danger"
-                            onClick={deleteUrl}
-                        >
-                            <i className="fi flaticon-basket" />
-                        </button>
-                    </div>
-                    <a href={appEditorUrl(actionId, editedValue)}>
+                <div key="list" style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                    <a href={appEditorUrl(actionId, editedValue)} onClick={e => !allowNavigation && e.preventDefault()}>
                         {editedValue}
                     </a>
+                    <span style={{ float: 'right' }}>
+                        <EditOutlined
+                            onClick={() => setIsEditing(true)}
+                            style={{ color: 'var(--primary)', marginLeft: 8 }}
+                        />
+                        <DeleteOutlined onClick={deleteUrl} style={{ color: 'var(--danger)', marginLeft: 8 }} />
+                    </span>
                 </div>
             )}
-        </li>
+        </List.Item>
     )
 }

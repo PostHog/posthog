@@ -85,8 +85,12 @@ export default function Sidebar(props) {
             >
                 <Logo />
 
-                {pinnedDashboards.map(dashboard => (
-                    <Menu.Item key={`dashboard-${dashboard.id}`} style={itemStyle}>
+                {pinnedDashboards.map((dashboard, index) => (
+                    <Menu.Item
+                        key={`dashboard-${dashboard.id}`}
+                        style={itemStyle}
+                        data-attr={'pinned-dashboard-' + index}
+                    >
                         <LineChartOutlined />
                         <span className="sidebar-label">{dashboard.name}</span>
                         <Link to={`/dashboard/${dashboard.id}`} />
@@ -94,7 +98,7 @@ export default function Sidebar(props) {
                 ))}
                 {pinnedDashboards.length > 0 ? <Menu.Divider /> : null}
 
-                <Menu.Item key="trends" style={itemStyle}>
+                <Menu.Item key="trends" style={itemStyle} data-attr="menu-item-trends">
                     <RiseOutlined />
                     <span className="sidebar-label">{'Trends'}</span>
                     <Link to={'/trends'} />
@@ -109,24 +113,24 @@ export default function Sidebar(props) {
                 <Menu.SubMenu
                     key="events"
                     title={
-                        <span style={itemStyle}>
+                        <span style={itemStyle} data-attr="menu-item-events">
                             <ContainerOutlined />
                             <span className="sidebar-label">{'Events'}</span>
                         </span>
                     }
                     onTitleClick={() => (location.pathname !== '/events' ? push('/events') : null)}
                 >
-                    <Menu.Item key="events" style={itemStyle}>
+                    <Menu.Item key="events" style={itemStyle} data-attr="menu-item-all-events">
                         <ContainerOutlined />
                         <span className="sidebar-label">{'All Events'}</span>
                         <Link to={'/events'} />
                     </Menu.Item>
-                    <Menu.Item key="actions" style={itemStyle}>
+                    <Menu.Item key="actions" style={itemStyle} data-attr="menu-item-actions">
                         <AimOutlined />
                         <span className="sidebar-label">{'Actions'}</span>
                         <Link to={'/actions'} />
                     </Menu.Item>
-                    <Menu.Item key="liveActions" style={itemStyle}>
+                    <Menu.Item key="liveActions" style={itemStyle} data-attr="menu-item-live-actions">
                         <SyncOutlined />
                         <span className="sidebar-label">{'Live Actions'}</span>
                         <Link to={'/actions/live'} />
@@ -135,40 +139,45 @@ export default function Sidebar(props) {
                 <Menu.SubMenu
                     key="people"
                     title={
-                        <span style={itemStyle}>
+                        <span style={itemStyle} data-attr="menu-item-people">
                             <UserOutlined />
                             <span className="sidebar-label">{'People'}</span>
                         </span>
                     }
                     onTitleClick={() => (location.pathname !== '/people' ? push('/people') : null)}
                 >
-                    <Menu.Item key="people" style={itemStyle}>
+                    <Menu.Item key="people" style={itemStyle} data-attr="menu-item-all-people">
                         <UserOutlined />
                         <span className="sidebar-label">{'All Users'}</span>
                         <Link to={'/people'} />
                     </Menu.Item>
-                    <Menu.Item key="cohorts" style={itemStyle}>
+                    <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-cohorts">
                         <UsergroupAddOutlined />
                         <span className="sidebar-label">{'Cohorts'}</span>
                         <Link to={'/people/cohorts'} />
                     </Menu.Item>
                 </Menu.SubMenu>
-                <Menu.Item key="funnels" style={itemStyle}>
+                <Menu.Item key="funnels" style={itemStyle} data-attr="menu-item-funnels">
                     <FunnelPlotOutlined />
                     <span className="sidebar-label">{'Funnels'}</span>
                     <Link to={'/funnel'} />
                 </Menu.Item>
-                <Menu.Item key="paths" style={itemStyle}>
+                <Menu.Item key="paths" style={itemStyle} data-attr="menu-item-paths">
                     <ForkOutlined />
                     <span className="sidebar-label">{'Paths'}</span>
                     <Link to={'/paths'} />
                 </Menu.Item>
-                <Menu.Item key="setup" style={itemStyle}>
+                <Menu.Item key="setup" style={itemStyle} data-attr="menu-item-setup">
                     <SettingOutlined />
                     <span className="sidebar-label">{'Setup'}</span>
                     <Link to={'/setup'} />
                 </Menu.Item>
-                <Menu.Item key="invite" style={itemStyle} onClick={() => setInviteModalOpen(true)}>
+                <Menu.Item
+                    key="invite"
+                    style={itemStyle}
+                    onClick={() => setInviteModalOpen(true)}
+                    data-attr="menu-item-invite-team"
+                >
                     <PlusOutlined />
                     <span className="sidebar-label">{'Invite your team'}</span>
                 </Menu.Item>

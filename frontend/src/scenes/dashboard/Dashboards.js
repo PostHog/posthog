@@ -50,7 +50,11 @@ export default function Dashboards() {
                         title="Dashboard"
                         dataIndex="name"
                         key="name"
-                        render={(name, { id }) => <Link to={`/dashboard/${id}`}>{name || 'Untitled'}</Link>}
+                        render={(name, { id }, index) => (
+                            <Link data-attr={'dashboard-name-' + index} to={`/dashboard/${id}`}>
+                                {name || 'Untitled'}
+                            </Link>
+                        )}
                     />
                     <Table.Column
                         title="Actions"
