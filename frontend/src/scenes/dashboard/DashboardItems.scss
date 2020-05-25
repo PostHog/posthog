@@ -75,10 +75,6 @@
         background: transparent;
     }
 
-    table.table {
-        margin: 0;
-    }
-
     &.blue {
         --item-background: hsl(212, 63%, 40%);
         --item-darker: hsl(212, 63%, 35%);
@@ -139,11 +135,20 @@
         h1 {
             color: rgba(255, 255, 255, 0.9);
         }
-        table.table {
-            color: white;
-            tr td,
-            tr th {
-                border-top-color: rgba(255, 255, 255, 0.2);
+        .ant-table {
+            background: none;
+            table {
+                color: white;
+                tr td,
+                tr th {
+                    color: white;
+                    background: rgba(255, 255, 255, 0.1);
+                    border-top-color: rgba(255, 255, 255, 0.2);
+                    border-bottom-color: rgba(255, 255, 255, 0.2);
+                }
+                tr th {
+                    background: rgba(255, 255, 255, 0.2);
+                }
             }
         }
     }
