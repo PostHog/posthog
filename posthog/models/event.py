@@ -9,6 +9,7 @@ from django.db.models import (
     Prefetch,
     QuerySet,
 )
+from django.db import connection
 from django.contrib.postgres.fields import JSONField
 from django.utils import timezone
 
@@ -19,15 +20,23 @@ from .action_step import ActionStep
 from .person import PersonDistinctId, Person
 from .team import Team
 from .filter import Filter
+from .utils import namedtuplefetchall
 
 from posthog.tasks.slack import post_event_to_slack
 from typing import Dict, Union, List, Optional, Any, Tuple
 
-import re
+from collections import defaultdict
 import copy
+import datetime
+import re
 
 attribute_regex = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 
+
+LAST_UPDATED_TEAM_ACTION: Dict[int, datetime.datetime] = {}
+TEAM_EVENT_ACTION_QUERY_CACHE: Dict[int,Dict[str, tuple]] = defaultdict(dict)
+# TEAM_EVENT_ACTION_QUERY_CACHE looks like team_id -> event ex('$pageview') -> query
+TEAM_ACTION_QUERY_CACHE: Dict[int, str] = {}
 
 class SelectorPart(object):
     direct_descendant = False
@@ -239,35 +248,58 @@ class Event(models.Model):
     # the event won't be in the Action-Event relationship yet.
     @property
     def actions(self) -> List:
+        last_updated_action_ts = Action.objects.filter(team_id=self.team_id).aggregate(models.Max("updated_at"))['updated_at__max']
+
         actions = (
             Action.objects.filter(
                 team_id=self.team_id,
-                steps__event=self.event, # filter by event name to narrow down
+                steps__event=self.event,  # filter by event name to narrow down
                 deleted=False
             )
-            .distinct("id")
-            .prefetch_related(
+                .distinct("id")
+                .prefetch_related(
                 Prefetch("steps", queryset=ActionStep.objects.order_by("id"))
             )
         )
-        if len(actions) == 0:
-            return []
-        events: models.QuerySet[Any] = Event.objects.filter(pk=self.pk)
-        for action in actions:
-            events = events.annotate(
-                **{
-                    "action_{}".format(action.pk): Event.objects.filter(pk=self.pk)
-                    .query_db_by_action(action)
-                    .values("id")[:1]
-                }
-            )
-        event = [event for event in events][0]
+        if not self.team_id in LAST_UPDATED_TEAM_ACTION \
+            or not self.team_id in TEAM_EVENT_ACTION_QUERY_CACHE \
+            or not self.event in TEAM_EVENT_ACTION_QUERY_CACHE[self.team_id] \
+            or not self.team_id in TEAM_ACTION_QUERY_CACHE \
+            or (last_updated_action_ts > LAST_UPDATED_TEAM_ACTION[self.team_id]):
+            # If actions have changed update the query
+            TEAM_ACTION_QUERY_CACHE[self.team_id], _ = actions.query.sql_with_params()
+            if len(actions) == 0:
+                return []
+            events: models.QuerySet[Any] = Event.objects.filter(pk=self.pk)
+            for action in actions:
+                events = events.annotate(
+                    **{
+                        "action_{}".format(action.pk): Event.objects.filter(pk=self.pk)
+                        .query_db_by_action(action)
+                        .values("id")[:1]
+                    }
+                )
+            q, p = events.query.sql_with_params()
+            qp = tuple(['%s' if i == self.pk else i for i in p])
+            qcache = {self.event: (q, qp)}
+            TEAM_EVENT_ACTION_QUERY_CACHE[self.team_id].update(qcache)
+            LAST_UPDATED_TEAM_ACTION[self.team_id] = last_updated_action_ts
+        else:
+            actions.raw(TEAM_ACTION_QUERY_CACHE[self.team_id])
+            q, p = TEAM_EVENT_ACTION_QUERY_CACHE[self.team_id][self.event]
+            with connection.cursor() as cursor:
+                qp = tuple([self.pk if i == '%s' else i for i in p])
+                qstring = cursor.mogrify(q, qp)
+                cursor.execute(qstring)
+                events = namedtuplefetchall(cursor)
 
-        return [
+        event = [event for event in events][0]
+        filtered_actions = [
             action
             for action in actions
             if getattr(event, "action_{}".format(action.pk))
         ]
+        return filtered_actions
 
     objects: EventManager = EventManager.as_manager()  # type: ignore
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)

@@ -53,6 +53,7 @@ class Action(models.Model):
     events: models.ManyToManyField = models.ManyToManyField("Event", blank=True)
     post_to_slack: models.BooleanField = models.BooleanField(default=False)
     is_calculating: models.BooleanField = models.BooleanField(default=False)
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.name
