@@ -8,7 +8,7 @@ from typing import Optional
 
 from django.db.models.expressions import Window
 from django.db.models.functions import Lag
-from django.db.models import F
+from django.db.models import F, Q
 from django.db import connection
 
 import json
@@ -53,7 +53,7 @@ class PathsViewSet(viewsets.ViewSet):
                 **({"event":event} if event else {'event__regex':'^[^\$].*'}), #anything without $ (default)
                 **date_query
             )\
-            .filter(Filter(data={'properties': json.loads(properties)}).properties_to_Q() if properties else {})\
+            .filter(Filter(data={'properties': json.loads(properties)}).properties_to_Q() if properties else Q())\
             .annotate(previous_timestamp=Window(
                 expression=Lag('timestamp', default=None),
                 partition_by=F('distinct_id'),
