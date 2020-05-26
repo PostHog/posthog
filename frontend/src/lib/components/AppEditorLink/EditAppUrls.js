@@ -81,15 +81,6 @@ const appUrlsLogic = kea({
                 [actions.addUrl]: (state, { value }) => [...state].filter(item => value !== item),
             },
         ],
-        isSaved: [
-            false,
-            {
-                [actions.addUrl]: () => false,
-                [actions.removeUrl]: () => false,
-                [actions.updateUrl]: () => false,
-                [userLogic.actions.userUpdateSuccess]: (state, { updateKey }) => updateKey === 'SetupAppUrls' || state,
-            },
-        ],
     }),
 
     listeners: ({ values, sharedListeners, props }) => ({
@@ -112,7 +103,7 @@ const appUrlsLogic = kea({
 })
 
 export function EditAppUrls({ actionId, allowNavigation }) {
-    const { appUrls, suggestions, suggestionsLoading, isSaved } = useValues(appUrlsLogic({ actionId }))
+    const { appUrls, suggestions, suggestionsLoading } = useValues(appUrlsLogic({ actionId }))
     const { addUrl, addUrlAndGo, removeUrl, updateUrl } = useActions(appUrlsLogic({ actionId }))
     const [loadMore, setLoadMore] = useState()
 
@@ -136,7 +127,7 @@ export function EditAppUrls({ actionId, allowNavigation }) {
                     suggestions.slice(0, loadMore ? suggestions.length : 5).map(url => (
                         <List.Item
                             key={url}
-                            onClick={() => addUrlAndGo(url)}
+                            onClick={() => (allowNavigation ? addUrlAndGo(url) : addUrl(url))}
                             style={{ cursor: 'pointer', justifyContent: 'space-between' }}
                         >
                             <a href={url} onClick={e => e.preventDefault()}>
@@ -158,12 +149,6 @@ export function EditAppUrls({ actionId, allowNavigation }) {
                     </div>
                 )}
             </List>
-
-            {isSaved && (
-                <span className="text-success float-right" style={{ marginLeft: 10 }}>
-                    URLs saved.
-                </span>
-            )}
             <Button
                 type="link"
                 onClick={() => addUrl()}
