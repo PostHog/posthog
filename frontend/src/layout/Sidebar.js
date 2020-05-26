@@ -96,18 +96,19 @@ export default function Sidebar(props) {
                         <Link to={`/dashboard/${dashboard.id}`} />
                     </Menu.Item>
                 ))}
+
+                <Menu.Item key="dashboards" style={itemStyle} data-attr="menu-item-dashboards">
+                    <FundOutlined />
+                    <span className="sidebar-label">Dashboards</span>
+                    <Link to="/dashboard" />
+                </Menu.Item>
+
                 {pinnedDashboards.length > 0 ? <Menu.Divider /> : null}
 
                 <Menu.Item key="trends" style={itemStyle} data-attr="menu-item-trends">
                     <RiseOutlined />
                     <span className="sidebar-label">{'Trends'}</span>
                     <Link to={'/trends'} />
-                </Menu.Item>
-
-                <Menu.Item key="dashboards" style={itemStyle} data-attr="menu-item-dashboards">
-                    <FundOutlined />
-                    <span className="sidebar-label">Dashboards</span>
-                    <Link to="/dashboard" />
                 </Menu.Item>
 
                 <Menu.SubMenu

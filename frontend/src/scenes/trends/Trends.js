@@ -16,7 +16,7 @@ import { ShownAsFilter } from './ShownAsFilter'
 import { PeopleModal } from './PeopleModal'
 import { trendsLogic, ViewType } from './trendsLogic'
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Tooltip } from 'antd'
+import { Tabs, Row, Col, Tooltip, Checkbox } from 'antd'
 import { SessionFilter } from 'lib/components/SessionsFilter'
 import { InfoCircleOutlined } from '@ant-design/icons'
 
@@ -124,6 +124,15 @@ export function Trends() {
                                     dateFrom={filters.date_from}
                                     dateTo={filters.date_to}
                                 />
+                                <Checkbox
+                                    onChange={e => {
+                                        setFilters({ compare: e.target.checked })
+                                    }}
+                                    checked={filters.compare}
+                                    style={{ marginLeft: 8, marginRight: 6 }}
+                                >
+                                    Compare Previous
+                                </Checkbox>
                                 <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
                             </div>
                         }
