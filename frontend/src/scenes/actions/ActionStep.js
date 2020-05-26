@@ -257,7 +257,7 @@ export class ActionStep extends Component {
                             Select element on site <i className="fi flaticon-export" />
                         </AppEditorLink>
                         <a
-                            href="https://docs.posthog.com/#/features/actions"
+                            href="https://posthog.com/docs/features/actions"
                             target="_blank"
                             rel="noopener noreferrer"
                             style={{ marginLeft: 8 }}
