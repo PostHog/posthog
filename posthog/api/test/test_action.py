@@ -216,13 +216,13 @@ class TestTrends(BaseTest):
                 },
             ).json()
 
-        self.assertEqual(action_response[0]['label'], 'sign up-current')
+        self.assertEqual(action_response[0]['label'], 'sign up - current')
         self.assertEqual(action_response[0]['labels'][4], 'day 4')
         self.assertEqual(action_response[0]['data'][4], 3.0)
         self.assertEqual(action_response[0]['labels'][5], 'day 5')
         self.assertEqual(action_response[0]['data'][5], 1.0)
 
-        self.assertEqual(action_response[1]['label'], 'sign up-previous')
+        self.assertEqual(action_response[1]['label'], 'sign up - previous')
         self.assertEqual(action_response[1]['labels'][4], 'day 4')
         self.assertEqual(action_response[1]['data'][4], 1.0)
         self.assertEqual(action_response[1]['labels'][5], 'day 5')
