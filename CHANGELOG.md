@@ -80,7 +80,7 @@
 
 ![android events](https://posthog.com/wp-content/uploads/2020/04/android-events.gif)
 
-- There is now, also a [PostHog Gatsby plugin](https://docs.posthog.com/#/integrations/gatsby)
+- There is now, also a [PostHog Gatsby plugin](https://posthog.com/docs/integrations/gatsby-integration)
 
 - We have added URL wildcards so you can use % as a wildcard when setting up an action
 
@@ -123,7 +123,7 @@
 
 - We have added an iOS library so you can now capture events in your iOS app and send them to PostHog, we can automatically capture screen changes, and send any other events that you like
 
-Click [here](https://docs.posthog.com/#/integrations/ios-integration) for instructions on how to install it on your app.
+Click [here](https://posthog.com/docs/integrations/ios-integration) for instructions on how to install it on your app.
 
 - We have added Sessions to /trends with two modes: “Average session length”, which shows you how long sessions are and how many, and “distribution” which makes it super easy to spot whether sessions are uniformly distributed or whether there are outliers
 
@@ -155,7 +155,7 @@ Click [here](https://docs.posthog.com/#/integrations/ios-integration) for instru
 
 ### 1.1.0 - Wednesday 15 April 2020
 
-Important! We've added Celery workers. We'll move tasks to workers to speed up a lot of actions in PostHog. [See update instructions](https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011) on how to enable workers.
+Important! We've added Celery workers. We'll move tasks to workers to speed up a lot of actions in PostHog. [See update instructions](https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011) on how to enable workers.
 
 - Users can integrate PostHog with Slack to send push notifications when events are triggered
 
@@ -227,7 +227,7 @@ Important! We've added Celery workers. We'll move tasks to workers to speed up a
 
 ### 1.0.11 - Wednesday 8 April 2020
 
-Important! We've added Celery workers. We'll move tasks to workers to speed up a lot of actions in PostHog. [See update instructions](https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011) on how to enable workers.
+Important! We've added Celery workers. We'll move tasks to workers to speed up a lot of actions in PostHog. [See update instructions](https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011) on how to enable workers.
 
 - Users can filter the trends view by any event rather than just actions
 
