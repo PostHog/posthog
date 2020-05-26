@@ -87,9 +87,9 @@ export function Action({ id }) {
                     loadAction()
                 }}
             />
-            {id && <h2>Events</h2>}
             {id && !isComplete && (
                 <div style={{ marginBottom: '10rem' }}>
+                    <h1 className="page-header">Events</h1>
                     <Spin style={{ marginRight: 12 }} />
                     Calculating action, please hold on.
                 </div>
