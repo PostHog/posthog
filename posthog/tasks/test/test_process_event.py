@@ -7,6 +7,7 @@ from posthog.models import Event, Action, ActionStep, Person, ElementGroup, Team
 from posthog.tasks.process_event import process_event
 from unittest.mock import patch, call
 
+
 class ProcessEvent(BaseTest):
     def test_capture_new_person(self) -> None:
         user = self._create_user('tim')
@@ -16,7 +17,7 @@ class ProcessEvent(BaseTest):
         ActionStep.objects.create(action=action2, selector='a', event='$autocapture')
         team_id = self.team.pk
 
-        with self.assertNumQueries(19):
+        with self.assertNumQueries(20):
             process_event(2, '', '', {
                 'event': '$autocapture',
                 'properties': {
@@ -228,7 +229,7 @@ class ProcessEvent(BaseTest):
         with freeze_time("2020-01-01T12:00:05.200Z"):
             process_event('distinct_id', '', '', {
                 "offset": 150,
-                "event":"$autocapture",
+                "event": "$autocapture",
                 "distinct_id": "distinct_id",
             }, self.team.pk, now().isoformat(), now().isoformat())  # sent at makes no difference for offset
 
@@ -239,7 +240,7 @@ class ProcessEvent(BaseTest):
         with freeze_time("2020-01-01T12:00:05.200Z"):
             process_event('distinct_id', '', '', {
                 "offset": 150,
-                "event":"$autocapture",
+                "event": "$autocapture",
                 "distinct_id": "distinct_id",
             }, self.team.pk, now().isoformat(), None)  # no sent at makes no difference for offset
 
@@ -369,8 +370,6 @@ class TestIdentify(TransactionTestCase):
         person = Person.objects.get()
         self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id", "anonymous_id_2"])
         self.assertEqual(person.properties['email'], 'someone@gmail.com')
-
-
 
     def test_distinct_team_leakage(self) -> None:
         team2 = Team.objects.create()
