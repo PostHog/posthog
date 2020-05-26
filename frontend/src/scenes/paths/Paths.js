@@ -8,6 +8,9 @@ import { EventElements } from 'scenes/events/EventElements'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 
+import { useActions, useValues } from 'kea'
+import { pathsLogic } from 'scenes/paths/pathsLogic'
+
 let stripHTTP = url => {
     url = url.replace(/(^[0-9]+_)/, '')
     url = url.replace(/(^\w+:|^)\/\//, '')
@@ -60,45 +63,15 @@ function NoData() {
 
 export function Paths() {
     const canvas = useRef(null)
-    const [paths, setPaths] = useState({
-        nodes: [],
-        links: [],
-    })
-    const [filter, setFilter] = useState({
-        dateFrom: null,
-        dateTo: null,
-    })
-    const [dataLoaded, setDataLoaded] = useState(false)
+    const { paths, filter, pathsLoading } = useValues(pathsLogic)
+    const { setFilter } = useActions(pathsLogic)
+
     const [modalVisible, setModalVisible] = useState(false)
     const [eventelements, setEventelements] = useState(null)
 
     useEffect(() => {
-        fetchPaths()
-    }, [filter, dataLoaded])
-
-    useEffect(() => {
         renderPaths()
-    }, [paths, dataLoaded])
-
-    async function fetchPaths() {
-        const params = toParams(filter)
-
-        const paths = await api.get(`api/paths${params ? `/?${params}` : ''}`)
-
-        setPaths({
-            nodes: [
-                ...paths.map(path => ({ name: path.source, id: path.source_id })),
-                ...paths.map(path => ({ name: path.target, id: path.target_id })),
-            ],
-            links: paths,
-        })
-        setDataLoaded(true)
-    }
-
-    function updateFilter(changes) {
-        setFilter({ ...filter, ...changes })
-        setDataLoaded(false)
-    }
+    }, [paths, !pathsLoading])
 
     function renderPaths() {
         const elements = document.querySelectorAll('.paths svg')
@@ -121,7 +94,6 @@ export function Paths() {
             .nodeAlign(Sankey.sankeyLeft)
             .nodeSort(null)
             .nodeWidth(15)
-            // .nodePadding()
             .size([width, height])
 
         const { nodes, links } = sankey({
@@ -150,7 +122,6 @@ export function Paths() {
                     }
                 return (d3.color(c) || d3.color('#dddddd')).darker(0.5)
             })
-            // .attr("fill", d =>  'var(--blue)')
             .attr('opacity', 0.5)
             .append('title')
             .text(d => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
@@ -259,11 +230,11 @@ export function Paths() {
                     <Row justify="space-between">
                         <Row align="middle">
                             Path Type:
-                            <PathSelect onChange={value => updateFilter({ type: value })} />
+                            <PathSelect onChange={value => setFilter({ type: value })} />
                         </Row>
                         <DateFilter
                             onChange={(date_from, date_to) =>
-                                updateFilter({
+                                setFilter({
                                     date_from,
                                     date_to,
                                 })
@@ -278,10 +249,10 @@ export function Paths() {
                     <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
                 )}
                 <div ref={canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
-                    {dataLoaded && paths && paths.nodes.length === 0 ? (
+                    {!pathsLoading && paths && paths.nodes.length === 0 ? (
                         <NoData />
                     ) : (
-                        !dataLoaded && (
+                        pathsLoading && (
                             <div className="loading-overlay mt-5">
                                 <div />
                                 <Loading />
