@@ -1,4 +1,5 @@
 from django.db import models, connection, transaction
+from django.core.exceptions import EmptyResultSet
 from .user import User
 from sentry_sdk import capture_exception
 
@@ -8,12 +9,18 @@ class Action(models.Model):
         self.save()
         from .event import Event
 
-        event_query, params = (
-            Event.objects
-            .query_db_by_action(self)
-            .only("pk")
-            .query.sql_with_params()
-        )
+        try:
+            event_query, params = (
+                Event.objects
+                .query_db_by_action(self)
+                .only("pk")
+                .query.sql_with_params()
+            )
+        except EmptyResultSet:
+            self.is_calculating = False
+            self.save()
+            self.events.all().delete()
+            return
 
         query = """
         DELETE FROM "posthog_action_events" WHERE "action_id" = {};
