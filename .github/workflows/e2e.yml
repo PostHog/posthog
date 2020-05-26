@@ -12,6 +12,8 @@ jobs:
           node-version: 12
       - run: yarn install
       
+      - name: Pull previous docker image for cache
+        run: docker pull posthog:dev
       - name: Prepare server
         run: docker-compose -f docker-compose.e2e.yml up -d
       - name: Check running containers
