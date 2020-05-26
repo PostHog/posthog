@@ -1,10 +1,12 @@
-import React, { Component } from 'react'
+import React, { useRef, useState, useEffect } from 'react'
 import api from 'lib/api'
 import { toParams, Card, Loading } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter'
 import { PathSelect } from '~/lib/components/PathSelect'
 import { Row, Modal, Button, Spin } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
+import * as d3 from 'd3'
+import * as Sankey from 'd3-sankey'
 
 let stripHTTP = url => {
     url = url.replace(/(^[0-9]+_)/, '')
@@ -56,64 +58,67 @@ function NoData() {
     )
 }
 
-export class Paths extends Component {
-    constructor(props) {
-        super(props)
-        this.state = {
-            filter: {
-                dateFrom: null,
-                dateTo: null,
-            },
-            paths: {
-                nodes: [],
-                links: [],
-            },
-            d3Loaded: false,
-            sankeyLoaded: false,
-            modalVisible: false,
-        }
+export function Paths() {
+    const canvas = useRef(null)
+    const [paths, setPaths] = useState({
+        nodes: [],
+        links: [],
+    })
+    const [filter, setFilter] = useState({
+        dateFrom: null,
+        dateTo: null,
+    })
+    const [dataLoaded, setDataLoaded] = useState(false)
+    const [modalVisible, setModalVisible] = useState(false)
+    const [eventelements, setEventelements] = useState(null)
 
-        this.canvas = React.createRef()
-        this.fetchPaths()
+    useEffect(() => {
+        fetchPaths()
+    }, [filter, dataLoaded])
 
-        import('d3').then(d3 => {
-            this.d3 = d3
-            this.setState({ d3Loaded: true })
+    useEffect(() => {
+        renderPaths()
+    }, [paths, dataLoaded])
+
+    async function fetchPaths() {
+        const params = toParams(filter)
+
+        const paths = await api.get(`api/paths${params ? `/?${params}` : ''}`)
+
+        setPaths({
+            nodes: [
+                ...paths.map(path => ({ name: path.source, id: path.source_id })),
+                ...paths.map(path => ({ name: path.target, id: path.target_id })),
+            ],
+            links: paths,
         })
-        import('d3-sankey').then(sankey => {
-            this.sankey = sankey
-            this.setState({ sankeyLoaded: true })
-        })
+        setDataLoaded(true)
     }
 
-    renderPaths = () => {
-        const { paths } = this.state
+    function updateFilter(changes) {
+        setFilter({ ...filter, ...changes })
+        setDataLoaded(false)
+    }
 
-        if (!this.state.d3Loaded || !this.state.sankeyLoaded) {
-            return
-        }
-
+    function renderPaths() {
         const elements = document.querySelectorAll('.paths svg')
         elements.forEach(node => node.parentNode.removeChild(node))
 
         if (!paths || paths.nodes.length === 0) {
-            this.setState({ rendered: true })
             return
         }
+        let width = canvas.current.offsetWidth
+        let height = canvas.current.offsetHeight
 
-        this.setState({ rendered: true })
-        let width = this.canvas.current.offsetWidth
-        let height = this.canvas.current.offsetHeight
-
-        let svg = this.d3
-            .select(this.canvas.current)
+        let svg = d3
+            .select(canvas.current)
             .append('svg')
             .style('background', '#fff')
             .style('width', width)
             .style('height', height)
-        let sankey = new this.sankey.sankey()
+        let sankey = new Sankey.sankey()
             .nodeId(d => d.name)
-            .nodeAlign(this.sankey.sankeyLeft)
+            .nodeAlign(Sankey.sankeyLeft)
             .nodeSort(null)
             .nodeWidth(15)
             // .nodePadding()
@@ -143,7 +148,7 @@ export class Paths extends Component {
                         if (c === undefined) c = link.color
                         else if (c !== link.color) c = null
                     }
-                return (this.d3.color(c) || this.d3.color('#dddddd')).darker(0.5)
+                return (d3.color(c) || d3.color('#dddddd')).darker(0.5)
             })
             // .attr("fill", d =>  'var(--blue)')
             .attr('opacity', 0.5)
@@ -177,7 +182,7 @@ export class Paths extends Component {
             .style('mix-blend-mode', 'multiply')
 
         link.append('path')
-            .attr('d', this.sankey.sankeyLinkHorizontal())
+            .attr('d', Sankey.sankeyLinkHorizontal())
             .attr('stroke-width', d => {
                 return Math.max(1, d.width)
             })
@@ -227,18 +232,14 @@ export class Paths extends Component {
                     : stripHTTP(d.name)
             )
             .on('click', async node => {
-                if (this.state.filter.type == '$autocapture') {
-                    this.setState({
-                        modalVisible: true,
-                        eventelements: null,
-                    })
+                if (filter.type == '$autocapture') {
+                    setModalVisible(true)
+                    setEventelements(null)
                     let result = await api.get('api/event/' + node.id)
-                    this.setState({
-                        eventelements: result,
-                    })
+                    setEventelements(result)
                 }
             })
-            .style('cursor', this.state.filter.type == '$autocapture' ? 'pointer' : 'auto')
+            .style('cursor', filter.type == '$autocapture' ? 'pointer' : 'auto')
 
         textSelection
             .append('tspan')
@@ -250,103 +251,68 @@ export class Paths extends Component {
         return textSelection.node()
     }
 
-    fetchPaths = () => {
-        const params = toParams(this.state.filter)
-
-        api.get(`api/paths${params ? `/?${params}` : ''}`).then(paths => {
-            this.setState(
-                {
-                    paths: {
-                        nodes: [
-                            ...paths.map(path => ({ name: path.source, id: path.source_id })),
-                            ...paths.map(path => ({ name: path.target, id: path.target_id })),
-                        ],
-                        links: paths,
-                    },
-                    dataLoaded: true,
-                },
-                this.renderPaths
-            )
-        })
-    }
-
-    updateFilter = changes => {
-        this.setState(
-            { filter: { ...this.state.filter, ...changes }, rendered: false, dataLoaded: false },
-            this.fetchPaths
-        )
-    }
-
-    render() {
-        let { paths, filter, dataLoaded } = this.state
-
-        return (
-            <div>
-                <h1 className="page-header">Paths</h1>
-                <Card
-                    title={
-                        <Row justify="space-between">
-                            <Row align="middle">
-                                Path Type:
-                                <PathSelect onChange={value => this.updateFilter({ type: value })} />
-                            </Row>
-                            <DateFilter
-                                onChange={(date_from, date_to) =>
-                                    this.updateFilter({
-                                        date_from,
-                                        date_to,
-                                    })
-                                }
-                                dateFrom={filter.date_from}
-                                dateTo={filter.date_to}
-                            />
+    return (
+        <div>
+            <h1 className="page-header">Paths</h1>
+            <Card
+                title={
+                    <Row justify="space-between">
+                        <Row align="middle">
+                            Path Type:
+                            <PathSelect onChange={value => updateFilter({ type: value })} />
                         </Row>
-                    }
-                >
-                    {this.state.filter.type == '$autocapture' && (
-                        <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
-                    )}
-                    <div ref={this.canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
-                        {dataLoaded && paths && paths.nodes.length === 0 ? (
-                            <NoData />
-                        ) : (
-                            !dataLoaded && (
-                                <div className="loading-overlay mt-5">
-                                    <div />
-                                    <Loading />
-                                    <br />
-                                </div>
-                            )
-                        )}
-                    </div>
-                </Card>
-                <Modal
-                    visible={this.state.modalVisible}
-                    onOk={() => this.setState({ modalVisible: false })}
-                    onCancel={() => this.setState({ modalVisible: false })}
-                    closable={false}
-                    style={{ minWidth: '50%' }}
-                    footer={[
-                        <Button key="submit" type="primary" onClick={() => this.setState({ modalVisible: false })}>
-                            Ok
-                        </Button>,
-                    ]}
-                    bodyStyle={
-                        !this.state.eventelements
-                            ? {
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                              }
-                            : {}
-                    }
-                >
-                    {this.state.eventelements ? (
-                        <EventElements event={this.state.eventelements}></EventElements>
+                        <DateFilter
+                            onChange={(date_from, date_to) =>
+                                updateFilter({
+                                    date_from,
+                                    date_to,
+                                })
+                            }
+                            dateFrom={filter.date_from}
+                            dateTo={filter.date_to}
+                        />
+                    </Row>
+                }
+            >
+                {filter.type == '$autocapture' && (
+                    <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
+                )}
+                <div ref={canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
+                    {dataLoaded && paths && paths.nodes.length === 0 ? (
+                        <NoData />
                     ) : (
-                        <Spin />
+                        !dataLoaded && (
+                            <div className="loading-overlay mt-5">
+                                <div />
+                                <Loading />
+                                <br />
+                            </div>
+                        )
                     )}
-                </Modal>
-            </div>
-        )
-    }
+                </div>
+            </Card>
+            <Modal
+                visible={modalVisible}
+                onOk={() => setModalVisible(false)}
+                onCancel={() => setModalVisible(false)}
+                closable={false}
+                style={{ minWidth: '50%' }}
+                footer={[
+                    <Button key="submit" type="primary" onClick={() => setModalVisible(false)}>
+                        Ok
+                    </Button>,
+                ]}
+                bodyStyle={
+                    !eventelements
+                        ? {
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                          }
+                        : {}
+                }
+            >
+                {eventelements ? <EventElements event={eventelements}></EventElements> : <Spin />}
+            </Modal>
+        </div>
+    )
 }
