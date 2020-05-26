@@ -52,11 +52,7 @@ export function Trends() {
                                     <ActionFilter filters={filters} setFilters={setFilters} typeKey="trends" />
                                     <hr />
                                     <h4 className="secondary">Filters</h4>
-                                    <PropertyFilters
-                                        pageKey="trends-filters"
-                                        style={{ marginBottom: 0 }}
-                                        onChange={properties => setFilters({ properties })}
-                                    />
+                                    <PropertyFilters pageKey="trends-filters" style={{ marginBottom: 0 }} />
                                     <hr />
                                     <h4 className="secondary">
                                         Break down by
