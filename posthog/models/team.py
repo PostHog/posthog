@@ -32,7 +32,7 @@ class TeamManager(models.Manager):
             team=team,
             dashboard=dashboard,
             name='Pageviews this week',
-            type='ActionsLineGraph',
+            type='ActionsLineGraphLinear',
             filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'type': TREND_FILTER_TYPE_EVENTS}]}
         )
         DashboardItem.objects.create(
@@ -46,7 +46,7 @@ class TeamManager(models.Manager):
             team=team,
             dashboard=dashboard,
             name='Daily Active Users',
-            type='ActionsLineGraph',
+            type='ActionsLineGraphLinear',
             filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'math': 'dau', 'type': TREND_FILTER_TYPE_EVENTS}]}
         )
         return team

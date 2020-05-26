@@ -5,7 +5,9 @@ import { InfoCircleOutlined } from '@ant-design/icons'
 export function ChartFilter(props) {
     let { filters, displayMap, onChange } = props
     return [
-        (!filters.display || filters.display === 'ActionsLineGraph') && (
+        (!filters.display ||
+            filters.display === 'ActionsLineGraphLinear' ||
+            filters.display === 'ActionsLineGraphCumulative') && (
             <Tooltip
                 key="1"
                 getPopupContainer={trigger => trigger.parentElement}
@@ -18,16 +20,24 @@ export function ChartFilter(props) {
 
         <Select
             key="2"
-            defaultValue={displayMap[filters.display || 'ActionsLineGraph']}
-            value={displayMap[filters.display || 'ActionsLineGraph']}
+            defaultValue={displayMap[filters.display || 'ActionsLineGraphLinear']}
+            value={displayMap[filters.display || 'ActionsLineGraphLinear']}
             onChange={onChange}
             bordered={false}
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
         >
-            <Select.Option value="ActionsLineGraph" disabled={filters.session && filters.session == 'dist'}>
-                Line chart
-            </Select.Option>
+            <Select.OptGroup label="Line chart">
+                <Select.Option value="ActionsLineGraphLinear" disabled={filters.session && filters.session === 'dist'}>
+                    Linear
+                </Select.Option>
+                <Select.Option
+                    value="ActionsLineGraphCumulative"
+                    disabled={filters.session || filters.shown_as === 'Stickiness'}
+                >
+                    Cumulative
+                </Select.Option>
+            </Select.OptGroup>
             <Select.Option value="ActionsTable">Table</Select.Option>
             <Select.Option value="ActionsPie" disabled={filters.session}>
                 Pie

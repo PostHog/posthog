@@ -23,7 +23,8 @@ import { InfoCircleOutlined } from '@ant-design/icons'
 const { TabPane } = Tabs
 
 const displayMap = {
-    ActionsLineGraph: 'Line chart',
+    ActionsLineGraphLinear: 'Line chart',
+    ActionsLineGraphCumulative: 'Line chart',
     ActionsTable: 'Table',
     ActionsPie: 'Pie',
 }
@@ -133,7 +134,7 @@ export function Trends() {
                                 >
                                     Compare Previous
                                 </Checkbox>
-                                <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
+                                <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraphLinear'} />
                             </div>
                         }
                     >
@@ -146,9 +147,9 @@ export function Trends() {
                                     }}
                                 >
                                     {resultsLoading && <Loading />}
-                                    {(!filters.display || filters.display === 'ActionsLineGraph') && (
-                                        <ActionsLineGraph />
-                                    )}
+                                    {(!filters.display ||
+                                        filters.display === 'ActionsLineGraphLinear' ||
+                                        filters.display === 'ActionsLineGraphCumulative') && <ActionsLineGraph />}
                                     {filters.display === 'ActionsTable' && <ActionsTable filters={filters} />}
                                     {filters.display === 'ActionsPie' && <ActionsPie filters={filters} />}
                                 </div>
