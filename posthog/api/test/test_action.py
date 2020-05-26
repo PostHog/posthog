@@ -203,6 +203,34 @@ class TestTrends(BaseTest):
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
+    def test_trends_compare(self):
+        self._create_events()
+        with freeze_time('2020-01-04T13:00:01Z'):
+            action_response = self.client.get('/api/action/trends/?date_from=-7d&compare=true').json()
+            event_response = self.client.get(
+                '/api/action/trends/',
+                data={
+                    'date_from': '-7d',
+                    'events': jdumps([{'id': "sign up"}, {'id': "no events"}]),
+                    'compare': 'true'
+                },
+            ).json()
+
+        self.assertEqual(action_response[0]['label'], 'sign up - current')
+        self.assertEqual(action_response[0]['labels'][4], 'day 4')
+        self.assertEqual(action_response[0]['data'][4], 3.0)
+        self.assertEqual(action_response[0]['labels'][5], 'day 5')
+        self.assertEqual(action_response[0]['data'][5], 1.0)
+
+        self.assertEqual(action_response[1]['label'], 'sign up - previous')
+        self.assertEqual(action_response[1]['labels'][4], 'day 4')
+        self.assertEqual(action_response[1]['data'][4], 1.0)
+        self.assertEqual(action_response[1]['labels'][5], 'day 5')
+        self.assertEqual(action_response[1]['data'][5], 0.0)
+
+        self.assertTrue(self._compare_entity_response(action_response, event_response))
+
+
     def test_property_filtering(self):
         self._create_events()
         with freeze_time('2020-01-04'):
