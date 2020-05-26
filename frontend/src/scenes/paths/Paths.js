@@ -1,12 +1,14 @@
 import React, { useRef, useState, useEffect } from 'react'
 import api from 'lib/api'
-import { toParams, Card, Loading } from 'lib/utils'
+import { Card, Loading } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter'
 import { PathSelect } from '~/lib/components/PathSelect'
 import { Row, Modal, Button, Spin } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
+
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { useActions, useValues } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
@@ -225,6 +227,7 @@ export function Paths() {
     return (
         <div>
             <h1 className="page-header">Paths</h1>
+            <PropertyFilters pageKey="Paths" />
             <Card
                 title={
                     <Row justify="space-between">

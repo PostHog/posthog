@@ -1,6 +1,7 @@
 import { kea } from 'kea'
-import { toParams } from 'lib/utils'
+import { toParams, objectsEqual } from 'lib/utils'
 import api from 'lib/api'
+import { router } from 'kea-router'
 
 export const pathsLogic = kea({
     loaders: ({ values }) => ({
@@ -10,7 +11,7 @@ export const pathsLogic = kea({
                 links: [],
             },
             loadPaths: async (_, breakpoint) => {
-                const params = toParams(values.filter)
+                const params = toParams({ ...values.filter, properties: values.properties })
                 const paths = await api.get(`api/paths${params ? `/?${params}` : ''}`)
                 const response = {
                     nodes: [
@@ -26,6 +27,7 @@ export const pathsLogic = kea({
     }),
 
     reducers: () => ({
+        initialPathname: [state => router.selectors.location(state).pathname, { noop: a => a }],
         filter: [
             {
                 dateFrom: null,
@@ -54,6 +56,41 @@ export const pathsLogic = kea({
         },
         setFilter: () => {
             actions.loadPaths()
+        },
+    }),
+    selectors: ({ selectors }) => ({
+        propertiesForUrl: [
+            () => [selectors.properties],
+            properties => {
+                if (Object.keys(properties).length > 0) {
+                    return { properties }
+                } else {
+                    return ''
+                }
+            },
+        ],
+    }),
+    actionToUrl: ({ values }) => ({
+        setProperties: () => {
+            return [router.values.location.pathname, values.propertiesForUrl]
+        },
+    }),
+    urlToAction: ({ actions, values }) => ({
+        '*': (_, searchParams) => {
+            try {
+                // if the url changed, but we are not anymore on the page we were at when the logic was mounted
+                if (router.values.location.pathname !== values.initialPathname) {
+                    return
+                }
+            } catch (error) {
+                // since this is a catch-all route, this code might run during or after the logic was unmounted
+                // if we have an error accessing the filter value, the logic is gone and we should return
+                return
+            }
+
+            if (!objectsEqual(searchParams.properties || {}, values.properties)) {
+                actions.setProperties(searchParams.properties || {})
+            }
         },
     }),
     events: ({ actions }) => ({
