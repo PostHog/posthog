@@ -46,12 +46,15 @@ export const actionEditLogic = kea({
             let action = { ...values.action }
             actions.setErrorActionId(null)
             action.steps = action.steps.map(step => {
-                if (step.event == '$pageview') step.selection = ['url', 'url_matching']
-                if (step.event != '$pageview' && step.event != '$autocapture') step.selection = ['properties']
-                if (!step.selection) return step
+                let localStep = { ...step }
+                if (localStep.event == '$pageview') localStep.selection = ['url', 'url_matching']
+                if (localStep.event != '$pageview' && localStep.event != '$autocapture')
+                    localStep.selection = ['properties']
+                if (!localStep.selection) return localStep
                 let data = {}
-                Object.keys(step).map(key => {
-                    data[key] = key == 'id' || key == 'event' || step.selection.indexOf(key) > -1 ? step[key] : null
+                Object.keys(localStep).map(key => {
+                    data[key] =
+                        key == 'id' || key == 'event' || localStep.selection.indexOf(key) > -1 ? localStep[key] : null
                 })
                 return data
             })

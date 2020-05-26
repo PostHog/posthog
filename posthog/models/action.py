@@ -8,15 +8,12 @@ class Action(models.Model):
         self.save()
         from .event import Event
 
-        try:
-            event_query, params = (
-                Event.objects.query_db_by_action(self)
-                .only("pk")
-                .query.sql_with_params()
-            )
-        except:  # make specific
-            self.events.all().delete()
-            return
+        event_query, params = (
+            Event.objects
+            .query_db_by_action(self)
+            .only("pk")
+            .query.sql_with_params()
+        )
 
         query = """
         DELETE FROM "posthog_action_events" WHERE "action_id" = {};

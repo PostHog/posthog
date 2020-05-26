@@ -1,15 +1,17 @@
 from json import dumps as jdumps
 
 from freezegun import freeze_time
+from unittest.mock import patch, call
 
 from posthog.models import Action, ActionStep, Element, Event, Person, Team, Cohort
 from .base import BaseTest
 
 
+@patch('posthog.tasks.calculate_action.calculate_action.delay')
 class TestCreateAction(BaseTest):
     TESTS_API = True
 
-    def test_create_and_update_action(self):
+    def test_create_and_update_action(self, patch_delay):
         Event.objects.create(team=self.team, event='$autocapture', elements=[
             Element(tag_name='button', order=0, text='sign up NOW'),
             Element(tag_name='div', order=1),
@@ -57,6 +59,7 @@ class TestCreateAction(BaseTest):
             }, {'href': '/a-new-link'}],
         }, content_type='application/json', HTTP_ORIGIN='http://testserver').json()
         action = Action.objects.get()
+        action.calculate_events()
         steps = action.steps.all().order_by('id')
         self.assertEqual(action.name, 'user signed up 2')
         self.assertEqual(steps[0].text, 'sign up NOW')
@@ -79,7 +82,7 @@ class TestCreateAction(BaseTest):
     # Make sure you can only create actions if that token is set,
     # otherwise evil sites could create actions with a users' session.
     # NOTE: Origin header is only set on cross domain request
-    def test_create_from_other_domain(self):
+    def test_create_from_other_domain(self, patch_delay):
         # FIXME: BaseTest is using Django client to performe calls to a DRF endpoint.
         # Django HttpResponse does not have an attribute `data`. Better use rest_framework.test.APIClient.
         response = self.client.post('/api/action/', data={

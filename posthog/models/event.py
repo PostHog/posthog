@@ -154,7 +154,7 @@ class EventManager(models.QuerySet):
             return self.none()
 
         for step in steps:
-            subquery = Event.objects.filter(
+            subquery = Event.objects.add_person_id(team_id=action.team_id).filter(
                 Filter(data={'properties': step.properties}).properties_to_Q(),
                 pk=OuterRef("id"),
                 **self.filter_by_element(step),

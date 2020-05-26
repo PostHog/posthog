@@ -42,13 +42,14 @@ let actionLogic = kea({
             },
         },
     }),
-    listeners: ({ actions, props }) => ({
+    listeners: ({ actions, props, values }) => ({
         checkIsFinished: ({ action }) => {
             if (action.is_calculating) {
                 actions.setPollTimeout(setTimeout(() => actions.loadAction(), 1000))
             } else {
                 props.onComplete()
                 actions.setIsComplete(new Date())
+                clearTimeout(values.pollTimeout)
             }
         },
     }),

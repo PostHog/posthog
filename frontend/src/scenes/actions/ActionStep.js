@@ -194,7 +194,7 @@ export class ActionStep extends Component {
                     </button>
                     <button
                         type="button"
-                        onClick={() => this.sendStep({ ...step, event: '' })}
+                        onClick={() => this.setState({ selection: [] }, () => this.sendStep({ ...step, event: '' }))}
                         className={
                             'btn ' +
                             (typeof step.event !== 'undefined' &&
@@ -228,25 +228,6 @@ export class ActionStep extends Component {
                         Page view
                     </button>
                 </div>
-                {step.event != null && step.event != '$autocapture' && step.event != '$pageview' && (
-                    <div style={{ marginTop: '2rem' }}>
-                        <label>Event name</label>
-                        <EventName
-                            value={step.event}
-                            onChange={value =>
-                                this.sendStep({
-                                    ...step,
-                                    event: value,
-                                })
-                            }
-                        />
-                        <PropertyFilters
-                            propertyFilters={step.properties}
-                            pageKey={'action-edit'}
-                            onChange={properties => this.sendStep({ ...step, properties })}
-                        />
-                    </div>
-                )}
             </div>
         )
     }
@@ -354,6 +335,30 @@ export class ActionStep extends Component {
 
                         {step.event === '$autocapture' && (
                             <this.AutocaptureFields step={step} isEditor={isEditor} actionId={actionId} />
+                        )}
+                        {step.event != null && step.event != '$autocapture' && step.event != '$pageview' && (
+                            <div style={{ marginTop: '2rem' }}>
+                                <label>Event name: {step.event}</label>
+                                <EventName
+                                    value={step.event}
+                                    onChange={value =>
+                                        this.sendStep({
+                                            ...step,
+                                            event: value,
+                                        })
+                                    }
+                                />
+                                <PropertyFilters
+                                    propertyFilters={step.properties}
+                                    pageKey={'action-edit'}
+                                    onChange={properties => {
+                                        this.sendStep({
+                                            ...this.props.step, // Not sure why, but the normal 'step' variable does not work here
+                                            properties,
+                                        })
+                                    }}
+                                />
+                            </div>
                         )}
                         {step.event === '$pageview' && (
                             <div>
