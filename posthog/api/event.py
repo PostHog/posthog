@@ -194,7 +194,7 @@ class EventViewSet(viewsets.ModelViewSet):
         for entity in trend_entity:
             days = [i for i in range(len(entity['days']))]
             labels = ['{} {}'.format('Day', i) for i in range(len(entity['labels']))]
-            entity.update({'labels': labels, 'days': days, 'chartLabel': '{}-{}'.format(entity['label'], label), 'dates': entity['days'], 'compare': True})
+            entity.update({'labels': labels, 'days': days, 'chartLabel': '{} - {}'.format(entity['label'], label), 'dates': entity['days'], 'compare': True})
         return trend_entity
 
     @action(methods=['GET'], detail=False)
