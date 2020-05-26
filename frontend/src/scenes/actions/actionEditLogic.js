@@ -9,7 +9,7 @@ export const actionEditLogic = kea({
         saveAction: true,
         setAction: action => ({ action }),
         setCreateNew: createNew => ({ createNew }),
-        setErrorActionId: actionId => ({ actionId }),
+        actionAlreadyExists: actionId => ({ actionId }),
     }),
 
     loaders: ({ props }) => ({
@@ -30,7 +30,8 @@ export const actionEditLogic = kea({
         errorActionId: [
             null,
             {
-                setErrorActionId: (_, { actionId }) => actionId,
+                saveAction: () => null,
+                actionAlreadyExists: (_, { actionId }) => actionId,
             },
         ],
         createNew: [
@@ -44,7 +45,6 @@ export const actionEditLogic = kea({
     listeners: ({ values, props, actions }) => ({
         saveAction: async () => {
             let action = { ...values.action }
-            actions.setErrorActionId(null)
             action.steps = action.steps.map(step => {
                 let localStep = { ...step }
                 if (localStep.event == '$pageview') localStep.selection = ['url', 'url_matching']
@@ -66,7 +66,7 @@ export const actionEditLogic = kea({
                 }
             } catch (response) {
                 if (response.detail === 'action-exists') {
-                    return actions.setErrorActionId(response.id)
+                    return actions.actionAlreadyExists(response.id)
                 } else {
                     throw response
                 }
@@ -80,9 +80,10 @@ export const actionEditLogic = kea({
         afterMount: async () => {
             if (props.id) {
                 const action = await api.get('api/action/' + props.id + '/' + props.params)
-                return actions.setAction(action)
+                actions.setAction(action)
+            } else {
+                actions.setAction({ name: '', steps: [{ isNew: uuid() }] })
             }
-            actions.setAction({ name: '', steps: [{ isNew: uuid() }] })
         },
     }),
 })
