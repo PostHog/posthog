@@ -111,9 +111,9 @@ module.exports = {
         new MiniCssExtractPlugin({
             filename: '[name].css',
         }),
-        new CopyWebpackPlugin([
-            { from: 'frontend/public', to: 'frontend/dist' },
-            { from: 'node_modules/posthog-js/dist/array.js', to: 'frontend/dist' },
-        ]),
+        // new CopyWebpackPlugin([
+        //     { from: 'frontend/public', to: 'frontend/dist' },
+        //     { from: 'node_modules/posthog-js/dist/array.js', to: 'frontend/dist' },
+        // ]),
     ],
 }
