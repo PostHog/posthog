@@ -237,15 +237,35 @@ class Event(models.Model):
             models.Index(fields=["timestamp", "team_id", "event"]),
         ]
 
+    def _can_use_cached_query(self, last_updated_action_ts):
+        if not self.team_id in LAST_UPDATED_TEAM_ACTION:
+            return False
+
+        if not self.team_id in TEAM_EVENT_ACTION_QUERY_CACHE:
+            return False
+
+        if not self.event in TEAM_EVENT_ACTION_QUERY_CACHE[self.team_id]:
+            return False
+
+        if not self.team_id in TEAM_ACTION_QUERY_CACHE:
+            return False
+
+        # Cache is expired because actions were updated
+        if last_updated_action_ts > LAST_UPDATED_TEAM_ACTION[self.team_id]:
+            return False
+        return True
+
     @property
     def person(self):
         return Person.objects.get(
             team_id=self.team_id, persondistinctid__distinct_id=self.distinct_id
         )
 
+
     # This (ab)uses query_db_by_action to find which actions match this event
     # We can't use filter_by_action here, as we use this function when we create an event so
     # the event won't be in the Action-Event relationship yet.
+    # We use query caching to reduce the time spent on generating redundant queries
     @property
     def actions(self) -> List:
         last_updated_action_ts = Action.objects.filter(team_id=self.team_id).aggregate(models.Max("updated_at"))['updated_at__max']
@@ -261,12 +281,7 @@ class Event(models.Model):
                 Prefetch("steps", queryset=ActionStep.objects.order_by("id"))
             )
         )
-        if not self.team_id in LAST_UPDATED_TEAM_ACTION \
-            or not self.team_id in TEAM_EVENT_ACTION_QUERY_CACHE \
-            or not self.event in TEAM_EVENT_ACTION_QUERY_CACHE[self.team_id] \
-            or not self.team_id in TEAM_ACTION_QUERY_CACHE \
-            or (last_updated_action_ts > LAST_UPDATED_TEAM_ACTION[self.team_id]):
-            # If actions have changed update the query
+        if not self._can_use_cached_query(last_updated_action_ts):
             TEAM_ACTION_QUERY_CACHE[self.team_id], _ = actions.query.sql_with_params()
             if len(actions) == 0:
                 return []
@@ -279,16 +294,34 @@ class Event(models.Model):
                         .values("id")[:1]
                     }
                 )
+            # This block is a little cryptic so bear with me
+            # We grab the query and the params from the ORM here
             q, p = events.query.sql_with_params()
+
+            # We then take the parameters and replace the event id's with a placeholder
+            # We use this later to sub back in future event id's
+            # The rest of the parameters are shared between action types
             qp = tuple(['%s' if i == self.pk else i for i in p])
+
+            # Create a cache item and add it to the cache keyed on team_id and event id
             qcache = {self.event: (q, qp)}
             TEAM_EVENT_ACTION_QUERY_CACHE[self.team_id].update(qcache)
+
+            # Update the last updated team action timestamp for future reference
             LAST_UPDATED_TEAM_ACTION[self.team_id] = last_updated_action_ts
         else:
+            # If we have reached this block we are about to use the sql query cache
+            # Grab the actions using the cached action query
             actions.raw(TEAM_ACTION_QUERY_CACHE[self.team_id])
+
+            # Grab the cached query and query params, we will need to replace some params
             q, p = TEAM_EVENT_ACTION_QUERY_CACHE[self.team_id][self.event]
+
+            # Replace the query param placeholders with the event id (opposite of what we did above)
+            qp = tuple([self.pk if i == '%s' else i for i in p])
+
             with connection.cursor() as cursor:
-                qp = tuple([self.pk if i == '%s' else i for i in p])
+                # Format and execute the cached query using the mostly cached params
                 qstring = cursor.mogrify(q, qp)
                 cursor.execute(qstring)
                 events = namedtuplefetchall(cursor)
