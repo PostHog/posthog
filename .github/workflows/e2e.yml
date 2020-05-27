@@ -10,6 +10,7 @@ jobs:
         with:
           image_name: posthog/posthog:dev
           dockerfile: dev.Dockerfile
+          push_image_and_stages: false
       - name: Prepare server
         run: docker-compose -f docker-compose.e2e.yml up -d
       - name: Check running containers
