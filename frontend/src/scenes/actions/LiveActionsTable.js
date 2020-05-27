@@ -17,7 +17,8 @@ export function LiveActionsTable({ fixedFilters }) {
 
     let params = ['$current_url']
     return (
-        <div className="events">
+        <div className="events" data-attr="live-actions-table">
+            <h1 className="page-header"> Live Actions</h1>
             <PropertyFilters pageKey="LiveActionsTable" propertyFilters={properties} />
             <table className="table" style={{ position: 'relative' }}>
                 <tbody>

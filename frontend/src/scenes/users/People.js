@@ -19,7 +19,7 @@ export function People() {
         if (scrollTop)
             document.querySelector('section.ant-layout > .content').parentNode.scrollTo({ top: 0, behavior: 'smooth' })
         api.get(
-            url ? url : `api/person/?${!!search ? 'search=' + search : ''}${cohortId ? '&cohort=' + cohortId : ''}`
+            url ? url : `api/person/?${search ? 'search=' + search : ''}${cohortId ? '&cohort=' + cohortId : ''}`
         ).then(data => {
             setPeople(data.results)
             setLoading(false)
@@ -36,13 +36,13 @@ export function People() {
 
     return (
         <div>
-            <h1>Users</h1>
+            <h1 className="page-header">Users</h1>
             <Cohort onChange={setCohortId} />
             <Button
-                className="float-right"
                 type="default"
                 icon={<ExportOutlined />}
                 href={'/api/person.csv' + (cohortId ? '?cohort=' + cohortId : '')}
+                style={{ marginBottom: '1rem' }}
             >
                 Export
             </Button>

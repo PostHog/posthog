@@ -1,6 +1,7 @@
 from .base import BaseTest
 from posthog.models import Event, Person, Element, Action, ActionStep, Team
 from freezegun import freeze_time
+import json
 
 
 class TestEvents(BaseTest):
@@ -27,6 +28,15 @@ class TestEvents(BaseTest):
         with self.assertNumQueries(7):
             response = self.client.get('/api/event/?event=event_name').json()
         self.assertEqual(response['results'][0]['event'], 'event_name')
+
+    def test_filter_events_by_properties(self):
+        person = Person.objects.create(properties={'email': 'tim@posthog.com'}, team=self.team, distinct_ids=["2", 'some-random-uid'])
+        Event.objects.create(event='event_name',team=self.team, distinct_id="2", properties={"$browser": 'Chrome'})
+        event2 = Event.objects.create(event='event_name',team=self.team, distinct_id="2", properties={"$browser": 'Safari'})
+
+        with self.assertNumQueries(7):
+            response = self.client.get('/api/event/?properties=%s' % (json.dumps([{'key': '$browser', 'value': 'Safari'}]))).json()
+        self.assertEqual(response['results'][0]['id'], event2.pk)
 
     def test_filter_by_person(self):
         person = Person.objects.create(properties={'email': 'tim@posthog.com'}, distinct_ids=["2", 'some-random-uid'], team=self.team)
@@ -113,13 +123,19 @@ class TestEvents(BaseTest):
         Event.objects.create(team=self.team, properties={'random_prop': 'asdf', 'some other prop': 'with some text'})
         Event.objects.create(team=self.team, properties={'random_prop': 'asdf'})
         Event.objects.create(team=self.team, properties={'random_prop': 'qwerty'})
+        Event.objects.create(team=self.team, properties={'random_prop': True})
+        Event.objects.create(team=self.team, properties={'random_prop': False})
+        Event.objects.create(team=self.team, properties={'random_prop': {'first_name': 'Mary', 'last_name': 'Smith'}})
         Event.objects.create(team=self.team, properties={'something_else': 'qwerty'})
         team2 = Team.objects.create()
         Event.objects.create(team=team2, properties={'random_prop': 'abcd'})
         response = self.client.get('/api/event/values/?key=random_prop').json()
         self.assertEqual(response[0]['name'], 'asdf')
         self.assertEqual(response[1]['name'], 'qwerty')
-        self.assertEqual(len(response), 2)
+        self.assertEqual(response[2]['name'], 'false')
+        self.assertEqual(response[3]['name'], 'true')
+        self.assertEqual(response[4]['name'], '{"first_name": "Mary", "last_name": "Smith"}')
+        self.assertEqual(len(response), 5)
 
         response = self.client.get('/api/event/values/?key=random_prop&value=qw').json()
         self.assertEqual(response[0]['name'], 'qwerty')

@@ -2,6 +2,14 @@ import React, { Component } from 'react'
 import { router } from 'kea-router'
 import { JSSnippet } from 'lib/components/JSSnippet'
 
+const urlBackgroundMap = {
+    '/': 'https://posthog.s3.eu-west-2.amazonaws.com/graphs.png',
+    '/actions': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
+    '/trends': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-action-trends.png',
+    '/funnel': 'https://posthog.s3.eu-west-2.amazonaws.com/funnel.png',
+    '/paths': 'https://posthog.s3.eu-west-2.amazonaws.com/paths.png',
+}
+
 class _SendEventsOverlay extends Component {
     constructor(props) {
         super(props)
@@ -9,17 +17,11 @@ class _SendEventsOverlay extends Component {
         this.imageRef = React.createRef()
         this.state = { path: this.props.location.pathname }
     }
-    urlBackgroundMap = {
-        '/': 'https://posthog.s3.eu-west-2.amazonaws.com/graphs.png',
-        '/actions': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
-        '/trends': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-action-trends.png',
-        '/funnel': 'https://posthog.s3.eu-west-2.amazonaws.com/funnel.png',
-        '/paths': 'https://posthog.s3.eu-west-2.amazonaws.com/paths.png',
-    }
+
     componentDidMount() {
         setTimeout(() => this.setState({ animate: true }), 1000)
     }
-    componentDidUpdate(prevProps) {
+    componentDidUpdate() {
         if (this.state.path !== this.props.location.pathname) {
             this.setState({
                 animate: false,
@@ -29,7 +31,7 @@ class _SendEventsOverlay extends Component {
     }
     render() {
         let path = this.props.location.pathname
-        let image = this.urlBackgroundMap[path]
+        let image = urlBackgroundMap[path]
         let { animate } = this.state
         return !this.props.user.has_events && image ? (
             <div ref={this.overlay} className={'send-events-overlay ' + (this.state.animate && 'animate')}>
@@ -47,7 +49,7 @@ class _SendEventsOverlay extends Component {
                         into the header, you can be up and running in minutes! You can put this snippet on any domain,
                         and it'll capture users across.
                         <JSSnippet user={this.props.user} />
-                        <a href="https://docs.posthog.com/#/integrations">Using Python/Ruby/Node/Go/PHP instead?</a>
+                        <a href="https://posthog.com/docs/integrations">Using Python/Ruby/Node/Go/PHP instead?</a>
                         <br />
                         <br />
                         {window.location.href.indexOf('127.0.0.1') > -1 && (

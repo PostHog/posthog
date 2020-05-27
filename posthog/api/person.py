@@ -1,4 +1,5 @@
 from posthog.models import Event, Team, Person, PersonDistinctId, Cohort
+from posthog.utils import convert_property_value
 from rest_framework import serializers, viewsets, response, request
 from rest_framework.decorators import action
 from rest_framework.settings import api_settings
@@ -48,11 +49,6 @@ class PersonViewSet(viewsets.ModelViewSet):
             return None
         return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
-    def _filter_cohort(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
-        cohort = Cohort.objects.get(team=team, pk=request.GET['cohort'])
-        queryset = queryset.filter(cohort.people_filter).order_by('id').distinct('id')
-        return queryset
-
     def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
         if request.GET.get('id'):
             people = request.GET['id'].split(',')
@@ -67,7 +63,7 @@ class PersonViewSet(viewsets.ModelViewSet):
                     contains.append(part)
             queryset = queryset.filter(properties__icontains=' '.join(contains))
         if request.GET.get('cohort'):
-            queryset = self._filter_cohort(request, queryset, team)
+            queryset = queryset.filter(cohort__id=request.GET['cohort'])
 
         queryset = queryset.prefetch_related(Prefetch('persondistinctid_set', to_attr='distinct_ids_cache'))
         return queryset
@@ -112,10 +108,11 @@ class PersonViewSet(viewsets.ModelViewSet):
         people = people\
             .values(key)\
             .annotate(count=Count('id'))\
+            .filter(**{'{}__isnull'.format(key): False})\
             .order_by('-count')
 
         if request.GET.get('value'):
             people = people.extra(where=["properties ->> %s LIKE %s"], params=[request.GET['key'], '%{}%'.format(request.GET['value'])])
 
-        return response.Response([{'name': event[key], 'count': event['count']} for event in people[:50]])
+        return response.Response([{'name': convert_property_value(event[key]), 'count': event['count']} for event in people[:50]])
 

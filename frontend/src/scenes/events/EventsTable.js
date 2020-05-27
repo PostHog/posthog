@@ -24,7 +24,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
         newEvents,
         highlightEvents,
     } = useValues(logic)
-    const { updateProperty, setSelectedEvent, fetchNextEvents, flipSort, prependNewEvents } = useActions(logic)
+    const { setSelectedEvent, fetchNextEvents, flipSort, prependNewEvents } = useActions(logic)
     const {
         location: { search },
     } = useValues(router)
@@ -32,7 +32,8 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
     const showLinkToPerson = !fixedFilters?.person_id
 
     return (
-        <div className="events">
+        <div className="events" data-attr="events-table">
+            <h1 className="page-header">Events</h1>
             {filtersEnabled ? <PropertyFilters pageKey="EventsTable" /> : null}
             <table className="table" style={{ position: 'relative' }}>
                 <thead>
@@ -74,9 +75,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true }) {
                                     selectedEvent={selectedEvent}
                                     properties={properties}
                                     setSelectedEvent={setSelectedEvent}
-                                    setFilter={updateProperty}
                                     filtersEnabled={filtersEnabled}
                                     showLinkToPerson={showLinkToPerson}
+                                    index={index}
                                 />
                                 {selectedEvent === event.id && (
                                     <tr>

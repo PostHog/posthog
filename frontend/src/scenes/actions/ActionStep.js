@@ -146,12 +146,13 @@ export class ActionStep extends Component {
                         checked={this.state.selection.indexOf(props.item) > -1}
                         value={props.item}
                         onChange={e => {
+                            let { selection } = this.state
                             if (e.target.checked) {
-                                this.state.selection.push(props.item)
+                                selection.push(props.item)
                             } else {
-                                this.state.selection = this.state.selection.filter(i => i !== props.item)
+                                selection = selection.filter(i => i !== props.item)
                             }
-                            this.setState({ selection: this.state.selection }, () => this.sendStep(this.props.step))
+                            this.setState({ selection }, () => this.sendStep(this.props.step))
                         }}
                     />{' '}
                     {props.label} {props.extra_options}
@@ -159,7 +160,12 @@ export class ActionStep extends Component {
                 {props.item == 'selector' ? (
                     <textarea className="form-control" onChange={onChange} value={this.props.step[props.item] || ''} />
                 ) : (
-                    <input className="form-control" onChange={onChange} value={this.props.step[props.item] || ''} />
+                    <input
+                        data-attr="edit-action-url-input"
+                        className="form-control"
+                        onChange={onChange}
+                        value={this.props.step[props.item] || ''}
+                    />
                 )}
             </div>
         )
@@ -216,6 +222,7 @@ export class ActionStep extends Component {
                             )
                         }}
                         className={'btn ' + (step.event == '$pageview' ? 'btn-secondary' : 'btn-light')}
+                        data-attr="action-step-pageview"
                     >
                         Page view
                     </button>
@@ -225,10 +232,10 @@ export class ActionStep extends Component {
                         <label>Event name</label>
                         <EventName
                             value={step.event}
-                            onChange={item =>
+                            onChange={value =>
                                 this.sendStep({
                                     ...step,
-                                    event: item.value,
+                                    event: value,
                                 })
                             }
                         />
@@ -249,7 +256,12 @@ export class ActionStep extends Component {
                         >
                             Select element on site <i className="fi flaticon-export" />
                         </AppEditorLink>
-                        <a href="https://docs.posthog.com/#/features/actions" target="_blank" style={{ marginLeft: 8 }}>
+                        <a
+                            href="https://posthog.com/docs/features/actions"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ marginLeft: 8 }}
+                        >
                             See documentation.
                         </a>{' '}
                     </span>

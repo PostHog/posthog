@@ -103,6 +103,7 @@ export class DateFilter extends Component {
         let { rangeDateFrom, rangeDateTo } = this.state
         return (
             <Select
+                data-attr="date-filter"
                 bordered={false}
                 id="daterange_selector"
                 value={this.dateFilterToText(this.props.dateFrom, this.props.dateTo)}
@@ -135,7 +136,7 @@ export class DateFilter extends Component {
                 }}
             >
                 {[
-                    ...Object.entries(dateMapping).map(([key, value]) => {
+                    ...Object.entries(dateMapping).map(([key]) => {
                         return (
                             <Select.Option key={key} value={key}>
                                 {key}

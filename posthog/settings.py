@@ -17,7 +17,7 @@ import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
 from sentry_sdk.integrations.django import DjangoIntegration
 
-VERSION = '1.4.0'
+VERSION = '1.6.0'
 
 def get_env(key):
     try:
@@ -42,7 +42,8 @@ if not DEBUG and not TEST:
     if os.environ.get('SENTRY_DSN'):
         sentry_sdk.init(
             dsn=os.environ['SENTRY_DSN'],
-            integrations=[DjangoIntegration()]
+            integrations=[DjangoIntegration()],
+            request_bodies="always",
         )
 
 if os.environ.get('DISABLE_SECURE_SSL_REDIRECT'):
@@ -100,7 +101,19 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware'
 ]
-INTERNAL_IPS = ['127.0.0.1']
+
+# Load debug_toolbar if we can (DEBUG and Dev modes)
+try:
+    import debug_toolbar
+    INSTALLED_APPS.append('debug_toolbar')
+    MIDDLEWARE.append('debug_toolbar.middleware.DebugToolbarMiddleware')
+except ImportError:
+    pass
+
+INTERNAL_IPS = [
+    '127.0.0.1',
+    '172.18.0.1' # Docker IP
+    ]
 CORS_ORIGIN_ALLOW_ALL = True
 
 ROOT_URLCONF = 'posthog.urls'
@@ -122,7 +135,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'posthog.wsgi.application'
-
 
 # Social Auth
 
@@ -209,10 +221,10 @@ if not REDIS_URL:
     print("⚠️ Please configure it now to avoid future surprises!")
     print("⚠️")
     print("⚠️ See here for more information!")
-    print("⚠️ --> https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011")
+    print("⚠️ --> https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011")
     print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")
 
-    raise ImproperlyConfigured(f'The environment var "REDIS_URL" or "POSTHOG_REDIS_HOST" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011')
+    raise ImproperlyConfigured(f'The environment var "REDIS_URL" or "POSTHOG_REDIS_HOST" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011')
 
 
 CELERY_BROKER_URL = REDIS_URL       # celery connects to redis

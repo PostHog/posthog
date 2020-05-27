@@ -1,3 +1,5 @@
+import './Sidebar.scss'
+
 import React, { useState } from 'react'
 import { router } from 'kea-router'
 import { InviteTeam } from 'lib/components/InviteTeam'
@@ -8,16 +10,20 @@ import {
     FunnelPlotOutlined,
     SettingOutlined,
     RiseOutlined,
-    HomeOutlined,
     PlusOutlined,
     SyncOutlined,
     AimOutlined,
     UsergroupAddOutlined,
     ContainerOutlined,
+    LineChartOutlined,
+    FundOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import whiteLogo from './_assets/white-logo.svg'
+import { triggerResizeAfterADelay } from 'lib/utils'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -27,7 +33,7 @@ function Logo() {
             className="row logo-row d-flex align-items-center justify-content-center"
             style={{ margin: 16, height: 42 }}
         >
-            <img className="logo" src="/static/posthog-logo.png" style={{ maxHeight: '100%' }} />
+            <img className="logo posthog-logo" src={whiteLogo} style={{ maxHeight: '100%' }} />
             <div className="posthog-title">PostHog</div>
         </div>
     )
@@ -39,6 +45,7 @@ const sceneOverride = {
     funnel: 'funnels',
     editFunnel: 'funnels',
     person: 'people',
+    dashboard: 'dashboards',
 }
 
 // to show the open submenu
@@ -54,93 +61,126 @@ export default function Sidebar(props) {
     const { scene, loadingScene } = useValues(sceneLogic)
     const { location } = useValues(router)
     const { push } = useActions(router)
+    const { dashboards, pinnedDashboards } = useValues(dashboardsModel)
 
-    const activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
+    let activeScene = sceneOverride[loadingScene || scene] || loadingScene || scene
+    const openSubmenu = submenuOverride[activeScene] || activeScene
+
+    if (activeScene === 'dashboards') {
+        const dashboardId = parseInt(location.pathname.split('/dashboard/')[1])
+        const dashboard = dashboardId && dashboards.find(d => d.id === dashboardId)
+        if (dashboard && dashboard.pinned) {
+            activeScene = `dashboard-${dashboardId}`
+        }
+    }
 
     return (
-        <Layout.Sider breakpoint="lg" collapsedWidth="0" className="bg-light">
+        <Layout.Sider breakpoint="lg" collapsedWidth="0" className="bg-dark" onCollapse={triggerResizeAfterADelay}>
             <Menu
-                className="h-100 bg-light"
+                className="h-100 bg-dark"
+                theme="dark"
                 selectedKeys={[activeScene]}
-                openKeys={[submenuOverride[activeScene] || activeScene]}
+                openKeys={[openSubmenu]}
                 mode="inline"
             >
                 <Logo />
-                <Menu.Item key="trends" style={itemStyle}>
+
+                {pinnedDashboards.map((dashboard, index) => (
+                    <Menu.Item
+                        key={`dashboard-${dashboard.id}`}
+                        style={itemStyle}
+                        data-attr={'pinned-dashboard-' + index}
+                    >
+                        <LineChartOutlined />
+                        <span className="sidebar-label">{dashboard.name}</span>
+                        <Link to={`/dashboard/${dashboard.id}`} />
+                    </Menu.Item>
+                ))}
+
+                <Menu.Item key="dashboards" style={itemStyle} data-attr="menu-item-dashboards">
+                    <FundOutlined />
+                    <span className="sidebar-label">Dashboards</span>
+                    <Link to="/dashboard" />
+                </Menu.Item>
+
+                {pinnedDashboards.length > 0 ? <Menu.Divider /> : null}
+
+                <Menu.Item key="trends" style={itemStyle} data-attr="menu-item-trends">
                     <RiseOutlined />
-                    <span>{'Trends'}</span>
+                    <span className="sidebar-label">{'Trends'}</span>
                     <Link to={'/trends'} />
                 </Menu.Item>
-                <Menu.Item key="dashboard" style={itemStyle}>
-                    <HomeOutlined />
-                    <span>{'Dashboard'}</span>
-                    <Link to={'/dashboard'} />
-                </Menu.Item>
+
                 <Menu.SubMenu
                     key="events"
                     title={
-                        <span style={itemStyle}>
+                        <span style={itemStyle} data-attr="menu-item-events">
                             <ContainerOutlined />
-                            <span>{'Events'}</span>
+                            <span className="sidebar-label">{'Events'}</span>
                         </span>
                     }
                     onTitleClick={() => (location.pathname !== '/events' ? push('/events') : null)}
                 >
-                    <Menu.Item key="events" style={itemStyle}>
+                    <Menu.Item key="events" style={itemStyle} data-attr="menu-item-all-events">
                         <ContainerOutlined />
-                        <span>{'All Events'}</span>
+                        <span className="sidebar-label">{'All Events'}</span>
                         <Link to={'/events'} />
                     </Menu.Item>
-                    <Menu.Item key="actions" style={itemStyle}>
+                    <Menu.Item key="actions" style={itemStyle} data-attr="menu-item-actions">
                         <AimOutlined />
-                        <span>{'Actions'}</span>
+                        <span className="sidebar-label">{'Actions'}</span>
                         <Link to={'/actions'} />
                     </Menu.Item>
-                    <Menu.Item key="liveActions" style={itemStyle}>
+                    <Menu.Item key="liveActions" style={itemStyle} data-attr="menu-item-live-actions">
                         <SyncOutlined />
-                        <span>{'Live Actions'}</span>
+                        <span className="sidebar-label">{'Live Actions'}</span>
                         <Link to={'/actions/live'} />
                     </Menu.Item>
                 </Menu.SubMenu>
                 <Menu.SubMenu
                     key="people"
                     title={
-                        <span style={itemStyle}>
+                        <span style={itemStyle} data-attr="menu-item-people">
                             <UserOutlined />
-                            <span>{'People'}</span>
+                            <span className="sidebar-label">{'People'}</span>
                         </span>
                     }
                     onTitleClick={() => (location.pathname !== '/people' ? push('/people') : null)}
                 >
-                    <Menu.Item key="people" style={itemStyle}>
+                    <Menu.Item key="people" style={itemStyle} data-attr="menu-item-all-people">
                         <UserOutlined />
-                        <span>{'All Users'}</span>
+                        <span className="sidebar-label">{'All Users'}</span>
                         <Link to={'/people'} />
                     </Menu.Item>
-                    <Menu.Item key="cohorts" style={itemStyle}>
+                    <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-cohorts">
                         <UsergroupAddOutlined />
-                        <span>{'Cohorts'}</span>
+                        <span className="sidebar-label">{'Cohorts'}</span>
                         <Link to={'/people/cohorts'} />
                     </Menu.Item>
                 </Menu.SubMenu>
-                <Menu.Item key="funnels" style={itemStyle}>
+                <Menu.Item key="funnels" style={itemStyle} data-attr="menu-item-funnels">
                     <FunnelPlotOutlined />
-                    <span>{'Funnels'}</span>
+                    <span className="sidebar-label">{'Funnels'}</span>
                     <Link to={'/funnel'} />
                 </Menu.Item>
-                <Menu.Item key="paths" style={itemStyle}>
+                <Menu.Item key="paths" style={itemStyle} data-attr="menu-item-paths">
                     <ForkOutlined />
-                    <span>{'Paths'}</span>
+                    <span className="sidebar-label">{'Paths'}</span>
                     <Link to={'/paths'} />
                 </Menu.Item>
-                <Menu.Item key="setup" style={itemStyle}>
+                <Menu.Item key="setup" style={itemStyle} data-attr="menu-item-setup">
                     <SettingOutlined />
-                    <span>{'Setup'}</span>
+                    <span className="sidebar-label">{'Setup'}</span>
                     <Link to={'/setup'} />
                 </Menu.Item>
-                <Menu.Item key="invite" style={itemStyle} onClick={() => setInviteModalOpen(true)}>
+                <Menu.Item
+                    key="invite"
+                    style={itemStyle}
+                    onClick={() => setInviteModalOpen(true)}
+                    data-attr="menu-item-invite-team"
+                >
                     <PlusOutlined />
-                    <span>{'Invite your team'}</span>
+                    <span className="sidebar-label">{'Invite your team'}</span>
                 </Menu.Item>
             </Menu>
 

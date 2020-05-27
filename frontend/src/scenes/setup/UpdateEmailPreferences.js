@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { userLogic } from '../userLogic'
-import api from '../../lib/api'
 import { Switch } from 'antd'
 
 export function UpdateEmailPreferences() {
@@ -12,7 +11,7 @@ export function UpdateEmailPreferences() {
     return (
         <div>
             <Switch
-                onChange={checked => {
+                onChange={() => {
                     userUpdateRequest({ user: { email_opt_in: !user.email_opt_in } })
                     setSaved(true)
                 }}

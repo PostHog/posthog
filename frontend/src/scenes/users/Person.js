@@ -5,7 +5,7 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { deletePersonData } from 'lib/utils'
 import { Button } from 'antd'
 
-export function Person({ distinctId, id }) {
+export function Person({ _: distinctId, id }) {
     const [person, setPerson] = useState(null)
 
     useEffect(() => {

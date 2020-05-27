@@ -1,5 +1,5 @@
 import React from 'react'
-import { Select, Row } from 'antd'
+import { Select } from 'antd'
 
 export function SessionFilter(props) {
     let { onChange, value } = props

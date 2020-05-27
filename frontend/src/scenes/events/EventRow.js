@@ -20,14 +20,16 @@ export function EventRow({
     setSelectedEvent,
     filtersEnabled,
     showLinkToPerson,
+    index,
 }) {
     let params = ['$current_url', '$lib']
     return (
         <tr
             className={'cursor-pointer event-row ' + (highlightEvents[event.id] && 'event-row-new')}
             onClick={() => setSelectedEvent(selectedEvent !== event.id ? event.id : false)}
+            data-attr={'event-row-' + index}
         >
-            <td>
+            <td data-attr={'event-name-' + index}>
                 {eventNameMap(event)}
                 {event.elements.length > 0 && (
                     <pre style={{ marginBottom: 0, display: 'inline' }}>&lt;{event.elements[0].tag_name}&gt;</pre>
@@ -48,7 +50,7 @@ export function EventRow({
                 let value = event.properties[param]
 
                 if (param === '$current_url' && !value) {
-                    param = '$screen'
+                    param = '$screen_name'
                     value = event.properties[param]
                 }
 

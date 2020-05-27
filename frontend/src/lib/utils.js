@@ -17,7 +17,7 @@ export let toParams = obj => {
         return encodeURIComponent(val)
     }
     return Object.entries(obj)
-        .filter(([key, val]) => val)
+        .filter(item => item[1])
         .map(([key, val]) => `${key}=${handleVal(val)}`)
         .join('&')
 }
@@ -57,6 +57,12 @@ export const TableRowLoading = ({ colSpan = 1, asOverlay = false }) => (
     </tr>
 )
 
+export const SceneLoading = () => (
+    <div style={{ textAlign: 'center', marginTop: '20vh' }}>
+        <Spin />
+    </div>
+)
+
 export let CloseButton = props => {
     return (
         <span {...props} className={'close cursor-pointer ' + props.className} style={{ ...props.style }}>
@@ -74,48 +80,49 @@ export function Card(props) {
     )
 }
 
-export let DeleteWithUndo = props => {
-    let deleteWithUndo = undo => {
-        api.update('api/' + props.endpoint + '/' + props.object.id, {
-            ...props.object,
-            deleted: undo ? false : true,
-        }).then(() => {
-            props.callback()
-            let response = (
-                <div>
-                    {!undo ? (
-                        <span>
-                            "<strong>{props.object.name}</strong>" deleted.{' '}
-                            <a
-                                href="#"
-                                onClick={e => {
-                                    e.preventDefault()
-                                    deleteWithUndo(true)
-                                }}
-                            >
-                                Click here to undo
-                            </a>
-                        </span>
-                    ) : (
-                        <span>Delete un-done</span>
-                    )}
-                </div>
-            )
-            toast(response, { toastId: 'delete-item-' + props.object.id })
-        })
-    }
+export const deleteWithUndo = ({ undo = false, ...props }) => {
+    api.update('api/' + props.endpoint + '/' + props.object.id, {
+        ...props.object,
+        deleted: !undo,
+    }).then(() => {
+        props.callback()
+        let response = (
+            <div>
+                {!undo ? (
+                    <span>
+                        "<strong>{props.object.name || 'Untitled'}</strong>" deleted.{' '}
+                        <a
+                            href="#"
+                            onClick={e => {
+                                e.preventDefault()
+                                deleteWithUndo({ undo: true, ...props })
+                            }}
+                        >
+                            Click here to undo
+                        </a>
+                    </span>
+                ) : (
+                    <span>Delete un-done</span>
+                )}
+            </div>
+        )
+        toast(response, { toastId: 'delete-item-' + props.object.id })
+    })
+}
 
+export const DeleteWithUndo = props => {
+    const { className, style, children } = props
     return (
         <a
             href="#"
             onClick={e => {
                 e.preventDefault()
-                deleteWithUndo()
+                deleteWithUndo(props)
             }}
-            className={props.className}
-            style={props.style}
+            className={className}
+            style={style}
         >
-            {props.children}
+            {children}
         </a>
     )
 }
@@ -184,15 +191,11 @@ export const operatorMap = {
     not_icontains: "∌ doesn't contain",
     gt: '> greater than',
     lt: '< lower than',
+    is_set: '✓ is set',
 }
 
-const operatorEntries = Object.entries(operatorMap).reverse()
-
-export const formatFilterName = str => {
-    for (let [key, value] of operatorEntries) {
-        if (str.includes(key)) return str.replace('__' + key, '') + ` ${value.split(' ')[0]} `
-    }
-    return str + ` ${operatorMap['exact'].split(' ')[0]} `
+export const formatProperty = property => {
+    return property.key + ` ${operatorMap[property.operator || 'exact'].split(' ')[0]} ` + property.value
 }
 
 export const deletePersonData = (person, callback) => {
@@ -204,3 +207,48 @@ export const deletePersonData = (person, callback) => {
 }
 
 export const objectsEqual = (obj1, obj2) => JSON.stringify(obj1) === JSON.stringify(obj2)
+
+export const idToKey = (array, keyField = 'id') => {
+    const object = {}
+    for (const element of array) {
+        object[element[keyField]] = element
+    }
+    return object
+}
+
+export const delay = ms => new Promise(resolve => window.setTimeout(resolve, ms))
+
+// Trigger a window.reisize event a few times 0...2 sec after the menu was collapsed/expanded
+// We need this so the dashboard resizes itself properly, as the available div width will still
+// change when the sidebar's expansion is animating.
+export const triggerResize = () => {
+    try {
+        window.dispatchEvent(new Event('resize'))
+    } catch (error) {
+        // will break on IE11
+    }
+}
+export const triggerResizeAfterADelay = () => {
+    for (const delay of [10, 100, 500, 750, 1000, 2000]) {
+        window.setTimeout(triggerResize, delay)
+    }
+}
+
+export function clearDOMTextSelection() {
+    if (window.getSelection) {
+        if (window.getSelection().empty) {
+            // Chrome
+            window.getSelection().empty()
+        } else if (window.getSelection().removeAllRanges) {
+            // Firefox
+            window.getSelection().removeAllRanges()
+        }
+    } else if (document.selection) {
+        // IE?
+        document.selection.empty()
+    }
+}
+
+export default function isAndroidOrIOS() {
+    return typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent)
+}

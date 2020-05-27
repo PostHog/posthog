@@ -2,7 +2,7 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 
 import { Card, CloseButton, Loading } from 'lib/utils'
-import { SaveToDashboard } from 'lib/components/SaveToDashboard'
+import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DateFilter } from 'lib/components/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
@@ -16,10 +16,9 @@ import { ShownAsFilter } from './ShownAsFilter'
 import { PeopleModal } from './PeopleModal'
 import { trendsLogic, ViewType } from './trendsLogic'
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { userLogic } from 'scenes/userLogic'
-import { Tabs, Row, Col, Tooltip } from 'antd'
+import { Tabs, Row, Col, Tooltip, Checkbox } from 'antd'
 import { SessionFilter } from 'lib/components/SessionsFilter'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { InfoCircleOutlined } from '@ant-design/icons'
 
 const { TabPane } = Tabs
 
@@ -32,13 +31,11 @@ const displayMap = {
 export function Trends() {
     const { filters, resultsLoading, showingPeople, activeView } = useValues(trendsLogic({ dashboardItemId: null }))
     const { setFilters, setDisplay, setActiveView } = useActions(trendsLogic({ dashboardItemId: null }))
-    const { eventProperties } = useValues(userLogic)
-    const size = useWindowSize()
 
     return (
         <div className="actions-graph">
             {showingPeople ? <PeopleModal /> : null}
-            <h1>Trends</h1>
+            <h1 className="page-header">Trends</h1>
             <Row gutter={16}>
                 <Col xs={24} xl={6}>
                     <Card>
@@ -63,18 +60,22 @@ export function Trends() {
                                             placement="right"
                                             title="Use breakdown to see the volume of events for each variation of that property. For example, breaking down by $current_url will give you the event volume for each url your users have visited."
                                         >
-                                            <small className="info">info</small>
+                                            <InfoCircleOutlined
+                                                className="info"
+                                                style={{ color: '#007bff' }}
+                                            ></InfoCircleOutlined>
                                         </Tooltip>
                                     </h4>
                                     <Row>
                                         <BreakdownFilter
-                                            properties={eventProperties}
-                                            breakdown={filters.breakdown}
-                                            onChange={breakdown => setFilters({ breakdown })}
+                                            filters={filters}
+                                            onChange={(breakdown, breakdown_type) =>
+                                                setFilters({ breakdown, breakdown_type })
+                                            }
                                         />
                                         {filters.breakdown && (
                                             <CloseButton
-                                                onClick={() => setFilters({ breakdown: false })}
+                                                onClick={() => setFilters({ breakdown: false, breakdown_type: null })}
                                                 style={{ marginTop: 1, marginLeft: 10 }}
                                             />
                                         )}
@@ -89,15 +90,15 @@ export function Trends() {
                                             performed an action on Monday and again on Friday, it would be shown 
                                             as "2 days".'
                                         >
-                                            <small className="info">info</small>
+                                            <InfoCircleOutlined
+                                                className="info"
+                                                style={{ color: '#007bff' }}
+                                            ></InfoCircleOutlined>
                                         </Tooltip>
                                     </h4>
-                                    <ShownAsFilter
-                                        shown_as={filters.shown_as}
-                                        onChange={shown_as => setFilters({ shown_as })}
-                                    />
+                                    <ShownAsFilter filters={filters} onChange={shown_as => setFilters({ shown_as })} />
                                 </TabPane>
-                                <TabPane tab="Sessions" key={ViewType.SESSIONS}>
+                                <TabPane tab="Sessions" key={ViewType.SESSIONS} data-attr="trends-sessions-tab">
                                     <SessionFilter value={filters.session} onChange={v => setFilters({ session: v })} />
                                     <hr />
                                     <h4 className="secondary">Filters</h4>
@@ -123,6 +124,15 @@ export function Trends() {
                                     dateFrom={filters.date_from}
                                     dateTo={filters.date_to}
                                 />
+                                <Checkbox
+                                    onChange={e => {
+                                        setFilters({ compare: e.target.checked })
+                                    }}
+                                    checked={filters.compare}
+                                    style={{ marginLeft: 8, marginRight: 6 }}
+                                >
+                                    Compare Previous
+                                </Checkbox>
                                 <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
                             </div>
                         }

@@ -1,16 +1,17 @@
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
+from django.db.models import Q
 from django.http import HttpRequest
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.utils import relative_date_parse
 from typing import Union, Dict, Any, List, Optional
 from .entity import Entity
+from .property import Property, PropertyMixin
 
 import datetime
 import json
 
-
-class Filter(object):
+class Filter(PropertyMixin):
     """
     Filters allow us to describe what events to show/use in various places in the system, for example Trends or Funnels.
     This object isn't a table in the database. It gets stored against the specific models itself as JSON.
@@ -18,7 +19,7 @@ class Filter(object):
     """
     _date_from: Optional[str] = None
     _date_to: Optional[str] = None
-    properties: Optional[Dict[str, Any]] = None
+    properties: List[Property] = []
     interval: Optional[str] = None
     entities: List[Entity] = []
 
@@ -35,19 +36,23 @@ class Filter(object):
         self._date_from = data.get('date_from')
         self._date_to = data.get('date_to')
         self.entities = data.get('entities', [])
-        self.properties = data.get('properties')
+        self.properties = self._parse_properties(data.get('properties'))
         self.interval = data.get('interval')
 
         if data.get('actions'):
             self.entities.extend([Entity({**entity, 'type': TREND_FILTER_TYPE_ACTIONS}) for entity in data.get('actions', [])])
         if data.get('events'):
             self.entities.extend([Entity({**entity, 'type': TREND_FILTER_TYPE_EVENTS}) for entity in data.get('events', [])])
-    
+        self.entities = sorted(self.entities, key=lambda entity: entity.order if entity.order else -1)
+
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             'date_from': self._date_from,
             'date_to': self._date_to,
-            'entities': self.entities
+            'entities': self.entities,
+            'interval': self.interval,
+            'properties': [prop.to_dict() for prop in self.properties]
         }
 
     @property
@@ -71,3 +76,13 @@ class Filter(object):
         if self._date_to:
             return relative_date_parse(self._date_to)
         return None
+
+    @property
+    def date_filter_Q(self) -> Q:
+        date_from = self.date_from
+        if not date_from:
+            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
+        filter = Q(timestamp__gte=date_from)
+        if self.date_to:
+            filter &= Q(timestamp__lte=self.date_to)
+        return filter

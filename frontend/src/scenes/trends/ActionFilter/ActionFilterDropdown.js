@@ -56,14 +56,14 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
     const { entities, selectedFilter, filters } = useValues(logic)
     const { updateFilter } = useActions(logic)
 
-    const dropDownOnSelect = item => updateFilter({ type: entityType, value: item.value, index: selectedFilter.index })
+    const dropDownOnSelect = value => updateFilter({ type: entityType, value: value, index: selectedFilter.index })
     const dropDownOnHover = value => entities[entityType].filter(a => a.id === value)[0]
 
     const redirect = () => {
         if (selectedFilter && selectedFilter.type === EntityTypes.ACTIONS && entityType === EntityTypes.ACTIONS) {
             const action = entities[selectedFilter.type].filter(a => a.id === selectedFilter.filter.id)[0]
             return (
-                <a href={'/action/' + selectedFilter.filter.id} target="_blank">
+                <a href={'/action/' + selectedFilter.filter.id} target="_blank" rel="noopener noreferrer">
                     Edit "{action.name}" <i className="fi flaticon-export" />
                 </a>
             )
@@ -92,7 +92,6 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
             return null
         }
     }
-
     return (
         <ActionSelectPanel
             key={panelIndex}
@@ -101,7 +100,7 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
             defaultMenuIsOpen={true}
             onSelect={dropDownOnSelect}
             onHover={dropDownOnHover}
-            active={null}
+            active={selectedFilter}
             redirect={redirect()}
             message={message()}
         />
