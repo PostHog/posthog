@@ -18,6 +18,7 @@ from .action import Action
 from .action_step import ActionStep
 from .person import PersonDistinctId, Person
 from .team import Team
+from .filter import Filter
 
 from posthog.tasks.slack import post_event_to_slack
 from typing import Dict, Union, List, Optional, Any, Tuple
@@ -153,10 +154,11 @@ class EventManager(models.QuerySet):
             return self.none()
 
         for step in steps:
-            subquery = Event.objects.filter(
+            subquery = Event.objects.add_person_id(team_id=action.team_id).filter(
+                Filter(data={'properties': step.properties}).properties_to_Q(),
                 pk=OuterRef("id"),
                 **self.filter_by_element(step),
-                **self.filter_by_event(step)
+                **self.filter_by_event(step),
             )
             subquery = self.filter_by_url(step, subquery)
             any_step |= Q(Exists(subquery))

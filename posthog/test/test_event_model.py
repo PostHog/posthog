@@ -278,14 +278,14 @@ class TestPreCalculation(BaseTest):
         action = Action.objects.create(team=self.team, name='combined action')
         step1 = ActionStep.objects.create(action=action, event='user signed up')
         step2 = ActionStep.objects.create(action=action, event='user logged in')
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(6):
             action.calculate_events()
         self.assertEqual([e for e in action.events.all().order_by('id')], [user_signed_up, user_logged_in])
 
         # update actionstep
         step2.event = 'user logged out'
         step2.save()
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(6):
             action.calculate_events()
         self.assertEqual([e for e in action.events.all().order_by('id')], [user_signed_up, user_logged_out])
 
@@ -297,6 +297,21 @@ class TestPreCalculation(BaseTest):
         ActionStep.objects.all().delete()
         action.calculate_events()
         self.assertEqual([e for e in action.events.all().order_by('id')], [])
+
+    def test_save_with_person_property(self):
+        Person.objects.create(team=self.team, distinct_ids=['person1'], properties={'$browser': 'Chrome'})
+        Event.objects.create(event='$pageview', distinct_id='person1', team=self.team)
+        action = Action.objects.create(name='pageview', team=self.team)
+        ActionStep.objects.create(action=action, event='$pageview', properties=[{'key': '$browser', 'value': 'Chrome', 'type': 'person'}])
+        action.calculate_events()
+        self.assertEqual(action.events.count(), 1)
+
+    def test_empty(self):
+        Person.objects.create(team=self.team, distinct_ids=['person1'], properties={'$browser': 'Chrome'})
+        action = Action.objects.create(name='pageview', team=self.team)
+        ActionStep.objects.create(action=action, event='$pageview', properties=[{'key': '$browser', 'value': 'Chrome', 'type': 'person'}])
+        action.calculate_events()
+        self.assertEqual(action.events.count(), 0)
 
 class TestSendToSlack(BaseTest):
     @patch('posthog.tasks.slack.post_event_to_slack.delay')
