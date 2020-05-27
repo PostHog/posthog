@@ -8,9 +8,9 @@ jobs:
         uses: actions/checkout@v1
       - uses: whoan/docker-build-with-cache-action@v5
         with:
-          image_name: posthog/posthog:dev
+          image_name: posthog/posthog
           dockerfile: dev.Dockerfile
-          image_tag: ''
+          image_tag: dev
           push_image_and_stages: false
       - name: Prepare server
         run: docker-compose -f docker-compose.e2e.yml up -d
