@@ -24,7 +24,15 @@ import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 
 const typeMap = {
-    ActionsLineGraph: {
+    ActionsLineGraphLinear: {
+        className: 'graph',
+        element: ActionsLineGraph,
+        icon: LineChartOutlined,
+        viewText: 'View graph',
+        link: ({ filters, id, dashboard, name }) =>
+            combineUrl('/trends', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+    },
+    ActionsLineGraphCumulative: {
         className: 'graph',
         element: ActionsLineGraph,
         icon: LineChartOutlined,
