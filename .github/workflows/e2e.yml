@@ -6,20 +6,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v1
-      - uses: whoan/docker-build-with-cache-action@v5
-        with:
-          image_name: posthog/posthog
-          dockerfile: dev.Dockerfile
-          image_tag: dev
-          push_image_and_stages: false
       - name: Prepare server
-        run: docker-compose -f docker-compose.e2e.yml up -d
+        run: |
+          docker pull posthog/posthog:dev
+          docker-compose -f docker-compose.e2e.yml up -d
       - name: Check running containers
         run: docker ps -a
       - name: Check logs
         run: docker logs posthog_server
-
       - name: Cypress run
         run: |
           sleep 30
+          docker-compose exec -T web yarn install cypress
           docker-compose exec -T web yarn run cypress run --config-file cypress.json
