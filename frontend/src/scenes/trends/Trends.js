@@ -19,12 +19,12 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { Tabs, Row, Col, Tooltip, Checkbox } from 'antd'
 import { SessionFilter } from 'lib/components/SessionsFilter'
 import { InfoCircleOutlined } from '@ant-design/icons'
-
+import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, LINE_CHART } from 'lib/constants'
 const { TabPane } = Tabs
 
 const displayMap = {
-    ActionsLineGraphLinear: 'Line chart',
-    ActionsLineGraphCumulative: 'Line chart',
+    [`${ACTIONS_LINE_GRAPH_LINEAR}`]: LINE_CHART,
+    [`${ACTIONS_LINE_GRAPH_CUMULATIVE}`]: LINE_CHART,
     ActionsTable: 'Table',
     ActionsPie: 'Pie',
 }

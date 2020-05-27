@@ -522,9 +522,6 @@ class ActionViewSet(viewsets.ModelViewSet):
                     'type': request.GET['type']
                 })
 
-            if filter.display == TRENDS_CUMULATIVE:
-                filter._date_from = None
-
             if entity.type == TREND_FILTER_TYPE_EVENTS:
                 filtered_events =  self._process_entity_for_events(entity, team=team, order_by=None)\
                     .filter(self._filter_events(filter, entity))
