@@ -54,7 +54,7 @@ function FilterRow({ item, index, filters, logic, pageKey }) {
     )
 }
 
-export function PropertyFilters({ endpoint, propertyFilters, className, style, onChange, pageKey }) {
+export function PropertyFilters({ endpoint, propertyFilters, onChange, pageKey }) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
 
