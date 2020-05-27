@@ -59,30 +59,20 @@ export function PropertyFilters({ endpoint, propertyFilters, className, style, o
     const { filters } = useValues(logic)
 
     return (
-        <div
-            className={className || 'col-8'}
-            style={{
-                padding: 0,
-                marginBottom: '2rem',
-                display: 'inline',
-                style,
-            }}
-        >
-            <div className="column">
-                {filters &&
-                    filters.map((item, index) => {
-                        return (
-                            <FilterRow
-                                key={index === filters.length - 1 ? index : `${index}_${Object.keys(item)[0]}`}
-                                logic={logic}
-                                item={item}
-                                index={index}
-                                filters={filters}
-                                pageKey={pageKey}
-                            />
-                        )
-                    })}
-            </div>
+        <div className="column" style={{ marginBottom: '15px' }}>
+            {filters &&
+                filters.map((item, index) => {
+                    return (
+                        <FilterRow
+                            key={index === filters.length - 1 ? index : `${index}_${Object.keys(item)[0]}`}
+                            logic={logic}
+                            item={item}
+                            index={index}
+                            filters={filters}
+                            pageKey={pageKey}
+                        />
+                    )
+                })}
         </div>
     )
 }
