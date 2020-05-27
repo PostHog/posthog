@@ -18,7 +18,6 @@ describe('Setup', () => {
         cy.reload(true)
         cy.get('[data-attr=menu-item-setup]').click()
         cy.get('[data-attr=app-url-suggestion]').click()
-        cy.wait(500) // not ideal but toast has a delay render
-        cy.get('.Toastify__toast').should('contain', 'URLs saved')
+        cy.get('[data-attr=app-url-item]').should('contain', '/demo')
     })
 })
