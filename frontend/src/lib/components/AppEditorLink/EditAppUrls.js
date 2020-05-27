@@ -89,14 +89,14 @@ const appUrlsLogic = kea({
             await api.update('api/user', { team: { app_urls } })
             window.location.href = appEditorUrl(props.actionId, value)
         },
-        addUrl: sharedListeners.saveAppUrls,
         removeUrl: sharedListeners.saveAppUrls,
         updateUrl: sharedListeners.saveAppUrls,
     }),
 
     sharedListeners: ({ values }) => ({
-        saveAppUrls: () => {
-            toast('URLs saved', { toastId: 'EditAppUrls' })
+        saveAppUrls: ({ value }) => {
+            // Only show toast when clicking "Save"
+            if (value) toast('URLs saved', { toastId: 'EditAppUrls' })
             userLogic.actions.userUpdateRequest({ team: { app_urls: values.appUrls } }, 'SetupAppUrls')
         },
     }),
@@ -130,7 +130,7 @@ export function EditAppUrls({ actionId, allowNavigation }) {
                             onClick={() => (allowNavigation ? addUrlAndGo(url) : addUrl(url))}
                             style={{ cursor: 'pointer', justifyContent: 'space-between' }}
                         >
-                            <a href={url} onClick={e => e.preventDefault()} data-attr='app-url-suggestion'>
+                            <a href={url} onClick={e => e.preventDefault()} data-attr="app-url-suggestion">
                                 {url}
                             </a>
                             <PlusOutlined style={{ color: 'var(--success)' }} />
