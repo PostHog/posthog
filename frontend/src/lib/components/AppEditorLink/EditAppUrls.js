@@ -130,7 +130,7 @@ export function EditAppUrls({ actionId, allowNavigation }) {
                             onClick={() => (allowNavigation ? addUrlAndGo(url) : addUrl(url))}
                             style={{ cursor: 'pointer', justifyContent: 'space-between' }}
                         >
-                            <a href={url} onClick={e => e.preventDefault()}>
+                            <a href={url} onClick={e => e.preventDefault()} data-attr='app-url-suggestion'>
                                 {url}
                             </a>
                             <PlusOutlined style={{ color: 'var(--success)' }} />
