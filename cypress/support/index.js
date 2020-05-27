@@ -22,6 +22,9 @@ beforeEach(() => {
                 .should('have.value', 'password')
 
             cy.get('.btn').click()
+
+            cy.visit('/demo')
+            cy.visit('/')
         } else if (url.includes('login')) {
             cy.get('#inputEmail')
                 .type('fake@posthog.com')
@@ -34,10 +37,8 @@ beforeEach(() => {
             cy.get('.btn').click()
         }
     })
-    cy.visit('/demo')
-    cy.visit('/')
 })
 
-Cypress.on('uncaught:exception', err => {
+Cypress.on('uncaught:exception', () => {
     return false
 })
