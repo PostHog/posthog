@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import { toParams, objectsEqual } from 'lib/utils'
 import api from 'lib/api'
 import { router } from 'kea-router'
+import lo from 'lodash'
 
 export const pathsLogic = kea({
     loaders: ({ values }) => ({
@@ -25,7 +26,6 @@ export const pathsLogic = kea({
             },
         },
     }),
-
     reducers: () => ({
         initialPathname: [state => router.selectors.location(state).pathname, { noop: a => a }],
         filter: [
@@ -44,12 +44,10 @@ export const pathsLogic = kea({
             },
         ],
     }),
-
     actions: () => ({
         setProperties: properties => ({ properties }),
         setFilter: filter => filter,
     }),
-
     listeners: ({ actions }) => ({
         setProperties: () => {
             actions.loadPaths()
@@ -88,7 +86,12 @@ export const pathsLogic = kea({
                 return
             }
 
-            if (!objectsEqual(searchParams.properties || {}, values.properties)) {
+            if (
+                !objectsEqual(
+                    (!lo.isEmpty(searchParams.properties) && searchParams.properties) || {},
+                    values.properties
+                )
+            ) {
                 actions.setProperties(searchParams.properties || {})
             }
         },

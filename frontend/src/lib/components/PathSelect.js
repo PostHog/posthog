@@ -6,7 +6,6 @@ const options = {
     $screen: 'Screen (Mobile)',
     $autocapture: 'Autocaptured Events',
     custom_event: 'Custom Events',
-    all: 'All Events',
 }
 
 export function PathSelect(props) {

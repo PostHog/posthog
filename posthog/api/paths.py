@@ -24,7 +24,7 @@ class PathsViewSet(viewsets.ViewSet):
         
         # Default
         event: Optional[str] = "$pageview"
-        event_filter = {}
+        event_filter = {"event":event}
         path_type = "properties->> \'$current_url\'"
 
         # determine requested type
@@ -41,10 +41,6 @@ class PathsViewSet(viewsets.ViewSet):
                 event = None
                 event_filter = {'event__regex':'^[^\$].*'}
                 path_type = "event"
-            elif requested_type == "all":
-                event = None
-                path_type = "event"
-                event_filter = {}
         return event, path_type, event_filter
 
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
