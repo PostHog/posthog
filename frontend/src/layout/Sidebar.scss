@@ -9,7 +9,7 @@
             width: 100vw;
             height: 100vh;
             background: rgba(0, 0, 0, 0.3);
-            z-index: 1101;
+            z-index: 1031;
             opacity: 100;
         }
         transition: opacity 0.2s;
@@ -23,7 +23,7 @@
     // sidebar
     aside.ant-layout-sider {
         position: absolute;
-        z-index: 1103;
+        z-index: 1033;
         box-shadow: 10px 0 20px rgba(0, 0, 0, 0.2);
     }
 }
