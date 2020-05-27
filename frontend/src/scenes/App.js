@@ -25,7 +25,7 @@ const darkerScenes = {
 export default function App() {
     const { user } = useValues(userLogic)
     const { scene, params } = useValues(sceneLogic)
-    const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
 
     const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
 
