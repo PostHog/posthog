@@ -6,12 +6,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v1
-      # Install Node.js
-      - uses: actions/setup-node@v1
-        with:
-          node-version: 12
-      - run: yarn install
-      
       - name: Pull previous docker image for cache
         run: docker pull posthog:dev
       - name: Prepare server
@@ -24,4 +18,4 @@ jobs:
       - name: Cypress run
         run: |
           sleep 60
-          yarn run cypress run --config-file cypress.json
+          docker-compose exec web yarn run cypress run --config-file cypress.json
