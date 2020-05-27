@@ -29,7 +29,7 @@ export function Setup() {
                 See docs for instructions on how to identify users.
             </a>
             <JSSnippet user={user} />
-            <h2 id="snippet">Send Custom Events</h2>
+            <h2 id="custom events">Send Custom Events</h2>
             To send custom events visit our <a href="https://posthog.com/docs/integrations">docs</a> and integrate the
             library in specific language you're building in (Python/Ruby/Node/Go/PHP/iOS/Android etc.) <Divider />
             <h2 id="apikey">API key</h2>
