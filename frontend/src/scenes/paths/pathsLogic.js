@@ -29,10 +29,7 @@ export const pathsLogic = kea({
     reducers: () => ({
         initialPathname: [state => router.selectors.location(state).pathname, { noop: a => a }],
         filter: [
-            {
-                dateFrom: null,
-                dateTo: null,
-            },
+            {},
             {
                 setFilter: (state, filter) => ({ ...state, ...filter }),
             },
@@ -58,18 +55,27 @@ export const pathsLogic = kea({
     }),
     selectors: ({ selectors }) => ({
         propertiesForUrl: [
-            () => [selectors.properties],
-            properties => {
-                if (Object.keys(properties).length > 0) {
-                    return { properties }
-                } else {
-                    return ''
+            () => [selectors.properties, selectors.filter],
+            (properties, filter) => {
+                let result = {}
+                if (!lo.isEmpty(properties)) {
+                    result['properties'] = properties
                 }
+
+                if (!lo.isEmpty(filter)) {
+                    result['filter'] = filter
+                }
+
+                if (lo.isEmpty(result)) return ''
+                return result
             },
         ],
     }),
     actionToUrl: ({ values }) => ({
         setProperties: () => {
+            return [router.values.location.pathname, values.propertiesForUrl]
+        },
+        setFilter: () => {
             return [router.values.location.pathname, values.propertiesForUrl]
         },
     }),
@@ -93,6 +99,10 @@ export const pathsLogic = kea({
                 )
             ) {
                 actions.setProperties(searchParams.properties || {})
+            }
+
+            if (!objectsEqual(!lo.isEmpty(searchParams.filter) || {}, values.filter)) {
+                actions.setFilter(searchParams.filter || {})
             }
         },
     }),

@@ -52,7 +52,7 @@ class PathsViewSet(viewsets.ViewSet):
         event, path_type, event_filter = self._determine_path_type(request)
         properties = request.GET.get('properties')
 
-        sessions = Event.objects.filter(
+        sessions = Event.objects.add_person_id(team.pk).filter(
                 team=team,
                 **(event_filter), #anything without $ (default)
                 **date_query

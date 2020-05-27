@@ -10,7 +10,13 @@ const options = {
 
 export function PathSelect(props) {
     return (
-        <Select bordered={false} defaultValue="$pageview" dropdownMatchSelectWidth={false} {...props}>
+        <Select
+            value={props.value || '$pageview'}
+            bordered={false}
+            defaultValue="$pageview"
+            dropdownMatchSelectWidth={false}
+            {...props}
+        >
             {Object.entries(options).map(([value, name], index) => {
                 return (
                     <Select.Option key={index} value={value}>

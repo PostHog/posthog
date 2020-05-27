@@ -233,7 +233,7 @@ export function Paths() {
                     <Row justify="space-between">
                         <Row align="middle">
                             Path Type:
-                            <PathSelect onChange={value => setFilter({ type: value })} />
+                            <PathSelect value={filter.type} onChange={value => setFilter({ type: value })} />
                         </Row>
                         <DateFilter
                             onChange={(date_from, date_to) =>
