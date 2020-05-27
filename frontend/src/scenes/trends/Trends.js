@@ -35,7 +35,7 @@ export function Trends() {
     return (
         <div className="actions-graph">
             {showingPeople ? <PeopleModal /> : null}
-            <h1 className="page-header">Trends</h1>
+            <h1 className="page-header">Trendsy</h1>
             <Row gutter={16}>
                 <Col xs={24} xl={6}>
                     <Card>

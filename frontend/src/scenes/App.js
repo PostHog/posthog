@@ -1,5 +1,6 @@
 import 'react-toastify/dist/ReactToastify.css'
 import 'react-datepicker/dist/react-datepicker.css'
+import { hot } from 'react-hot-loader/root'
 
 import React from 'react'
 import { useValues } from 'kea'
@@ -22,7 +23,7 @@ const darkerScenes = {
     paths: true,
 }
 
-export default function App() {
+function App() {
     const { user } = useValues(userLogic)
     const { scene, params } = useValues(sceneLogic)
 
@@ -48,3 +49,5 @@ export default function App() {
         </Layout>
     )
 }
+
+export default hot(App)
