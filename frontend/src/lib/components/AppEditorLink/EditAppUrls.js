@@ -8,12 +8,14 @@ import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { UrlRow } from './UrlRow'
 import { toast } from 'react-toastify'
+import { appEditorUrl } from './utils'
 
 const defaultValue = 'https://'
 
 const appUrlsLogic = kea({
     actions: () => ({
         addUrl: value => ({ value }),
+        addUrlAndGo: value => ({ value }),
         removeUrl: index => ({ index }),
         updateUrl: (index, value) => ({ index, value }),
     }),
@@ -79,34 +81,30 @@ const appUrlsLogic = kea({
                 [actions.addUrl]: (state, { value }) => [...state].filter(item => value !== item),
             },
         ],
-        isSaved: [
-            false,
-            {
-                [actions.addUrl]: () => false,
-                [actions.removeUrl]: () => false,
-                [actions.updateUrl]: () => false,
-                [userLogic.actions.userUpdateSuccess]: (state, { updateKey }) => updateKey === 'SetupAppUrls' || state,
-            },
-        ],
     }),
 
-    listeners: ({ sharedListeners }) => ({
-        addUrl: sharedListeners.saveAppUrls,
+    listeners: ({ values, sharedListeners, props }) => ({
+        addUrlAndGo: async ({ value }) => {
+            let app_urls = [...values.appUrls, value]
+            await api.update('api/user', { team: { app_urls } })
+            window.location.href = appEditorUrl(props.actionId, value)
+        },
         removeUrl: sharedListeners.saveAppUrls,
         updateUrl: sharedListeners.saveAppUrls,
     }),
 
     sharedListeners: ({ values }) => ({
-        saveAppUrls: () => {
-            toast('URLs saved', { toastId: 'EditAppUrls' })
+        saveAppUrls: ({ value }) => {
+            // Only show toast when clicking "Save"
+            if (value) toast('URLs saved', { toastId: 'EditAppUrls' })
             userLogic.actions.userUpdateRequest({ team: { app_urls: values.appUrls } }, 'SetupAppUrls')
         },
     }),
 })
 
 export function EditAppUrls({ actionId, allowNavigation }) {
-    const { appUrls, suggestions, suggestionsLoading, isSaved } = useValues(appUrlsLogic)
-    const { addUrl, removeUrl, updateUrl } = useActions(appUrlsLogic)
+    const { appUrls, suggestions, suggestionsLoading } = useValues(appUrlsLogic({ actionId }))
+    const { addUrl, addUrlAndGo, removeUrl, updateUrl } = useActions(appUrlsLogic({ actionId }))
     const [loadMore, setLoadMore] = useState()
 
     return (
@@ -123,18 +121,16 @@ export function EditAppUrls({ actionId, allowNavigation }) {
                     />
                 ))}
                 {appUrls.length === 0 && <List.Item>No url set yet.</List.Item>}
-                <List.Item>
-                    Suggestions: {suggestionsLoading && <Spin />}{' '}
-                    {!suggestionsLoading && (!suggestions || suggestions.length === 0) && 'No suggestions found.'}
-                </List.Item>
+                {!suggestions ||
+                    (suggestions.length > 0 && <List.Item>Suggestions: {suggestionsLoading && <Spin />} </List.Item>)}
                 {suggestions &&
                     suggestions.slice(0, loadMore ? suggestions.length : 5).map(url => (
                         <List.Item
                             key={url}
-                            onClick={() => addUrl(url)}
+                            onClick={() => (allowNavigation ? addUrlAndGo(url) : addUrl(url))}
                             style={{ cursor: 'pointer', justifyContent: 'space-between' }}
                         >
-                            <a href={url} onClick={e => e.preventDefault()}>
+                            <a href={url} onClick={e => e.preventDefault()} data-attr="app-url-suggestion">
                                 {url}
                             </a>
                             <PlusOutlined style={{ color: 'var(--success)' }} />
@@ -153,12 +149,6 @@ export function EditAppUrls({ actionId, allowNavigation }) {
                     </div>
                 )}
             </List>
-
-            {isSaved && (
-                <span className="text-success float-right" style={{ marginLeft: 10 }}>
-                    URLs saved.
-                </span>
-            )}
             <Button
                 type="link"
                 onClick={() => addUrl()}
