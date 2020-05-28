@@ -3,4 +3,5 @@ export const ACTIONS_LINE_GRAPH_CUMULATIVE = 'ActionsLineGraphCumulative'
 
 export const STICKINESS = 'Stickiness'
 
-export const LINE_CHART = 'Line Chart'
+export const LINEAR_CHART_LABEL = 'Linear Chart'
+export const CUMULATIVE_CHART_LABEL = 'Cumulative Chart'

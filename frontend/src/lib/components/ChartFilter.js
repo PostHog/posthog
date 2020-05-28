@@ -1,7 +1,13 @@
 import React from 'react'
 import { Select, Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, STICKINESS, LINE_CHART } from '~/lib/constants'
+import {
+    ACTIONS_LINE_GRAPH_LINEAR,
+    ACTIONS_LINE_GRAPH_CUMULATIVE,
+    STICKINESS,
+    LINEAR_CHART_LABEL,
+    CUMULATIVE_CHART_LABEL,
+} from '~/lib/constants'
 export function ChartFilter(props) {
     let { filters, displayMap, onChange } = props
     return [
@@ -27,7 +33,7 @@ export function ChartFilter(props) {
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
         >
-            <Select.OptGroup label={LINE_CHART}>
+            <Select.OptGroup label={'Line Chart'}>
                 <Select.Option
                     value={ACTIONS_LINE_GRAPH_LINEAR}
                     disabled={filters.session && filters.session === 'dist'}
