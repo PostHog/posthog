@@ -124,6 +124,14 @@ module.exports = {
             chunks: ['main'],
             template: path.join(__dirname, 'frontend', 'src', 'index.html'),
         }),
+        new HtmlWebpackPlugin({
+            alwaysWriteToDisk: true,
+            title: 'PostHog',
+            filename: 'layout.html',
+            chunks: ['main'],
+            inject: false,
+            template: path.join(__dirname, 'frontend', 'src', 'layout.ejs'),
+        }),
         new HtmlWebpackHarddiskPlugin(),
     ],
 }
