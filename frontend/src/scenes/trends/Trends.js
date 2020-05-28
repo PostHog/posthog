@@ -134,7 +134,10 @@ export function Trends() {
                                 >
                                     Compare Previous
                                 </Checkbox>
-                                <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraphLinear'} />
+                                <SaveToDashboard
+                                    filters={filters}
+                                    type={filters.display || ACTIONS_LINE_GRAPH_LINEAR}
+                                />
                             </div>
                         }
                     >
@@ -148,8 +151,8 @@ export function Trends() {
                                 >
                                     {resultsLoading && <Loading />}
                                     {(!filters.display ||
-                                        filters.display === 'ActionsLineGraphLinear' ||
-                                        filters.display === 'ActionsLineGraphCumulative') && <ActionsLineGraph />}
+                                        filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
+                                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && <ActionsLineGraph />}
                                     {filters.display === 'ActionsTable' && <ActionsTable filters={filters} />}
                                     {filters.display === 'ActionsPie' && <ActionsPie filters={filters} />}
                                 </div>

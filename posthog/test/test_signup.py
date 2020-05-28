@@ -35,7 +35,7 @@ class TestSignup(TestCase):
         items = DashboardItem.objects.filter(team=team).order_by('id')
         self.assertEqual(items[0].dashboard, dashboards[0])
         self.assertEqual(items[0].name, 'Pageviews this week')
-        self.assertEqual(items[0].type, 'ActionsLineGraphLinear')
+        self.assertEqual(items[0].type, 'ActionsLineGraph')
         self.assertEqual(items[0].filters['events'][0]['id'], '$pageview')
 
         self.assertEqual(items[1].dashboard, dashboards[0])

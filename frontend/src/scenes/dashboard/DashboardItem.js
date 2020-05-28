@@ -24,7 +24,7 @@ import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 
 const typeMap = {
-    ActionsLineGraphLinear: {
+    ActionsLineGraph: {
         className: 'graph',
         element: ActionsLineGraph,
         icon: LineChartOutlined,

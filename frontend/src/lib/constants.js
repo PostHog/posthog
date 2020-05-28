@@ -1,4 +1,4 @@
-export const ACTIONS_LINE_GRAPH_LINEAR = 'ActionsLineGraphLinear'
+export const ACTIONS_LINE_GRAPH_LINEAR = 'ActionsLineGraph'
 export const ACTIONS_LINE_GRAPH_CUMULATIVE = 'ActionsLineGraphCumulative'
 
 export const STICKINESS = 'Stickiness'
