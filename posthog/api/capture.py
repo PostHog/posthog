@@ -49,7 +49,7 @@ def _load_data(request) -> Optional[Union[Dict, List]]:
         data = json.loads(data)
     except json.JSONDecodeError:
         # if not, it's probably base64 encoded from other libraries
-        data = json.loads(base64.b64decode(data + "===").decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
+        data = json.loads(base64.b64decode(data.replace(' ', '+') + "===").decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
     # FIXME: data can also be an array, function assumes it's either None or a dictionary.
     return data
 
