@@ -143,7 +143,6 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                     {!isEditor ? addGroup : null}
                     <button
                         disabled={!edited}
-                        htmlType="submit"
                         data-attr="save-action-button"
                         className={
                             edited ? 'btn-success btn btn-sm float-right' : 'btn-secondary btn btn-sm float-right'

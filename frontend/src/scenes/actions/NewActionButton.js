@@ -15,11 +15,19 @@ export function NewActionButton() {
             <Modal
                 visible={visible}
                 style={{ cursor: 'pointer' }}
-                onCancel={() => setVisible(false)}
+                onCancel={() => {
+                    setVisible(false)
+                    setAppUrlsVisible(false)
+                }}
                 title="Create new action"
                 footer={[
-                    appUrlsVisible && <Button onClick={() => setAppUrlsVisible(false)}>Back</Button>,
+                    appUrlsVisible && (
+                        <Button key="back-button" onClick={() => setAppUrlsVisible(false)}>
+                            Back
+                        </Button>
+                    ),
                     <Button
+                        key="cancel-button"
                         onClick={() => {
                             setVisible(false)
                             setAppUrlsVisible(false)

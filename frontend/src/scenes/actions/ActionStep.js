@@ -321,6 +321,7 @@ export class ActionStep extends Component {
                     >
                         {isEditor && [
                             <button
+                                key="inspect-button"
                                 type="button"
                                 className="btn btn-sm btn-secondary"
                                 style={{ margin: '10px 0px 10px 12px' }}
@@ -329,7 +330,7 @@ export class ActionStep extends Component {
                                 Inspect element
                             </button>,
                             this.state.inspecting && (
-                                <p style={{ marginLeft: 10, marginRight: 10 }}>
+                                <p key="inspect-prompt" style={{ marginLeft: 10, marginRight: 10 }}>
                                     Hover over and click on an element you want to create an action for
                                 </p>
                             ),
