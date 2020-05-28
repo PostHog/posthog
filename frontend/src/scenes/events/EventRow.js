@@ -3,6 +3,7 @@ import moment from 'moment'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { Link } from 'lib/components/Link'
+import { Tooltip } from 'antd'
 
 const eventNameMap = event => {
     if (event.properties.$event_type === 'click') return 'clicked '
@@ -68,7 +69,9 @@ export function EventRow({
                     </td>
                 )
             })}
-            <td>{moment(event.timestamp).fromNow()}</td>
+            <td>
+                <Tooltip title={event.timestamp}>{moment(event.timestamp).fromNow()}</Tooltip>
+            </td>
         </tr>
     )
 }
