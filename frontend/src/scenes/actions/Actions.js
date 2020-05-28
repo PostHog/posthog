@@ -2,7 +2,6 @@ import React, { Component } from 'react'
 import { ActionsTable } from './ActionsTable'
 import { hot } from 'react-hot-loader/root'
 
-export const Actions = hot(_Actions)
 class _Actions extends Component {
     constructor(props) {
         super(props)
@@ -11,3 +10,4 @@ class _Actions extends Component {
         return <ActionsTable {...this.props} />
     }
 }
+export const Actions = hot(_Actions)

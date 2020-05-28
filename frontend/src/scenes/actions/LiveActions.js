@@ -9,9 +9,9 @@ export const logic = connect(() => [
     eventsTableLogic({ fixedFilters: undefined, apiUrl: 'api/event/actions/', live: true }),
 ])
 
-export const LiveActions = hot(_LiveActions)
 class _LiveActions extends Component {
     render() {
         return <LiveActionsTable {...this.props} />
     }
 }
+export const LiveActions = hot(_LiveActions)
