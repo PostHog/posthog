@@ -17,5 +17,5 @@ jobs:
       - name: Cypress run
         run: |
           sleep 30
-          docker-compose exec -T web yarn install cypress
+          docker-compose exec -T web yarn add cypress
           docker-compose exec -T web yarn run cypress run --config-file cypress.json
