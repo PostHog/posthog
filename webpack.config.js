@@ -15,8 +15,8 @@ module.exports = {
     },
     output: {
         path: path.resolve(__dirname, 'frontend', 'dist'),
-        filename: '[name].[chunkhash].js',
-        chunkFilename: '[name].[chunkhash].js',
+        filename: '[name].[contenthash].js',
+        chunkFilename: '[name].[contenthash].js',
         publicPath: '/static/',
     },
     resolve: {
