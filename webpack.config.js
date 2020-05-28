@@ -4,6 +4,8 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 
+const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
+
 module.exports = {
     mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
     devtool: process.env.NODE_ENV === 'production' ? 'source-map' : 'inline-source-map',
@@ -18,7 +20,7 @@ module.exports = {
         path: path.resolve(__dirname, 'frontend', 'dist'),
         filename: '[name].[hash].js',
         chunkFilename: '[name].[contenthash].js',
-        publicPath: process.env.NODE_ENV === 'production' ? '/static/' : 'http://localhost:8234/static/',
+        publicPath: process.env.NODE_ENV === 'production' ? '/static/' : `http://${webpackDevServerHost}:8234/static/`,
     },
     resolve: {
         alias: {
@@ -108,6 +110,7 @@ module.exports = {
     devServer: {
         contentBase: path.join(__dirname, 'frontend', 'dist'),
         hot: true,
+        host: webpackDevServerHost,
         port: 8234,
         headers: {
             'Access-Control-Allow-Origin': '*',
