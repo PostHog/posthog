@@ -12,6 +12,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { useActions, useValues } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
+import { hot } from 'react-hot-loader/root'
 
 let stripHTTP = url => {
     url = url.replace(/(^[0-9]+_)/, '')
@@ -63,7 +64,8 @@ function NoData() {
     )
 }
 
-export function Paths() {
+export const Paths = hot(_Paths)
+function _Paths() {
     const canvas = useRef(null)
     const { paths, filter, pathsLoading } = useValues(pathsLogic)
     const { setFilter } = useActions(pathsLogic)

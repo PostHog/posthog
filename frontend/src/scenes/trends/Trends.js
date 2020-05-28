@@ -19,6 +19,7 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { Tabs, Row, Col, Tooltip, Checkbox } from 'antd'
 import { SessionFilter } from 'lib/components/SessionsFilter'
 import { InfoCircleOutlined } from '@ant-design/icons'
+import { hot } from 'react-hot-loader/root'
 
 const { TabPane } = Tabs
 
@@ -28,7 +29,8 @@ const displayMap = {
     ActionsPie: 'Pie',
 }
 
-export function Trends() {
+export const Trends = hot(_Trends)
+function _Trends() {
     const { filters, resultsLoading, showingPeople, activeView } = useValues(trendsLogic({ dashboardItemId: null }))
     const { setFilters, setDisplay, setActiveView } = useActions(trendsLogic({ dashboardItemId: null }))
 
