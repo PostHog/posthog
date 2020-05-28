@@ -25,6 +25,11 @@ module.exports = {
             '~': path.resolve(__dirname, 'frontend', 'src'),
             lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),
             scenes: path.resolve(__dirname, 'frontend', 'src', 'scenes'),
+            ...(process.env.NODE_ENV !== 'production'
+                ? {
+                      'react-dom': '@hot-loader/react-dom',
+                  }
+                : {}),
         },
     },
     module: {

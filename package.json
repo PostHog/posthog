@@ -61,6 +61,7 @@
         "@babel/plugin-transform-react-jsx": "^7.8.3",
         "@babel/plugin-transform-runtime": "^7.8.3",
         "@babel/preset-env": "7.9.6",
+        "@hot-loader/react-dom": "^16.13.0",
         "autoprefixer": "^9.7.4",
         "babel-eslint": "^10.1.0",
         "babel-loader": "^8.0.6",
@@ -82,6 +83,7 @@
         "parcel-bundler": "1.11.0",
         "postcss-loader": "^3.0.0",
         "prettier": "1.19.1",
+        "react-hot-loader": "^4.12.21",
         "sass-loader": "^8.0.2",
         "webpack": "^4.42.0",
         "webpack-cli": "^3.3.11"
