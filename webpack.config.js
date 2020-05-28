@@ -2,6 +2,7 @@
 const path = require('path')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
+const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 
 module.exports = {
     mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
@@ -15,9 +16,9 @@ module.exports = {
     },
     output: {
         path: path.resolve(__dirname, 'frontend', 'dist'),
-        filename: '[name].[contenthash].js',
+        filename: '[name].[hash].js',
         chunkFilename: '[name].[contenthash].js',
-        publicPath: '/static/',
+        publicPath: process.env.NODE_ENV === 'production' ? '/static/' : 'http://localhost:8234/static/',
     },
     resolve: {
         alias: {
@@ -99,14 +100,25 @@ module.exports = {
             },
         ],
     },
+    devServer: {
+        contentBase: path.join(__dirname, 'frontend', 'dist'),
+        hot: true,
+        port: 8234,
+        headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': '*',
+        },
+    },
     plugins: [
         new MiniCssExtractPlugin({
             filename: '[name].[contenthash].css',
         }),
         new HtmlWebpackPlugin({
+            alwaysWriteToDisk: true,
             title: 'PostHog',
-            excludeChunks: ['editor'],
-            template: `frontend/src/index.html`,
+            chunks: ['main'],
+            template: path.join(__dirname, 'frontend', 'src', 'index.html'),
         }),
+        new HtmlWebpackHarddiskPlugin(),
     ],
 }
