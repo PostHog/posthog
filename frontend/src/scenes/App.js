@@ -11,7 +11,7 @@ import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 
 import { userLogic } from 'scenes/userLogic'
-import { sceneLogic, loadedScenes } from 'scenes/sceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 
 const darkerScenes = {
@@ -24,7 +24,7 @@ const darkerScenes = {
 
 export default function App() {
     const { user } = useValues(userLogic)
-    const { scene, params } = useValues(sceneLogic)
+    const { scene, params, loadedScenes } = useValues(sceneLogic)
     const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
 
     const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
