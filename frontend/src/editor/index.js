@@ -164,8 +164,17 @@ class App extends Component {
                                         href="#"
                                         className="float-right"
                                     >
-                                        edit
+                                        Edit
                                     </a>
+                                    {'  '}
+                                    {action.id && (
+                                        <a
+                                            href={this.props.apiURL + 'action/' + action.id}
+                                            className="float-right mr-1"
+                                        >
+                                            View
+                                        </a>
+                                    )}
                                 </div>
                             )
                         )}
