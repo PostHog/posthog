@@ -21,8 +21,10 @@
         text-align: center;
     }
     .event-row {
-        transition: background-color 2s;
         background-color: #fff;
+    }
+    .event-row:hover {
+        background-color: rgb(236, 236, 236);
     }
     .event-new-events {
         opacity: 1;
