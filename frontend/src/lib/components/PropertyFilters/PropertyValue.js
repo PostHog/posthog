@@ -38,14 +38,18 @@ export class PropertyValue extends Component {
             <Select
                 showSearch
                 autoFocus={!value}
-                style={{ width: '100%' }}
-                onChange={(_, { value }) => onSet(value)}
-                value={value}
+                style={{ width: '100%', ...this.props.style }}
+                onChange={(_, payload) => onSet((payload && payload.value) || null)}
+                value={value || this.props.placeholder}
                 loading={optionsCache[input] === 'loading'}
                 onSearch={input => {
                     if (!optionsCache[input] && operator !== 'is_set') this.loadPropertyValues(input)
                 }}
                 data-attr="prop-val"
+                dropdownMatchSelectWidth={350}
+                bordered={this.props.bordered}
+                placeholder={this.props.placeholder}
+                allowClear={value}
             >
                 {input && (
                     <Select.Option key={input} value={input}>

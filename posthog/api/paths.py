@@ -1,7 +1,7 @@
 from rest_framework import viewsets
 from rest_framework.response import Response
 from posthog.models import Event, Filter
-from posthog.utils import request_to_date_query
+from posthog.utils import request_to_date_query, dict_from_cursor_fetchall
 from django.db.models import OuterRef
 from django.db import connection
 from typing import Optional
@@ -51,6 +51,7 @@ class PathsViewSet(viewsets.ViewSet):
         date_query = request_to_date_query(request.GET)
         event, path_type, event_filter = self._determine_path_type(request)
         properties = request.GET.get('properties')
+        start_point = request.GET.get('start')
 
         sessions = Event.objects.add_person_id(team.pk).filter(
                 team=team,
@@ -72,36 +73,60 @@ class PathsViewSet(viewsets.ViewSet):
                 element_group = 'SELECT g."id" as group_id FROM "posthog_elementgroup" g where v1."elements_hash" = g."hash"'
                 sessions_sql = 'SELECT * FROM ({}) as v1 JOIN LATERAL ({}) as v2 on true JOIN LATERAL ({}) as v3 on true'.format(sessions_sql, element_group, element)
 
+        events_notated = '\
+        SELECT *, CASE WHEN EXTRACT(\'EPOCH\' FROM (timestamp - previous_timestamp)) >= (60 * 30) OR previous_timestamp IS NULL THEN 1 ELSE 0 END AS new_session\
+        FROM ({}) AS inner_sessions\
+        '.format(sessions_sql)
+
+        sessionified = '\
+        SELECT events_notated.*, SUM(new_session) OVER (\
+            ORDER BY distinct_id\
+                    ,timestamp\
+            ) AS session\
+        FROM ({}) as events_notated\
+        '.format(events_notated)
+
+        if start_point:
+            marked = '\
+            SELECT *, CASE WHEN properties->>\'$current_url\' ~ \'{}\' THEN timestamp ELSE NULL END as mark from ({}) as sessionified\
+            '.format(start_point, sessionified)
+
+            marked_plus = '\
+                SELECT *, MAX(mark) OVER (\
+                        PARTITION BY distinct_id\
+                        , session ORDER BY timestamp\
+                        ) AS max from ({}) as marked order by session\
+            '.format(marked)
+
+            sessionified = '\
+                SELECT * FROM ({}) as something where timestamp >= max \
+            '.format(marked_plus)
+
+        final = '\
+        SELECT {} as path_type, id, sessionified.session\
+            ,ROW_NUMBER() OVER (\
+                    PARTITION BY distinct_id\
+                    ,session ORDER BY timestamp\
+                    ) AS event_number\
+        FROM ({}) as sessionified\
+        '.format(path_type, sessionified)
+
+        counts = '\
+        SELECT event_number || \'_\' || path_type as target_event, id as target_id, LAG(event_number || \'_\' || path_type, 1) OVER (\
+            PARTITION BY session\
+            ) AS source_event , LAG(id, 1) OVER (\
+            PARTITION BY session\
+            ) AS source_id from \
+        ({}) as final\
+        where event_number <= 4\
+        '.format(final)
+
         cursor = connection.cursor()
         cursor.execute('\
-        SELECT source_event, target_event, MAX(target_id), MAX(source_id), count(*) from (\
-            SELECT event_number || \'_\' || path_type as target_event, id as target_id, LAG(event_number || \'_\' || path_type, 1) OVER (\
-                            PARTITION BY session\
-                            ) AS source_event , LAG(id, 1) OVER (\
-                            PARTITION BY session\
-                            ) AS source_id from \
-        (\
-            SELECT {} as path_type, id, sessionified.session\
-                ,ROW_NUMBER() OVER (\
-                        PARTITION BY distinct_id\
-                        ,session ORDER BY timestamp\
-                        ) AS event_number\
-        FROM (\
-            SELECT events_notated.*, SUM(new_session) OVER (\
-                ORDER BY distinct_id\
-                        ,timestamp\
-                ) AS session\
-            FROM (\
-                SELECT *, CASE WHEN EXTRACT(\'EPOCH\' FROM (timestamp - previous_timestamp)) >= (60 * 30) OR previous_timestamp IS NULL THEN 1 ELSE 0 END AS new_session\
-                FROM ({}) AS inner_sessions \
-            ) as events_notated \
-        ) as sessionified\
-        ) as final\
-        where event_number <= 4\
-        ) as counts\
+        SELECT source_event, target_event, MAX(target_id), MAX(source_id), count(*) from ({}) as counts\
         where source_event is not null and target_event is not null and SUBSTRING(source_event, 3) != SUBSTRING(target_event, 3)\
         group by source_event, target_event order by count desc limit 15\
-        '.format(path_type, sessions_sql), sessions_sql_params)
+        '.format(counts), sessions_sql_params)
         rows = cursor.fetchall()
 
         for row in rows:

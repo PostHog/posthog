@@ -8,8 +8,7 @@ import { EventElements } from 'scenes/events/EventElements'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-
+import { PropertyFilters, PropertyValue } from 'lib/components/PropertyFilters'
 import { useActions, useValues } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 
@@ -231,9 +230,24 @@ export function Paths() {
             <Card
                 title={
                     <Row justify="space-between">
-                        <Row align="middle">
-                            Path Type:
-                            <PathSelect value={filter.type} onChange={value => setFilter({ type: value })} />
+                        <Row>
+                            <Row align="middle">
+                                Path Type:
+                                <PathSelect value={filter.type} onChange={value => setFilter({ type: value })} />
+                            </Row>
+
+                            <Row align="middle">
+                                Start:
+                                <PropertyValue
+                                    onSet={value => setFilter({ start: value })}
+                                    propertyKey={'$current_url'}
+                                    type="event"
+                                    style={{ width: 200 }}
+                                    bordered={false}
+                                    value={filter.start}
+                                    placeholder={'Select start element'}
+                                ></PropertyValue>
+                            </Row>
                         </Row>
                         <DateFilter
                             onChange={(date_from, date_to) =>
