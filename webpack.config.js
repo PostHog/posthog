@@ -1,5 +1,7 @@
+/* global require, module, process, __dirname */
 const path = require('path')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
+const HtmlWebpackPlugin = require('html-webpack-plugin')
 
 module.exports = {
     mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
@@ -13,7 +15,7 @@ module.exports = {
     },
     output: {
         path: path.resolve(__dirname, 'frontend', 'dist'),
-        filename: '[name].js',
+        filename: '[name].[chunkhash].js',
         chunkFilename: '[name].[chunkhash].js',
         publicPath: '/static/',
     },
@@ -75,6 +77,7 @@ module.exports = {
                         // In options we can set different things like format
                         // and directory to save
                         options: {
+                            name: '[name].[contenthash].[ext]',
                             outputPath: 'images',
                         },
                     },
@@ -88,6 +91,7 @@ module.exports = {
                         // Using file-loader too
                         loader: 'file-loader',
                         options: {
+                            name: '[name].[contenthash].[ext]',
                             outputPath: 'fonts',
                         },
                     },
@@ -97,7 +101,12 @@ module.exports = {
     },
     plugins: [
         new MiniCssExtractPlugin({
-            filename: '[name].css',
+            filename: '[name].[contenthash].css',
+        }),
+        new HtmlWebpackPlugin({
+            title: 'PostHog',
+            excludeChunks: ['editor'],
+            template: `frontend/src/index.html`,
         }),
     ],
 }
