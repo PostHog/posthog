@@ -1,15 +1,17 @@
 from rest_framework import viewsets
 from rest_framework.response import Response
-from posthog.models import Event, PersonDistinctId, Team, ElementGroup, Element
-from posthog.utils import request_to_date_query, dict_from_cursor_fetchall
-from django.db.models import Subquery, OuterRef, Count, QuerySet
+from posthog.models import Event, Filter
+from posthog.utils import request_to_date_query
+from django.db.models import OuterRef
 from django.db import connection
-from typing import List, Optional
+from typing import Optional
 
 from django.db.models.expressions import Window
 from django.db.models.functions import Lag
-from django.db.models import F
+from django.db.models import F, Q
 from django.db import connection
+
+import json
 
 # At the moment, paths don't support users changing distinct_ids midway through.
 # See: https://github.com/PostHog/posthog/issues/185
@@ -22,20 +24,24 @@ class PathsViewSet(viewsets.ViewSet):
         
         # Default
         event: Optional[str] = "$pageview"
+        event_filter = {"event":event}
         path_type = "properties->> \'$current_url\'"
 
         # determine requested type
         if requested_type:
             if requested_type == "$screen":
                 event = "$screen"
+                event_filter = {"event":event}
                 path_type = "properties->> \'$screen_name\'"
             elif requested_type == "$autocapture":
                 event = "$autocapture"
+                event_filter = {"event":event}
                 path_type = "tag_name_source"
             elif requested_type == "custom_event":
                 event = None
+                event_filter = {'event__regex':'^[^\$].*'}
                 path_type = "event"
-        return event, path_type
+        return event, path_type, event_filter
 
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
     # To avoid unexpected results should convert date range to timestamps with timezone.
@@ -43,13 +49,15 @@ class PathsViewSet(viewsets.ViewSet):
         team = request.user.team_set.get()
         resp = []
         date_query = request_to_date_query(request.GET)
-        event, path_type = self._determine_path_type(request)
+        event, path_type, event_filter = self._determine_path_type(request)
+        properties = request.GET.get('properties')
 
-        sessions = Event.objects.filter(
+        sessions = Event.objects.add_person_id(team.pk).filter(
                 team=team,
-                **({"event":event} if event else {'event__regex':'^[^\$].*'}), #anything without $ (default)
+                **(event_filter), #anything without $ (default)
                 **date_query
             )\
+            .filter(Filter(data={'properties': json.loads(properties)}).properties_to_Q() if properties else Q())\
             .annotate(previous_timestamp=Window(
                 expression=Lag('timestamp', default=None),
                 partition_by=F('distinct_id'),
