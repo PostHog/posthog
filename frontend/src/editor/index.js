@@ -1,184 +1,186 @@
-import React, { Component } from 'react'
+import React from 'react'
 import ReactDOM from 'react-dom'
 import Simmer from 'simmerjs'
 import root from 'react-shadow'
-import { ActionEdit } from '../scenes/actions/ActionEdit'
 import Draggable from 'react-draggable'
-import { getContext } from 'kea'
+import { getContext, kea, useActions, useValues } from 'kea'
 import { Provider } from 'react-redux'
+import { styles } from '~/editor/styles'
+import { ToolBar } from '~/editor/Toolbar'
 
 window.simmer = new Simmer(window, { depth: 8 })
 
-let styles = `
-    form { margin-bottom: 0 }
-    .form-group { padding: 8px 12px; margin: 0 }
-    .form-group.selected { background: rgba(0, 0, 0, 0.1)}
-    .form-group:not(:last-child) {border-bottom: 1px solid rgba(0, 0, 0, 0.1) }
-    .form-control { font-size: 13px }
-    .react-draggable .drag-bar { cursor: grab; margin-bottom: 0.75rem; user-select: none }
-    .react-draggable-dragging .drag-bar {cursor: grabbing !important }
-    .logo { margin: -7px 15px 0 0; height: 35px }
-    .drag-bar h3 { display: inline-block }
-    .save-buttons {
-        margin: 0 -12px;
-        width: calc(100% + 24px);
-    }
-    .save-buttons .btn { border-radius: 0 }
-    .action {
-        background: rgba(0, 0, 0, 0.1);
-        margin: 0 -12px;
-        padding: 6px 12px;
-        border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-        height: 32px;
-    }
-    .box {
-        touch-action: none;
-        position: fixed;
-        top: 2rem;
-        z-index: 999999999;
-        padding: 12px 12px 0 12px;
-        right: 2rem;
-        overflow-y: scroll;
-        width: 280px;
-        color: #37352F;
-        font-size: 13px;
-        max-height: calc(100vh - 4rem);
-        box-shadow: rgba(0, 0, 0, 0.4) 0px 0px 13px;
-        border-radius: 10px;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+// props:
+// - mode: 'dock' | 'zoom'
+const editorLogic = kea({
+    // transition steps:
+    // - dock: disabled, animating, fading, complete
+    // - float: disabled, animating, fading, complete
+    // call dock/float and it will
+    actions: () => ({
+        dock: () => ({ mode: 'dock' }),
+        dockAnimated: () => ({ mode: 'dock' }),
+        dockFaded: () => ({ mode: 'dock' }),
+        float: () => ({ mode: 'float' }),
+        floatAnimated: () => ({ mode: 'float' }),
+        floatFaded: () => ({ mode: 'float' }),
+    }),
 
-        /* effects when content is scrolling */
-        background:
-            linear-gradient(white 30%, rgba(255,255,255,0)),
-            linear-gradient(rgba(255,255,255,0), white 70%) 0 100%,
-            radial-gradient(50% 0, farthest-side, rgba(0,0,0,.4), rgba(0,0,0,0)),
-            radial-gradient(50% 100%,farthest-side, rgba(0,0,0,.4), rgba(0,0,0,0)) 0 100%;
-        background:
-            linear-gradient(white 30%, rgba(255,255,255,0)),
-            linear-gradient(rgba(255,255,255,0), white 70%) 0 100%,
-            radial-gradient(farthest-side at 50% 0, rgba(0,0,0,.4), rgba(0,0,0,0)),
-            radial-gradient(farthest-side at 50% 100%, rgba(0,0,0,.4), rgba(0,0,0,0)) 0 100%;
-        background-repeat: no-repeat;
-        background-color: #f8f9fa;
-        background-size: 100% 70px, 100% 70px, 100% 24px, 100% 24px;
-        /* Opera doesn't support this in the shorthand */
-        background-attachment: local, local, scroll, scroll;
-    }
+    reducers: ({ props }) => ({
+        docked: [
+            props.mode === 'dock',
+            {
+                dock: () => true,
+                float: () => false,
+            },
+        ],
+        dockStatus: [
+            props.mode === 'dock' ? 'complete' : 'disabled',
+            {
+                dock: () => 'animating',
+                dockAnimated: () => 'fading-in',
+                dockFaded: () => 'complete',
+                float: () => 'fading-out',
+                floatAnimated: () => 'disabled',
+                floatFaded: () => 'disabled',
+            },
+        ],
+        floatStatus: [
+            props.mode === 'float' ? 'complete' : 'disabled',
+            {
+                float: () => 'animating',
+                floatAnimated: () => 'fading-in',
+                floatFaded: () => 'complete',
+                dock: () => 'fading-out',
+                dockAnimated: () => 'disabled',
+                dockFaded: () => 'disabled',
+            },
+        ],
+    }),
 
-    /* form fields */
-    label { margin-bottom: 8px }
-    input.form-control {
-        padding: 8px;
-        height: calc(1.5rem + 4px);
-    }
-`
-class App extends Component {
-    constructor(props) {
-        super(props)
+    listeners: ({ sharedListeners }) => ({
+        dock: sharedListeners.zoom,
+        float: sharedListeners.zoom,
+    }),
 
-        this.state = {
-            actions: JSON.parse(sessionStorage.getItem('editorActions')) || [],
-            openActionId: false,
-        }
-        if (props.actionId) {
-            this.state.actions = [{ id: props.actionId }]
-            this.state.openActionId = props.actionId
-        } else {
-            if (this.state.actions.filter(action => action.id === false).length == 0)
-                this.state.actions.push({ id: false })
-        }
-    }
-    onActionSave = (action, isNew, createNew) => {
-        let { actions, openActionId } = this.state
-        if (isNew) {
-            actions = actions.map(a => (!a.id ? action : a))
-            openActionId = action.id
-        } else {
-            actions = actions.map(a => (a.id == action.id ? action : a))
-        }
-        if (createNew) {
-            actions.push({ id: false })
-        }
-        openActionId = false
-        this.setState({ actions, openActionId })
-        sessionStorage.setItem('editorActions', JSON.stringify(actions))
-    }
-    render() {
-        let { actions, openActionId } = this.state
-        return (
+    sharedListeners: ({ actions }) => ({
+        zoom: async ({ mode }, breakpoint) => {
+            window.requestAnimationFrame(() => {
+                window.document.body.style.overflow = 'hidden'
+                if (mode === 'dock') {
+                    initZoomOut()
+                } else {
+                    resetZoomOut()
+                }
+            })
+
+            await breakpoint(500)
+            window.requestAnimationFrame(() => {
+                window.document.body.style.overflow = 'auto'
+                mode === 'dock' ? actions.dockAnimated() : actions.floatAnimated()
+            })
+
+            await breakpoint(500)
+            window.requestAnimationFrame(() => {
+                mode === 'dock' ? actions.dockFaded() : actions.floatFaded()
+            })
+        },
+    }),
+})
+
+function App(props) {
+    const logic = editorLogic({ mode: 'float' })
+    const { dockStatus, floatStatus } = useValues(logic)
+    const { dock, float } = useActions(logic)
+
+    const showToolbar = dockStatus !== 'disabled'
+    const showInvisibleToolbar = dockStatus === 'animating' || dockStatus === 'fading-out'
+
+    const showDraggable = floatStatus !== 'disabled'
+    const showInvisibleDraggable = floatStatus === 'animating' || floatStatus === 'fading-out'
+
+    return (
+        <>
             <root.div>
-                <link href={this.props.apiURL + 'static/main.css'} rel="stylesheet" crossOrigin="anonymous" />
+                <link href={props.apiURL + 'static/main.css'} rel="stylesheet" crossOrigin="anonymous" />
                 <style>{styles}</style>
-                <Draggable handle=".drag-bar">
-                    <div className="box">
-                        <div className="drag-bar">
-                            <img className="logo" src={this.props.apiURL + 'static/posthog-logo.png'} />
-                            <h3>PostHog</h3>
-                            <br />
+
+                {showDraggable ? (
+                    <Draggable handle=".drag-bar">
+                        <div className={`box${showInvisibleDraggable ? ' toolbar-invisible' : ''}`}>
+                            <button style={{ float: 'right' }} onClick={dock}>
+                                Dock
+                            </button>
+                            <ToolBar {...props} />
                         </div>
-                        {actions.map((action, index) =>
-                            action.id == openActionId ? (
-                                <div>
-                                    <div className="action">
-                                        {!action.id && 'New action'}
-                                        {action.id && (
-                                            <a
-                                                onClick={e => {
-                                                    e.preventDefault()
-                                                    this.setState({
-                                                        openActionId: false,
-                                                    })
-                                                }}
-                                                href="#"
-                                                className="float-right"
-                                            >
-                                                collapse
-                                            </a>
-                                        )}
-                                    </div>
-                                    <ActionEdit
-                                        apiURL={this.props.apiURL}
-                                        temporaryToken={this.props.temporaryToken}
-                                        actionId={action.id}
-                                        simmer={window.simmer}
-                                        onSave={this.onActionSave}
-                                        showNewActionButton={index == actions.length - 1}
-                                        isEditor={true}
-                                    />
-                                </div>
-                            ) : (
-                                <div className="action">
-                                    {action.id ? action.name : 'New action'}
-                                    <a
-                                        onClick={e => {
-                                            e.preventDefault()
-                                            this.setState({
-                                                openActionId: action.id,
-                                            })
-                                        }}
-                                        href="#"
-                                        className="float-right"
-                                    >
-                                        Edit
-                                    </a>
-                                    {'  '}
-                                    {action.id && (
-                                        <a
-                                            href={this.props.apiURL + 'action/' + action.id}
-                                            onClick={() => sessionStorage.setItem('editorActions', '[]')}
-                                            className="float-right mr-1"
-                                        >
-                                            View
-                                        </a>
-                                    )}
-                                </div>
-                            )
-                        )}
+                    </Draggable>
+                ) : null}
+
+                {showToolbar ? (
+                    <div id="toolbar" className={`${showInvisibleToolbar ? 'toolbar-invisible' : ''}`}>
+                        <button style={{ float: 'right' }} onClick={float}>
+                            Float
+                        </button>
+                        <ToolBar {...props} />
                     </div>
-                </Draggable>
+                ) : null}
             </root.div>
-        )
+        </>
+    )
+}
+
+let listener
+
+function resetZoomOut() {
+    window.document.querySelector('html').style.background = 'auto'
+    window.document.body.style.transform = 'none'
+    window.document.body.style.width = `auto`
+    window.document.body.style.minHeight = `auto`
+    window.document.body.style.minHeight = `auto`
+
+    window.removeEventListener('scroll', listener)
+}
+
+function initZoomOut(zoom = 0.7) {
+    window.document.querySelector('html').style.background = '#a1a3ae'
+    window.document.body.style.transform = `scale(1) translate(0px 0px)`
+    window.document.body.style.willChange = 'transform'
+    window.document.body.style.transition = 'transform ease 0.5s'
+    window.document.body.style.transformOrigin = `top left`
+    window.document.body.style.width = `100vw`
+    window.document.body.style.minHeight = `100%`
+    if (!window.document.body.style.backgroundColor) {
+        window.document.body.style.backgroundColor = 'white'
     }
+
+    window.requestAnimationFrame(() => {
+        window.document.body.style.transform = `scale(${zoom}) translate(${20 / zoom}px, ${20 / zoom}px)`
+    })
+
+    listener = function() {
+        const bodyElements = [...document.body.getElementsByTagName('*')]
+        bodyElements
+            .filter(x => getComputedStyle(x, null).getPropertyValue('position') === 'fixed')
+            .forEach(e => {
+                const h = (window.pageYOffset + (window.pageYOffset > 20 ? -20 : 0)) / zoom
+                e.style.marginTop = `${h}px`
+                e.setAttribute('data-posthog-fix-fixed', 'yes')
+            })
+
+        const tweakedElements = [...document.querySelectorAll('[data-posthog-fix-fixed=yes]')]
+        tweakedElements
+            .filter(x => getComputedStyle(x, null).getPropertyValue('position') !== 'fixed')
+            .forEach(e => {
+                e.style.marginTop = 0
+            })
+    }
+    window.addEventListener('scroll', listener)
+
+    // toolbar = document.createElement('posthog-toolbar');
+    // document.body.appendChild(toolbar);
+    // window.addEventListener('scroll', function(e) {
+    //   toolbar.shadowRoot.getElementById('toolbar').style.marginTop = `${window.pageYOffset / zoom}px`;
+    // })
 }
 
 window.ph_load_editor = function(editorParams) {
