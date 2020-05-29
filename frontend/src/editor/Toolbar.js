@@ -2,6 +2,7 @@ import React from 'react'
 import { Actions } from '~/editor/Actions'
 import { Tabs } from 'antd'
 import { kea, useActions, useValues } from 'kea'
+import { SearchOutlined } from '@ant-design/icons'
 
 const { TabPane } = Tabs
 
@@ -26,16 +27,19 @@ export function Toolbar({ apiURL, temporaryToken, actionId }) {
     return (
         <div>
             <Tabs defaultActiveKey={section} onChange={setSection}>
-                <TabPane tab={<>Stats</>} key="stats">
-                    Content of Tab Pane 1
-                </TabPane>
-                <TabPane tab={<>Actions</>} key="actions">
-                    <Actions apiURL={apiURL} temporaryToken={temporaryToken} actionId={actionId} />
-                </TabPane>
-                <TabPane tab={<>Dashboards</>} key="dashboards">
-                    Content of Tab Pane 3
-                </TabPane>
+                <TabPane tab={<>Stats</>} key="stats" />
+                <TabPane tab={<>Actions</>} key="actions" />
+                <TabPane tab={<>Dashboards</>} key="dashboards" />
             </Tabs>
+            <div className="float-box button">
+                <p>
+                    <SearchOutlined /> Inspect an element
+                </p>
+                <small>Use the inspector select an element on the page and see associated analytics here</small>
+            </div>
+            <div className="float-box">
+                <Actions apiURL={apiURL} temporaryToken={temporaryToken} actionId={actionId} />
+            </div>
         </div>
     )
 }

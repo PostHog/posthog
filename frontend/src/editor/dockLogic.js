@@ -104,7 +104,7 @@ export const dockLogic = kea({
                 // htmlStyle.background = 'hsl(231, 17%, 22%)'
                 htmlStyle.background =
                     'linear-gradient(to right, hsla(234, 17%, 94%, 1) 71%, hsla(234, 17%, 99%, 1) 100%)'
-                bodyStyle.boxShadow = 'hsla(220, 14%, 76%, 1) 10px 10px 50px'
+                bodyStyle.boxShadow = 'hsl(219, 14%, 76%) 30px 30px 70px, hsl(219, 14%, 76%) 8px 8px 10px'
                 if (!bodyStyle.backgroundColor) {
                     bodyStyle.backgroundColor = 'white'
                 }

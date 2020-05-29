@@ -34,9 +34,7 @@ function App(props) {
                 {showDraggable ? (
                     <Draggable handle=".drag-bar">
                         <div className={`box${showInvisibleDraggable ? ' toolbar-invisible' : ''}`}>
-                            <button style={{ float: 'right' }} onClick={dock}>
-                                Dock
-                            </button>
+                            <button onClick={dock}>Dock</button>
                             <Toolbar {...props} apiURL={apiURL} />
                         </div>
                     </Draggable>

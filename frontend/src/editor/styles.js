@@ -28,7 +28,7 @@ export const styles = `
         padding: 12px 12px 0 12px;
         right: 2rem;
         overflow-y: scroll;
-        width: 280px;
+        width: 300px;
         color: #37352F;
         font-size: 13px;
         max-height: calc(100vh - 4rem);
@@ -79,7 +79,6 @@ export const styles = `
         position: absolute;
         z-index:999999999;
         box-sizing: border-box;
-        overflow: auto;
         opacity: 1.0;
         transition: opacity ease 0.5s;
     }
@@ -98,11 +97,20 @@ export const styles = `
         text-align: center;
     }
 
-    #toolbar .ant-tabs-tabpane {
+    #toolbar .float-box {
         background: white;
         padding: 20px;
-        min-height: 50%;
-        box-shadow: hsla(220, 14%, 76%, 1) 10px 10px 10px;
+        box-shadow: hsl(219, 14%, 76%) 30px 30px 70px, hsl(219, 14%, 76%) 8px 8px 10px;
+    }
+    #toolbar .float-box + .float-box {
+        margin-top: 30px;
+    }
+    #toolbar .float-box.button:hover {
+        cursor: pointer;
+        box-shadow: hsl(219, 14%, 65%) 30px 30px 70px, hsl(219, 14%, 65%) 8px 8px 10px;
+    }
+    #toolbar .float-box.button small {
+        color: hsla(220, 16%, 49%, 1)
     }
 
 `
