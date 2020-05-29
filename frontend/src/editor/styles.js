@@ -67,7 +67,6 @@ export const styles = `
     }
     #toolbar {
         --zoom-out: 0.7;
-        background: rgba(255,255,255,0.2) url(https://app.posthog.com/static/images/a949629634c2b364328cc60c9a3eb3c2.svg) bottom right no-repeat;
         background-size: 100%;
             transform: scale(calc(1 / var(--zoom-out)));
         transform-origin: top right;
@@ -77,9 +76,7 @@ export const styles = `
         right: calc(-100vw * (1 - var(--zoom-out)) / var(--zoom-out) + 40px / var(--zoom-out));
         position: absolute;
         z-index:999999999;
-        padding: 20px;
         box-sizing: border-box;
-        font-size: 24px;
         overflow: auto;
         opacity: 1.0;
         transition: opacity ease 0.5s;
@@ -87,4 +84,20 @@ export const styles = `
     #toolbar.toolbar-invisible {
         opacity: 0;
     }
+    #toolbar section {
+        background: white;
+        padding: 20px;
+    }
+    #toolbar .ant-tabs-bar {
+        height: 50px;
+        color: white;
+        border-bottom: 0;
+    }
+
+    #toolbar .ant-tabs-tabpane {
+        background: white;
+        padding: 20px;
+        min-height: 50%;
+    }
+
 `

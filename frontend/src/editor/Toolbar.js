@@ -1,103 +1,41 @@
-import React, { Component } from 'react'
-import { ActionEdit } from 'scenes/actions/ActionEdit'
+import React from 'react'
+import { Actions } from '~/editor/Actions'
+import { Tabs } from 'antd'
+import { kea, useActions, useValues } from 'kea'
 
-export class ToolBar extends Component {
-    constructor(props) {
-        super(props)
+const { TabPane } = Tabs
 
-        this.state = {
-            actions: JSON.parse(sessionStorage.getItem('editorActions')) || [],
-            openActionId: false,
-        }
-        if (props.actionId) {
-            this.state.actions = [{ id: props.actionId }]
-            this.state.openActionId = props.actionId
-        } else {
-            if (this.state.actions.filter(action => action.id === false).length === 0)
-                this.state.actions.push({ id: false })
-        }
-    }
-    onActionSave = (action, isNew, createNew) => {
-        let { actions } = this.state
-        if (isNew) {
-            actions = actions.map(a => (!a.id ? action : a))
-        } else {
-            actions = actions.map(a => (a.id === action.id ? action : a))
-        }
-        if (createNew) {
-            actions.push({ id: false })
-        }
-        this.setState({ actions, openActionId: false })
-        sessionStorage.setItem('editorActions', JSON.stringify(actions))
-    }
-    render() {
-        let { actions, openActionId } = this.state
-        return (
-            <>
-                <div className="drag-bar">
-                    <img alt="PostHog" className="logo" src={this.props.apiURL + 'static/posthog-logo.png'} />
-                    <h3>PostHog</h3>
-                    <br />
-                </div>
-                {actions.map((action, index) =>
-                    action.id === openActionId ? (
-                        <div>
-                            <div className="action">
-                                {!action.id && 'New action'}
-                                {action.id && (
-                                    <a
-                                        onClick={e => {
-                                            e.preventDefault()
-                                            this.setState({
-                                                openActionId: false,
-                                            })
-                                        }}
-                                        href="#"
-                                        className="float-right"
-                                    >
-                                        collapse
-                                    </a>
-                                )}
-                            </div>
-                            <ActionEdit
-                                apiURL={this.props.apiURL}
-                                temporaryToken={this.props.temporaryToken}
-                                actionId={action.id}
-                                simmer={window.simmer}
-                                onSave={this.onActionSave}
-                                showNewActionButton={index === actions.length - 1}
-                                isEditor={true}
-                            />
-                        </div>
-                    ) : (
-                        <div className="action">
-                            {action.id ? action.name : 'New action'}
-                            <a
-                                onClick={e => {
-                                    e.preventDefault()
-                                    this.setState({
-                                        openActionId: action.id,
-                                    })
-                                }}
-                                href="#"
-                                className="float-right"
-                            >
-                                Edit
-                            </a>
-                            {'  '}
-                            {action.id && (
-                                <a
-                                    href={this.props.apiURL + 'action/' + action.id}
-                                    onClick={() => sessionStorage.setItem('editorActions', '[]')}
-                                    className="float-right mr-1"
-                                >
-                                    View
-                                </a>
-                            )}
-                        </div>
-                    )
-                )}
-            </>
-        )
-    }
+export const toolbarLogic = kea({
+    actions: () => ({
+        setSection: section => ({ section }),
+    }),
+    reducers: () => ({
+        section: [
+            'stats',
+            {
+                setSection: (_, { section }) => section,
+            },
+        ],
+    }),
+})
+
+export function Toolbar({ apiURL, temporaryToken, actionId }) {
+    const { section } = useValues(toolbarLogic)
+    const { setSection } = useActions(toolbarLogic)
+
+    return (
+        <div>
+            <Tabs defaultActiveKey={section} onChange={setSection}>
+                <TabPane tab={<>Stats</>} key="stats">
+                    Content of Tab Pane 1
+                </TabPane>
+                <TabPane tab={<>Actions</>} key="actions">
+                    <Actions apiURL={apiURL} temporaryToken={temporaryToken} actionId={actionId} />
+                </TabPane>
+                <TabPane tab={<>Dashboards</>} key="dashboards">
+                    Content of Tab Pane 3
+                </TabPane>
+            </Tabs>
+        </div>
+    )
 }
