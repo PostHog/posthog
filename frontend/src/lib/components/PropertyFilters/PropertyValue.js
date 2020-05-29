@@ -2,19 +2,38 @@ import React, { useState, useEffect } from 'react'
 import api from '../../api'
 import { Select } from 'antd'
 
-export function PropertyValue({ propertyKey, type, placeholder, style, bordered, onSet, value, operator }) {
+export function PropertyValue({
+    propertyKey,
+    type,
+    endpoint,
+    placeholder,
+    style,
+    bordered,
+    onSet,
+    value,
+    operator,
+    outerOptions,
+}) {
     const [input, setInput] = useState('')
     const [optionsCache, setOptionsCache] = useState([])
     const [options, setOptions] = useState([])
 
     function loadPropertyValues(value) {
+        setOptions([])
         let key = propertyKey.split('__')[0]
         setInput(value)
         setOptionsCache({ ...optionsCache, [value]: 'loading' })
-        api.get('api/' + type + '/values/?key=' + key + (value ? '&value=' + value : '')).then(propValues => {
-            setOptions([...new Set([...options, ...propValues.map(option => option.name)])])
+        if (outerOptions) {
+            setOptions([...new Set([...outerOptions.map(option => option)])])
             setOptionsCache({ ...optionsCache, [value]: true })
-        })
+        } else {
+            api.get(endpoint || 'api/' + type + '/values/?key=' + key + (value ? '&value=' + value : '')).then(
+                propValues => {
+                    setOptions([...new Set([...propValues.map(option => option)])])
+                    setOptionsCache({ ...optionsCache, [value]: true })
+                }
+            )
+        }
     }
 
     useEffect(() => {
@@ -24,7 +43,7 @@ export function PropertyValue({ propertyKey, type, placeholder, style, bordered,
     let displayOptions
     if (operator === 'is_set') displayOptions = ['true', 'false']
     displayOptions = options.filter(
-        option => input === '' || (option && option.toLowerCase().indexOf(input.toLowerCase()) > -1)
+        option => input === '' || (option && option.name?.toLowerCase().indexOf(input.toLowerCase()) > -1)
     )
 
     return (
@@ -49,11 +68,11 @@ export function PropertyValue({ propertyKey, type, placeholder, style, bordered,
                     Specify: {input}
                 </Select.Option>
             )}
-            {displayOptions.map((option, index) => (
-                <Select.Option key={option} value={option} data-attr={'prop-val-' + index}>
-                    {option === true && 'true'}
-                    {option === false && 'false'}
-                    {option}
+            {displayOptions.map(({ name, id }, index) => (
+                <Select.Option key={id || name} value={id || name} data-attr={'prop-val-' + index}>
+                    {name === true && 'true'}
+                    {name === false && 'false'}
+                    {name}
                 </Select.Option>
             ))}
         </Select>

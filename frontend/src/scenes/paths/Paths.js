@@ -10,6 +10,7 @@ import * as Sankey from 'd3-sankey'
 import { PropertyFilters, PropertyValue } from 'lib/components/PropertyFilters'
 import { useActions, useValues } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
+import { userLogic } from 'scenes/userLogic'
 
 let stripHTTP = url => {
     url = url.replace(/(^[0-9]+_)/, '')
@@ -61,24 +62,30 @@ function NoData() {
     )
 }
 
+const PAGEVIEW = '$pageview'
+const SCREEN = '$screen'
+const AUTOCAPTURE = '$autocapture'
+const CUSTOM_EVENT = 'custom_event'
+
 const pathOptionsToLabels = {
-    $pageview: 'Pageview (Web)',
-    $screen: 'Screen (Mobile)',
-    $autocapture: 'Autocaptured Events',
-    custom_event: 'Custom Events',
+    [`${PAGEVIEW}`]: 'Pageview (Web)',
+    [`${SCREEN}`]: 'Screen (Mobile)',
+    [`${AUTOCAPTURE}`]: 'Autocaptured Events',
+    [`${CUSTOM_EVENT}`]: 'Custom Events',
 }
 
 const pathOptionsToProperty = {
-    $pageview: '$current_url',
-    $screen: '$screen_name',
-    $autocapture: 'event',
-    custom_event: 'event',
+    [`${PAGEVIEW}`]: '$current_url',
+    [`${SCREEN}`]: '$screen_name',
+    [`${AUTOCAPTURE}`]: 'autocaptured_event',
+    [`${CUSTOM_EVENT}`]: 'custom_event',
 }
 
 export function Paths() {
     const canvas = useRef(null)
     const { paths, filter, pathsLoading } = useValues(pathsLogic)
     const { setFilter } = useActions(pathsLogic)
+    const { customEventNames } = useValues(userLogic)
 
     const [modalVisible, setModalVisible] = useState(false)
     const [eventelements, setEventelements] = useState(null)
@@ -217,14 +224,14 @@ export function Paths() {
                     : stripHTTP(d.name)
             )
             .on('click', async node => {
-                if (filter.type == '$autocapture') {
+                if (filter.type == AUTOCAPTURE) {
                     setModalVisible(true)
                     setEventelements(null)
                     let result = await api.get('api/event/' + node.id)
                     setEventelements(result)
                 }
             })
-            .style('cursor', filter.type == '$autocapture' ? 'pointer' : 'auto')
+            .style('cursor', filter.type == AUTOCAPTURE ? 'pointer' : 'auto')
 
         textSelection
             .append('tspan')
@@ -247,9 +254,9 @@ export function Paths() {
                             <Row align="middle">
                                 Path Type:
                                 <Select
-                                    value={filter.type || '$pageview'}
+                                    value={filter.type || PAGEVIEW}
                                     bordered={false}
-                                    defaultValue="$pageview"
+                                    defaultValue={PAGEVIEW}
                                     dropdownMatchSelectWidth={false}
                                     onChange={value => setFilter({ type: value, start: null })}
                                 >
@@ -266,8 +273,20 @@ export function Paths() {
                             <Row align="middle">
                                 Start:
                                 <PropertyValue
-                                    endpoint={filter.type === '$autocapture' && 'api/paths/elements'}
-                                    onSet={value => setFilter({ start: value })}
+                                    endpoint={filter.type === AUTOCAPTURE && 'api/paths/elements'}
+                                    outerOptions={
+                                        filter.type === CUSTOM_EVENT &&
+                                        customEventNames.map(name => ({
+                                            name,
+                                        }))
+                                    }
+                                    onSet={value => {
+                                        if (filter.type == AUTOCAPTURE) {
+                                            if (!isNaN(value)) setFilter({ start: value })
+                                        } else {
+                                            setFilter({ start: value })
+                                        }
+                                    }}
                                     propertyKey={pathOptionsToProperty[filter.type]}
                                     type="event"
                                     style={{ width: 200 }}
@@ -290,9 +309,7 @@ export function Paths() {
                     </Row>
                 }
             >
-                {filter.type == '$autocapture' && (
-                    <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
-                )}
+                {filter.type == AUTOCAPTURE && <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>}
                 <div ref={canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
                     {!pathsLoading && paths && paths.nodes.length === 0 ? (
                         <NoData />
