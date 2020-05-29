@@ -1,7 +1,7 @@
 from rest_framework import viewsets
 from rest_framework.response import Response
 from posthog.models import Event, Filter
-from posthog.utils import request_to_date_query, dict_from_cursor_fetchall
+from posthog.utils import request_to_date_query
 from django.db.models import OuterRef
 from django.db import connection
 from typing import Optional
@@ -42,6 +42,30 @@ class PathsViewSet(viewsets.ViewSet):
                 event_filter = {'event__regex':'^[^\$].*'}
                 path_type = "event"
         return event, path_type, event_filter
+    
+    def _apply_start_point(self, query_string: str, start_point:str) -> str:
+        marked = '\
+            SELECT *, CASE WHEN properties->>\'$current_url\' ~ \'{}\' THEN timestamp ELSE NULL END as mark from ({}) as sessionified\
+        '.format(start_point, query_string)
+
+        marked_plus = '\
+            SELECT *, MAX(mark) OVER (\
+                    PARTITION BY distinct_id\
+                    , session ORDER BY timestamp\
+                    ) AS max from ({}) as marked order by session\
+        '.format(marked)
+
+        sessionified = '\
+            SELECT * FROM ({}) as something where timestamp >= max \
+        '.format(marked_plus)
+        return sessionified
+    
+    def _add_elements(self, query_string: str) -> str:
+        element = 'SELECT \'<\'|| e."tag_name" || \'> \'  || e."text" as tag_name_source, e."text" as text_source FROM "posthog_element" e JOIN \
+                    ( SELECT group_id, MIN("posthog_element"."order") as minOrder FROM "posthog_element" GROUP BY group_id) e2 ON e.order = e2.minOrder AND e.group_id = e2.group_id where e.group_id = v2.group_id'
+        element_group = 'SELECT g."id" as group_id FROM "posthog_elementgroup" g where v1."elements_hash" = g."hash"'
+        sessions_sql = 'SELECT * FROM ({}) as v1 JOIN LATERAL ({}) as v2 on true JOIN LATERAL ({}) as v3 on true'.format(query_string, element_group, element)
+        return sessions_sql
 
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
     # To avoid unexpected results should convert date range to timestamps with timezone.
@@ -68,10 +92,7 @@ class PathsViewSet(viewsets.ViewSet):
         sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
 
         if event == "$autocapture":
-                element = 'SELECT \'<\'|| e."tag_name" || \'> \'  || e."text" as tag_name_source, e."text" as text_source FROM "posthog_element" e JOIN \
-                    ( SELECT group_id, MIN("posthog_element"."order") as minOrder FROM "posthog_element" GROUP BY group_id) e2 ON e.order = e2.minOrder AND e.group_id = e2.group_id where e.group_id = v2.group_id'
-                element_group = 'SELECT g."id" as group_id FROM "posthog_elementgroup" g where v1."elements_hash" = g."hash"'
-                sessions_sql = 'SELECT * FROM ({}) as v1 JOIN LATERAL ({}) as v2 on true JOIN LATERAL ({}) as v3 on true'.format(sessions_sql, element_group, element)
+            sessions_sql = self._add_elements(query_string=sessions_sql)
 
         events_notated = '\
         SELECT *, CASE WHEN EXTRACT(\'EPOCH\' FROM (timestamp - previous_timestamp)) >= (60 * 30) OR previous_timestamp IS NULL THEN 1 ELSE 0 END AS new_session\
@@ -87,20 +108,7 @@ class PathsViewSet(viewsets.ViewSet):
         '.format(events_notated)
 
         if start_point:
-            marked = '\
-            SELECT *, CASE WHEN properties->>\'$current_url\' ~ \'{}\' THEN timestamp ELSE NULL END as mark from ({}) as sessionified\
-            '.format(start_point, sessionified)
-
-            marked_plus = '\
-                SELECT *, MAX(mark) OVER (\
-                        PARTITION BY distinct_id\
-                        , session ORDER BY timestamp\
-                        ) AS max from ({}) as marked order by session\
-            '.format(marked)
-
-            sessionified = '\
-                SELECT * FROM ({}) as something where timestamp >= max \
-            '.format(marked_plus)
+            sessionified = self._apply_start_point(query_string=sessionified, start_point=start_point)
 
         final = '\
         SELECT {} as path_type, id, sessionified.session\

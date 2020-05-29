@@ -14,17 +14,26 @@ export class PropertyValue extends Component {
         }
 
         this.loadPropertyValues = debounce(this.loadPropertyValues.bind(this), 250)
-        this.loadPropertyValues('')
+        this.loadPropertyValues('', props.propertyKey)
     }
-    loadPropertyValues(value) {
-        let key = this.props.propertyKey.split('__')[0]
+
+    componentWillReceiveProps(nextProps) {
+        if (this.props.propertyKey != nextProps.propertyKey) {
+            this.setState({ optionsCache: [], options: [] }, () => this.loadPropertyValues('', nextProps.propertyKey))
+        }
+    }
+
+    loadPropertyValues(value, propertyKey) {
+        let key = propertyKey.split('__')[0]
 
         this.setState({ input: value, optionsCache: { ...this.state.optionsCache, [value]: 'loading' } })
-        api.get('api/' + this.props.type + '/values/?key=' + key + (value ? '&value=' + value : '')).then(propValues =>
-            this.setState({
-                options: [...new Set([...this.state.options, ...propValues.map(option => option.name)])],
-                optionsCache: { ...this.state.optionsCache, [value]: true },
-            })
+        api.get('api/' + this.props.type + '/values/?key=' + key + (value ? '&value=' + value : '')).then(
+            propValues => {
+                this.setState({
+                    options: [...new Set([...this.state.options, ...propValues.map(option => option.name)])],
+                    optionsCache: { ...this.state.optionsCache, [value]: true },
+                })
+            }
         )
     }
     render() {

@@ -2,8 +2,7 @@ import React, { useRef, useState, useEffect } from 'react'
 import api from 'lib/api'
 import { Card, Loading } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter'
-import { PathSelect } from '~/lib/components/PathSelect'
-import { Row, Modal, Button, Spin } from 'antd'
+import { Row, Modal, Button, Spin, Select } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
@@ -60,6 +59,20 @@ function NoData() {
             use the <pre style={{ display: 'inline' }}>$current_url</pre> property to calculate paths.
         </div>
     )
+}
+
+const pathOptionsToLabels = {
+    $pageview: 'Pageview (Web)',
+    $screen: 'Screen (Mobile)',
+    $autocapture: 'Autocaptured Events',
+    custom_event: 'Custom Events',
+}
+
+const pathOptionsToProperty = {
+    $pageview: '$current_url',
+    $screen: '$screen',
+    $autocapture: 'event',
+    custom_event: 'event',
 }
 
 export function Paths() {
@@ -233,14 +246,28 @@ export function Paths() {
                         <Row>
                             <Row align="middle">
                                 Path Type:
-                                <PathSelect value={filter.type} onChange={value => setFilter({ type: value })} />
+                                <Select
+                                    value={filter.type || '$pageview'}
+                                    bordered={false}
+                                    defaultValue="$pageview"
+                                    dropdownMatchSelectWidth={false}
+                                    onChange={value => setFilter({ type: value, start: null })}
+                                >
+                                    {Object.entries(pathOptionsToLabels).map(([value, name], index) => {
+                                        return (
+                                            <Select.Option key={index} value={value}>
+                                                {name}
+                                            </Select.Option>
+                                        )
+                                    })}
+                                </Select>
                             </Row>
 
                             <Row align="middle">
                                 Start:
                                 <PropertyValue
                                     onSet={value => setFilter({ start: value })}
-                                    propertyKey={'$current_url'}
+                                    propertyKey={pathOptionsToProperty[filter.type]}
                                     type="event"
                                     style={{ width: 200 }}
                                     bordered={false}
