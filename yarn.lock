@@ -5434,6 +5434,11 @@ kea-loaders@^0.2.2:
   resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.2.2.tgz#36bbdf6472a28266fb309f7c18618e8db3c397f2"
   integrity sha512-0GnS0i4ZoJ6Xx+sMr6HBeXv8o5dPDkM+y6mpNqdi7yFuejio/SWD4PKKOej8wMBKmeveCPRrYi8rjIFlQCd2wQ==
 
+kea-localstorage@^1.0.2:
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/kea-localstorage/-/kea-localstorage-1.0.2.tgz#2ff78abcea3ffcd2c8ce8affec09f87a9ae72fbb"
+  integrity sha512-/HtVHJdyjdrX35LbvCBzF8ZNqUy9+nF7HpW/+T8vWOqjA9YCRL1p40cCZSEWoSiDVVqkx9hlpTA3SnIhNReUbg==
+
 kea-router@^0.3.0:
   version "0.3.0"
   resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-0.3.0.tgz#2478b3669c769a5458f3b7a2157a370e203d43c6"

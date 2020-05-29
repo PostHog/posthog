@@ -5,12 +5,14 @@ import { Provider } from 'react-redux'
 import { resetContext, getContext } from 'kea'
 import { routerPlugin } from 'kea-router'
 import { loadersPlugin } from 'kea-loaders'
+import localStoragePlugin from 'kea-localstorage'
 
 import App from './scenes/App'
 import { toast } from 'react-toastify'
 
 resetContext({
     plugins: [
+        localStoragePlugin,
         routerPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }) {
