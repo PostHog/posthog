@@ -9,6 +9,7 @@ import { styles } from '~/editor/styles'
 import { Toolbar } from '~/editor/Toolbar'
 import { dockLogic } from '~/editor/dockLogic'
 import { Button } from 'antd'
+import { CloseOutlined } from '@ant-design/icons'
 
 window.simmer = new Simmer(window, { depth: 8 })
 
@@ -42,8 +43,12 @@ function App(props) {
 
                 {showToolbar ? (
                     <div id="toolbar" className={`${showInvisibleToolbar ? 'toolbar-invisible' : ''}`}>
-                        <Button type="link" onClick={float}>
-                            {'<< Float'}
+                        <Button
+                            className={`toolbar-close-button${dockStatus === 'complete' ? ' visible' : ''}`}
+                            type="link"
+                            onClick={float}
+                        >
+                            <CloseOutlined />
                         </Button>
                         <Toolbar {...props} apiURL={apiURL} />
                     </div>

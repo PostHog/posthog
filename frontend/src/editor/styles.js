@@ -69,6 +69,7 @@ export const styles = `
         --zoom-out: 0.7;
         --padding: 30px;
         --sidebar-width: 300px;
+        
         background-size: 100%;
         transform: scale(calc(1 / var(--zoom-out)));
         transform-origin: top right;
@@ -111,6 +112,22 @@ export const styles = `
     }
     #toolbar .float-box.button small {
         color: hsla(220, 16%, 49%, 1)
+    }
+    #toolbar .toolbar-close-button {
+        top: calc(0px - var(--padding) * 0.8);
+        right: calc(-10px - var(--padding) * 0.8);
+        position: absolute;
+        color: hsla(240, 14%, 75%, 1);
+        font-size: 22px;
+        opacity: 0;
+        transition: opacity ease 1s;
+    }
+    #toolbar .toolbar-close-button.visible {
+        opacity: 1;
+    }
+        
+    #toolbar .toolbar-close-button:hover {
+        color: hsla(240, 14%, 42%, 1);
     }
 
 `
