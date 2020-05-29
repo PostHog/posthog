@@ -2,7 +2,7 @@ language: python
 python:
   - "3.6"      # current default Python on Travis CI
 node_js:
-  - "12"
+  - "11"
 cache:
   - pip
   - yarn
