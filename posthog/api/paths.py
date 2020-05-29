@@ -45,7 +45,7 @@ class PathsViewSet(viewsets.ViewSet):
                 event = None
                 event_filter = {'event__regex':'^[^\$].*'}
                 path_type = "event"
-                start_comparator = ""
+                start_comparator = "event ="
         return event, path_type, event_filter, start_comparator
 
     @action(methods=['GET'], detail=False)
