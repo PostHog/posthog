@@ -317,3 +317,24 @@ class TestCapture(BaseTest):
         timediff = arguments['sent_at'].timestamp() - tomorrow_sent_at.timestamp()
         self.assertLess(abs(timediff), 1)
         self.assertEqual(arguments['data']['timestamp'], tomorrow.isoformat())
+
+class TestDecide(BaseTest):
+    TESTS_API = True
+
+    def test_user_on_own_site(self):
+        self.team.app_urls = ['https://example.com/maybesubdomain']
+        self.team.save()
+        response = self.client.get('/decide/', HTTP_ORIGIN='https://example.com').json()
+        self.assertEqual(response['is_authenticated'], True)
+
+    def test_user_on_evil_site(self):
+        self.team.app_urls = ['https://example.com']
+        self.team.save()
+        response = self.client.get('/decide/', HTTP_ORIGIN='https://evilsite.com').json()
+        self.assertEqual(response['is_authenticated'], False)
+
+    def test_user_on_local_host(self):
+        self.team.app_urls = ['https://example.com']
+        self.team.save()
+        response = self.client.get('/decide/', HTTP_ORIGIN='http://127.0.0.1:8000').json()
+        self.assertEqual(response['is_authenticated'], True)
