@@ -1,0 +1,13 @@
+language: python
+python:
+  - "3.6"      # current default Python on Travis CI
+install:
+  - pip install -r requirements.txt
+  - pip install -r requirements/dev.txt
+services:
+  - postgresql
+  - redis
+env:
+  - DEBUG=1
+script:
+  - python manage.py test --keepdb -v 2
