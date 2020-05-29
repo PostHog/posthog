@@ -1,14 +1,16 @@
 language: python
 python:
-  - "3.6"      # current default Python on Travis CI
+  - "3.7"
 node_js:
-  - "11"
+  - 11
 cache:
   - pip
   - yarn
 install:
   - pip install -r requirements.txt
   - pip install -r requirements/dev.txt
+  - node --version
+  - yarn --version
   - yarn install
 services:
   - postgresql
