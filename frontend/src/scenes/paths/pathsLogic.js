@@ -4,6 +4,25 @@ import api from 'lib/api'
 import { router } from 'kea-router'
 import lo from 'lodash'
 
+export const PAGEVIEW = '$pageview'
+export const SCREEN = '$screen'
+export const AUTOCAPTURE = '$autocapture'
+export const CUSTOM_EVENT = 'custom_event'
+
+export const pathOptionsToLabels = {
+    [`${PAGEVIEW}`]: 'Pageview (Web)',
+    [`${SCREEN}`]: 'Screen (Mobile)',
+    [`${AUTOCAPTURE}`]: 'Autocaptured Events',
+    [`${CUSTOM_EVENT}`]: 'Custom Events',
+}
+
+export const pathOptionsToProperty = {
+    [`${PAGEVIEW}`]: '$current_url',
+    [`${SCREEN}`]: '$screen_name',
+    [`${AUTOCAPTURE}`]: 'autocaptured_event',
+    [`${CUSTOM_EVENT}`]: 'custom_event',
+}
+
 export const pathsLogic = kea({
     loaders: ({ values }) => ({
         paths: {
@@ -47,12 +66,16 @@ export const pathsLogic = kea({
         setProperties: properties => ({ properties }),
         setFilter: filter => filter,
     }),
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         setProperties: () => {
             actions.loadPaths()
         },
         setFilter: () => {
-            actions.loadPaths()
+            if (
+                values.filter.type !== AUTOCAPTURE ||
+                (values.filter.type === AUTOCAPTURE && !isNaN(values.filter.start))
+            )
+                actions.loadPaths()
         },
     }),
     selectors: ({ selectors }) => ({

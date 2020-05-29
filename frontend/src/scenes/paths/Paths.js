@@ -9,7 +9,15 @@ import * as Sankey from 'd3-sankey'
 
 import { PropertyFilters, PropertyValue } from 'lib/components/PropertyFilters'
 import { useActions, useValues } from 'kea'
-import { pathsLogic } from 'scenes/paths/pathsLogic'
+import {
+    pathsLogic,
+    PAGEVIEW,
+    SCREEN,
+    AUTOCAPTURE,
+    CUSTOM_EVENT,
+    pathOptionsToLabels,
+    pathOptionsToProperty,
+} from 'scenes/paths/pathsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 let stripHTTP = url => {
@@ -60,25 +68,6 @@ function NoData() {
             use the <pre style={{ display: 'inline' }}>$current_url</pre> property to calculate paths.
         </div>
     )
-}
-
-const PAGEVIEW = '$pageview'
-const SCREEN = '$screen'
-const AUTOCAPTURE = '$autocapture'
-const CUSTOM_EVENT = 'custom_event'
-
-const pathOptionsToLabels = {
-    [`${PAGEVIEW}`]: 'Pageview (Web)',
-    [`${SCREEN}`]: 'Screen (Mobile)',
-    [`${AUTOCAPTURE}`]: 'Autocaptured Events',
-    [`${CUSTOM_EVENT}`]: 'Custom Events',
-}
-
-const pathOptionsToProperty = {
-    [`${PAGEVIEW}`]: '$current_url',
-    [`${SCREEN}`]: '$screen_name',
-    [`${AUTOCAPTURE}`]: 'autocaptured_event',
-    [`${CUSTOM_EVENT}`]: 'custom_event',
 }
 
 export function Paths() {
@@ -280,13 +269,7 @@ export function Paths() {
                                             name,
                                         }))
                                     }
-                                    onSet={value => {
-                                        if (filter.type == AUTOCAPTURE) {
-                                            if (!isNaN(value)) setFilter({ start: value })
-                                        } else {
-                                            setFilter({ start: value })
-                                        }
-                                    }}
+                                    onSet={value => setFilter({ start: value })}
                                     propertyKey={pathOptionsToProperty[filter.type]}
                                     type="event"
                                     style={{ width: 200 }}
