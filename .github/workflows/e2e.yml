@@ -1,10 +1,10 @@
-name: e2e
+name: E2E
 
 on: [pull_request]
 
 jobs:
 
-  test:
+  test_e2e:
     runs-on: ubuntu-latest
 
     services:
@@ -59,9 +59,13 @@ jobs:
         run: |
           yarn install    
         if: steps.cache.outputs.cache-hit != 'true'
+      - name: build frontend
+        run: |
+          yarn build
       - name: Run tests
         env:
           DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
         run: |
-          yarn build
-          gunicorn posthog.wsgi --config gunicorn.config.py --bind 0.0.0.0:8000 --log-file - --worker-tmp-dir /dev/shm --workers=2 --threads=4 --worker-class=gthread & yarn run cypress run --config-file cypress.json
+          gunicorn posthog.wsgi --config gunicorn.config.py --bind 0.0.0.0:8000 --log-file - --worker-tmp-dir /dev/shm --workers=2 --threads=4 --worker-class=gthread --daemon
+          sleep 30
+          yarn run cypress run --config-file cypress.json
