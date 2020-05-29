@@ -53,6 +53,11 @@ jobs:
         with:
           python-version: 3.7
 
+      # Install Node.js
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 12
+
       - uses: actions/cache@v1
         with:
           path: ~/.cache/pip
