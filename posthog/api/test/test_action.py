@@ -212,6 +212,29 @@ class TestTrends(BaseTest):
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
+    def test_trends_per_day_cumulative(self):
+        self._create_events()
+        with freeze_time('2020-01-04T13:00:01Z'):
+            with self.assertNumQueries(14):
+                action_response = self.client.get('/api/action/trends/?date_from=-7d&display=ActionsLineGraphCumulative').json()
+                event_response = self.client.get(
+                    '/api/action/trends/',
+                    data={
+                        'date_from': '-7d',
+                        'events': jdumps([{'id': "sign up"}, {'id': "no events"}]),
+                        'display': 'ActionsLineGraphCumulative'
+                    },
+                ).json()
+
+        self.assertEqual(action_response[0]['label'], 'sign up')
+        self.assertEqual(action_response[0]['labels'][4], 'Wed. 1 January')
+        self.assertEqual(action_response[0]['data'][4], 3.0)
+        self.assertEqual(action_response[0]['labels'][5], 'Thu. 2 January')
+        self.assertEqual(action_response[0]['data'][5], 4.0)
+        self.assertEqual(event_response[0]['label'], 'sign up')
+
+        self.assertTrue(self._compare_entity_response(action_response, event_response))
+
     def test_trends_compare(self):
         self._create_events()
         with freeze_time('2020-01-04T13:00:01Z'):

@@ -22,6 +22,7 @@ class Filter(PropertyMixin):
     properties: List[Property] = []
     interval: Optional[str] = None
     entities: List[Entity] = []
+    display: Optional[str] = None
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None) -> None:
         if request:
@@ -38,6 +39,7 @@ class Filter(PropertyMixin):
         self.entities = data.get('entities', [])
         self.properties = self._parse_properties(data.get('properties'))
         self.interval = data.get('interval')
+        self.display = data.get('display')
 
         if data.get('actions'):
             self.entities.extend([Entity({**entity, 'type': TREND_FILTER_TYPE_ACTIONS}) for entity in data.get('actions', [])])
