@@ -40,7 +40,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, reloadKey }) 
                     <tr>
                         <th>Event</th>
                         <th>Person</th>
-                        <th>URL / Screen</th>
+                        <th>Path / Screen</th>
                         <th>Source</th>
                         <th onClick={flipSort}>
                             When <i className="fi flaticon-sort" />
