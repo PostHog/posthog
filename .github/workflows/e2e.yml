@@ -9,6 +9,7 @@ jobs:
       - name: Prepare server
         run: |
           docker pull posthog/posthog:dev
+          docker build . -f dev.Dockerfile --cache-from=posthog/posthog:dev
           docker-compose -f docker-compose.e2e.yml up -d
       - name: Check running containers
         run: docker ps -a
@@ -18,4 +19,5 @@ jobs:
         run: |
           sleep 30
           docker-compose exec -T web yarn add cypress
+          docker-compose exec -T apt-get install xvfb
           docker-compose exec -T web yarn run cypress run --config-file cypress.json
