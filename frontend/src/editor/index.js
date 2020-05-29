@@ -4,6 +4,8 @@ import Simmer from 'simmerjs'
 import root from 'react-shadow'
 import { ActionEdit } from '../scenes/actions/ActionEdit'
 import Draggable from 'react-draggable'
+import { getContext } from 'kea'
+import { Provider } from 'react-redux'
 
 window.simmer = new Simmer(window, { depth: 8 })
 
@@ -179,11 +181,13 @@ window.ph_load_editor = function(editorParams) {
     document.body.appendChild(container)
 
     ReactDOM.render(
-        <App
-            apiURL={editorParams.apiURL}
-            temporaryToken={editorParams.temporaryToken}
-            actionId={editorParams.actionId}
-        />,
+        <Provider store={getContext().store}>
+            <App
+                apiURL={editorParams.apiURL}
+                temporaryToken={editorParams.temporaryToken}
+                actionId={editorParams.actionId}
+            />
+        </Provider>,
         container
     )
 }

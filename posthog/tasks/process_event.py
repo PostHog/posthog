@@ -1,4 +1,5 @@
 from celery import shared_task
+from django.core import serializers
 from posthog.models import Person, Element, Event, Team, PersonDistinctId
 from typing import Union, Dict, Optional
 from dateutil.relativedelta import relativedelta
@@ -8,7 +9,8 @@ from sentry_sdk import capture_exception
 from django.db import IntegrityError
 import datetime
 
-def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed:bool = True) -> None:
+
+def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True) -> None:
     old_person: Optional[Person] = None
     new_person: Optional[Person] = None
 
@@ -65,6 +67,7 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
 
         old_person.delete()
 
+
 def _store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
     # In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
     save = False
@@ -78,7 +81,14 @@ def _store_names_and_properties(team: Team, event: str, properties: Dict) -> Non
     if save:
         team.save()
 
-def _capture(ip: str, site_url: str, team_id: int, event: str, distinct_id: str, properties: Dict, timestamp: Union[datetime.datetime, str]) -> None:
+
+def _capture(ip: str,
+             site_url: str,
+             team_id: int,
+             event: str,
+             distinct_id: str,
+             properties: Dict,
+             timestamp: Union[datetime.datetime, str]) -> None:
     elements = properties.get('$elements')
     elements_list = None
     if elements:
@@ -109,11 +119,10 @@ def _capture(ip: str, site_url: str, team_id: int, event: str, distinct_id: str,
         **({'elements': elements_list} if elements_list else {})
     )
     _store_names_and_properties(team=team, event=event, properties=properties)
-    # try to create a new person
-    try:
+
+    if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
         Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-    except IntegrityError: 
-        pass # person already exists, which is fine
+
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
     try:
@@ -126,6 +135,7 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
             person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
     person.properties.update(properties)
     person.save()
+
 
 def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[datetime.datetime, str]:
     if data.get('timestamp'):
@@ -144,6 +154,7 @@ def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[dat
     if data.get('offset'):
         return now_datetime - relativedelta(microseconds=data['offset'] * 1000)
     return now_datetime
+
 
 @shared_task
 def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str]) -> None:

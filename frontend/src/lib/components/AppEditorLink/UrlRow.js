@@ -68,7 +68,9 @@ export function UrlRow({ actionId, url, saveUrl, deleteUrl, allowNavigation }) {
                 </div>
             ) : (
                 <div key="list" style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                    <a href={appEditorUrl(actionId, editedValue)} onClick={e => !allowNavigation && e.preventDefault()}>
+                    <a
+                    data-attr="app-url-item"
+                    href={appEditorUrl(actionId, editedValue)} onClick={e => !allowNavigation && e.preventDefault()}>
                         {editedValue}
                     </a>
                     <span style={{ float: 'right' }}>

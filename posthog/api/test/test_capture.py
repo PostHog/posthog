@@ -17,6 +17,9 @@ class TestCapture(BaseTest):
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode('utf-8')).decode('utf-8')
 
+    def _dict_from_b64(self, data: str) -> dict:
+        return json.loads(base64.b64decode(data))
+
     @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')
     def test_capture_event(self, patch_process_event):
@@ -223,6 +226,37 @@ class TestCapture(BaseTest):
         })
         arguments = patch_process_event.call_args[1]
         self.assertEqual(arguments['team_id'], self.team.pk)
+
+    @patch('posthog.api.capture.TEAM_ID_CACHE', {})
+    @patch('posthog.tasks.process_event.process_event.delay')
+    def test_base64_decode_variations(self, patch_process_event):
+        base64 = "eyJldmVudCI6IiRwYWdldmlldyIsInByb3BlcnRpZXMiOnsiZGlzdGluY3RfaWQiOiJlZWVlZWVlZ8+lZWVlZWUifX0="
+        dict = self._dict_from_b64(base64)
+        self.assertDictEqual(dict, {
+            'event': '$pageview',
+            'properties': {
+                'distinct_id': 'eeeeeeegϥeeeee',
+            },
+        })
+
+        # POST with "+" in the base64
+        self.client.post('/track/', data={
+            'data': base64,
+            'api_key': self.team.api_token # main difference in this test
+        })
+        arguments = patch_process_event.call_args[1]
+        self.assertEqual(arguments['team_id'], self.team.pk)
+        self.assertEqual(arguments['distinct_id'], 'eeeeeeegϥeeeee')
+
+        # POST with " " in the base64 instead of the "+"
+        self.client.post('/track/', data={
+            'data': base64.replace("+", " "),
+            'api_key': self.team.api_token # main difference in this test
+        })
+        arguments = patch_process_event.call_args[1]
+        self.assertEqual(arguments['team_id'], self.team.pk)
+        self.assertEqual(arguments['distinct_id'], 'eeeeeeegϥeeeee')
+
 
     @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')

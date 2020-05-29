@@ -1,6 +1,7 @@
 import React, { Component } from 'react'
 import { EventName } from './EventName'
 import { AppEditorLink } from '../../lib/components/AppEditorLink/AppEditorLink'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 
 let getSafeText = el => {
@@ -193,7 +194,7 @@ export class ActionStep extends Component {
                     </button>
                     <button
                         type="button"
-                        onClick={() => this.sendStep({ ...step, event: '' })}
+                        onClick={() => this.setState({ selection: [] }, () => this.sendStep({ ...step, event: '' }))}
                         className={
                             'btn ' +
                             (typeof step.event !== 'undefined' &&
@@ -227,20 +228,6 @@ export class ActionStep extends Component {
                         Page view
                     </button>
                 </div>
-                {step.event != null && step.event != '$autocapture' && step.event != '$pageview' && (
-                    <div style={{ marginTop: '2rem' }}>
-                        <label>Event name</label>
-                        <EventName
-                            value={step.event}
-                            onChange={value =>
-                                this.sendStep({
-                                    ...step,
-                                    event: value,
-                                })
-                            }
-                        />
-                    </div>
-                )}
             </div>
         )
     }
@@ -266,22 +253,18 @@ export class ActionStep extends Component {
                         </a>{' '}
                     </span>
                 )}
-                {(isEditor || step.selector || step.href || step.text) && (
-                    <span>
-                        <this.Option
-                            item="href"
-                            label="Link href"
-                            selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') + '"]'}
-                        />
-                        <this.Option item="text" label="Text" />
-                        <this.Option item="selector" label="Selector" selector={step.selector} />
-                        <this.Option
-                            item="url"
-                            extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
-                            label="URL"
-                        />
-                    </span>
-                )}
+                <this.Option
+                    item="href"
+                    label="Link href"
+                    selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') + '"]'}
+                />
+                <this.Option item="text" label="Text" />
+                <this.Option item="selector" label="Selector" selector={step.selector} />
+                <this.Option
+                    item="url"
+                    extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
+                    label="URL"
+                />
             </div>
         )
     }
@@ -309,7 +292,7 @@ export class ActionStep extends Component {
         )
     }
     render() {
-        let { step, isEditor, actionId } = this.props
+        let { step, isEditor, actionId, isOnlyStep } = this.props
 
         return (
             <div
@@ -320,7 +303,7 @@ export class ActionStep extends Component {
                 }}
             >
                 <div className={isEditor ? '' : 'card-body'}>
-                    {(!isEditor || step.event === '$autocapture' || !step.event) && (
+                    {!isOnlyStep && (!isEditor || step.event === '$autocapture' || !step.event) && (
                         <button
                             style={{
                                 margin: isEditor ? '12px 12px 0px 0px' : '-3px 0 0 0',
@@ -352,6 +335,30 @@ export class ActionStep extends Component {
 
                         {step.event === '$autocapture' && (
                             <this.AutocaptureFields step={step} isEditor={isEditor} actionId={actionId} />
+                        )}
+                        {step.event != null && step.event != '$autocapture' && step.event != '$pageview' && (
+                            <div style={{ marginTop: '2rem' }}>
+                                <label>Event name: {step.event}</label>
+                                <EventName
+                                    value={step.event}
+                                    onChange={value =>
+                                        this.sendStep({
+                                            ...step,
+                                            event: value,
+                                        })
+                                    }
+                                />
+                                <PropertyFilters
+                                    propertyFilters={step.properties}
+                                    pageKey={'action-edit'}
+                                    onChange={properties => {
+                                        this.sendStep({
+                                            ...this.props.step, // Not sure why, but the normal 'step' variable does not work here
+                                            properties,
+                                        })
+                                    }}
+                                />
+                            </div>
                         )}
                         {step.event === '$pageview' && (
                             <div>
