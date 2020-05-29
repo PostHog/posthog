@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import ReactDOM from 'react-dom'
 import Simmer from 'simmerjs'
 import root from 'react-shadow'
@@ -14,7 +14,8 @@ window.simmer = new Simmer(window, { depth: 8 })
 
 function App(props) {
     const apiURL = `${props.apiURL}${props.apiURL.endsWith('/') ? '' : '/'}`
-    const logic = dockLogic({ mode: 'float' })
+    const shadow = useRef(null)
+    const logic = dockLogic({ mode: 'float', shadowRef: shadow })
     const { dockStatus, floatStatus } = useValues(logic)
     const { dock, float } = useActions(logic)
 
@@ -26,7 +27,7 @@ function App(props) {
 
     return (
         <>
-            <root.div>
+            <root.div ref={shadow}>
                 <link href={`${apiURL}static/editor.css`} rel="stylesheet" crossOrigin="anonymous" />
                 <style>{styles}</style>
 

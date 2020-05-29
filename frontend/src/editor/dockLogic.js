@@ -1,28 +1,34 @@
-// props:
-// - mode: 'dock' | 'zoom'
 import { kea } from 'kea'
 
+// props:
+// - mode: 'dock' | 'zoom'
+// - shadowRef: shadowRoot ref
 export const dockLogic = kea({
     // transition steps:
     // - dock: disabled, animating, fading, complete
     // - float: disabled, animating, fading, complete
-    // call dock/float and it will
+    // call dock/float and it will start
     actions: () => ({
-        dock: () => ({ mode: 'dock' }),
-        dockAnimated: () => ({ mode: 'dock' }),
-        dockFaded: () => ({ mode: 'dock' }),
-        float: () => ({ mode: 'float' }),
-        floatAnimated: () => ({ mode: 'float' }),
-        floatFaded: () => ({ mode: 'float' }),
+        // public
+        dock: true,
+        float: true,
+        update: true,
+
+        // private
+        dockAnimated: true,
+        floatAnimated: true,
+        dockFaded: true,
+        floatFaded: true,
+        setMode: (mode, update = false, windowWidth = window.innerWidth) => ({ mode, update, windowWidth }),
     }),
 
     reducers: ({ props }) => ({
-        docked: [
-            props.mode === 'dock',
+        mode: [
+            props.mode,
             { persist: true },
             {
-                dock: () => true,
-                float: () => false,
+                dock: () => 'dock',
+                float: () => 'float',
             },
         ],
         dockStatus: [
@@ -49,79 +55,131 @@ export const dockLogic = kea({
         ],
     }),
 
-    listeners: ({ sharedListeners }) => ({
-        dock: sharedListeners.setMode,
-        float: sharedListeners.setMode,
-    }),
-
-    events: ({ actions, values }) => ({
+    events: ({ cache, actions, values }) => ({
         afterMount: () => {
-            if (values.docked) {
+            if (values.mode === 'dock') {
                 actions.dock()
             } else {
                 actions.float()
             }
+            cache.listener = () => actions.update()
+            window.addEventListener('scroll', cache.listener)
+            window.addEventListener('resize', cache.listener)
+        },
+        beforeUnmount: () => {
+            window.removeEventListener('scroll', cache.listener)
+            window.removeEventListener('resize', cache.listener)
         },
     }),
 
-    sharedListeners: ({ actions }) => ({
-        setMode: async ({ mode }, breakpoint) => {
-            const zoom = 0.7
+    listeners: ({ actions, values, props }) => ({
+        dock: () => actions.setMode('dock', false),
+        float: () => actions.setMode('float', false),
+        update: () => actions.setMode(values.mode, true),
+        setMode: async ({ mode, update, windowWidth }, breakpoint) => {
+            const padding = 30
+            const sidebarWidth = 300
+            const bodyWidth = windowWidth - sidebarWidth - 3 * padding
+            const zoom = bodyWidth / windowWidth
+            const bodyStyle = window.document.body.style
+            const htmlStyle = window.document.querySelector('html').style
+            const shadowRef = props.shadowRef
 
-            window.requestAnimationFrame(() => {
-                window.document.body.style.overflow = 'hidden'
-                if (mode === 'dock') {
-                    window.document.querySelector('html').style.background = 'hsl(231, 17%, 22%)'
-                    window.document.body.style.transform = `scale(1) translate(0px 0px)`
-                    window.document.body.style.willChange = 'transform'
-                    window.document.body.style.transition =
-                        'transform ease 0.5s, min-height ease 0.5s, height ease 0.5s'
-                    window.document.body.style.transformOrigin = `top left`
-                    window.document.body.style.width = `100vw`
-                    window.document.body.style.height = `auto`
-                    window.document.body.style.minHeight = `calc(${100 / zoom}% - ${40 / zoom}px)`
-                    if (!window.document.body.style.backgroundColor) {
-                        window.document.body.style.backgroundColor = 'white'
+            // const setToolbarZoom = toolbarStyle.setProperty('--zoom-out', zoom)
+            function updateToolbar() {
+                if (shadowRef?.current) {
+                    const toolbarDiv = shadowRef.current.shadowRoot.getElementById('toolbar')
+                    if (toolbarDiv) {
+                        toolbarDiv.style.setProperty('--zoom-out', zoom)
+                        toolbarDiv.style.setProperty('--padding', `${padding}px`)
+                        toolbarDiv.style.setProperty('--sidebar-width', `${sidebarWidth}px`)
                     }
+                }
+            }
+
+            shadowRef?.current ? updateToolbar() : window.requestAnimationFrame(updateToolbar)
+
+            function setDockStyles(zoom, deferTransform = false) {
+                // dark mode:
+                // htmlStyle.background = 'hsl(231, 17%, 22%)'
+                htmlStyle.background =
+                    'linear-gradient(to right, hsla(234, 17%, 94%, 1) 71%, hsla(234, 17%, 99%, 1) 100%)'
+                bodyStyle.boxShadow = 'hsla(220, 14%, 76%, 1) 10px 10px 50px'
+                if (!bodyStyle.backgroundColor) {
+                    bodyStyle.backgroundColor = 'white'
+                }
+                bodyStyle.width = `100vw`
+                bodyStyle.height = `auto`
+                bodyStyle.minHeight = `calc(${100 / zoom}% - ${(2 * padding) / zoom}px)`
+
+                if (deferTransform) {
+                    // needed by the animation
                     window.requestAnimationFrame(() => {
-                        window.document.body.style.transform = `scale(${zoom}) translate(${20 / zoom}px, ${20 /
-                            zoom}px)`
+                        bodyStyle.transform = `scale(${zoom}) translate(${padding / zoom}px, ${padding / zoom}px)`
                     })
-                    attachScrollListener(zoom)
                 } else {
-                    window.document.querySelector('html').style.background = 'auto'
-                    window.document.body.style.transform = 'none'
-                    window.document.body.style.willChange = 'unset'
-                    removeScrollListener()
+                    bodyStyle.transform = `scale(${zoom}) translate(${padding / zoom}px, ${padding / zoom}px)`
                 }
-            })
+            }
 
-            await breakpoint(500)
-            window.requestAnimationFrame(() => {
-                window.document.body.style.overflow = 'auto'
-                if (mode === 'float') {
-                    window.document.body.style.width = `auto`
-                    window.document.body.style.minHeight = `auto`
+            if (update) {
+                if (mode === 'dock') {
+                    window.requestAnimationFrame(() => {
+                        setDockStyles(zoom, false)
+                    })
                 }
-                mode === 'dock' ? actions.dockAnimated() : actions.floatAnimated()
-            })
+            } else {
+                window.requestAnimationFrame(() => {
+                    bodyStyle.overflow = 'hidden'
+                    if (mode === 'dock') {
+                        setDockStyles(zoom, true)
 
-            await breakpoint(500)
-            window.requestAnimationFrame(() => {
-                mode === 'dock' ? actions.dockFaded() : actions.floatFaded()
-            })
+                        // anim code
+                        bodyStyle.transform = `scale(1) translate(0px 0px)`
+                        bodyStyle.willChange = 'transform'
+                        bodyStyle.transition = 'transform ease 0.5s, min-height ease 0.5s, height ease 0.5s'
+                        bodyStyle.transformOrigin = `top left`
+
+                        attachScrollListener(zoom, padding)
+                    } else {
+                        htmlStyle.background = 'auto'
+                        bodyStyle.transform = 'none'
+                        bodyStyle.willChange = 'unset'
+                        removeScrollListener()
+                    }
+                })
+
+                // 500ms later when we finished zooming in/out and the old element faded from the view
+                await breakpoint(500)
+                window.requestAnimationFrame(() => {
+                    updateToolbar()
+                    bodyStyle.overflow = 'auto'
+                    if (mode === 'float') {
+                        bodyStyle.width = `auto`
+                        bodyStyle.minHeight = `auto`
+                    }
+                    mode === 'dock' ? actions.dockAnimated() : actions.floatAnimated()
+                })
+
+                // 500ms later when it quieted down
+                await breakpoint(500)
+                window.requestAnimationFrame(() => {
+                    updateToolbar()
+                    mode === 'dock' ? actions.dockFaded() : actions.floatFaded()
+                })
+            }
         },
     }),
 })
 
 let listener
-function attachScrollListener(zoom = 0.7) {
+function attachScrollListener(zoom, padding) {
     listener = function() {
         const bodyElements = [...document.body.getElementsByTagName('*')]
         bodyElements
             .filter(x => getComputedStyle(x, null).getPropertyValue('position') === 'fixed')
             .forEach(e => {
-                const h = (window.pageYOffset + (window.pageYOffset > 20 ? -20 : 0)) / zoom
+                const h = (window.pageYOffset + (window.pageYOffset > padding ? -padding : 0)) / zoom
                 e.style.marginTop = `${h}px`
                 e.setAttribute('data-posthog-fix-fixed', 'yes')
             })

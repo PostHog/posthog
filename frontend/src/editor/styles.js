@@ -67,13 +67,15 @@ export const styles = `
     }
     #toolbar {
         --zoom-out: 0.7;
+        --padding: 30px;
+        --sidebar-width: 300px;
         background-size: 100%;
-            transform: scale(calc(1 / var(--zoom-out)));
+        transform: scale(calc(1 / var(--zoom-out)));
         transform-origin: top right;
-        width: calc(100vw * (1 - var(--zoom-out)) - 40px / var(--zoom-out));
-            height: calc(100vh - 40px);
+        width: var(--sidebar-width);
+        height: calc(100vh - 2 * var(--padding));
         top: 0;
-        right: calc(-100vw * (1 - var(--zoom-out)) / var(--zoom-out) + 40px / var(--zoom-out));
+        right: calc((-300px - var(--padding)) / var(--zoom-out));
         position: absolute;
         z-index:999999999;
         box-sizing: border-box;
@@ -90,14 +92,17 @@ export const styles = `
     }
     #toolbar .ant-tabs-bar {
         height: 50px;
-        color: white;
         border-bottom: 0;
+    }
+    #toolbar .ant-tabs-nav-scroll {
+        text-align: center;
     }
 
     #toolbar .ant-tabs-tabpane {
         background: white;
         padding: 20px;
         min-height: 50%;
+        box-shadow: hsla(220, 14%, 76%, 1) 10px 10px 10px;
     }
 
 `
