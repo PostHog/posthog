@@ -1,11 +1,14 @@
 language: python
 python:
   - "3.7"
-node_js:
-  - 11
 cache:
   - pip
   - yarn
+env:
+  - DEBUG=1
+  - NODE_VERSION="12.17.0"
+before_install:
+  - nvm install $NODE_VERSION
 install:
   - pip install -r requirements.txt
   - pip install -r requirements/dev.txt
@@ -15,8 +18,6 @@ install:
 services:
   - postgresql
   - redis
-env:
-  - DEBUG=1
 jobs:
   include:
     - name: 'Unit Tests'
