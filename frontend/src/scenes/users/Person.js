@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { EventsTable } from '../events/EventsTable'
+import { Events } from '../events/Events'
 import api from 'lib/api'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { deletePersonData } from 'lib/utils'
@@ -46,7 +46,7 @@ export function Person({ _: distinctId, id }) {
                     on how to add properties to users using libraries.
                 </small>
             </div>
-            <EventsTable fixedFilters={{ person_id: person.id }} />
+            <Events fixedFilters={{ person_id: person.id }} />
         </div>
     ) : null
 }

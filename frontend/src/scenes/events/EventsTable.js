@@ -6,8 +6,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { EventDetails } from 'scenes/events/EventDetails'
 import { Link } from 'lib/components/Link'
-import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
-import { Spin, Table, Tooltip } from 'antd'
+import { Button, Spin, Table, Tooltip } from 'antd'
 import { router } from 'kea-router'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
@@ -19,9 +18,8 @@ const eventNameMap = event => {
     return event.event
 }
 
-export function EventsTable({ fixedFilters, filtersEnabled = true, reloadKey }) {
-    const logic = eventsTableLogic({ fixedFilters, reloadKey })
-    const { properties, events, isLoading, hasNext, isLoadingNext, newEvents } = useValues(logic)
+export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLiveActions }) {
+    const { properties, eventsFormatted, isLoading, hasNext, isLoadingNext, newEvents } = useValues(logic)
     const { fetchNextEvents, prependNewEvents } = useActions(logic)
     const {
         location: { search },
@@ -40,7 +38,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, reloadKey }) 
                             ? item.date_break
                             : `There are ${newEvents.length} new events. Click here to load them`,
                         props: {
-                            colSpan: 5,
+                            colSpan: isLiveActions ? 6 : 5,
                         },
                     }
                 let { event } = item
@@ -108,17 +106,16 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, reloadKey }) 
             },
         },
     ]
-    let eventsFormatted = [...events.map(event => ({ event }))]
-    eventsFormatted.forEach((event, index) => {
-        if (
-            index > 0 &&
-            eventsFormatted[index - 1].event &&
-            !moment(event.event.timestamp).isSame(eventsFormatted[index - 1].event.timestamp, 'day')
-        ) {
-            eventsFormatted.splice(index, 0, { date_break: moment(event.event.timestamp).format('LL') })
-        }
-    })
-    if (newEvents.length > 0) eventsFormatted.splice(0, 0, { new_events: true })
+    if (isLiveActions)
+        columns.splice(0, 0, {
+            title: 'Action',
+            key: 'action',
+            render: function renderAction(item) {
+                if (!item.event) return { props: { colSpan: 0 } }
+                return <Link to={'/action/' + item.event.actionId}>{item.event.actionName}</Link>
+            },
+        })
+
     return (
         <div className="events" data-attr="events-table">
             <h1 className="page-header">Events</h1>
@@ -137,7 +134,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, reloadKey }) 
                     ),
                 }}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowKey={row => (row.event ? row.event.id : row.date_break)}
+                rowKey={row => (row.event ? row.event.id + '-' + row.event.actionId : row.date_break)}
                 rowClassName={row => {
                     if (row.event) return 'event-row'
                     if (row.date_break) return 'event-day-separator'
@@ -163,9 +160,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, reloadKey }) 
                     textAlign: 'center',
                 }}
             >
-                <button className="btn btn-primary" onClick={fetchNextEvents}>
+                <Button type="primary" onClick={fetchNextEvents}>
                     {isLoadingNext ? <Spin /> : 'Load more events'}
-                </button>
+                </Button>
             </div>
             <div style={{ marginTop: '5rem' }} />
         </div>
