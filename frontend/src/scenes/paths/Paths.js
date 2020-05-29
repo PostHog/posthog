@@ -70,7 +70,7 @@ const pathOptionsToLabels = {
 
 const pathOptionsToProperty = {
     $pageview: '$current_url',
-    $screen: '$screen',
+    $screen: '$screen_name',
     $autocapture: 'event',
     custom_event: 'event',
 }
@@ -266,6 +266,7 @@ export function Paths() {
                             <Row align="middle">
                                 Start:
                                 <PropertyValue
+                                    endpoint={filter.type === '$autocapture' && 'api/paths/elements'}
                                     onSet={value => setFilter({ start: value })}
                                     propertyKey={pathOptionsToProperty[filter.type]}
                                     type="event"

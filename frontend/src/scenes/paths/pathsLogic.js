@@ -29,7 +29,9 @@ export const pathsLogic = kea({
     reducers: () => ({
         initialPathname: [state => router.selectors.location(state).pathname, { noop: a => a }],
         filter: [
-            {},
+            {
+                type: '$pageview',
+            },
             {
                 setFilter: (state, filter) => ({ ...state, ...filter }),
             },

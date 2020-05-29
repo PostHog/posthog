@@ -1,7 +1,8 @@
-from rest_framework import viewsets
+from rest_framework import viewsets, request
 from rest_framework.response import Response
+from rest_framework.decorators import action
 from posthog.models import Event, Filter
-from posthog.utils import request_to_date_query
+from posthog.utils import request_to_date_query, dict_from_cursor_fetchall
 from django.db.models import OuterRef
 from django.db import connection
 from typing import Optional
@@ -26,6 +27,7 @@ class PathsViewSet(viewsets.ViewSet):
         event: Optional[str] = "$pageview"
         event_filter = {"event":event}
         path_type = "properties->> \'$current_url\'"
+        start_comparator = "{} ~".format(path_type)
 
         # determine requested type
         if requested_type:
@@ -33,23 +35,43 @@ class PathsViewSet(viewsets.ViewSet):
                 event = "$screen"
                 event_filter = {"event":event}
                 path_type = "properties->> \'$screen_name\'"
+                start_comparator = "{} ~".format(path_type)
             elif requested_type == "$autocapture":
                 event = "$autocapture"
                 event_filter = {"event":event}
                 path_type = "tag_name_source"
+                start_comparator = "group_id ="
             elif requested_type == "custom_event":
                 event = None
                 event_filter = {'event__regex':'^[^\$].*'}
                 path_type = "event"
-        return event, path_type, event_filter
+                start_comparator = ""
+        return event, path_type, event_filter, start_comparator
+
+    @action(methods=['GET'], detail=False)
+    def elements(self, request: request.Request):
+
+        team = request.user.team_set.get()
+        all_events = Event.objects.filter(team=team, event="$autocapture")
+        all_events_SQL, sql_params = all_events.query.sql_with_params()
+
+        elements_readble = '\
+            SELECT tag_name_source as name, group_id as id FROM (SELECT \'<\' || e."tag_name" || \'> \'  || e."text" as tag_name_source, e."text" as text_source, e.group_id FROM "posthog_element" e\
+                JOIN ( SELECT group_id, MIN("posthog_element"."order") as minOrder FROM "posthog_element" GROUP BY group_id) e2 ON e.order = e2.minOrder AND e.group_id = e2.group_id) as element\
+                JOIN (SELECT id, hash, count FROM posthog_elementgroup  as g JOIN (SELECT count(*), elements_hash from ({}) as a group by elements_hash) as e on g.hash = e.elements_hash) as outer_group ON element.group_id = outer_group.id  where text_source <> \'\' order by count DESC limit 20\
+        '.format(all_events_SQL)
+        cursor = connection.cursor()
+        cursor.execute(elements_readble, sql_params)
+        rows = dict_from_cursor_fetchall(cursor)
+        return Response(rows)
     
-    def _apply_start_point(self, query_string: str, start_point:str) -> str:
+    def _apply_start_point(self, start_comparator: str, query_string: str, start_point:str) -> str:
         marked = '\
-            SELECT *, CASE WHEN properties->>\'$current_url\' ~ \'{}\' THEN timestamp ELSE NULL END as mark from ({}) as sessionified\
-        '.format(start_point, query_string)
+            SELECT *, CASE WHEN {} \'{}\' THEN timestamp ELSE NULL END as mark from ({}) as sessionified\
+        '.format(start_comparator, start_point, query_string)
 
         marked_plus = '\
-            SELECT *, MAX(mark) OVER (\
+            SELECT *, MIN(mark) OVER (\
                     PARTITION BY distinct_id\
                     , session ORDER BY timestamp\
                     ) AS max from ({}) as marked order by session\
@@ -73,7 +95,7 @@ class PathsViewSet(viewsets.ViewSet):
         team = request.user.team_set.get()
         resp = []
         date_query = request_to_date_query(request.GET)
-        event, path_type, event_filter = self._determine_path_type(request)
+        event, path_type, event_filter, start_comparator = self._determine_path_type(request)
         properties = request.GET.get('properties')
         start_point = request.GET.get('start')
 
@@ -108,7 +130,7 @@ class PathsViewSet(viewsets.ViewSet):
         '.format(events_notated)
 
         if start_point:
-            sessionified = self._apply_start_point(query_string=sessionified, start_point=start_point)
+            sessionified = self._apply_start_point(start_comparator=start_comparator, query_string=sessionified, start_point=start_point)
 
         final = '\
         SELECT {} as path_type, id, sessionified.session\

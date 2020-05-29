@@ -19,22 +19,21 @@ export class PropertyValue extends Component {
 
     componentWillReceiveProps(nextProps) {
         if (this.props.propertyKey != nextProps.propertyKey) {
-            this.setState({ optionsCache: [], options: [] }, () => this.loadPropertyValues('', nextProps.propertyKey))
+            this.setState({ options: [] }, () => this.loadPropertyValues('', nextProps.propertyKey))
         }
     }
 
     loadPropertyValues(value, propertyKey) {
-        let key = propertyKey.split('__')[0]
-
+        let key = (propertyKey || this.props.propertyKey).split('__')[0]
         this.setState({ input: value, optionsCache: { ...this.state.optionsCache, [value]: 'loading' } })
-        api.get('api/' + this.props.type + '/values/?key=' + key + (value ? '&value=' + value : '')).then(
-            propValues => {
-                this.setState({
-                    options: [...new Set([...this.state.options, ...propValues.map(option => option.name)])],
-                    optionsCache: { ...this.state.optionsCache, [value]: true },
-                })
-            }
-        )
+        api.get(
+            this.props.endpoint || 'api/' + this.props.type + '/values/?key=' + key + (value ? '&value=' + value : '')
+        ).then(propValues => {
+            this.setState({
+                options: [...new Set([...this.state.options, ...propValues.map(option => option)])],
+                optionsCache: { ...this.state.optionsCache, [value]: true },
+            })
+        })
     }
     render() {
         let { onSet, value, operator } = this.props
@@ -65,11 +64,11 @@ export class PropertyValue extends Component {
                         Specify: {input}
                     </Select.Option>
                 )}
-                {options.map((option, index) => (
-                    <Select.Option key={option} value={option} data-attr={'prop-val-' + index}>
-                        {option === true && 'true'}
-                        {option === false && 'false'}
-                        {option}
+                {options.map(({ name, id }, index) => (
+                    <Select.Option key={id || name} value={id || name} data-attr={'prop-val-' + index}>
+                        {name === true && 'true'}
+                        {name === false && 'false'}
+                        {name}
                     </Select.Option>
                 ))}
             </Select>
