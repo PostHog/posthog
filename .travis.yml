@@ -7,7 +7,7 @@ cache:
   pip: true
   yarn: true
   directories:
-    - .cache/yarn
+    - $HOME/.cache/yarn
 env:
   - DEBUG=1
 before_install:
@@ -38,8 +38,10 @@ jobs:
     - name: 'Cypress'
       script: |
           yarn build
+          dropdb --if-exists posthog_e2e_test
+          createdb posthog_e2e_test
           DEBUG=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py migrate
-          DATABASE_URL=postgres://localhost:5432/posthog_e2e_test celery -A posthog worker -B --scheduler redbeat.RedBeatScheduler &
+          DEBUG=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test celery -A posthog worker -B --scheduler redbeat.RedBeatScheduler &
           DEBUG=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py runserver &
           sleep 15
           yarn run cypress run --config-file cypress.json
