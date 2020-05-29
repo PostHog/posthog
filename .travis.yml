@@ -1,8 +1,8 @@
 language: python
 python:
   - "3.7"
-addons:
-  postgresql: "12"
+#addons:
+#  postgresql: "12"
 cache:
   pip: true
   yarn: true
