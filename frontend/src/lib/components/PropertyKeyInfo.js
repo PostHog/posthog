@@ -119,7 +119,8 @@ export const keyMapping = {
     },
     $anon_distinct_id: {
         label: 'Anon Distinct ID',
-        description: 'If the user ',
+        description: 'If the user was previously anonymous, their anonymous ID will be set here.',
+        examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
     },
     $event_type: {
         label: 'Event Type',
