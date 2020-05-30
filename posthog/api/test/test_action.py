@@ -4,7 +4,7 @@ from freezegun import freeze_time
 from unittest.mock import patch, call
 
 from posthog.models import Action, ActionStep, Element, Event, Person, Team, Cohort
-from .base import BaseTest
+from .base import BaseTest, TransactionBaseTest
 
 
 @patch('posthog.tasks.calculate_action.calculate_action.delay')
@@ -132,7 +132,7 @@ class TestCreateAction(BaseTest):
         self.assertEqual(response.status_code, 200, response.json())
 
 
-class TestTrends(BaseTest):
+class TestTrends(TransactionBaseTest):
     TESTS_API = True
 
     def _create_events(self, use_time=False):
