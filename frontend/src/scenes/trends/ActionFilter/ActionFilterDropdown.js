@@ -56,7 +56,8 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
     const { entities, selectedFilter, filters } = useValues(logic)
     const { updateFilter } = useActions(logic)
 
-    const dropDownOnSelect = value => updateFilter({ type: entityType, value: value, index: selectedFilter.index })
+    const dropDownOnSelect = (value, name) =>
+        updateFilter({ type: entityType, value: value, name, index: selectedFilter.index })
     const dropDownOnHover = value => entities[entityType].filter(a => a.id === value)[0]
 
     const redirect = () => {
