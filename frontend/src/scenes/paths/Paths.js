@@ -12,7 +12,6 @@ import { useActions, useValues } from 'kea'
 import {
     pathsLogic,
     PAGEVIEW,
-    SCREEN,
     AUTOCAPTURE,
     CUSTOM_EVENT,
     pathOptionsToLabels,
