@@ -3,6 +3,7 @@ import { Actions } from '~/editor/Actions'
 import { Tabs } from 'antd'
 import { kea, useActions, useValues } from 'kea'
 import { SearchOutlined } from '@ant-design/icons'
+import { CurrentPage } from '~/editor/CurrentPage'
 
 const { TabPane } = Tabs
 
@@ -31,6 +32,7 @@ export function Toolbar({ apiURL, temporaryToken, actionId }) {
                 <TabPane tab={<>Actions</>} key="actions" />
                 <TabPane tab={<>Dashboards</>} key="dashboards" />
             </Tabs>
+            <CurrentPage />
             <div className="float-box button">
                 <p>
                     <SearchOutlined /> Inspect an element

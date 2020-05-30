@@ -1,4 +1,6 @@
 export const styles = `
+    a { text-decoration: none; color: hsl(220, 19%, 42%); }
+    a:hover { text-decoration: underline; }
     form { margin-bottom: 0 }
     .form-group { padding: 8px 12px; margin: 0 }
     .form-group.selected { background: rgba(0, 0, 0, 0.1)}
