@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 
 export function Dropdown({ className, style, 'data-attr': dataAttr, buttonStyle, children, buttonClassName, title }) {
     const [menuOpen, setMenuOpen] = useState(false)
@@ -6,19 +6,14 @@ export function Dropdown({ className, style, 'data-attr': dataAttr, buttonStyle,
     function close(e) {
         if (e.target.closest('.dropdown-no-close') || e.target.closest('.react-datepicker')) return
         setMenuOpen(false)
+        document.removeEventListener('click', close)
     }
 
     function open(e) {
         e.preventDefault()
         setMenuOpen(true)
-    }
-
-    useEffect(() => {
         document.addEventListener('click', close)
-        return () => {
-            document.removeEventListener('click', close)
-        }
-    }, [menuOpen])
+    }
 
     return (
         <div
