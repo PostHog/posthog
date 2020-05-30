@@ -1,4 +1,4 @@
-import React, { Component, useState } from 'react'
+import React, { useState } from 'react'
 import { ActionSelectInfo } from 'scenes/trends/ActionSelectInfo'
 import PropTypes from 'prop-types'
 import { ActionSelectTab } from './ActionSelectTab'
