@@ -116,13 +116,20 @@ export const styles = `
         color: hsla(220, 16%, 49%, 1)
     }
     #toolbar .toolbar-close-button {
-        top: calc(0px - var(--padding) * 0.8);
-        right: calc(-10px - var(--padding) * 0.8);
+        top: calc(-1px - var(--padding) * 0.8);
+        right: calc(-1px - var(--padding) * 0.8);
+        width: calc(var(--padding) * 0.8);
+        height: calc(var(--padding) * 0.8);
         position: absolute;
         color: hsla(240, 14%, 75%, 1);
         font-size: 22px;
         opacity: 0;
         transition: opacity ease 1s;
+        cursor: pointer;
+        text-align: center;
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-end;
     }
     #toolbar .toolbar-close-button.visible {
         opacity: 1;
