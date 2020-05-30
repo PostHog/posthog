@@ -15,21 +15,27 @@ export function PropertyValue({
     outerOptions,
 }) {
     const [input, setInput] = useState('')
-    const [optionsCache, setOptionsCache] = useState([])
-    const [options, setOptions] = useState([])
+    const [optionsCache, setOptionsCache] = useState({})
+    const [options, setOptions] = useState({})
 
     function loadPropertyValues(value) {
-        setOptions([])
         let key = propertyKey.split('__')[0]
         setInput(value)
+        setOptions({ [propertyKey]: { ...options[propertyKey], status: 'loading' }, ...options })
         setOptionsCache({ ...optionsCache, [value]: 'loading' })
         if (outerOptions) {
-            setOptions([...new Set([...outerOptions.map(option => option)])])
+            setOptions({
+                [propertyKey]: { values: [...new Set([...outerOptions.map(option => option)])], status: true },
+                ...options,
+            })
             setOptionsCache({ ...optionsCache, [value]: true })
         } else {
             api.get(endpoint || 'api/' + type + '/values/?key=' + key + (value ? '&value=' + value : '')).then(
                 propValues => {
-                    setOptions([...new Set([...propValues.map(option => option)])])
+                    setOptions({
+                        [propertyKey]: { values: [...new Set([...propValues.map(option => option)])], status: true },
+                        ...options,
+                    })
                     setOptionsCache({ ...optionsCache, [value]: true })
                 }
             )
@@ -42,7 +48,7 @@ export function PropertyValue({
 
     let displayOptions
     if (operator === 'is_set') displayOptions = ['true', 'false']
-    displayOptions = options.filter(
+    displayOptions = ((options[propertyKey] && options[propertyKey].values) || []).filter(
         option => input === '' || (option && option.name?.toLowerCase().indexOf(input.toLowerCase()) > -1)
     )
 
