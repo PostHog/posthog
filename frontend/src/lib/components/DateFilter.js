@@ -1,4 +1,4 @@
-import React, { Component, useRef, useEffect, useState } from 'react'
+import React, { useRef, useEffect, useState } from 'react'
 import PropTypes from 'prop-types'
 import { Select, DatePicker, Button } from 'antd'
 
