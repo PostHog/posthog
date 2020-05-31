@@ -19,7 +19,7 @@ export const dockLogic = kea({
         floatAnimated: true,
         dockFaded: true,
         floatFaded: true,
-        setMode: (mode, update = false, windowWidth = window.innerWidth) => ({ mode, update, windowWidth }),
+        setMode: (mode, update = false) => ({ mode, update, windowWidth: window.innerWidth }),
     }),
 
     reducers: ({ props }) => ({
@@ -29,6 +29,12 @@ export const dockLogic = kea({
             {
                 dock: () => 'dock',
                 float: () => 'float',
+            },
+        ],
+        windowWidth: [
+            -1,
+            {
+                setMode: (_, { windowWidth }) => windowWidth,
             },
         ],
         dockStatus: [
@@ -55,6 +61,21 @@ export const dockLogic = kea({
         ],
     }),
 
+    selectors: ({ selectors }) => ({
+        sidebarWidth: [() => [], () => 300],
+        padding: [
+            () => [selectors.mode, selectors.windowWidth],
+            (mode, windowWidth) =>
+                mode === 'dock' ? (windowWidth > 1200 ? Math.min(30 + (windowWidth - 1200) * 0.3, 80) : 30) : 0,
+        ],
+        bodyWidth: [
+            () => [selectors.mode, selectors.windowWidth, selectors.sidebarWidth, selectors.padding],
+            (mode, windowWidth, sidebarWidth, padding) =>
+                mode === 'dock' ? windowWidth - sidebarWidth - 3 * padding : windowWidth,
+        ],
+        zoom: [() => [selectors.bodyWidth, selectors.windowWidth], (bodyWidth, windowWidth) => bodyWidth / windowWidth],
+    }),
+
     events: ({ cache, actions, values }) => ({
         afterMount: () => {
             if (values.mode === 'dock') {
@@ -76,11 +97,8 @@ export const dockLogic = kea({
         dock: () => actions.setMode('dock', false),
         float: () => actions.setMode('float', false),
         update: () => actions.setMode(values.mode, true),
-        setMode: async ({ mode, update, windowWidth }, breakpoint) => {
-            const padding = windowWidth > 1200 ? Math.min(30 + (windowWidth - 1200) * 0.3, 80) : 30
-            const sidebarWidth = 300
-            const bodyWidth = windowWidth - sidebarWidth - 3 * padding
-            const zoom = bodyWidth / windowWidth
+        setMode: async ({ mode, update }, breakpoint) => {
+            const { padding, sidebarWidth, zoom } = values
             const bodyStyle = window.document.body.style
             const htmlStyle = window.document.querySelector('html').style
             const shadowRef = props.shadowRef

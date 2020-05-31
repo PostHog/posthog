@@ -102,6 +102,7 @@ export const styles = `
 
     #toolbar .float-box {
         background: white;
+        font-size: 14px;
         padding: 20px;
         box-shadow: hsl(219, 14%, 76%) 30px 30px 70px, hsl(219, 14%, 76%) 8px 8px 10px;
     }
