@@ -211,6 +211,27 @@ class TestPaths(BaseTest):
         self.assertEqual(response[2]['target'], '3_/about')
         self.assertEqual(response[2]['value'], 1)
 
+    def test_paths_start(self):
+        person1 = Person.objects.create(team=self.team, distinct_ids=['person_1'])
+        Event.objects.create(properties={'$current_url': '/'}, distinct_id='person_1', event='$pageview', team=self.team)
+        Event.objects.create(properties={'$current_url': '/about'}, distinct_id='person_1', event='$pageview', team=self.team)
+
+        person2 = Person.objects.create(team=self.team, distinct_ids=['person_2'])
+        Event.objects.create(properties={'$current_url': '/'}, distinct_id='person_2', event='$pageview', team=self.team)
+        Event.objects.create(properties={'$current_url': '/pricing'}, distinct_id='person_2', event='$pageview', team=self.team)
+        Event.objects.create(properties={'$current_url': '/about'}, distinct_id='person_2', event='$pageview', team=self.team)
+
+        person3 = Person.objects.create(team=self.team, distinct_ids=['person_3'])
+        Event.objects.create(properties={'$current_url': '/pricing'}, distinct_id='person_3', event='$pageview', team=self.team)
+        Event.objects.create(properties={'$current_url': '/'}, distinct_id='person_3', event='$pageview', team=self.team)
+
+        person3 = Person.objects.create(team=self.team, distinct_ids=['person_4'])
+        Event.objects.create(properties={'$current_url': '/'}, distinct_id='person_4', event='$pageview', team=self.team)
+        Event.objects.create(properties={'$current_url': '/pricing'}, distinct_id='person_4', event='$pageview', team=self.team)
+
+        response = self.client.get('/api/paths/?type=%24pageview&start=%2Fpricing').json()
+        for item in response:
+            self.assertEqual(item['source'], '1_/pricing')
     
     def test_paths_in_window(self):
         Person.objects.create(team=self.team, distinct_ids=['person_1'])

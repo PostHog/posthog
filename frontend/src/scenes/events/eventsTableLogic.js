@@ -2,9 +2,33 @@ import { kea } from 'kea'
 import { objectsEqual, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import moment from 'moment'
 
 const POLL_TIMEOUT = 5000
 
+const formatEvents = (events, newEvents, apiUrl) => {
+    let eventsFormatted = []
+    if (!apiUrl) {
+        eventsFormatted = [...events.map(event => ({ event }))]
+    } else {
+        eventsFormatted = [
+            ...events.map(item => ({
+                event: { ...item.event, actionName: item.action.name, actionId: item.action.id },
+            })),
+        ]
+    }
+    eventsFormatted.forEach((event, index) => {
+        if (
+            index > 0 &&
+            eventsFormatted[index - 1].event &&
+            !moment(event.event.timestamp).isSame(eventsFormatted[index - 1].event.timestamp, 'day')
+        ) {
+            eventsFormatted.splice(index, 0, { date_break: moment(event.event.timestamp).format('LL') })
+        }
+    })
+    if (newEvents.length > 0) eventsFormatted.splice(0, 0, { new_events: true })
+    return eventsFormatted
+}
 // props:
 // - fixedFilters
 // - apiUrl = 'api/event/'
@@ -64,6 +88,7 @@ export const eventsTableLogic = kea({
                 prependNewEvents: (state, { events }) => [...events, ...state],
             },
         ],
+
         hasNext: [
             false,
             {
@@ -107,7 +132,7 @@ export const eventsTableLogic = kea({
         ],
     }),
 
-    selectors: ({ selectors }) => ({
+    selectors: ({ selectors, props }) => ({
         propertiesForUrl: [
             () => [selectors.properties],
             properties => {
@@ -118,10 +143,14 @@ export const eventsTableLogic = kea({
                 }
             },
         ],
+        eventsFormatted: [
+            () => [selectors.events, selectors.newEvents],
+            (events, newEvents) => formatEvents(events, newEvents, props.apiUrl),
+        ],
     }),
 
-    events: ({ actions, values }) => ({
-        afterMount: [actions.fetchEvents],
+    events: ({ values }) => ({
+        // No afterMount necessary because actionToUrl will call
         beforeUnmount: () => {
             clearTimeout(values.pollTimeout)
         },

@@ -1,5 +1,5 @@
 import React from 'react'
-import { EventsTable } from '../events/EventsTable'
+import { Events } from '../events/Events'
 import { ActionEdit } from './ActionEdit'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -95,7 +95,7 @@ export function Action({ id }) {
                     Calculating action, please hold on.
                 </div>
             )}
-            {isComplete && <EventsTable key={isComplete} fixedFilters={fixedFilters} filtersEnabled={false} />}
+            {isComplete && <Events key={isComplete} fixedFilters={fixedFilters} filtersEnabled={false} />}
         </div>
     )
 }

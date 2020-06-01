@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { EventsTable } from '../events/EventsTable'
+import { Events } from '../events/Events'
 import api from 'lib/api'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { deletePersonData } from 'lib/utils'
@@ -27,23 +27,14 @@ export function Person({ _: distinctId, id }) {
             >
                 Delete all data on this person
             </Button>
-            <h1>{person.name}</h1>
+            <h1 className="page-header">{person.name}</h1>
             <div style={{ maxWidth: 750 }}>
-                <PropertiesTable properties={person.properties} />
-                <table className="table">
-                    <tbody>
-                        <tr>
-                            <td>Distinct IDs</td>
-                            <td>
-                                {person.distinct_ids.map(distinct_id => (
-                                    <pre style={{ margin: 0 }} key={distinct_id}>
-                                        {distinct_id}
-                                    </pre>
-                                ))}
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+                <PropertiesTable
+                    properties={{
+                        ...person.properties,
+                        distinct_id: person.distinct_ids,
+                    }}
+                />
                 <small>
                     <a
                         href="https://posthog.com/docs/integrations/js-integration#identifying-users"
@@ -54,8 +45,10 @@ export function Person({ _: distinctId, id }) {
                     </a>{' '}
                     on how to add properties to users using libraries.
                 </small>
+                <br />
+                <br />
             </div>
-            <EventsTable fixedFilters={{ person_id: person.id }} />
+            <Events fixedFilters={{ person_id: person.id }} />
         </div>
     ) : null
 }

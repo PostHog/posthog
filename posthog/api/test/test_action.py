@@ -131,6 +131,13 @@ class TestCreateAction(BaseTest):
         }, content_type='application/json', HTTP_ORIGIN='https://somewebsite.com')
         self.assertEqual(response.status_code, 200, response.json())
 
+    # This case happens when someone is running behind a proxy, but hasn't set `IS_BEHIND_PROXY`
+    def test_http_to_https(self, patch_delay):
+        response = self.client.post('/api/action/', data={
+            'name': 'user signed up again',
+        }, content_type='application/json', HTTP_ORIGIN='https://testserver/')
+        self.assertEqual(response.status_code, 200, response.json())
+
 
 class TestTrends(TransactionBaseTest):
     TESTS_API = True

@@ -5,5 +5,5 @@ import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 export const logic = eventsTableLogic
 
 export function Events(props) {
-    return <EventsTable {...props} />
+    return <EventsTable {...props} logic={eventsTableLogic({ fixedFilters: props.fixedFilters })} />
 }
