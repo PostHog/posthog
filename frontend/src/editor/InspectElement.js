@@ -1,8 +1,26 @@
 import React from 'react'
-import { Button } from 'antd'
-import { SearchOutlined } from '@ant-design/icons'
+import { Button, Checkbox } from 'antd'
+import {
+    SearchOutlined,
+    AimOutlined,
+    FontSizeOutlined,
+    LinkOutlined,
+    FormOutlined,
+    CodeOutlined,
+} from '@ant-design/icons'
 import { kea, useActions, useValues } from 'kea'
 import { dockLogic } from '~/editor/dockLogic'
+import Simmer from 'simmerjs'
+
+const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
+
+// This trims the "hovered" DOM node down. For example:
+// - div > div > div > svg > path  <--- ignore the path, just inpsect the full image/svg
+// - div > div > button > span     <--- we probably care about the button, not the span
+// - div > div > a > span          <--- same with links
+const DOM_TRIM_DOWN_SELECTOR = 'a, svg, button'
+
+const simmer = new Simmer(window, { depth: 8 })
 
 function drawBox(box, element, zoom, padding) {
     const rect = element.getBoundingClientRect()
@@ -21,6 +39,55 @@ function drawBox(box, element, zoom, padding) {
     box.style.transition = 'all ease 0.1s'
 }
 
+const getSafeText = el => {
+    if (!el.childNodes || !el.childNodes.length) return
+    let elText = ''
+    el.childNodes.forEach(child => {
+        if (child.nodeType !== 3 || !child.textContent) return
+        elText += child.textContent
+            .trim()
+            .replace(/[\r\n]/g, ' ')
+            .replace(/[ ]+/g, ' ') // normalize whitespace
+            .substring(0, 255)
+    })
+    return elText
+}
+
+// function elementToSelection(element) {
+//     const tagName = element.tagName.toLowerCase()
+//
+//     return tagName === 'a'
+//         ? ['href', 'selector']
+//         : tagName === 'button'
+//         ? ['text', 'selector']
+//         : element.getAttribute('name')
+//         ? ['name', 'selector']
+//         : ['selector']
+// }
+
+function elementToQuery(element) {
+    return (
+        simmer(element)
+            // Turn tags into lower cases
+            .replace(/(^[A-Z]+| [A-Z]+)/g, d => d.toLowerCase())
+    )
+}
+
+function elementToActionStep(element) {
+    let query = elementToQuery(element)
+    const tagName = element.tagName.toLowerCase()
+
+    return {
+        event: '$autocapture',
+        tag_name: tagName,
+        href: element.getAttribute('href') || '',
+        name: element.getAttribute('name') || '',
+        text: getSafeText(element) || '',
+        selector: query || '',
+        url: window.location.protocol + '//' + window.location.host + window.location.pathname,
+    }
+}
+
 // props:
 // - zoom
 const inspectElementLogic = kea({
@@ -28,6 +95,8 @@ const inspectElementLogic = kea({
         start: true,
         stop: true,
         hoverElement: element => ({ element }), // array of [dom elements]
+        selectAllElements: true,
+        selectClickTargets: true,
     }),
 
     reducers: () => ({
@@ -44,27 +113,45 @@ const inspectElementLogic = kea({
                 hoverElement: (_, { element }) => element,
             },
         ],
+        selectingClickTargets: [
+            false,
+            {
+                selectAllElements: () => false,
+                selectClickTargets: () => true,
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
         element: [
-            () => [selectors.hoveredElement],
-            hoveredElement => {
-                let selectedElement = hoveredElement
-                let loopElement = hoveredElement
-                while (loopElement?.parentElement) {
-                    if (
-                        loopElement.tagName.toLowerCase() === 'a' ||
-                        loopElement.tagName.toLowerCase() === 'svg' ||
-                        loopElement.tagName.toLowerCase() === 'button'
-                    ) {
-                        selectedElement = loopElement
+            () => [selectors.hoveredElement, selectors.selectingClickTargets],
+            (hoveredElement, selectingClickTargets) => {
+                if (selectingClickTargets) {
+                    let loopElement = hoveredElement
+                    while (loopElement?.parentElement) {
+                        // return when we find a click target
+                        if (loopElement.matches(CLICK_TARGET_SELECTOR)) {
+                            return loopElement
+                        }
+                        loopElement = loopElement.parentElement
                     }
-                    loopElement = loopElement.parentElement
+                    return null
+                } else {
+                    // selecting all elements
+                    let selectedElement = hoveredElement
+                    let loopElement = hoveredElement
+                    while (loopElement?.parentElement) {
+                        // trim down the dom nodes
+                        if (loopElement.matches(DOM_TRIM_DOWN_SELECTOR)) {
+                            selectedElement = loopElement
+                        }
+                        loopElement = loopElement.parentElement
+                    }
+                    return selectedElement
                 }
-                return selectedElement
             },
         ],
+        actionStep: [() => [selectors.element], element => (element ? elementToActionStep(element) : null)],
     }),
 
     events: ({ cache, values, actions }) => ({
@@ -87,13 +174,18 @@ const inspectElementLogic = kea({
         },
         start: () => {
             cache.onMouseMove = function onMouseMove(event) {
+                // const element = window.document.elementFromPoint(event.clientX, event.clientY)
+                // console.log(element === event.target ? '!!' : '??')
+
                 if (values.element !== event.target) {
                     actions.hoverElement(event.target)
                 }
             }
             cache.onKeyDown = function onKeyDown(event) {
                 // stop selecting if esc key was pressed
-                if (event.keyCode === 27) actions.stop()
+                if (event.keyCode === 27) {
+                    actions.stop()
+                }
             }
             // cache.elements = document.querySelectorAll('a, button, input, select, textarea, label')
             // cache.elements.forEach(element => {
@@ -101,8 +193,9 @@ const inspectElementLogic = kea({
             //         capture: true,
             //     })
             // })
+            console.log('starting')
 
-            window.document.body.addEventListener('mousemove', cache.onMouseMove, { capture: true })
+            window.document.body.addEventListener('mousemove', cache.onMouseMove) // , { capture: true })
             window.document.addEventListener('keydown', cache.onKeyDown)
             cache.box.addEventListener('click', actions.stop)
         },
@@ -112,6 +205,7 @@ const inspectElementLogic = kea({
             //         capture: true,
             //     })
             // })
+            console.log('stopping!')
             window.document.body.removeEventListener('mousemove', cache.onMouseMove)
             document.removeEventListener('keydown', cache.onKeyDown)
             cache.box.removeEventListener('click', actions.stop)
@@ -120,35 +214,71 @@ const inspectElementLogic = kea({
     }),
 })
 
-export function ElementPath({ element }) {
-    let path = []
-    let currentElement = element
-    let i = 0
-    while (currentElement?.parentElement) {
-        path.push(<div key={i++}>{currentElement.tagName}</div>)
-        currentElement = currentElement.parentElement
-    }
+function ActionAttribute({ attribute, value }) {
+    const icon =
+        attribute === 'text' ? (
+            <FontSizeOutlined />
+        ) : attribute === 'href' ? (
+            <LinkOutlined />
+        ) : attribute === 'selector' ? (
+            <CodeOutlined />
+        ) : (
+            <FormOutlined />
+        )
 
-    return <>{path}</>
+    const text =
+        attribute === 'href' ? (
+            <a href={value} target="_blank" rel="noopener noreferrer">
+                {value}
+            </a>
+        ) : attribute === 'selector' ? (
+            <span style={{ fontFamily: 'monospace' }}>{value}</span>
+        ) : (
+            value
+        )
+
+    return (
+        <div key={attribute} style={{ marginBottom: 10, paddingLeft: 24, position: 'relative' }}>
+            <div style={{ position: 'absolute', left: 2, top: 3, color: 'hsl(240, 14%, 50%)' }}>{icon}</div>
+            <span>{text}</span>
+        </div>
+    )
 }
 
 export function InspectElement() {
-    const { selecting, element } = useValues(inspectElementLogic)
-    const { stop, start } = useActions(inspectElementLogic)
+    const { selecting, element, selectingClickTargets, actionStep } = useValues(inspectElementLogic)
+    const { stop, start, selectAllElements, selectClickTargets } = useActions(inspectElementLogic)
 
     return (
         <div className="float-box">
-            <Button type={selecting ? 'primary' : 'secondary'} onClick={selecting ? stop : start}>
-                <SearchOutlined /> Select an element{' '}
-            </Button>
+            <div style={{ fontSize: 16, marginBottom: 10 }}>
+                <SearchOutlined /> Select an element
+            </div>
+            <div>
+                <Button type={selecting ? 'primary' : 'secondary'} onClick={selecting ? stop : start}>
+                    <AimOutlined />
+                </Button>
+                <span style={{ marginLeft: 20, display: selecting ? 'inline-block' : 'none' }}>
+                    <Checkbox
+                        checked={selectingClickTargets}
+                        onClick={selectingClickTargets ? selectAllElements : selectClickTargets}
+                    >
+                        {' '}
+                        Links Only
+                    </Checkbox>
+                </span>
+            </div>
             <div style={{ marginTop: 10 }}>
-                {!selecting ? (
-                    <small>... and see associated analytics here</small>
-                ) : !element ? (
-                    <small>Hover over the element to select it!</small>
-                ) : (
-                    <ElementPath element={element} />
-                )}
+                {element ? (
+                    <div style={{ marginTop: 10 }}>
+                        <div style={{ fontSize: 16, marginBottom: 10 }}>&lt;{actionStep.tag_name}&gt;</div>
+                        {['text', 'name', 'href', 'selector'].map(attr =>
+                            actionStep[attr] ? (
+                                <ActionAttribute key={attr} attribute={attr} value={actionStep[attr]} />
+                            ) : null
+                        )}
+                    </div>
+                ) : null}
             </div>
         </div>
     )

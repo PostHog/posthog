@@ -84,6 +84,7 @@ export const styles = `
         box-sizing: border-box;
         opacity: 1.0;
         transition: opacity ease 0.5s;
+        color: hsl(240, 11%, 20%);
     }
     #toolbar.toolbar-invisible {
         opacity: 0;
