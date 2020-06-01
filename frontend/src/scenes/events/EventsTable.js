@@ -39,6 +39,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
                             : `There are ${newEvents.length} new events. Click here to load them`,
                         props: {
                             colSpan: isLiveActions ? 6 : 5,
+                            style: {
+                                cursor: 'pointer',
+                            },
                         },
                     }
                 let { event } = item
