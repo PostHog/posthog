@@ -154,7 +154,7 @@ class PathsViewSet(viewsets.ViewSet):
         cursor = connection.cursor()
         cursor.execute('\
         SELECT source_event, target_event, MAX(target_id), MAX(source_id), count(*) from ({}) as counts\
-        where source_event is not null and target_event is not null and SUBSTRING(source_event, 3) != SUBSTRING(target_event, 3)\
+        where source_event is not null and target_event is not null\
         group by source_event, target_event order by count desc limit 15\
         '.format(counts), sessions_sql_params)
         rows = cursor.fetchall()

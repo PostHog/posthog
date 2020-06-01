@@ -193,7 +193,9 @@ export function Paths() {
                 return d.value - d.source.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
             })
 
-        link.append('title').text(d => `${d.source.label} → ${d.target.label}\n${d.value.toLocaleString()}`)
+        link.append('title').text(
+            d => `${stripHTTP(d.source.name)} → ${stripHTTP(d.target.name)}\n${d.value.toLocaleString()}`
+        )
 
         var textSelection = svg
             .append('g')
