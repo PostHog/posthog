@@ -1,10 +1,10 @@
-from .base import BaseTest
+from .base import BaseTest, TransactionBaseTest
 from posthog.models import Event, Person, Element, Action, ActionStep, Team
 from freezegun import freeze_time
 import json
 
 
-class TestEvents(BaseTest):
+class TestEvents(TransactionBaseTest):
     TESTS_API = True
     ENDPOINT = 'event'
 
