@@ -1,7 +1,7 @@
 import 'react-toastify/dist/ReactToastify.css'
 import 'react-datepicker/dist/react-datepicker.css'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useValues } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
@@ -13,6 +13,7 @@ import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic, loadedScenes } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
+import { router } from 'kea-router'
 
 const darkerScenes = {
     dashboard: true,
@@ -22,17 +23,33 @@ const darkerScenes = {
     paths: true,
 }
 
+const urlBackgroundMap = {
+    '/dashboard': 'https://posthog.s3.eu-west-2.amazonaws.com/graphs.png',
+    '/dashboard/1': 'https://posthog.s3.eu-west-2.amazonaws.com/graphs.png',
+    '/events': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
+    '/actions': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
+    '/actions/live': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
+    '/trends': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-action-trends.png',
+    '/funnel': 'https://posthog.s3.eu-west-2.amazonaws.com/funnel.png',
+    '/paths': 'https://posthog.s3.eu-west-2.amazonaws.com/paths.png',
+}
+
 export default function App() {
     const { user } = useValues(userLogic)
     const { scene, params } = useValues(sceneLogic)
+    const { location } = useValues(router)
     const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
 
+    const [image, setImage] = useState(null)
     const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
+
+    useEffect(() => {
+        setImage(urlBackgroundMap[location.pathname])
+    }, [location.pathname])
 
     if (!user) {
         return null
     }
-
     return (
         <Layout className="bg-white">
             <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
@@ -46,8 +63,11 @@ export default function App() {
                     <TopContent user={user} />
                 </div>
                 <Layout.Content className="pl-5 pr-5 pt-3" data-attr="layout-content">
-                    <SendEventsOverlay user={user} />
-                    <Scene user={user} {...params} />
+                    {!user.has_events && image ? (
+                        <SendEventsOverlay image={image} user={user} />
+                    ) : (
+                        <Scene user={user} {...params} />
+                    )}
                     <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
                 </Layout.Content>
             </Layout>
