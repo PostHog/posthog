@@ -1,17 +1,17 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId, Team
 from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value, get_compare_period_dates, dict_from_cursor_fetchall
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from django.db.models import QuerySet, F, Prefetch, Q
 from django.db.models.functions import Lag
-from django.db import connection
 from django.db.models.expressions import Window
-from typing import Any, Dict, List, Union
-import json
-from django.utils.timezone import now
-import pandas as pd
 from django.db import connection
+from django.utils.timezone import now
+from typing import Any, Dict, List, Union
+from django.utils.timezone import now
+import json
+import pandas as pd
 
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
@@ -123,7 +123,12 @@ class EventViewSet(viewsets.ModelViewSet):
         return events
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        events = [event for event in self.get_queryset()[0: 101]]
+        monday = now() + timedelta(days=-now().weekday())
+        events = self.get_queryset().filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[0: 101]
+
+        if len(events) < 101:
+            events = self.get_queryset()[0: 101]
+
         prefetched_events = self._prefetch_events(events[0:100])
         return response.Response({
             'next': len(events) > 100,
