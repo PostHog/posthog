@@ -1,6 +1,6 @@
 import React, { useRef } from 'react'
 import { toast } from 'react-toastify'
-import { Button, Tooltip, Input } from 'antd'
+import { Tooltip, Input } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
 
 export function InviteTeam({ user }) {
@@ -29,7 +29,7 @@ export function InviteTeam({ user }) {
                     value={url + '/signup/' + user.team.signup_token}
                     suffix={
                         <Tooltip title="Copy to Clipboard">
-                            <Button onClick={copyToClipboard} type="default" icon={<CopyOutlined />} />
+                            <CopyOutlined onClick={copyToClipboard} />
                         </Tooltip>
                     }
                 />
