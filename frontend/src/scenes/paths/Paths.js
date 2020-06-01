@@ -249,6 +249,7 @@ export function Paths() {
                                     defaultValue={PAGEVIEW}
                                     dropdownMatchSelectWidth={false}
                                     onChange={value => setFilter({ type: value, start: null })}
+                                    style={{ paddingTop: 2 }}
                                 >
                                     {Object.entries(pathOptionsToLabels).map(([value, name], index) => {
                                         return (
@@ -273,23 +274,25 @@ export function Paths() {
                                     onSet={value => setFilter({ start: value })}
                                     propertyKey={pathOptionsToProperty[filter.type]}
                                     type="event"
-                                    style={{ width: 200 }}
+                                    style={{ width: 200, paddingTop: 2 }}
                                     bordered={false}
                                     value={filter.start}
                                     placeholder={'Select start element'}
                                 ></PropertyValue>
                             </Row>
                         </Row>
-                        <DateFilter
-                            onChange={(date_from, date_to) =>
-                                setFilter({
-                                    date_from,
-                                    date_to,
-                                })
-                            }
-                            dateFrom={filter.date_from}
-                            dateTo={filter.date_to}
-                        />
+                        <Row align="middle">
+                            <DateFilter
+                                onChange={(date_from, date_to) =>
+                                    setFilter({
+                                        date_from,
+                                        date_to,
+                                    })
+                                }
+                                dateFrom={filter.date_from}
+                                dateTo={filter.date_to}
+                            />
+                        </Row>
                     </Row>
                 }
             >
