@@ -12,8 +12,8 @@ import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { Spin } from 'antd'
 import { router } from 'kea-router'
 
-export function EventsTable({ fixedFilters, filtersEnabled = true }) {
-    const logic = eventsTableLogic({ fixedFilters })
+export function EventsTable({ fixedFilters, filtersEnabled = true, reloadKey }) {
+    const logic = eventsTableLogic({ fixedFilters, reloadKey })
     const {
         properties,
         events,

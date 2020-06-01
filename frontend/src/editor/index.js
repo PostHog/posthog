@@ -4,6 +4,8 @@ import Simmer from 'simmerjs'
 import root from 'react-shadow'
 import { ActionEdit } from '../scenes/actions/ActionEdit'
 import Draggable from 'react-draggable'
+import { getContext } from 'kea'
+import { Provider } from 'react-redux'
 
 window.simmer = new Simmer(window, { depth: 8 })
 
@@ -85,9 +87,8 @@ class App extends Component {
             if (this.state.actions.filter(action => action.id === false).length == 0)
                 this.state.actions.push({ id: false })
         }
-        this.onActionSave = this.onActionSave.bind(this)
     }
-    onActionSave(action, isNew, createNew) {
+    onActionSave = (action, isNew, createNew) => {
         let { actions, openActionId } = this.state
         if (isNew) {
             actions = actions.map(a => (!a.id ? action : a))
@@ -97,12 +98,8 @@ class App extends Component {
         }
         if (createNew) {
             actions.push({ id: false })
-            openActionId = false
-        } else {
-            window.location.href = this.props.apiURL + 'action/' + action.id
-            sessionStorage.setItem('editorActions', '[]')
-            return sessionStorage.setItem('editorParams', '')
         }
+        openActionId = false
         this.setState({ actions, openActionId })
         sessionStorage.setItem('editorActions', JSON.stringify(actions))
     }
@@ -162,8 +159,18 @@ class App extends Component {
                                         href="#"
                                         className="float-right"
                                     >
-                                        edit
+                                        Edit
                                     </a>
+                                    {'  '}
+                                    {action.id && (
+                                        <a
+                                            href={this.props.apiURL + 'action/' + action.id}
+                                            onClick={() => sessionStorage.setItem('editorActions', '[]')}
+                                            className="float-right mr-1"
+                                        >
+                                            View
+                                        </a>
+                                    )}
                                 </div>
                             )
                         )}
@@ -179,11 +186,13 @@ window.ph_load_editor = function(editorParams) {
     document.body.appendChild(container)
 
     ReactDOM.render(
-        <App
-            apiURL={editorParams.apiURL}
-            temporaryToken={editorParams.temporaryToken}
-            actionId={editorParams.actionId}
-        />,
+        <Provider store={getContext().store}>
+            <App
+                apiURL={editorParams.apiURL}
+                temporaryToken={editorParams.temporaryToken}
+                actionId={editorParams.actionId}
+            />
+        </Provider>,
         container
     )
 }

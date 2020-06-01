@@ -179,6 +179,38 @@ class TestPaths(BaseTest):
         self.assertEqual(response[1]['target'], '2_<a> goodbye1')
         self.assertEqual(response[1]['value'], 1)
 
+    def test_paths_properties_filter(self):
+        person1 = Person.objects.create(team=self.team, distinct_ids=['person_1'])
+        Event.objects.create(properties={'$current_url': '/', '$browser': 'Chrome'}, distinct_id='person_1', event='$pageview', team=self.team)
+        Event.objects.create(properties={'$current_url': '/about', '$browser': 'Chrome'}, distinct_id='person_1', event='$pageview', team=self.team)
+
+        person2 = Person.objects.create(team=self.team, distinct_ids=['person_2'])
+        Event.objects.create(properties={'$current_url': '/', '$browser': 'Chrome'}, distinct_id='person_2', event='$pageview', team=self.team)
+        Event.objects.create(properties={'$current_url': '/pricing', '$browser': 'Chrome'}, distinct_id='person_2', event='$pageview', team=self.team)
+        Event.objects.create(properties={'$current_url': '/about', '$browser': 'Chrome'}, distinct_id='person_2', event='$pageview', team=self.team)
+
+        person3 = Person.objects.create(team=self.team, distinct_ids=['person_3'])
+        Event.objects.create(properties={'$current_url': '/pricing'}, distinct_id='person_3', event='$pageview', team=self.team)
+        Event.objects.create(properties={'$current_url': '/'}, distinct_id='person_3', event='$pageview', team=self.team)
+
+        person3 = Person.objects.create(team=self.team, distinct_ids=['person_4'])
+        Event.objects.create(properties={'$current_url': '/'}, distinct_id='person_4', event='$pageview', team=self.team)
+        Event.objects.create(properties={'$current_url': '/pricing'}, distinct_id='person_4', event='$pageview', team=self.team)
+
+        response = self.client.get('/api/paths/?properties=%5B%7B"key"%3A"%24browser"%2C"value"%3A"Chrome"%2C"type"%3A"event"%7D%5D').json()
+
+        self.assertEqual(response[0]['source'], '1_/')
+        self.assertEqual(response[0]['target'], '2_/about')
+        self.assertEqual(response[0]['value'], 1)
+
+        self.assertEqual(response[1]['source'], '1_/')
+        self.assertEqual(response[1]['target'], '2_/pricing')
+        self.assertEqual(response[1]['value'], 1)
+
+        self.assertEqual(response[2]['source'], '2_/pricing')
+        self.assertEqual(response[2]['target'], '3_/about')
+        self.assertEqual(response[2]['value'], 1)
+
     
     def test_paths_in_window(self):
         Person.objects.create(team=self.team, distinct_ids=['person_1'])

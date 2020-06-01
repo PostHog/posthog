@@ -1,5 +1,38 @@
 # Changelog
 
+### 1.7.0 - Wednesday 27 May 2020
+
+- [Reactive Native](https://github.com/PostHog/posthog-react-native)
+- [Comparison charts](https://github.com/PostHog/posthog/pull/824)
+
+![Comparison charts](https://posthog.com/images/a1571726df68831e4626a937a19821d0/side-by-side-comparison.gif)
+
+
+- [Tooltip: View the users inside each datapoint](https://github.com/PostHog/posthog/pull/830/commits/64e1ef34b5d8565934b1980d33432cef4e7002f7)
+
+![Hover breakdown](https://posthog.com/static/729a492575e82595e30266d63dc13765/c83ae/hover-breakdown.png)
+
+- [Property keys explained](https://github.com/PostHog/posthog/pull/822)
+
+![property keys with explanations](https://user-images.githubusercontent.com/1727427/82579579-ed280500-9b85-11ea-92fe-6e7fe67c9d86.png)
+
+- [Automatic domain detection](https://github.com/PostHog/posthog/pull/815)
+
+![automatic domain detection](https://user-images.githubusercontent.com/1727427/82486899-72071600-9ad5-11ea-8bd1-2f589cc69d34.png)
+
+* Developing PostHog is now a bit less tedious. We [halved the time](https://github.com/PostHog/posthog/pull/826) it takes to install python dependencies for any deployment.
+* We've written [a lot of front end tests](https://github.com/PostHog/posthog/pull/802), as well as a [regression test](https://github.com/PostHog/posthog/pull/819) for single step funnels, where there was a bug - [now fixed](https://github.com/PostHog/posthog/pull/817).
+* We neatened dashboard items so they're [closer together](https://github.com/PostHog/posthog/pull/846) in the navigation.
+* We [improved our Sentry setup](https://github.com/PostHog/posthog/pull/842).
+* Marius [fixed the way tables display](https://github.com/PostHog/posthog/pull/838) when they're on a dashboard.
+* Eric [slayed a bug](https://github.com/PostHog/posthog/pull/832) when the People page wouldn't load with entity specific filters applied.
+* We've had several users with very high scale pushing the limits of redis. We have more work to do here, but we've [improved the way we handle filled up servers](https://github.com/PostHog/posthog/pull/825).
+* A little [header spring cleaning](https://github.com/PostHog/posthog/pull/831).
+* We [fixed a bug](https://github.com/PostHog/posthog/pull/835) with suggestions loading, and another with [EditAppUrls null check](https://github.com/PostHog/posthog/pull/829).
+* Cohort property filters had a small issue, [now fixed](https://github.com/PostHog/posthog/pull/828).
+* AntD's gradual takeover of our app and website continued - it was [added to more dropdowns](https://github.com/PostHog/posthog/pull/814) this week.
+* We prevented requests to update server for those who have opted out, and [added fine grained control](https://github.com/PostHog/posthog/pull/821) to the opt out flow.
+
 ### 1.6.0 - Wednesday 20 May 2020
 
 - [Dashboard presentation mode](https://github.com/PostHog/posthog/pull/753)

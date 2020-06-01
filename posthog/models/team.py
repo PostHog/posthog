@@ -5,7 +5,7 @@ from .action_step import ActionStep
 from .dashboard import Dashboard
 from .dashboard_item import DashboardItem
 from .user import User
-from posthog.constants import TREND_FILTER_TYPE_EVENTS
+from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from typing import Optional, List
 
 import secrets
@@ -32,7 +32,7 @@ class TeamManager(models.Manager):
             team=team,
             dashboard=dashboard,
             name='Pageviews this week',
-            type='ActionsLineGraph',
+            type=TRENDS_LINEAR,
             filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'type': TREND_FILTER_TYPE_EVENTS}]}
         )
         DashboardItem.objects.create(
@@ -46,7 +46,7 @@ class TeamManager(models.Manager):
             team=team,
             dashboard=dashboard,
             name='Daily Active Users',
-            type='ActionsLineGraph',
+            type=TRENDS_LINEAR,
             filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'math': 'dau', 'type': TREND_FILTER_TYPE_EVENTS}]}
         )
         return team

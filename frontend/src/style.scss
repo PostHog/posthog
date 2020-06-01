@@ -197,7 +197,7 @@ h5.modal-title {
 }
 
 h1.page-header {
-    font-size: 24px
+    font-size: 24px;
 }
 
 button.no-style {
@@ -289,6 +289,7 @@ label.disabled {
         padding-right: 1rem !important;
     }
 }
+
 .property-key-info-logo {
     margin-right: 6px;
     display: inline-block;
@@ -300,4 +301,8 @@ label.disabled {
 }
 .ant-select-selection-item .property-key-info-logo {
     vertical-align: text-bottom;
+}
+
+.Toastify__progress-bar--default {
+    background: var(--success) !important;
 }

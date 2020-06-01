@@ -1,12 +1,12 @@
 import 'react-toastify/dist/ReactToastify.css'
 import 'react-datepicker/dist/react-datepicker.css'
 
-import React from 'react'
+import React, { useState } from 'react'
 import { useValues } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
-import Sidebar from '~/layout/Sidebar'
+import { Sidebar } from '~/layout/Sidebar'
 import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 
@@ -25,6 +25,7 @@ const darkerScenes = {
 export default function App() {
     const { user } = useValues(userLogic)
     const { scene, params } = useValues(sceneLogic)
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
 
     const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
 
@@ -34,8 +35,13 @@ export default function App() {
 
     return (
         <Layout className="bg-white">
-            <Sidebar user={user} />
-            <Layout className={darkerScenes[scene] ? 'bg-dashboard' : 'bg-white'} style={{ height: '100vh' }}>
+            <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
+            <Layout
+                className={`${darkerScenes[scene] ? 'bg-dashboard' : 'bg-white'}${
+                    !sidebarCollapsed ? ' with-open-sidebar' : ''
+                }`}
+                style={{ height: '100vh' }}
+            >
                 <div className="content py-3 layout-top-content">
                     <TopContent user={user} />
                 </div>

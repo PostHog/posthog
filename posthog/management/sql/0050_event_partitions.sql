@@ -25,6 +25,10 @@ BEGIN
     range_begin := (SELECT date_trunc('week', MIN(timestamp)) as range_begin from posthog_event);
     range_end := (SELECT date_trunc('week', CURRENT_TIMESTAMP) as range_end) + interval '1 week';
 
+    IF range_begin < '2020-01-01 00:00:00-00' THEN
+        range_begin := '2020-01-01 00:00:00-00';
+    END IF;
+
     -- Create the partitions from the earliest date until now
     EXECUTE('CREATE TABLE posthog_event_partitions_manifest (event varchar(200) NOT NULL);');
     FOREACH row IN ARRAY $1 LOOP
@@ -153,7 +157,7 @@ BEGIN
              EXECUTE format('SELECT date_trunc(''week'', MAX(timestamp)) as range_begin from %s' , event_table_name) INTO range_begin;
         END IF;
 
-        IF range_begin IS NULL THEN
+        IF range_begin IS NULL OR range_begin < '2020-01-01 00:00:00-00' THEN
             range_begin := (SELECT date_trunc('week', CURRENT_TIMESTAMP) as range_begin);
         END IF;
 

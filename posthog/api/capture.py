@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from posthog.tasks.process_event import process_event
 from datetime import datetime
 from dateutil import parser
+from sentry_sdk import push_scope
 import re
 import json
 import base64
@@ -39,12 +40,16 @@ def _load_data(request) -> Optional[Union[Dict, List]]:
     if not data:
         return None
 
+    # add the data in sentry's scope in case there's an exception
+    with push_scope() as scope:
+        scope.set_context("data", data)
+
     #  Is it plain json?
     try:
         data = json.loads(data)
     except json.JSONDecodeError:
         # if not, it's probably base64 encoded from other libraries
-        data = json.loads(base64.b64decode(data + "===").decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
+        data = json.loads(base64.b64decode(data.replace(' ', '+') + "===").decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
     # FIXME: data can also be an array, function assumes it's either None or a dictionary.
     return data
 

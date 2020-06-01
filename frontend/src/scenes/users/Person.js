@@ -44,6 +44,16 @@ export function Person({ _: distinctId, id }) {
                         </tr>
                     </tbody>
                 </table>
+                <small>
+                    <a
+                        href="https://posthog.com/docs/integrations/js-integration#identifying-users"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        See documentation
+                    </a>{' '}
+                    on how to add properties to users using libraries.
+                </small>
             </div>
             <EventsTable fixedFilters={{ person_id: person.id }} />
         </div>

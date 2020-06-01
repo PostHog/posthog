@@ -19,11 +19,17 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { Tabs, Row, Col, Tooltip, Checkbox } from 'antd'
 import { SessionFilter } from 'lib/components/SessionsFilter'
 import { InfoCircleOutlined } from '@ant-design/icons'
-
+import {
+    ACTIONS_LINE_GRAPH_LINEAR,
+    ACTIONS_LINE_GRAPH_CUMULATIVE,
+    LINEAR_CHART_LABEL,
+    CUMULATIVE_CHART_LABEL,
+} from 'lib/constants'
 const { TabPane } = Tabs
 
 const displayMap = {
-    ActionsLineGraph: 'Line chart',
+    [`${ACTIONS_LINE_GRAPH_LINEAR}`]: LINEAR_CHART_LABEL,
+    [`${ACTIONS_LINE_GRAPH_CUMULATIVE}`]: CUMULATIVE_CHART_LABEL,
     ActionsTable: 'Table',
     ActionsPie: 'Pie',
 }
@@ -34,7 +40,7 @@ export function Trends() {
 
     return (
         <div className="actions-graph">
-            {showingPeople ? <PeopleModal /> : null}
+            <PeopleModal visible={showingPeople} />
             <h1 className="page-header">Trends</h1>
             <Row gutter={16}>
                 <Col xs={24} xl={6}>
@@ -133,7 +139,10 @@ export function Trends() {
                                 >
                                     Compare Previous
                                 </Checkbox>
-                                <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
+                                <SaveToDashboard
+                                    filters={filters}
+                                    type={filters.display || ACTIONS_LINE_GRAPH_LINEAR}
+                                />
                             </div>
                         }
                     >
@@ -146,9 +155,9 @@ export function Trends() {
                                     }}
                                 >
                                     {resultsLoading && <Loading />}
-                                    {(!filters.display || filters.display === 'ActionsLineGraph') && (
-                                        <ActionsLineGraph />
-                                    )}
+                                    {(!filters.display ||
+                                        filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
+                                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && <ActionsLineGraph />}
                                     {filters.display === 'ActionsTable' && <ActionsTable filters={filters} />}
                                     {filters.display === 'ActionsPie' && <ActionsPie filters={filters} />}
                                 </div>

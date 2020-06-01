@@ -1,54 +1,42 @@
-import React, { Component } from 'react'
+import React, { useState } from 'react'
 
-export class Dropdown extends Component {
-    constructor(props) {
-        super(props)
-        this.state = {}
-        this.close = this.close.bind(this)
-        this.open = this.open.bind(this)
-    }
-    close(e) {
+export function Dropdown({ className, style, 'data-attr': dataAttr, buttonStyle, children, buttonClassName, title }) {
+    const [menuOpen, setMenuOpen] = useState(false)
+
+    function close(e) {
         if (e.target.closest('.dropdown-no-close') || e.target.closest('.react-datepicker')) return
-        this.setState({ menuOpen: false })
-        document.removeEventListener('click', this.close)
+        setMenuOpen(false)
+        document.removeEventListener('click', close)
     }
-    open(e) {
+
+    function open(e) {
         e.preventDefault()
-        this.setState({ menuOpen: true })
-        document.addEventListener('click', this.close)
+        setMenuOpen(true)
+        document.addEventListener('click', close)
     }
-    componentWillUnmount() {
-        document.removeEventListener('click', this.close)
-    }
-    render() {
-        return (
+
+    return (
+        <div
+            className={'dropdown ' + className}
+            style={{
+                display: 'inline',
+                marginTop: -6,
+                ...style,
+            }}
+            data-attr={dataAttr}
+        >
+            <a className={'cursor-pointer ' + buttonClassName} style={{ ...buttonStyle }} onClick={open} href="#">
+                {title || <span>&hellip;</span>}
+            </a>
             <div
-                className={'dropdown ' + this.props.className}
+                className={'dropdown-menu ' + (menuOpen && 'show')}
                 style={{
-                    display: 'inline',
-                    marginTop: -6,
-                    ...this.props.style,
+                    borderRadius: 2,
                 }}
-                data-attr={this.props['data-attr']}
+                aria-labelledby="dropdownMenuButton"
             >
-                <a
-                    className={'cursor-pointer ' + this.props.buttonClassName}
-                    style={{ ...this.props.buttonStyle }}
-                    onClick={this.open}
-                    href="#"
-                >
-                    {this.props.title || <span>&hellip;</span>}
-                </a>
-                <div
-                    className={'dropdown-menu ' + (this.state.menuOpen && 'show')}
-                    style={{
-                        borderRadius: 2,
-                    }}
-                    aria-labelledby="dropdownMenuButton"
-                >
-                    {this.props.children}
-                </div>
+                {children}
             </div>
-        )
-    }
+        </div>
+    )
 }

@@ -1,10 +1,10 @@
 import React from 'react'
 import { Link } from 'lib/components/Link'
 import { Table } from 'antd'
-import { LinkButton } from 'lib/components/LinkButton'
 import { DeleteWithUndo } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '../../models/actionsModel'
+import { NewActionButton } from './NewActionButton'
 
 export function ActionsTable() {
     const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
@@ -90,9 +90,7 @@ export function ActionsTable() {
                     </a>
                 </i>
             </p>
-            <LinkButton to={'/action'} type="primary" data-attr="create-action">
-                + New Action
-            </LinkButton>
+            <NewActionButton />
             <br />
             <br />
             <Table

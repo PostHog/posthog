@@ -1,4 +1,5 @@
 from django.db import models, connection, transaction
+from django.contrib.postgres.fields import JSONField
 
 class ActionStep(models.Model):
     EXACT = "exact"
@@ -20,3 +21,4 @@ class ActionStep(models.Model):
     )
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     event: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    properties: JSONField = JSONField(default=list, null=True, blank=True)
