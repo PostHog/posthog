@@ -67,7 +67,9 @@ export const funnelLogic = kea({
 
     listeners: ({ actions, values }) => ({
         loadStepsWithCountSuccess: async () => {
-            actions.loadPeople(values.stepsWithCount)
+            if (values.stepsWithCount[0].people.length > 0) {
+                actions.loadPeople(values.stepsWithCount)
+            }
         },
         setFunnel: ({ update }) => {
             if (update) actions.updateFunnel(values.funnel)
