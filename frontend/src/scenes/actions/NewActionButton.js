@@ -15,39 +15,57 @@ export function NewActionButton() {
             <Modal
                 visible={visible}
                 style={{ cursor: 'pointer' }}
-                onCancel={() => setVisible(false)}
+                onCancel={() => {
+                    setVisible(false)
+                    setAppUrlsVisible(false)
+                }}
                 title="Create new action"
-                footer={<Button onClick={() => setVisible(true)}>Cancel</Button>}
+                footer={[
+                    appUrlsVisible && (
+                        <Button key="back-button" onClick={() => setAppUrlsVisible(false)}>
+                            Back
+                        </Button>
+                    ),
+                    <Button
+                        key="cancel-button"
+                        onClick={() => {
+                            setVisible(false)
+                            setAppUrlsVisible(false)
+                        }}
+                    >
+                        Cancel
+                    </Button>,
+                ]}
             >
-                <Row gutter={2} justify="space-between">
-                    <Col xs={11}>
-                        <Card title="Inspect element on your site" onClick={() => setAppUrlsVisible(true)} size="small">
-                            <div style={{ textAlign: 'center', fontSize: 40 }}>
-                                <SearchOutlined />
-                            </div>
-                        </Card>
-                    </Col>
-                    <Col xs={11}>
-                        <Card
-                            title="From event or pageview"
-                            onClick={() => {
-                                router.actions.push('/action')
-                            }}
-                            size="small"
-                        >
-                            <div style={{ textAlign: 'center', fontSize: 40 }} data-attr="new-action-pageview">
-                                <EditOutlined />
-                            </div>
-                        </Card>
-                    </Col>
-                </Row>
-            </Modal>
-            <Modal
-                visible={appUrlsVisible}
-                onCancel={() => setAppUrlsVisible(false)}
-                footer={<Button onClick={() => setAppUrlsVisible(true)}>Cancel</Button>}
-            >
-                <EditAppUrls allowNavigation={true} />
+                {!appUrlsVisible && (
+                    <Row gutter={2} justify="space-between">
+                        <Col xs={11}>
+                            <Card
+                                title="Inspect element on your site"
+                                onClick={() => setAppUrlsVisible(true)}
+                                size="small"
+                            >
+                                <div style={{ textAlign: 'center', fontSize: 40 }}>
+                                    <SearchOutlined />
+                                </div>
+                            </Card>
+                        </Col>
+                        <Col xs={11}>
+                            <Card
+                                title="From event or pageview"
+                                onClick={() => {
+                                    router.actions.push('/action')
+                                }}
+                                size="small"
+                            >
+                                <div style={{ textAlign: 'center', fontSize: 40 }} data-attr="new-action-pageview">
+                                    <EditOutlined />
+                                </div>
+                            </Card>
+                        </Col>
+                    </Row>
+                )}
+                {appUrlsVisible && <EditAppUrls allowNavigation={true} />}
             </Modal>
         </>
     )
