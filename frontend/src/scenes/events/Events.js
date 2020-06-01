@@ -1,9 +1,11 @@
 import React from 'react'
 import { EventsTable } from './EventsTable'
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
+import { hot } from 'react-hot-loader/root'
 
 export const logic = eventsTableLogic
 
-export function Events(props) {
+export const Events = hot(_Events)
+function _Events(props) {
     return <EventsTable {...props} />
 }

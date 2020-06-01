@@ -1,5 +1,10 @@
+/* global require, module, process, __dirname */
 const path = require('path')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
+const HtmlWebpackPlugin = require('html-webpack-plugin')
+const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
+
+const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 
 module.exports = {
     mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
@@ -13,15 +18,20 @@ module.exports = {
     },
     output: {
         path: path.resolve(__dirname, 'frontend', 'dist'),
-        filename: '[name].js',
-        chunkFilename: '[name].[chunkhash].js',
-        publicPath: '/static/',
+        filename: '[name].[hash].js',
+        chunkFilename: '[name].[contenthash].js',
+        publicPath: process.env.NODE_ENV === 'production' ? '/static/' : `http://${webpackDevServerHost}:8234/static/`,
     },
     resolve: {
         alias: {
             '~': path.resolve(__dirname, 'frontend', 'src'),
             lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),
             scenes: path.resolve(__dirname, 'frontend', 'src', 'scenes'),
+            ...(process.env.NODE_ENV !== 'production'
+                ? {
+                      'react-dom': '@hot-loader/react-dom',
+                  }
+                : {}),
         },
     },
     module: {
@@ -75,6 +85,7 @@ module.exports = {
                         // In options we can set different things like format
                         // and directory to save
                         options: {
+                            name: '[name].[contenthash].[ext]',
                             outputPath: 'images',
                         },
                     },
@@ -88,6 +99,7 @@ module.exports = {
                         // Using file-loader too
                         loader: 'file-loader',
                         options: {
+                            name: '[name].[contenthash].[ext]',
                             outputPath: 'fonts',
                         },
                     },
@@ -95,9 +107,34 @@ module.exports = {
             },
         ],
     },
+    devServer: {
+        contentBase: path.join(__dirname, 'frontend', 'dist'),
+        hot: true,
+        host: webpackDevServerHost,
+        port: 8234,
+        headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': '*',
+        },
+    },
     plugins: [
         new MiniCssExtractPlugin({
-            filename: '[name].css',
+            filename: '[name].[contenthash].css',
         }),
+        new HtmlWebpackPlugin({
+            alwaysWriteToDisk: true,
+            title: 'PostHog',
+            chunks: ['main'],
+            template: path.join(__dirname, 'frontend', 'src', 'index.html'),
+        }),
+        new HtmlWebpackPlugin({
+            alwaysWriteToDisk: true,
+            title: 'PostHog',
+            filename: 'layout.html',
+            chunks: ['main'],
+            inject: false,
+            template: path.join(__dirname, 'frontend', 'src', 'layout.ejs'),
+        }),
+        new HtmlWebpackHarddiskPlugin(),
     ],
 }

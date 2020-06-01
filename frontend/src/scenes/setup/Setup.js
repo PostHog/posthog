@@ -13,8 +13,10 @@ import { SlackIntegration } from 'scenes/setup/SlackIntegration'
 import { ChangePassword } from './ChangePassword'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
+import { hot } from 'react-hot-loader/root'
 
-export function Setup() {
+export const Setup = hot(_Setup)
+function _Setup() {
     const { user } = useValues(userLogic)
     const { location } = useValues(router)
 

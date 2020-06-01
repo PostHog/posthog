@@ -21,6 +21,7 @@ services:
       - .:/code
     ports:
       - "8000:8000"
+      - "8234:8234"
     environment:
       IS_DOCKER: "true"
       DATABASE_URL: "postgres://posthog:posthog@db:5432/posthog"

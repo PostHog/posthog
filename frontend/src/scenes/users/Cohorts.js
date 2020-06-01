@@ -7,8 +7,10 @@ import { Tooltip, Table, Spin } from 'antd'
 import { ExportOutlined, DeleteOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
+import { hot } from 'react-hot-loader/root'
 
-export function Cohorts() {
+export const Cohorts = hot(_Cohorts)
+function _Cohorts() {
     const { cohorts, cohortsLoading } = useValues(cohortsModel)
     const { loadCohorts } = useActions(cohortsModel)
     let columns = [
