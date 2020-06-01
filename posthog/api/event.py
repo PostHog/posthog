@@ -1,6 +1,6 @@
 from datetime import datetime
-from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId
-from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value, get_compare_period_dates
+from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId, Team
+from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value, get_compare_period_dates, dict_from_cursor_fetchall
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from django.db.models import QuerySet, F, Prefetch, Q
@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Union
 import json
 from django.utils.timezone import now
 import pandas as pd
+from django.db import connection
 
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
