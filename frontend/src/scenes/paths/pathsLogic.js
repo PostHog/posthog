@@ -23,6 +23,14 @@ export const pathOptionsToProperty = {
     [`${CUSTOM_EVENT}`]: 'custom_event',
 }
 
+function checkRoot(nodeToVerify, paths, start) {
+    let tempSource = paths.find(node => node.target === nodeToVerify.source)
+    while (tempSource !== undefined && !(tempSource.source.includes('1_') && tempSource.source.includes(start))) {
+        tempSource = paths.find(node => node.target === tempSource.source)
+    }
+    return tempSource
+}
+
 export const pathsLogic = kea({
     loaders: ({ values }) => ({
         paths: {
@@ -32,7 +40,15 @@ export const pathsLogic = kea({
             },
             loadPaths: async (_, breakpoint) => {
                 const params = toParams({ ...values.filter, properties: values.properties })
-                const paths = await api.get(`api/paths${params ? `/?${params}` : ''}`)
+                let paths = await api.get(`api/paths${params ? `/?${params}` : ''}`)
+                if (values.filter.start) {
+                    paths = paths.filter(checkingNode => {
+                        return (
+                            checkingNode.source.includes(values.filter.start) ||
+                            checkRoot(checkingNode, paths, values.filter.start)
+                        )
+                    })
+                }
                 const response = {
                     nodes: [
                         ...paths.map(path => ({ name: path.source, id: path.source_id })),
