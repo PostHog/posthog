@@ -27,7 +27,7 @@ export function Person({ _: distinctId, id }) {
             >
                 Delete all data on this person
             </Button>
-            <h1>{person.name}</h1>
+            <h1 className="page-header">{person.name}</h1>
             <div style={{ maxWidth: 750 }}>
                 <PropertiesTable
                     properties={{
@@ -45,6 +45,8 @@ export function Person({ _: distinctId, id }) {
                     </a>{' '}
                     on how to add properties to users using libraries.
                 </small>
+                <br />
+                <br />
             </div>
             <Events fixedFilters={{ person_id: person.id }} />
         </div>
