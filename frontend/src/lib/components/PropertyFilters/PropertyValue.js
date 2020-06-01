@@ -20,7 +20,6 @@ export function PropertyValue({
 
     function loadPropertyValues(value) {
         let key = propertyKey.split('__')[0]
-        setInput(value)
         setOptions({ [propertyKey]: { ...options[propertyKey], status: 'loading' }, ...options })
         setOptionsCache({ ...optionsCache, [value]: 'loading' })
         if (outerOptions) {
@@ -61,6 +60,7 @@ export function PropertyValue({
             value={value || placeholder}
             loading={optionsCache[input] === 'loading'}
             onSearch={input => {
+                setInput(input)
                 if (!optionsCache[input] && operator !== 'is_set') loadPropertyValues(input)
             }}
             data-attr="prop-val"
