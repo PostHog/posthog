@@ -1,4 +1,4 @@
-import React, { Component, useRef, useEffect, useState } from 'react'
+import React, { useRef, useEffect, useState } from 'react'
 import PropTypes from 'prop-types'
 import { Select, DatePicker, Button } from 'antd'
 
@@ -19,138 +19,115 @@ let dateMapping = {
 
 let isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
-export class DateFilter extends Component {
-    static propTypes = {
-        onChange: PropTypes.func.isRequired,
-    }
-    constructor(props) {
-        super(props)
+function dateFilterToText(date_from, date_to) {
+    if (isDate.test(date_from)) return `${date_from} - ${date_to}`
+    if (moment.isMoment(date_from)) return `${date_from.format('YYYY-MM-DD')} - ${date_to.format('YYYY-MM-DD')}`
+    let name = 'Last 7 days'
+    Object.entries(dateMapping).map(([key, value]) => {
+        if (value[0] === date_from && value[1] === date_to) name = key
+    })[0]
+    return name
+}
 
-        this.state = {
-            rangeDateFrom: isDate.test(props.dateFrom) && moment(props.dateFrom).toDate(),
-            rangeDateTo: isDate.test(props.dateTo) && moment(props.dateTo).toDate(),
-            dateRangeOpen: false,
-            open: false,
-        }
-    }
+export function DateFilter({ dateFrom, dateTo, onChange, style }) {
+    const [rangeDateFrom, setRangeDateFrom] = useState(isDate.test(dateFrom) && moment(dateFrom).toDate())
+    const [rangeDateTo, setRangeDateTo] = useState(isDate.test(dateTo) && moment(dateTo).toDate())
+    const [dateRangeOpen, setDateRangeOpen] = useState(false)
+    const [open, setOpen] = useState(false)
 
-    onClickOutside = () => {
-        this.setState({
-            open: false,
-            dateRangeOpen: false,
-        })
-    }
-
-    setDate = (from_date, to_date) => {
-        this.props.onChange(from_date, to_date)
+    function onClickOutside() {
+        setOpen(false)
+        setDateRangeOpen(false)
     }
 
-    dateFilterToText(date_from, date_to) {
-        if (isDate.test(date_from)) return `${date_from} - ${date_to}`
-        if (moment.isMoment(date_from)) return `${date_from.format('YYYY-MM-DD')} - ${date_to.format('YYYY-MM-DD')}`
-        let name = 'Last 7 days'
-        Object.entries(dateMapping).map(([key, value]) => {
-            if (value[0] === date_from && value[1] === date_to) name = key
-        })[0]
-        return name
+    function setDate(fromDate, toDate) {
+        onChange(fromDate, toDate)
     }
 
-    onChange = v => {
+    function _onChange(v) {
         if (v === 'Date range') {
-            if (this.state.open) {
-                this.setState({ dateRangeOpen: true, open: false })
+            if (open) {
+                setOpen(false)
+                setDateRangeOpen(true)
             }
-        } else this.setDate(dateMapping[v][0], dateMapping[v][1])
+        } else setDate(dateMapping[v][0], dateMapping[v][1])
     }
 
-    onBlur = () => {
-        if (this.state.dateRangeOpen) return
-        this.setState({
-            open: false,
-            dateRangeOpen: false,
-        })
+    function onBlur() {
+        if (dateRangeOpen) return
+        onClickOutside()
     }
 
-    onClick = () => {
-        if (this.state.dateRangeOpen) return
-        this.setState({
-            open: !this.state.open,
-        })
+    function onClick() {
+        if (dateRangeOpen) return
+        setOpen(!open)
     }
 
-    dropdownOnClick = e => {
+    function dropdownOnClick(e) {
         e.preventDefault()
-        this.setState({ dateRangeOpen: false, open: true })
+        setOpen(true)
+        setDateRangeOpen(false)
         document.getElementById('daterange_selector').focus()
     }
 
-    onDateFromChange = date => this.setState({ rangeDateFrom: date })
-
-    onDateToChange = date => this.setState({ rangeDateTo: date })
-
-    onApplyClick = () => {
-        this.setState({
-            dateRangeOpen: false,
-            open: false,
-        })
-        this.props.onChange(
-            moment(this.state.rangeDateFrom).format('YYYY-MM-DD'),
-            moment(this.state.rangeDateTo).format('YYYY-MM-DD')
-        )
+    function onApplyClick() {
+        onClickOutside()
+        onChange(moment(rangeDateFrom).format('YYYY-MM-DD'), moment(rangeDateTo).format('YYYY-MM-DD'))
     }
 
-    render() {
-        let { rangeDateFrom, rangeDateTo } = this.state
-        return (
-            <Select
-                data-attr="date-filter"
-                bordered={false}
-                id="daterange_selector"
-                value={this.dateFilterToText(this.props.dateFrom, this.props.dateTo)}
-                onChange={this.onChange}
-                style={{
-                    marginRight: 4,
-                    ...this.props.style,
-                }}
-                open={this.state.open || this.state.dateRangeOpen}
-                onBlur={this.onBlur}
-                onClick={this.onClick}
-                listHeight={400}
-                dropdownMatchSelectWidth={false}
-                dropdownRender={menu => {
-                    if (this.state.dateRangeOpen) {
-                        return (
-                            <DatePickerDropdown
-                                onClick={this.dropdownOnClick}
-                                onDateFromChange={this.onDateFromChange}
-                                onDateToChange={this.onDateToChange}
-                                onApplyClick={this.onApplyClick}
-                                onClickOutside={this.onClickOutside}
-                                rangeDateFrom={rangeDateFrom}
-                                rangeDateTo={rangeDateTo}
-                            />
-                        )
-                    } else if (this.state.open) {
-                        return menu
-                    }
-                }}
-            >
-                {[
-                    ...Object.entries(dateMapping).map(([key]) => {
-                        return (
-                            <Select.Option key={key} value={key}>
-                                {key}
-                            </Select.Option>
-                        )
-                    }),
+    return (
+        <Select
+            data-attr="date-filter"
+            bordered={false}
+            id="daterange_selector"
+            value={dateFilterToText(dateFrom, dateTo)}
+            onChange={_onChange}
+            style={{
+                marginRight: 4,
+                ...style,
+            }}
+            open={open || dateRangeOpen}
+            onBlur={onBlur}
+            onClick={onClick}
+            listHeight={400}
+            dropdownMatchSelectWidth={false}
+            dropdownRender={menu => {
+                if (dateRangeOpen) {
+                    return (
+                        <DatePickerDropdown
+                            onClick={dropdownOnClick}
+                            onDateFromChange={date => setRangeDateFrom(date)}
+                            onDateToChange={date => setRangeDateTo(date)}
+                            onApplyClick={onApplyClick}
+                            onClickOutside={onClickOutside}
+                            rangeDateFrom={rangeDateFrom}
+                            rangeDateTo={rangeDateTo}
+                        />
+                    )
+                } else if (open) {
+                    return menu
+                }
+            }}
+        >
+            {[
+                ...Object.entries(dateMapping).map(([key]) => {
+                    return (
+                        <Select.Option key={key} value={key}>
+                            {key}
+                        </Select.Option>
+                    )
+                }),
 
-                    <Select.Option key={'Date range'} value={'Date range'}>
-                        {'Date range'}
-                    </Select.Option>,
-                ]}
-            </Select>
-        )
-    }
+                <Select.Option key={'Date range'} value={'Date range'}>
+                    {'Date range'}
+                </Select.Option>,
+            ]}
+        </Select>
+    )
+}
+
+DateFilter.propTypes = {
+    onChange: PropTypes.func.isRequired,
 }
 
 function DatePickerDropdown(props) {
