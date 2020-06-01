@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { useActions, useValues } from 'kea'
+import React, { useState } from 'react'
+import { useValues } from 'kea'
 
 import { currentPageLogic } from '~/editor/currentPageLogic'
 
@@ -31,27 +31,7 @@ function addWBRToUrl(url) {
 
 export function CurrentPage() {
     const { href } = useValues(currentPageLogic)
-    const { setHref } = useActions(currentPageLogic)
     const [showIcon, setShowIcon] = useState(true)
-
-    useEffect(() => {
-        const interval = window.setInterval(() => {
-            if (window.location.href !== href) {
-                setHref(window.location.href)
-            }
-        }, 500)
-        return () => window.clearInterval(interval)
-    }, [href])
-
-    useEffect(() => {
-        const locationListener = () => {
-            setHref(window.location.href)
-        }
-        window.addEventListener('popstate', locationListener)
-        return () => {
-            window.removeEventListener('popstate', locationListener)
-        }
-    }, [])
 
     return (
         <div className="float-box">
