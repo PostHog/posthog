@@ -9,6 +9,9 @@ import { styles } from '~/editor/styles'
 import { Toolbar } from '~/editor/Toolbar'
 import { dockLogic } from '~/editor/dockLogic'
 import { CloseOutlined } from '@ant-design/icons'
+import { initKea } from '~/initKea'
+
+initKea()
 
 window.simmer = new Simmer(window, { depth: 8 })
 

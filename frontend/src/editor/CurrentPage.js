@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react'
+import { useActions, useValues } from 'kea'
+
+import { currentPageLogic } from '~/editor/currentPageLogic'
 
 function getFavicon() {
     var favicon = undefined
@@ -27,7 +30,8 @@ function addWBRToUrl(url) {
 }
 
 export function CurrentPage() {
-    const [href, setHref] = useState(window.location.href)
+    const { href } = useValues(currentPageLogic)
+    const { setHref } = useActions(currentPageLogic)
     const [showIcon, setShowIcon] = useState(true)
 
     useEffect(() => {
