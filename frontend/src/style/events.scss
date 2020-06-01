@@ -1,21 +1,4 @@
 .events {
-    & > .table {
-        table-layout: fixed;
-        & > td:nth-child(4) {
-            width: 80px;
-            text-align: center;
-        }
-        & > td:nth-child(5) {
-            width: 80px;
-            text-align: center;
-        }
-        .event-row > td {
-            width: 25%;
-            overflow: hidden;
-            white-space: nowrap;
-            text-overflow: ellipsis;
-        }
-    }
     .event-day-separator {
         background-color: $gray-300;
         text-align: center;
@@ -23,23 +6,7 @@
     .event-row {
         transition: background-color 2s;
         background-color: #fff;
-    }
-    .event-new-events {
-        opacity: 1;
-        transition: max-height 0.1s opacity 0.5s;
-        display: table-row;
         cursor: pointer;
-
-        & div {
-            opacity: 1;
-        }
-        &.hide {
-            display: none;
-            & div {
-                opacity: 0;
-                max-height: 0;
-            }
-        }
     }
     .event-row-new,
     .event-new-events {

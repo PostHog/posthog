@@ -3,7 +3,7 @@ from posthog.models import Event, Person, Element, Action, ElementGroup, Filter,
 from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value, get_compare_period_dates
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from django.db.models import QuerySet, F, Prefetch
+from django.db.models import QuerySet, F, Prefetch, Q
 from django.db.models.functions import Lag
 from django.db import connection
 from django.db.models.expressions import Window
@@ -56,7 +56,7 @@ class EventViewSet(viewsets.ModelViewSet):
         team = self.request.user.team_set.get()
         queryset = queryset.add_person_id(team.pk) # type: ignore
 
-        if self.action == 'list' or self.action == 'sessions': # type: ignore
+        if self.action == 'list' or self.action == 'sessions' or self.action == 'actions': # type: ignore
             queryset = self._filter_request(self.request, queryset)
         
         order_by = self.request.GET.get('orderBy')
@@ -131,20 +131,25 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(methods=['GET'], detail=False)
     def actions(self, request: request.Request) -> response.Response:
-        actions = Action.objects.filter(
-            deleted=False,
-            team=request.user.team_set.get()
-        )
+        events = self.get_queryset()\
+            .filter(action__deleted=False, action__isnull=False)\
+            .prefetch_related(
+                Prefetch('action_set', queryset=Action.objects.order_by('id')
+            ))[0: 101]
         matches = []
-        for action in actions:
-            events = Event.objects.filter_by_action(action)
-            events = self._filter_request(request, events)
-            for event in events[0: 20]:
+        ids_seen: List[int] = []
+        for event in events:
+            if event.pk in ids_seen:
+                continue
+            ids_seen.append(event.pk)
+            for action in event.action_set.filter(deleted=False):
                 event.action = action
                 matches.append(event)
-        matches = sorted(matches, key=lambda event: event.id, reverse=True)
-        matches = self._prefetch_events(matches[0: 20])
-        return response.Response({'results': [self._serialize_actions(event) for event in matches]})
+        prefetched_events = self._prefetch_events(matches)
+        return response.Response({
+            'next': len(events) > 100,
+            'results': [self._serialize_actions(event) for event in prefetched_events]
+        })
 
     @action(methods=['GET'], detail=False)
     def values(self, request: request.Request) -> response.Response:
