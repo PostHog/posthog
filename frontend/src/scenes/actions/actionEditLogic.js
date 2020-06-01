@@ -60,7 +60,7 @@ export const actionEditLogic = kea({
             })
             try {
                 if (action.id) {
-                    action = await api.update(props.apiURL + 'api/action/' + action.id, action)
+                    action = await api.update(props.apiURL + 'api/action/' + action.id + '/', action)
                 } else {
                     action = await api.create(props.apiURL + 'api/action/', action)
                 }
