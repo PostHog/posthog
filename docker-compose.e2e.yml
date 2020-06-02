@@ -17,8 +17,6 @@ services:
       context: .
       dockerfile: production.Dockerfile
     command: ./bin/docker & tail -f /dev/null
-    volumes:
-      - .:/code
     ports:
       - "8000:8000"
     environment:
