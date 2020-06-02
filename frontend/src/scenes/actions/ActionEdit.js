@@ -11,7 +11,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
         id: actionId,
         apiURL,
         onSave: (action, createNew) => onSave(action, !actionId, createNew),
-        params: '?include_count=1' + (temporaryToken ? '&temporary_token=' + temporaryToken : ''),
+        temporaryToken,
     })
     const { action, actionLoading, errorActionId } = useValues(logic)
     const { setAction, saveAction, setCreateNew } = useActions(logic)
