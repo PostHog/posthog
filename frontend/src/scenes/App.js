@@ -35,7 +35,7 @@ const urlBackgroundMap = {
     '/paths': 'https://posthog.s3.eu-west-2.amazonaws.com/paths.png',
 }
 
-export default function App() {
+function App() {
     const { user } = useValues(userLogic)
     const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
