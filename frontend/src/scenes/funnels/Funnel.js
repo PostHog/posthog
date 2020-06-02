@@ -7,8 +7,10 @@ import { FunnelViz } from './FunnelViz'
 import { People } from './People'
 import { funnelLogic } from './funnelLogic'
 import { useValues, useActions } from 'kea'
+import { hot } from 'react-hot-loader/root'
 
-export function Funnel({ id }) {
+export const Funnel = hot(_Funnel)
+function _Funnel({ id }) {
     const { funnel, funnelLoading, stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic({ id }))
     const { setFunnel } = useActions(funnelLogic({ id }))
     if (!funnel && funnelLoading) return <Loading />

@@ -4,8 +4,10 @@ import api from 'lib/api'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { deletePersonData } from 'lib/utils'
 import { Button } from 'antd'
+import { hot } from 'react-hot-loader/root'
 
-export function Person({ _: distinctId, id }) {
+export const Person = hot(_Person)
+function _Person({ _: distinctId, id }) {
     const [person, setPerson] = useState(null)
 
     useEffect(() => {

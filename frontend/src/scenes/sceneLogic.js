@@ -1,22 +1,7 @@
-import React from 'react'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import { delay } from 'lib/utils'
-import { HedgehogOverlay } from 'lib/components/HedgehogOverlay/HedgehogOverlay'
-
-export const loadedScenes = {
-    '404': {
-        component: function Error404() {
-            return (
-                <div>
-                    <h2>Error 404</h2>
-                    <p>Page not found.</p>
-                    <HedgehogOverlay type="sad" />
-                </div>
-            )
-        },
-    },
-}
+import { Error404 } from '~/layout/Error404'
 
 export const scenes = {
     // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
@@ -67,6 +52,7 @@ export const sceneLogic = kea({
     actions: () => ({
         loadScene: (scene, params) => ({ scene, params }),
         setScene: (scene, params) => ({ scene, params }),
+        setLoadedScene: (scene, loadedScene) => ({ scene, loadedScene }),
     }),
     reducers: ({ actions }) => ({
         scene: [
@@ -79,6 +65,16 @@ export const sceneLogic = kea({
             {},
             {
                 [actions.setScene]: (_, payload) => payload.params || {},
+            },
+        ],
+        loadedScenes: [
+            {
+                '404': {
+                    component: Error404,
+                },
+            },
+            {
+                [actions.setLoadedScene]: (state, { scene, loadedScene }) => ({ ...state, [scene]: loadedScene }),
             },
         ],
         loadingScene: [
@@ -123,28 +119,31 @@ export const sceneLogic = kea({
                 return
             }
 
-            if (!loadedScenes[scene]) {
+            let loadedScene = values.loadedScenes[scene]
+
+            if (!loadedScene) {
                 const importedScene = await scenes[scene]()
                 breakpoint()
                 const { default: defaultExport, logic, ...others } = importedScene
 
                 if (defaultExport) {
-                    loadedScenes[scene] = {
+                    loadedScene = {
                         component: defaultExport,
                         logic: logic,
                     }
                 } else {
-                    loadedScenes[scene] = {
+                    loadedScene = {
                         component:
                             Object.keys(others).length === 1
                                 ? others[Object.keys(others)[0]]
-                                : loadedScenes['404'].component,
+                                : values.loadedScenes['404'].component,
                         logic: logic,
                     }
                 }
+                actions.setLoadedScene(scene, loadedScene)
             }
 
-            const { logic } = loadedScenes[scene]
+            const { logic } = loadedScene
 
             let unmount
 

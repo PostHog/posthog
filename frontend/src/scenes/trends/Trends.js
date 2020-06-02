@@ -25,6 +25,8 @@ import {
     LINEAR_CHART_LABEL,
     CUMULATIVE_CHART_LABEL,
 } from 'lib/constants'
+import { hot } from 'react-hot-loader/root'
+
 const { TabPane } = Tabs
 
 const displayMap = {
@@ -34,7 +36,8 @@ const displayMap = {
     ActionsPie: 'Pie',
 }
 
-export function Trends() {
+export const Trends = hot(_Trends)
+function _Trends() {
     const { filters, resultsLoading, showingPeople, activeView } = useValues(trendsLogic({ dashboardItemId: null }))
     const { setFilters, setDisplay, setActiveView } = useActions(trendsLogic({ dashboardItemId: null }))
 

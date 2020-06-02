@@ -1,5 +1,6 @@
 import 'react-toastify/dist/ReactToastify.css'
 import 'react-datepicker/dist/react-datepicker.css'
+import { hot } from 'react-hot-loader/root'
 
 import React, { useState } from 'react'
 import { useValues } from 'kea'
@@ -11,7 +12,7 @@ import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 
 import { userLogic } from 'scenes/userLogic'
-import { sceneLogic, loadedScenes } from 'scenes/sceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 
 const darkerScenes = {
@@ -22,9 +23,9 @@ const darkerScenes = {
     paths: true,
 }
 
-export default function App() {
+function App() {
     const { user } = useValues(userLogic)
-    const { scene, params } = useValues(sceneLogic)
+    const { scene, params, loadedScenes } = useValues(sceneLogic)
     const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
 
     const Scene = loadedScenes[scene]?.component || (() => <SceneLoading />)
@@ -54,3 +55,5 @@ export default function App() {
         </Layout>
     )
 }
+
+export default hot(App)

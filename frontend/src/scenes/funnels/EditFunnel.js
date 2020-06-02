@@ -8,8 +8,10 @@ import { ActionFilter } from 'scenes/trends/ActionFilter/ActionFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Button } from 'antd'
 import { userLogic } from 'scenes/userLogic'
+import { hot } from 'react-hot-loader/root'
 
-export function EditFunnel({ funnelId }) {
+export const EditFunnel = hot(_EditFunnel)
+function _EditFunnel({ funnelId }) {
     const { funnel, isStepsEmpty } = useValues(funnelLogic({ id: funnelId }))
     const { setFunnel, updateFunnel, createFunnel } = useActions(funnelLogic({ id: funnelId }))
     const { actions, actionsLoading } = useValues(actionsModel())

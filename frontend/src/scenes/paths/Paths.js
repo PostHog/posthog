@@ -6,9 +6,9 @@ import { Row, Modal, Button, Spin, Select } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
-
 import { PropertyFilters, PropertyValue } from 'lib/components/PropertyFilters'
 import { useActions, useValues } from 'kea'
+import { hot } from 'react-hot-loader/root'
 import {
     pathsLogic,
     PAGEVIEW,
@@ -69,7 +69,8 @@ function NoData() {
     )
 }
 
-export function Paths() {
+export const Paths = hot(_Paths)
+function _Paths() {
     const canvas = useRef(null)
     const { paths, filter, pathsLoading } = useValues(pathsLogic)
     const { setFilter } = useActions(pathsLogic)
