@@ -80,7 +80,12 @@ export const actionEditLogic = kea({
     events: ({ actions, props }) => ({
         afterMount: async () => {
             if (props.id) {
-                const action = await api.get('api/action/' + props.id + '/' + props.params)
+                const action = await api.get(
+                    'api/action/' +
+                        props.id +
+                        '/?include_count=1' +
+                        (props.temporaryToken ? '&temporary_token=' + props.temporaryToken : '')
+                )
                 actions.setAction(action)
             } else {
                 actions.setAction({ name: '', steps: [{ isNew: uuid() }] })
