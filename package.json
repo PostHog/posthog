@@ -30,7 +30,6 @@
         "core-js": "3",
         "d3": "^5.15.0",
         "d3-sankey": "^0.12.3",
-        "editor": "^1.0.0",
         "funnel-graph-js": "^1.4.1",
         "kea": "^2.0.0-beta.8",
         "kea-loaders": "^0.2.2",
@@ -39,9 +38,7 @@
         "posthog-js": "1.0.7-beta.0",
         "prop-types": "^15.7.2",
         "react": ">= 16.8",
-        "react-beautiful-dnd": "^12.2.0",
         "react-datepicker": "^2.13.0",
-        "react-dnd": "^10.0.2",
         "react-dom": ">= 16.8",
         "react-draggable": "^4.2.0",
         "react-redux": "^7.2.0",
@@ -52,7 +49,6 @@
         "reselect": "^4.0.0",
         "sass": "^1.26.2",
         "simmerjs": "^0.5.6",
-        "style.css": "^1.0.0",
         "styled-components": "^5.0.1"
     },
     "devDependencies": {
@@ -79,7 +75,6 @@
         "husky": ">=4",
         "lint-staged": ">=10",
         "mini-css-extract-plugin": "^0.9.0",
-        "parcel-bundler": "1.11.0",
         "postcss-loader": "^3.0.0",
         "prettier": "1.19.1",
         "react-hot-loader": "^4.12.21",
