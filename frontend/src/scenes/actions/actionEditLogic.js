@@ -59,10 +59,11 @@ export const actionEditLogic = kea({
                 return data
             })
             try {
+                let token = props.temporaryToken ? '?temporary_token=' + props.temporaryToken : ''
                 if (action.id) {
-                    action = await api.update(props.apiURL + 'api/action/' + action.id + '/', action)
+                    action = await api.update(props.apiURL + 'api/action/' + action.id + '/' + token, action)
                 } else {
-                    action = await api.create(props.apiURL + 'api/action/', action)
+                    action = await api.create(props.apiURL + 'api/action/' + token, action)
                 }
             } catch (response) {
                 if (response.detail === 'action-exists') {
