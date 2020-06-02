@@ -10,14 +10,12 @@ import { Toolbar } from '~/editor/Toolbar'
 import { dockLogic } from '~/editor/dockLogic'
 import { CloseOutlined } from '@ant-design/icons'
 import { initKea } from '~/initKea'
-import { hot } from 'react-hot-loader/root'
 
 initKea()
 
 window.simmer = new Simmer(window, { depth: 8 })
 
-const App = hot(_App)
-function _App(props) {
+function App(props) {
     const apiURL = `${props.apiURL}${props.apiURL.endsWith('/') ? '' : '/'}`
     const jsURL = `${props.jsURL}${props.jsURL.endsWith('/') ? '' : '/'}`
     const shadow = useRef(null)
