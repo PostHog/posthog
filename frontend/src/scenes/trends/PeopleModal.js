@@ -2,10 +2,10 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import moment from 'moment'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { Modal } from 'lib/components/Modal'
+import { Modal, Button } from 'antd'
 import { PeopleTable } from 'scenes/users/PeopleTable'
 
-export function PeopleModal() {
+export function PeopleModal({ visible }) {
     const { people, filters } = useValues(trendsLogic({ id: null }))
     const { setShowingPeople } = useActions(trendsLogic({ dashboardItemId: null }))
 
@@ -13,9 +13,16 @@ export function PeopleModal() {
         filters.shown_as === 'Stickiness'
             ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
             : `"${people?.label}" on ${people?.day ? moment(people.day).format('ll') : '...'}`
-
+    const closeModal = () => setShowingPeople(false)
     return (
-        <Modal title={title} onDismiss={() => setShowingPeople(false)}>
+        <Modal
+            title={title}
+            visible={visible}
+            onOk={closeModal}
+            onCancel={closeModal}
+            footer={<Button onClick={closeModal}>Close</Button>}
+            width={700}
+        >
             {people ? (
                 <p>
                     Found {people.count} {people.count === 1 ? 'user' : 'users'}

@@ -5,6 +5,7 @@ import { objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
+import { STICKINESS, ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
 
 export const EntityTypes = {
     ACTIONS: 'actions',
@@ -183,8 +184,10 @@ export const trendsLogic = kea({
                 breakdown_value,
             })
 
-            if (values.filters.shown_as === 'Stickiness') {
+            if (values.filters.shown_as === STICKINESS) {
                 params.stickiness_days = day
+            } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
+                params.date_to = day
             } else {
                 params.date_from = day
                 params.date_to = day

@@ -66,6 +66,8 @@ class TestFilterByActions(BaseTest):
         self.assertEqual(events[0], event1)
 
     def test_with_normal_filters(self):
+        # this test also specifically tests the back to back receipt of
+        # the same type of events by action to test the query cache
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
 
         action1 = Action.objects.create(team=self.team)
@@ -76,16 +78,28 @@ class TestFilterByActions(BaseTest):
             Element(tag_name='a', href='/a-url', text='some_text', nth_child=0, nth_of_type=0, order=0)
         ])
 
-        event2 = Event.objects.create(team=self.team, distinct_id="whatever", elements=[
+        event2 = Event.objects.create(team=self.team, distinct_id="whatever2", elements=[
+            Element(tag_name='a', href='/a-url', text='some_text', nth_child=0, nth_of_type=0, order=0)
+        ])
+
+        event3 = Event.objects.create(team=self.team, distinct_id="whatever", elements=[
+            Element(tag_name='a', href='/a-url-2', text='some_other_text', nth_child=0, nth_of_type=0, order=0),
+            # make sure elements don't get double counted if they're part of the same event
+            Element(tag_name='div', text='some_other_text', nth_child=0, nth_of_type=0, order=1)
+        ])
+
+        event4 = Event.objects.create(team=self.team, distinct_id="whatever2", elements=[
             Element(tag_name='a', href='/a-url-2', text='some_other_text', nth_child=0, nth_of_type=0, order=0),
             # make sure elements don't get double counted if they're part of the same event
             Element(tag_name='div', text='some_other_text', nth_child=0, nth_of_type=0, order=1)
         ])
 
         events = Event.objects.filter_by_action(action1)
-        self.assertEqual(events[0], event2)
-        self.assertEqual(events[1], event1)
-        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0], event4)
+        self.assertEqual(events[1], event3)
+        self.assertEqual(events[2], event2)
+        self.assertEqual(events[3], event1)
+        self.assertEqual(len(events), 4)
 
     def test_with_class(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)

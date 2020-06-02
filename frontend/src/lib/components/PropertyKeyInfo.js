@@ -84,7 +84,7 @@ export const keyMapping = {
     },
     $pathname: {
         label: 'Path Name',
-        description: 'The path name of the Current URL.',
+        description: 'The path of the Current URL, which means everything in the url after the domain.',
         examples: ['/pricing', '/about-us/team'],
     },
     $search_engine: {
@@ -118,8 +118,9 @@ export const keyMapping = {
         description: '',
     },
     $anon_distinct_id: {
-        label: '$ce_version',
-        description: '',
+        label: 'Anon Distinct ID',
+        description: 'If the user was previously anonymous, their anonymous ID will be set here.',
+        examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
     },
     $event_type: {
         label: 'Event Type',
