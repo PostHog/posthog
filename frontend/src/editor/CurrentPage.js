@@ -1,3 +1,4 @@
+import './CurrentPage.scss'
 import React, { useState } from 'react'
 import { useValues } from 'kea'
 import { GlobalOutlined } from '@ant-design/icons'
@@ -34,9 +35,9 @@ export function CurrentPage() {
     const [showIcon, setShowIcon] = useState(true)
 
     return (
-        <div className="float-box">
-            <div style={{ display: 'flex', alignItems: 'top' }}>
-                <div style={{ width: 46, minWidth: 46 }}>
+        <div className="float-box current-page">
+            <div className="with-left-icon">
+                <div className="icon-part">
                     {showIcon ? (
                         <img
                             src={getFavicon()}
@@ -46,24 +47,14 @@ export function CurrentPage() {
                             alt="FavIcon"
                         />
                     ) : (
-                        <GlobalOutlined style={{ fontSize: 32, color: 'hsl(240, 12%, 82%)' }} />
+                        <GlobalOutlined />
                     )}
                 </div>
-                <div
-                    style={{
-                        fontSize: '16px',
-                        lineHeight: '20px',
-                        marginTop: -4,
-                        minHeight: 40,
-                        display: 'flex',
-                        alignItems: 'center',
-                        overflow: 'hidden',
-                    }}
-                >
-                    <div style={{ width: '100%' }}>
+                <div className="text-part">
+                    <div>
                         <div>{window.document.title}</div>
-                        <div style={{ fontSize: 12, marginTop: 2, wordBreak: 'break-word' }}>
-                            <a href={href} target="_blank" rel="noreferrer noopener" style={{ color: '#888' }}>
+                        <div className="small-url-link">
+                            <a href={href} target="_blank" rel="noreferrer noopener">
                                 {addWBRToUrl(href)}
                             </a>
                         </div>
