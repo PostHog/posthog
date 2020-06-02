@@ -81,6 +81,7 @@
         "prettier": "1.19.1",
         "react-hot-loader": "^4.12.21",
         "sass-loader": "^8.0.2",
+        "style-loader": "^1.2.1",
         "webpack": "^4.42.0",
         "webpack-cli": "^3.3.11",
         "webpack-dev-server": "^3.11.0"
