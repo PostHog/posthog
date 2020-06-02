@@ -6,6 +6,8 @@ import { InspectElement } from '~/editor/InspectElement'
 import { hot } from 'react-hot-loader/root'
 import { Tabs } from 'antd'
 import { kea, useActions, useValues } from 'kea'
+import { AllActionsLink } from '~/editor/AllActionsLink'
+import { AllDashboardsLink } from '~/editor/AllDashboardsLink'
 
 const toolbarLogic = kea({
     actions: () => ({
@@ -42,6 +44,8 @@ const toolbarLogic = kea({
 function ToolbarContent({ tab, apiURL, temporaryToken, actionId, className }) {
     return (
         <div className={`toolbar-content ${className}`}>
+            {tab === 'actions' ? <AllActionsLink apiURL={apiURL} /> : null}
+            {tab === 'dashboards' ? <AllDashboardsLink apiURL={apiURL} /> : null}
             {tab === 'stats' ? <CurrentPage /> : null}
             {tab === 'actions' || tab === 'stats' ? <InspectElement /> : null}
             {tab === 'actions' || tab === 'stats' ? <PageViewStats /> : null}
