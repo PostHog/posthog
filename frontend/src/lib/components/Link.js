@@ -16,6 +16,8 @@ export function Link({ to, preventClick = false, ...props }) {
                 }
                 props.onClick && props.onClick(event)
             }}
-        />
+        >
+            {props.children}
+        </a>
     )
 }

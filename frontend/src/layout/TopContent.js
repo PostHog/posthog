@@ -4,6 +4,7 @@ import React from 'react'
 import { LatestVersion } from '~/layout/LatestVersion'
 import { User } from '~/layout/User'
 import { WorkerStats } from '~/layout/WorkerStats'
+import Onboarding from '~/layout/onboarding'
 
 export function TopContent() {
     return (
@@ -18,6 +19,7 @@ export function TopContent() {
                     fontSize: 13,
                 }}
             >
+                <Onboarding />
                 <LatestVersion />
                 <WorkerStats />
                 <User />
