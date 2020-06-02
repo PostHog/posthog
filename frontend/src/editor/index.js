@@ -1,3 +1,5 @@
+import '~/editor/styles.scss'
+
 import React, { useRef } from 'react'
 import ReactDOM from 'react-dom'
 import Simmer from 'simmerjs'
@@ -5,7 +7,6 @@ import root from 'react-shadow'
 import Draggable from 'react-draggable'
 import { getContext, useActions, useValues } from 'kea'
 import { Provider } from 'react-redux'
-import { styles } from '~/editor/styles'
 import { Toolbar } from '~/editor/Toolbar'
 import { dockLogic } from '~/editor/dockLogic'
 import { CloseOutlined } from '@ant-design/icons'
@@ -33,7 +34,6 @@ function App(props) {
         <>
             <root.div ref={shadow}>
                 <link href={`${jsURL}static/editor.css`} rel="stylesheet" crossOrigin="anonymous" />
-                <style>{styles}</style>
 
                 {showDraggable ? (
                     <Draggable handle=".drag-bar">
