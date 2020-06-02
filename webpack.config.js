@@ -18,7 +18,7 @@ module.exports = {
     },
     output: {
         path: path.resolve(__dirname, 'frontend', 'dist'),
-        filename: '[name].[hash].js',
+        filename: '[name].js',
         chunkFilename: '[name].[contenthash].js',
         publicPath: process.env.NODE_ENV === 'production' ? '/static/' : `http://${webpackDevServerHost}:8234/static/`,
     },
