@@ -1,10 +1,10 @@
-from .base import BaseTest
+from .base import BaseTest, TransactionBaseTest
 from posthog.models import Event, Person, Element, Action, ActionStep, Team
 from freezegun import freeze_time
 import json
 
 
-class TestEvents(BaseTest):
+class TestEvents(TransactionBaseTest):
     TESTS_API = True
     ENDPOINT = 'event'
 
@@ -68,6 +68,7 @@ class TestEvents(BaseTest):
             Element(tag_name='a', attr_class=['watch_movie', 'play'], text='Watch now', attr_id='something', href='/movie', order=0),
             Element(tag_name='div', href='/movie', order=1)
         ])
+        return sign_up
 
     def test_live_action_events(self):
         action_sign_up = Action.objects.create(team=self.team, name='signed up')
@@ -105,9 +106,9 @@ class TestEvents(BaseTest):
         # with self.assertNumQueries(8):
         response = self.client.get('/api/event/actions/').json()
         self.assertEqual(len(response['results']), 4)
+        self.assertEqual(response['results'][3]['action']['name'], 'signed up')
         self.assertEqual(response['results'][3]['event']['id'], event_sign_up_1.pk)
         self.assertEqual(response['results'][3]['action']['id'], action_sign_up.pk)
-        self.assertEqual(response['results'][3]['action']['name'], 'signed up')
 
         self.assertEqual(response['results'][2]['action']['id'], action_sign_up.pk)
         self.assertEqual(response['results'][1]['action']['id'], action_credit_card.pk)

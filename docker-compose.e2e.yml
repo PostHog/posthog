@@ -15,10 +15,8 @@ services:
     container_name: posthog_server
     build:
       context: .
-      dockerfile: dev.Dockerfile
-    command: ./bin/docker-dev & tail -f /dev/null
-    volumes:
-      - .:/code
+      dockerfile: production.Dockerfile
+    command: ./bin/docker & tail -f /dev/null
     ports:
       - "8000:8000"
     environment:

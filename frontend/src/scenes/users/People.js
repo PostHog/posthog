@@ -6,8 +6,10 @@ import { PeopleTable } from './PeopleTable'
 
 import { Button } from 'antd'
 import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
+import { hot } from 'react-hot-loader/root'
 
-export function People() {
+export const People = hot(_People)
+function _People() {
     const [loading, setLoading] = useState(true)
     const [people, setPeople] = useState(null)
     const [search, setSearch] = useState('')

@@ -1,0 +1,126 @@
+<%/* DJANGO login/signup form layout! */%>
+<!doctype html>
+<html>
+  <head>
+    <title>Posthog</title>
+    <meta name="robots" content="noindex">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="https://posthog.com/wp-content/uploads/2020/01/cropped-Frame-1-32x32.png" sizes="32x32"/>
+    <link rel="icon" href="https://posthog.com/wp-content/uploads/2020/01/cropped-Frame-1-192x192.png" sizes="192x192"/>
+    {% if not opt_out_capture %}
+        <script src="https://t.posthog.com/static/array.js"></script>
+        <script id="posthog-snippet">
+            posthog.init('sTMFPsFhdP1Ssg');
+        </script>
+    {% endif %}
+    {% if sentry_dsn %}
+        <script src="https://browser.sentry-cdn.com/5.10.1/bundle.min.js" integrity="sha384-sAOze6ZTBIpiWBF3VlUteSInM4rYpjxrejp1wMmmKqA9clRZ1vZJ36Ihmt1ilTrG" crossorigin="anonymous">
+        </script>
+        <script id="sentry-snippet">location.host.indexOf('127.0.0.1') == -1 && Sentry.init({ dsn: '{{sentry_dsn}}' });</script>
+    {% endif %}
+    <%= htmlWebpackPlugin.tags.headTags %><%/* This adds the main.css file! */%>
+<style>
+    html,
+body {
+  height: 100%;
+}
+
+body {
+  display: -ms-flexbox;
+  display: flex;
+  -ms-flex-align: center;
+  align-items: center;
+  padding-top: 40px;
+  padding-bottom: 40px;
+}
+
+.form-signin {
+  width: 100%;
+  max-width: 400px;
+  padding: 15px;
+  margin: auto;
+}
+.form-signin .checkbox {
+  font-weight: 400;
+}
+.form-signin .form-control {
+  position: relative;
+  box-sizing: border-box;
+  height: auto;
+  padding: 10px;
+  font-size: 16px;
+}
+.form-signin .form-control:focus {
+  z-index: 2;
+}
+.form-signin-inputs input {
+    border-radius: 0;
+    margin-bottom: -1px;
+}
+.form-signin-inputs input:first-child {
+  border-radius: 0.25rem 0.25rem 0 0;
+}
+.form-signin input:last-child {
+  border-radius: 0 0 0.25rem 0.25rem;
+}
+
+.field {
+  display: flex;
+  flex-flow: column-reverse;
+  margin-bottom: 1em;
+}
+.field label, .field input {
+  transition: all 0.2s;
+  touch-action: manipulation;
+  color: #495057;
+}
+
+.field input {
+  font-size: 1.5em;
+  border: 0;
+  border-bottom: 1px solid #ccc;
+  font-family: inherit;
+  -webkit-appearance: none;
+  border-radius: 0;
+  padding: 0;
+  cursor: text;
+}
+
+.field input:focus {
+  outline: 0;
+  border-bottom: 1px solid #666;
+}
+
+input:placeholder-shown + label {
+  cursor: text;
+  max-width: 66.66%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform-origin: left bottom;
+  transform: translate(0, 2.125rem) scale(1.5);
+}
+::-webkit-input-placeholder {
+  opacity: 0;
+  transition: inherit;
+}
+input:focus::-webkit-input-placeholder {
+  opacity: 1;
+}
+input:not(:placeholder-shown) + label,
+input:focus + label {
+  transform: translate(0, 0) scale(1);
+  cursor: pointer;
+color: var(--blue)
+}
+</style>
+  {% block head %}
+  {% endblock %}
+  </head>
+  <body>
+
+        {% block content %}
+        {% endblock %}
+
+  </body>
+</html>

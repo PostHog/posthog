@@ -1,5 +1,6 @@
 import 'react-toastify/dist/ReactToastify.css'
 import 'react-datepicker/dist/react-datepicker.css'
+import { hot } from 'react-hot-loader/root'
 
 import React, { useState, useEffect } from 'react'
 import { useValues } from 'kea'
@@ -11,7 +12,7 @@ import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 
 import { userLogic } from 'scenes/userLogic'
-import { sceneLogic, loadedScenes } from 'scenes/sceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 
@@ -36,7 +37,7 @@ const urlBackgroundMap = {
 
 export default function App() {
     const { user } = useValues(userLogic)
-    const { scene, params } = useValues(sceneLogic)
+    const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
     const [sidebarCollapsed, setSidebarCollapsed] = useState(typeof window !== 'undefined' && window.innerWidth <= 991)
 
@@ -74,3 +75,5 @@ export default function App() {
         </Layout>
     )
 }
+
+export default hot(App)
