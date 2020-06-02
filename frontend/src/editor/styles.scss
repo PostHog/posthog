@@ -169,3 +169,23 @@ input.form-control {
 #toolbar .toolbar-close-button:hover {
     color: hsla(240, 14%, 42%, 1);
 }
+#toolbar .toolbar-content-area {
+    position: relative;
+    .toolbar-content {
+        position: absolute;
+        top: 0;
+        width: 100%;
+        opacity: 1;
+        transition: opacity ease 0.2s;
+
+        &.invisible {
+            opacity: 0;
+        }
+        &.fading-in {
+            opacity: 1;
+        }
+        &.fading-out {
+            opacity: 0;
+        }
+    }
+}

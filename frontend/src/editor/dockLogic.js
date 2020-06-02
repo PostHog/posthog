@@ -66,7 +66,7 @@ export const dockLogic = kea({
         padding: [
             () => [selectors.mode, selectors.windowWidth],
             (mode, windowWidth) =>
-                mode === 'dock' ? (windowWidth > 1200 ? Math.min(30 + (windowWidth - 1200) * 0.3, 80) : 30) : 0,
+                mode === 'dock' ? (windowWidth > 1200 ? Math.min(30 + (windowWidth - 1200) * 0.3, 60) : 30) : 0,
         ],
         bodyWidth: [
             () => [selectors.mode, selectors.windowWidth, selectors.sidebarWidth, selectors.padding],

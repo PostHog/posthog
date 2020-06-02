@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useValues } from 'kea'
-
+import { GlobalOutlined } from '@ant-design/icons'
 import { currentPageLogic } from '~/editor/currentPageLogic'
 
 function getFavicon() {
@@ -36,8 +36,8 @@ export function CurrentPage() {
     return (
         <div className="float-box">
             <div style={{ display: 'flex', alignItems: 'top' }}>
-                {showIcon ? (
-                    <div style={{ width: 46, minWidth: 46 }}>
+                <div style={{ width: 46, minWidth: 46 }}>
+                    {showIcon ? (
                         <img
                             src={getFavicon()}
                             onError={() => setShowIcon(false)}
@@ -45,8 +45,10 @@ export function CurrentPage() {
                             height={32}
                             alt="FavIcon"
                         />
-                    </div>
-                ) : null}
+                    ) : (
+                        <GlobalOutlined style={{ fontSize: 32, color: 'hsl(240, 12%, 82%)' }} />
+                    )}
+                </div>
                 <div
                     style={{
                         fontSize: '16px',
