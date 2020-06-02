@@ -1,7 +1,6 @@
 import { kea } from 'kea'
 
 // props:
-// - mode: 'dock' | 'zoom'
 // - shadowRef: shadowRoot ref
 export const dockLogic = kea({
     // transition steps:
@@ -22,9 +21,16 @@ export const dockLogic = kea({
         setMode: (mode, update = false) => ({ mode, update, windowWidth: window.innerWidth }),
     }),
 
-    reducers: ({ props }) => ({
+    reducers: () => ({
         mode: [
-            props.mode,
+            '',
+            {
+                dock: () => 'dock',
+                float: () => 'float',
+            },
+        ],
+        lastMode: [
+            '',
             { persist: true },
             {
                 dock: () => 'dock',
@@ -78,14 +84,19 @@ export const dockLogic = kea({
 
     events: ({ cache, actions, values }) => ({
         afterMount: () => {
-            if (values.mode === 'dock') {
-                actions.dock()
-            } else {
-                actions.float()
-            }
             cache.listener = () => actions.update()
             window.addEventListener('scroll', cache.listener)
             window.addEventListener('resize', cache.listener)
+            window.requestAnimationFrame(() => {
+                if (values.lastMode === 'dock') {
+                    actions.dock()
+                } else if (values.lastMode === 'float') {
+                    actions.float()
+                } else {
+                    // TODO: add button mode
+                    actions.float()
+                }
+            })
         },
         beforeUnmount: () => {
             window.removeEventListener('scroll', cache.listener)
@@ -106,7 +117,7 @@ export const dockLogic = kea({
             // const setToolbarZoom = toolbarStyle.setProperty('--zoom-out', zoom)
             function updateToolbar() {
                 if (shadowRef?.current) {
-                    const toolbarDiv = shadowRef.current.shadowRoot.getElementById('toolbar')
+                    const toolbarDiv = shadowRef.current.shadowRoot.getElementById('docked-toolbar')
                     if (toolbarDiv) {
                         toolbarDiv.style.setProperty('--zoom-out', zoom)
                         toolbarDiv.style.setProperty('--padding', `${padding}px`)
