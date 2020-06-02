@@ -239,8 +239,13 @@ export const trendsLogic = kea({
 
             const cleanSearchParams = cleanFilters(searchParams)
 
+            const keys = Object.keys(searchParams)
             // opening /trends without any params, just open $pageview, $screen or the first random event
-            if (Object.keys(searchParams).length === 0 && values.eventNames && values.eventNames[0]) {
+            if (
+                (keys.length === 0 || (keys.length === 1 && keys[0] === 'properties')) &&
+                values.eventNames &&
+                values.eventNames[0]
+            ) {
                 const event = values.eventNames.includes('$pageview')
                     ? '$pageview'
                     : values.eventNames.includes('$screen')

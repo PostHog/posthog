@@ -1,17 +1,15 @@
-import React, { Component } from 'react'
-
-import { LiveActionsTable } from './LiveActionsTable'
+import React from 'react'
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
-import { connect } from 'kea'
 import { hot } from 'react-hot-loader/root'
+import { EventsTable } from 'scenes/events/EventsTable'
 
-export const logic = connect(() => [
-    eventsTableLogic({ fixedFilters: undefined, apiUrl: 'api/event/actions/', live: true }),
-])
-
-class _LiveActions extends Component {
-    render() {
-        return <LiveActionsTable {...this.props} />
-    }
-}
 export const LiveActions = hot(_LiveActions)
+function _LiveActions(props) {
+    return (
+        <EventsTable
+            {...props}
+            isLiveActions={true}
+            logic={eventsTableLogic({ fixedFilters: undefined, apiUrl: 'api/event/actions/', live: true })}
+        />
+    )
+}

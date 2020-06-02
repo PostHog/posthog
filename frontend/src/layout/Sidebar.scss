@@ -32,7 +32,7 @@ aside.ant-layout-sider {
     height: 100vh;
 
     .ant-layout-sider-children {
-        overflow-y: scroll;
+        overflow-y: auto;
     }
 
     .ant-layout-sider-zero-width-trigger {

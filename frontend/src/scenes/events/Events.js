@@ -7,5 +7,5 @@ export const logic = eventsTableLogic
 
 export const Events = hot(_Events)
 function _Events(props) {
-    return <EventsTable {...props} />
+    return <EventsTable {...props} logic={eventsTableLogic({ fixedFilters: props.fixedFilters })} />
 }

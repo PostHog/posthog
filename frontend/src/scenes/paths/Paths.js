@@ -2,17 +2,22 @@ import React, { useRef, useState, useEffect } from 'react'
 import api from 'lib/api'
 import { Card, Loading } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter'
-import { PathSelect } from '~/lib/components/PathSelect'
-import { Row, Modal, Button, Spin } from 'antd'
+import { Row, Modal, Button, Spin, Select } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
-
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-
+import { PropertyFilters, PropertyValue } from 'lib/components/PropertyFilters'
 import { useActions, useValues } from 'kea'
-import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { hot } from 'react-hot-loader/root'
+import {
+    pathsLogic,
+    PAGEVIEW,
+    AUTOCAPTURE,
+    CUSTOM_EVENT,
+    pathOptionsToLabels,
+    pathOptionsToProperty,
+} from 'scenes/paths/pathsLogic'
+import { userLogic } from 'scenes/userLogic'
 
 let stripHTTP = url => {
     url = url.replace(/(^[0-9]+_)/, '')
@@ -69,6 +74,7 @@ function _Paths() {
     const canvas = useRef(null)
     const { paths, filter, pathsLoading } = useValues(pathsLogic)
     const { setFilter } = useActions(pathsLogic)
+    const { customEventNames } = useValues(userLogic)
 
     const [modalVisible, setModalVisible] = useState(false)
     const [eventelements, setEventelements] = useState(null)
@@ -188,7 +194,9 @@ function _Paths() {
                 return d.value - d.source.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
             })
 
-        link.append('title').text(d => `${d.source.label} → ${d.target.label}\n${d.value.toLocaleString()}`)
+        link.append('title').text(
+            d => `${stripHTTP(d.source.name)} → ${stripHTTP(d.target.name)}\n${d.value.toLocaleString()}`
+        )
 
         var textSelection = svg
             .append('g')
@@ -207,14 +215,14 @@ function _Paths() {
                     : stripHTTP(d.name)
             )
             .on('click', async node => {
-                if (filter.type == '$autocapture') {
+                if (filter.type == AUTOCAPTURE) {
                     setModalVisible(true)
                     setEventelements(null)
                     let result = await api.get('api/event/' + node.id)
                     setEventelements(result)
                 }
             })
-            .style('cursor', filter.type == '$autocapture' ? 'pointer' : 'auto')
+            .style('cursor', filter.type == AUTOCAPTURE ? 'pointer' : 'auto')
 
         textSelection
             .append('tspan')
@@ -233,26 +241,63 @@ function _Paths() {
             <Card
                 title={
                     <Row justify="space-between">
-                        <Row align="middle">
-                            Path Type:
-                            <PathSelect value={filter.type} onChange={value => setFilter({ type: value })} />
+                        <Row>
+                            <Row align="middle">
+                                Path Type:
+                                <Select
+                                    value={filter.type || PAGEVIEW}
+                                    bordered={false}
+                                    defaultValue={PAGEVIEW}
+                                    dropdownMatchSelectWidth={false}
+                                    onChange={value => setFilter({ type: value, start: null })}
+                                    style={{ paddingTop: 2 }}
+                                >
+                                    {Object.entries(pathOptionsToLabels).map(([value, name], index) => {
+                                        return (
+                                            <Select.Option key={index} value={value}>
+                                                {name}
+                                            </Select.Option>
+                                        )
+                                    })}
+                                </Select>
+                            </Row>
+
+                            <Row align="middle">
+                                Start:
+                                <PropertyValue
+                                    endpoint={filter.type === AUTOCAPTURE && 'api/paths/elements'}
+                                    outerOptions={
+                                        filter.type === CUSTOM_EVENT &&
+                                        customEventNames.map(name => ({
+                                            name,
+                                        }))
+                                    }
+                                    onSet={value => setFilter({ start: value })}
+                                    propertyKey={pathOptionsToProperty[filter.type]}
+                                    type="event"
+                                    style={{ width: 200, paddingTop: 2 }}
+                                    bordered={false}
+                                    value={filter.start}
+                                    placeholder={'Select start element'}
+                                ></PropertyValue>
+                            </Row>
                         </Row>
-                        <DateFilter
-                            onChange={(date_from, date_to) =>
-                                setFilter({
-                                    date_from,
-                                    date_to,
-                                })
-                            }
-                            dateFrom={filter.date_from}
-                            dateTo={filter.date_to}
-                        />
+                        <Row align="middle">
+                            <DateFilter
+                                onChange={(date_from, date_to) =>
+                                    setFilter({
+                                        date_from,
+                                        date_to,
+                                    })
+                                }
+                                dateFrom={filter.date_from}
+                                dateTo={filter.date_to}
+                            />
+                        </Row>
                     </Row>
                 }
             >
-                {filter.type == '$autocapture' && (
-                    <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
-                )}
+                {filter.type == AUTOCAPTURE && <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>}
                 <div ref={canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
                     {!pathsLoading && paths && paths.nodes.length === 0 ? (
                         <NoData />
