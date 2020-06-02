@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
@@ -169,6 +170,9 @@ def get_decide(request):
                             ] + [parse_domain(url) for url in team.app_urls]
         if parse_domain(request.headers.get('Referer')) in permitted_domains:
             response['is_authenticated'] = True
+            if settings.DEBUG:
+                response['jsURL'] = 'http://localhost:8234/'
+
             if not request.user.temporary_token:
                 request.user.temporary_token = secrets.token_urlsafe(32)
                 request.user.save()

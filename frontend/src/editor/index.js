@@ -10,13 +10,16 @@ import { Toolbar } from '~/editor/Toolbar'
 import { dockLogic } from '~/editor/dockLogic'
 import { CloseOutlined } from '@ant-design/icons'
 import { initKea } from '~/initKea'
+import { hot } from 'react-hot-loader/root'
 
 initKea()
 
 window.simmer = new Simmer(window, { depth: 8 })
 
-function App(props) {
+const App = hot(_App)
+function _App(props) {
     const apiURL = `${props.apiURL}${props.apiURL.endsWith('/') ? '' : '/'}`
+    const jsURL = `${props.jsURL}${props.jsURL.endsWith('/') ? '' : '/'}`
     const shadow = useRef(null)
     const logic = dockLogic({ mode: 'float', shadowRef: shadow })
     const { dockStatus, floatStatus } = useValues(logic)
@@ -31,7 +34,7 @@ function App(props) {
     return (
         <>
             <root.div ref={shadow}>
-                <link href={`${apiURL}static/editor.css`} rel="stylesheet" crossOrigin="anonymous" />
+                <link href={`${jsURL}static/editor.css`} rel="stylesheet" crossOrigin="anonymous" />
                 <style>{styles}</style>
 
                 {showDraggable ? (
@@ -66,6 +69,7 @@ window.ph_load_editor = function(editorParams) {
     ReactDOM.render(
         <Provider store={getContext().store}>
             <App
+                jsURL={editorParams.jsURL || editorParams.apiURL}
                 apiURL={editorParams.apiURL}
                 temporaryToken={editorParams.temporaryToken}
                 actionId={editorParams.actionId}
