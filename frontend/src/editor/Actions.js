@@ -1,3 +1,5 @@
+import './Actions.scss'
+
 import React, { Component } from 'react'
 import { ActionEdit } from 'scenes/actions/ActionEdit'
 
@@ -33,7 +35,7 @@ export class Actions extends Component {
     render() {
         let { actions, openActionId } = this.state
         return (
-            <>
+            <div className="actions-toolbar">
                 <div className="drag-bar">
                     <img alt="PostHog" className="logo" src={this.props.apiURL + 'static/posthog-logo.png'} />
                     <h3>PostHog</h3>
@@ -97,7 +99,7 @@ export class Actions extends Component {
                         </div>
                     )
                 )}
-            </>
+            </div>
         )
     }
 }
