@@ -12,6 +12,7 @@ from django.db.models import (
 from django.db import connection
 from django.contrib.postgres.fields import JSONField
 from django.utils import timezone
+from django.forms.models import model_to_dict
 
 from .element_group import ElementGroup
 from .element import Element
@@ -108,7 +109,7 @@ class EventManager(models.QuerySet):
                     )
         return (subqueries, filter)
 
-    def filter_by_element(self, filters: Dict) -> Dict[str, QuerySet]:
+    def filter_by_element(self, filters: Dict) -> QuerySet:
         if filters.get('selector'):
             selector = Selector(filters['selector'])
             subqueries, filter = self._element_subquery(selector)
@@ -121,7 +122,7 @@ class EventManager(models.QuerySet):
                 filter["elementgroup__elements__{}".format(key)] = filters[key]
 
         if not filter:
-            return {}
+            return self
         return self.filter(**filter)
 
     def filter_by_url(self, action_step: ActionStep, subquery: QuerySet):
@@ -166,7 +167,7 @@ class EventManager(models.QuerySet):
                 pk=OuterRef("id"),
                 **self.filter_by_event(step),
             )
-            subquery = subquery.filter_by_element(step)
+            subquery = subquery.filter_by_element(model_to_dict(step))
             subquery = self.filter_by_url(step, subquery)
             any_step |= Q(Exists(subquery))
         events = self.filter(team_id=action.team_id).filter(any_step)
