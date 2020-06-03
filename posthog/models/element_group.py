@@ -3,6 +3,7 @@ from django.forms.models import model_to_dict
 from .element import Element
 from .team import Team
 from typing import List, Dict, Any
+from joinfield.joinfield import JoinField
 import hashlib
 import json
 
@@ -49,5 +50,10 @@ class ElementGroup(models.Model):
         ]
 
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
-    hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+
+    # hash: models.CharField = models.CharField(
+    #     max_length=400, null=True, blank=True
+    # )
+    hash = JoinField('Event', to_field='elements_hash', on_delete=models.CASCADE, null=True, blank=True)
     objects = ElementGroupManager()
+

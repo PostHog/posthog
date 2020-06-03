@@ -57,7 +57,7 @@ class Property:
 class PropertyMixin:
     properties: List[Property] = []
 
-    def properties_to_Q(self, is_person_query: bool=False) -> Q:
+    def properties_to_Q(self, is_person_query: bool=False, subquery=False) -> Q:
         """
         Converts a filter to Q, for use in Django ORM .filter()
         If you're filtering a Person QuerySet, use is_person_query to avoid doing an unnecessary nested loop
@@ -86,7 +86,18 @@ class PropertyMixin:
 
         for property in [prop for prop in self.properties if prop.type == 'event']:
             filters &= property.property_to_Q()
-            
+
+        element_properties = [prop for prop in self.properties if prop.type == 'elements']
+        if len(element_properties) > 0:
+            from .event import Event
+            filters &= Q(Exists(
+                    Event.objects\
+                    .filter(pk=OuterRef('id'))\
+                    .filter_by_element({
+                        item.key: item.value for item in element_properties
+                    })
+                ))
+
         return filters
 
     def _parse_properties(self, properties: Optional[Any]) -> List[Property]:

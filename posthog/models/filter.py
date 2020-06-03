@@ -23,6 +23,7 @@ class Filter(PropertyMixin):
     interval: Optional[str] = None
     entities: List[Entity] = []
     display: Optional[str] = None
+    selector: Optional[str] = None
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None) -> None:
         if request:
@@ -38,6 +39,7 @@ class Filter(PropertyMixin):
         self._date_to = data.get('date_to')
         self.entities = data.get('entities', [])
         self.properties = self._parse_properties(data.get('properties'))
+        self.selector = data.get('selector', [])
         self.interval = data.get('interval')
         self.display = data.get('display')
 
@@ -46,7 +48,6 @@ class Filter(PropertyMixin):
         if data.get('events'):
             self.entities.extend([Entity({**entity, 'type': TREND_FILTER_TYPE_EVENTS}) for entity in data.get('events', [])])
         self.entities = sorted(self.entities, key=lambda entity: entity.order if entity.order else -1)
-
 
     def to_dict(self) -> Dict[str, Any]:
         return {

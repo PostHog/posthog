@@ -26,6 +26,7 @@ from posthog.tasks.slack import post_event_to_slack
 from typing import Dict, Union, List, Optional, Any, Tuple
 
 from collections import defaultdict
+from joinfield.joinfield import JoinField
 import copy
 import datetime
 import re
@@ -89,7 +90,7 @@ class EventManager(models.QuerySet):
         subqueries = {}
         for index, tag in enumerate(selector.parts):
             subqueries["match_{}".format(index)] = Subquery(
-                Element.objects.filter(group_id=OuterRef("pk"), **tag.data).values(
+                Element.objects.filter(group_id=OuterRef("elementgroup"), **tag.data).values(
                     "order"
                 )[:1]
             )
@@ -107,24 +108,21 @@ class EventManager(models.QuerySet):
                     )
         return (subqueries, filter)
 
-    def filter_by_element(self, action_step):
-        groups = ElementGroup.objects.filter(team=action_step.action.team_id)
-
-        if action_step.selector:
-            selector = Selector(action_step.selector)
+    def filter_by_element(self, filters: Dict) -> Dict[str, QuerySet]:
+        if filters.get('selector'):
+            selector = Selector(filters['selector'])
             subqueries, filter = self._element_subquery(selector)
-            groups = groups.annotate(**subqueries)  # type: ignore
+            self = self.annotate(**subqueries)  # type: ignore
         else:
             filter = {}
 
         for key in ["tag_name", "text", "href"]:
-            if getattr(action_step, key):
-                filter["element__{}".format(key)] = getattr(action_step, key)
+            if filters.get(key):
+                filter["elementgroup__elements__{}".format(key)] = filters[key]
 
         if not filter:
             return {}
-        groups = groups.filter(**filter)
-        return {"elements_hash__in": groups.values_list("hash", flat=True)}
+        return self.filter(**filter)
 
     def filter_by_url(self, action_step: ActionStep, subquery: QuerySet):
         if not action_step.url:
@@ -166,9 +164,9 @@ class EventManager(models.QuerySet):
             subquery = Event.objects.add_person_id(team_id=action.team_id).filter(
                 Filter(data={'properties': step.properties}).properties_to_Q(),
                 pk=OuterRef("id"),
-                **self.filter_by_element(step),
                 **self.filter_by_event(step),
             )
+            subquery = subquery.filter_by_element(step)
             subquery = self.filter_by_url(step, subquery)
             any_step |= Q(Exists(subquery))
         events = self.filter(team_id=action.team_id).filter(any_step)
@@ -202,11 +200,11 @@ class EventManager(models.QuerySet):
                 if kwargs.get("team"):
                     kwargs["elements_hash"] = ElementGroup.objects.create(
                         team=kwargs["team"], elements=kwargs.pop("elements")
-                    ).hash
+                    ).hash_id
                 else:
                     kwargs["elements_hash"] = ElementGroup.objects.create(
                         team_id=kwargs["team_id"], elements=kwargs.pop("elements")
-                    ).hash
+                    ).hash_id
             event = super().create(*args, **kwargs)
 
             should_post_to_slack = False
@@ -339,7 +337,6 @@ class Event(models.Model):
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     distinct_id: models.CharField = models.CharField(max_length=200)
     properties: JSONField = JSONField(default=dict)
-    elements: JSONField = JSONField(default=list, null=True, blank=True)
     timestamp: models.DateTimeField = models.DateTimeField(
         default=timezone.now, blank=True
     )
