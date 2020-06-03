@@ -9,15 +9,19 @@ import FunnelImage from '../_assets/funnel_with_text.png'
 import { onboardingLogic, TourType } from './onboardingLogic'
 import { userLogic } from 'scenes/userLogic'
 import _ from 'lodash'
+import api from 'lib/api'
 
 export function OnboardingWidget() {
     const contentRef = useRef()
     const { actions, actionsLoading } = useValues(actionsModel)
     const [instructionalModal, setInstructionalModal] = useState(false)
     const { user } = useValues(userLogic)
-    const { tourType, checked, localChecked } = useValues(onboardingLogic({ user }))
+    const { loadUser } = useActions(userLogic)
+    const { tourType, checked } = useValues(onboardingLogic({ user }))
     const { setTourActive, setTourType, updateOnboardingInitial } = useActions(onboardingLogic)
     const [visible, setVisible] = useState(user.onboarding.initial ? true : false)
+
+    const unfinishedCount = _.filter(checked, isChecked => !isChecked).length
 
     function closePopup() {
         if (user.onboarding.initial) updateOnboardingInitial(false)
@@ -36,6 +40,15 @@ export function OnboardingWidget() {
             document.removeEventListener('mousedown', onClickOutside)
         }
     }, [])
+
+    async function dontShowAgain() {
+        try {
+            await api.update('api/user', { onboarding: { ...user.onboarding, active: false } })
+            loadUser()
+        } catch (err) {
+            throw err
+        }
+    }
 
     function content() {
         return (
@@ -63,11 +76,19 @@ export function OnboardingWidget() {
                     )
                 })}
                 <hr style={{ height: 5, visibility: 'hidden' }} />
-                <p style={{ color: 'gray' }}>Don't show this again</p>
+                {unfinishedCount > 0 ? (
+                    <p onClick={dontShowAgain} style={{ color: 'gray', cursor: 'pointer' }}>
+                        Don't show this again
+                    </p>
+                ) : (
+                    <Button onClick={dontShowAgain} type={'primary'}>
+                        Done
+                    </Button>
+                )}
             </div>
         )
     }
-    const unfinishedCount = _.filter(checked, isChecked => !isChecked).length
+
     return (
         <div>
             <Popover

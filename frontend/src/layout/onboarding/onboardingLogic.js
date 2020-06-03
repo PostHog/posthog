@@ -42,8 +42,7 @@ export const onboardingLogic = kea({
                 [actions.updateOnboardingStep]: (state, { index }) => {
                     if (index > state.length) return state
                     state[index] = true
-                    console.log(state)
-                    return state
+                    return [...state]
                 },
             },
         ],
