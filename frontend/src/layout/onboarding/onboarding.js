@@ -6,6 +6,7 @@ import { Loading } from 'lib/utils'
 import { StarOutlined, StarFilled } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import FunnelImage from '../_assets/funnel_with_text.png'
+import ActionImage from '../_assets/actions.png'
 import { onboardingLogic, TourType } from './onboardingLogic'
 import { userLogic } from 'scenes/userLogic'
 import _ from 'lodash'
@@ -131,9 +132,10 @@ export function OnboardingWidget() {
 
 const ModalContent = {
     [TourType.ACTION]: {
-        src: FunnelImage,
+        src: ActionImage,
         title: 'Actions',
-        description: 'Funnels are used to understand how your users are converting from one step to the next.',
+        description:
+            'Events can get overwhelming. Use actions to filter and group events you want to analyze as a distinct entity.',
         link: '/action',
         buttonText: 'Create Action',
     },
