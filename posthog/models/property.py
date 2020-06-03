@@ -57,7 +57,7 @@ class Property:
 class PropertyMixin:
     properties: List[Property] = []
 
-    def properties_to_Q(self, is_person_query: bool=False, subquery=False) -> Q:
+    def properties_to_Q(self, is_person_query: bool=False) -> Q:
         """
         Converts a filter to Q, for use in Django ORM .filter()
         If you're filtering a Person QuerySet, use is_person_query to avoid doing an unnecessary nested loop
