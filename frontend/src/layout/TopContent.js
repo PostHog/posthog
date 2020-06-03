@@ -5,8 +5,11 @@ import { LatestVersion } from '~/layout/LatestVersion'
 import { User } from '~/layout/User'
 import { WorkerStats } from '~/layout/WorkerStats'
 import Onboarding from '~/layout/onboarding'
+import { userLogic } from 'scenes/userLogic'
+import { useValues } from 'kea'
 
 export function TopContent() {
+    const { user } = useValues(userLogic)
     return (
         <div>
             <div
@@ -19,7 +22,7 @@ export function TopContent() {
                     fontSize: 13,
                 }}
             >
-                <Onboarding />
+                {user.has_events && <Onboarding />}
                 <LatestVersion />
                 <WorkerStats />
                 <User />

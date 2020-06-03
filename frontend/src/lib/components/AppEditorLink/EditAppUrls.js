@@ -109,6 +109,7 @@ export function EditAppUrls({ actionId, allowNavigation }) {
 
     return (
         <div>
+            <p>Select or add a url to your website</p>
             <List bordered>
                 {appUrls.map((url, index) => (
                     <UrlRow
