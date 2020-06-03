@@ -6,6 +6,7 @@ import { kea, useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Input, Select, Modal, Radio, Alert } from 'antd'
 import { prompt } from 'lib/logic/prompt'
+import { onboardingLogic } from '~/layout/onboarding'
 
 const saveToDashboardModalLogic = kea({
     actions: () => ({
@@ -52,6 +53,7 @@ export function SaveToDashboardModal({
     const [newItem, setNewItem] = useState(type === 'FunnelViz' || !fromItem)
     const fromDashboardName =
         (fromDashboard ? dashboards.find(d => d.id === parseInt(fromDashboard)) : null)?.name || 'Untitled'
+    const { updateOnboardingStep } = useActions(onboardingLogic)
 
     async function save(event) {
         event.preventDefault()
@@ -66,6 +68,9 @@ export function SaveToDashboardModal({
                 <Link to={`/dashboard/${dashboardId}`}>Click here to see it.</Link>
             </div>
         )
+        if (type.includes('Actions')) {
+            updateOnboardingStep(1)
+        }
         closeModal()
     }
 

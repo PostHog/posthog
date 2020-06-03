@@ -3,22 +3,30 @@ import { Popover, Button, Checkbox, Badge, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { Loading } from 'lib/utils'
-import { StarOutlined } from '@ant-design/icons'
+import { StarOutlined, StarFilled } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import FunnelImage from '../_assets/funnel_with_text.png'
 import { onboardingLogic, TourType } from './onboardingLogic'
+import { userLogic } from 'scenes/userLogic'
+import _ from 'lodash'
 
 export function OnboardingWidget() {
     const contentRef = useRef()
     const { actions, actionsLoading } = useValues(actionsModel)
-    const [visible, setVisible] = useState(true)
     const [instructionalModal, setInstructionalModal] = useState(false)
-    const { tourType } = useValues(onboardingLogic)
-    const { setTourActive, setTourType } = useActions(onboardingLogic)
+    const { user } = useValues(userLogic)
+    const { tourType, checked, localChecked } = useValues(onboardingLogic({ user }))
+    const { setTourActive, setTourType, updateOnboardingInitial } = useActions(onboardingLogic)
+    const [visible, setVisible] = useState(user.onboarding.initial ? true : false)
+
+    function closePopup() {
+        if (user.onboarding.initial) updateOnboardingInitial(false)
+        setVisible(false)
+    }
 
     let onClickOutside = event => {
         if (contentRef.current && !contentRef.current.contains(event.target)) {
-            setVisible(false)
+            closePopup()
         }
     }
 
@@ -29,7 +37,7 @@ export function OnboardingWidget() {
         }
     }, [])
 
-    function content({ actions }) {
+    function content() {
         return (
             <div ref={contentRef} style={{ display: 'flex', width: '25vw', flexDirection: 'column' }}>
                 <h2>Get Started</h2>
@@ -40,10 +48,10 @@ export function OnboardingWidget() {
                     return (
                         <div key={index}>
                             <hr style={{ height: 5, visibility: 'hidden' }} />
-                            <Checkbox checked={actions.length > 0}>
+                            <Checkbox checked={user.onboarding.steps[index] || checked[index]}>
                                 <Link
                                     onClick={() => {
-                                        setVisible(false)
+                                        closePopup()
                                         setInstructionalModal(true)
                                         setTourType(value)
                                     }}
@@ -59,7 +67,7 @@ export function OnboardingWidget() {
             </div>
         )
     }
-
+    const unfinishedCount = _.filter(checked, isChecked => !isChecked).length
     return (
         <div>
             <Popover
@@ -67,9 +75,9 @@ export function OnboardingWidget() {
                 content={actionsLoading ? <Loading></Loading> : content({ actions })}
                 trigger="click"
             >
-                <Badge count={3}>
-                    <Button onClick={() => setVisible(!visible)}>
-                        <StarOutlined></StarOutlined>
+                <Badge count={unfinishedCount}>
+                    <Button onClick={() => (visible ? closePopup() : setVisible(true))}>
+                        {unfinishedCount === 0 ? <StarFilled></StarFilled> : <StarOutlined></StarOutlined>}
                     </Button>
                 </Badge>
             </Popover>
@@ -88,7 +96,7 @@ export function OnboardingWidget() {
                         to={ModalContent[tourType].link}
                         onClick={() => {
                             setInstructionalModal(false)
-                            setVisible(false)
+                            closePopup()
                             setTimeout(() => setTourActive(), 500)
                         }}
                     >

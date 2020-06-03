@@ -9,6 +9,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Button } from 'antd'
 import { userLogic } from 'scenes/userLogic'
 import { hot } from 'react-hot-loader/root'
+import { onboardingLogic } from '~/layout/onboarding'
 
 export const EditFunnel = hot(_EditFunnel)
 function _EditFunnel({ funnelId }) {
@@ -16,6 +17,7 @@ function _EditFunnel({ funnelId }) {
     const { setFunnel, updateFunnel, createFunnel } = useActions(funnelLogic({ id: funnelId }))
     const { actions, actionsLoading } = useValues(actionsModel())
     const { eventProperties } = useValues(userLogic)
+    const { updateOnboardingStep } = useActions(onboardingLogic)
 
     return (
         <form
@@ -26,6 +28,7 @@ function _EditFunnel({ funnelId }) {
                 } else {
                     updateFunnel(funnel)
                 }
+                updateOnboardingStep(2)
             }}
             data-attr="edit-funnel"
         >

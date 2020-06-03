@@ -22,7 +22,7 @@ export function TopContent() {
                     fontSize: 13,
                 }}
             >
-                {user.has_events && <OnboardingWidget />}
+                {user.has_events && user.onboarding.active && <OnboardingWidget />}
                 <LatestVersion />
                 <WorkerStats />
                 <User />

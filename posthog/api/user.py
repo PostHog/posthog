@@ -24,6 +24,10 @@ def user(request):
     if request.method == 'PATCH':
         data = json.loads(request.body)
 
+        if 'onboarding' in data:
+            request.user.onboarding = data['onboarding']
+            request.user.save()
+
         if 'team' in data:
             team.app_urls = data['team'].get('app_urls', team.app_urls)
             team.opt_out_capture = data['team'].get('opt_out_capture', team.opt_out_capture)
@@ -59,7 +63,8 @@ def user(request):
             'event_properties': team.event_properties
         },
         'opt_out_capture': os.environ.get('OPT_OUT_CAPTURE'),
-        'posthog_version': settings.VERSION if hasattr(settings, 'VERSION') else None
+        'posthog_version': settings.VERSION if hasattr(settings, 'VERSION') else None,
+        'onboarding': request.user.onboarding
     })
 
 def redirect_to_site(request):

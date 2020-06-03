@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.contrib.postgres.fields import JSONField
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from typing import Union, Optional, List
 from django.utils.translation import ugettext_lazy as _
@@ -62,7 +63,9 @@ class UserManager(BaseUserManager):
 
         return self._create_user(email, password, **extra_fields)
 
-
+def default_onboarding_dict():
+    return {'active': True, 'initial': True, 'steps': {0: False, 1: False, 2: False}}
+    
 class User(AbstractUser):
     username = None  # type: ignore
     email = models.EmailField(_("email address"), unique=True)
@@ -78,6 +81,8 @@ class User(AbstractUser):
     anonymize_data: models.BooleanField = models.BooleanField(
         default=False, null=True, blank=True
     )
+
+    onboarding: JSONField = JSONField(default=default_onboarding_dict)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: List[str] = []
