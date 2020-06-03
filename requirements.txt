@@ -18,6 +18,7 @@ dj-database-url==0.5.0
 Django==3.0.5
 django-cors-headers==3.2.1
 django-extensions==2.2.9
+django-joinfield==0.2
 django-loginas==0.3.8
 djangorestframework==3.11.0
 djangorestframework-csv==2.1.0
