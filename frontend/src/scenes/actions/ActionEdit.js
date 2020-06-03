@@ -34,7 +34,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
     )
 
     return (
-        <div className={isEditor ? '' : 'card'} style={{ marginTop: isEditor ? 8 : '' }}>
+        <div className={isEditor ? '' : 'card'} style={{ marginTop: isEditor ? 8 : '' }} data-attr="action-editor">
             <form
                 className={isEditor ? '' : 'card-body'}
                 onSubmit={e => {

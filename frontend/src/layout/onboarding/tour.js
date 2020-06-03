@@ -10,14 +10,16 @@ export function PGTour() {
     return (
         <Tour
             steps={determineTour(tourType)}
-            lastStepNextButton={<Button type="primary">Done</Button>}
+            // lastStepNextButton={<Button type="primary">Done</Button>}
             isOpen={tourActive}
             onRequestClose={() => {
                 setTourFinish()
                 setTourStep(0)
             }}
             goToStep={tourStep}
-            nextStep={() => setTourStep(tourStep + 1)}
+            nextStep={() => {
+                setTourStep(tourStep + 1)
+            }}
             prevStep={() => setTourStep(tourStep - 1)}
             startAt={tourStep}
         />
@@ -27,8 +29,35 @@ export function PGTour() {
 function determineTour(type) {
     if (type === TourType.TRENDS) return trendsTour
     else if (type === TourType.FUNNEL) return funnelTour
+    else if (type === TourType.ACTION) return actionTour
     else []
 }
+
+const actionTour = [
+    {
+        selector: '[data-attr="action-editor"]',
+        content: 'This is the action editor',
+        stepInteraction: false,
+    },
+    {
+        selector: '[data-attr="action-edit-frontend-element"]',
+        content: 'You can add actions and events you want to see data for',
+        action: node => {
+            node.click()
+        },
+        stepInteraction: false,
+    },
+    {
+        selector: '[data-attr="action-editor-card"]',
+        content: 'You can manually enter details on a frontend element that you can to filter for',
+        stepInteraction: false,
+    },
+    {
+        selector: '[data-attr="action-editor-inspect-button"]',
+        content: 'Or use our interactive tool to visually choose an element on your site!',
+        stepInteraction: false,
+    },
+]
 
 const trendsTour = [
     {

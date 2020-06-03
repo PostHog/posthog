@@ -185,6 +185,7 @@ export class ActionStep extends Component {
                             )
                         }
                         className={'btn ' + (step.event == '$autocapture' ? 'btn-secondary' : 'btn-light')}
+                        data-attr="action-edit-frontend-element"
                     >
                         Frontend element
                     </button>
@@ -231,7 +232,7 @@ export class ActionStep extends Component {
         return (
             <div>
                 {!isEditor && (
-                    <span>
+                    <span data-attr="action-editor-inspect-button">
                         <AppEditorLink
                             actionId={actionId}
                             style={{ margin: '1rem 0' }}
@@ -298,7 +299,7 @@ export class ActionStep extends Component {
                     background: isEditor ? 'rgba(0,0,0,0.05)' : '',
                 }}
             >
-                <div className={isEditor ? '' : 'card-body'}>
+                <div className={isEditor ? '' : 'card-body'} data-attr="action-editor-card">
                     {!isOnlyStep && (!isEditor || step.event === '$autocapture' || !step.event) && (
                         <button
                             style={{
