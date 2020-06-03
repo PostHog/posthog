@@ -119,7 +119,7 @@ class EventManager(models.QuerySet):
 
         for key in ["tag_name", "text", "href"]:
             if filters.get(key):
-                filter["elementgroup__elements__{}".format(key)] = filters[key]
+                filter["elementgroup__element__{}".format(key)] = filters[key]
 
         if not filter:
             return self
