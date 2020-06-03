@@ -47,7 +47,7 @@ export function InspectElement() {
     const { selecting, element, selectingClickTargets, actionStep } = useValues(inspectElementLogic)
 
     return (
-        <div className="float-box">
+        <div className="toolbar-block">
             <div style={{ fontSize: 16, marginBottom: 10 }}>
                 <SearchOutlined /> Select an element
             </div>

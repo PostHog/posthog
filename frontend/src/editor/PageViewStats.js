@@ -35,7 +35,7 @@ export function PageViewStats() {
     const { href } = useValues(currentPageLogic)
 
     return (
-        <div className="float-box">
+        <div className="toolbar-block">
             <div style={{ marginBottom: 10 }}>
                 <span style={{ borderBottom: '2px dashed hsla(230, 14%, 78%, 1)' }}>Last 7 days</span>
             </div>

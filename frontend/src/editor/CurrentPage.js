@@ -35,7 +35,7 @@ export function CurrentPage() {
     const [showIcon, setShowIcon] = useState(true)
 
     return (
-        <div className="float-box current-page">
+        <div className="toolbar-block current-page">
             <div className="with-left-icon">
                 <div className="icon-part">
                     {showIcon ? (

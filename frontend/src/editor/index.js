@@ -31,10 +31,10 @@ function Editor({ logic, ...props }) {
     return (
         <>
             {showFloating ? (
-                <Draggable handle=".drag-bar">
+                <Draggable handle=".toolbar-block">
                     <div id="floating-toolbar" className={showInvisibleFloating ? 'toolbar-invisible' : ''}>
                         <button onClick={dock}>Dock</button>
-                        <Toolbar {...props} apiURL={apiURL} />
+                        <Toolbar {...props} type="floating" apiURL={apiURL} />
                     </div>
                 </Draggable>
             ) : null}
@@ -47,7 +47,7 @@ function Editor({ logic, ...props }) {
                     >
                         <CloseOutlined />
                     </div>
-                    <Toolbar {...props} apiURL={apiURL} />
+                    <Toolbar {...props} type="docked" apiURL={apiURL} />
                 </div>
             ) : null}
         </>
