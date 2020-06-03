@@ -7,6 +7,7 @@ import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { Tooltip } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { userLogic } from 'scenes/userLogic'
+import { CaretDownOutlined } from '@ant-design/icons'
 
 const determineFilterLabel = (visible, filter) => {
     if (visible) return 'Hide Filters'
@@ -66,6 +67,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                     borderBottom: '1.5px dotted var(--blue)',
                 }}
             >
+                <CaretDownOutlined />
                 {name || 'Select action'}
             </button>
             {!hideMathSelector && <MathSelector math={math} index={index} onMathSelect={onMathSelect} />}

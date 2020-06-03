@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { CaretDownOutlined } from '@ant-design/icons'
 
 export function Dropdown({ className, style, 'data-attr': dataAttr, buttonStyle, children, buttonClassName, title }) {
     const [menuOpen, setMenuOpen] = useState(false)
@@ -26,6 +27,7 @@ export function Dropdown({ className, style, 'data-attr': dataAttr, buttonStyle,
             data-attr={dataAttr}
         >
             <a className={'cursor-pointer ' + buttonClassName} style={{ ...buttonStyle }} onClick={open} href="#">
+                <CaretDownOutlined />
                 {title || <span>&hellip;</span>}
             </a>
             <div
