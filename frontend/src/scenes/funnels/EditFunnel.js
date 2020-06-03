@@ -27,30 +27,34 @@ function _EditFunnel({ funnelId }) {
                     updateFunnel(funnel)
                 }
             }}
+            data-attr="edit-funnel"
         >
             <Card>
                 <div className="card-body" data-attr="funnel-editor">
-                    <input
-                        required
-                        placeholder="Name of Funnel: (e.g. User drop off through signup)"
-                        type="text"
-                        autoFocus
-                        onChange={e => setFunnel({ name: e.target.value })}
-                        value={funnel.name || ''}
-                        className="form-control"
-                        data-attr="edit-funnel-input"
-                    />
-                    {!actionsLoading && actions.length === 0 && (
-                        <div className="alert alert-warning" style={{ marginTop: '1rem' }}>
-                            You don't have any actions set up. <Link to="/actions">Click here to set up an action</Link>
-                        </div>
-                    )}
-                    <br />
-                    <ActionFilter
-                        filters={funnel.filters}
-                        setFilters={filters => setFunnel({ filters }, false)}
-                        typeKey={`EditFunnel-${funnel.id || 'new'}`}
-                    />
+                    <div data-attr="funnel-editor-required-fields">
+                        <input
+                            required
+                            placeholder="Name of Funnel: (e.g. User drop off through signup)"
+                            type="text"
+                            autoFocus
+                            onChange={e => setFunnel({ name: e.target.value })}
+                            value={funnel.name || ''}
+                            className="form-control"
+                            data-attr="edit-funnel-input"
+                        />
+                        {!actionsLoading && actions.length === 0 && (
+                            <div className="alert alert-warning" style={{ marginTop: '1rem' }}>
+                                You don't have any actions set up.{' '}
+                                <Link to="/actions">Click here to set up an action</Link>
+                            </div>
+                        )}
+                        <br />
+                        <ActionFilter
+                            filters={funnel.filters}
+                            setFilters={filters => setFunnel({ filters }, false)}
+                            typeKey={`EditFunnel-${funnel.id || 'new'}`}
+                        />
+                    </div>
                     <br />
                     <hr />
                     <h4 className="secondary mt-3">Filters</h4>

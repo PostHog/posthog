@@ -59,7 +59,7 @@ export function PropertyFilters({ endpoint, propertyFilters, onChange, pageKey }
     const { filters } = useValues(logic)
 
     return (
-        <div className="column" style={{ marginBottom: '15px' }}>
+        <div className="column" style={{ marginBottom: '15px' }} data-attr="prop-filters">
             {filters &&
                 filters.map((item, index) => {
                     return (

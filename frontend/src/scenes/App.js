@@ -10,6 +10,7 @@ import { ToastContainer, Slide } from 'react-toastify'
 import { Sidebar } from '~/layout/Sidebar'
 import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
+import { PGTour } from '~/layout/onboarding'
 
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -47,6 +48,7 @@ function App() {
                     <TopContent user={user} />
                 </div>
                 <Layout.Content className="pl-5 pr-5 pt-3" data-attr="layout-content">
+                    <PGTour></PGTour>
                     <SendEventsOverlay user={user} />
                     <Scene user={user} {...params} />
                     <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />

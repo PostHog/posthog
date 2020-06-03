@@ -1,18 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Popover, Button, Checkbox, Badge, Modal } from 'antd'
-import { useValues } from 'kea'
+import { useValues, useActions } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
 import { Loading } from 'lib/utils'
 import { StarOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { NewActionModal } from 'scenes/actions/NewActionModal'
-import FunnelImage from './_assets/funnel_with_text.png'
-export default function OnboardingWidget() {
+import FunnelImage from '../_assets/funnel_with_text.png'
+import { onboardingLogic } from './onboardingLogic'
+
+export function OnboardingWidget() {
     const contentRef = useRef()
     const { actions, actionsLoading } = useValues(actionsModel)
     const [modalVisible, setModalVisible] = useState(false)
     const [visible, setVisible] = useState(true)
     const [instructionalModal, setInstructionalModal] = useState(false)
+    const { setTourActive } = useActions(onboardingLogic)
 
     let onClickOutside = event => {
         if (contentRef.current && !contentRef.current.contains(event.target)) {
@@ -99,6 +102,7 @@ export default function OnboardingWidget() {
                         onClick={() => {
                             setInstructionalModal(false)
                             setVisible(false)
+                            setTimeout(() => setTourActive(), 500)
                         }}
                     >
                         Create Funnel

@@ -17,7 +17,7 @@ export function ActionFilter({ setFilters, filters, typeKey }) {
     }, [filters])
 
     return (
-        <div>
+        <div data-attr="action-filter">
             {localFilters &&
                 localFilters.map((filter, index) => (
                     <ActionFilterRow logic={logic} filter={filter} index={index} key={index} />

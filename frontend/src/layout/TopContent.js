@@ -4,7 +4,7 @@ import React from 'react'
 import { LatestVersion } from '~/layout/LatestVersion'
 import { User } from '~/layout/User'
 import { WorkerStats } from '~/layout/WorkerStats'
-import Onboarding from '~/layout/onboarding'
+import { OnboardingWidget } from '~/layout/onboarding'
 import { userLogic } from 'scenes/userLogic'
 import { useValues } from 'kea'
 
@@ -22,7 +22,7 @@ export function TopContent() {
                     fontSize: 13,
                 }}
             >
-                {user.has_events && <Onboarding />}
+                {user.has_events && <OnboardingWidget />}
                 <LatestVersion />
                 <WorkerStats />
                 <User />
