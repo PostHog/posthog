@@ -17,10 +17,10 @@ initKea()
 
 window.simmer = new Simmer(window, { depth: 8 })
 
-function Editor({ logic, ...props }) {
+function Editor({ dockLogic, ...props }) {
     const apiURL = `${props.apiURL}${props.apiURL.endsWith('/') ? '' : '/'}`
-    const { dockStatus, floatStatus } = useValues(logic)
-    const { dock, float } = useActions(logic)
+    const { dockStatus, floatStatus } = useValues(dockLogic)
+    const { float } = useActions(dockLogic)
 
     const showDocked = dockStatus !== 'disabled'
     const showInvisibleDocked = dockStatus === 'animating' || dockStatus === 'fading-out'
@@ -33,8 +33,7 @@ function Editor({ logic, ...props }) {
             {showFloating ? (
                 <Draggable handle=".toolbar-block">
                     <div id="floating-toolbar" className={showInvisibleFloating ? 'toolbar-invisible' : ''}>
-                        <button onClick={dock}>Dock</button>
-                        <Toolbar {...props} type="floating" apiURL={apiURL} />
+                        <Toolbar {...props} dockLogic={dockLogic} type="floating" apiURL={apiURL} />
                     </div>
                 </Draggable>
             ) : null}
@@ -47,7 +46,7 @@ function Editor({ logic, ...props }) {
                     >
                         <CloseOutlined />
                     </div>
-                    <Toolbar {...props} type="docked" apiURL={apiURL} />
+                    <Toolbar {...props} dockLogic={dockLogic} type="docked" apiURL={apiURL} />
                 </div>
             ) : null}
         </>
@@ -75,7 +74,7 @@ function App(props) {
         <>
             <root.div id="__POSTHOG_TOOLBAR__" ref={shadowRef}>
                 <div id="posthog-toolbar-styles" />
-                {didRender ? <Editor {...props} logic={logic} shadowRef={shadowRef} /> : null}
+                {didRender ? <Editor {...props} dockLogic={logic} shadowRef={shadowRef} /> : null}
             </root.div>
         </>
     )

@@ -30,7 +30,7 @@ function drawBox(box, element, zoom, padding) {
     box.style.background = 'hsla(220, 92%, 65%, 1)'
     box.style.backgroundBlendMode = 'multiply'
     box.style.opacity = '0.5'
-    box.style.zIndex = '9999999999'
+    box.style.zIndex = '2147483630'
     box.style.pointerEvents = 'auto'
     box.style.cursor = 'pointer'
     box.style.transition = 'all ease 0.1s'

@@ -4,9 +4,10 @@ import { useValues } from 'kea'
 import { toolbarLogic } from '~/editor/toolbarLogic'
 import { ToolbarContent } from '~/editor/ToolbarContent'
 import { ToolbarTabs } from '~/editor/ToolbarTabs'
+import { FloatingToolbarHeader } from '~/editor/FloatingToolbarHeader'
 
 export const Toolbar = hot(_Toolbar)
-function _Toolbar({ apiURL, temporaryToken, actionId, type }) {
+function _Toolbar({ apiURL, temporaryToken, actionId, type, dockLogic }) {
     const { tab, newTab } = useValues(toolbarLogic)
 
     const visible = tab ? { [tab]: 'visible' } : {}
@@ -18,8 +19,9 @@ function _Toolbar({ apiURL, temporaryToken, actionId, type }) {
 
     return (
         <div>
+            {type === 'floating' ? <FloatingToolbarHeader dockLogic={dockLogic} /> : null}
+            <ToolbarTabs type={type} />
             <div className="toolbar-transition-area">
-                <ToolbarTabs type={type} />
                 {['stats', 'actions', 'dashboards'].map(key => {
                     const className = fadingOut[key] || fadingIn[key] || invisible[key] || visible[key]
                     if (className) {

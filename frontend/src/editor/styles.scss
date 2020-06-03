@@ -2,10 +2,6 @@
     background: white;
     font-size: 14px;
     padding: 20px;
-    box-shadow: hsl(219, 14%, 76%) 30px 30px 70px, hsl(219, 14%, 76%) 8px 8px 10px;
-    & + .toolbar-block {
-        margin-top: 30px;
-    }
     &.no-padding {
         padding: 0;
     }
@@ -14,7 +10,7 @@
 #floating-toolbar {
     position: fixed;
     top: 2rem;
-    z-index: 999999999;
+    z-index: 2147483640;
     right: 2rem;
     width: 300px;
     max-height: calc(100vh - 4rem);
@@ -60,6 +56,12 @@
         opacity: 0;
     }
 
+    .toolbar-block {
+        box-shadow: hsl(219, 14%, 76%) 30px 30px 70px, hsl(219, 14%, 76%) 8px 8px 10px;
+        & + .toolbar-block {
+            margin-top: 30px;
+        }
+    }
     .toolbar-close-button {
         top: calc(7px - var(--padding) * 0.8);
         right: calc(9px - var(--padding) * 0.8);
@@ -83,12 +85,6 @@
             color: hsla(240, 14%, 42%, 1);
         }
     }
-
-    .toolbar-transition-area {
-        .toolbar-content {
-            top: 60px !important;
-        }
-    }
 }
 
 #docked-toolbar,
@@ -101,7 +97,7 @@
         position: relative;
         .toolbar-content {
             position: absolute;
-            top: 45px;
+            top: 0;
             width: 100%;
             opacity: 1;
             transition: opacity ease 0.2s;
@@ -117,4 +113,11 @@
             }
         }
     }
+}
+
+.posthog-header-block {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
 }
