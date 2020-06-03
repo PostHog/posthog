@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { Tabs } from 'antd'
-import { toolbarLogic } from '~/editor/toolbarLogic'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 export function ToolbarTabs({ type }) {
     const { tab, newTab } = useValues(toolbarLogic)

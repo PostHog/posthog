@@ -302,3 +302,6 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'tim@posthog.com')
 
 # You can pass a comma deliminated list of domains with which users can sign up to this service
 RESTRICT_SIGNUPS = os.environ.get('RESTRICT_SIGNUPS', False)
+
+TOOLBAR_VERSION = 'editor'
+# TOOLBAR_VERSION = 'toolbar'

@@ -1,10 +1,10 @@
 import React from 'react'
 import { hot } from 'react-hot-loader/root'
 import { useValues } from 'kea'
-import { toolbarLogic } from '~/editor/toolbarLogic'
-import { ToolbarContent } from '~/editor/ToolbarContent'
-import { ToolbarTabs } from '~/editor/ToolbarTabs'
-import { FloatingToolbarHeader } from '~/editor/FloatingToolbarHeader'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { ToolbarContent } from '~/toolbar/ToolbarContent'
+import { ToolbarTabs } from '~/toolbar/ToolbarTabs'
+import { FloatingToolbarHeader } from '~/toolbar/FloatingToolbarHeader'
 
 export const Toolbar = hot(_Toolbar)
 function _Toolbar({ apiURL, temporaryToken, actionId, type, dockLogic }) {

@@ -1,7 +1,7 @@
 import React from 'react'
 import { ActionsLineGraph } from 'scenes/trends/ActionsLineGraph'
 import { useValues } from 'kea'
-import { currentPageLogic } from '~/editor/currentPageLogic'
+import { currentPageLogic } from '~/toolbar/currentPageLogic'
 
 const pageViews = (url = 'http://localhost:8000/demo') => ({
     filters: {

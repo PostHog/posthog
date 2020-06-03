@@ -172,6 +172,7 @@ def get_decide(request):
             response['is_authenticated'] = True
             if settings.DEBUG:
                 response['jsURL'] = 'http://localhost:8234/'
+                response['toolbarVersion'] = settings.TOOLBAR_VERSION
 
             if not request.user.temporary_token:
                 request.user.temporary_token = secrets.token_urlsafe(32)

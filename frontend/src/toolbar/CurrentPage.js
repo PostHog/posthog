@@ -2,7 +2,7 @@ import './CurrentPage.scss'
 import React, { useState } from 'react'
 import { useValues } from 'kea'
 import { GlobalOutlined } from '@ant-design/icons'
-import { currentPageLogic } from '~/editor/currentPageLogic'
+import { currentPageLogic } from '~/toolbar/currentPageLogic'
 
 function getFavicon() {
     var favicon = undefined
