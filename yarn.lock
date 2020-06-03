@@ -999,10 +999,10 @@
     prop-types "^15.6.2"
     scheduler "^0.19.0"
 
-"@mariusandra/posthog-js@1.1.0-beta.2":
-  version "1.1.0-beta.2"
-  resolved "https://registry.yarnpkg.com/@mariusandra/posthog-js/-/posthog-js-1.1.0-beta.2.tgz#0de1cf5c7606d3b1a0af2a2a1f1823bc58310aeb"
-  integrity sha512-IujKIbyIVn6Kz/ejjzwWn8Cg0wENfrEIGuWnDPPHfrB70DW0kPyO7GppW8RGWKza0BheyajpVKqlVEywX7thKg==
+"@mariusandra/posthog-js@1.1.0-beta.3":
+  version "1.1.0-beta.3"
+  resolved "https://registry.yarnpkg.com/@mariusandra/posthog-js/-/posthog-js-1.1.0-beta.3.tgz#8fc4b7ec8e3bba9b321e0fa81abc7a8c9e82ae54"
+  integrity sha512-lYhaEcWr2XQgknVsuS5Qkci2nVvsMGktVwT2TDVlD0ZQtF/1AFFOErUFRRVOZrrWhSTd3Vdv4sw50DMfkOs/zQ==
 
 "@mariusandra/react-grid-layout@0.18.3":
   version "0.18.3"
