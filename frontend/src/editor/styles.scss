@@ -55,6 +55,9 @@
     &.toolbar-invisible {
         opacity: 0;
     }
+    .ant-tabs-bar {
+        height: 50px;
+    }
 
     .toolbar-block {
         box-shadow: hsl(219, 14%, 76%) 30px 30px 70px, hsl(219, 14%, 76%) 8px 8px 10px;
