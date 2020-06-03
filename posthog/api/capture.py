@@ -159,7 +159,7 @@ def parse_domain(url: str) -> Optional[str]:
 def get_decide(request):
     response = {
         'config': {'enable_collect_everything': True},
-        'is_authenticated': False
+        'isAuthenticated': False
     }
 
     if request.user.is_authenticated:
@@ -168,11 +168,11 @@ def get_decide(request):
                                 '127.0.0.1',
                                 'localhost',
                             ] + [parse_domain(url) for url in team.app_urls]
-        if parse_domain(request.headers.get('Referer')) in permitted_domains:
-            response['is_authenticated'] = True
+        if parse_domain(request.headers.get('Origin')) in permitted_domains or parse_domain(request.headers.get('Referer')) in permitted_domains:
+            response['isAuthenticated'] = True
+            response['toolbarVersion'] = settings.TOOLBAR_VERSION
             if settings.DEBUG:
                 response['jsURL'] = 'http://localhost:8234/'
-                response['toolbarVersion'] = settings.TOOLBAR_VERSION
 
             if not request.user.temporary_token:
                 request.user.temporary_token = secrets.token_urlsafe(32)
