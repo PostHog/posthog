@@ -57,12 +57,10 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
             <button
                 data-attr={'trend-element-subject-' + index}
                 ref={node}
-                className="filter-action"
+                className="filter-action btn btn-sm btn-light"
                 type="button"
                 onClick={onClick}
                 style={{
-                    border: 0,
-                    padding: 0,
                     fontWeight: 500,
                     borderBottom: '1.5px dotted var(--blue)',
                 }}
