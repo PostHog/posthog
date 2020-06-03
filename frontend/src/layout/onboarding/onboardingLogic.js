@@ -55,7 +55,7 @@ export const onboardingLogic = kea({
             },
         ],
     }),
-    listeners: ({ props, actions }) => ({
+    listeners: ({ props, actions, values }) => ({
         [actions.updateOnboardingStep]: ({ index }) => {
             const user = props.user
             if (index >= user.onboarding.steps.length) return
@@ -63,10 +63,7 @@ export const onboardingLogic = kea({
                 api.update('api/user', {
                     onboarding: {
                         ...user.onboarding,
-                        steps: {
-                            ...user.onboarding.steps,
-                            [index]: true,
-                        },
+                        steps: { ...values.checked },
                     },
                 })
             }

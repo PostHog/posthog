@@ -7,6 +7,7 @@ import { StarOutlined, StarFilled } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import FunnelImage from '../_assets/funnel_with_text.png'
 import ActionImage from '../_assets/actions.png'
+import TrendImage from '../_assets/trend.png'
 import { onboardingLogic, TourType } from './onboardingLogic'
 import { userLogic } from 'scenes/userLogic'
 import _ from 'lodash'
@@ -140,7 +141,7 @@ const ModalContent = {
         buttonText: 'Create Action',
     },
     [TourType.TRENDS]: {
-        src: FunnelImage,
+        src: TrendImage,
         title: 'Trends',
         description: 'Trends show you aggregate data on actions and events',
         link: '/trends',
