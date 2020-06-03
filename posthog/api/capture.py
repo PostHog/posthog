@@ -152,8 +152,10 @@ def get_event(request):
 
     return cors_response(request, JsonResponse({'status': 1}))
 
+
 def parse_domain(url: str) -> Optional[str]:
     return urlparse(url).hostname
+
 
 @csrf_exempt
 def get_decide(request):
@@ -164,11 +166,14 @@ def get_decide(request):
 
     if request.user.is_authenticated:
         team = request.user.team_set.get()
-        permitted_domains = [
-                                '127.0.0.1',
-                                'localhost',
-                            ] + [parse_domain(url) for url in team.app_urls]
-        if parse_domain(request.headers.get('Origin')) in permitted_domains or parse_domain(request.headers.get('Referer')) in permitted_domains:
+        permitted_domains = ['127.0.0.1', 'localhost']
+
+        for url in team.app_urls:
+            hostname = parse_domain(url)
+            if hostname:
+                permitted_domains.append(hostname)
+
+        if (parse_domain(request.headers.get('Origin')) in permitted_domains) or (parse_domain(request.headers.get('Referer')) in permitted_domains):
             response['isAuthenticated'] = True
             response['toolbarVersion'] = settings.TOOLBAR_VERSION
             if settings.DEBUG:
