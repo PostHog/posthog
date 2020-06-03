@@ -6,7 +6,10 @@ const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 
-module.exports = () => [createEntry('main'), createEntry('editor')]
+// main = app
+// toolbar = new toolbar
+// editor = old toolbar
+module.exports = () => [createEntry('main'), createEntry('toolbar'), createEntry('editor')]
 
 function createEntry(entry) {
     return {
@@ -17,6 +20,8 @@ function createEntry(entry) {
             [entry]:
                 entry === 'main'
                     ? './frontend/src/index.js'
+                    : entry === 'toolbar'
+                    ? './frontend/src/toolbar/index.js'
                     : entry === 'editor'
                     ? './frontend/src/editor/index.js'
                     : null,
@@ -67,7 +72,7 @@ function createEntry(entry) {
                                   // single bundled file
                                   loader: MiniCssExtractPlugin.loader,
                               }
-                            : entry === 'editor'
+                            : entry === 'toolbar'
                             ? {
                                   loader: 'style-loader',
                                   options: {
