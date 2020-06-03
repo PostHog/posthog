@@ -1,9 +1,9 @@
 import { kea } from 'kea'
 
 export const TourType = {
-    ACTION: 'action',
-    TRENDS: 'trends',
-    FUNNEL: 'funnel',
+    ACTION: 'Action',
+    TRENDS: 'Trend',
+    FUNNEL: 'Funnel',
 }
 
 export const onboardingLogic = kea({

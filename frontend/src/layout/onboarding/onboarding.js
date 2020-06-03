@@ -36,43 +36,24 @@ export function OnboardingWidget() {
                 <p>
                     Complete these steps to learn how to use Posthog! Click on an item below to learn how to complete it
                 </p>
-                <hr style={{ height: 5, visibility: 'hidden' }} />
-                <Checkbox checked={actions.length > 0}>
-                    <Link
-                        to={'/action'}
-                        onClick={() => {
-                            setVisible(false)
-                            setInstructionalModal(true)
-                            setTourType(TourType.ACTION)
-                        }}
-                    >
-                        Create an Action
-                    </Link>
-                </Checkbox>
-                <hr style={{ height: 5, visibility: 'hidden' }} />
-                <Checkbox checked={false}>
-                    <Link
-                        onClick={() => {
-                            setVisible(false)
-                            setInstructionalModal(true)
-                            setTourType(TourType.TRENDS)
-                        }}
-                    >
-                        Create a trend graph
-                    </Link>
-                </Checkbox>
-                <hr style={{ height: 5, visibility: 'hidden' }} />
-                <Checkbox checked={false}>
-                    <Link
-                        onClick={() => {
-                            setVisible(false)
-                            setInstructionalModal(true)
-                            setTourType(TourType.FUNNEL)
-                        }}
-                    >
-                        Create a funnel
-                    </Link>
-                </Checkbox>
+                {Object.entries(TourType).map(([_, value], index) => {
+                    return (
+                        <div key={index}>
+                            <hr style={{ height: 5, visibility: 'hidden' }} />
+                            <Checkbox checked={actions.length > 0}>
+                                <Link
+                                    onClick={() => {
+                                        setVisible(false)
+                                        setInstructionalModal(true)
+                                        setTourType(value)
+                                    }}
+                                >
+                                    Create {value}
+                                </Link>
+                            </Checkbox>
+                        </div>
+                    )
+                })}
                 <hr style={{ height: 5, visibility: 'hidden' }} />
                 <p style={{ color: 'gray' }}>Don't show this again</p>
             </div>
