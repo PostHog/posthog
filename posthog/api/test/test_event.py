@@ -17,7 +17,7 @@ class TestEvents(TransactionBaseTest):
         Event.objects.create(team=self.team, distinct_id='some-random-uid', properties={"$ip": '8.8.8.8'})
         Event.objects.create(team=self.team, distinct_id='some-other-one', properties={"$ip": '8.8.8.8'})
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(11):
             response = self.client.get('/api/event/?distinct_id=2').json()
         self.assertEqual(response['results'][0]['person'], 'tim@posthog.com')
         self.assertEqual(response['results'][0]['elements'][0]['tag_name'], 'button')
@@ -25,7 +25,7 @@ class TestEvents(TransactionBaseTest):
     def test_filter_events_by_event_name(self):
         person = Person.objects.create(properties={'email': 'tim@posthog.com'}, team=self.team, distinct_ids=["2", 'some-random-uid'])
         event1 = Event.objects.create(event='event_name',team=self.team, distinct_id="2", properties={"$ip": '8.8.8.8'})
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(8):
             response = self.client.get('/api/event/?event=event_name').json()
         self.assertEqual(response['results'][0]['event'], 'event_name')
 
@@ -34,7 +34,7 @@ class TestEvents(TransactionBaseTest):
         Event.objects.create(event='event_name',team=self.team, distinct_id="2", properties={"$browser": 'Chrome'})
         event2 = Event.objects.create(event='event_name',team=self.team, distinct_id="2", properties={"$browser": 'Safari'})
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(8):
             response = self.client.get('/api/event/?properties=%s' % (json.dumps([{'key': '$browser', 'value': 'Safari'}]))).json()
         self.assertEqual(response['results'][0]['id'], event2.pk)
 
@@ -261,3 +261,14 @@ class TestEvents(TransactionBaseTest):
                 self.assertEqual(item['count'], 2)
             else:
                 self.assertEqual(item['count'], 1)
+
+    def test_pagination(self):
+        events = []
+        for index in range(0, 150):
+            events.append(Event(team=self.team, event='some event', distinct_id='1'))
+        Event.objects.bulk_create(events)
+        response = self.client.get('/api/event/?distinct_id=1').json()
+        self.assertIn('distinct_id=1', response['next'])
+
+        page2 = self.client.get(response['next']).json()
+        self.assertEqual(len(page2['results']), 50)
