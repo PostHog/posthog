@@ -5,17 +5,16 @@ import { actionsModel } from '~/models/actionsModel'
 import { Loading } from 'lib/utils'
 import { StarOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { NewActionModal } from 'scenes/actions/NewActionModal'
 import FunnelImage from '../_assets/funnel_with_text.png'
-import { onboardingLogic } from './onboardingLogic'
+import { onboardingLogic, TourType } from './onboardingLogic'
 
 export function OnboardingWidget() {
     const contentRef = useRef()
     const { actions, actionsLoading } = useValues(actionsModel)
-    const [modalVisible, setModalVisible] = useState(false)
     const [visible, setVisible] = useState(true)
     const [instructionalModal, setInstructionalModal] = useState(false)
-    const { setTourActive } = useActions(onboardingLogic)
+    const { tourType } = useValues(onboardingLogic)
+    const { setTourActive, setTourType } = useActions(onboardingLogic)
 
     let onClickOutside = event => {
         if (contentRef.current && !contentRef.current.contains(event.target)) {
@@ -40,9 +39,11 @@ export function OnboardingWidget() {
                 <hr style={{ height: 5, visibility: 'hidden' }} />
                 <Checkbox checked={actions.length > 0}>
                     <Link
+                        to={'/action'}
                         onClick={() => {
                             setVisible(false)
-                            setModalVisible(true)
+                            setInstructionalModal(true)
+                            setTourType(TourType.ACTION)
                         }}
                     >
                         Create an Action
@@ -50,7 +51,13 @@ export function OnboardingWidget() {
                 </Checkbox>
                 <hr style={{ height: 5, visibility: 'hidden' }} />
                 <Checkbox checked={false}>
-                    <Link to={'/trends'} onClick={() => setVisible(false)}>
+                    <Link
+                        onClick={() => {
+                            setVisible(false)
+                            setInstructionalModal(true)
+                            setTourType(TourType.TRENDS)
+                        }}
+                    >
                         Create a trend graph
                     </Link>
                 </Checkbox>
@@ -60,6 +67,7 @@ export function OnboardingWidget() {
                         onClick={() => {
                             setVisible(false)
                             setInstructionalModal(true)
+                            setTourType(TourType.FUNNEL)
                         }}
                     >
                         Create a funnel
@@ -91,28 +99,46 @@ export function OnboardingWidget() {
                 footer={null}
                 onCancel={() => setInstructionalModal(false)}
             >
-                <img style={{ maxWidth: '100%' }} src={FunnelImage}></img>
-                <h1 style={{ textAlign: 'center' }}>Funnels</h1>
-                <p style={{ textAlign: 'center' }}>
-                    Funnels are used to understand how your users are converting from one step to the next.
-                </p>
+                <img style={{ maxWidth: '100%' }} src={ModalContent[tourType].src}></img>
+                <h1 style={{ textAlign: 'center' }}>{ModalContent[tourType].title}</h1>
+                <p style={{ textAlign: 'center' }}>{ModalContent[tourType].description}</p>
                 <Button type="primary" style={{ textAlign: 'center' }}>
                     <Link
-                        to={'/funnel/new'}
+                        to={ModalContent[tourType].link}
                         onClick={() => {
                             setInstructionalModal(false)
                             setVisible(false)
                             setTimeout(() => setTourActive(), 500)
                         }}
                     >
-                        Create Funnel
+                        {ModalContent[tourType].buttonText}
                     </Link>
                 </Button>
             </Modal>
-            <NewActionModal
-                visible={modalVisible}
-                onVisibleChanged={visible => setModalVisible(visible)}
-            ></NewActionModal>
         </div>
     )
+}
+
+const ModalContent = {
+    [TourType.ACTION]: {
+        src: FunnelImage,
+        title: 'Actions',
+        description: 'Funnels are used to understand how your users are converting from one step to the next.',
+        link: '/action',
+        buttonText: 'Create Action',
+    },
+    [TourType.TRENDS]: {
+        src: FunnelImage,
+        title: 'Trends',
+        description: 'Trends show you aggregate data on actions and events',
+        link: '/trends',
+        buttonText: 'Create Trend Graph',
+    },
+    [TourType.FUNNEL]: {
+        src: FunnelImage,
+        title: 'Funnels',
+        description: 'Funnels are used to understand how your users are converting from one step to the next.',
+        link: '/funnel/new',
+        buttonText: 'Create Funnel',
+    },
 }

@@ -48,7 +48,7 @@ function _Trends() {
             <Row gutter={16}>
                 <Col xs={24} xl={6}>
                     <Card>
-                        <div className="card-body px-4">
+                        <div className="card-body px-4" data-attr="trend-sidebar-editor">
                             <Tabs
                                 activeKey={activeView}
                                 style={{
@@ -117,7 +117,7 @@ function _Trends() {
                         </div>
                     </Card>
                 </Col>
-                <Col xs={24} xl={18}>
+                <Col xs={24} xl={18} data-attr="trends-viz">
                     <Card
                         title={
                             <div className="float-right pt-1 pb-1">

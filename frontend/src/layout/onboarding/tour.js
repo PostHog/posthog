@@ -2,21 +2,62 @@ import React from 'react'
 import Tour from 'reactour'
 import { Button } from 'antd'
 import { useValues, useActions } from 'kea'
-import { onboardingLogic } from './onboardingLogic'
+import { onboardingLogic, TourType } from './onboardingLogic'
 
 export function PGTour() {
-    const { tourActive } = useValues(onboardingLogic)
-    const { setTourFinish } = useActions(onboardingLogic)
+    const { tourActive, tourType, tourStep } = useValues(onboardingLogic)
+    const { setTourFinish, setTourStep } = useActions(onboardingLogic)
     return (
         <Tour
-            steps={funnelTour}
+            steps={determineTour(tourType)}
             lastStepNextButton={<Button type="primary">Done</Button>}
             isOpen={tourActive}
-            onRequestClose={() => setTourFinish()}
-            goToStep={1}
+            onRequestClose={() => {
+                setTourFinish()
+                setTourStep(0)
+            }}
+            goToStep={tourStep}
+            nextStep={() => setTourStep(tourStep + 1)}
+            prevStep={() => setTourStep(tourStep - 1)}
+            startAt={tourStep}
         />
     )
 }
+
+function determineTour(type) {
+    if (type === TourType.TRENDS) return trendsTour
+    else if (type === TourType.FUNNEL) return funnelTour
+    else []
+}
+
+const trendsTour = [
+    {
+        selector: '[data-attr="trend-sidebar-editor"]',
+        content: 'This is the trend editor',
+        stepInteraction: false,
+    },
+    {
+        selector: '[data-attr="action-filter"]',
+        content: 'You can add actions and events you want to see data for',
+        stepInteraction: false,
+    },
+    {
+        selector: '[data-attr="prop-filters"]',
+        content:
+            'This is an optional filter you can add to specify properties on the actions and events you want to view.',
+        stepInteraction: false,
+    },
+    {
+        selector: '[data-attr="trends-viz"]',
+        content: 'Your data metrics will change accordingly',
+        stepInteraction: false,
+    },
+    {
+        selector: '[data-attr="save-to-dashboard-button"]',
+        content: 'Once you have added actions and events you can save this to your dashboards',
+        stepInteraction: false,
+    },
+]
 
 const funnelTour = [
     {
