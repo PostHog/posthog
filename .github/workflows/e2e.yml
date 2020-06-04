@@ -21,5 +21,5 @@ jobs:
 
       - name: Cypress run
         run: |
-          python cypress/wait.py 
+          python3 cypress/wait.py 
           yarn run cypress run --config-file cypress.json

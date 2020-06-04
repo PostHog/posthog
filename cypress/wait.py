@@ -1,15 +1,18 @@
+import datetime
+import http.client
 import time
-
-import requests
 
 
 def main():
     print("Waiting to run tests until PostHog is up and serving requests")
     booted = False
-    while not booted:
+    ts = datetime.datetime.now()
+    while not booted and (datetime.datetime.now() - ts).seconds < 240:
         try:
-            r = requests.get("http://127.0.0.1:8000/_health/")
-            if r.status_code == 200:
+            conn = http.client.HTTPConnection("127.0.0.1", 8000)
+            conn.request("GET", "/_health/")
+            r = conn.getresponse()
+            if r.status == 200:
                 booted = True
                 print("PostHog is alive! Proceeding")
                 continue
