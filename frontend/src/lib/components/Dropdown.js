@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { CaretDownOutlined } from '@ant-design/icons'
+import { DownOutlined } from '@ant-design/icons'
 
 export function Dropdown({ className, style, 'data-attr': dataAttr, buttonStyle, children, buttonClassName, title }) {
     const [menuOpen, setMenuOpen] = useState(false)
@@ -27,8 +27,8 @@ export function Dropdown({ className, style, 'data-attr': dataAttr, buttonStyle,
             data-attr={dataAttr}
         >
             <a className={'cursor-pointer ' + buttonClassName} style={{ ...buttonStyle }} onClick={open} href="#">
-                <CaretDownOutlined />
                 {title || <span>&hellip;</span>}
+                <DownOutlined style={{ marginLeft: '3px', color: 'rgba(0, 0, 0, 0.25)' }} />
             </a>
             <div
                 className={'dropdown-menu ' + (menuOpen && 'show')}
