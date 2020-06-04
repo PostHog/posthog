@@ -16,6 +16,7 @@ export function Link({ to, preventClick = false, ...props }) {
                 }
                 props.onClick && props.onClick(event)
             }}
+            data-attr={props['data-attr']}
         >
             {props.children}
         </a>

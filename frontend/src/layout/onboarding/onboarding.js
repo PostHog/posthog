@@ -50,7 +50,11 @@ export function OnboardingWidget() {
 
     function content() {
         return (
-            <div ref={contentRef} style={{ display: 'flex', width: '25vw', flexDirection: 'column' }}>
+            <div
+                data-attr="onboarding-content"
+                ref={contentRef}
+                style={{ display: 'flex', width: '25vw', flexDirection: 'column' }}
+            >
                 <h2>Get Started</h2>
                 <i>
                     Complete these steps to learn how to use Posthog! Click on an item below to learn how to complete it
@@ -66,6 +70,7 @@ export function OnboardingWidget() {
                                         setInstructionalModal(true)
                                         setTourType(value)
                                     }}
+                                    data-attr={'onboarding-item-' + index}
                                 >
                                     Create {value}
                                 </Link>
@@ -95,7 +100,7 @@ export function OnboardingWidget() {
                 trigger="click"
             >
                 <Badge count={unfinishedCount}>
-                    <Button onClick={() => (visible ? closePopup() : setVisible(true))}>
+                    <Button data-attr="onboarding-button" onClick={() => (visible ? closePopup() : setVisible(true))}>
                         {unfinishedCount === 0 ? <StarFilled></StarFilled> : <StarOutlined></StarOutlined>}
                     </Button>
                 </Badge>
@@ -107,12 +112,12 @@ export function OnboardingWidget() {
                 footer={null}
                 onCancel={() => setInstructionalModal(false)}
             >
-                <img style={{ maxWidth: '100%' }} src={ModalContent[tourType].src}></img>
+                <img data-attr="onboarding-image" style={{ maxWidth: '100%' }} src={ModalContent[tourType].src}></img>
                 <h1 style={{ textAlign: 'center' }}>{ModalContent[tourType].title}</h1>
                 <p style={{ textAlign: 'center', fontSize: 16, fontWeight: 500, maxWidth: '60%' }}>
                     {ModalContent[tourType].description}
                 </p>
-                <Button type="primary" style={{ textAlign: 'center' }}>
+                <Button data-attr="onboarding-start-flow-button" type="primary" style={{ textAlign: 'center' }}>
                     <Link
                         to={ModalContent[tourType].link}
                         onClick={() => {

@@ -32,7 +32,11 @@ function determineTour(type) {
 }
 
 function ToolTipText(props) {
-    return <div style={{ marginTop: 15, fontWeight: 600, fontSize: 16 }}>{props.children}</div>
+    return (
+        <div data-attr="tour-tooltip" style={{ marginTop: 15, fontWeight: 600, fontSize: 16 }}>
+            {props.children}
+        </div>
+    )
 }
 
 const actionTour = [
