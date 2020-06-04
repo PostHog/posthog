@@ -2,10 +2,11 @@ import React, { Component } from 'react'
 import ReactDOM from 'react-dom'
 import Simmer from 'simmerjs'
 import root from 'react-shadow'
-import { ActionEdit } from '../scenes/actions/ActionEdit'
+import { ActionEdit } from '~/scenes/actions/ActionEdit'
 import Draggable from 'react-draggable'
 import { getContext } from 'kea'
 import { Provider } from 'react-redux'
+import { hot } from 'react-hot-loader/root'
 
 window.simmer = new Simmer(window, { depth: 8 })
 
@@ -72,7 +73,8 @@ let styles = `
         height: calc(1.5rem + 4px);
     }
 `
-class App extends Component {
+
+class _App extends Component {
     constructor(props) {
         super(props)
 
@@ -107,7 +109,11 @@ class App extends Component {
         let { actions, openActionId } = this.state
         return (
             <root.div>
-                <link href={this.props.apiURL + 'static/main.css'} rel="stylesheet" crossOrigin="anonymous" />
+                <link
+                    href={(this.props.jsURL || this.props.apiURL) + 'static/main.css'}
+                    rel="stylesheet"
+                    crossOrigin="anonymous"
+                />
                 <style>{styles}</style>
                 <Draggable handle=".drag-bar">
                     <div className="box">
@@ -181,6 +187,8 @@ class App extends Component {
     }
 }
 
+const App = hot(_App)
+
 window.ph_load_editor = function(editorParams) {
     let container = document.createElement('div')
     document.body.appendChild(container)
@@ -188,6 +196,7 @@ window.ph_load_editor = function(editorParams) {
     ReactDOM.render(
         <Provider store={getContext().store}>
             <App
+                jsURL={editorParams.jsURL}
                 apiURL={editorParams.apiURL}
                 temporaryToken={editorParams.temporaryToken}
                 actionId={editorParams.actionId}

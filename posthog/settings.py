@@ -302,3 +302,8 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'tim@posthog.com')
 
 # You can pass a comma deliminated list of domains with which users can sign up to this service
 RESTRICT_SIGNUPS = os.environ.get('RESTRICT_SIGNUPS', False)
+
+# Change this to "toolbar" to work on the new toolbar, keep at "editor" and nothing will have changed
+# from 1.7.0 (except it now supports HMR!)
+TOOLBAR_VERSION = 'editor'
+# TOOLBAR_VERSION = 'toolbar'

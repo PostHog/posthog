@@ -74,13 +74,18 @@ def redirect_to_site(request):
 
     request.user.temporary_token = secrets.token_urlsafe(32)
     request.user.save()
-    state = urllib.parse.quote(json.dumps({
+    params = {
         'action': 'mpeditor',
         'token': team.api_token,
         'temporaryToken': request.user.temporary_token,
         'actionId': request.GET.get('actionId'),
-        'apiURL': request.build_absolute_uri('/')
-    }))
+        'apiURL': request.build_absolute_uri('/'),
+    }
+    if settings.DEBUG:
+        params['jsURL'] = 'http://localhost:8234/'
+        params['toolbarVersion'] = settings.TOOLBAR_VERSION
+
+    state = urllib.parse.quote(json.dumps(params))
 
     return redirect("{}#state={}".format(app_url, state))
 

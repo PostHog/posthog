@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
@@ -11,6 +12,7 @@ from dateutil import parser
 from sentry_sdk import push_scope
 import re
 import json
+import secrets
 import base64
 import gzip
 
@@ -150,6 +152,35 @@ def get_event(request):
 
     return cors_response(request, JsonResponse({'status': 1}))
 
+
+def parse_domain(url: str) -> Optional[str]:
+    return urlparse(url).hostname
+
+
 @csrf_exempt
 def get_decide(request):
-    return cors_response(request, JsonResponse({"config": {"enable_collect_everything": True}}))
+    response = {
+        'config': {'enable_collect_everything': True},
+        'isAuthenticated': False
+    }
+
+    if request.user.is_authenticated:
+        team = request.user.team_set.get()
+        permitted_domains = ['127.0.0.1', 'localhost']
+
+        for url in team.app_urls:
+            hostname = parse_domain(url)
+            if hostname:
+                permitted_domains.append(hostname)
+
+        if (parse_domain(request.headers.get('Origin')) in permitted_domains) or (parse_domain(request.headers.get('Referer')) in permitted_domains):
+            response['isAuthenticated'] = True
+            response['toolbarVersion'] = settings.TOOLBAR_VERSION
+            if settings.DEBUG:
+                response['jsURL'] = 'http://localhost:8234/'
+
+            if not request.user.temporary_token:
+                request.user.temporary_token = secrets.token_urlsafe(32)
+                request.user.save()
+    return cors_response(request, JsonResponse(response))
+
