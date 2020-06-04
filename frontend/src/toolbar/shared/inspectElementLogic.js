@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { dockLogic } from '~/toolbar/dockLogic'
 import Simmer from 'simmerjs'
-import { currentPageLogic } from '~/toolbar/currentPageLogic'
+import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 
 const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
 

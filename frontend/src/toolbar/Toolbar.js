@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { ToolbarContent } from '~/toolbar/ToolbarContent'
 import { ToolbarTabs } from '~/toolbar/ToolbarTabs'
-import { FloatingToolbarHeader } from '~/toolbar/FloatingToolbarHeader'
+import { FloatingToolbarHeader } from '~/toolbar/shared/FloatingToolbarHeader'
 
 export const Toolbar = hot(_Toolbar)
 function _Toolbar({ apiURL, temporaryToken, actionId, type, dockLogic }) {

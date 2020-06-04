@@ -1,11 +1,11 @@
 import React from 'react'
 
-import { AllActionsLink } from '~/toolbar/AllActionsLink'
-import { AllDashboardsLink } from '~/toolbar/AllDashboardsLink'
-import { CurrentPage } from '~/toolbar/CurrentPage'
-import { InspectElement } from '~/toolbar/InspectElement'
-import { PageViewStats } from '~/toolbar/PageViewStats'
-import { Actions } from '~/toolbar/Actions'
+import { AllActionsLink } from '~/toolbar/actions/AllActionsLink'
+import { AllDashboardsLink } from '~/toolbar/dashboards/AllDashboardsLink'
+import { CurrentPage } from '~/toolbar/stats/CurrentPage'
+import { InspectElement } from '~/toolbar/shared/InspectElement'
+import { PageViewStats } from '~/toolbar/stats/PageViewStats'
+import { Actions } from '~/toolbar/actions/Actions'
 
 export function ToolbarContent({ tab, apiURL, temporaryToken, actionId, className, type }) {
     return (

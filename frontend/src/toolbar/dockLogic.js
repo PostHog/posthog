@@ -3,6 +3,11 @@ import { kea } from 'kea'
 // props:
 // - shadowRef: shadowRoot ref
 export const dockLogic = kea({
+    props: {
+        shadowRef: 'required',
+        padding: 'optional',
+    },
+
     // transition steps:
     // - dock: disabled, animating, fading, complete
     // - float: disabled, animating, fading, complete
@@ -221,10 +226,6 @@ function attachScrollListener(zoom, padding) {
             })
     }
     window.addEventListener('scroll', listener)
-
-    // window.addEventListener('scroll', function(e) {
-    //   toolbar.shadowRoot.getElementById('toolbar').style.marginTop = `${window.pageYOffset / zoom}px`;
-    // })
 }
 
 function removeScrollListener() {
