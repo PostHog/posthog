@@ -14,6 +14,7 @@
     "scripts": {
         "copy-array": "cp node_modules/posthog-js/dist/array.js frontend/dist/",
         "start": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack-dev-server --hotOnly",
+        "start-https": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack-dev-server --hotOnly --https",
         "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-array",
         "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\"",
         "eslint:github-action": "eslint frontend/src"

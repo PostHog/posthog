@@ -1,0 +1,12 @@
+#!/bin/bash
+set -e
+
+trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
+
+export IS_BEHIND_PROXY=1
+export LOCAL_HTTPS=1
+./bin/start-worker &
+./bin/start-backend &
+./bin/start-frontend-https &
+
+wait
