@@ -87,7 +87,7 @@ class PropertyMixin:
         for property in [prop for prop in self.properties if prop.type == 'event']:
             filters &= property.property_to_Q()
 
-        element_properties = [prop for prop in self.properties if prop.type == 'elements']
+        element_properties = [prop for prop in self.properties if prop.type == 'element']
         if len(element_properties) > 0:
             from .event import Event
             filters &= Q(Exists(

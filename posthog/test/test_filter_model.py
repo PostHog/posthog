@@ -26,7 +26,7 @@ class TestSelectors(BaseTest):
         ])
         event2 = Event.objects.create(team=self.team, event='$autocapture')
         filter = Filter(data={
-            'properties': [{'key': 'selector', 'value': 'div > a', 'type': 'elements'}]
+            'properties': [{'key': 'selector', 'value': 'div > a', 'type': 'element'}]
         })
         events = Event.objects.filter(filter.properties_to_Q())
         self.assertEqual(events.count(), 1)
