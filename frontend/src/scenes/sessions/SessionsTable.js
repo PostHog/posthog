@@ -2,21 +2,26 @@ import React from 'react'
 import { useValues } from 'kea'
 import { Table } from 'antd'
 import { Link } from 'lib/components/Link'
-import moment from 'moment'
 import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
 
 export function SessionsTable({ logic }) {
-    const { sessions } = useValues(logic)
+    const { sessions, sessionsLoading } = useValues(logic)
     let columns = [
         {
             title: 'Person',
             key: 'person',
             render: function RenderSession(session) {
                 return (
-                    <Link to={`/person/${encodeURIComponent(session.person)}`} className="ph-no-capture">
-                        {session.person}
+                    <Link to={`/person/${encodeURIComponent(session.distinct_id)}`} className="ph-no-capture">
+                        {session.properties.email || session.distinct_id}
                     </Link>
                 )
+            },
+        },
+        {
+            title: 'Event Count',
+            render: function RenderDuration(session) {
+                return <span>{session.event_count}</span>
             },
         },
         {
@@ -43,6 +48,7 @@ export function SessionsTable({ logic }) {
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
                 dataSource={sessions}
                 columns={columns}
+                loading={sessionsLoading}
             />
             <div style={{ marginTop: '5rem' }} />
         </div>

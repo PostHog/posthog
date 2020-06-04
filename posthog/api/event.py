@@ -225,6 +225,47 @@ class EventViewSet(viewsets.ModelViewSet):
     @action(methods=['GET'], detail=False)
     def sessions(self, request: request.Request) -> response.Response:
         team = self.request.user.team_set.get()
+        session_type = self.request.GET.get('session')
+        if session_type is None:
+            sessions = self.get_queryset()\
+                .annotate(previous_timestamp=Window(
+                    expression=Lag('timestamp', default=None),
+                    partition_by=F('distinct_id'),
+                    order_by=F('timestamp').asc()
+                ))\
+                .annotate(previous_event=Window(
+                    expression=Lag('event', default=None),
+                    partition_by=F('distinct_id'),
+                    order_by=F('timestamp').asc()
+                ))
+            sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
+
+            all_sessions = '\
+                SELECT *,\
+                    SUM(new_session) OVER (ORDER BY distinct_id, timestamp) AS global_session_id,\
+                    SUM(new_session) OVER (PARTITION BY distinct_id ORDER BY timestamp) AS user_session_id\
+                    FROM (SELECT distinct_id, timestamp, CASE WHEN EXTRACT(\'EPOCH\' FROM (timestamp - previous_timestamp)) >= (60 * 30)\
+                        OR previous_timestamp IS NULL \
+                        THEN 1 ELSE 0 END AS new_session \
+                        FROM ({}) AS inner_sessions\
+                    ) AS outer_sessions'.format(sessions_sql)
+
+            with connection.cursor() as cursor:
+                query = 'SELECT properties, start_time, length, sessions.distinct_id, event_count, events from\
+                                (SELECT\
+                                    global_session_id,\
+                                    count(1) as event_count,\
+                                    MAX(distinct_id) as distinct_id,\
+                                    EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp))) AS length,\
+                                    MIN(timestamp) as start_time,\
+                                        FROM ({}) as count GROUP BY 1) as sessions\
+                                        LEFT OUTER JOIN posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id\
+                                        LEFT OUTER JOIN posthog_person ON posthog_person.id = posthog_persondistinctid.person_id\
+                                        ORDER BY start_time DESC limit 20'.format(all_sessions)
+                cursor.execute(query, sessions_sql_params)
+                result = dict_from_cursor_fetchall(cursor)
+                return response.Response(result)
+
         date_filter = request_to_date_query(request.GET.dict())
 
         if not date_filter.get('timestamp__gte'):
@@ -331,12 +372,5 @@ class EventViewSet(viewsets.ModelViewSet):
             cursor.execute(distribution(all_sessions), sessions_sql_params)
             calculated = cursor.fetchall()
             result = [{'label': dist_labels[index], 'count': calculated[0][index]} for index in range(len(dist_labels))]
-        else:
-            with connection.cursor() as cursor:
-                query = 'SELECT global_session_id, MAX(distinct_id) as person, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
-                                AS length,\
-                                MIN(timestamp) as start_time FROM ({}) as count GROUP BY 1 ORDER BY start_time DESC limit 100'.format(all_sessions)
-                cursor.execute(query, sessions_sql_params)
-                result = dict_from_cursor_fetchall(cursor)
 
         return result
