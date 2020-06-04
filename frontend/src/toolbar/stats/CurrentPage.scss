@@ -1,0 +1,32 @@
+.current-page {
+    .with-left-icon {
+        display: flex;
+        align-items: flex-start;
+        .icon-part {
+            width: 46px;
+            min-width: 46px;
+            .anticon {
+                font-size: 32px;
+                color: hsl(240, 12%, 82%);
+            }
+        }
+        .text-part {
+            font-size: 16px;
+            line-height: 20px;
+            margin-top: -4px;
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+            overflow: hidden;
+        }
+    }
+
+    .small-url-link {
+        font-size: 12px;
+        margin-top: 2px;
+        word-break: break-word;
+        a {
+            color: hsl(240, 7%, 54%);
+        }
+    }
+}
