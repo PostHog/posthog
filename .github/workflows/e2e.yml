@@ -35,6 +35,7 @@ jobs:
               with:
                   python-version: 3.7
             - uses: actions/cache@v1
+              name: Cache pip dependencies
               with:
                   path: ~/.cache/pip
                   key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
@@ -63,7 +64,7 @@ jobs:
             - name: Yarn install deps
               run: yarn install --frozen-lockfile
               if: steps.yarn-cache.outputs.cache-hit != 'true'
-            - name: Run tests
+            - name: Boot PostHog
               env:
                   REDIS_URL: 'redis://localhost'
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
@@ -73,7 +74,7 @@ jobs:
               run: |
                   ./bin/docker-migrate
                   ./bin/docker-worker &
-                  ./bin/docker-server
+                  ./bin/docker-server &
             - name: Cypress run
               run: |
                   python3 cypress/wait.py 
