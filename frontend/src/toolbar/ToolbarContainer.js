@@ -19,21 +19,21 @@ export function ToolbarContainer({ dockLogic, ...props }) {
         <>
             {showFloating ? (
                 <Draggable handle=".toolbar-block">
-                    <div id="floating-toolbar" className={showInvisibleFloating ? 'toolbar-invisible' : ''}>
-                        <ToolbarContent {...props} dockLogic={dockLogic} type="floating" apiURL={apiURL} />
+                    <div id="float-toolbar" className={showInvisibleFloating ? 'toolbar-invisible' : ''}>
+                        <ToolbarContent {...props} dockLogic={dockLogic} type="float" apiURL={apiURL} />
                     </div>
                 </Draggable>
             ) : null}
 
             {showDocked ? (
-                <div id="docked-toolbar" className={showInvisibleDocked ? 'toolbar-invisible' : ''}>
+                <div id="dock-toolbar" className={showInvisibleDocked ? 'toolbar-invisible' : ''}>
                     <div
                         className={`toolbar-close-button${dockStatus === 'complete' ? ' visible' : ''}`}
                         onClick={float}
                     >
                         <CloseOutlined />
                     </div>
-                    <ToolbarContent {...props} dockLogic={dockLogic} type="docked" apiURL={apiURL} />
+                    <ToolbarContent {...props} dockLogic={dockLogic} type="dock" apiURL={apiURL} />
                 </div>
             ) : null}
         </>

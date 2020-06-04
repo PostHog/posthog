@@ -22,7 +22,7 @@ export const toolbarTabLogic = kea({
     }),
     listeners: ({ actions, values }) => ({
         setTab: async ({ tab }, breakpoint) => {
-            // animate tab switching in docking mode
+            // animate tab switching in dock mode
             if (dockLogic.values.mode === 'dock') {
                 actions.setTabs(values.tab, tab)
                 await breakpoint(200)

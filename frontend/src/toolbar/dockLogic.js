@@ -122,7 +122,7 @@ export const dockLogic = kea({
             // const setToolbarZoom = toolbarStyle.setProperty('--zoom-out', zoom)
             function updateToolbar() {
                 if (shadowRef?.current) {
-                    const toolbarDiv = shadowRef.current.shadowRoot.getElementById('docked-toolbar')
+                    const toolbarDiv = shadowRef.current.shadowRoot.getElementById('dock-toolbar')
                     if (toolbarDiv) {
                         toolbarDiv.style.setProperty('--zoom-out', zoom)
                         toolbarDiv.style.setProperty('--padding', `${padding}px`)

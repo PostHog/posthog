@@ -7,7 +7,7 @@
     }
 }
 
-#floating-toolbar {
+#float-toolbar {
     position: fixed;
     top: 2rem;
     z-index: 2147483640;
@@ -33,7 +33,7 @@
     }
 }
 
-#docked-toolbar {
+#dock-toolbar {
     --zoom-out: 0.7;
     --padding: 30px;
     --sidebar-width: 300px;
@@ -90,8 +90,8 @@
     }
 }
 
-#docked-toolbar,
-#floating-toolbar {
+#dock-toolbar,
+#float-toolbar {
     .ant-tabs-nav-scroll {
         text-align: center;
     }

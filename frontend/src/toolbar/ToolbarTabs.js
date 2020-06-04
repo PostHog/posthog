@@ -8,7 +8,7 @@ export function ToolbarTabs({ type }) {
     const { setTab } = useActions(toolbarTabLogic)
 
     return (
-        <div className={type === 'floating' ? 'toolbar-block no-padding' : ''}>
+        <div className={type === 'float' ? 'toolbar-block no-padding' : ''}>
             <Tabs onChange={setTab} activeKey={newTab || tab}>
                 <Tabs.TabPane tab="Stats" key="stats" />
                 <Tabs.TabPane tab="Actions" key="actions" />

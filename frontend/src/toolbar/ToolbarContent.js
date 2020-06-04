@@ -27,7 +27,7 @@ function _ToolbarContent({ apiURL, temporaryToken, actionId, type, dockLogic }) 
 
     return (
         <div>
-            {type === 'floating' ? <FloatingToolbarHeader dockLogic={dockLogic} /> : null}
+            {type === 'float' ? <FloatingToolbarHeader dockLogic={dockLogic} /> : null}
             <ToolbarTabs type={type} />
             <div className="toolbar-transition-area">
                 {['stats', 'actions', 'dashboards'].map(key => {
