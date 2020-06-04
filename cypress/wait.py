@@ -8,7 +8,7 @@ def main():
     booted = False
     while not booted:
         try:
-            r = requests.get("http://127.0.0.1:8000/static/main.js")
+            r = requests.get("http://127.0.0.1:8000/_health/")
             if r.status_code == 200:
                 booted = True
                 print("PostHog is alive! Proceeding")
