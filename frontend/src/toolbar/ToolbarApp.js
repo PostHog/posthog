@@ -10,15 +10,15 @@ export function ToolbarApp(props) {
 
     // this runs after the shadow root has been added to the dom
     const didRender = useSecondRender(() => {
-        function addElement(element) {
+        function addStyleElementToShadowRoot(element) {
             const { shadowRoot } = shadowRef.current || window.document.getElementById('__POSTHOG_TOOLBAR__')
             shadowRoot.getElementById('posthog-toolbar-styles').appendChild(element)
         }
 
         if (window.__PHGTLB_STYLES__) {
-            window.__PHGTLB_STYLES__.forEach(element => addElement(element))
+            window.__PHGTLB_STYLES__.forEach(element => addStyleElementToShadowRoot(element))
         }
-        window.__PHGTLB_ADD_STYLES__ = element => addElement(element)
+        window.__PHGTLB_ADD_STYLES__ = element => addStyleElementToShadowRoot(element)
     })
 
     return (
