@@ -38,7 +38,7 @@ function ToolTipText(props) {
 const actionTour = [
     {
         selector: '[data-attr="action-editor"]',
-        content: () => (
+        content: (
             <ToolTipText>
                 {
                     'This is the action editor that you can use to create actions on your events. Actions work like buckets by grouping events together.'
