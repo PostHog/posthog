@@ -1,5 +1,40 @@
 # Changelog
 
+### 1.8.0 - Wednesday 3 June 2020
+
+- [Cumulative graphs](https://github.com/PostHog/posthog/pull/862)
+
+![cumulative graphs](https://posthog.com/images/8b9a5516ddcc2ac7030b690273ed7e8e/cumulative-graph.gif)
+
+- [More powerful paths](https://github.com/PostHog/posthog/pull/897)
+
+![Paths start point](https://posthog.com/static/07bcede22293f441670c690377152f77/49898/paths-start-point.jpg)
+
+![Paths filtering by properties](https://posthog.com/static/2738ad9eea88ccc59e09a22d5f65d80d/86f7d/paths-filtering.jpg)
+
+- [Add property filters to actions + lots of improvements (#841)](https://github.com/PostHog/posthog/pull/841)
+
+![Actions property filter](https://posthog.com/static/f4099601731f26a7d1f98a2b8fa9378d/fbd2c/actions-property-filter.jpg)
+
+* We cleaned up descriptions in the [breakdown filter](https://github.com/PostHog/posthog/pull/886).
+* The [UX is nicer](https://github.com/PostHog/posthog/pull/863) for selection a URL on creating an action.
+* We made it simpler to understand [how to use custom events](https://github.com/PostHog/posthog/pull/873) during the setup process.
+* The token issues, oh the token issues. [Fixed](https://github.com/PostHog/posthog/pull/909) and [fixed](https://github.com/PostHog/posthog/pull/894).
+* It was time for our events table [to become Ant Designed](https://github.com/PostHog/posthog/pull/895).
+* Pre-2020 events [won't affect partitions](https://github.com/PostHog/posthog/pull/875) any more.
+* [Better debugging](https://github.com/PostHog/posthog/pull/854) with Sentry.
+* Scrollbar [small issue be gone](https://github.com/PostHog/posthog/pull/900).
+* We [improved](https://github.com/PostHog/posthog/pull/885) how empty funnels work.
+* Events are [40ms faster to process](https://github.com/PostHog/posthog/pull/833) - 25% quicker!
+* The sidebar [works properly on mobile](https://github.com/PostHog/posthog/pull/839) - no more squished interface on your cell phone.
+* Fix a bug with [selecting filters](https://github.com/PostHog/posthog/pull/844)
+* [Funnels are simpler](https://github.com/PostHog/posthog/pull/881).
+* [Solved](https://github.com/PostHog/posthog/pull/874) a tricky bug on app.posthog.com caused by URLs with non-utf8 or raw binary query parameters.
+* Nothing to do with [dubious cheese](https://www.babybel.com/welcome), we [fixed errors with babel](https://github.com/PostHog/posthog/pull/861)
+* [Improved toolbar UX](https://github.com/PostHog/posthog/pull/890) for actions to fix a small [issue](https://github.com/PostHog/posthog/issues/889). 
+* PostHog will now [cache SQL and parameters between events processing](https://github.com/PostHog/posthog/pull/845). This speeds things up by a further 40%.
+* We [refactored more classes to hooks](https://github.com/PostHog/posthog/pull/898), fixing a bug with event name labels along the way.
+
 ### 1.7.0 - Wednesday 27 May 2020
 
 - [Reactive Native](https://github.com/PostHog/posthog-react-native)
