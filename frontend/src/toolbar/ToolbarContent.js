@@ -1,25 +1,55 @@
 import React from 'react'
+import { hot } from 'react-hot-loader/root'
+import { useValues } from 'kea'
+import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
+import { ToolbarTabs } from '~/toolbar/ToolbarTabs'
+import { FloatingToolbarHeader } from '~/toolbar/shared/FloatingToolbarHeader'
+import { StatsTab } from '~/toolbar/stats/StatsTab'
+import { ActionsTab } from '~/toolbar/actions/ActionsTab'
+import { DashboardsTab } from '~/toolbar/dashboards/DashboardsTab'
 
-import { AllActionsLink } from '~/toolbar/actions/AllActionsLink'
-import { AllDashboardsLink } from '~/toolbar/dashboards/AllDashboardsLink'
-import { CurrentPage } from '~/toolbar/stats/CurrentPage'
-import { InspectElement } from '~/toolbar/shared/InspectElement'
-import { PageViewStats } from '~/toolbar/stats/PageViewStats'
-import { Actions } from '~/toolbar/actions/Actions'
+const tabComponents = {
+    actions: ActionsTab,
+    stats: StatsTab,
+    dashboards: DashboardsTab,
+}
 
-export function ToolbarContent({ tab, apiURL, temporaryToken, actionId, className, type }) {
+export const ToolbarContent = hot(_ToolbarContent)
+function _ToolbarContent({ apiURL, temporaryToken, actionId, type, dockLogic }) {
+    const { tab, newTab } = useValues(toolbarTabLogic)
+
+    const visible = tab ? { [tab]: 'visible' } : {}
+    const invisible = newTab && tab ? { [newTab]: 'invisible' } : {}
+    const fadingOut = newTab && tab ? { [tab]: 'fading-out' } : {}
+    const fadingIn = newTab && !tab ? { [newTab]: 'fading-in' } : {}
+
+    // This creates three different tabs, rendering each one when needed as directed by the animation logic
+
     return (
-        <div className={`toolbar-content ${className}`}>
-            {tab === 'actions' ? <AllActionsLink apiURL={apiURL} type={type} /> : null}
-            {tab === 'dashboards' ? <AllDashboardsLink apiURL={apiURL} type={type} /> : null}
-            {tab === 'stats' ? <CurrentPage /> : null}
-            {tab === 'actions' || tab === 'stats' ? <InspectElement /> : null}
-            {tab === 'actions' || tab === 'stats' ? <PageViewStats /> : null}
-            {tab === 'actions' ? (
-                <div className="toolbar-block">
-                    <Actions apiURL={apiURL} temporaryToken={temporaryToken} actionId={actionId} />
-                </div>
-            ) : null}
+        <div>
+            {type === 'floating' ? <FloatingToolbarHeader dockLogic={dockLogic} /> : null}
+            <ToolbarTabs type={type} />
+            <div className="toolbar-transition-area">
+                {['stats', 'actions', 'dashboards'].map(key => {
+                    const className = fadingOut[key] || fadingIn[key] || invisible[key] || visible[key]
+                    if (className) {
+                        const Tab = tabComponents[key]
+                        return (
+                            <Tab
+                                key={key}
+                                tab={key}
+                                type={type}
+                                apiURL={apiURL}
+                                temporaryToken={temporaryToken}
+                                actionId={actionId}
+                                className={className}
+                            />
+                        )
+                    } else {
+                        return null
+                    }
+                })}
+            </div>
         </div>
     )
 }

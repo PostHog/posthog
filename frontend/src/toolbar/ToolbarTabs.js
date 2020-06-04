@@ -1,11 +1,11 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { Tabs } from 'antd'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 
 export function ToolbarTabs({ type }) {
-    const { tab, newTab } = useValues(toolbarLogic)
-    const { setTab } = useActions(toolbarLogic)
+    const { tab, newTab } = useValues(toolbarTabLogic)
+    const { setTab } = useActions(toolbarTabLogic)
 
     return (
         <div className={type === 'floating' ? 'toolbar-block no-padding' : ''}>

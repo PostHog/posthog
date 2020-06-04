@@ -1,84 +1,16 @@
 import '~/toolbar/styles.scss'
 
-import React, { useRef } from 'react'
+import React from 'react'
 import ReactDOM from 'react-dom'
 import Simmer from 'simmerjs'
-import root from 'react-shadow'
-import Draggable from 'react-draggable'
-import { getContext, useActions, useValues } from 'kea'
+import { getContext } from 'kea'
 import { Provider } from 'react-redux'
-import { Toolbar } from '~/toolbar/Toolbar'
-import { dockLogic } from '~/toolbar/dockLogic'
-import { CloseOutlined } from '@ant-design/icons'
 import { initKea } from '~/initKea'
-import { useSecondRender } from 'lib/hooks/useSecondRender'
+import { ToolbarApp } from '~/toolbar/ToolbarApp'
 
 initKea()
 
 window.simmer = new Simmer(window, { depth: 8 })
-
-function Editor({ dockLogic, ...props }) {
-    const apiURL = `${props.apiURL}${props.apiURL.endsWith('/') ? '' : '/'}`
-    const { dockStatus, floatStatus } = useValues(dockLogic)
-    const { float } = useActions(dockLogic)
-
-    const showDocked = dockStatus !== 'disabled'
-    const showInvisibleDocked = dockStatus === 'animating' || dockStatus === 'fading-out'
-
-    const showFloating = floatStatus !== 'disabled'
-    const showInvisibleFloating = floatStatus === 'animating' || floatStatus === 'fading-out'
-
-    return (
-        <>
-            {showFloating ? (
-                <Draggable handle=".toolbar-block">
-                    <div id="floating-toolbar" className={showInvisibleFloating ? 'toolbar-invisible' : ''}>
-                        <Toolbar {...props} dockLogic={dockLogic} type="floating" apiURL={apiURL} />
-                    </div>
-                </Draggable>
-            ) : null}
-
-            {showDocked ? (
-                <div id="docked-toolbar" className={showInvisibleDocked ? 'toolbar-invisible' : ''}>
-                    <div
-                        className={`toolbar-close-button${dockStatus === 'complete' ? ' visible' : ''}`}
-                        onClick={float}
-                    >
-                        <CloseOutlined />
-                    </div>
-                    <Toolbar {...props} dockLogic={dockLogic} type="docked" apiURL={apiURL} />
-                </div>
-            ) : null}
-        </>
-    )
-}
-
-function App(props) {
-    const shadowRef = useRef(null)
-    const logic = dockLogic({ shadowRef })
-
-    // this runs after the shadow root has been added to the dom
-    const didRender = useSecondRender(() => {
-        function addElement(element) {
-            const { shadowRoot } = shadowRef.current || window.document.getElementById('__POSTHOG_TOOLBAR__')
-            shadowRoot.getElementById('posthog-toolbar-styles').appendChild(element)
-        }
-
-        if (window.__PHGTLB_STYLES__) {
-            window.__PHGTLB_STYLES__.forEach(element => addElement(element))
-        }
-        window.__PHGTLB_ADD_STYLES__ = element => addElement(element)
-    })
-
-    return (
-        <>
-            <root.div id="__POSTHOG_TOOLBAR__" ref={shadowRef}>
-                <div id="posthog-toolbar-styles" />
-                {didRender ? <Editor {...props} dockLogic={logic} shadowRef={shadowRef} /> : null}
-            </root.div>
-        </>
-    )
-}
 
 window.ph_load_editor = function(editorParams) {
     let container = document.createElement('div')
@@ -86,7 +18,7 @@ window.ph_load_editor = function(editorParams) {
 
     ReactDOM.render(
         <Provider store={getContext().store}>
-            <App
+            <ToolbarApp
                 jsURL={editorParams.jsURL || editorParams.apiURL}
                 apiURL={editorParams.apiURL}
                 temporaryToken={editorParams.temporaryToken}
