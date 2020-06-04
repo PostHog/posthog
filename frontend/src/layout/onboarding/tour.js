@@ -9,7 +9,6 @@ export function PGTour() {
     return (
         <Tour
             steps={determineTour(tourType)}
-            // lastStepNextButton={<Button type="primary">Done</Button>}
             isOpen={tourActive}
             onRequestClose={() => {
                 setTourFinish()
@@ -32,15 +31,39 @@ function determineTour(type) {
     else []
 }
 
+function ToolTipText(props) {
+    return <div style={{ marginTop: 15, fontWeight: 600, fontSize: 16 }}>{props.children}</div>
+}
+
 const actionTour = [
     {
         selector: '[data-attr="action-editor"]',
-        content: 'This is the action editor',
+        content: () => (
+            <ToolTipText>
+                {
+                    'This is the action editor that you can use to create actions on your events. Actions work like buckets by grouping events together.'
+                }
+            </ToolTipText>
+        ),
+        stepInteraction: false,
+    },
+    {
+        selector: '[data-attr="action-edit-type-group"]',
+        content: <ToolTipText>{'There are several different ways you can create an action'}</ToolTipText>,
+        action: node => {
+            node.click()
+        },
         stepInteraction: false,
     },
     {
         selector: '[data-attr="action-edit-frontend-element"]',
-        content: 'You can add actions and events you want to see data for',
+        content: (
+            <ToolTipText>
+                {
+                    'For example, adding an action by frontend element means that you can filter for a specific element thats being autocaptured'
+                }
+            </ToolTipText>
+        ),
         action: node => {
             node.click()
         },
@@ -48,12 +71,34 @@ const actionTour = [
     },
     {
         selector: '[data-attr="action-editor-card"]',
-        content: 'You can manually enter details on a frontend element that you can to filter for',
+        content: (
+            <ToolTipText>
+                {'You can manually enter details on a frontend element that you can to filter for'}
+            </ToolTipText>
+        ),
         stepInteraction: false,
     },
     {
         selector: '[data-attr="action-editor-inspect-button"]',
-        content: 'Or use our interactive tool to visually choose an element on your site!',
+        content: <ToolTipText>{'Or use our interactive tool to visually choose an element on your site!'}</ToolTipText>,
+        stepInteraction: false,
+    },
+    {
+        selector: '[data-attr="match-group-button"]',
+        content: (
+            <ToolTipText>{'If you want to combine more events in this action you can add a match group'}</ToolTipText>
+        ),
+        stepInteraction: false,
+    },
+    {
+        selector: '[data-attr="save-action-button"]',
+        content: (
+            <ToolTipText>
+                {
+                    "Once you're satisfied with the action and have given it a name, you can save it and use it in your analyses"
+                }
+            </ToolTipText>
+        ),
         stepInteraction: false,
     },
 ]
@@ -61,28 +106,34 @@ const actionTour = [
 const trendsTour = [
     {
         selector: '[data-attr="trend-sidebar-editor"]',
-        content: 'This is the trend editor',
+        content: (
+            <ToolTipText>
+                {"This is the trend editor. You're changes will automatically update the visualization."}
+            </ToolTipText>
+        ),
         stepInteraction: false,
     },
     {
         selector: '[data-attr="action-filter"]',
-        content: 'You can add actions and events you want to see data for',
-        stepInteraction: false,
-    },
-    {
-        selector: '[data-attr="prop-filters"]',
-        content:
-            'This is an optional filter you can add to specify properties on the actions and events you want to view.',
+        content: <ToolTipText>{'You can add actions and events you want to see data for'}</ToolTipText>,
         stepInteraction: false,
     },
     {
         selector: '[data-attr="trends-viz"]',
-        content: 'Your data metrics will change accordingly',
+        content: (
+            <ToolTipText>
+                {
+                    'Your can see the visualization here and make adjustments to the scale or interval using the toolbar above'
+                }
+            </ToolTipText>
+        ),
         stepInteraction: false,
     },
     {
         selector: '[data-attr="save-to-dashboard-button"]',
-        content: 'Once you have added actions and events you can save this to your dashboards',
+        content: (
+            <ToolTipText>{'Once you have added actions and events you can save this to your dashboards'}</ToolTipText>
+        ),
         stepInteraction: false,
     },
 ]
@@ -90,25 +141,40 @@ const trendsTour = [
 const funnelTour = [
     {
         selector: '[data-attr="edit-funnel"]',
-        content: 'This is the funnel editor',
+        content: <ToolTipText>{'This is the funnel editor'}</ToolTipText>,
         stepInteraction: false,
     },
     {
         selector: '[data-attr="funnel-editor-required-fields"]',
-        content:
-            'Your funnel steps will be determined by the actions and events that you add here. You will also be required to enter a name for you funnel.',
+        content: (
+            <ToolTipText>
+                {
+                    'Your funnel steps will be determined by the actions and events that you add here. You will also be required to enter a name for you funnel.'
+                }
+            </ToolTipText>
+        ),
         stepInteraction: false,
     },
     {
         selector: '[data-attr="prop-filters"]',
-        content:
-            'This is an optional filter you can add to specify properties on the actions and events you want to view.',
+        content: (
+            <ToolTipText>
+                {
+                    'This is an optional filter you can add to specify properties on the actions and events you want to view.'
+                }
+            </ToolTipText>
+        ),
         stepInteraction: false,
     },
     {
         selector: '[data-attr="save-funnel-button"]',
-        content:
-            'Once you have added actions and events and provided a title for your funnel you save it and your funnel will be calculated and displayed',
+        content: (
+            <ToolTipText>
+                {
+                    'Once you have added actions and events and provided a title for your funnel you save it and your funnel will be calculated and displayed'
+                }
+            </ToolTipText>
+        ),
         stepInteraction: false,
     },
 ]

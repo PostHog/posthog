@@ -52,13 +52,13 @@ export function OnboardingWidget() {
         return (
             <div ref={contentRef} style={{ display: 'flex', width: '25vw', flexDirection: 'column' }}>
                 <h2>Get Started</h2>
-                <p>
+                <i>
                     Complete these steps to learn how to use Posthog! Click on an item below to learn how to complete it
-                </p>
+                </i>
                 {Object.entries(TourType).map(([, value], index) => {
                     return (
                         <div key={index}>
-                            <hr style={{ height: 5, visibility: 'hidden' }} />
+                            <hr style={{ height: 3, visibility: 'hidden' }} />
                             <Checkbox checked={user.onboarding.steps[index] || checked[index]}>
                                 <Link
                                     onClick={() => {
@@ -109,7 +109,9 @@ export function OnboardingWidget() {
             >
                 <img style={{ maxWidth: '100%' }} src={ModalContent[tourType].src}></img>
                 <h1 style={{ textAlign: 'center' }}>{ModalContent[tourType].title}</h1>
-                <p style={{ textAlign: 'center' }}>{ModalContent[tourType].description}</p>
+                <p style={{ textAlign: 'center', fontSize: 16, fontWeight: 500, maxWidth: '60%' }}>
+                    {ModalContent[tourType].description}
+                </p>
                 <Button type="primary" style={{ textAlign: 'center' }}>
                     <Link
                         to={ModalContent[tourType].link}

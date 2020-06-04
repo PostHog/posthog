@@ -171,7 +171,7 @@ export class ActionStep extends Component {
         let { step, isEditor } = this.props
         return (
             <div>
-                <div className="btn-group">
+                <div className="btn-group" data-attr="action-edit-type-group">
                     <button
                         type="button"
                         onClick={() =>

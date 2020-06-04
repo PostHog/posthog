@@ -23,6 +23,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
 
     const addGroup = (
         <button
+            data-attr="match-group-button"
             type="button"
             className="btn btn-outline-success btn-sm"
             onClick={() => {
