@@ -11,7 +11,7 @@ jobs:
         with:
           node-version: 12
       - run: yarn install
-      
+
       - name: Prepare server
         run: docker-compose -f docker-compose.e2e.yml up -d
       - name: Check running containers
@@ -21,5 +21,5 @@ jobs:
 
       - name: Cypress run
         run: |
-          sleep 60
+          python cypress/wait.py 
           yarn run cypress run --config-file cypress.json
