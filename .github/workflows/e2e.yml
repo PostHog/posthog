@@ -1,25 +1,69 @@
 name: e2e
 on: [pull_request]
 jobs:
-  cypress-run:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v1
-      # Install Node.js
-      - uses: actions/setup-node@v1
-        with:
-          node-version: 12
-      - run: yarn install
-
-      - name: Prepare server
-        run: docker-compose -f docker-compose.e2e.yml up -d
-      - name: Check running containers
-        run: docker ps -a
-      - name: Check logs
-        run: docker logs posthog_server
-
-      - name: Cypress run
-        run: |
-          python3 cypress/wait.py 
-          yarn run cypress run --config-file cypress.json
+    cypress-run:
+        name: Cypress end to end tests
+        runs-on: ubuntu-18.04
+        services:
+            postgres:
+                image: postgres:12
+                env:
+                    POSTGRES_USER: postgres
+                    POSTGRES_PASSWORD: postgres
+                    POSTGRES_DB: postgres
+                ports: ['5432:5432']
+                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+            redis:
+                image: redis
+                ports:
+                    - 6379/tcp
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v1
+            - name: Set up Python 3.7
+              uses: actions/setup-python@v1
+              with:
+                  python-version: 3.7
+            - uses: actions/cache@v1
+              with:
+                  path: ~/.cache/pip
+                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pip-
+            - name: Install dependencies
+              run: |
+                  python -m pip install --upgrade pip
+                  python -m pip install -r requirements.txt
+              if: steps.cache.outputs.cache-hit != 'true'
+            # Install Node.js
+            - uses: actions/setup-node@v1
+              with:
+                  node-version: 12
+            - name: Get yarn cache directory path
+              id: yarn-cache-dir-path
+              run: echo "::set-output name=dir::$(yarn cache dir)"
+            - uses: actions/cache@v1
+              id: yarn-cache
+              with:
+                  path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+                  key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-yarn-
+            - name: Yarn install deps
+              run: yarn install
+              if: steps.yarn-cache.outputs.cache-hit != 'true'
+            - name: Run tests
+              env:
+                  REDIS_URL: 'redis://localhost'
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  SECRET_KEY: '<randomly generated secret key>'
+                  DISABLE_SECURE_SSL_REDIRECT: 1
+                  OPT_OUT_CAPTURE: 1
+              run: |
+                  ./bin/docker-migrate
+                  ./bin/docker-worker &
+                  ./bin/docker-server
+            - name: Cypress run
+              run: |
+                  python3 cypress/wait.py 
+                  yarn run cypress run --config-file cypress.json
