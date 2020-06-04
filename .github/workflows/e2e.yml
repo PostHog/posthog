@@ -11,10 +11,17 @@ jobs:
                     POSTGRES_USER: postgres
                     POSTGRES_PASSWORD: postgres
                     POSTGRES_DB: postgres
-                ports: ['5432:5432']
+                ports:
+                    # Maps port 5432 on service container to the host
+                    # Needed because `postgres` host is not discoverable for some reason
+                    - 5432:5432
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
             redis:
                 image: redis
+                ports:
+                    # Maps port 6379 on service container to the host
+                    # Needed because `redis` host is not discoverable for some reason
+                    - 6379:6379
                 options: >-
                     --health-cmd "redis-cli ping"
                     --health-interval 10s
@@ -46,6 +53,7 @@ jobs:
               id: yarn-cache-dir-path
               run: echo "::set-output name=dir::$(yarn cache dir)"
             - uses: actions/cache@v1
+              name: Setup Yarn cache
               id: yarn-cache
               with:
                   path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
@@ -57,8 +65,8 @@ jobs:
               if: steps.yarn-cache.outputs.cache-hit != 'true'
             - name: Run tests
               env:
-                  REDIS_URL: 'redis://redis'
-                  DATABASE_URL: 'postgres://postgres:postgres@postgres:${{ job.services.postgres.ports[5432] }}/postgres'
+                  REDIS_URL: 'redis://localhost'
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   SECRET_KEY: '<randomly generated secret key>'
                   DISABLE_SECURE_SSL_REDIRECT: 1
                   OPT_OUT_CAPTURE: 1
