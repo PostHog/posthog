@@ -15,8 +15,11 @@ jobs:
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
             redis:
                 image: redis
-                ports:
-                    - 6379/tcp
+                options: >-
+                    --health-cmd "redis-cli ping"
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
         steps:
             - name: Checkout
               uses: actions/checkout@v1
@@ -50,12 +53,12 @@ jobs:
                   restore-keys: |
                       ${{ runner.os }}-yarn-
             - name: Yarn install deps
-              run: yarn install
+              run: yarn install --frozen-lockfile
               if: steps.yarn-cache.outputs.cache-hit != 'true'
             - name: Run tests
               env:
-                  REDIS_URL: 'redis://localhost'
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  REDIS_URL: 'redis://redis'
+                  DATABASE_URL: 'postgres://postgres:postgres@postgres:${{ job.services.postgres.ports[5432] }}/postgres'
                   SECRET_KEY: '<randomly generated secret key>'
                   DISABLE_SECURE_SSL_REDIRECT: 1
                   OPT_OUT_CAPTURE: 1
