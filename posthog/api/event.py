@@ -271,14 +271,14 @@ class EventViewSet(viewsets.ModelViewSet):
         # TODO: add midnight condition
 
         all_sessions = '\
-            SELECT distinct_id, timestamp,\
+            SELECT *,\
                 SUM(new_session) OVER (ORDER BY distinct_id, timestamp) AS global_session_id,\
                 SUM(new_session) OVER (PARTITION BY distinct_id ORDER BY timestamp) AS user_session_id\
-                FROM (SELECT *, CASE WHEN EXTRACT(\'EPOCH\' FROM (timestamp - previous_timestamp)) >= (60 * 30)\
+                FROM (SELECT distinct_id, timestamp, CASE WHEN EXTRACT(\'EPOCH\' FROM (timestamp - previous_timestamp)) >= (60 * 30)\
                     OR previous_timestamp IS NULL \
                     THEN 1 ELSE 0 END AS new_session \
                     FROM ({}) AS inner_sessions\
-                ) AS outer_sessions'.format(sessions_sql)
+                ) AS outer_sessions limit 20'.format(sessions_sql)
 
         def distribution(query):
             return 'SELECT COUNT(CASE WHEN length = 0 THEN 1 ELSE NULL END) as first,\
@@ -331,5 +331,14 @@ class EventViewSet(viewsets.ModelViewSet):
             cursor.execute(distribution(all_sessions), sessions_sql_params)
             calculated = cursor.fetchall()
             result = [{'label': dist_labels[index], 'count': calculated[0][index]} for index in range(len(dist_labels))]
+
+        with connection.cursor() as cursor:
+            query = 'SELECT global_session_id, MAX(distinct_id) as distinct_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
+                            AS length,\
+                            MIN(timestamp) as start_time FROM ({}) as count GROUP BY 1'.format(all_sessions)
+            cursor.execute(query, sessions_sql_params)
+            df = pd.DataFrame(cursor.fetchall())
+            df.columns = [i[0] for i in cursor.description]
+            print(df)
 
         return result

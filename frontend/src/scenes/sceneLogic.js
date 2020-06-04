@@ -9,6 +9,7 @@ export const scenes = {
     dashboards: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboards'),
     dashboard: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
     events: () => import(/* webpackChunkName: 'events' */ './events/Events'),
+    sessions: () => import(/* webpackChunkName: 'events' */ './sessions/Sessions'),
     person: () => import(/* webpackChunkName: 'person' */ './users/Person'),
     people: () => import(/* webpackChunkName: 'people' */ './users/People'),
     actions: () => import(/* webpackChunkName: 'actions' */ './actions/Actions'),
@@ -46,6 +47,7 @@ export const routes = {
     '/people': 'people',
     '/people/new_cohort': 'people',
     '/people/cohorts': 'cohorts',
+    '/sessions': 'sessions',
 }
 
 export const sceneLogic = kea({
