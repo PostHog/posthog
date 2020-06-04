@@ -17,6 +17,7 @@ import {
     ContainerOutlined,
     LineChartOutlined,
     FundOutlined,
+    ClockCircleOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -163,7 +164,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <Link to={'/actions/live'} onClick={collapseSidebar} />
                         </Menu.Item>
                         <Menu.Item key="sessions" style={itemStyle} data-attr="menu-item-sessions">
-                            <SyncOutlined />
+                            <ClockCircleOutlined />
                             <span className="sidebar-label">{'Sessions'}</span>
                             <Link to={'/sessions'} onClick={collapseSidebar} />
                         </Menu.Item>
