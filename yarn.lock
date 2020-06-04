@@ -999,11 +999,6 @@
     prop-types "^15.6.2"
     scheduler "^0.19.0"
 
-"@mariusandra/posthog-js@1.1.0-beta.4":
-  version "1.1.0-beta.4"
-  resolved "https://registry.yarnpkg.com/@mariusandra/posthog-js/-/posthog-js-1.1.0-beta.4.tgz#40f847f52b4de2f4be3f371ddf2c1606a10aa3c0"
-  integrity sha512-creQDjBrhz3X3YMycU8VkSkkA9hPe4n/rLRuVdma96LGoZG4NG2B+AAsUYeg3HEsZpvJfbxlqy0litEbQXqDHA==
-
 "@mariusandra/react-grid-layout@0.18.3":
   version "0.18.3"
   resolved "https://registry.yarnpkg.com/@mariusandra/react-grid-layout/-/react-grid-layout-0.18.3.tgz#6d1f844882222cf2b9f08a1b4aae4789229180f6"
@@ -7070,6 +7065,11 @@ postcss@^7.0.14, postcss@^7.0.16, postcss@^7.0.23, postcss@^7.0.26, postcss@^7.0
     chalk "^2.4.2"
     source-map "^0.6.1"
     supports-color "^6.1.0"
+
+posthog-js@1.1.0:
+  version "1.1.0"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.1.0.tgz#156909007813ce187e6cbd6673ad9a4d93b73004"
+  integrity sha512-NCHULjFVsuDAJwlHyxMPcLAgX0WUs1rQsSDLyrs+zyxlKer3lOARSn+PKEhngwS2MNzo5X040S02PdKx1rm17Q==
 
 prelude-ls@~1.1.2:
   version "1.1.2"
