@@ -5,4 +5,4 @@ set -e
 [ $# -ge 1 ] && export WEBPACK_HOT_RELOAD_HOST=$1
 
 yarn install
-yarn start
+yarn start-https

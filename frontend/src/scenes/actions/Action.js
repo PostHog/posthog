@@ -5,11 +5,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { userLogic } from 'scenes/userLogic'
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
-
 import api from 'lib/api'
-
 import { kea } from 'kea'
 import { Spin } from 'antd'
+import { hot } from 'react-hot-loader/root'
 
 let actionLogic = kea({
     key: props => props.id || 'new',
@@ -65,7 +64,8 @@ let actionLogic = kea({
     }),
 })
 
-export function Action({ id }) {
+export const Action = hot(_Action)
+function _Action({ id }) {
     const fixedFilters = { action_id: id }
 
     const { push } = useActions(router)

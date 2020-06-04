@@ -10,7 +10,7 @@ describe('Live Actions', () => {
 
     it('Apply 1 overall filter', () => {
         cy.get('[data-attr=new-prop-filter-EventsTable]').click()
-        cy.get('[data-attr=prop-filter-event-0]').click()
+        cy.get('[data-attr=prop-filter-person-0]').click()
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click()
 

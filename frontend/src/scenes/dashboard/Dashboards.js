@@ -7,8 +7,10 @@ import { Link } from 'lib/components/Link'
 import { PlusOutlined } from '@ant-design/icons'
 import { Table } from 'antd'
 import { PushpinFilled, PushpinOutlined, DeleteOutlined } from '@ant-design/icons'
+import { hot } from 'react-hot-loader/root'
 
-export default function Dashboards() {
+export const Dashboards = hot(_Dashboards)
+function _Dashboards() {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { deleteDashboard, unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { dashboards } = useValues(dashboardsLogic)

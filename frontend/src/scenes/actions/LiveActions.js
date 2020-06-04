@@ -1,9 +1,10 @@
 import React from 'react'
-
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
+import { hot } from 'react-hot-loader/root'
 import { EventsTable } from 'scenes/events/EventsTable'
 
-export function LiveActions(props) {
+export const LiveActions = hot(_LiveActions)
+function _LiveActions(props) {
     return (
         <EventsTable
             {...props}
