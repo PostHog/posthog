@@ -14,14 +14,18 @@ export const dockLogic = kea({
     // call dock/float and it will start
     actions: () => ({
         // public
+        button: true,
         dock: true,
         float: true,
         update: true,
+        setNextOpenMode: mode => ({ mode }),
 
         // private
+        buttonAnimated: true,
+        buttonFaded: true,
         dockAnimated: true,
-        floatAnimated: true,
         dockFaded: true,
+        floatAnimated: true,
         floatFaded: true,
         setMode: (mode, update = false) => ({ mode, update, windowWidth: window.innerWidth }),
     }),
@@ -30,6 +34,7 @@ export const dockLogic = kea({
         mode: [
             '',
             {
+                button: () => 'button',
                 dock: () => 'dock',
                 float: () => 'float',
             },
@@ -38,8 +43,18 @@ export const dockLogic = kea({
             '',
             { persist: true },
             {
+                button: () => 'button',
                 dock: () => 'dock',
                 float: () => 'float',
+            },
+        ],
+        nextOpenMode: [
+            'dock',
+            { persist: true },
+            {
+                dock: () => 'dock',
+                float: () => 'float',
+                setNextOpenMode: (_, { mode }) => mode,
             },
         ],
         windowWidth: [
@@ -54,9 +69,13 @@ export const dockLogic = kea({
                 dock: () => 'animating',
                 dockAnimated: () => 'fading-in',
                 dockFaded: () => 'complete',
+
                 float: () => 'fading-out',
                 floatAnimated: () => 'disabled',
                 floatFaded: () => 'disabled',
+                button: () => 'fading-out',
+                buttonAnimated: () => 'disabled',
+                buttonFaded: () => 'disabled',
             },
         ],
         floatStatus: [
@@ -65,9 +84,28 @@ export const dockLogic = kea({
                 float: () => 'animating',
                 floatAnimated: () => 'fading-in',
                 floatFaded: () => 'complete',
+
+                button: () => 'fading-out',
+                buttonAnimated: () => 'disabled',
+                buttonFaded: () => 'disabled',
                 dock: () => 'fading-out',
                 dockAnimated: () => 'disabled',
                 dockFaded: () => 'disabled',
+            },
+        ],
+        buttonStatus: [
+            'disabled',
+            {
+                button: () => 'animating',
+                buttonAnimated: () => 'fading-in',
+                buttonFaded: () => 'complete',
+
+                dock: () => 'fading-out',
+                dockAnimated: () => 'disabled',
+                dockFaded: () => 'disabled',
+                float: () => 'fading-out',
+                floatAnimated: () => 'disabled',
+                floatFaded: () => 'disabled',
             },
         ],
     }),
@@ -89,6 +127,7 @@ export const dockLogic = kea({
 
     events: ({ cache, actions, values }) => ({
         afterMount: () => {
+            window.__POSTHOG_SET_MODE__ = actions.setMode // export this for debugging in case it goes wrong client side
             cache.listener = () => actions.update()
             window.addEventListener('scroll', cache.listener)
             window.addEventListener('resize', cache.listener)
@@ -97,9 +136,8 @@ export const dockLogic = kea({
                     actions.dock()
                 } else if (values.lastMode === 'float') {
                     actions.float()
-                } else {
-                    // TODO: add button mode
-                    actions.float()
+                } else if (values.lastMode === 'button') {
+                    actions.button()
                 }
             })
         },
@@ -110,6 +148,7 @@ export const dockLogic = kea({
     }),
 
     listeners: ({ actions, values, props }) => ({
+        button: () => actions.setMode('button', false),
         dock: () => actions.setMode('dock', false),
         float: () => actions.setMode('float', false),
         update: () => actions.setMode(values.mode, true),
@@ -119,8 +158,7 @@ export const dockLogic = kea({
             const htmlStyle = window.document.querySelector('html').style
             const shadowRef = props.shadowRef
 
-            // const setToolbarZoom = toolbarStyle.setProperty('--zoom-out', zoom)
-            function updateToolbar() {
+            function updateDockToolbarVariables() {
                 if (shadowRef?.current) {
                     const toolbarDiv = shadowRef.current.shadowRoot.getElementById('dock-toolbar')
                     if (toolbarDiv) {
@@ -131,9 +169,9 @@ export const dockLogic = kea({
                 }
             }
 
-            shadowRef?.current ? updateToolbar() : window.requestAnimationFrame(updateToolbar)
+            shadowRef?.current ? updateDockToolbarVariables() : window.requestAnimationFrame(updateDockToolbarVariables)
 
-            function setDockStyles(zoom, deferTransform = false) {
+            function setDockBodyStyles(deferTransform = false) {
                 // dark mode:
                 // htmlStyle.background = 'hsl(231, 17%, 22%)'
                 htmlStyle.background =
@@ -159,14 +197,14 @@ export const dockLogic = kea({
             if (update) {
                 if (mode === 'dock') {
                     window.requestAnimationFrame(() => {
-                        setDockStyles(zoom, false)
+                        setDockBodyStyles(false)
                     })
                 }
             } else {
                 window.requestAnimationFrame(() => {
                     bodyStyle.overflow = 'hidden'
                     if (mode === 'dock') {
-                        setDockStyles(zoom, true)
+                        setDockBodyStyles(true)
 
                         // anim code
                         bodyStyle.transform = `scale(1) translate(0px 0px)`
@@ -175,7 +213,7 @@ export const dockLogic = kea({
                         bodyStyle.transformOrigin = `top left`
 
                         attachScrollListener(zoom, padding)
-                    } else {
+                    } else if (mode === 'float' || mode === 'button') {
                         htmlStyle.background = 'auto'
                         bodyStyle.transform = 'none'
                         bodyStyle.willChange = 'unset'
@@ -186,20 +224,24 @@ export const dockLogic = kea({
                 // 500ms later when we finished zooming in/out and the old element faded from the view
                 await breakpoint(500)
                 window.requestAnimationFrame(() => {
-                    updateToolbar()
+                    updateDockToolbarVariables()
                     bodyStyle.overflow = 'auto'
-                    if (mode === 'float') {
+                    if (mode === 'float' || mode === 'button') {
                         bodyStyle.width = `auto`
                         bodyStyle.minHeight = `auto`
                     }
-                    mode === 'dock' ? actions.dockAnimated() : actions.floatAnimated()
+                    mode === 'button' && actions.buttonAnimated()
+                    mode === 'dock' && actions.dockAnimated()
+                    mode === 'float' && actions.floatAnimated()
                 })
 
                 // 500ms later when it quieted down
                 await breakpoint(500)
                 window.requestAnimationFrame(() => {
-                    updateToolbar()
-                    mode === 'dock' ? actions.dockFaded() : actions.floatFaded()
+                    updateDockToolbarVariables()
+                    mode === 'button' && actions.buttonFaded()
+                    mode === 'dock' && actions.dockFaded()
+                    mode === 'float' && actions.floatFaded()
                 })
             }
         },

@@ -43,6 +43,7 @@ function _ToolbarContent({ apiURL, temporaryToken, actionId, type, dockLogic, de
                                 temporaryToken={temporaryToken}
                                 actionId={actionId}
                                 className={className}
+                                shadowRef={shadowRef}
                             />
                         )
                     } else {

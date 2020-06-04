@@ -7,10 +7,45 @@
     }
 }
 
+#button-toolbar {
+    position: fixed;
+    top: 2rem;
+    z-index: 2147483020;
+    right: 2rem;
+    opacity: 1;
+    transition: opacity ease 0.5s;
+
+    .floating-toolbar-button {
+        width: 64px;
+        height: 64px;
+        border-radius: 100%;
+        box-shadow: 0 0 13px 4px rgba(0, 0, 0, 0.3);
+        background: hsl(202, 99%, 38%);
+
+        border: 4px solid white;
+        cursor: pointer;
+
+        &:hover {
+            background: hsl(202, 99%, 28%);
+        }
+    }
+
+    &.toolbar-invisible {
+        opacity: 0;
+    }
+
+    svg {
+        margin-top: 5px;
+        margin-left: 4px;
+        width: 48px;
+        height: 48px;
+    }
+}
+
 #float-toolbar {
     position: fixed;
     top: 2rem;
-    z-index: 2147483640;
+    z-index: 2147483020;
     right: 2rem;
     width: 300px;
     max-height: calc(100vh - 4rem);
@@ -123,4 +158,9 @@
     justify-content: space-between;
     align-items: center;
     width: 100%;
+}
+
+.ant-modal-mask,
+.ant-modal-wrap {
+    z-index: 2147483030 !important;
 }
