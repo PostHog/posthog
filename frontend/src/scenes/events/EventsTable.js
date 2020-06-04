@@ -26,7 +26,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
     } = useValues(router)
 
     const showLinkToPerson = !fixedFilters?.person_id
-
     let columns = [
         {
             title: 'Event',

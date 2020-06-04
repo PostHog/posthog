@@ -278,7 +278,7 @@ class EventViewSet(viewsets.ModelViewSet):
                     OR previous_timestamp IS NULL \
                     THEN 1 ELSE 0 END AS new_session \
                     FROM ({}) AS inner_sessions\
-                ) AS outer_sessions limit 20'.format(sessions_sql)
+                ) AS outer_sessions'.format(sessions_sql)
 
         def distribution(query):
             return 'SELECT COUNT(CASE WHEN length = 0 THEN 1 ELSE NULL END) as first,\
@@ -325,20 +325,18 @@ class EventViewSet(viewsets.ModelViewSet):
             time_series_data.update({"chartLabel": 'Average Duration of Session (seconds)'})
 
             result = [time_series_data]
-        else: 
+        elif session_type == 'dist': 
             dist_labels = ['0 seconds (1 event)', '0-3 seconds', '3-10 seconds', '10-30 seconds', '30-60 seconds', '1-3 minutes', '3-10 minutes', '10-30 minutes', '30-60 minutes', '1+ hours']
             cursor = connection.cursor()
             cursor.execute(distribution(all_sessions), sessions_sql_params)
             calculated = cursor.fetchall()
             result = [{'label': dist_labels[index], 'count': calculated[0][index]} for index in range(len(dist_labels))]
-
-        with connection.cursor() as cursor:
-            query = 'SELECT global_session_id, MAX(distinct_id) as distinct_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
-                            AS length,\
-                            MIN(timestamp) as start_time FROM ({}) as count GROUP BY 1'.format(all_sessions)
-            cursor.execute(query, sessions_sql_params)
-            df = pd.DataFrame(cursor.fetchall())
-            df.columns = [i[0] for i in cursor.description]
-            print(df)
+        else:
+            with connection.cursor() as cursor:
+                query = 'SELECT global_session_id, MAX(distinct_id) as person, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
+                                AS length,\
+                                MIN(timestamp) as start_time FROM ({}) as count GROUP BY 1 ORDER BY start_time DESC limit 100'.format(all_sessions)
+                cursor.execute(query, sessions_sql_params)
+                result = dict_from_cursor_fetchall(cursor)
 
         return result

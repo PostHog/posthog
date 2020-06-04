@@ -3,6 +3,7 @@ import api from './api'
 import { toast } from 'react-toastify'
 import PropTypes from 'prop-types'
 import { Spin } from 'antd'
+import moment from 'moment'
 
 export function uuid() {
     return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
@@ -249,6 +250,28 @@ export function clearDOMTextSelection() {
     }
 }
 
-export default function isAndroidOrIOS() {
+export function isAndroidOrIOS() {
     return typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent)
+}
+
+export function humanFriendlyDuration(d) {
+    d = Number(d)
+    var h = Math.floor(d / 3600)
+    var m = Math.floor((d % 3600) / 60)
+    var s = Math.floor((d % 3600) % 60)
+
+    var hDisplay = h > 0 ? h + (h == 1 ? 'hr ' : 'hrs ') : ''
+    var mDisplay = m > 0 ? m + (m == 1 ? 'min ' : 'mins ') : ''
+    var sDisplay = s > 0 ? s + 's' : hDisplay || mDisplay ? '' : '0s'
+    return hDisplay + mDisplay + sDisplay
+}
+
+export function humanFriendlyDetailedTime(date) {
+    let formatString = 'MMMM Do YYYY h:mm a'
+    if (moment().diff(date, 'days') == 0) {
+        formatString = '[Today] h:mm a'
+    } else if (moment().diff(date, 'days') == 1) {
+        formatString = '[Yesterday] h:mm a'
+    }
+    return moment(date).format(formatString)
 }

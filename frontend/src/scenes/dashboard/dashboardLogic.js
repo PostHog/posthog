@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import { Link } from 'lib/components/Link'
 import React from 'react'
-import isAndroidOrIOS, { clearDOMTextSelection } from 'lib/utils'
+import { isAndroidOrIOS, clearDOMTextSelection } from 'lib/utils'
 
 export const dashboardLogic = kea({
     connect: [dashboardsModel],
