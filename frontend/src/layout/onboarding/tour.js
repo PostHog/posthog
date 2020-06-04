@@ -1,6 +1,5 @@
 import React from 'react'
 import Tour from 'reactour'
-import { Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { onboardingLogic, TourType } from './onboardingLogic'
 

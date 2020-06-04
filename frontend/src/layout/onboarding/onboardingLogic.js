@@ -37,7 +37,7 @@ export const onboardingLogic = kea({
             },
         ],
         localChecked: [
-            Object.entries(TourType).map(_ => false),
+            Object.entries(TourType).map(() => false),
             {
                 [actions.updateOnboardingStep]: (state, { index }) => {
                     if (index > state.length) return state

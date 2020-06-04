@@ -5,8 +5,12 @@ from django.db import migrations
 from posthog.models.user import default_onboarding_dict, User
 
 
-def update_old_rows(apps, schema_editor):
+def update_old_rows_forward(apps, schema_editor):
     User.objects.all().update(onboarding={'active': False, 'initial': False, 'steps': {0: True, 1: True, 2: True}})
+
+def update_old_rows_reverse(apps, schema_editor):
+    # don't need to do anything
+    return
 
 class Migration(migrations.Migration):
 
@@ -20,5 +24,5 @@ class Migration(migrations.Migration):
             name='onboarding',
             field=django.contrib.postgres.fields.jsonb.JSONField(default=default_onboarding_dict),
         ),
-        migrations.RunPython(update_old_rows)
+        migrations.RunPython(update_old_rows_forward, update_old_rows_reverse)
     ]

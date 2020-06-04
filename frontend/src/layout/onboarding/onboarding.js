@@ -44,12 +44,8 @@ export function OnboardingWidget() {
     }, [])
 
     async function dontShowAgain() {
-        try {
-            await api.update('api/user', { onboarding: { ...user.onboarding, active: false } })
-            loadUser()
-        } catch (err) {
-            throw err
-        }
+        await api.update('api/user', { onboarding: { ...user.onboarding, active: false } })
+        loadUser()
     }
 
     function content() {
@@ -59,7 +55,7 @@ export function OnboardingWidget() {
                 <p>
                     Complete these steps to learn how to use Posthog! Click on an item below to learn how to complete it
                 </p>
-                {Object.entries(TourType).map(([_, value], index) => {
+                {Object.entries(TourType).map(([, value], index) => {
                     return (
                         <div key={index}>
                             <hr style={{ height: 5, visibility: 'hidden' }} />
