@@ -74,15 +74,7 @@ jobs:
               run: |
                   ./bin/docker-migrate
                   ./bin/docker-worker &
-            - name: Start PostHog
-              env:
-                  REDIS_URL: 'redis://localhost'
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  SECRET_KEY: '<randomly generated secret key>'
-                  DISABLE_SECURE_SSL_REDIRECT: 1
-                  OPT_OUT_CAPTURE: 1
-              run: |
-                  ./bin/docker-server
+                  ./bin/docker-server &
             - name: Cypress run
               run: |
                   python3 cypress/wait.py 
