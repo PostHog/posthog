@@ -172,6 +172,24 @@ class TestEvents(TransactionBaseTest):
         self.assertEqual(len(response['results']), 1)
         self.assertEqual(response['results'][0]['id'], event2.pk)
 
+    def test_sessions_list(self):
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            Event.objects.create(team=self.team, event='1st action', distinct_id="1")
+            Event.objects.create(team=self.team, event='1st action', distinct_id="2")
+        with freeze_time("2012-01-14T03:25:34.000Z"):
+            Event.objects.create(team=self.team, event='2nd action', distinct_id="1")
+            Event.objects.create(team=self.team, event='2nd action', distinct_id="2")
+        with freeze_time("2012-01-15T03:59:34.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="1")
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            Event.objects.create(team=self.team, event='4th action', distinct_id="1")
+            Event.objects.create(team=self.team, event='4th action', distinct_id="2")
+
+        response = self.client.get('/api/event/sessions/').json()
+        self.assertEqual(len(response['result']), 4)
+        self.assertEqual(response['result'][0]['global_session_id'], 2)
+
     def test_sessions_avg_length(self):
         with freeze_time("2012-01-14T03:21:34.000Z"):
             Event.objects.create(team=self.team, event='1st action', distinct_id="1")
