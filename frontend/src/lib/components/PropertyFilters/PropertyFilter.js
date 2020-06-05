@@ -51,6 +51,20 @@ export function PropertyFilter({ index, onComplete, logic }) {
                             ))}
                         </Select.OptGroup>
                     )}
+                    {eventProperties.length > 0 && (
+                        <Select.OptGroup key="Elements" label="Elements">
+                            {['tag_name', 'text', 'href', 'selector'].map((item, index) => (
+                                <Select.Option
+                                    key={'element_' + item}
+                                    value={item}
+                                    type="element"
+                                    data-attr={'prop-filter-element-' + index}
+                                >
+                                    <PropertyKeyInfo value={item} type="element" />
+                                </Select.Option>
+                            ))}
+                        </Select.OptGroup>
+                    )}
                 </Select>
             </div>
 

@@ -179,6 +179,12 @@ class TestPaths(BaseTest):
         self.assertEqual(response[1]['target'], '2_<a> goodbye1')
         self.assertEqual(response[1]['value'], 1)
 
+        elements = self.client.get('/api/paths/elements/').json()
+        self.assertEqual(elements[0]['name'], '<a> goodbye')
+        self.assertEqual(elements[1]['name'], '<a> hello1')
+        self.assertEqual(len(elements), 4)
+
+
     def test_paths_properties_filter(self):
         person1 = Person.objects.create(team=self.team, distinct_ids=['person_1'])
         Event.objects.create(properties={'$current_url': '/', '$browser': 'Chrome'}, distinct_id='person_1', event='$pageview', team=self.team)
