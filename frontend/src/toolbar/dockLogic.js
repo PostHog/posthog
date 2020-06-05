@@ -1,4 +1,10 @@
 import { kea } from 'kea'
+import {
+    attachDockScrollListener,
+    removeDockScrollListener,
+    applyDockBodyStyles,
+    updateDockToolbarVariables,
+} from '~/toolbar/dockUtils'
 
 // props:
 // - shadowRef: shadowRoot ref
@@ -70,10 +76,10 @@ export const dockLogic = kea({
                 dockAnimated: () => 'fading-in',
                 dockFaded: () => 'complete',
 
-                float: () => 'fading-out',
+                float: state => (state === 'disabled' ? 'disabled' : 'fading-out'),
                 floatAnimated: () => 'disabled',
                 floatFaded: () => 'disabled',
-                button: () => 'fading-out',
+                button: state => (state === 'disabled' ? 'disabled' : 'fading-out'),
                 buttonAnimated: () => 'disabled',
                 buttonFaded: () => 'disabled',
             },
@@ -85,10 +91,10 @@ export const dockLogic = kea({
                 floatAnimated: () => 'fading-in',
                 floatFaded: () => 'complete',
 
-                button: () => 'fading-out',
+                button: state => (state === 'disabled' ? 'disabled' : 'fading-out'),
                 buttonAnimated: () => 'disabled',
                 buttonFaded: () => 'disabled',
-                dock: () => 'fading-out',
+                dock: state => (state === 'disabled' ? 'disabled' : 'fading-out'),
                 dockAnimated: () => 'disabled',
                 dockFaded: () => 'disabled',
             },
@@ -100,10 +106,10 @@ export const dockLogic = kea({
                 buttonAnimated: () => 'fading-in',
                 buttonFaded: () => 'complete',
 
-                dock: () => 'fading-out',
+                dock: state => (state === 'disabled' ? 'disabled' : 'fading-out'),
                 dockAnimated: () => 'disabled',
                 dockFaded: () => 'disabled',
-                float: () => 'fading-out',
+                float: state => (state === 'disabled' ? 'disabled' : 'fading-out'),
                 floatAnimated: () => 'disabled',
                 floatFaded: () => 'disabled',
             },
@@ -113,14 +119,12 @@ export const dockLogic = kea({
     selectors: ({ selectors }) => ({
         sidebarWidth: [() => [], () => 300],
         padding: [
-            () => [selectors.mode, selectors.windowWidth],
-            (mode, windowWidth) =>
-                mode === 'dock' ? (windowWidth > 1200 ? Math.min(30 + (windowWidth - 1200) * 0.3, 60) : 30) : 0,
+            () => [selectors.windowWidth],
+            windowWidth => (windowWidth > 1200 ? Math.min(30 + (windowWidth - 1200) * 0.3, 60) : 30),
         ],
         bodyWidth: [
-            () => [selectors.mode, selectors.windowWidth, selectors.sidebarWidth, selectors.padding],
-            (mode, windowWidth, sidebarWidth, padding) =>
-                mode === 'dock' ? windowWidth - sidebarWidth - 3 * padding : windowWidth,
+            () => [selectors.windowWidth, selectors.sidebarWidth, selectors.padding],
+            (windowWidth, sidebarWidth, padding) => windowWidth - sidebarWidth - 3 * padding,
         ],
         zoom: [() => [selectors.bodyWidth, selectors.windowWidth], (bodyWidth, windowWidth) => bodyWidth / windowWidth],
     }),
@@ -158,53 +162,26 @@ export const dockLogic = kea({
             const htmlStyle = window.document.querySelector('html').style
             const shadowRef = props.shadowRef
 
-            function updateDockToolbarVariables() {
-                if (shadowRef?.current) {
-                    const toolbarDiv = shadowRef.current.shadowRoot.getElementById('dock-toolbar')
-                    if (toolbarDiv) {
-                        toolbarDiv.style.setProperty('--zoom-out', zoom)
-                        toolbarDiv.style.setProperty('--padding', `${padding}px`)
-                        toolbarDiv.style.setProperty('--sidebar-width', `${sidebarWidth}px`)
-                    }
-                }
-            }
+            // Update CSS variables (--zoom, etc) in #dock-toolbar inside the shadow root
+            shadowRef?.current
+                ? updateDockToolbarVariables(shadowRef, zoom, padding, sidebarWidth)
+                : window.requestAnimationFrame(() => updateDockToolbarVariables(shadowRef, zoom, padding, sidebarWidth))
 
-            shadowRef?.current ? updateDockToolbarVariables() : window.requestAnimationFrame(updateDockToolbarVariables)
-
-            function setDockBodyStyles(deferTransform = false) {
-                // dark mode:
-                // htmlStyle.background = 'hsl(231, 17%, 22%)'
-                htmlStyle.background =
-                    'linear-gradient(to right, hsla(234, 17%, 94%, 1) 71%, hsla(234, 17%, 99%, 1) 100%)'
-                bodyStyle.boxShadow = 'hsl(219, 14%, 76%) 30px 30px 70px, hsl(219, 14%, 76%) 8px 8px 10px'
-                if (!bodyStyle.backgroundColor) {
-                    bodyStyle.backgroundColor = 'white'
-                }
-                bodyStyle.width = `100vw`
-                bodyStyle.height = `auto`
-                bodyStyle.minHeight = `calc(${100 / zoom}% - ${(2 * padding) / zoom}px)`
-
-                if (deferTransform) {
-                    // needed by the animation
-                    window.requestAnimationFrame(() => {
-                        bodyStyle.transform = `scale(${zoom}) translate(${padding / zoom}px, ${padding / zoom}px)`
-                    })
-                } else {
-                    bodyStyle.transform = `scale(${zoom}) translate(${padding / zoom}px, ${padding / zoom}px)`
-                }
-            }
-
+            // if update (scroll, resize) vs toggle between float<->dock
             if (update) {
                 if (mode === 'dock') {
                     window.requestAnimationFrame(() => {
-                        setDockBodyStyles(false)
+                        // Set transform and other style attributes on <body> and <html>
+                        applyDockBodyStyles(htmlStyle, bodyStyle, zoom, padding, false)
                     })
                 }
             } else {
+                // Must change state
+                // First tick.
                 window.requestAnimationFrame(() => {
                     bodyStyle.overflow = 'hidden'
                     if (mode === 'dock') {
-                        setDockBodyStyles(true)
+                        applyDockBodyStyles(htmlStyle, bodyStyle, zoom, padding, true)
 
                         // anim code
                         bodyStyle.transform = `scale(1) translate(0px 0px)`
@@ -212,19 +189,21 @@ export const dockLogic = kea({
                         bodyStyle.transition = 'transform ease 0.5s, min-height ease 0.5s, height ease 0.5s'
                         bodyStyle.transformOrigin = `top left`
 
-                        attachScrollListener(zoom, padding)
+                        attachDockScrollListener(zoom, padding)
                     } else if (mode === 'float' || mode === 'button') {
                         htmlStyle.background = 'auto'
                         bodyStyle.transform = 'none'
                         bodyStyle.willChange = 'unset'
-                        removeScrollListener()
+                        removeDockScrollListener()
                     }
                 })
 
                 // 500ms later when we finished zooming in/out and the old element faded from the view
                 await breakpoint(500)
+
+                // Second tick.
                 window.requestAnimationFrame(() => {
-                    updateDockToolbarVariables()
+                    updateDockToolbarVariables(shadowRef, zoom, padding, sidebarWidth)
                     bodyStyle.overflow = 'auto'
                     if (mode === 'float' || mode === 'button') {
                         bodyStyle.width = `auto`
@@ -237,8 +216,10 @@ export const dockLogic = kea({
 
                 // 500ms later when it quieted down
                 await breakpoint(500)
+
+                // Third tick.
                 window.requestAnimationFrame(() => {
-                    updateDockToolbarVariables()
+                    updateDockToolbarVariables(shadowRef, zoom, padding, sidebarWidth)
                     mode === 'button' && actions.buttonFaded()
                     mode === 'dock' && actions.dockFaded()
                     mode === 'float' && actions.floatFaded()
@@ -247,29 +228,3 @@ export const dockLogic = kea({
         },
     }),
 })
-
-let listener
-function attachScrollListener(zoom, padding) {
-    listener = function() {
-        const bodyElements = [...document.body.getElementsByTagName('*')]
-        bodyElements
-            .filter(x => getComputedStyle(x, null).getPropertyValue('position') === 'fixed')
-            .forEach(e => {
-                const h = (window.pageYOffset + (window.pageYOffset > padding ? -padding : 0)) / zoom
-                e.style.marginTop = `${h}px`
-                e.setAttribute('data-posthog-fix-fixed', 'yes')
-            })
-
-        const tweakedElements = [...document.querySelectorAll('[data-posthog-fix-fixed=yes]')]
-        tweakedElements
-            .filter(x => getComputedStyle(x, null).getPropertyValue('position') !== 'fixed')
-            .forEach(e => {
-                e.style.marginTop = 0
-            })
-    }
-    window.addEventListener('scroll', listener)
-}
-
-function removeScrollListener() {
-    window.removeEventListener('scroll', listener)
-}

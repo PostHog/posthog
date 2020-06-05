@@ -69,17 +69,17 @@
 }
 
 #dock-toolbar {
-    --zoom-out: 0.7;
+    --zoom: 0.7;
     --padding: 30px;
     --sidebar-width: 300px;
 
     background-size: 100%;
-    transform: scale(calc(1 / var(--zoom-out)));
+    transform: scale(calc(1 / var(--zoom)));
     transform-origin: top right;
     width: var(--sidebar-width);
     height: calc(100vh - 2 * var(--padding));
     top: 0;
-    right: calc((-300px - var(--padding)) / var(--zoom-out));
+    right: calc((-300px - var(--padding)) / var(--zoom));
     position: absolute;
     z-index: 999999999;
     box-sizing: border-box;
