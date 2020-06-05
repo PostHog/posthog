@@ -14,6 +14,9 @@ def main():
             r = conn.getresponse()
             if r.status == 200:
                 booted = True
+                print(r.status)
+                print(r.read())
+                print("PostHog is still booting. Sleeping for 1 second")
                 print("PostHog is alive! Proceeding")
                 continue
             else:
