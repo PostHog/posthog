@@ -19,7 +19,7 @@ def main():
             else:
                 # recieved not 200 from PostHog, but service is up
                 print(r.status)
-                print(r.headers['Location']
+                print(r.headers['Location'])
                 print("PostHog is still booting. Sleeping for 1 second")
         except:
             print("PostHog is still booting. Sleeping for 1 second")
