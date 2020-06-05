@@ -254,8 +254,7 @@ class TestEvents(TransactionBaseTest):
         with freeze_time("2012-01-21T06:00:30.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
 
-        response = self.client.get('/api/event/sessions/?session=distribution&date_from=all').json()
-        
+        response = self.client.get('/api/event/sessions/?session=dist&date_from=all').json()
         for item in response['result']:
             if item['label'] == '30-60 minutes' or item['label'] == '3-10 seconds':
                 self.assertEqual(item['count'], 2)
