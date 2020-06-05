@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Union
 from django.utils.timezone import now
 import json
 import pandas as pd
-from typing import Tuple
+from typing import Tuple, Optional
 
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
@@ -214,15 +214,12 @@ class EventViewSet(viewsets.ModelViewSet):
 
         return response.Response([{'name': convert_property_value(value.value)} for value in values])
 
-    def _handle_compared(self, date_filter: Dict[str, datetime], session_type: str) -> List[Dict[str, Any]]:
+    def _handle_compared(self, date_filter: Dict[str, datetime]) -> QuerySet:
         date_from, date_to = get_compare_period_dates(date_filter['timestamp__gte'],  date_filter['timestamp__lte'])
         date_filter['timestamp__gte'] = date_from
         date_filter['timestamp__lte'] = date_to
         compared_events = self.get_queryset().filter(**date_filter)
-
-        compared_calculated = self.calculate_sessions(compared_events, session_type, date_filter)
-
-        return compared_calculated
+        return compared_events
 
     def _convert_to_comparison(self, trend_entity: List[Dict[str, Any]], label: str) -> List[Dict[str, Any]]:
         for entity in trend_entity:
@@ -255,11 +252,12 @@ class EventViewSet(viewsets.ModelViewSet):
 
         # get compared period
         compare = request.GET.get('compare')
-        result = {'result': []}
+        result: Dict[str, Any]  = {'result': []}
         if compare and request.GET.get('date_from') != 'all':
             calculated = self.calculate_sessions(events, session_type, date_filter, team)
             calculated = self._convert_to_comparison(calculated, 'current')
-            compared_calculated = self._handle_compared(date_filter, session_type)
+            compared_events = self._handle_compared(date_filter)
+            compared_calculated =  self.calculate_sessions(compared_events, session_type, date_filter, team)
             converted_compared_calculated = self._convert_to_comparison(compared_calculated, 'previous')
             calculated.extend(converted_compared_calculated)
         else:
@@ -345,9 +343,9 @@ class EventViewSet(viewsets.ModelViewSet):
             for session in sessions:
                 for event in session['events']:
                     try:
-                        event.update({'elements': ElementSerializer([group for group in groups if group.hash == event['elements_hash']][0].element_set.all().order_by('order'), many=True).data}) # type: ignore
+                        event.update({'elements': ElementSerializer([group for group in groups if group.hash == event['elements_hash']][0].element_set.all().order_by('order'), many=True).data})
                     except IndexError:
-                        event.update({'elements': []}) # type: ignore
+                        event.update({'elements': []})
             result = sessions
         return result
 
