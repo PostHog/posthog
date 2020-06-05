@@ -27,7 +27,6 @@ from posthog.tasks.slack import post_event_to_slack
 from typing import Dict, Union, List, Optional, Any, Tuple
 
 from collections import defaultdict
-from joinfield.joinfield import JoinField
 import copy
 import datetime
 import re
@@ -94,7 +93,7 @@ class EventManager(models.QuerySet):
         for index, tag in enumerate(selector.parts):
             subqueries["match_{}".format(index)] = Subquery(
                 Element.objects.filter(
-                    group_id=OuterRef("elementgroup"),
+                    group_id=OuterRef("pk"),
                     **tag.data
                 ).values(
                     "order"
@@ -116,21 +115,24 @@ class EventManager(models.QuerySet):
                     )
         return (subqueries, filter)
 
-    def filter_by_element(self, filters: Dict) -> QuerySet:
+    def filter_by_element(self, filters: Dict):
+        groups = ElementGroup.objects.filter(team_id=OuterRef('team_id'))
+
         if filters.get('selector'):
             selector = Selector(filters['selector'])
             subqueries, filter = self._element_subquery(selector)
-            self = self.annotate(**subqueries)  # type: ignore
+            groups = groups.annotate(**subqueries)  # type: ignore
         else:
             filter = {}
 
         for key in ["tag_name", "text", "href"]:
             if filters.get(key):
-                filter["elementgroup__element__{}".format(key)] = filters[key]
+                filter["element__{}".format(key)] = filters[key]
 
         if not filter:
-            return self
-        return self.filter(**filter)
+            return {}
+        groups = groups.filter(**filter)
+        return {"elements_hash__in": groups.values_list("hash", flat=True)}
 
     def filter_by_url(self, action_step: ActionStep, subquery: QuerySet):
         if not action_step.url:
@@ -173,8 +175,8 @@ class EventManager(models.QuerySet):
                 Filter(data={'properties': step.properties}).properties_to_Q(),
                 pk=OuterRef("id"),
                 **self.filter_by_event(step),
+                **self.filter_by_element(model_to_dict(step))
             )
-            subquery = subquery.filter_by_element(model_to_dict(step))
             subquery = self.filter_by_url(step, subquery)
             any_step |= Q(Exists(subquery))
         events = self.filter(team_id=action.team_id).filter(any_step)
@@ -208,11 +210,11 @@ class EventManager(models.QuerySet):
                 if kwargs.get("team"):
                     kwargs["elements_hash"] = ElementGroup.objects.create(
                         team=kwargs["team"], elements=kwargs.pop("elements")
-                    ).hash_id
+                    ).hash
                 else:
                     kwargs["elements_hash"] = ElementGroup.objects.create(
                         team_id=kwargs["team_id"], elements=kwargs.pop("elements")
-                    ).hash_id
+                    ).hash
             event = super().create(*args, **kwargs)
 
             should_post_to_slack = False

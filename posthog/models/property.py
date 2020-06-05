@@ -93,9 +93,9 @@ class PropertyMixin:
             filters &= Q(Exists(
                     Event.objects\
                     .filter(pk=OuterRef('id'))\
-                    .filter_by_element({
+                    .filter(**Event.objects.filter_by_element({
                         item.key: item.value for item in element_properties
-                    })
+                    }))
                 ))
 
         return filters
