@@ -71,6 +71,7 @@ export function SessionsTable({ logic }) {
             <h1 className="page-header">Sessions</h1>
 
             <Table
+                data-attr="sessions-table"
                 size="small"
                 rowKey={item => item.global_session_id}
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
