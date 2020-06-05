@@ -180,8 +180,8 @@ class TestPaths(BaseTest):
         self.assertEqual(response[1]['value'], 1)
 
         elements = self.client.get('/api/paths/elements/').json()
-        self.assertEqual(elements[0]['name'], '<a> goodbye')
-        self.assertEqual(elements[1]['name'], '<a> hello1')
+        self.assertEqual(elements[0]['name'], '<a> hello')
+        self.assertEqual(elements[1]['name'], '<a> goodbye')
         self.assertEqual(len(elements), 4)
 
 
