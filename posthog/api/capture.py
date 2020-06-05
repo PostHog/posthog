@@ -175,7 +175,8 @@ def get_decide(request):
 
         if (parse_domain(request.headers.get('Origin')) in permitted_domains) or (parse_domain(request.headers.get('Referer')) in permitted_domains):
             response['isAuthenticated'] = True
-            response['toolbarVersion'] = settings.TOOLBAR_VERSION
+            if hasattr(settings, 'TOOLBAR_VERSION'):
+                response['toolbarVersion'] = settings.TOOLBAR_VERSION
             if settings.DEBUG:
                 response['jsURL'] = 'http://localhost:8234/'
 
