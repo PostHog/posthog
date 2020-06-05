@@ -344,3 +344,6 @@ class Event(models.Model):
     elements_hash: models.CharField = models.CharField(
         max_length=200, null=True, blank=True
     )
+
+    # DEPRECATED: elements are stored against element groups now
+    elements: JSONField = JSONField(default=list, null=True, blank=True)
