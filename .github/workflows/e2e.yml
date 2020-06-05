@@ -64,11 +64,10 @@ jobs:
             - name: Yarn install deps
               run: yarn install --frozen-lockfile
               if: steps.yarn-cache.outputs.cache-hit != 'true'
-            - name: Migrate PostHog and boot worker
+            - name: Boot PostHog
               env:
                   REDIS_URL: 'redis://localhost'
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  SECRET_KEY: '<randomly generated secret key>'
                   DISABLE_SECURE_SSL_REDIRECT: 1
                   OPT_OUT_CAPTURE: 1
               run: |
