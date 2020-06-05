@@ -23,7 +23,7 @@ export function useLongPress(
         let timerId
         if (startLongPress) {
             timerId = setTimeout(() => {
-                callback(false, window.performance.now() - startLongPress)
+                callback(false, window.performance.now() - startLongPress, initialCoords)
                 stop()
             }, ms)
         }

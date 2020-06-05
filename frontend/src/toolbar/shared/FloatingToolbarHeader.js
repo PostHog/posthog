@@ -1,18 +1,16 @@
 import React from 'react'
 import { Button } from 'antd'
 import { useActions } from 'kea'
-import { MenuUnfoldOutlined, MinusSquareOutlined } from '@ant-design/icons'
+import { CloseOutlined } from '@ant-design/icons'
+
 export function FloatingToolbarHeader({ dockLogic }) {
-    const { dock, button } = useActions(dockLogic)
+    const { button } = useActions(dockLogic)
     return (
         <div className="toolbar-block no-padding posthog-header-block">
-            <div>PostHog</div>
-            <div>
+            <div className="floating-title">PostHog</div>
+            <div className="floating-buttons">
                 <Button onClick={button}>
-                    Button <MinusSquareOutlined />
-                </Button>
-                <Button onClick={dock}>
-                    Dock <MenuUnfoldOutlined />
+                    Close <CloseOutlined />
                 </Button>
             </div>
         </div>

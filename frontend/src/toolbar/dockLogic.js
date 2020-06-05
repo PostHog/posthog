@@ -23,8 +23,8 @@ export const dockLogic = kea({
         button: true,
         dock: true,
         float: true,
+        hideButton: true,
         update: true,
-        setNextOpenMode: mode => ({ mode }),
 
         // private
         buttonAnimated: true,
@@ -33,6 +33,7 @@ export const dockLogic = kea({
         dockFaded: true,
         floatAnimated: true,
         floatFaded: true,
+        hideButtonAnimated: true,
         setMode: (mode, update = false) => ({ mode, update, windowWidth: window.innerWidth }),
     }),
 
@@ -43,6 +44,7 @@ export const dockLogic = kea({
                 button: () => 'button',
                 dock: () => 'dock',
                 float: () => 'float',
+                hide: () => '',
             },
         ],
         lastMode: [
@@ -52,15 +54,6 @@ export const dockLogic = kea({
                 button: () => 'button',
                 dock: () => 'dock',
                 float: () => 'float',
-            },
-        ],
-        nextOpenMode: [
-            'dock',
-            { persist: true },
-            {
-                dock: () => 'dock',
-                float: () => 'float',
-                setNextOpenMode: (_, { mode }) => mode,
             },
         ],
         windowWidth: [
@@ -112,6 +105,9 @@ export const dockLogic = kea({
                 float: state => (state === 'disabled' ? 'disabled' : 'fading-out'),
                 floatAnimated: () => 'disabled',
                 floatFaded: () => 'disabled',
+
+                hideButton: state => (state === 'disabled' ? 'disabled' : 'fading-out'),
+                hideButtonAnimated: () => 'disabled',
             },
         ],
     }),
@@ -155,6 +151,7 @@ export const dockLogic = kea({
         button: () => actions.setMode('button', false),
         dock: () => actions.setMode('dock', false),
         float: () => actions.setMode('float', false),
+        hideButton: () => actions.setMode('', false),
         update: () => actions.setMode(values.mode, true),
         setMode: async ({ mode, update }, breakpoint) => {
             const { padding, sidebarWidth, zoom } = values
@@ -190,7 +187,7 @@ export const dockLogic = kea({
                         bodyStyle.transformOrigin = `top left`
 
                         attachDockScrollListener(zoom, padding)
-                    } else if (mode === 'float' || mode === 'button') {
+                    } else {
                         htmlStyle.background = 'auto'
                         bodyStyle.transform = 'none'
                         bodyStyle.willChange = 'unset'
@@ -205,13 +202,14 @@ export const dockLogic = kea({
                 window.requestAnimationFrame(() => {
                     updateDockToolbarVariables(shadowRef, zoom, padding, sidebarWidth)
                     bodyStyle.overflow = 'auto'
-                    if (mode === 'float' || mode === 'button') {
+                    if (mode !== 'dock') {
                         bodyStyle.width = `auto`
                         bodyStyle.minHeight = `auto`
                     }
                     mode === 'button' && actions.buttonAnimated()
                     mode === 'dock' && actions.dockAnimated()
                     mode === 'float' && actions.floatAnimated()
+                    mode === '' && actions.hideButtonAnimated()
                 })
 
                 // 500ms later when it quieted down

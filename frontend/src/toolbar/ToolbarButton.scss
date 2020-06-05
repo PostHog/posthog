@@ -1,0 +1,145 @@
+#button-toolbar {
+    position: fixed;
+    top: 2rem;
+    z-index: 2147483020;
+    right: 2rem;
+    opacity: 1;
+    transition: opacity ease 0.5s;
+    width: 64px;
+    height: 64px;
+
+    &.toolbar-invisible {
+        opacity: 0;
+    }
+
+    .floating-toolbar-button {
+        position: absolute;
+        z-index: 2;
+        top: 0;
+        left: 0;
+        width: 64px;
+        height: 64px;
+        border-radius: 100%;
+        box-shadow: 0 0 13px 4px rgba(0, 0, 0, 0.3);
+        background: white;
+        border: 2px solid #ffffff;
+        cursor: pointer;
+        overflow: hidden;
+
+        &:hover {
+            background: hsl(233, 40%, 96%);
+        }
+
+        svg {
+            filter: invert(1);
+            margin-top: 4px;
+            margin-left: 3px;
+            width: 55px;
+            height: 55px;
+        }
+    }
+
+    .floating-tiny-button {
+        position: absolute;
+        z-index: 1;
+        top: 16px;
+        left: 16px;
+        width: 32px;
+        height: 32px;
+        border-radius: 100%;
+        box-shadow: 0 0 10px 3px rgba(0, 0, 0, 0.22);
+        transition: transform ease 0.2s;
+        transform: translate(0, 0);
+
+        will-change: transform;
+
+        border: 2px solid white;
+        cursor: pointer;
+        background: white;
+
+        .float-content {
+            width: 32px;
+            height: 32px;
+            text-align: center;
+            line-height: 32px;
+            transform-origin: 16px 16px;
+            cursor: pointer;
+
+            .anticon {
+                margin-top: 8px;
+            }
+        }
+
+        &.float-button {
+            &:hover {
+                background: hsl(233, 40%, 96%);
+            }
+            &.extended {
+                &.extended-se {
+                    transform: rotate(20deg) translate(70px, 0px);
+                    .float-content {
+                        transform: rotate(-20deg);
+                        transform-origin: 10px 19px;
+                    }
+                }
+                &.extended-ne {
+                    transform: rotate(290deg) translate(70px, 0px);
+                    .float-content {
+                        transform: rotate(-290deg);
+                        transform-origin: 17px 13px;
+                    }
+                }
+                &.extended-nw {
+                    transform: rotate(200deg) translate(70px, 0px);
+                    .float-content {
+                        transform: rotate(-200deg);
+                        transform-origin: 15px 15px;
+                    }
+                }
+                &.extended-sw {
+                    transform: rotate(110deg) translate(70px, 0px);
+                    .float-content {
+                        transform: rotate(-110deg);
+                        transform-origin: 14px 16px;
+                    }
+                }
+            }
+        }
+
+        &.close-button {
+            &:hover {
+                background: hsl(233, 40%, 96%);
+            }
+            &.extended {
+                &.extended-se {
+                    transform: rotate(70deg) translate(70px, 0px);
+                    .float-content {
+                        transform: rotate(-70deg);
+                        transform-origin: 14px 16px;
+                    }
+                }
+                &.extended-ne {
+                    transform: rotate(340deg) translate(70px, 0px);
+                    .float-content {
+                        transform: rotate(-340deg);
+                        transform-origin: 19px 10px;
+                    }
+                }
+                &.extended-nw {
+                    transform: rotate(250deg) translate(70px, 0px);
+                    .float-content {
+                        transform: rotate(-250deg);
+                        transform-origin: 15.8px 14.5px;
+                    }
+                }
+                &.extended-sw {
+                    transform: rotate(160deg) translate(70px, 0px);
+                    .float-content {
+                        transform: rotate(-160deg);
+                        transform-origin: 15px 15px;
+                    }
+                }
+            }
+        }
+    }
+}
