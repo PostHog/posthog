@@ -124,6 +124,7 @@ class EventManager(models.QuerySet):
         if not filter:
             return {}
         groups = groups.filter(**filter)
+        import ipdb;ipdb.set_trace()
         return {"elements_hash__in": groups.values_list("hash", flat=True)}
 
     def filter_by_url(self, action_step: ActionStep, subquery: QuerySet):

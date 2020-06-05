@@ -252,3 +252,23 @@ export function clearDOMTextSelection() {
 export default function isAndroidOrIOS() {
     return typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent)
 }
+
+export const eventToName = event => {
+    if (event.event !== '$autocapture') return event.event
+    let name = ''
+    if (event.properties.$event_type === 'click') name += 'clicked '
+    if (event.properties.$event_type === 'change') name += 'typed something into '
+    if (event.properties.$event_type === 'submit') name += 'submitted '
+
+    if (event.elements.length > 0) {
+        if (event.elements[0].tag_name === 'a') {
+            name += 'link'
+        } else if (event.elements[0].tag_name === 'img') {
+            name += 'image'
+        } else {
+            name += event.elements[0].tag_name
+        }
+        if (event.elements[0].text) name += ' with text "' + event.elements[0].text + '"'
+    }
+    return name
+}
