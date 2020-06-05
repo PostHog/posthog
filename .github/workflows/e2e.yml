@@ -71,7 +71,6 @@ jobs:
                   SECRET_KEY: '<randomly generated secret key>'
                   DISABLE_SECURE_SSL_REDIRECT: 1
                   OPT_OUT_CAPTURE: 1
-                  DEBUG: 1
               run: |
                   ./bin/docker-migrate
                   ./bin/docker-worker &
