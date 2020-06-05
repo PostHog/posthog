@@ -194,10 +194,20 @@ export const inspectElementLogic = kea({
             })
         },
         hoverElement: () => {
-            drawBox(cache.box, values.element, dockLogic.values.zoom, dockLogic.values.padding)
+            drawBox(
+                cache.box,
+                values.element,
+                dockLogic.mode === 'dock' ? dockLogic.values.zoom : 1,
+                dockLogic.mode === 'dock' ? dockLogic.values.padding : 0
+            )
         },
         selectElement: () => {
-            drawBox(cache.box, values.element, dockLogic.values.zoom, dockLogic.values.padding)
+            drawBox(
+                cache.box,
+                values.element,
+                dockLogic.mode === 'dock' ? dockLogic.values.zoom : 1,
+                dockLogic.mode === 'dock' ? dockLogic.values.padding : 0
+            )
             actions.stop(false)
         },
         start: () => {
