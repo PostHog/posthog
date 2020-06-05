@@ -64,7 +64,6 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
         const ns = y < window.innerHeight / 2 ? 's' : 'n'
         const we = x < window.innerWidth / 2 ? 'e' : 'w'
         if (buttonsExtended !== `${ns}${we}`) {
-            console.log(`${ns}${we}`)
             setButtonsExtended(`${ns}${we}`)
         }
     }
