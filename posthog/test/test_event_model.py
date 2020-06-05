@@ -9,16 +9,21 @@ class TestFilterByActions(BaseTest):
 
         event1 = Event.objects.create(event='$autocapture', team=self.team, distinct_id='whatever', elements=[
             Element(tag_name='a', href='/a-url', nth_child=1, nth_of_type=0, order=1),
-            Element(tag_name='buttonx', nth_child=0, nth_of_type=0, order=2),
+            Element(tag_name='button', nth_child=0, nth_of_type=0, order=2),
             Element(tag_name='div', nth_child=0, nth_of_type=0, order=3),
             Element(tag_name='div', nth_child=0, nth_of_type=0, order=4, attr_id='nested'),
         ])
 
         event2 = Event.objects.create(event='$autocapture', team=self.team, distinct_id='whatever', elements=[
             Element(tag_name='a', nth_child=2, nth_of_type=0, order=0, attr_id='someId'),
-            Element(tag_name='section', nth_child=0, nth_of_type=0, order=1),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=1),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=2),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=3),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=4),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=5),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=6),
             # make sure elements don't get double counted if they're part of the same event
-            Element(href='/a-url-2', nth_child=0, nth_of_type=0, order=2)
+            Element(href='/a-url-2', nth_child=0, nth_of_type=0, order=7)
         ])
 
         # make sure other teams' data doesn't get mixed in
@@ -30,7 +35,7 @@ class TestFilterByActions(BaseTest):
 
         # test direct decendant ordering
         action1 = Action.objects.create(team=self.team, name='action1')
-        ActionStep.objects.create(event='$autocapture', action=action1, selector='section > a')
+        ActionStep.objects.create(event='$autocapture', action=action1, selector='div > div > a')
         ActionStep.objects.create(event='$autocapture', action=action1, selector='div > a.somethingthatdoesntexist')
         action1.calculate_events()
 
