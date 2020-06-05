@@ -99,6 +99,7 @@ export const trendsLogic = kea({
                     response = await api.get(
                         'api/event/sessions/?' + toAPIParams(filterClientSideParams(values.filters))
                     )
+                    response = response.result
                 } else {
                     response = await api.get(
                         'api/action/trends/?' + toAPIParams(filterClientSideParams(values.filters))

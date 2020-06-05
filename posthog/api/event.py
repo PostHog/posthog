@@ -255,6 +255,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
         # get compared period
         compare = request.GET.get('compare')
+        result = {'result': []}
         if compare and request.GET.get('date_from') != 'all':
             calculated = self.calculate_sessions(events, session_type, date_filter, team)
             calculated = self._convert_to_comparison(calculated, 'current')
@@ -264,7 +265,20 @@ class EventViewSet(viewsets.ModelViewSet):
         else:
             calculated = self.calculate_sessions(events, session_type, date_filter, team)
 
-        return response.Response(calculated)
+        result.update({'result': calculated})
+
+        # add pagination
+        if session_type is None:
+            path = request.get_full_path()
+            if len(calculated) > 49:
+                next: Union[bool, str] = '{}{}{}={}'.format(
+                    path[1:],
+                    '&' if '?' in path else '?',
+                    'before',
+                    calculated[49]['start_time'].strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+                )
+                result.update({'next': next})
+        return response.Response(result)
 
     def calculate_sessions(self, events: QuerySet, session_type: str, date_filter: Dict[str, datetime], team: Team) -> List[Dict[str, Any]]:
         sessions = events\
@@ -297,12 +311,12 @@ class EventViewSet(viewsets.ModelViewSet):
         elif session_type == 'dist': 
             result = self._session_dist(all_sessions, sessions_sql_params)
         else:
-            result = self._session_list(all_sessions, sessions_sql_params, team)
+            result = self._session_list(all_sessions, sessions_sql_params, team, date_filter)
 
         return result
 
-    def _session_list(self, base_query: str, params: Tuple[Any, ...], team: Team) -> List[Dict[str, Any]]:
-        session_list = 'SELECT global_session_id, properties, start_time, length, sessions.distinct_id, event_count, events from\
+    def _session_list(self, base_query: str, params: Tuple[Any, ...], team: Team, date_filter: Dict[str, datetime]) -> List[Dict[str, Any]]:
+        session_list = 'SELECT * FROM (SELECT global_session_id, properties, start_time, length, sessions.distinct_id, event_count, events from\
                                 (SELECT\
                                     global_session_id,\
                                     count(1) as event_count,\
@@ -313,7 +327,9 @@ class EventViewSet(viewsets.ModelViewSet):
                                         FROM ({}) as count GROUP BY 1) as sessions\
                                         LEFT OUTER JOIN posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id\
                                         LEFT OUTER JOIN posthog_person ON posthog_person.id = posthog_persondistinctid.person_id\
-                                        ORDER BY start_time DESC limit 20'.format(base_query)
+                                        ORDER BY start_time DESC) as ordered_sessions\
+                                        WHERE start_time <= \'{}\' LIMIT 50'.format(base_query, date_filter['timestamp__lte'])
+                                        
         with connection.cursor() as cursor:
             cursor.execute(session_list, params)
             sessions = dict_from_cursor_fetchall(cursor)

@@ -187,15 +187,15 @@ class TestEvents(TransactionBaseTest):
             Event.objects.create(team=self.team, event='4th action', distinct_id="2")
 
         response = self.client.get('/api/event/sessions/?session=avg&date_from=all').json()
-        self.assertEqual(response[0]['count'], 3) # average length of all sessions
+        self.assertEqual(response['result'][0]['count'], 3) # average length of all sessions
 
         # time series 
-        self.assertEqual(response[0]['data'][0], 240)
-        self.assertEqual(response[0]['data'][1], 120)
-        self.assertEqual(response[0]['labels'][0], 'Sat. 14 January')
-        self.assertEqual(response[0]['labels'][1], 'Sun. 15 January')
-        self.assertEqual(response[0]['days'][0], '2012-01-14')
-        self.assertEqual(response[0]['days'][1], '2012-01-15')
+        self.assertEqual(response['result'][0]['data'][0], 240)
+        self.assertEqual(response['result'][0]['data'][1], 120)
+        self.assertEqual(response['result'][0]['labels'][0], 'Sat. 14 January')
+        self.assertEqual(response['result'][0]['labels'][1], 'Sun. 15 January')
+        self.assertEqual(response['result'][0]['days'][0], '2012-01-14')
+        self.assertEqual(response['result'][0]['days'][1], '2012-01-15')
 
     def test_sessions_count_buckets(self):
 
@@ -256,7 +256,7 @@ class TestEvents(TransactionBaseTest):
 
         response = self.client.get('/api/event/sessions/?session=distribution&date_from=all').json()
         
-        for item in response:
+        for item in response['result']:
             if item['label'] == '30-60 minutes' or item['label'] == '3-10 seconds':
                 self.assertEqual(item['count'], 2)
             else:

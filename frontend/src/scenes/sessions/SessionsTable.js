@@ -1,13 +1,14 @@
 import React from 'react'
-import { useValues } from 'kea'
-import { Table } from 'antd'
+import { useValues, useActions } from 'kea'
+import { Table, Button, Spin } from 'antd'
 import { Link } from 'lib/components/Link'
 import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
 import _ from 'lodash'
 import { SessionDetails } from './SessionDetails'
 
 export function SessionsTable({ logic }) {
-    const { sessions, sessionsLoading } = useValues(logic)
+    const { sessions, sessionsLoading, next, isLoadingNext } = useValues(logic)
+    const { fetchNextSessions } = useActions(logic)
     let columns = [
         {
             title: 'Person',
@@ -19,6 +20,7 @@ export function SessionsTable({ logic }) {
                     </Link>
                 )
             },
+            ellipsis: true,
         },
         {
             title: 'Event Count',
@@ -84,6 +86,18 @@ export function SessionsTable({ logic }) {
                 }}
             />
             <div style={{ marginTop: '5rem' }} />
+            {(next || isLoadingNext) && (
+                <div
+                    style={{
+                        margin: '2rem auto 5rem',
+                        textAlign: 'center',
+                    }}
+                >
+                    <Button type="primary" onClick={fetchNextSessions}>
+                        {isLoadingNext ? <Spin> </Spin> : 'Load more sessions'}
+                    </Button>
+                </div>
+            )}
         </div>
     )
 }
