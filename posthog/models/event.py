@@ -27,7 +27,6 @@ from posthog.tasks.slack import post_event_to_slack
 from typing import Dict, Union, List, Optional, Any, Tuple
 
 from collections import defaultdict
-from joinfield.joinfield import JoinField
 import copy
 import datetime
 import re
