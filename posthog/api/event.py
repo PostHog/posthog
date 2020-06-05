@@ -244,7 +244,7 @@ class EventViewSet(viewsets.ModelViewSet):
                 SELECT *,\
                     SUM(new_session) OVER (ORDER BY distinct_id, timestamp) AS global_session_id,\
                     SUM(new_session) OVER (PARTITION BY distinct_id ORDER BY timestamp) AS user_session_id\
-                    FROM (SELECT distinct_id, timestamp, CASE WHEN EXTRACT(\'EPOCH\' FROM (timestamp - previous_timestamp)) >= (60 * 30)\
+                    FROM (SELECT distinct_id, event, timestamp, properties, CASE WHEN EXTRACT(\'EPOCH\' FROM (timestamp - previous_timestamp)) >= (60 * 30)\
                         OR previous_timestamp IS NULL \
                         THEN 1 ELSE 0 END AS new_session \
                         FROM ({}) AS inner_sessions\
@@ -258,6 +258,7 @@ class EventViewSet(viewsets.ModelViewSet):
                                     MAX(distinct_id) as distinct_id,\
                                     EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp))) AS length,\
                                     MIN(timestamp) as start_time,\
+                                    array_agg(json_build_object(\'event\', event, \'timestamp\', timestamp, \'properties\', properties) ORDER BY timestamp) as events\
                                         FROM ({}) as count GROUP BY 1) as sessions\
                                         LEFT OUTER JOIN posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id\
                                         LEFT OUTER JOIN posthog_person ON posthog_person.id = posthog_persondistinctid.person_id\
