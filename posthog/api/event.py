@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta
+
+from django.db.models.manager import BaseManager
 from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId, Team
 from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value, get_compare_period_dates, dict_from_cursor_fetchall
 from rest_framework import request, response, serializers, viewsets
@@ -107,10 +109,9 @@ class EventViewSet(viewsets.ModelViewSet):
             if event.elements_hash:
                 hash_ids.append(event.elements_hash)
         people = Person.objects.filter(team=team, persondistinctid__distinct_id__in=distinct_ids).prefetch_related(Prefetch('persondistinctid_set', to_attr='distinct_ids_cache'))
-        if len(hash_ids) > 0:
-            groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related('element_set')
-        else:
-            groups = ElementGroup.objects.none()
+
+        groups = self._prefech_elements(hash_ids, team)
+        
         for event in events:
             try:
                 event.person_properties = [person.properties for person in people if event.distinct_id in person.distinct_ids][0] # type: ignore
@@ -121,6 +122,12 @@ class EventViewSet(viewsets.ModelViewSet):
             except IndexError:
                 event.elements_group = None # type: ignore
         return events
+
+    def _prefech_elements(self, hash_ids: List[str], team: Team) -> QuerySet:
+        groups = ElementGroup.objects.none()
+        if len(hash_ids) > 0:
+            groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related('element_set')
+        return groups
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         queryset = self.get_queryset()
@@ -244,28 +251,43 @@ class EventViewSet(viewsets.ModelViewSet):
                 SELECT *,\
                     SUM(new_session) OVER (ORDER BY distinct_id, timestamp) AS global_session_id,\
                     SUM(new_session) OVER (PARTITION BY distinct_id ORDER BY timestamp) AS user_session_id\
-                    FROM (SELECT distinct_id, event, timestamp, properties, CASE WHEN EXTRACT(\'EPOCH\' FROM (timestamp - previous_timestamp)) >= (60 * 30)\
+                    FROM (SELECT id, distinct_id, event, elements_hash, timestamp, properties, CASE WHEN EXTRACT(\'EPOCH\' FROM (timestamp - previous_timestamp)) >= (60 * 30)\
                         OR previous_timestamp IS NULL \
                         THEN 1 ELSE 0 END AS new_session \
                         FROM ({}) AS inner_sessions\
                     ) AS outer_sessions'.format(sessions_sql)
 
             with connection.cursor() as cursor:
-                query = 'SELECT properties, start_time, length, sessions.distinct_id, event_count, events from\
+                query = 'SELECT global_session_id, properties, start_time, length, sessions.distinct_id, event_count, events from\
                                 (SELECT\
                                     global_session_id,\
                                     count(1) as event_count,\
                                     MAX(distinct_id) as distinct_id,\
                                     EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp))) AS length,\
                                     MIN(timestamp) as start_time,\
-                                    array_agg(json_build_object(\'event\', event, \'timestamp\', timestamp, \'properties\', properties) ORDER BY timestamp) as events\
+                                    array_agg(json_build_object( \'id\', id, \'event\', event, \'timestamp\', timestamp, \'properties\', properties, \'elements_hash\', elements_hash) ORDER BY timestamp) as events\
                                         FROM ({}) as count GROUP BY 1) as sessions\
                                         LEFT OUTER JOIN posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id\
                                         LEFT OUTER JOIN posthog_person ON posthog_person.id = posthog_persondistinctid.person_id\
                                         ORDER BY start_time DESC limit 20'.format(all_sessions)
                 cursor.execute(query, sessions_sql_params)
-                result = dict_from_cursor_fetchall(cursor)
-                return response.Response(result)
+                sessions = dict_from_cursor_fetchall(cursor)
+
+            hash_ids = []
+            for session in sessions:
+                for event in session['events']:
+                    if event.get('elements_hash'):
+                        hash_ids.append(event['elements_hash'])
+
+            groups = self._prefech_elements(hash_ids, team)
+
+            for session in sessions:
+                for event in session['events']:
+                    try:
+                        event.update({'elements': ElementSerializer([group for group in groups if group.hash == event['elements_hash']][0].element_set.all().order_by('order'), many=True).data}) # type: ignore
+                    except IndexError:
+                        event.update({'elements': []}) # type: ignore
+            return response.Response(sessions)
 
         date_filter = request_to_date_query(request.GET.dict())
 

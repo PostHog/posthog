@@ -16,7 +16,7 @@ export function EventDetails({ event }) {
                     }}
                 />
             </TabPane>
-            {event.elements.length > 0 && (
+            {event.elements && event.elements.length > 0 && (
                 <TabPane tab="Elements" key="elements">
                     <EventElements event={event} />
                 </TabPane>

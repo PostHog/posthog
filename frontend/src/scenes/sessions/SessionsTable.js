@@ -3,6 +3,8 @@ import { useValues } from 'kea'
 import { Table } from 'antd'
 import { Link } from 'lib/components/Link'
 import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
+import _ from 'lodash'
+import { SessionDetails } from './SessionDetails'
 
 export function SessionsTable({ logic }) {
     const { sessions, sessionsLoading } = useValues(logic)
@@ -36,6 +38,30 @@ export function SessionsTable({ logic }) {
                 return <span>{humanFriendlyDetailedTime(session.start_time)}</span>
             },
         },
+        {
+            title: 'Start Point',
+            render: function RenderStartPoint(session) {
+                return (
+                    <span>
+                        {!_.isEmpty(session.events) && _.first(session.events).properties?.$current_url
+                            ? session.events[0].properties.$current_url
+                            : 'N/A'}
+                    </span>
+                )
+            },
+        },
+        {
+            title: 'End Point',
+            render: function RenderEndPoint(session) {
+                return (
+                    <span>
+                        {!_.isEmpty(session.events) && _.last(session.events).properties?.$current_url
+                            ? _.last(session.events).properties.$current_url
+                            : 'N/A'}
+                    </span>
+                )
+            },
+        },
     ]
 
     return (
@@ -49,6 +75,13 @@ export function SessionsTable({ logic }) {
                 dataSource={sessions}
                 columns={columns}
                 loading={sessionsLoading}
+                expandable={{
+                    expandedRowRender: function renderExpand({ events }) {
+                        return <SessionDetails events={events} />
+                    },
+                    rowExpandable: () => true,
+                    expandRowByClick: true,
+                }}
             />
             <div style={{ marginTop: '5rem' }} />
         </div>

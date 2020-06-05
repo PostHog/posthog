@@ -18,6 +18,18 @@ const eventNameMap = event => {
     return event.event
 }
 
+export function formatEventName(event) {
+    return (
+        <>
+            {eventNameMap(event)}
+            {event.elements.length > 0 && (
+                <pre style={{ marginBottom: 0, display: 'inline' }}>&lt;{event.elements[0].tag_name}&gt;</pre>
+            )}
+            {event.elements.length > 0 && event.elements[0].text && ' with text "' + event.elements[0].text + '"'}
+        </>
+    )
+}
+
 export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLiveActions }) {
     const { properties, eventsFormatted, isLoading, hasNext, isLoadingNext, newEvents } = useValues(logic)
     const { fetchNextEvents, prependNewEvents } = useActions(logic)
@@ -44,19 +56,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
                         },
                     }
                 let { event } = item
-                return (
-                    <>
-                        {eventNameMap(event)}
-                        {event.elements.length > 0 && (
-                            <pre style={{ marginBottom: 0, display: 'inline' }}>
-                                &lt;{event.elements[0].tag_name}&gt;
-                            </pre>
-                        )}
-                        {event.elements.length > 0 &&
-                            event.elements[0].text &&
-                            ' with text "' + event.elements[0].text + '"'}
-                    </>
-                )
+                return formatEventName(event)
             },
         },
         {
