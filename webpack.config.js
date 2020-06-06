@@ -34,7 +34,9 @@ function createEntry(entry) {
             filename: '[name].js',
             chunkFilename: '[name].[contenthash].js',
             publicPath:
-                process.env.NODE_ENV === 'production' ? '/static/' : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234/static/`,
+                process.env.NODE_ENV === 'production' ? '/static/' 
+                : process.env.IS_PORTER ? `https://${process.env.PORTER_WEBPACK_HOST}/static/`
+                : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234/static/`
         },
         resolve: {
             alias: {
@@ -145,6 +147,25 @@ function createEntry(entry) {
             hot: true,
             host: webpackDevServerHost,
             port: 8234,
+            public: 
+            headers: {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': '*',
+            },
+        },
+
+        devServer: {
+            contentBase: path.join(__dirname, 'frontend', 'dist'),
+            hot: true,
+            host: webpackDevServerHost,
+            port: 8234,
+            public: (process.env.IS_PORTER ? `https://${process.env.PORTER_WEBPACK_HOST}` : null),
+            allowedHosts: (process.env.IS_PORTER ? 
+              [
+                `${process.env.PORTER_WEBPACK_HOST}`,
+                `${process.env.PORTER_SERVER_HOST}`
+              ]
+              : []),
             headers: {
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Allow-Headers': '*',
