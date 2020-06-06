@@ -18,6 +18,8 @@ def main():
                 continue
             else:
                 # recieved not 200 from PostHog, but service is up
+                print("Found status %d" % (r.status, ))
+                print(r.read())
                 print("PostHog is still booting. Sleeping for 1 second")
         except:
             print("PostHog is still booting. Sleeping for 1 second")

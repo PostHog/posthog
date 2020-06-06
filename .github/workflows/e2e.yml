@@ -36,12 +36,13 @@ jobs:
                   python-version: 3.7
             - uses: actions/cache@v1
               name: Cache pip dependencies
+              id: pip-cache
               with:
                   path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+                  key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
                   restore-keys: |
                       ${{ runner.os }}-pip-
-            - name: Install dependencies
+            - name: Install python dependencies
               run: |
                   python -m pip install --upgrade pip
                   python -m pip install $(grep -ivE "psycopg2" requirements.txt) --no-cache-dir --compile
