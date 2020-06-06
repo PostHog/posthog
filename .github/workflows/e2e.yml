@@ -4,15 +4,6 @@ jobs:
     cypress-run:
         name: Cypress end to end tests
         runs-on: ubuntu-18.04
-        strategy:
-            # when one test fails, DO NOT cancel the other
-            # containers, because this will kill Cypress processes
-            # leaving the Dashboard hanging ...
-            # https://github.com/cypress-io/github-action/issues/48
-            fail-fast: false
-            matrix:
-                # run 4 copies of the current job in parallel
-                containers: [1, 2, 3, 4]
         services:
             postgres:
                 image: postgres:12
@@ -106,7 +97,6 @@ jobs:
               uses: cypress-io/github-action@v1
               with:
                   config-file: cypress.json
-                  parallel: true
             - name: Archive test screenshots
               uses: actions/upload-artifact@v1
               with:
