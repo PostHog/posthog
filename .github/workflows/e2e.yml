@@ -88,5 +88,5 @@ jobs:
               uses: actions/upload-artifact@v1
               with:
                   name: screenshots
-                  path: cypress_screenshots.zip
+                  path: cypress/screenshots
               if: ${{ failure() }}
