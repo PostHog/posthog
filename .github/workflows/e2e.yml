@@ -47,7 +47,7 @@ jobs:
                   python -m pip install --upgrade pip
                   python -m pip install $(grep -ivE "psycopg2" requirements.txt) --no-cache-dir --compile
                   python -m pip install psycopg2-binary --no-cache-dir --compile
-              # if: steps.pip-cache.outputs.cache-hit != 'true'
+              if: steps.pip-cache.outputs.cache-hit != 'true'
             - uses: actions/setup-node@v1
               with:
                   node-version: 12
