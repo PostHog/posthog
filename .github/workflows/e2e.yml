@@ -54,22 +54,32 @@ jobs:
               with:
                   node-version: 12
             - name: Get yarn cache directory path
-              id: yarn-cache-dir-path
+              id: yarn-dep-cache-dir-path
               run: echo "::set-output name=dir::$(yarn cache dir)"
             - uses: actions/cache@v1
-              name: Setup Yarn cache
-              id: yarn-cache
+              name: Setup Yarn dep cache
+              id: yarn-dep-cache
               with:
-                  path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
-                  key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+                  path: ${{ steps.yarn-dep-cache-dir-path.outputs.dir }}
+                  key: ${{ runner.os }}-yarn-dep-${{ hashFiles('yarn.lock') }}
                   restore-keys: |
-                      ${{ runner.os }}-yarn-
+                      ${{ runner.os }}-yarn-dep-
             - name: Yarn install deps
               run: |
                   yarn install --frozen-lockfile
+              if: steps.yarn-dep-cache.outputs.cache-hit != 'true'
+            - uses: actions/cache@v1
+              name: Setup Yarn build cache
+              id: yarn-build-cache
+              with:
+                  path: frontend/dist
+                  key: ${{ runner.os }}-yarn-build-${{ hashFiles('frontend/src/') }}
+                  restore-keys: |
+                      ${{ runner.os }}-yarn-build-
+            - name: Yarn install deps
+              run: |
                   yarn build
-                  yarn cache clean
-              if: steps.yarn-cache.outputs.cache-hit != 'true'
+              if: steps.yarn-build-cache.outputs.cache-hit != 'true'
             - name: Boot PostHog
               env:
                   REDIS_URL: 'redis://localhost'
@@ -83,6 +93,7 @@ jobs:
                   ./bin/docker-server &
             - name: Cypress run
               run: |
+                  mkdir -p cypress/screenshots 
                   python3 cypress/wait.py 
                   yarn run cypress run --config-file cypress.json
             - name: Archive test screenshots
