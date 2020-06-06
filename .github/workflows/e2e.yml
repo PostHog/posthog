@@ -39,7 +39,7 @@ jobs:
               id: pip-cache
               with:
                   path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
                   restore-keys: |
                       ${{ runner.os }}-pip-
             - name: Install python dependencies
@@ -48,7 +48,7 @@ jobs:
                   python -m pip install $(grep -ivE "psycopg2" requirements.txt) --no-cache-dir --compile
                   python -m pip install psycopg2-binary --no-cache-dir --compile
                   python -m pip uninstall ipython-genutils pip -y
-              if: steps.cache.outputs.cache-hit != 'true'
+              if: steps.pip-cache.outputs.cache-hit != 'true'
             # Install Node.js
             - uses: actions/setup-node@v1
               with:
@@ -88,14 +88,14 @@ jobs:
                   OPT_OUT_CAPTURE: 1
                   DEBUG: 1
               run: |
+                  mkdir -p cypress/screenshots 
                   ./bin/docker-migrate
                   ./bin/docker-worker &
                   ./bin/docker-server &
+            # Install NPM dependencies, cache them correctly
+            # and run all Cypress tests
             - name: Cypress run
-              run: |
-                  mkdir -p cypress/screenshots 
-                  python3 cypress/wait.py 
-                  yarn run cypress run --config-file cypress.json
+              uses: cypress-io/github-action@v1
             - name: Archive test screenshots
               uses: actions/upload-artifact@v1
               with:
