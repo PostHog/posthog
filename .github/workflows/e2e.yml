@@ -1,25 +1,101 @@
 name: e2e
 on: [pull_request]
 jobs:
-  cypress-run:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v1
-      # Install Node.js
-      - uses: actions/setup-node@v1
-        with:
-          node-version: 12
-      - run: yarn install
-
-      - name: Prepare server
-        run: docker-compose -f docker-compose.e2e.yml up -d
-      - name: Check running containers
-        run: docker ps -a
-      - name: Check logs
-        run: docker logs posthog_server
-
-      - name: Cypress run
-        run: |
-          python3 cypress/wait.py 
-          yarn run cypress run --config-file cypress.json
+    cypress-run:
+        name: Cypress end to end tests
+        runs-on: ubuntu-18.04
+        services:
+            postgres:
+                image: postgres:12
+                env:
+                    POSTGRES_USER: postgres
+                    POSTGRES_PASSWORD: postgres
+                    POSTGRES_DB: postgres
+                ports:
+                    # Maps port 5432 on service container to the host
+                    # Needed because `postgres` host is not discoverable for some reason
+                    - 5432:5432
+                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+            redis:
+                image: redis
+                ports:
+                    # Maps port 6379 on service container to the host
+                    # Needed because `redis` host is not discoverable for some reason
+                    - 6379:6379
+                options: >-
+                    --health-cmd "redis-cli ping"
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v1
+            - name: Set up Python 3.7
+              uses: actions/setup-python@v1
+              with:
+                  python-version: 3.7
+            - uses: actions/cache@v1
+              name: Cache pip dependencies
+              id: pip-cache
+              with:
+                  path: ~/.cache/pip
+                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pip-
+            - name: Install python dependencies
+              run: |
+                  python -m pip install --upgrade pip
+                  python -m pip install $(grep -ivE "psycopg2" requirements.txt) --no-cache-dir --compile
+                  python -m pip install psycopg2-binary --no-cache-dir --compile
+            - uses: actions/setup-node@v1
+              with:
+                  node-version: 12
+            - name: Get yarn cache directory path
+              id: yarn-dep-cache-dir-path
+              run: echo "::set-output name=dir::$(yarn cache dir)"
+            - uses: actions/cache@v1
+              name: Setup Yarn dep cache
+              id: yarn-dep-cache
+              with:
+                  path: ${{ steps.yarn-dep-cache-dir-path.outputs.dir }}
+                  key: ${{ runner.os }}-yarn-dep-${{ hashFiles('yarn.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-yarn-dep-
+            - name: Yarn install deps
+              run: |
+                  yarn install --frozen-lockfile
+              if: steps.yarn-dep-cache.outputs.cache-hit != 'true'
+            - uses: actions/cache@v1
+              name: Setup Yarn build cache
+              id: yarn-build-cache
+              with:
+                  path: frontend/dist
+                  key: ${{ runner.os }}-yarn-build-${{ hashFiles('frontend/src/') }}
+                  restore-keys: |
+                      ${{ runner.os }}-yarn-build-
+            - name: Yarn build
+              run: |
+                  yarn build
+              if: steps.yarn-build-cache.outputs.cache-hit != 'true'
+            - name: Boot PostHog
+              env:
+                  REDIS_URL: 'redis://localhost'
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  DISABLE_SECURE_SSL_REDIRECT: 1
+                  OPT_OUT_CAPTURE: 1
+              run: |
+                  python manage.py collectstatic --noinput
+                  mkdir -p cypress/screenshots 
+                  ./bin/docker-migrate
+                  ./bin/docker-worker &
+                  ./bin/docker-server &
+            - name: Cypress run
+              uses: cypress-io/github-action@v1
+              with:
+                  config-file: cypress.json
+            - name: Archive test screenshots
+              uses: actions/upload-artifact@v1
+              with:
+                  name: screenshots
+                  path: cypress/screenshots
+              if: ${{ failure() }}
