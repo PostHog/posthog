@@ -76,7 +76,7 @@ jobs:
                   key: ${{ runner.os }}-yarn-build-${{ hashFiles('frontend/src/') }}
                   restore-keys: |
                       ${{ runner.os }}-yarn-build-
-            - name: Yarn install deps
+            - name: Yarn build
               run: |
                   yarn build
               if: steps.yarn-build-cache.outputs.cache-hit != 'true'
