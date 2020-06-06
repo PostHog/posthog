@@ -83,3 +83,10 @@ jobs:
               run: |
                   python3 cypress/wait.py 
                   yarn run cypress run --config-file cypress.json
+                  zip -r cypress_screenshots.zip cypress/screenshots
+            - name: Archive production artifacts
+              uses: actions/upload-artifact@v1
+              with:
+                  name: screenshots
+                  path: cypress/screenshots
+              if: ${{ always() }}
