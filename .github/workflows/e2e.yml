@@ -83,8 +83,8 @@ jobs:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   DISABLE_SECURE_SSL_REDIRECT: 1
                   OPT_OUT_CAPTURE: 1
-                  DEBUG: 1
               run: |
+                  python manage.py collectstatic
                   mkdir -p cypress/screenshots 
                   ./bin/docker-migrate
                   ./bin/docker-worker &
