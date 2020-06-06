@@ -147,18 +147,6 @@ function createEntry(entry) {
             hot: true,
             host: webpackDevServerHost,
             port: 8234,
-            public: 
-            headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': '*',
-            },
-        },
-
-        devServer: {
-            contentBase: path.join(__dirname, 'frontend', 'dist'),
-            hot: true,
-            host: webpackDevServerHost,
-            port: 8234,
             public: (process.env.IS_PORTER ? `https://${process.env.PORTER_WEBPACK_HOST}` : null),
             allowedHosts: (process.env.IS_PORTER ? 
               [
