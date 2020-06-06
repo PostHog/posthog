@@ -84,7 +84,7 @@ jobs:
                   DISABLE_SECURE_SSL_REDIRECT: 1
                   OPT_OUT_CAPTURE: 1
               run: |
-                  python manage.py collectstatic
+                  python manage.py collectstatic --noinput
                   mkdir -p cypress/screenshots 
                   ./bin/docker-migrate
                   ./bin/docker-worker &
