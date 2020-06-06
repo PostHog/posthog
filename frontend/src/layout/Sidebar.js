@@ -121,7 +121,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
 
                     <Menu.Item key="dashboards" style={itemStyle} data-attr="menu-item-dashboards" title="">
                         <FundOutlined />
-                        <span className="sidebar-label">Dashboards</span>
+                        <span className="sidebar-label">Dashboardies</span>
                         <Link to="/dashboard" onClick={collapseSidebar} />
                     </Menu.Item>
 
