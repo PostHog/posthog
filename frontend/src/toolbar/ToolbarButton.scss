@@ -13,29 +13,8 @@
     }
 
     .floating-toolbar-button {
-        position: absolute;
-        z-index: 2;
-        top: 0;
-        left: 0;
-        width: 64px;
-        height: 64px;
-        border-radius: 100%;
-        box-shadow: 0 0 13px 4px rgba(0, 0, 0, 0.3);
-        background: white;
-        border: 2px solid #ffffff;
-        cursor: pointer;
-        overflow: hidden;
-
         &:hover {
             background: hsl(233, 40%, 96%);
-        }
-
-        svg {
-            filter: invert(1);
-            margin-top: 4px;
-            margin-left: 3px;
-            width: 55px;
-            height: 55px;
         }
     }
 

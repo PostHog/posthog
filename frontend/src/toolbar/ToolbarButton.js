@@ -1,48 +1,73 @@
 import './ToolbarButton.scss'
 
-import React, { useState, useRef } from 'react'
-import { useActions, useValues } from 'kea'
+import React, { useState, useRef, useEffect } from 'react'
+import { useActions } from 'kea'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { CloseOutlined, ProfileOutlined } from '@ant-design/icons'
 import { Tooltip } from 'antd'
 import { Logo } from '~/toolbar/assets/Logo'
+import { Circle } from '~/toolbar/shared/Circle'
+
+const quarters = { ne: 0, nw: 1, sw: 2, se: 3 }
+
+function getQuarterRotation({ itemCount, index, quarter, padding: inputPadding }) {
+    const padding = typeof inputPadding !== 'undefined' ? inputPadding : 90 / itemCount
+    const angle = quarter * 90 + padding / 2 + ((90 - padding) / (itemCount - 1)) * index
+    return -angle
+}
 
 export function ToolbarButton({ dockLogic, shadowRef }) {
     const { dock, float, hideButton } = useActions(dockLogic)
-    const { nextOpenMode } = useValues(dockLogic)
 
-    const [buttonsExtended, setButtonsExtended] = useState('')
+    const [quarter, setQuarter] = useState('ne')
+    const [buttonsExtended, setButtonsExtended] = useState(false)
+
     const timeoutRef = useRef(null)
 
-    function extendButtons(x, y) {
-        window.clearTimeout(timeoutRef.current)
-        const ns = y < window.innerHeight / 2 ? 's' : 'n'
-        const we = x < window.innerWidth / 2 ? 'e' : 'w'
-        if (buttonsExtended !== `${ns}${we}`) {
-            setButtonsExtended(`${ns}${we}`)
-        }
-    }
-
-    function onMouseMove() {
+    function setQuarterFromShadowRef(shadowRef) {
         if (shadowRef.current) {
             const element = shadowRef.current.shadowRoot.getElementById('button-toolbar')
             if (element) {
                 const rect = element.getBoundingClientRect()
-                extendButtons(rect.x + rect.width / 2, rect.y + rect.height / 2)
+                const x = rect.x + rect.width / 2
+                const y = rect.y + rect.height / 2
+                const ns = y < window.innerHeight / 2 ? 's' : 'n'
+                const we = x < window.innerWidth / 2 ? 'e' : 'w'
+                if (quarter !== `${ns}${we}`) {
+                    setQuarter(`${ns}${we}`)
+                }
             }
         }
     }
 
+    useEffect(() => {
+        setQuarterFromShadowRef(shadowRef)
+    }, [])
+
+    function extendButtons() {
+        window.clearTimeout(timeoutRef.current)
+        if (!buttonsExtended) {
+            setButtonsExtended(true)
+        }
+    }
+
+    function onMouseMove() {
+        setQuarterFromShadowRef(shadowRef)
+        extendButtons()
+    }
+
     function onMouseLeave() {
-        timeoutRef.current = window.setTimeout(() => setButtonsExtended(''), 400)
+        timeoutRef.current = window.setTimeout(() => setButtonsExtended(false), 400)
     }
 
     const longPressEvents = useLongPress(
-        (clicked, _ms, coords) => {
+        clicked => {
+            setQuarterFromShadowRef(shadowRef)
+
             if (clicked) {
-                nextOpenMode === 'float' ? float() : dock()
+                dock()
             } else {
-                extendButtons(coords[0], coords[1])
+                extendButtons()
             }
         },
         { ms: 700, clickMs: 1 }
@@ -50,8 +75,21 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
 
     return (
         <>
-            <div
+            <Circle
+                rootNode
+                radius={64}
                 className="floating-toolbar-button"
+                content={
+                    <Tooltip
+                        title="PostHog Toolbar"
+                        placement={quarter.includes('n') ? 'bottom' : 'top'}
+                        getPopupContainer={() => shadowRef.current.shadowRoot}
+                    >
+                        <Logo style={{ width: 54, height: 54, filter: 'invert(1)', cursor: 'pointer' }} />
+                    </Tooltip>
+                }
+                top="3rem"
+                right="2rem"
                 {...longPressEvents}
                 onMouseMove={e => {
                     onMouseMove(e)
@@ -61,44 +99,43 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                     onMouseLeave(e)
                     longPressEvents.onMouseLeave(e)
                 }}
+                zIndex={3}
             >
-                <Logo />
-            </div>
-
-            <div
-                className={`floating-tiny-button float-button${
-                    buttonsExtended ? ` extended extended-${buttonsExtended}` : ''
-                }`}
-                onMouseMove={onMouseMove}
-                onMouseLeave={onMouseLeave}
-            >
-                <div className="float-content" onClick={float}>
-                    <Tooltip
-                        title="Floating Toolbar"
-                        placement={buttonsExtended.includes('e') ? 'right' : 'left'}
-                        getPopupContainer={() => shadowRef.current.shadowRoot}
-                    >
-                        <ProfileOutlined />
-                    </Tooltip>
-                </div>
-            </div>
-            <div
-                className={`floating-tiny-button close-button${
-                    buttonsExtended ? ` extended extended-${buttonsExtended}` : ''
-                }`}
-                onMouseMove={onMouseMove}
-                onMouseLeave={onMouseLeave}
-            >
-                <div className="float-content" onClick={hideButton}>
-                    <Tooltip
-                        title="Hide"
-                        placement={buttonsExtended.includes('e') ? 'right' : 'left'}
-                        getPopupContainer={() => shadowRef.current.shadowRoot}
-                    >
-                        <CloseOutlined />
-                    </Tooltip>
-                </div>
-            </div>
+                <Circle
+                    radius={32}
+                    distance={buttonsExtended ? 70 : 0}
+                    rotate={getQuarterRotation({ itemCount: 2, index: 0, padding: 30, quarter: quarters[quarter] })}
+                    content={
+                        <Tooltip
+                            title="Floating Toolbar"
+                            placement={quarter.includes('e') ? 'right' : 'left'}
+                            getPopupContainer={() => shadowRef.current.shadowRoot}
+                        >
+                            <ProfileOutlined onClick={float} />
+                        </Tooltip>
+                    }
+                    zIndex={1}
+                    onMouseMove={onMouseMove}
+                    onMouseLeave={onMouseLeave}
+                />
+                <Circle
+                    radius={32}
+                    distance={buttonsExtended ? 70 : 0}
+                    rotate={getQuarterRotation({ itemCount: 2, index: 1, padding: 30, quarter: quarters[quarter] })}
+                    content={
+                        <Tooltip
+                            title="Hide"
+                            placement={quarter.includes('e') ? 'right' : 'left'}
+                            getPopupContainer={() => shadowRef.current.shadowRoot}
+                        >
+                            <CloseOutlined onClick={hideButton} />
+                        </Tooltip>
+                    }
+                    zIndex={1}
+                    onMouseMove={onMouseMove}
+                    onMouseLeave={onMouseLeave}
+                />
+            </Circle>
         </>
     )
 }
