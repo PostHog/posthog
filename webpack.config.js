@@ -147,7 +147,9 @@ function createEntry(entry) {
             hot: true,
             host: webpackDevServerHost,
             port: 8234,
-            public: (process.env.IS_PORTER ? `https://${process.env.PORTER_WEBPACK_HOST}` : null),
+            public: (process.env.IS_PORTER ? 
+              `https://${process.env.PORTER_WEBPACK_HOST}` 
+              : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234`),
             allowedHosts: (process.env.IS_PORTER ? 
               [
                 `${process.env.PORTER_WEBPACK_HOST}`,
