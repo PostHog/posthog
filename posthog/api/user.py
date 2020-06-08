@@ -113,8 +113,8 @@ def redirect_to_site(request):
     }
     if settings.DEBUG:
         params["jsURL"] = "http://localhost:8234/"
-        if hasattr(settings, "TOOLBAR_VERSION"):
-            params["toolbarVersion"] = settings.TOOLBAR_VERSION
+        if request.user.toolbar_mode == "toolbar":
+            params["toolbarVersion"] = "toolbar"
 
     state = urllib.parse.quote(json.dumps(params))
 
