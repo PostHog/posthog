@@ -31,6 +31,8 @@
         "core-js": "3",
         "d3": "^5.15.0",
         "d3-sankey": "^0.12.3",
+        "editor": "^1.0.0",
+        "eslint-plugin-cypress": "^2.10.3",
         "funnel-graph-js": "^1.4.1",
         "kea": "^2.0.0-beta.8",
         "kea-loaders": "^0.2.2",

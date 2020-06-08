@@ -2,6 +2,7 @@ module.exports = {
     env: {
         browser: true,
         es6: true,
+        'cypress/globals': true,
     },
     settings: {
         react: {
@@ -21,7 +22,7 @@ module.exports = {
         ecmaVersion: 2018,
         sourceType: 'module',
     },
-    plugins: ['prettier', 'react'],
+    plugins: ['prettier', 'react', 'cypress'],
     rules: {
         'react/prop-types': [0],
         'react/no-unescaped-entities': [0],
