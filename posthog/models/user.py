@@ -80,6 +80,9 @@ class User(AbstractUser):
     anonymize_data: models.BooleanField = models.BooleanField(
         default=False, null=True, blank=True
     )
+    toolbar_mode: models.CharField = models.CharField(
+        max_length=200, null=True, blank=True, default="default"
+    )
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: List[str] = []

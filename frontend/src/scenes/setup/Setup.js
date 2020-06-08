@@ -15,6 +15,7 @@ import { ChangePassword } from './ChangePassword'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { hot } from 'react-hot-loader/root'
+import { ToolbarSettings } from 'scenes/setup/ToolbarSettings'
 
 export const Setup = hot(_Setup)
 function _Setup() {
@@ -71,6 +72,11 @@ function _Setup() {
             <Divider />
             <h2>Security and feature updates</h2>
             <UpdateEmailPreferences />
+            <Divider />
+            <h2>
+                PostHog Toolbar (<span style={{ color: 'red' }}>BETA</span>)
+            </h2>
+            <ToolbarSettings />
         </div>
     )
 }
