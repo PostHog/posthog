@@ -30,6 +30,15 @@ export const userLogic = kea({
             user => user.team.event_properties.map(property => ({ value: property, label: property })),
         ],
         eventNames: [() => [selectors.user], user => user.team.event_names],
+        customEventNames: [
+            () => [selectors.user],
+            user => {
+                const eventNames = user.team.event_names
+                const regex = new RegExp('^[^$].*')
+                const filtered = eventNames.filter(event => event.match(regex))
+                return filtered
+            },
+        ],
         eventNamesGrouped: [
             () => [selectors.user],
             user => {

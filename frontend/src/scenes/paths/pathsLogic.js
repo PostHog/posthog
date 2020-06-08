@@ -4,6 +4,33 @@ import api from 'lib/api'
 import { router } from 'kea-router'
 import lo from 'lodash'
 
+export const PAGEVIEW = '$pageview'
+export const SCREEN = '$screen'
+export const AUTOCAPTURE = '$autocapture'
+export const CUSTOM_EVENT = 'custom_event'
+
+export const pathOptionsToLabels = {
+    [`${PAGEVIEW}`]: 'Pageview (Web)',
+    [`${SCREEN}`]: 'Screen (Mobile)',
+    [`${AUTOCAPTURE}`]: 'Autocaptured Events',
+    [`${CUSTOM_EVENT}`]: 'Custom Events',
+}
+
+export const pathOptionsToProperty = {
+    [`${PAGEVIEW}`]: '$current_url',
+    [`${SCREEN}`]: '$screen_name',
+    [`${AUTOCAPTURE}`]: 'autocaptured_event',
+    [`${CUSTOM_EVENT}`]: 'custom_event',
+}
+
+function checkRoot(nodeToVerify, paths, start) {
+    let tempSource = paths.find(node => node.target === nodeToVerify.source)
+    while (tempSource !== undefined && !(tempSource.source.includes('1_') && tempSource.source.includes(start))) {
+        tempSource = paths.find(node => node.target === tempSource.source)
+    }
+    return tempSource
+}
+
 export const pathsLogic = kea({
     loaders: ({ values }) => ({
         paths: {
@@ -13,7 +40,15 @@ export const pathsLogic = kea({
             },
             loadPaths: async (_, breakpoint) => {
                 const params = toParams({ ...values.filter, properties: values.properties })
-                const paths = await api.get(`api/paths${params ? `/?${params}` : ''}`)
+                let paths = await api.get(`api/paths${params ? `/?${params}` : ''}`)
+                if (values.filter.start) {
+                    paths = paths.filter(checkingNode => {
+                        return (
+                            checkingNode.source.includes(values.filter.start) ||
+                            checkRoot(checkingNode, paths, values.filter.start)
+                        )
+                    })
+                }
                 const response = {
                     nodes: [
                         ...paths.map(path => ({ name: path.source, id: path.source_id })),
@@ -29,7 +64,9 @@ export const pathsLogic = kea({
     reducers: () => ({
         initialPathname: [state => router.selectors.location(state).pathname, { noop: a => a }],
         filter: [
-            {},
+            {
+                type: '$pageview',
+            },
             {
                 setFilter: (state, filter) => ({ ...state, ...filter }),
             },
@@ -45,12 +82,16 @@ export const pathsLogic = kea({
         setProperties: properties => ({ properties }),
         setFilter: filter => filter,
     }),
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         setProperties: () => {
             actions.loadPaths()
         },
         setFilter: () => {
-            actions.loadPaths()
+            if (
+                values.filter.type !== AUTOCAPTURE ||
+                (values.filter.type === AUTOCAPTURE && !isNaN(values.filter.start))
+            )
+                actions.loadPaths()
         },
     }),
     selectors: ({ selectors }) => ({

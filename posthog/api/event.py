@@ -1,15 +1,16 @@
-from datetime import datetime
-from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId
-from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value, get_compare_period_dates
+from datetime import datetime, timedelta
+from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId, Team
+from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value, get_compare_period_dates, dict_from_cursor_fetchall
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from django.db.models import QuerySet, F, Prefetch
+from django.db.models import QuerySet, F, Prefetch, Q
 from django.db.models.functions import Lag
-from django.db import connection
 from django.db.models.expressions import Window
-from typing import Any, Dict, List, Union
-import json
+from django.db import connection
 from django.utils.timezone import now
+from typing import Any, Dict, List, Union
+from django.utils.timezone import now
+import json
 import pandas as pd
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -56,7 +57,7 @@ class EventViewSet(viewsets.ModelViewSet):
         team = self.request.user.team_set.get()
         queryset = queryset.add_person_id(team.pk) # type: ignore
 
-        if self.action == 'list' or self.action == 'sessions': # type: ignore
+        if self.action == 'list' or self.action == 'sessions' or self.action == 'actions': # type: ignore
             queryset = self._filter_request(self.request, queryset)
         
         order_by = self.request.GET.get('orderBy')
@@ -122,29 +123,53 @@ class EventViewSet(viewsets.ModelViewSet):
         return events
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        events = [event for event in self.get_queryset()[0: 101]]
-        prefetched_events = self._prefetch_events(events[0:100])
+        queryset = self.get_queryset()
+        monday = now() + timedelta(days=-now().weekday())
+        events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[0: 101]
+
+        if len(events) < 101:
+            events = queryset[0: 101]
+
+        prefetched_events = self._prefetch_events([event for event in events])
+        path = request.get_full_path()
+
+        reverse = request.GET.get('orderBy', '-timestamp') != '-timestamp'
+        if len(events) > 100:
+            next_url: Union[bool, str] = '{}{}{}={}'.format(
+                path,
+                '&' if '?' in path else '?',
+                'after' if reverse else 'before',
+                events[99].timestamp.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+            )
+        else:
+            next_url = False
+
         return response.Response({
-            'next': len(events) > 100,
+            'next': next_url,
             'results': EventSerializer(prefetched_events, many=True).data
         })
 
     @action(methods=['GET'], detail=False)
     def actions(self, request: request.Request) -> response.Response:
-        actions = Action.objects.filter(
-            deleted=False,
-            team=request.user.team_set.get()
-        )
+        events = self.get_queryset()\
+            .filter(action__deleted=False, action__isnull=False)\
+            .prefetch_related(
+                Prefetch('action_set', queryset=Action.objects.order_by('id')
+            ))[0: 101]
         matches = []
-        for action in actions:
-            events = Event.objects.filter_by_action(action)
-            events = self._filter_request(request, events)
-            for event in events[0: 20]:
+        ids_seen: List[int] = []
+        for event in events:
+            if event.pk in ids_seen:
+                continue
+            ids_seen.append(event.pk)
+            for action in event.action_set.filter(deleted=False):
                 event.action = action
                 matches.append(event)
-        matches = sorted(matches, key=lambda event: event.id, reverse=True)
-        matches = self._prefetch_events(matches[0: 20])
-        return response.Response({'results': [self._serialize_actions(event) for event in matches]})
+        prefetched_events = self._prefetch_events(matches)
+        return response.Response({
+            'next': len(events) > 100,
+            'results': [self._serialize_actions(event) for event in prefetched_events]
+        })
 
     @action(methods=['GET'], detail=False)
     def values(self, request: request.Request) -> response.Response:

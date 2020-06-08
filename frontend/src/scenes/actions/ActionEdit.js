@@ -11,7 +11,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
         id: actionId,
         apiURL,
         onSave: (action, createNew) => onSave(action, !actionId, createNew),
-        params: '?include_count=1' + (temporaryToken ? '&temporary_token=' + temporaryToken : ''),
+        temporaryToken,
     })
     const { action, actionLoading, errorActionId } = useValues(logic)
     const { setAction, saveAction, setCreateNew } = useActions(logic)
@@ -35,7 +35,14 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
 
     return (
         <div className={isEditor ? '' : 'card'} style={{ marginTop: isEditor ? 8 : '' }}>
-            <form className={isEditor ? '' : 'card-body'} onSubmit={e => e.preventDefault()}>
+            <form
+                className={isEditor ? '' : 'card-body'}
+                onSubmit={e => {
+                    e.preventDefault()
+                    if (isEditor && showNewActionButton) setCreateNew(true)
+                    saveAction()
+                }}
+            >
                 <input
                     required
                     className="form-control"
@@ -135,9 +142,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                 <div className={isEditor ? 'btn-group save-buttons' : ''}>
                     {!isEditor ? addGroup : null}
                     <button
-                        type="submit"
                         disabled={!edited}
-                        onClick={() => saveAction()}
                         data-attr="save-action-button"
                         className={
                             edited ? 'btn-success btn btn-sm float-right' : 'btn-secondary btn btn-sm float-right'
@@ -145,20 +150,6 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                     >
                         Save action
                     </button>
-
-                    {isEditor && showNewActionButton && (
-                        <button
-                            type="submit"
-                            disabled={!edited}
-                            onClick={() => {
-                                setCreateNew(true)
-                                saveAction()
-                            }}
-                            className="btn btn-secondary btn-sm float-right"
-                        >
-                            Save & new action
-                        </button>
-                    )}
                 </div>
             </form>
         </div>

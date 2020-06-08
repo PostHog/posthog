@@ -23,15 +23,9 @@ export class ActionStep extends Component {
         this.state = {
             step: props.step,
             selection: Object.keys(props.step).filter(key => key != 'id' && key != 'isNew' && props.step[key]),
+            inspecting: false,
         }
-        this.onMouseOver = this.onMouseOver.bind(this)
-        this.onKeyDown = this.onKeyDown.bind(this)
-        this.Option = this.Option.bind(this)
-        this.sendStep = this.sendStep.bind(this)
         this.AutocaptureFields = this.AutocaptureFields.bind(this)
-        this.TypeSwitcher = this.TypeSwitcher.bind(this)
-        this.URLMatching = this.URLMatching.bind(this)
-        this.stop = this.stop.bind(this)
 
         this.box = document.createElement('div')
         document.body.appendChild(this.box)
@@ -48,7 +42,7 @@ export class ActionStep extends Component {
         this.box.style.opacity = '0.5'
         this.box.style.zIndex = '9999999999'
     }
-    onMouseOver(event) {
+    onMouseOver = event => {
         let el = event.currentTarget
         this.drawBox(el)
         let query = this.props.simmer(el)
@@ -78,11 +72,12 @@ export class ActionStep extends Component {
             () => this.sendStep(step)
         )
     }
-    onKeyDown(event) {
+    onKeyDown = event => {
         // stop selecting if esc key was pressed
         if (event.keyCode == 27) this.stop()
     }
     start() {
+        this.setState({ inspecting: true })
         document.querySelectorAll('a, button, input, select, textarea, label').forEach(element => {
             element.addEventListener('mouseover', this.onMouseOver, {
                 capture: true,
@@ -94,7 +89,8 @@ export class ActionStep extends Component {
         document.body.style.boxShadow = 'inset 0 0px 30px -5px #007bff'
         this.box.addEventListener('click', this.stop)
     }
-    stop() {
+    stop = () => {
+        this.setState({ inspecting: false })
         this.box.style.display = 'none'
         document.body.style.boxShadow = 'none'
         document.querySelectorAll('a, button, input, select, textarea, label').forEach(element => {
@@ -104,11 +100,11 @@ export class ActionStep extends Component {
         })
         document.removeEventListener('keydown', this.onKeyDown)
     }
-    sendStep(step) {
+    sendStep = step => {
         step.selection = this.state.selection
         this.props.onChange(step)
     }
-    Option(props) {
+    Option = props => {
         let onChange = e => {
             this.props.step[props.item] = e.target.value
 
@@ -171,7 +167,7 @@ export class ActionStep extends Component {
             </div>
         )
     }
-    TypeSwitcher() {
+    TypeSwitcher = () => {
         let { step, isEditor } = this.props
         return (
             <div>
@@ -268,7 +264,7 @@ export class ActionStep extends Component {
             </div>
         )
     }
-    URLMatching({ step, isEditor }) {
+    URLMatching = ({ step, isEditor }) => {
         return (
             <div className="btn-group" style={{ margin: isEditor ? '4px 0 0 8px' : '0 0 0 8px' }}>
                 <button
@@ -320,18 +316,25 @@ export class ActionStep extends Component {
                     <div
                         style={{
                             marginTop: step.event === '$pageview' && !isEditor ? 20 : 8,
+                            paddingBottom: isEditor ? 1 : 0,
                         }}
                     >
-                        {isEditor && (
+                        {isEditor && [
                             <button
+                                key="inspect-button"
                                 type="button"
                                 className="btn btn-sm btn-secondary"
                                 style={{ margin: '10px 0px 10px 12px' }}
                                 onClick={() => this.start()}
                             >
                                 Inspect element
-                            </button>
-                        )}
+                            </button>,
+                            this.state.inspecting && (
+                                <p key="inspect-prompt" style={{ marginLeft: 10, marginRight: 10 }}>
+                                    Hover over and click on an element you want to create an action for
+                                </p>
+                            ),
+                        ]}
 
                         {step.event === '$autocapture' && (
                             <this.AutocaptureFields step={step} isEditor={isEditor} actionId={actionId} />

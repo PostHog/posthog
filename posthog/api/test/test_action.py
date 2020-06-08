@@ -4,7 +4,7 @@ from freezegun import freeze_time
 from unittest.mock import patch, call
 
 from posthog.models import Action, ActionStep, Element, Event, Person, Team, Cohort
-from .base import BaseTest
+from .base import BaseTest, TransactionBaseTest
 
 
 @patch('posthog.tasks.calculate_action.calculate_action.delay')
@@ -131,8 +131,15 @@ class TestCreateAction(BaseTest):
         }, content_type='application/json', HTTP_ORIGIN='https://somewebsite.com')
         self.assertEqual(response.status_code, 200, response.json())
 
+    # This case happens when someone is running behind a proxy, but hasn't set `IS_BEHIND_PROXY`
+    def test_http_to_https(self, patch_delay):
+        response = self.client.post('/api/action/', data={
+            'name': 'user signed up again',
+        }, content_type='application/json', HTTP_ORIGIN='https://testserver/')
+        self.assertEqual(response.status_code, 200, response.json())
 
-class TestTrends(BaseTest):
+
+class TestTrends(TransactionBaseTest):
     TESTS_API = True
 
     def _create_events(self, use_time=False):
@@ -208,6 +215,29 @@ class TestTrends(BaseTest):
         self.assertEqual(action_response[0]['data'][4], 3.0)
         self.assertEqual(action_response[0]['labels'][5], 'Thu. 2 January')
         self.assertEqual(action_response[0]['data'][5], 1.0)
+        self.assertEqual(event_response[0]['label'], 'sign up')
+
+        self.assertTrue(self._compare_entity_response(action_response, event_response))
+
+    def test_trends_per_day_cumulative(self):
+        self._create_events()
+        with freeze_time('2020-01-04T13:00:01Z'):
+            with self.assertNumQueries(14):
+                action_response = self.client.get('/api/action/trends/?date_from=-7d&display=ActionsLineGraphCumulative').json()
+                event_response = self.client.get(
+                    '/api/action/trends/',
+                    data={
+                        'date_from': '-7d',
+                        'events': jdumps([{'id': "sign up"}, {'id': "no events"}]),
+                        'display': 'ActionsLineGraphCumulative'
+                    },
+                ).json()
+
+        self.assertEqual(action_response[0]['label'], 'sign up')
+        self.assertEqual(action_response[0]['labels'][4], 'Wed. 1 January')
+        self.assertEqual(action_response[0]['data'][4], 3.0)
+        self.assertEqual(action_response[0]['labels'][5], 'Thu. 2 January')
+        self.assertEqual(action_response[0]['data'][5], 4.0)
         self.assertEqual(event_response[0]['label'], 'sign up')
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
