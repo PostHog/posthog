@@ -249,6 +249,8 @@ export function clearDOMTextSelection() {
     }
 }
 
+export const posthogEvents = ['$autocapture', '$pageview', '$identify', '$pageleave']
+
 export default function isAndroidOrIOS() {
     return typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent)
 }
