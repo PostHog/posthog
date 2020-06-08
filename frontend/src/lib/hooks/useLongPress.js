@@ -12,6 +12,17 @@ function diffInCoords(e, initialCoords) {
     return Math.abs(coords[0] - initialCoords[0]) + Math.abs(coords[1] - initialCoords[1])
 }
 
+/*
+    Use: - const eventHandlers = useLongPress(callback, opts)
+         - render(<div {...eventHandlers}></div>)
+
+    Opts: - ms = 300           - number of ms before registered as long press
+          - clickMs = null     - if delay is between 0 < clickMs < x < ms --> count it as a click
+          - pixelDistance = 10 - pixels the mouse can move so that we still count it as a press
+          - touch = true       - support touch actions
+          - click = true       - support click actions
+          - exclude = ''       - selector for when to NOT start long-pressing
+ */
 export function useLongPress(
     callback = (clicked = false, ms = null) => {}, // eslint-disable-line
     { ms = 300, pixelDistance = 10, touch = true, click = true, exclude = '', clickMs = null }
