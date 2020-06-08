@@ -1,5 +1,6 @@
 describe('Sessions', () => {
     beforeEach(() => {
+        cy.get('[data-attr=menu-item-events]').click()
         cy.get('[data-attr=menu-item-sessions]').click()
     })
 
