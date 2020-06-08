@@ -4,7 +4,7 @@ import { entityFilterLogic } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow'
 import { Button } from 'antd'
 
-export function ActionFilter({ setFilters, filters, typeKey }) {
+export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector }) {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
     const { localFilters } = useValues(logic)
@@ -20,7 +20,13 @@ export function ActionFilter({ setFilters, filters, typeKey }) {
         <div>
             {localFilters &&
                 localFilters.map((filter, index) => (
-                    <ActionFilterRow logic={logic} filter={filter} index={index} key={index} />
+                    <ActionFilterRow
+                        logic={logic}
+                        filter={filter}
+                        index={index}
+                        key={index}
+                        hideMathSelector={hideMathSelector}
+                    />
                 ))}
             <Button
                 type="primary"
