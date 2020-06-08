@@ -162,7 +162,7 @@ export const dockLogic = kea({
                           }
                         : {
                               x: windowWidth - width - padding,
-                              y: windowHeight - width - padding,
+                              y: padding,
                           }
                 })
                 return positions
