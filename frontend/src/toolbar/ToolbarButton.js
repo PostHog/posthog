@@ -81,7 +81,7 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                 className="floating-toolbar-button"
                 content={
                     <Tooltip
-                        title="PostHog Toolbar"
+                        title="Launch Toolbar"
                         placement={quarter.includes('n') ? 'bottom' : 'top'}
                         getPopupContainer={() => shadowRef.current.shadowRoot}
                     >
@@ -111,12 +111,14 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                             placement={quarter.includes('e') ? 'right' : 'left'}
                             getPopupContainer={() => shadowRef.current.shadowRoot}
                         >
-                            <ProfileOutlined onClick={float} />
+                            <ProfileOutlined />
                         </Tooltip>
                     }
                     zIndex={1}
                     onMouseMove={onMouseMove}
                     onMouseLeave={onMouseLeave}
+                    onClick={float}
+                    style={{ cursor: 'pointer' }}
                 />
                 <Circle
                     radius={32}
@@ -128,12 +130,14 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                             placement={quarter.includes('e') ? 'right' : 'left'}
                             getPopupContainer={() => shadowRef.current.shadowRoot}
                         >
-                            <CloseOutlined onClick={hideButton} />
+                            <CloseOutlined />
                         </Tooltip>
                     }
                     zIndex={1}
                     onMouseMove={onMouseMove}
                     onMouseLeave={onMouseLeave}
+                    onClick={hideButton}
+                    style={{ cursor: 'pointer' }}
                 />
             </Circle>
         </>
