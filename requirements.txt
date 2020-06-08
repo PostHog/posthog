@@ -6,7 +6,7 @@ backoff==1.6.0
 billiard==3.6.3.0
 celery==4.4.2
 celery-redbeat==0.13.0
-certifi==2019.11.28
+certifi==2020.4.5.2
 cffi==1.14.0
 chardet==3.0.4
 coreapi==2.3.3
