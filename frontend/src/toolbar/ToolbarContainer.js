@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
-import Draggable from 'react-draggable'
 import { ToolbarContent } from '~/toolbar/ToolbarContent'
 import { CloseOutlined } from '@ant-design/icons'
 import React from 'react'
 import { ToolbarButton } from '~/toolbar/ToolbarButton'
+import { ToolbarDraggable } from '~/toolbar/ToolbarDraggable'
 
 export function ToolbarContainer({ dockLogic, ...props }) {
     const apiURL = `${props.apiURL}${props.apiURL.endsWith('/') ? '' : '/'}`
-    const { dockStatus, floatStatus, buttonStatus } = useValues(dockLogic)
+    const { dockStatus, floatStatus, buttonStatus, windowWidth } = useValues(dockLogic)
     const { button } = useActions(dockLogic)
 
     const showButton = buttonStatus !== 'disabled'
@@ -21,20 +21,20 @@ export function ToolbarContainer({ dockLogic, ...props }) {
 
     return (
         <>
-            {showButton ? (
-                <Draggable handle="#button-toolbar">
+            {showButton && windowWidth >= 0 ? (
+                <ToolbarDraggable type="button" handle="#button-toolbar">
                     <div id="button-toolbar" className={showInvisibleButton ? 'toolbar-invisible' : ''}>
                         <ToolbarButton {...props} dockLogic={dockLogic} type="button" apiURL={apiURL} />
                     </div>
-                </Draggable>
+                </ToolbarDraggable>
             ) : null}
 
-            {showFloat ? (
-                <Draggable handle=".toolbar-block">
+            {showFloat && windowWidth >= 0 ? (
+                <ToolbarDraggable type="float" handle=".toolbar-block">
                     <div id="float-toolbar" className={showInvisibleFloat ? 'toolbar-invisible' : ''}>
                         <ToolbarContent {...props} dockLogic={dockLogic} type="float" apiURL={apiURL} />
                     </div>
-                </Draggable>
+                </ToolbarDraggable>
             ) : null}
 
             {showDock ? (

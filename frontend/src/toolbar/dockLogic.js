@@ -4,6 +4,7 @@ import {
     removeDockScrollListener,
     applyDockBodyStyles,
     updateDockToolbarVariables,
+    keepInBounds,
 } from '~/toolbar/dockUtils'
 
 // props:
@@ -34,7 +35,14 @@ export const dockLogic = kea({
         floatAnimated: true,
         floatFaded: true,
         hideButtonAnimated: true,
-        setMode: (mode, update = false) => ({ mode, update, windowWidth: window.innerWidth }),
+        setMode: (mode, update = false) => ({
+            mode,
+            update,
+            windowWidth: window.innerWidth,
+            windowHeight: window.innerHeight,
+        }),
+
+        saveDragPosition: (mode, x, y) => ({ mode, x, y }),
     }),
 
     reducers: () => ({
@@ -60,6 +68,12 @@ export const dockLogic = kea({
             -1,
             {
                 setMode: (_, { windowWidth }) => windowWidth,
+            },
+        ],
+        windowHeight: [
+            -1,
+            {
+                setMode: (_, { windowHeight }) => windowHeight,
             },
         ],
         dockStatus: [
@@ -110,6 +124,13 @@ export const dockLogic = kea({
                 hideButtonAnimated: () => 'disabled',
             },
         ],
+        lastDragPosition: [
+            {},
+            { persist: true },
+            {
+                saveDragPosition: (state, { mode, x, y }) => ({ ...state, [mode]: { x, y } }),
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
@@ -123,6 +144,30 @@ export const dockLogic = kea({
             (windowWidth, sidebarWidth, padding) => windowWidth - sidebarWidth - 3 * padding,
         ],
         zoom: [() => [selectors.bodyWidth, selectors.windowWidth], (bodyWidth, windowWidth) => bodyWidth / windowWidth],
+        defaultPositions: [
+            () => [selectors.windowWidth, selectors.windowHeight, selectors.lastDragPosition],
+            (windowWidth, windowHeight, lastDragPositions) => {
+                if (windowWidth < 0 || windowHeight < 0) {
+                    return lastDragPositions
+                }
+                const positions = {}
+                ;['button', 'float'].forEach(mode => {
+                    const padding = 20
+                    const width = mode === 'button' ? 64 : 300
+                    const height = mode === 'button' ? 64 : 300
+                    positions[mode] = lastDragPositions[mode]
+                        ? {
+                              x: keepInBounds(lastDragPositions[mode].x, padding, windowWidth - width - padding),
+                              y: keepInBounds(lastDragPositions[mode].y, padding, windowHeight - height - padding),
+                          }
+                        : {
+                              x: windowWidth - width - padding,
+                              y: windowHeight - width - padding,
+                          }
+                })
+                return positions
+            },
+        ],
     }),
 
     events: ({ cache, actions, values }) => ({

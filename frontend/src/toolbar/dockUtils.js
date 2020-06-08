@@ -58,3 +58,7 @@ export function updateDockToolbarVariables(shadowRef, zoom, padding, sidebarWidt
         }
     }
 }
+
+export function keepInBounds(value, lowerBound, upperBound) {
+    return value < lowerBound ? lowerBound : value > upperBound ? upperBound : value
+}

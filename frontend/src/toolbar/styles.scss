@@ -9,9 +9,9 @@
 
 #float-toolbar {
     position: fixed;
-    top: 2rem;
+    top: 0;
+    left: 0;
     z-index: 2147483020;
-    right: 2rem;
     width: 300px;
     max-height: calc(100vh - 4rem);
     opacity: 1;
