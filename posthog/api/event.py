@@ -272,7 +272,7 @@ class EventViewSet(viewsets.ModelViewSet):
                 next: Union[bool, str] = '{}{}{}={}'.format(
                     path[1:],
                     '&' if '?' in path else '?',
-                    'before',
+                    'date_to',
                     calculated[49]['start_time'].strftime('%Y-%m-%dT%H:%M:%S.%fZ')
                 )
                 result.update({'next': next})
