@@ -136,7 +136,7 @@ export const dockLogic = kea({
                     actions.dock()
                 } else if (values.lastMode === 'float') {
                     actions.float()
-                } else if (values.lastMode === 'button') {
+                } else {
                     actions.button()
                 }
             })
