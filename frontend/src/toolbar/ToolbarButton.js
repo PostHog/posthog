@@ -88,8 +88,6 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                         <Logo style={{ width: 54, height: 54, filter: 'invert(1)', cursor: 'pointer' }} />
                     </Tooltip>
                 }
-                top="3rem"
-                right="2rem"
                 {...longPressEvents}
                 onMouseMove={e => {
                     onMouseMove(e)

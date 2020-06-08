@@ -152,17 +152,28 @@ export const dockLogic = kea({
                 }
                 const positions = {}
                 ;['button', 'float'].forEach(mode => {
-                    const padding = 30
-                    const width = mode === 'button' ? 64 : 300
-                    const height = mode === 'button' ? 64 : 300
+                    const width = mode === 'button' ? 0 : 300
+                    const widthPadding = mode === 'button' ? 60 : 20
+
+                    const height = mode === 'button' ? 0 : 300
+                    const heightPadding = mode === 'button' ? 80 : 20
+
                     positions[mode] = lastDragPositions[mode]
                         ? {
-                              x: keepInBounds(lastDragPositions[mode].x, padding, windowWidth - width - padding),
-                              y: keepInBounds(lastDragPositions[mode].y, padding, windowHeight - height - padding),
+                              x: keepInBounds(
+                                  lastDragPositions[mode].x,
+                                  widthPadding,
+                                  windowWidth - width - widthPadding
+                              ),
+                              y: keepInBounds(
+                                  lastDragPositions[mode].y,
+                                  heightPadding,
+                                  windowHeight - height - heightPadding
+                              ),
                           }
                         : {
-                              x: windowWidth - width - padding,
-                              y: padding,
+                              x: windowWidth - width - widthPadding,
+                              y: heightPadding,
                           }
                 })
                 return positions
