@@ -4,13 +4,12 @@ import moment from 'moment'
 import { EventElements } from 'scenes/events/EventElements'
 import { Tabs, Button } from 'antd'
 
-import { createActionFromEvent, recurseSelector } from './createActionFromEvent'
+import { createActionFromEvent } from './createActionFromEvent'
 const { TabPane } = Tabs
 
 export function EventDetails({ event }) {
     return (
         <>
-            {event.elements.length > 0 && recurseSelector(event.elements, '', 0)}
             <Button
                 onClick={() => createActionFromEvent(event, 0)}
                 style={{ float: 'right', zIndex: 9999 }}
