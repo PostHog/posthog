@@ -152,7 +152,7 @@ export const dockLogic = kea({
                 }
                 const positions = {}
                 ;['button', 'float'].forEach(mode => {
-                    const padding = 20
+                    const padding = 30
                     const width = mode === 'button' ? 64 : 300
                     const height = mode === 'button' ? 64 : 300
                     positions[mode] = lastDragPositions[mode]
