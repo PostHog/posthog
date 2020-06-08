@@ -6,13 +6,13 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0057_action_updated_at'),
+        ("posthog", "0063_team_completed_snippet_onboarding"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='user',
-            name='toolbar_mode',
-            field=models.CharField(blank=True, default='default', max_length=200, null=True),
+            model_name="user",
+            name="toolbar_mode",
+            field=models.CharField(blank=True, default="default", max_length=200, null=True),
         ),
     ]
