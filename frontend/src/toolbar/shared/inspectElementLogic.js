@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { dockLogic } from '~/toolbar/dockLogic'
-import Simmer from 'simmerjs'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
+import { elementToActionStep } from '~/toolbar/shared/utils'
 
 const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
 
@@ -10,8 +10,6 @@ const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
 // - div > div > button > span     <--- we probably care about the button, not the span
 // - div > div > a > span          <--- same with links
 const DOM_TRIM_DOWN_SELECTOR = 'a, svg, button'
-
-const simmer = new Simmer(window, { depth: 8 })
 
 function drawBox(box, element, zoom, padding) {
     if (!element) {
@@ -34,58 +32,6 @@ function drawBox(box, element, zoom, padding) {
     box.style.pointerEvents = 'auto'
     box.style.cursor = 'pointer'
     box.style.transition = 'all ease 0.1s'
-}
-
-const getSafeText = el => {
-    if (!el.childNodes || !el.childNodes.length) return
-    let elText = ''
-    el.childNodes.forEach(child => {
-        if (child.nodeType !== 3 || !child.textContent) return
-        elText += child.textContent
-            .trim()
-            .replace(/[\r\n]/g, ' ')
-            .replace(/[ ]+/g, ' ') // normalize whitespace
-            .substring(0, 255)
-    })
-    return elText
-}
-
-// function elementToSelection(element) {
-//     const tagName = element.tagName.toLowerCase()
-//
-//     return tagName === 'a'
-//         ? ['href', 'selector']
-//         : tagName === 'button'
-//         ? ['text', 'selector']
-//         : element.getAttribute('name')
-//         ? ['name', 'selector']
-//         : ['selector']
-// }
-
-function elementToQuery(element) {
-    if (!element) {
-        return null
-    }
-    return (
-        simmer(element)
-            // Turn tags into lower cases
-            .replace(/(^[A-Z]+| [A-Z]+)/g, d => d.toLowerCase())
-    )
-}
-
-function elementToActionStep(element) {
-    let query = elementToQuery(element)
-    const tagName = element.tagName.toLowerCase()
-
-    return {
-        event: '$autocapture',
-        tag_name: tagName,
-        href: element.getAttribute('href') || '',
-        name: element.getAttribute('name') || '',
-        text: getSafeText(element) || '',
-        selector: query || '',
-        url: window.location.protocol + '//' + window.location.host + window.location.pathname,
-    }
 }
 
 export const inspectElementLogic = kea({
