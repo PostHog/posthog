@@ -15,7 +15,7 @@ const tabComponents = {
 }
 
 export const ToolbarContent = hot(_ToolbarContent)
-function _ToolbarContent({ apiURL, temporaryToken, actionId, type, dockLogic, defaultTab }) {
+function _ToolbarContent({ apiURL, temporaryToken, actionId, type, dockLogic, shadowRef, defaultTab }) {
     const { tab, newTab } = useValues(toolbarTabLogic({ defaultTab }))
 
     const visible = tab ? { [tab]: 'visible' } : {}
