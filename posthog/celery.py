@@ -37,7 +37,7 @@ def setup_periodic_tasks(sender, **kwargs):
         update_event_partitions.s(),
     )
     sender.add_periodic_task(15*60, calculate_cohort.s(), name='debug')
-    sender.add_periodic_task(10.0, check_dashboard_items.s(), name='check dashboard items')
+    sender.add_periodic_task(1200, check_dashboard_items.s(), name='check dashboard items')
 
 @app.task
 def redis_heartbeat():
@@ -56,11 +56,12 @@ def calculate_cohort():
 @app.task
 def check_dashboard_items():
     keys = cache.keys("*_Trends")
-    from posthog.tasks.calculate_trends import calculate_trends
+    from posthog.tasks.calculate_trends import calculate_trends_task
     for key in keys:
         item = cache.get(key)['details']
-        data = calculate_trends(item['filter'], item['params'], item['team'])
-        print(data)
+        if item['params'].get('dashboard'):
+            data = calculate_trends_task(item['filter'], item['params'], item['team'])
+            cache.set(key, {'result':data, 'details': {'filter': item['filter'], 'params': item['params'], 'team': item['team']}}, 1800)
 
 @app.task(bind=True)
 def debug_task(self):

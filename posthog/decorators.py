@@ -20,9 +20,10 @@ def cached_function(cache_type: str, expiry=60):
             params = None
             team = None
             if cache_type == TRENDS_ENDPOINT:
-                filter =  args[1]
-                params = args[2]
-                team = args[3]
+                request = args[1]
+                filter =  Filter(request=request)
+                params = request.GET.dict()
+                team = request.user.team_set.get()
                 cache_key = generate_cache_key(filter.toJSON())
                 if params.get('dashboard'): #cache for 30 minutes if dashboard item
                     _expiry = 1800
