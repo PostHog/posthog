@@ -318,3 +318,6 @@ CACHES = {
         "KEY_PREFIX": "posthog"
     }
 }
+
+if TEST:
+    CACHES['default'] = {'BACKEND': 'django.core.cache.backends.dummy.DummyCache',}

@@ -11,7 +11,7 @@ def generate_cache_key(obj):
 TRENDS_ENDPOINT = 'Trends'
 FUNNEL_STEPS = 'Funnel_Steps'
 
-def cached_function(cache_type: str):
+def cached_function(cache_type: str, expiry=60):
     def inner_decorator(f):
         def wrapper(*args, **kw):
             cache_key = ''
@@ -33,8 +33,8 @@ def cached_function(cache_type: str):
             result = f(*args, **kw)
 
             if result is not None:
-                cache.set(cache_key, result, 60)
-                
+                cache.set(cache_key, result, expiry)
+
             return result
         return wrapper
     return inner_decorator
