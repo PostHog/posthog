@@ -7066,10 +7066,10 @@ postcss@^7.0.14, postcss@^7.0.16, postcss@^7.0.23, postcss@^7.0.26, postcss@^7.0
     source-map "^0.6.1"
     supports-color "^6.1.0"
 
-posthog-js@1.2.0:
-  version "1.2.0"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.2.0.tgz#d9d258b7787c826eafd311a64f83785614ba97ff"
-  integrity sha512-Bcq2/d3haFmuZrBqVbYXSjL2ndyVrI0PDqkFkQobc5WyXFEUEdK6xckcKg+SATh1MIg142zU7eC9RTMS0a4Qbw==
+posthog-js@1.2.1:
+  version "1.2.1"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.2.1.tgz#b9b68a7014d560f2e695ba712eee1867291c997b"
+  integrity sha512-LsnSEMznRBERW6ikbbRmCTzWGQ1kr54CCTIDsle56gJ34P9YB5xY9Nvfr4CMwZGB/XVqZtY3l5w5C08exTiCyw==
 
 prelude-ls@~1.1.2:
   version "1.1.2"

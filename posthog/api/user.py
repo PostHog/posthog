@@ -76,8 +76,7 @@ def redirect_to_site(request):
     request.user.save()
     params = {
         'action': 'mpeditor',
-        'token': team.api_token,  # TODO: remove when nobody is using posthog-js 1.1.2 or earlier anymore
-        'projectToken': team.api_token,
+        'token': team.api_token,
         'temporaryToken': request.user.temporary_token,
         'actionId': request.GET.get('actionId'),
         'defaultTab': 'actions',
