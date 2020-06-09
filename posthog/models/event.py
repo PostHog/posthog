@@ -41,7 +41,6 @@ TEAM_ACTION_QUERY_CACHE: Dict[int, str] = {}
 
 class SelectorPart(object):
     direct_descendant = False
-    unique_order = 0
 
     def __init__(self, tag: str, direct_descendant: bool):
         self.direct_descendant = direct_descendant
@@ -80,7 +79,6 @@ class Selector(object):
             if index > 0 and tags[index - 1] == ">":
                 direct_descendant = True
             part = SelectorPart(tag, direct_descendant)
-            part.unique_order = len([p for p in self.parts if p.data == part.data])
             self.parts.append(copy.deepcopy(part))
 
 
@@ -92,14 +90,9 @@ class EventManager(models.QuerySet):
         subqueries = {}
         for index, tag in enumerate(selector.parts):
             subqueries["match_{}".format(index)] = Subquery(
-                Element.objects.filter(
-                    group_id=OuterRef("pk"),
-                    **tag.data
-                ).values(
+                Element.objects.filter(group_id=OuterRef("pk"), **tag.data).values(
                     "order"
-                ).order_by('order')
-                # If there's two of the same element, for the second one we need to shift one
-                [tag.unique_order: tag.unique_order + 1]
+                )[:1]
             )
             filter["match_{}__isnull".format(index)] = False
             if index > 0:
