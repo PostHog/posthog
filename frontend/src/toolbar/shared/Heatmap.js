@@ -24,6 +24,7 @@ export function Heatmap({ apiURL, temporaryToken }) {
                 top: 0,
                 left: 0,
                 zIndex: '2147483620',
+                pointerEvents: 'none',
             }}
         >
             {highlightedRect && showElementFinder ? <FocusRect rect={highlightedRect} /> : null}
@@ -32,6 +33,7 @@ export function Heatmap({ apiURL, temporaryToken }) {
                     <React.Fragment key={index}>
                         <div
                             style={{
+                                pointerEvents: 'all',
                                 position: 'absolute',
                                 top: `${(rect.top - padding) / zoom}px`,
                                 left: `${(rect.left - padding) / zoom}px`,
