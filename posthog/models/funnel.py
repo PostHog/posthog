@@ -28,6 +28,7 @@ from .utils import namedtuplefetchall
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 
+from posthog.decorators import cached_function, FUNNEL_STEPS
 
 class Funnel(models.Model):
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
@@ -187,6 +188,7 @@ class Funnel(models.Model):
         query = query + sql.SQL(" ").join(lateral_joins) + query_footer
         return query
 
+    @cached_function(cache_type=FUNNEL_STEPS)
     def get_steps(self) -> List[Dict[str, Any]]:
         filter = Filter(data=self.filters)
         with connection.cursor() as cursor:
