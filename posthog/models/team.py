@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, connection
 from django.contrib.postgres.fields import JSONField, ArrayField
 from .action import Action
 from .action_step import ActionStep
@@ -7,7 +7,7 @@ from .dashboard_item import DashboardItem
 from .user import User
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from typing import Optional, List
-
+import os
 import secrets
 
 
@@ -49,6 +49,12 @@ class TeamManager(models.Manager):
             type=TRENDS_LINEAR,
             filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'math': 'dau', 'type': TREND_FILTER_TYPE_EVENTS}]}
         )
+
+        with connection.cursor() as cursor:
+            file_path = os.path.join(os.path.dirname(__file__), '../migrations/sql/materialize_sessions.sql')
+            materialize_sessions_sql = open(file_path).read()
+            cursor.execute(materialize_sessions_sql, [team.pk for _ in range(5)])
+
         return team
 
 

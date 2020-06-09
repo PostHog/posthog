@@ -233,8 +233,7 @@ class EventViewSet(viewsets.ModelViewSet):
         team = self.request.user.team_set.get()
         session_type = self.request.GET.get('session')
 
-        date_filter = request_to_date_query(request.GET.dict())
-
+        date_filter = request_to_date_query(request.GET.dict(), exact=True)
         if not date_filter.get('timestamp__gte'):
              date_filter['timestamp__gte'] = Event.objects.filter(team=team)\
                 .order_by('timestamp')[0]\
@@ -314,19 +313,7 @@ class EventViewSet(viewsets.ModelViewSet):
         return result
 
     def _session_list(self, base_query: str, params: Tuple[Any, ...], team: Team, date_filter: Dict[str, datetime]) -> List[Dict[str, Any]]:
-        session_list = 'SELECT * FROM (SELECT global_session_id, properties, start_time, length, sessions.distinct_id, event_count, events from\
-                                (SELECT\
-                                    global_session_id,\
-                                    count(1) as event_count,\
-                                    MAX(distinct_id) as distinct_id,\
-                                    EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp))) AS length,\
-                                    MIN(timestamp) as start_time,\
-                                    array_agg(json_build_object( \'id\', id, \'event\', event, \'timestamp\', timestamp, \'properties\', properties, \'elements_hash\', elements_hash) ORDER BY timestamp) as events\
-                                        FROM ({}) as count GROUP BY 1) as sessions\
-                                        LEFT OUTER JOIN posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id\
-                                        LEFT OUTER JOIN posthog_person ON posthog_person.id = posthog_persondistinctid.person_id\
-                                        ORDER BY start_time DESC) as ordered_sessions\
-                                        WHERE start_time <= \'{}\' LIMIT 50'.format(base_query, date_filter['timestamp__lte'])
+        session_list = 'SELECT * FROM sessions_team_{} WHERE start_time <= \'{}\' ORDER BY start_time DESC LIMIT 50'.format(team.pk, date_filter['timestamp__lte'])
                                         
         with connection.cursor() as cursor:
             cursor.execute(session_list, params)
