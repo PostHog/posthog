@@ -45,13 +45,9 @@ PostHog is the only <strong>product-focused</strong> open source analytics libra
 
 There are a couple of session-based open source libraries that are nice alternatives to Google Analytics. That's not what we are focused on.
 
-## One-line docker preview
+## PostHog SaaS
 
-```bash
-docker run -t -i --rm --publish 8000:8000 -v postgres:/var/lib/postgresql posthog/posthog:preview
-```
-
-This image has everything you need to try out PostHog locally! It will set up a server on http://127.0.0.1:8000.
+You can [sign up for a free account](https://app.posthog.com/signup) on our hosted platform.
 
 ## Deploy to Heroku
 
@@ -68,6 +64,10 @@ This image has everything you need to try out PostHog locally! It will set up a 
 ## Contributing
 
 We <3 contributions big or small. [See docs for a guide on how to get started](https://posthog.com/docs/contributing)
+
+## We're hiring!
+
+Come help us make PostHog even better. We're growing like crazy, [and we have a ton of open positions](https://posthog.com/careers).
 
 ## Open source / Paid
 
