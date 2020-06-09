@@ -51,6 +51,7 @@ export function SessionsTable({ logic }) {
                     </span>
                 )
             },
+            ellipsis: true,
         },
         {
             title: 'End Point',
@@ -63,6 +64,7 @@ export function SessionsTable({ logic }) {
                     </span>
                 )
             },
+            ellipsis: true,
         },
     ]
 
