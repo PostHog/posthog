@@ -2,7 +2,6 @@
 
 from django.db import migrations, connection
 import os
-from posthog.tasks.refresh_materialized_sessions import refresh_materialized_sessions
 
 def materialize_session(apps, schema_editor):
     Team = apps.get_model('posthog', 'Team')
@@ -12,7 +11,6 @@ def materialize_session(apps, schema_editor):
         materialize_sessions_sql = open(file_path).read()
         with connection.cursor() as cursor:
             cursor.execute(materialize_sessions_sql, [team.pk for _ in range(5)])
-            refresh_materialized_sessions.delay(team_id=team.pk)
 
 def reverse_materialize_session(apps, schema_editor):
     Team = apps.get_model('posthog', 'Team')

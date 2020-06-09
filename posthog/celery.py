@@ -51,6 +51,10 @@ def calculate_cohort():
     from posthog.tasks.calculate_cohort import calculate_cohorts
     calculate_cohorts()
 
+@app.task
+def refresh_mat(team_id: str):
+    print("Refreshed")
+
 @app.task(bind=True)
 def debug_task(self):
     print('Request: {0!r}'.format(self.request))

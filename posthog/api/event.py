@@ -16,6 +16,7 @@ from django.utils.timezone import now
 import json
 import pandas as pd
 from typing import Tuple, Optional
+from posthog.tasks.refresh_materialized_sessions import refresh_materialized_sessions
 
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
@@ -316,6 +317,7 @@ class EventViewSet(viewsets.ModelViewSet):
         return result
 
     def _session_list(self, base_query: str, params: Tuple[Any, ...], team: Team, date_filter: Dict[str, datetime]) -> List[Dict[str, Any]]:
+        
         session_list = 'SELECT * FROM sessions_team_{} WHERE start_time <= \'{}\' ORDER BY start_time DESC LIMIT 50'.format(team.pk, date_filter['timestamp__lte'])
                                         
         with connection.cursor() as cursor:
