@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { ToolbarContent } from '~/toolbar/ToolbarContent'
 import { CloseOutlined } from '@ant-design/icons'
 import React from 'react'
+import { Heatmap } from '~/toolbar/shared/Heatmap'
 import { ToolbarButton } from '~/toolbar/ToolbarButton'
 import { ToolbarDraggable } from '~/toolbar/ToolbarDraggable'
 
@@ -21,6 +22,8 @@ export function ToolbarContainer({ dockLogic, ...props }) {
 
     return (
         <>
+            <Heatmap {...props} dockLogic={dockLogic} />
+
             {showButton && windowWidth >= 0 ? (
                 <ToolbarDraggable type="button" handle="#button-toolbar">
                     <div id="button-toolbar" className={showInvisibleButton ? 'toolbar-invisible' : ''}>
