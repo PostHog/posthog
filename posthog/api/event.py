@@ -45,9 +45,9 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
     def get_elements(self, event):
         if not event.elements_hash:
             return []
-        if hasattr(event, 'elements_group'):
-            if event.elements_group:
-                return ElementSerializer(event.elements_group.element_set.all().order_by('order'), many=True).data
+        if hasattr(event, 'elements_group_cache'):
+            if event.elements_group_cache:
+                return ElementSerializer(event.elements_group_cache.element_set.all().order_by('order'), many=True).data
         elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by('order')
         return ElementSerializer(elements, many=True).data
 
@@ -110,19 +110,22 @@ class EventViewSet(viewsets.ModelViewSet):
             distinct_ids.append(event.distinct_id)
             if event.elements_hash:
                 hash_ids.append(event.elements_hash)
-        people = Person.objects.filter(team=team, persondistinctid__distinct_id__in=distinct_ids).prefetch_related(Prefetch('persondistinctid_set', to_attr='distinct_ids_cache'))
-
-        groups = self._prefech_elements(hash_ids, team)
-        
+        people = Person.objects\
+            .filter(team=team, persondistinctid__distinct_id__in=distinct_ids)\
+            .prefetch_related(Prefetch('persondistinctid_set', to_attr='distinct_ids_cache'))
+        if len(hash_ids) > 0:
+            groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related('element_set')
+        else:
+            groups = ElementGroup.objects.none()
         for event in events:
             try:
                 event.person_properties = [person.properties for person in people if event.distinct_id in person.distinct_ids][0] # type: ignore
             except IndexError:
                 event.person_properties = None # type: ignore
             try:
-                event.elements_group = [group for group in groups if group.hash == event.elements_hash][0] # type: ignore
+                event.elements_group_cache = [group for group in groups if group.hash == event.elements_hash][0] # type: ignore
             except IndexError:
-                event.elements_group = None # type: ignore
+                event.elements_group_cache = None # type: ignore
         return events
 
     def _prefech_elements(self, hash_ids: List[str], team: Team) -> QuerySet:

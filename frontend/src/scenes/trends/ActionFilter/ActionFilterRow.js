@@ -19,7 +19,7 @@ const determineFilterLabel = (visible, filter) => {
     return 'Add Filters'
 }
 
-export function ActionFilterRow({ logic, filter, index }) {
+export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
     const node = useRef()
     const { selectedFilter, entities } = useValues(logic)
     const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty } = useActions(logic)
@@ -68,11 +68,12 @@ export function ActionFilterRow({ logic, filter, index }) {
             >
                 {name || 'Select action'}
             </button>
-            <MathSelector math={math} index={index} onMathSelect={onMathSelect} />
+            {!hideMathSelector && <MathSelector math={math} index={index} onMathSelect={onMathSelect} />}
             <div
                 className="btn btn-sm btn-light"
                 onClick={() => setEntityFilterVisible(!entityFilterVisible)}
                 data-attr={'show-prop-filter-' + index}
+                style={{ marginLeft: 16 }}
             >
                 {determineFilterLabel(entityFilterVisible, filter)}
             </div>
@@ -117,7 +118,7 @@ function MathSelector(props) {
         <Dropdown
             title={items[items.map(i => i.toLowerCase()).indexOf(props.math)] || 'Total'}
             buttonClassName="btn btn-sm btn-light"
-            style={{ marginLeft: 32, marginRight: 16 }}
+            style={{ marginLeft: 32 }}
             data-attr={'math-selector-' + props.index}
         >
             <Tooltip
