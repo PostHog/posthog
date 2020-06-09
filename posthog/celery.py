@@ -5,6 +5,7 @@ from django.conf import settings
 from django.db import connection
 import redis
 import time
+from django.core.cache import cache
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'posthog.settings')
@@ -36,6 +37,7 @@ def setup_periodic_tasks(sender, **kwargs):
         update_event_partitions.s(),
     )
     sender.add_periodic_task(15*60, calculate_cohort.s(), name='debug')
+    sender.add_periodic_task(10.0, check_dashboard_items.s(), name='check dashboard items')
 
 @app.task
 def redis_heartbeat():
@@ -50,6 +52,15 @@ def update_event_partitions():
 def calculate_cohort():
     from posthog.tasks.calculate_cohort import calculate_cohorts
     calculate_cohorts()
+
+@app.task
+def check_dashboard_items():
+    keys = cache.keys("*_Trends")
+    from posthog.tasks.calculate_trends import calculate_trends
+    for key in keys:
+        item = cache.get(key)['details']
+        data = calculate_trends(item['filter'], item['params'], item['team'])
+        print(data)
 
 @app.task(bind=True)
 def debug_task(self):

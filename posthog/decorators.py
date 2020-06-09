@@ -16,11 +16,15 @@ def cached_function(cache_type: str, expiry=60):
         def wrapper(*args, **kw):
             cache_key = ''
             _expiry = expiry
+            filter = None
+            params = None
+            team = None
             if cache_type == TRENDS_ENDPOINT:
-                request = args[1]
-                filter = Filter(request=request)
+                filter =  args[1]
+                params = args[2]
+                team = args[3]
                 cache_key = generate_cache_key(filter.toJSON())
-                if request.GET.get('dashboard'): #cache for 30 minutes if dashboard item
+                if params.get('dashboard'): #cache for 30 minutes if dashboard item
                     _expiry = 1800
             elif cache_type == FUNNEL_STEPS:
                 funnel = args[0]
@@ -31,12 +35,12 @@ def cached_function(cache_type: str, expiry=60):
 
             cached_result = cache.get(cache_key)
             if cached_result is not None:
-                return cached_result
+                return cached_result['result']
 
             result = f(*args, **kw)
 
             if result is not None:
-                cache.set(cache_key, result, _expiry)
+                cache.set(cache_key, {'result':result, 'details': {'filter': filter, 'params': params, 'team': team}}, _expiry)
 
             return result
         return wrapper
