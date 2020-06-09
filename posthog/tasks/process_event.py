@@ -121,7 +121,11 @@ def _capture(ip: str,
     _store_names_and_properties(team=team, event=event, properties=properties)
 
     if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
-        Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+        # Catch race condition where in between getting and creating, another request already created this user.
+        try:
+            Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+        except IntegrityError:
+            pass
 
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
