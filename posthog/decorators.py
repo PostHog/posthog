@@ -15,25 +15,28 @@ def cached_function(cache_type: str, expiry=60):
     def inner_decorator(f):
         def wrapper(*args, **kw):
             cache_key = ''
-
+            _expiry = expiry
             if cache_type == TRENDS_ENDPOINT:
                 request = args[1]
                 filter = Filter(request=request)
                 cache_key = generate_cache_key(filter.toJSON())
+                if request.GET.get('dashboard'): #cache for 30 minutes if dashboard item
+                    _expiry = 1800
             elif cache_type == FUNNEL_STEPS:
                 funnel = args[0]
                 filter = Filter(data=funnel.filters)
                 cache_key = generate_cache_key(filter.toJSON())
 
-            cached_result = cache.get(cache_key + '_' + cache_type)
+            cache_key = cache_key + '_' + cache_type
 
+            cached_result = cache.get(cache_key)
             if cached_result is not None:
                 return cached_result
 
             result = f(*args, **kw)
 
             if result is not None:
-                cache.set(cache_key, result, expiry)
+                cache.set(cache_key, result, _expiry)
 
             return result
         return wrapper
