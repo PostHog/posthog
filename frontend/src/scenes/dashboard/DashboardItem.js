@@ -1,9 +1,9 @@
 import { Link } from 'lib/components/Link'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Dropdown, Menu } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
-import React from 'react'
+import React, { useEffect } from 'react'
 import { ActionsLineGraph } from 'scenes/trends/ActionsLineGraph'
 import { ActionsTable } from 'scenes/trends/ActionsTable'
 import { ActionsPie } from 'scenes/trends/ActionsPie'
@@ -86,6 +86,7 @@ export function DashboardItem({
     dashboards,
     enableWobblyDragging,
     index,
+    onRefresh,
 }) {
     const className = typeMap[item.type].className
     const Element = typeMap[item.type].element
@@ -105,6 +106,11 @@ export function DashboardItem({
     const filters = { ...item.filters, from_dashboard: item.id }
     const logicProps = { dashboardItemId: item.id, filters: filters }
     const { loadResults } = useActions(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
+    const { resultsLoading } = useValues(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
+
+    useEffect(() => {
+        onRefresh()
+    }, [resultsLoading])
 
     return (
         <div

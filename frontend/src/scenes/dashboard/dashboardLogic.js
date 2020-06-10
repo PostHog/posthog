@@ -26,6 +26,7 @@ export const dashboardLogic = kea({
         enableDragging: true,
         enableWobblyDragging: true,
         disableDragging: true,
+        refreshDashboardItem: id => ({ id }),
     }),
 
     loaders: ({ props }) => ({
@@ -331,6 +332,10 @@ export const dashboardLogic = kea({
                 toast.dismiss(cache.draggingToastId)
                 cache.draggingToastId = null
             }
+        },
+        refreshDashboardItem: async ({ id }) => {
+            const dashboardItem = await api.get(`api/dashboard_item/${id}`)
+            dashboardsModel.actions.updateDashboardItem(dashboardItem)
         },
     }),
 })
