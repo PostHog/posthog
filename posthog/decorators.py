@@ -2,7 +2,7 @@ import json
 import hashlib
 from posthog.models import Filter
 from django.core.cache import cache
-from typing import Optional
+import json
 
 def generate_cache_key(obj):
     stringified = json.dumps(obj)
@@ -29,7 +29,7 @@ def cached_function(cache_type: str, expiry=1):
                 filter =  Filter(request=request)
                 params = request.GET.dict()
                 team = request.user.team_set.get()
-                cache_key = generate_cache_key(filter.toJSON())
+                cache_key = generate_cache_key(json.dumps(params))
                 payload = {'filter': filter.toJSON(), 'params': params, 'team_id': team.pk}
             elif cache_type == FUNNEL_ENDPOINT:
                 request = args[1]
@@ -39,11 +39,11 @@ def cached_function(cache_type: str, expiry=1):
                 cache_key = generate_cache_key(str(pk) + '_' + str(team.pk))
                 payload = {'pk': pk, 'params': params, 'team_id': team.pk}
             
-            if params is not None and params.get('refresh'):
+            if params and params.get('refresh'):
                 cache.delete(cache_key + '_' + cache_type)
                 cache.delete(cache_key + '_' + 'dashboard' + '_' + cache_type)
 
-            if params is not None and payload is not None and params.get('from_dashboard'): #cache for 30 minutes if dashboard item
+            if params and payload and params.get('from_dashboard'): #cache for 30 minutes if dashboard item
                 cache_key = cache_key + '_' + 'dashboard'
                 _expiry = 900
                 dashboard_id = params.get('from_dashboard')
@@ -54,14 +54,14 @@ def cached_function(cache_type: str, expiry=1):
 
             # return result if cached
             cached_result = cache.get(cache_key)
-            if cached_result is not None:
+            if cached_result :
                 return cached_result['result']
 
             # call wrapped function
             result = f(*args, **kw)
 
             # cache new data using
-            if result is not None and payload is not None:
+            if result and payload:
                 cache.set(cache_key, {'result':result, 'details': payload, 'type': cache_type}, _expiry)
 
             return result
