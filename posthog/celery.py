@@ -55,13 +55,15 @@ def calculate_cohort():
 
 @app.task
 def check_dashboard_items():
-    keys = cache.keys("*_Trends")
-    from posthog.tasks.calculate_trends import calculate_trends_task
+    keys = cache.keys("*_dashboard_*")
+    from posthog.tasks.update_cache import update_cache
     for key in keys:
-        item = cache.get(key)['details']
-        if item['params'].get('dashboard'):
-            data = calculate_trends_task(item['filter'], item['params'], item['team'])
-            cache.set(key, {'result':data, 'details': {'filter': item['filter'], 'params': item['params'], 'team': item['team']}}, 1800)
+        item = cache.get(key)
+        if item is not None and item['details'] is not None:
+            cache_type = item['type']
+            payload = item['details']
+            data = update_cache(cache_type, payload)
+            cache.set(key, {'result':data, 'details': payload, 'type': cache_type}, 1800)
 
 @app.task(bind=True)
 def debug_task(self):

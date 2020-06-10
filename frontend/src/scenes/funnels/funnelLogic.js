@@ -26,7 +26,7 @@ export const funnelLogic = kea({
         ],
         stepsWithCount: {
             loadStepsWithCount: async (id = props.id) => {
-                return (await api.get('api/funnel/' + id)).steps
+                return (await api.get('api/funnel/' + id + '/?refresh=true')).steps
             },
         },
         people: {

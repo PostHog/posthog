@@ -213,7 +213,7 @@ export function DashboardItem({
                         <div className="graph-container">
                             <Element
                                 dashboardItemId={item.id}
-                                filters={{ ...item.filters, dashboard: true }}
+                                filters={{ ...item.filters, from_dashboard: true }}
                                 color={color}
                                 theme={color === 'white' ? 'light' : 'dark'}
                             />

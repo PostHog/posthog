@@ -25,7 +25,10 @@ export class FunnelViz extends Component {
         window.removeEventListener('resize', this.buildChart)
     }
     fetchFunnel() {
-        api.get('api/funnel/' + this.props.filters.funnel_id).then(funnel => this.setState({ funnel }, this.buildChart))
+        const { from_dashboard } = this.props.filters
+        api.get(
+            'api/funnel/' + this.props.filters.funnel_id + (from_dashboard ? '/?from_dashboard=true' : '')
+        ).then(funnel => this.setState({ funnel }, this.buildChart))
     }
     componentDidUpdate(prevProps) {
         if (prevProps.funnel !== this.props.funnel && this.state.funnel) {
