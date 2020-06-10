@@ -144,6 +144,10 @@ export const dockLogic = kea({
             (windowWidth, sidebarWidth, padding) => windowWidth - sidebarWidth - 3 * padding,
         ],
         zoom: [() => [selectors.bodyWidth, selectors.windowWidth], (bodyWidth, windowWidth) => bodyWidth / windowWidth],
+
+        domZoom: [() => [selectors.zoom, selectors.mode], (zoom, mode) => (mode === 'dock' ? zoom : 1)],
+        domPadding: [() => [selectors.padding, selectors.mode], (padding, mode) => (mode === 'dock' ? padding : 0)],
+
         defaultPositions: [
             () => [selectors.windowWidth, selectors.windowHeight, selectors.lastDragPosition],
             (windowWidth, windowHeight, lastDragPositions) => {

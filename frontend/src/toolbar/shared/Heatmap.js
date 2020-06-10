@@ -11,7 +11,7 @@ export function Heatmap({ apiURL, temporaryToken }) {
     const logic = heatmapLogic({ apiURL, temporaryToken, current_url: href })
     const { countedElementsWithRects, highlightedElement, showElementFinder } = useValues(logic)
     const { highlightElement } = useActions(logic)
-    const { zoom, padding } = useValues(dockLogic)
+    const { domZoom, domPadding } = useValues(dockLogic)
     const { selecting: inspectingElement } = useValues(inspectElementLogic)
 
     const highlightedRect = highlightedElement ? highlightedElement.getBoundingClientRect() : null
@@ -37,10 +37,10 @@ export function Heatmap({ apiURL, temporaryToken }) {
                             style={{
                                 pointerEvents: inspectingElement ? 'none' : 'all',
                                 position: 'absolute',
-                                top: `${(rect.top - padding) / zoom}px`,
-                                left: `${(rect.left - padding) / zoom}px`,
-                                width: `${(rect.right - rect.left) / zoom}px`,
-                                height: `${(rect.bottom - rect.top) / zoom}px`,
+                                top: `${(rect.top - domPadding) / domZoom}px`,
+                                left: `${(rect.left - domPadding) / domZoom}px`,
+                                width: `${(rect.right - rect.left) / domZoom}px`,
+                                height: `${(rect.bottom - rect.top) / domZoom}px`,
                                 zIndex: 1,
                                 opacity: highlightedElement && highlightedElement !== element ? 0.4 : 1,
                                 transition: 'opacity 0.2s',
@@ -60,8 +60,8 @@ export function Heatmap({ apiURL, temporaryToken }) {
                             style={{
                                 position: 'absolute',
                                 zIndex: 2,
-                                top: `${(rect.top - padding - 7) / zoom}px`,
-                                left: `${(rect.left + rect.width - padding - 14) / zoom}px`,
+                                top: `${(rect.top - domPadding - 7) / domZoom}px`,
+                                left: `${(rect.left + rect.width - domPadding - 14) / domZoom}px`,
                                 lineHeight: '14px',
                                 padding: '1px 4px',
                                 opacity: highlightedElement && highlightedElement !== element ? 0.4 : 1,
