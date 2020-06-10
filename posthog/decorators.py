@@ -43,7 +43,7 @@ def cached_function(cache_type: str, expiry=1):
                 cache.delete(cache_key + '_' + cache_type)
                 cache.delete(cache_key + '_' + 'dashboard' + '_' + cache_type)
 
-            if params is not None and params.get('from_dashboard'): #cache for 30 minutes if dashboard item
+            if params is not None and payload is not None and params.get('from_dashboard'): #cache for 30 minutes if dashboard item
                 cache_key = cache_key + '_' + 'dashboard'
                 _expiry = 900
                 dashboard_id = params.get('from_dashboard')

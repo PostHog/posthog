@@ -5,7 +5,7 @@ import PropTypes from 'prop-types'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
-export function ActionsTable({ dashboardItemId = null, color = 'white', filters: filtersParam }) {
+export function ActionsTable({ dashboardItemId = null, filters: filtersParam }) {
     const { filters, results, resultsLoading } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
     const { loadResults } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
 
@@ -23,7 +23,9 @@ export function ActionsTable({ dashboardItemId = null, color = 'white', filters:
                     {
                         title: filters.session ? 'Session Attribute' : 'Action',
                         dataIndex: 'label',
-                        render: (_, { label }) => <div style={{ wordBreak: 'break-all' }}>{label}</div>,
+                        render: function renderLabel(_, { label }) {
+                            return <div style={{ wordBreak: 'break-all' }}>{label}</div>
+                        },
                     },
                     { title: filters.session ? 'Value' : 'Count', dataIndex: 'count' },
                 ]}
