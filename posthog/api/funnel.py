@@ -21,7 +21,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             return []
         funnel.steps_cache = True # type: ignore
 
-        if self.context['view'].action != 'retrieve' or self.context['request'].GET.get('exclude_count'):
+        if self.context.get('cache', None) is None and (self.context['view'].action != 'retrieve' or self.context['request'].GET.get('exclude_count')):
             return []
         return funnel.get_steps()
 

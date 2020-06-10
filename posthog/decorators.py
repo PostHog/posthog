@@ -30,14 +30,14 @@ def cached_function(cache_type: str, expiry=30):
                 params = request.GET.dict()
                 team = request.user.team_set.get()
                 cache_key = generate_cache_key(filter.toJSON())
-                payload = {'filter': filter, 'params': params, 'team': team}
+                payload = {'filter': filter.toJSON(), 'params': params, 'team_id': team.pk}
             elif cache_type == FUNNEL_ENDPOINT:
                 request = args[1]
                 pk = args[2]
                 params = request.GET.dict()
                 team = request.user.team_set.get()
                 cache_key = generate_cache_key(str(pk) + '_' + str(team.pk))
-                payload = {'pk': pk, 'params': params, 'team': team}
+                payload = {'pk': pk, 'params': params, 'team_id': team.pk}
             
             if params is not None and params.get('refresh'):
                 cache.delete(cache_key + '_' + cache_type)
