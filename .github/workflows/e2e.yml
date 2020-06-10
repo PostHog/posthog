@@ -104,7 +104,6 @@ jobs:
               uses: cypress-io/github-action@v1
               with:
                   config-file: cypress.json
-                  record: true
                   parallel: true
                   group: 'PostHog Frontend'
               env:
