@@ -1,4 +1,4 @@
-from posthog.models import Event, Team, Person, PersonDistinctId, Cohort
+from posthog.models import Event, Team, Person, PersonDistinctId, Cohort, Filter
 from posthog.utils import convert_property_value
 from rest_framework import serializers, viewsets, response, request
 from rest_framework.decorators import action
@@ -8,6 +8,7 @@ from django.db.models import Q, Prefetch, QuerySet, Subquery, OuterRef, Count, F
 from .event import EventSerializer
 from typing import Union
 from .base import CursorPagination as BaseCursorPagination
+import json
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
     last_event = serializers.SerializerMethodField()
@@ -64,6 +65,8 @@ class PersonViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(properties__icontains=' '.join(contains))
         if request.GET.get('cohort'):
             queryset = queryset.filter(cohort__id=request.GET['cohort'])
+        if request.GET.get('properties'):
+            queryset = queryset.filter(Filter(data={'properties': json.loads(request.GET['properties'])}).properties_to_Q())
 
         queryset = queryset.prefetch_related(Prefetch('persondistinctid_set', to_attr='distinct_ids_cache'))
         return queryset

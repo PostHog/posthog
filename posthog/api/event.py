@@ -135,14 +135,14 @@ class EventViewSet(viewsets.ModelViewSet):
 
         reverse = request.GET.get('orderBy', '-timestamp') != '-timestamp'
         if len(events) > 100:
-            next_url: Union[bool, str] = '{}{}{}={}'.format(
+            next_url: Union[bool, str] = request.build_absolute_uri('{}{}{}={}'.format(
                 path,
                 '&' if '?' in path else '?',
                 'after' if reverse else 'before',
                 events[99].timestamp.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
-            )
+            ))
         else:
-            next_url = False
+            next_url = None
 
         return response.Response({
             'next': next_url,

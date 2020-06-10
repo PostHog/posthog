@@ -1,5 +1,6 @@
 from .base import BaseTest
 from posthog.models import Person, Event, Cohort
+import json
 
 class TestPerson(BaseTest):
     TESTS_API = True
@@ -24,6 +25,17 @@ class TestPerson(BaseTest):
         self.assertEqual(len(response['results']), 2)
 
         response = self.client.get('/api/person/?search=another@gm').json()
+        self.assertEqual(len(response['results']), 1)
+
+    def test_properties(self):
+        Person.objects.create(team=self.team, distinct_ids=['distinct_id'], properties={'email': 'someone@gmail.com'})
+        Person.objects.create(team=self.team, distinct_ids=['distinct_id_2'], properties={'email': 'another@gmail.com'})
+        Person.objects.create(team=self.team, distinct_ids=['distinct_id_3'], properties={})
+
+        response = self.client.get('/api/person/?properties=%s' % json.dumps([{'key': 'email', 'operator': 'is_set', 'value': 'true'}])).json()
+        self.assertEqual(len(response['results']), 2)
+
+        response = self.client.get('/api/person/?properties=%s' % json.dumps([{'key': 'email', 'operator': 'icontains', 'value': 'another@gm'}])).json()
         self.assertEqual(len(response['results']), 1)
 
     def test_person_property_names(self):
