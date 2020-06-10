@@ -1,4 +1,5 @@
 import { Link } from 'lib/components/Link'
+import { useActions } from 'kea'
 import { Dropdown, Menu } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
@@ -24,6 +25,7 @@ import {
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import moment from 'moment'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -99,6 +101,9 @@ export function DashboardItem({
         exclude: 'table, table *',
     })
 
+    const filters = { ...item.filters, from_dashboard: item.id }
+    const { loadResults } = useActions(trendsLogic({ dashboardItemId: item.id, filters: filters }))
+
     return (
         <div
             key={item.id}
@@ -124,7 +129,7 @@ export function DashboardItem({
                         </Link>
                     </div>
                     <div className="dashboard-item-settings">
-                        <span style={{ cursor: 'pointer', marginTop: -3 }}>
+                        <span style={{ cursor: 'pointer', marginTop: -3 }} onClick={() => loadResults(true)}>
                             {item.last_refresh && (
                                 <i>Last Updated {moment(item.last_refresh).format('MMMM Do YYYY h:mm a')}</i>
                             )}
@@ -221,7 +226,7 @@ export function DashboardItem({
                         <div className="graph-container">
                             <Element
                                 dashboardItemId={item.id}
-                                filters={{ ...item.filters, from_dashboard: item.id }}
+                                filters={filters}
                                 color={color}
                                 theme={color === 'white' ? 'light' : 'dark'}
                             />

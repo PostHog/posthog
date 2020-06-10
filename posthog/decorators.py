@@ -12,7 +12,7 @@ def generate_cache_key(obj):
 TRENDS_ENDPOINT = 'Trends'
 FUNNEL_ENDPOINT = 'Funnel'
 
-def cached_function(cache_type: str, expiry=30):
+def cached_function(cache_type: str, expiry=1):
     def inner_decorator(f):
         def wrapper(*args, **kw):
             cache_key = ''
@@ -46,6 +46,9 @@ def cached_function(cache_type: str, expiry=30):
             if params is not None and params.get('from_dashboard'): #cache for 30 minutes if dashboard item
                 cache_key = cache_key + '_' + 'dashboard'
                 _expiry = 900
+                dashboard_id = params.get('from_dashboard')
+                payload.update({'dashboard_id': dashboard_id})
+                
 
             cache_key = cache_key + '_' + cache_type
 

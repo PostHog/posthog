@@ -27,7 +27,7 @@ export class FunnelViz extends Component {
     fetchFunnel() {
         const { from_dashboard } = this.props.filters
         api.get(
-            'api/funnel/' + this.props.filters.funnel_id + (from_dashboard ? '/?from_dashboard=true' : '')
+            'api/funnel/' + this.props.filters.funnel_id + (from_dashboard ? '/?from_dashboard=' + from_dashboard : '')
         ).then(funnel => this.setState({ funnel }, this.buildChart))
     }
     componentDidUpdate(prevProps) {
