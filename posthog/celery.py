@@ -37,7 +37,7 @@ def setup_periodic_tasks(sender, **kwargs):
         update_event_partitions.s(),
     )
     sender.add_periodic_task(15*60, calculate_cohort.s(), name='debug')
-    sender.add_periodic_task(1200, check_dashboard_items.s(), name='check dashboard items')
+    sender.add_periodic_task(600, check_dashboard_items.s(), name='check dashboard items')
 
 @app.task
 def redis_heartbeat():
@@ -63,7 +63,7 @@ def check_dashboard_items():
             cache_type = item['type']
             payload = item['details']
             data = update_cache(cache_type, payload)
-            cache.set(key, {'result':data, 'details': payload, 'type': cache_type}, 1800)
+            cache.set(key, {'result':data, 'details': payload, 'type': cache_type}, 900)
 
 @app.task(bind=True)
 def debug_task(self):

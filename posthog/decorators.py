@@ -44,7 +44,7 @@ def cached_function(cache_type: str, expiry=30):
 
             if params.get('from_dashboard'): #cache for 30 minutes if dashboard item
                 cache_key = cache_key + '_' + 'dashboard'
-                _expiry = 1800
+                _expiry = 900
 
             cache_key = cache_key + '_' + cache_type
 
