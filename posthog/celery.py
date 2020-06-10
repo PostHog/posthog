@@ -63,7 +63,8 @@ def check_dashboard_items():
             cache_type = item['type']
             payload = item['details']
             data = update_cache(cache_type, payload)
-            cache.set(key, {'result':data, 'details': payload, 'type': cache_type}, 900)
+            if data is not None:
+                cache.set(key, {'result':data, 'details': payload, 'type': cache_type}, 900)
 
 @app.task(bind=True)
 def debug_task(self):

@@ -2,6 +2,7 @@ import json
 import hashlib
 from posthog.models import Filter
 from django.core.cache import cache
+from typing import Optional
 
 def generate_cache_key(obj):
     stringified = json.dumps(obj)
@@ -38,11 +39,11 @@ def cached_function(cache_type: str, expiry=30):
                 cache_key = generate_cache_key(str(pk) + '_' + str(team.pk))
                 payload = {'pk': pk, 'params': params, 'team': team}
             
-            if params.get('refresh'):
+            if params is not None and params.get('refresh'):
                 cache.delete(cache_key + '_' + cache_type)
                 cache.delete(cache_key + '_' + 'dashboard' + '_' + cache_type)
 
-            if params.get('from_dashboard'): #cache for 30 minutes if dashboard item
+            if params is not None and params.get('from_dashboard'): #cache for 30 minutes if dashboard item
                 cache_key = cache_key + '_' + 'dashboard'
                 _expiry = 900
 

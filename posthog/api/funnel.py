@@ -47,7 +47,7 @@ class FunnelViewSet(viewsets.ModelViewSet):
         return Response(data)
 
     @cached_function(cache_type=FUNNEL_ENDPOINT)
-    def _retrieve(self, request, pk=None):
+    def _retrieve(self, request, pk=None) -> dict:
         instance = self.get_object()
         serializer = self.get_serializer(instance)
         return serializer.data
