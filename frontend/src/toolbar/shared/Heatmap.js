@@ -4,6 +4,7 @@ import { heatmapLogic } from '~/toolbar/shared/heatmapLogic'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { FocusRect } from '~/toolbar/shared/FocusRect'
+import { inspectElementLogic } from '~/toolbar/shared/inspectElementLogic'
 
 export function Heatmap({ apiURL, temporaryToken }) {
     const { href } = useValues(currentPageLogic)
@@ -11,6 +12,7 @@ export function Heatmap({ apiURL, temporaryToken }) {
     const { countedElementsWithRects, highlightedElement, showElementFinder } = useValues(logic)
     const { highlightElement } = useActions(logic)
     const { zoom, padding } = useValues(dockLogic)
+    const { selecting: inspectingElement } = useValues(inspectElementLogic)
 
     const highlightedRect = highlightedElement ? highlightedElement.getBoundingClientRect() : null
 
@@ -33,7 +35,7 @@ export function Heatmap({ apiURL, temporaryToken }) {
                     <React.Fragment key={index}>
                         <div
                             style={{
-                                pointerEvents: 'all',
+                                pointerEvents: inspectingElement ? 'none' : 'all',
                                 position: 'absolute',
                                 top: `${(rect.top - padding) / zoom}px`,
                                 left: `${(rect.left - padding) / zoom}px`,
