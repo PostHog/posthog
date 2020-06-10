@@ -1,23 +1,31 @@
 import './ToolbarButton.scss'
 
 import React, { useState, useRef, useEffect } from 'react'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useLongPress } from 'lib/hooks/useLongPress'
-import { CloseOutlined, ProfileOutlined } from '@ant-design/icons'
+import { CloseOutlined, ProfileOutlined, SearchOutlined, FireFilled } from '@ant-design/icons'
 import { Tooltip } from 'antd'
 import { Logo } from '~/toolbar/assets/Logo'
 import { Circle } from '~/toolbar/shared/Circle'
+import { inspectElementLogic } from '~/toolbar/shared/inspectElementLogic'
 
 const quarters = { ne: 0, nw: 1, sw: 2, se: 3 }
 
 function getQuarterRotation({ itemCount, index, quarter, padding: inputPadding }) {
     const padding = typeof inputPadding !== 'undefined' ? inputPadding : 90 / itemCount
-    const angle = quarter * 90 + padding / 2 + ((90 - padding) / (itemCount - 1)) * index
+    const angle = quarter * 90 + (itemCount === 1 ? 45 : padding / 2 + ((90 - padding) / (itemCount - 1)) * index)
+    // const angle = quarter * 90 + padding / 2 + ((90 - padding) / (itemCount - 1)) * index
     return -angle
+}
+
+function reverseQuarter(quarter) {
+    return (quarter[0] === 'n' ? 's' : 'n') + (quarter[1] === 'e' ? 'w' : 'e')
 }
 
 export function ToolbarButton({ dockLogic, shadowRef }) {
     const { dock, float, hideButton } = useActions(dockLogic)
+    const { start, stop } = useActions(inspectElementLogic)
+    const { selecting: inspectingElement } = useValues(inspectElementLogic)
 
     const [quarter, setQuarter] = useState('ne')
     const [buttonsExtended, setButtonsExtended] = useState(false)
@@ -57,7 +65,7 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
     }
 
     function onMouseLeave() {
-        timeoutRef.current = window.setTimeout(() => setButtonsExtended(false), 400)
+        timeoutRef.current = window.setTimeout(() => setButtonsExtended(false), 1000)
     }
 
     const longPressEvents = useLongPress(
@@ -72,6 +80,14 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
         },
         { ms: 700, clickMs: 1 }
     )
+
+    let index = 0
+    const itemCount = 3
+    const padding = -20
+    const distance = buttonsExtended ? 100 : 0
+    const closeDistance = buttonsExtended ? 50 : 0
+    const inspectDistance = buttonsExtended ? distance : inspectingElement ? 50 : 0
+    const heatmapDistance = buttonsExtended ? distance : 50 // TODO: reset to 0 when can be toggled
 
     return (
         <>
@@ -100,9 +116,61 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                 zIndex={3}
             >
                 <Circle
-                    radius={32}
-                    distance={buttonsExtended ? 70 : 0}
-                    rotate={getQuarterRotation({ itemCount: 2, index: 0, padding: 30, quarter: quarters[quarter] })}
+                    radius={48}
+                    distance={inspectDistance}
+                    rotate={getQuarterRotation({ itemCount, index: index++, padding, quarter: quarters[quarter] })}
+                    content={
+                        <Tooltip
+                            title="Inspect Element"
+                            placement={quarter.includes('e') ? 'right' : 'left'}
+                            getPopupContainer={() => shadowRef.current.shadowRoot}
+                        >
+                            <SearchOutlined />
+                        </Tooltip>
+                    }
+                    zIndex={1}
+                    onMouseMove={onMouseMove}
+                    onMouseLeave={onMouseLeave}
+                    onClick={inspectingElement ? stop : start}
+                    style={{
+                        cursor: 'pointer',
+                        background: inspectingElement ? 'rgb(84, 138, 248)' : 'hsla(220, 52%, 96%, 1)',
+                        color: inspectingElement ? 'hsla(220, 52%, 96%, 1)' : 'rgb(84, 138, 248)',
+                        fontSize: '32px',
+                        transition: 'transform 0.2s, color 0.2s, background: 0.2s',
+                        transform: `scale(${0.2 + (0.8 * inspectDistance) / 100})`,
+                    }}
+                />
+                <Circle
+                    radius={48}
+                    distance={heatmapDistance}
+                    rotate={getQuarterRotation({ itemCount, index: index++, padding, quarter: quarters[quarter] })}
+                    content={
+                        <Tooltip
+                            title="Show Heatmap"
+                            placement={quarter.includes('e') ? 'right' : 'left'}
+                            getPopupContainer={() => shadowRef.current.shadowRoot}
+                        >
+                            <FireFilled />
+                        </Tooltip>
+                    }
+                    zIndex={1}
+                    onMouseMove={onMouseMove}
+                    onMouseLeave={onMouseLeave}
+                    onClick={float}
+                    style={{
+                        cursor: 'pointer',
+                        background: '#FF5722',
+                        color: '#FFEB3B',
+                        fontSize: '32px',
+                        transition: 'transform 0.2s',
+                        transform: `scale(${0.2 + (0.8 * heatmapDistance) / 100})`,
+                    }}
+                />
+                <Circle
+                    radius={48}
+                    distance={distance}
+                    rotate={getQuarterRotation({ itemCount, index: index++, padding, quarter: quarters[quarter] })}
                     content={
                         <Tooltip
                             title="Floating Toolbar"
@@ -116,26 +184,24 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                     onMouseMove={onMouseMove}
                     onMouseLeave={onMouseLeave}
                     onClick={float}
-                    style={{ cursor: 'pointer' }}
+                    style={{
+                        cursor: 'pointer',
+                        fontSize: '24px',
+                        transition: 'transform 0.2s',
+                        transform: `scale(${0.2 + (0.8 * distance) / 100})`,
+                    }}
                 />
+
                 <Circle
                     radius={32}
-                    distance={buttonsExtended ? 70 : 0}
-                    rotate={getQuarterRotation({ itemCount: 2, index: 1, padding: 30, quarter: quarters[quarter] })}
-                    content={
-                        <Tooltip
-                            title="Hide"
-                            placement={quarter.includes('e') ? 'right' : 'left'}
-                            getPopupContainer={() => shadowRef.current.shadowRoot}
-                        >
-                            <CloseOutlined />
-                        </Tooltip>
-                    }
-                    zIndex={1}
+                    distance={closeDistance}
+                    rotate={getQuarterRotation({ itemCount: 1, quarter: quarters[reverseQuarter(quarter)] })}
+                    content={<CloseOutlined />}
+                    zIndex={5}
                     onMouseMove={onMouseMove}
                     onMouseLeave={onMouseLeave}
                     onClick={hideButton}
-                    style={{ cursor: 'pointer' }}
+                    style={{ cursor: 'pointer', background: 'rgba(255,255,255,0.5)' }}
                 />
             </Circle>
         </>
