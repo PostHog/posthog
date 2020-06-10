@@ -23,7 +23,7 @@ export function Heatmap({ apiURL, temporaryToken }) {
                 position: 'absolute',
                 top: 0,
                 left: 0,
-                zIndex: '2147483620',
+                zIndex: '2147483010',
                 pointerEvents: 'none',
             }}
         >
