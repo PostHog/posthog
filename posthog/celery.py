@@ -71,7 +71,7 @@ def check_cached_items():
 def _update_cache(key: str, cache_type: str, payload: dict):
     from posthog.tasks.update_cache import update_cache
     data = update_cache(cache_type, payload)
-    if data is not None:
+    if data:
         cache.set(key, {'result':data, 'details': payload, 'type': cache_type}, 900)
 
 @app.task(bind=True)
