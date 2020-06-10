@@ -19,9 +19,11 @@ import {
     BlockOutlined,
     CopyOutlined,
     DeliveredProcedureOutlined,
+    ReloadOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
+import moment from 'moment'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -122,6 +124,12 @@ export function DashboardItem({
                         </Link>
                     </div>
                     <div className="dashboard-item-settings">
+                        <span style={{ cursor: 'pointer', marginTop: -3 }}>
+                            {item.last_refresh && (
+                                <i>Last Updated {moment(item.last_refresh).format('MMMM Do YYYY h:mm a')}</i>
+                            )}
+                            <ReloadOutlined />
+                        </span>
                         <Dropdown
                             placement="bottomRight"
                             trigger="click"
@@ -213,7 +221,7 @@ export function DashboardItem({
                         <div className="graph-container">
                             <Element
                                 dashboardItemId={item.id}
-                                filters={{ ...item.filters, from_dashboard: true }}
+                                filters={{ ...item.filters, from_dashboard: item.id }}
                                 color={color}
                                 theme={color === 'white' ? 'light' : 'dark'}
                             />

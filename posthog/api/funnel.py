@@ -1,10 +1,11 @@
-from posthog.models import Funnel
+from posthog.models import Funnel, DashboardItem
 from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
 from django.db.models import QuerySet
 from typing import List, Dict, Any
 import json
 from posthog.decorators import cached_function, FUNNEL_ENDPOINT
+import datetime
 
 class FunnelSerializer(serializers.HyperlinkedModelSerializer):
     steps = serializers.SerializerMethodField()
@@ -44,6 +45,9 @@ class FunnelViewSet(viewsets.ModelViewSet):
 
     def retrieve(self, request, pk=None):
         data = self._retrieve(request, pk)
+        dashboard_id = request.GET.get('from_dashboard', None)
+        if dashboard_id:
+            DashboardItem.objects.get(pk=dashboard_id).update(last_refresh=datetime.datetime.now())
         return Response(data)
 
     @cached_function(cache_type=FUNNEL_ENDPOINT)
