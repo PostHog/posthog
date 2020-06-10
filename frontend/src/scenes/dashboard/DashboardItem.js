@@ -26,6 +26,7 @@ import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import moment from 'moment'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -102,7 +103,8 @@ export function DashboardItem({
     })
 
     const filters = { ...item.filters, from_dashboard: item.id }
-    const { loadResults } = useActions(trendsLogic({ dashboardItemId: item.id, filters: filters }))
+    const logicProps = { dashboardItemId: item.id, filters: filters }
+    const { loadResults } = useActions(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
 
     return (
         <div
