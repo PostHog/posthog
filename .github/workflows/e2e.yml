@@ -69,7 +69,7 @@ jobs:
               id: yarn-dep-cache
               with:
                   path: ${{ steps.yarn-dep-cache-dir-path.outputs.dir }}
-                  key: ${{ runner.os }}-yarn-dep-${{ hashFiles('yarn.lock') }}
+                  key: ${{ runner.os }}-yarn-dep-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
                       ${{ runner.os }}-yarn-dep-
             - name: Yarn install deps
