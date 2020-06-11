@@ -14,7 +14,9 @@ export function Circle({
     animate,
     animationId,
     animationDuration = 15,
+    label,
     style = {},
+    labelStyle = {},
     children,
     rootNode = false,
     ...props
@@ -99,6 +101,27 @@ export function Circle({
                     >
                         {content}
                     </div>
+                    {label ? (
+                        <div
+                            className="circle-label"
+                            style={{
+                                position: 'absolute',
+                                width: 100,
+                                height: 20,
+                                marginLeft: -50,
+                                marginTop: radius / 2,
+                                textAlign: 'center',
+                                whiteSpace: 'nowrap',
+                                color: 'white',
+                                textShadow: 'rgba(0,0,0,1) 0 0 2px, rgba(0,0,0,1) 0 0 6px, rgba(0,0,0,0.4) 0 0 14px',
+                                pointerEvents: 'none',
+                                zIndex,
+                                ...labelStyle,
+                            }}
+                        >
+                            {label}
+                        </div>
+                    ) : null}
                 </div>
                 {children}
             </div>

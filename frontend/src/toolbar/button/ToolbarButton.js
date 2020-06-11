@@ -4,7 +4,6 @@ import React, { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { CloseOutlined, ProfileOutlined, SearchOutlined, FireFilled } from '@ant-design/icons'
-import { Tooltip } from 'antd'
 import { Logo } from '~/toolbar/assets/Logo'
 import { Circle } from '~/toolbar/button/Circle'
 import { inspectElementLogic } from '~/toolbar/shared/inspectElementLogic'
@@ -118,15 +117,7 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                 rootNode
                 radius={64}
                 className="floating-toolbar-button"
-                content={
-                    <Tooltip
-                        title="Launch Toolbar"
-                        placement={quarter.includes('n') ? 'bottom' : 'top'}
-                        getPopupContainer={() => shadowRef.current.shadowRoot}
-                    >
-                        <Logo style={{ width: 54, height: 54, filter: 'invert(1)', cursor: 'pointer' }} />
-                    </Tooltip>
-                }
+                content={<Logo style={{ width: 54, height: 54, filter: 'invert(1)', cursor: 'pointer' }} />}
                 {...longPressEvents}
                 zIndex={3}
             >
@@ -134,15 +125,9 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                     radius={48}
                     distance={inspectDistance}
                     rotate={getQuarterRotation({ itemCount, index: index++, padding, quarter: quarters[quarter] })}
-                    content={
-                        <Tooltip
-                            title="Inspect Element"
-                            placement={quarter.includes('e') ? 'right' : 'left'}
-                            getPopupContainer={() => shadowRef.current.shadowRoot}
-                        >
-                            <SearchOutlined />
-                        </Tooltip>
-                    }
+                    label="Inspect"
+                    labelStyle={{ opacity: inspectDistance > 80 ? (inspectDistance - 80) / 20 : 0 }}
+                    content={<SearchOutlined />}
                     zIndex={1}
                     onClick={inspectingElement ? stop : start}
                     style={{
@@ -158,15 +143,9 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                     radius={48}
                     distance={heatmapDistance}
                     rotate={getQuarterRotation({ itemCount, index: index++, padding, quarter: quarters[quarter] })}
-                    content={
-                        <Tooltip
-                            title="Show Heatmap"
-                            placement={quarter.includes('e') ? 'right' : 'left'}
-                            getPopupContainer={() => shadowRef.current.shadowRoot}
-                        >
-                            <FireFilled />
-                        </Tooltip>
-                    }
+                    label="Heatmap"
+                    labelStyle={{ opacity: heatmapDistance > 80 ? (heatmapDistance - 80) / 20 : 0 }}
+                    content={<FireFilled />}
                     zIndex={1}
                     onClick={() => setHeatmapEnabled(!heatmapEnabled)}
                     style={{
@@ -209,15 +188,9 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                     radius={48}
                     distance={distance}
                     rotate={getQuarterRotation({ itemCount, index: index++, padding, quarter: quarters[quarter] })}
-                    content={
-                        <Tooltip
-                            title="Floating Toolbar"
-                            placement={quarter.includes('e') ? 'right' : 'left'}
-                            getPopupContainer={() => shadowRef.current.shadowRoot}
-                        >
-                            <ProfileOutlined />
-                        </Tooltip>
-                    }
+                    label="Float"
+                    labelStyle={{ opacity: distance > 80 ? (distance - 80) / 20 : 0 }}
+                    content={<ProfileOutlined />}
                     zIndex={1}
                     onClick={float}
                     style={{
