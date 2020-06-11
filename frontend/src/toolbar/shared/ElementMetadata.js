@@ -4,6 +4,7 @@ import { dockLogic } from '~/toolbar/dockLogic'
 import { ActionStep } from '~/toolbar/shared/ActionStep'
 import { CloseOutlined } from '@ant-design/icons'
 import { heatmapLogic } from '~/toolbar/shared/heatmapLogic'
+import { Button } from 'antd'
 
 export function ElementMetadata({ rect, meta: { actionStep, element: metaElement }, pointerEvents, onClose }) {
     const { domZoom, domPadding } = useValues(dockLogic)
@@ -42,6 +43,15 @@ export function ElementMetadata({ rect, meta: { actionStep, element: metaElement
                         </div>
                     ) : (
                         <div>No clicks recorded for this element</div>
+                    )}
+                </div>
+                <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #eee' }}>
+                    {pointerEvents ? (
+                        <div>
+                            <Button>Add Action</Button>
+                        </div>
+                    ) : (
+                        <div>Click on the element to add an action</div>
                     )}
                 </div>
                 <ActionStep actionStep={actionStep} />
