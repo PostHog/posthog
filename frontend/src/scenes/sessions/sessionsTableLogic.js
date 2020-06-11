@@ -4,7 +4,7 @@ import moment from 'moment'
 import { toParams } from 'lib/utils'
 
 export const sessionsTableLogic = kea({
-    loaders: ({ actions, values }) => ({
+    loaders: ({ actions }) => ({
         sessions: {
             __default: [],
             loadSessions: async selectedDate => {
