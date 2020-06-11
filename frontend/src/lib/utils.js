@@ -239,7 +239,7 @@ export function clearDOMTextSelection() {
     if (window.getSelection) {
         if (window.getSelection().empty) {
             // Chrome
-            window.getSelection().empty()
+            window.getSelecion().empty()
         } else if (window.getSelection().removeAllRanges) {
             // Firefox
             window.getSelection().removeAllRanges()
@@ -269,17 +269,19 @@ export function humanFriendlyDuration(d) {
 }
 
 export function humanFriendlyDiff(from, to) {
-    const diff = moment(to).diff(moment(from))
+    const diff = moment(to).diff(moment(from), 'seconds')
     return humanFriendlyDuration(diff)
 }
 
-export function humanFriendlyDetailedTime(date) {
-    let formatString = 'MMMM Do YYYY h:mm a'
+export function humanFriendlyDetailedTime(date, withSeconds = false) {
+    let formatString = 'MMMM Do YYYY h:mm'
     if (moment().diff(date, 'days') == 0) {
-        formatString = '[Today] h:mm a'
+        formatString = '[Today] h:mm'
     } else if (moment().diff(date, 'days') == 1) {
-        formatString = '[Yesterday] h:mm a'
+        formatString = '[Yesterday] h:mm'
     }
+    if (withSeconds) formatString += ':s a'
+    else formatString += ' a'
     return moment(date).format(formatString)
 }
 

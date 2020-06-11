@@ -1,6 +1,6 @@
 import React from 'react'
 import { Table } from 'antd'
-import { humanFriendlyDiff } from '~/lib/utils'
+import { humanFriendlyDiff, humanFriendlyDetailedTime } from '~/lib/utils'
 import { EventDetails, formatEventName } from 'scenes/events'
 import { Property } from 'lib/components/Property'
 
@@ -24,8 +24,14 @@ export function SessionDetails({ events }) {
             ellipsis: true,
         },
         {
+            title: 'Timestamp',
+            render: function RenderTimestamp({ timestamp }) {
+                return <span>{humanFriendlyDetailedTime(timestamp, true)}</span>
+            },
+        },
+        {
             title: 'Time Elapsed from Previous',
-            render: function RenderEvent({ timestamp }, _, index) {
+            render: function RenderElapsed({ timestamp }, _, index) {
                 return <span>{index > 0 ? humanFriendlyDiff(events[index - 1]['timestamp'], timestamp) : 0}</span>
             },
         },
