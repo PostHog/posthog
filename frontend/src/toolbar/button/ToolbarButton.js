@@ -125,7 +125,16 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                     rotate={getQuarterRotation({ itemCount, index: index++, padding, quarter: quarters[quarter] })}
                     label="Inspect"
                     labelStyle={{ opacity: inspectDistance > 80 ? (inspectDistance - 80) / 20 : 0 }}
-                    content={<SearchOutlined />}
+                    content={
+                        <div style={{ position: 'relative' }}>
+                            <SearchOutlined />
+                            {selectedInspectElement ? (
+                                <div style={{ position: 'absolute', top: 12, left: 6, fontSize: 13, color: 'white' }}>
+                                    <CloseOutlined />
+                                </div>
+                            ) : null}
+                        </div>
+                    }
                     zIndex={1}
                     onClick={inspectingElement || selectedInspectElement ? stop : start}
                     style={{
