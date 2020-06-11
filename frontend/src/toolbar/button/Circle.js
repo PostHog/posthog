@@ -113,7 +113,8 @@ export function Circle({
                                 textAlign: 'center',
                                 whiteSpace: 'nowrap',
                                 color: 'white',
-                                textShadow: 'rgba(0,0,0,1) 0 0 2px, rgba(0,0,0,1) 0 0 6px, rgba(0,0,0,0.4) 0 0 14px',
+                                textShadow:
+                                    'rgb(0, 0, 0) 0px 0px 2px, rgba(0,0,0,1) 0 0 2px, rgba(0,0,0,1) 0 0 10px, rgba(0,0,0,0.8) 0 0 20px',
                                 pointerEvents: 'none',
                                 zIndex,
                                 ...labelStyle,
