@@ -187,8 +187,8 @@ class TestEvents(TransactionBaseTest):
             Event.objects.create(team=self.team, event='4th action', distinct_id="2")
 
         response = self.client.get('/api/event/sessions/').json()
-        self.assertEqual(len(response['result']), 4)
-        self.assertEqual(response['result'][0]['global_session_id'], 2)
+        self.assertEqual(len(response['result']), 2)
+        self.assertEqual(response['result'][0]['global_session_id'], 1)
 
     def test_sessions_avg_length(self):
         with freeze_time("2012-01-14T03:21:34.000Z"):
