@@ -1,35 +1,47 @@
 import { useActions, useValues } from 'kea'
-import Draggable from 'react-draggable'
 import { ToolbarContent } from '~/toolbar/ToolbarContent'
 import { CloseOutlined } from '@ant-design/icons'
 import React from 'react'
+import { ToolbarButton } from '~/toolbar/ToolbarButton'
+import { ToolbarDraggable } from '~/toolbar/ToolbarDraggable'
 
 export function ToolbarContainer({ dockLogic, ...props }) {
     const apiURL = `${props.apiURL}${props.apiURL.endsWith('/') ? '' : '/'}`
-    const { dockStatus, floatStatus } = useValues(dockLogic)
-    const { float } = useActions(dockLogic)
+    const { dockStatus, floatStatus, buttonStatus, windowWidth } = useValues(dockLogic)
+    const { button } = useActions(dockLogic)
 
-    const showDocked = dockStatus !== 'disabled'
-    const showInvisibleDocked = dockStatus === 'animating' || dockStatus === 'fading-out'
+    const showButton = buttonStatus !== 'disabled'
+    const showInvisibleButton = buttonStatus === 'animating' || buttonStatus === 'fading-out'
 
-    const showFloating = floatStatus !== 'disabled'
-    const showInvisibleFloating = floatStatus === 'animating' || floatStatus === 'fading-out'
+    const showDock = dockStatus !== 'disabled'
+    const showInvisibleDock = dockStatus === 'animating' || dockStatus === 'fading-out'
+
+    const showFloat = floatStatus !== 'disabled'
+    const showInvisibleFloat = floatStatus === 'animating' || floatStatus === 'fading-out'
 
     return (
         <>
-            {showFloating ? (
-                <Draggable handle=".toolbar-block">
-                    <div id="float-toolbar" className={showInvisibleFloating ? 'toolbar-invisible' : ''}>
-                        <ToolbarContent {...props} dockLogic={dockLogic} type="float" apiURL={apiURL} />
+            {showButton && windowWidth >= 0 ? (
+                <ToolbarDraggable type="button" handle="#button-toolbar">
+                    <div id="button-toolbar" className={showInvisibleButton ? 'toolbar-invisible' : ''}>
+                        <ToolbarButton {...props} dockLogic={dockLogic} type="button" apiURL={apiURL} />
                     </div>
-                </Draggable>
+                </ToolbarDraggable>
             ) : null}
 
-            {showDocked ? (
-                <div id="dock-toolbar" className={showInvisibleDocked ? 'toolbar-invisible' : ''}>
+            {showFloat && windowWidth >= 0 ? (
+                <ToolbarDraggable type="float" handle=".toolbar-block">
+                    <div id="float-toolbar" className={showInvisibleFloat ? 'toolbar-invisible' : ''}>
+                        <ToolbarContent {...props} dockLogic={dockLogic} type="float" apiURL={apiURL} />
+                    </div>
+                </ToolbarDraggable>
+            ) : null}
+
+            {showDock ? (
+                <div id="dock-toolbar" className={showInvisibleDock ? 'toolbar-invisible' : ''}>
                     <div
                         className={`toolbar-close-button${dockStatus === 'complete' ? ' visible' : ''}`}
-                        onClick={float}
+                        onClick={button}
                     >
                         <CloseOutlined />
                     </div>

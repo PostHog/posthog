@@ -6,9 +6,9 @@ export const toolbarTabLogic = kea({
         setTab: tab => ({ tab }),
         setTabs: (tab, newTab) => ({ tab, newTab }),
     }),
-    reducers: () => ({
+    reducers: ({ props }) => ({
         tab: [
-            'stats',
+            props.defaultTab || 'stats',
             {
                 setTabs: (_, { tab }) => tab,
             },

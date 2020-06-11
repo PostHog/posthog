@@ -43,7 +43,7 @@ class PathsViewSet(viewsets.ViewSet):
                 start_comparator = "group_id ="
             elif requested_type == "custom_event":
                 event = None
-                event_filter = {'event__regex':'^[^\$].*'}
+                event_filter = {}
                 path_type = "event"
                 start_comparator = "event ="
         return event, path_type, event_filter, start_comparator
@@ -101,9 +101,10 @@ class PathsViewSet(viewsets.ViewSet):
 
         sessions = Event.objects.add_person_id(team.pk).filter(
                 team=team,
-                **(event_filter), #anything without $ (default)
+                **(event_filter),
                 **date_query
             )\
+            .filter(~Q(event__in=['$autocapture', '$pageview', '$identify', '$pageleave']) if event is None else Q())\
             .filter(Filter(data={'properties': json.loads(properties)}).properties_to_Q() if properties else Q())\
             .annotate(previous_timestamp=Window(
                 expression=Lag('timestamp', default=None),
