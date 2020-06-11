@@ -1,4 +1,4 @@
-from django.db import models, connection
+from django.db import models
 from django.contrib.postgres.fields import JSONField, ArrayField
 from .action import Action
 from .action_step import ActionStep
@@ -7,7 +7,6 @@ from .dashboard_item import DashboardItem
 from .user import User
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from typing import Optional, List
-import os
 import secrets
 
 
@@ -49,7 +48,6 @@ class TeamManager(models.Manager):
             type=TRENDS_LINEAR,
             filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'math': 'dau', 'type': TREND_FILTER_TYPE_EVENTS}]}
         )
-
         return team
 
 
