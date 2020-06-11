@@ -168,14 +168,19 @@ export const heatmapLogic = kea({
         ],
         eventCount: [
             () => [selectors.countedElements],
-            countedElements => countedElements.map(e => e.count).reduce((a, b) => a + b, 0),
+            countedElements => (countedElements ? countedElements.map(e => e.count).reduce((a, b) => a + b, 0) : 0),
+        ],
+        highestEventCount: [
+            () => [selectors.countedElements],
+            countedElements =>
+                countedElements ? countedElements.map(e => e.count).reduce((a, b) => (b > a ? b : a), 0) : 0,
         ],
     }),
 
-    events: ({ actions, values, props, cache }) => ({
+    events: ({ actions, values, cache }) => ({
         afterMount() {
             if (values.heatmapEnabled) {
-                actions.getEvents({ $current_url: props.current_url })
+                actions.getEvents({ $current_url: currentPageLogic.values.href })
             }
             cache.onClick = function() {
                 actions.addClick()
@@ -187,14 +192,16 @@ export const heatmapLogic = kea({
         },
     }),
 
-    listeners: ({ actions, props }) => ({
+    listeners: ({ actions, values }) => ({
         [currentPageLogic.actions.setHref]: ({ href }) => {
-            actions.resetEvents()
-            actions.getEvents({ $current_url: href })
+            if (values.heatmapEnabled) {
+                actions.resetEvents()
+                actions.getEvents({ $current_url: href })
+            }
         },
         setHeatmapEnabled: ({ heatmapEnabled }) => {
             if (heatmapEnabled) {
-                actions.getEvents({ $current_url: props.current_url })
+                actions.getEvents({ $current_url: currentPageLogic.values.href })
             } else {
                 actions.resetEvents()
             }

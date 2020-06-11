@@ -2,14 +2,12 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { heatmapLogic } from '~/toolbar/shared/heatmapLogic'
 import { dockLogic } from '~/toolbar/dockLogic'
-import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { FocusRect } from '~/toolbar/shared/FocusRect'
 import { inspectElementLogic } from '~/toolbar/shared/inspectElementLogic'
 
 export function Heatmap({ apiURL, temporaryToken }) {
-    const { href } = useValues(currentPageLogic)
-    const logic = heatmapLogic({ apiURL, temporaryToken, current_url: href })
-    const { countedElementsWithRects, highlightedElement, showElementFinder } = useValues(logic)
+    const logic = heatmapLogic({ apiURL, temporaryToken })
+    const { countedElementsWithRects, highlightedElement, showElementFinder, highestEventCount } = useValues(logic)
     const { highlightElement } = useActions(logic)
     const { domZoom, domPadding } = useValues(dockLogic)
     const { selecting: inspectingElement } = useValues(inspectElementLogic)
@@ -30,7 +28,7 @@ export function Heatmap({ apiURL, temporaryToken }) {
             }}
         >
             {highlightedRect && showElementFinder ? <FocusRect rect={highlightedRect} /> : null}
-            {countedElementsWithRects.map(({ rect, element }, index) => {
+            {countedElementsWithRects.map(({ rect, count, element }, index) => {
                 return (
                     <React.Fragment key={index}>
                         <div
@@ -43,15 +41,17 @@ export function Heatmap({ apiURL, temporaryToken }) {
                                 height: `${(rect.bottom - rect.top) / domZoom}px`,
                                 zIndex: 1,
                                 opacity: highlightedElement && highlightedElement !== element ? 0.4 : 1,
-                                transition: 'opacity 0.2s',
+                                transition: 'opacity 0.2s, box-shadow 0.2s',
                                 cursor: 'pointer',
                                 backgroundBlendMode: 'multiply',
                                 // green
                                 // background: 'rgba(76, 174, 79, 0.3)',
                                 // boxShadow: 'rgba(53, 95, 54, 0.7) 0px 3px 10px 2px',
                                 // // red
-                                background: 'hsla(4, 90%, 58%, 0.4)',
-                                boxShadow: 'hsla(4, 90%, 27%, 0.8) 0px 3px 10px 2px',
+                                background: `hsla(4, 90%, 58%, ${(count / highestEventCount) * 0.4})`,
+                                boxShadow: `hsla(4, 90%, 27%, 0.8) 0px 3px 10px ${
+                                    highlightedElement === element ? 4 : 2
+                                }px`,
                             }}
                             onMouseOver={() => highlightElement(element)}
                             onMouseOut={() => highlightElement(null)}
