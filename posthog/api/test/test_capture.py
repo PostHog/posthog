@@ -1,4 +1,5 @@
 from .base import BaseTest
+from django.conf import settings
 from django.utils import timezone
 from freezegun import freeze_time
 from unittest.mock import patch, call
@@ -16,6 +17,9 @@ class TestCapture(BaseTest):
 
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode('utf-8')).decode('utf-8')
+
+    def _dict_from_b64(self, data: str) -> dict:
+        return json.loads(base64.b64decode(data))
 
     @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')
@@ -226,6 +230,37 @@ class TestCapture(BaseTest):
 
     @patch('posthog.api.capture.TEAM_ID_CACHE', {})
     @patch('posthog.tasks.process_event.process_event.delay')
+    def test_base64_decode_variations(self, patch_process_event):
+        base64 = "eyJldmVudCI6IiRwYWdldmlldyIsInByb3BlcnRpZXMiOnsiZGlzdGluY3RfaWQiOiJlZWVlZWVlZ8+lZWVlZWUifX0="
+        dict = self._dict_from_b64(base64)
+        self.assertDictEqual(dict, {
+            'event': '$pageview',
+            'properties': {
+                'distinct_id': 'eeeeeeegϥeeeee',
+            },
+        })
+
+        # POST with "+" in the base64
+        self.client.post('/track/', data={
+            'data': base64,
+            'api_key': self.team.api_token # main difference in this test
+        })
+        arguments = patch_process_event.call_args[1]
+        self.assertEqual(arguments['team_id'], self.team.pk)
+        self.assertEqual(arguments['distinct_id'], 'eeeeeeegϥeeeee')
+
+        # POST with " " in the base64 instead of the "+"
+        self.client.post('/track/', data={
+            'data': base64.replace("+", " "),
+            'api_key': self.team.api_token # main difference in this test
+        })
+        arguments = patch_process_event.call_args[1]
+        self.assertEqual(arguments['team_id'], self.team.pk)
+        self.assertEqual(arguments['distinct_id'], 'eeeeeeegϥeeeee')
+
+
+    @patch('posthog.api.capture.TEAM_ID_CACHE', {})
+    @patch('posthog.tasks.process_event.process_event.delay')
     def test_js_library_underscore_sent_at(self, patch_process_event):
         now = timezone.now()
         tomorrow = now + timedelta(days=1, hours=2)
@@ -283,3 +318,27 @@ class TestCapture(BaseTest):
         timediff = arguments['sent_at'].timestamp() - tomorrow_sent_at.timestamp()
         self.assertLess(abs(timediff), 1)
         self.assertEqual(arguments['data']['timestamp'], tomorrow.isoformat())
+
+class TestDecide(BaseTest):
+    TESTS_API = True
+
+    def test_user_on_own_site(self):
+        self.team.app_urls = ['https://example.com/maybesubdomain']
+        self.team.save()
+        response = self.client.get('/decide/', HTTP_ORIGIN='https://example.com').json()
+        self.assertEqual(response['isAuthenticated'], True)
+        self.assertEqual(response['editorParams']['toolbarVersion'], settings.TOOLBAR_VERSION)
+
+    def test_user_on_evil_site(self):
+        self.team.app_urls = ['https://example.com']
+        self.team.save()
+        response = self.client.get('/decide/', HTTP_ORIGIN='https://evilsite.com').json()
+        self.assertEqual(response['isAuthenticated'], False)
+        self.assertIsNone(response['editorParams'].get('toolbarVersion', None))
+
+    def test_user_on_local_host(self):
+        self.team.app_urls = ['https://example.com']
+        self.team.save()
+        response = self.client.get('/decide/', HTTP_ORIGIN='http://127.0.0.1:8000').json()
+        self.assertEqual(response['isAuthenticated'], True)
+        self.assertEqual(response['editorParams']['toolbarVersion'], settings.TOOLBAR_VERSION)

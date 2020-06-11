@@ -13,8 +13,10 @@ import { SlackIntegration } from 'scenes/setup/SlackIntegration'
 import { ChangePassword } from './ChangePassword'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
+import { hot } from 'react-hot-loader/root'
 
-export function Setup() {
+export const Setup = hot(_Setup)
+function _Setup() {
     const { user } = useValues(userLogic)
     const { location } = useValues(router)
 
@@ -29,8 +31,9 @@ export function Setup() {
                 See docs for instructions on how to identify users.
             </a>
             <JSSnippet user={user} />
-            <a href="https://posthog.com/docs/integrations">Using Python/Ruby/Node/Go/PHP/iOS/Android instead?</a>
-            <Divider />
+            <h2 id="custom events">Send Custom Events</h2>
+            To send custom events visit our <a href="https://posthog.com/docs/integrations">docs</a> and integrate the
+            library in specific language you're building in (Python/Ruby/Node/Go/PHP/iOS/Android etc.) <Divider />
             <h2 id="apikey">API key</h2>
             You can use this api key in any of our
             <a href="https://posthog.com/docs/integrations"> libraries</a>.

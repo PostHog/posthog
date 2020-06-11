@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
@@ -8,8 +9,10 @@ from urllib.parse import urlparse
 from posthog.tasks.process_event import process_event
 from datetime import datetime
 from dateutil import parser
+from sentry_sdk import push_scope
 import re
 import json
+import secrets
 import base64
 import gzip
 
@@ -39,12 +42,16 @@ def _load_data(request) -> Optional[Union[Dict, List]]:
     if not data:
         return None
 
+    # add the data in sentry's scope in case there's an exception
+    with push_scope() as scope:
+        scope.set_context("data", data)
+
     #  Is it plain json?
     try:
         data = json.loads(data)
     except json.JSONDecodeError:
         # if not, it's probably base64 encoded from other libraries
-        data = json.loads(base64.b64decode(data + "===").decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
+        data = json.loads(base64.b64decode(data.replace(' ', '+') + "===").decode('utf8', 'surrogatepass').encode('utf-16', 'surrogatepass'))
     # FIXME: data can also be an array, function assumes it's either None or a dictionary.
     return data
 
@@ -145,6 +152,40 @@ def get_event(request):
 
     return cors_response(request, JsonResponse({'status': 1}))
 
+
+def parse_domain(url: str) -> Optional[str]:
+    return urlparse(url).hostname
+
+
 @csrf_exempt
 def get_decide(request):
-    return cors_response(request, JsonResponse({"config": {"enable_collect_everything": True}}))
+    response = {
+        'config': {'enable_collect_everything': True},
+        'editorParams': {},
+        'isAuthenticated': False
+    }
+
+    if request.user.is_authenticated:
+        team = request.user.team_set.get()
+        permitted_domains = ['127.0.0.1', 'localhost']
+
+        for url in team.app_urls:
+            hostname = parse_domain(url)
+            if hostname:
+                permitted_domains.append(hostname)
+
+        if (parse_domain(request.headers.get('Origin')) in permitted_domains) or (parse_domain(request.headers.get('Referer')) in permitted_domains):
+            response['isAuthenticated'] = True
+            editor_params = {}
+            if hasattr(settings, 'TOOLBAR_VERSION'):
+                editor_params['toolbarVersion'] = settings.TOOLBAR_VERSION
+            if settings.DEBUG:
+                editor_params['jsURL'] = 'http://localhost:8234/'
+
+            response['editorParams'] = editor_params
+
+            if not request.user.temporary_token:
+                request.user.temporary_token = secrets.token_urlsafe(32)
+                request.user.save()
+    return cors_response(request, JsonResponse(response))
+

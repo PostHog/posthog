@@ -17,7 +17,7 @@ import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
 from sentry_sdk.integrations.django import DjangoIntegration
 
-VERSION = '1.6.0'
+VERSION = '1.8.0'
 
 def get_env(key):
     try:
@@ -221,10 +221,10 @@ if not REDIS_URL:
     print("⚠️ Please configure it now to avoid future surprises!")
     print("⚠️")
     print("⚠️ See here for more information!")
-    print("⚠️ --> https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011")
+    print("⚠️ --> https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011")
     print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")
 
-    raise ImproperlyConfigured(f'The environment var "REDIS_URL" or "POSTHOG_REDIS_HOST" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011')
+    raise ImproperlyConfigured(f'The environment var "REDIS_URL" or "POSTHOG_REDIS_HOST" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011')
 
 
 CELERY_BROKER_URL = REDIS_URL       # celery connects to redis
@@ -302,3 +302,8 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'tim@posthog.com')
 
 # You can pass a comma deliminated list of domains with which users can sign up to this service
 RESTRICT_SIGNUPS = os.environ.get('RESTRICT_SIGNUPS', False)
+
+# Change this to "toolbar" to work on the new toolbar, keep at "editor" and nothing will have changed
+# from 1.7.0 (except it now supports HMR!)
+TOOLBAR_VERSION = 'editor'
+# TOOLBAR_VERSION = 'toolbar'

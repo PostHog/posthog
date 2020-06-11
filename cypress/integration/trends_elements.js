@@ -30,10 +30,6 @@ describe('Trends actions & events', () => {
     })
 
     it('Apply 1 overall filter', () => {
-        cy.contains('Add action/event').click()
-        cy.get('[data-attr=trend-element-subject-1]').click()
-        cy.contains('Pageviews').click()
-
         cy.get('[data-attr=new-prop-filter-trends-filters]').click()
         cy.get('[data-attr=prop-filter-event-1]').click()
         cy.get('[data-attr=prop-val]').click()

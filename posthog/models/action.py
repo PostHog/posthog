@@ -1,18 +1,24 @@
 from django.db import models, connection, transaction
+from django.core.exceptions import EmptyResultSet
 from .user import User
-
+from sentry_sdk import capture_exception
 
 class Action(models.Model):
     def calculate_events(self):
+        self.is_calculating = True
+        self.save()
         from .event import Event
 
         try:
             event_query, params = (
-                Event.objects.query_db_by_action(self)
+                Event.objects
+                .query_db_by_action(self)
                 .only("pk")
                 .query.sql_with_params()
             )
-        except:  # make specific
+        except EmptyResultSet:
+            self.is_calculating = False
+            self.save()
             self.events.all().delete()
             return
 
@@ -27,7 +33,13 @@ class Action(models.Model):
 
         cursor = connection.cursor()
         with transaction.atomic():
-            cursor.execute(query, params)
+            try:
+                cursor.execute(query, params)
+            except:
+                capture_exception()
+
+        self.is_calculating = False
+        self.save()
 
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -40,6 +52,8 @@ class Action(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     events: models.ManyToManyField = models.ManyToManyField("Event", blank=True)
     post_to_slack: models.BooleanField = models.BooleanField(default=False)
+    is_calculating: models.BooleanField = models.BooleanField(default=False)
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.name

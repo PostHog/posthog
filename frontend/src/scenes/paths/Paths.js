@@ -1,10 +1,23 @@
-import React, { Component } from 'react'
+import React, { useRef, useState, useEffect } from 'react'
 import api from 'lib/api'
-import { toParams, Card, Loading } from 'lib/utils'
+import { Card, Loading } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter'
-import { PathSelect } from '~/lib/components/PathSelect'
-import { Row, Modal, Button, Spin } from 'antd'
+import { Row, Modal, Button, Spin, Select } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
+import * as d3 from 'd3'
+import * as Sankey from 'd3-sankey'
+import { PropertyFilters, PropertyValue } from 'lib/components/PropertyFilters'
+import { useActions, useValues } from 'kea'
+import { hot } from 'react-hot-loader/root'
+import {
+    pathsLogic,
+    PAGEVIEW,
+    AUTOCAPTURE,
+    CUSTOM_EVENT,
+    pathOptionsToLabels,
+    pathOptionsToProperty,
+} from 'scenes/paths/pathsLogic'
+import { userLogic } from 'scenes/userLogic'
 
 let stripHTTP = url => {
     url = url.replace(/(^[0-9]+_)/, '')
@@ -56,67 +69,41 @@ function NoData() {
     )
 }
 
-export class Paths extends Component {
-    constructor(props) {
-        super(props)
-        this.state = {
-            filter: {
-                dateFrom: null,
-                dateTo: null,
-            },
-            paths: {
-                nodes: [],
-                links: [],
-            },
-            d3Loaded: false,
-            sankeyLoaded: false,
-            modalVisible: false,
-        }
+export const Paths = hot(_Paths)
+function _Paths() {
+    const canvas = useRef(null)
+    const { paths, filter, pathsLoading } = useValues(pathsLogic)
+    const { setFilter } = useActions(pathsLogic)
+    const { customEventNames } = useValues(userLogic)
 
-        this.canvas = React.createRef()
-        this.fetchPaths()
+    const [modalVisible, setModalVisible] = useState(false)
+    const [eventelements, setEventelements] = useState(null)
 
-        import('d3').then(d3 => {
-            this.d3 = d3
-            this.setState({ d3Loaded: true })
-        })
-        import('d3-sankey').then(sankey => {
-            this.sankey = sankey
-            this.setState({ sankeyLoaded: true })
-        })
-    }
+    useEffect(() => {
+        renderPaths()
+    }, [paths, !pathsLoading])
 
-    renderPaths = () => {
-        const { paths } = this.state
-
-        if (!this.state.d3Loaded || !this.state.sankeyLoaded) {
-            return
-        }
-
+    function renderPaths() {
         const elements = document.querySelectorAll('.paths svg')
         elements.forEach(node => node.parentNode.removeChild(node))
 
         if (!paths || paths.nodes.length === 0) {
-            this.setState({ rendered: true })
             return
         }
+        let width = canvas.current.offsetWidth
+        let height = canvas.current.offsetHeight
 
-        this.setState({ rendered: true })
-        let width = this.canvas.current.offsetWidth
-        let height = this.canvas.current.offsetHeight
-
-        let svg = this.d3
-            .select(this.canvas.current)
+        let svg = d3
+            .select(canvas.current)
             .append('svg')
             .style('background', '#fff')
             .style('width', width)
             .style('height', height)
-        let sankey = new this.sankey.sankey()
+        let sankey = new Sankey.sankey()
             .nodeId(d => d.name)
-            .nodeAlign(this.sankey.sankeyLeft)
+            .nodeAlign(Sankey.sankeyLeft)
             .nodeSort(null)
             .nodeWidth(15)
-            // .nodePadding()
             .size([width, height])
 
         const { nodes, links } = sankey({
@@ -143,9 +130,8 @@ export class Paths extends Component {
                         if (c === undefined) c = link.color
                         else if (c !== link.color) c = null
                     }
-                return (this.d3.color(c) || this.d3.color('#dddddd')).darker(0.5)
+                return (d3.color(c) || d3.color('#dddddd')).darker(0.5)
             })
-            // .attr("fill", d =>  'var(--blue)')
             .attr('opacity', 0.5)
             .append('title')
             .text(d => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
@@ -177,7 +163,7 @@ export class Paths extends Component {
             .style('mix-blend-mode', 'multiply')
 
         link.append('path')
-            .attr('d', this.sankey.sankeyLinkHorizontal())
+            .attr('d', Sankey.sankeyLinkHorizontal())
             .attr('stroke-width', d => {
                 return Math.max(1, d.width)
             })
@@ -208,7 +194,9 @@ export class Paths extends Component {
                 return d.value - d.source.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
             })
 
-        link.append('title').text(d => `${d.source.label} → ${d.target.label}\n${d.value.toLocaleString()}`)
+        link.append('title').text(
+            d => `${stripHTTP(d.source.name)} → ${stripHTTP(d.target.name)}\n${d.value.toLocaleString()}`
+        )
 
         var textSelection = svg
             .append('g')
@@ -227,18 +215,14 @@ export class Paths extends Component {
                     : stripHTTP(d.name)
             )
             .on('click', async node => {
-                if (this.state.filter.type == '$autocapture') {
-                    this.setState({
-                        modalVisible: true,
-                        eventelements: null,
-                    })
+                if (filter.type == AUTOCAPTURE) {
+                    setModalVisible(true)
+                    setEventelements(null)
                     let result = await api.get('api/event/' + node.id)
-                    this.setState({
-                        eventelements: result,
-                    })
+                    setEventelements(result)
                 }
             })
-            .style('cursor', this.state.filter.type == '$autocapture' ? 'pointer' : 'auto')
+            .style('cursor', filter.type == AUTOCAPTURE ? 'pointer' : 'auto')
 
         textSelection
             .append('tspan')
@@ -250,49 +234,58 @@ export class Paths extends Component {
         return textSelection.node()
     }
 
-    fetchPaths = () => {
-        const params = toParams(this.state.filter)
-
-        api.get(`api/paths${params ? `/?${params}` : ''}`).then(paths => {
-            this.setState(
-                {
-                    paths: {
-                        nodes: [
-                            ...paths.map(path => ({ name: path.source, id: path.source_id })),
-                            ...paths.map(path => ({ name: path.target, id: path.target_id })),
-                        ],
-                        links: paths,
-                    },
-                    dataLoaded: true,
-                },
-                this.renderPaths
-            )
-        })
-    }
-
-    updateFilter = changes => {
-        this.setState(
-            { filter: { ...this.state.filter, ...changes }, rendered: false, dataLoaded: false },
-            this.fetchPaths
-        )
-    }
-
-    render() {
-        let { paths, filter, dataLoaded } = this.state
-
-        return (
-            <div>
-                <h1 className="page-header">Paths</h1>
-                <Card
-                    title={
-                        <Row justify="space-between">
+    return (
+        <div>
+            <h1 className="page-header">Paths</h1>
+            <PropertyFilters pageKey="Paths" />
+            <Card
+                title={
+                    <Row justify="space-between">
+                        <Row>
                             <Row align="middle">
                                 Path Type:
-                                <PathSelect onChange={value => this.updateFilter({ type: value })} />
+                                <Select
+                                    value={filter.type || PAGEVIEW}
+                                    bordered={false}
+                                    defaultValue={PAGEVIEW}
+                                    dropdownMatchSelectWidth={false}
+                                    onChange={value => setFilter({ type: value, start: null })}
+                                    style={{ paddingTop: 2 }}
+                                >
+                                    {Object.entries(pathOptionsToLabels).map(([value, name], index) => {
+                                        return (
+                                            <Select.Option key={index} value={value}>
+                                                {name}
+                                            </Select.Option>
+                                        )
+                                    })}
+                                </Select>
                             </Row>
+
+                            <Row align="middle">
+                                Start:
+                                <PropertyValue
+                                    endpoint={filter.type === AUTOCAPTURE && 'api/paths/elements'}
+                                    outerOptions={
+                                        filter.type === CUSTOM_EVENT &&
+                                        customEventNames.map(name => ({
+                                            name,
+                                        }))
+                                    }
+                                    onSet={value => setFilter({ start: value })}
+                                    propertyKey={pathOptionsToProperty[filter.type]}
+                                    type="event"
+                                    style={{ width: 200, paddingTop: 2 }}
+                                    bordered={false}
+                                    value={filter.start}
+                                    placeholder={'Select start element'}
+                                ></PropertyValue>
+                            </Row>
+                        </Row>
+                        <Row align="middle">
                             <DateFilter
                                 onChange={(date_from, date_to) =>
-                                    this.updateFilter({
+                                    setFilter({
                                         date_from,
                                         date_to,
                                     })
@@ -301,52 +294,46 @@ export class Paths extends Component {
                                 dateTo={filter.date_to}
                             />
                         </Row>
-                    }
-                >
-                    {this.state.filter.type == '$autocapture' && (
-                        <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
-                    )}
-                    <div ref={this.canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
-                        {dataLoaded && paths && paths.nodes.length === 0 ? (
-                            <NoData />
-                        ) : (
-                            !dataLoaded && (
-                                <div className="loading-overlay mt-5">
-                                    <div />
-                                    <Loading />
-                                    <br />
-                                </div>
-                            )
-                        )}
-                    </div>
-                </Card>
-                <Modal
-                    visible={this.state.modalVisible}
-                    onOk={() => this.setState({ modalVisible: false })}
-                    onCancel={() => this.setState({ modalVisible: false })}
-                    closable={false}
-                    style={{ minWidth: '50%' }}
-                    footer={[
-                        <Button key="submit" type="primary" onClick={() => this.setState({ modalVisible: false })}>
-                            Ok
-                        </Button>,
-                    ]}
-                    bodyStyle={
-                        !this.state.eventelements
-                            ? {
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                              }
-                            : {}
-                    }
-                >
-                    {this.state.eventelements ? (
-                        <EventElements event={this.state.eventelements}></EventElements>
+                    </Row>
+                }
+            >
+                {filter.type == AUTOCAPTURE && <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>}
+                <div ref={canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
+                    {!pathsLoading && paths && paths.nodes.length === 0 ? (
+                        <NoData />
                     ) : (
-                        <Spin />
+                        pathsLoading && (
+                            <div className="loading-overlay mt-5">
+                                <div />
+                                <Loading />
+                                <br />
+                            </div>
+                        )
                     )}
-                </Modal>
-            </div>
-        )
-    }
+                </div>
+            </Card>
+            <Modal
+                visible={modalVisible}
+                onOk={() => setModalVisible(false)}
+                onCancel={() => setModalVisible(false)}
+                closable={false}
+                style={{ minWidth: '50%' }}
+                footer={[
+                    <Button key="submit" type="primary" onClick={() => setModalVisible(false)}>
+                        Ok
+                    </Button>,
+                ]}
+                bodyStyle={
+                    !eventelements
+                        ? {
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                          }
+                        : {}
+                }
+            >
+                {eventelements ? <EventElements event={eventelements}></EventElements> : <Spin />}
+            </Modal>
+        </div>
+    )
 }

@@ -21,8 +21,8 @@ Join the [PostHog Users Slack](https://join.slack.com/t/posthogusers/shared_invi
 -   **Event-based** analytics at a user level - see which users are doing what in your application.
 -   **Complete control** over your data - host it yourself.
 -   **Automatically capture** clicks and page views to do analyze what your users are doing **retroactively**.
--   Libraries for **[JS](https://docs.posthog.com/#/integrations/js-integration), [Python](https://docs.posthog.com/#/integrations/python-integration), [Ruby](https://docs.posthog.com/#/integrations/ruby-integration), [Node](https://docs.posthog.com/#/integrations/node-integration), [Go](https://docs.posthog.com/#/integrations/go-integration)** + [API](https://docs.posthog.com/#/integrations/api) for anything else.
--   Beautiful **[graphs](https://docs.posthog.com/#/features/trends), [funnels](https://docs.posthog.com/#/features/funnels), [user cohorts](https://docs.posthog.com/#/features/cohorts), [user paths](https://docs.posthog.com/#/features/paths) and [dashboards](https://docs.posthog.com/#/features/dashboards)**.
+-   Libraries for **[JS](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration)** + [API](https://posthog.com/docs/integrations/api) for anything else.
+-   Beautiful **[graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [user cohorts](https://posthog.com/docs/features/cohorts), [user paths](https://posthog.com/docs/features/paths) and [dashboards](https://posthog.com/docs/features/dashboards)**.
 -   Super easy deploy using **Docker** or **Heroku**.
 
 ## Event autocapture
@@ -45,13 +45,9 @@ PostHog is the only <strong>product-focused</strong> open source analytics libra
 
 There are a couple of session-based open source libraries that are nice alternatives to Google Analytics. That's not what we are focused on.
 
-## One-line docker preview
+## PostHog SaaS
 
-```bash
-docker run -t -i --rm --publish 8000:8000 -v postgres:/var/lib/postgresql posthog/posthog:preview
-```
-
-This image has everything you need to try out PostHog locally! It will set up a server on http://127.0.0.1:8000.
+You can [sign up for a free account](https://app.posthog.com/signup) on our hosted platform.
 
 ## Deploy to Heroku
 
@@ -68,6 +64,10 @@ This image has everything you need to try out PostHog locally! It will set up a 
 ## Contributing
 
 We <3 contributions big or small. [See docs for a guide on how to get started](https://posthog.com/docs/contributing)
+
+## We're hiring!
+
+Come help us make PostHog even better. We're growing like crazy, [and we have a ton of open positions](https://posthog.com/careers).
 
 ## Open source / Paid
 

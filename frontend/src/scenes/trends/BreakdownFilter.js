@@ -3,6 +3,7 @@ import { Tooltip, Select, Tabs, Popover, Button } from 'antd'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { cohortsModel } from '../../models/cohortsModel'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 const { TabPane } = Tabs
 
@@ -16,15 +17,13 @@ function PropertyFilter({ breakdown, onChange }) {
             placeholder={'Break down by'}
             value={breakdown ? breakdown : undefined}
             onChange={(_, { value }) => onChange(value)}
-            filterOption={(input, option) =>
-                option.children && option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
-            }
+            filterOption={(input, option) => option.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
             data-attr="prop-breakdown-select"
         >
             {Object.entries(eventProperties).map(([key, item], index) => {
                 return (
                     <Select.Option key={key} value={item.value} data-attr={'prop-breakdown-' + index}>
-                        {item.label}
+                        <PropertyKeyInfo value={item.value} />
                     </Select.Option>
                 )
             })}

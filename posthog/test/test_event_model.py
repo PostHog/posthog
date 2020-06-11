@@ -66,6 +66,8 @@ class TestFilterByActions(BaseTest):
         self.assertEqual(events[0], event1)
 
     def test_with_normal_filters(self):
+        # this test also specifically tests the back to back receipt of
+        # the same type of events by action to test the query cache
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
 
         action1 = Action.objects.create(team=self.team)
@@ -76,16 +78,28 @@ class TestFilterByActions(BaseTest):
             Element(tag_name='a', href='/a-url', text='some_text', nth_child=0, nth_of_type=0, order=0)
         ])
 
-        event2 = Event.objects.create(team=self.team, distinct_id="whatever", elements=[
+        event2 = Event.objects.create(team=self.team, distinct_id="whatever2", elements=[
+            Element(tag_name='a', href='/a-url', text='some_text', nth_child=0, nth_of_type=0, order=0)
+        ])
+
+        event3 = Event.objects.create(team=self.team, distinct_id="whatever", elements=[
+            Element(tag_name='a', href='/a-url-2', text='some_other_text', nth_child=0, nth_of_type=0, order=0),
+            # make sure elements don't get double counted if they're part of the same event
+            Element(tag_name='div', text='some_other_text', nth_child=0, nth_of_type=0, order=1)
+        ])
+
+        event4 = Event.objects.create(team=self.team, distinct_id="whatever2", elements=[
             Element(tag_name='a', href='/a-url-2', text='some_other_text', nth_child=0, nth_of_type=0, order=0),
             # make sure elements don't get double counted if they're part of the same event
             Element(tag_name='div', text='some_other_text', nth_child=0, nth_of_type=0, order=1)
         ])
 
         events = Event.objects.filter_by_action(action1)
-        self.assertEqual(events[0], event2)
-        self.assertEqual(events[1], event1)
-        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0], event4)
+        self.assertEqual(events[1], event3)
+        self.assertEqual(events[2], event2)
+        self.assertEqual(events[3], event1)
+        self.assertEqual(len(events), 4)
 
     def test_with_class(self):
         Person.objects.create(distinct_ids=['whatever'], team=self.team)
@@ -278,14 +292,14 @@ class TestPreCalculation(BaseTest):
         action = Action.objects.create(team=self.team, name='combined action')
         step1 = ActionStep.objects.create(action=action, event='user signed up')
         step2 = ActionStep.objects.create(action=action, event='user logged in')
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(6):
             action.calculate_events()
         self.assertEqual([e for e in action.events.all().order_by('id')], [user_signed_up, user_logged_in])
 
         # update actionstep
         step2.event = 'user logged out'
         step2.save()
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(6):
             action.calculate_events()
         self.assertEqual([e for e in action.events.all().order_by('id')], [user_signed_up, user_logged_out])
 
@@ -297,6 +311,21 @@ class TestPreCalculation(BaseTest):
         ActionStep.objects.all().delete()
         action.calculate_events()
         self.assertEqual([e for e in action.events.all().order_by('id')], [])
+
+    def test_save_with_person_property(self):
+        Person.objects.create(team=self.team, distinct_ids=['person1'], properties={'$browser': 'Chrome'})
+        Event.objects.create(event='$pageview', distinct_id='person1', team=self.team)
+        action = Action.objects.create(name='pageview', team=self.team)
+        ActionStep.objects.create(action=action, event='$pageview', properties=[{'key': '$browser', 'value': 'Chrome', 'type': 'person'}])
+        action.calculate_events()
+        self.assertEqual(action.events.count(), 1)
+
+    def test_empty(self):
+        Person.objects.create(team=self.team, distinct_ids=['person1'], properties={'$browser': 'Chrome'})
+        action = Action.objects.create(name='pageview', team=self.team)
+        ActionStep.objects.create(action=action, event='$pageview', properties=[{'key': '$browser', 'value': 'Chrome', 'type': 'person'}])
+        action.calculate_events()
+        self.assertEqual(action.events.count(), 0)
 
 class TestSendToSlack(BaseTest):
     @patch('posthog.tasks.slack.post_event_to_slack.delay')

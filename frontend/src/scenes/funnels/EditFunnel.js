@@ -8,8 +8,10 @@ import { ActionFilter } from 'scenes/trends/ActionFilter/ActionFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Button } from 'antd'
 import { userLogic } from 'scenes/userLogic'
+import { hot } from 'react-hot-loader/root'
 
-export function EditFunnel({ funnelId }) {
+export const EditFunnel = hot(_EditFunnel)
+function _EditFunnel({ funnelId }) {
     const { funnel, isStepsEmpty } = useValues(funnelLogic({ id: funnelId }))
     const { setFunnel, updateFunnel, createFunnel } = useActions(funnelLogic({ id: funnelId }))
     const { actions, actionsLoading } = useValues(actionsModel())
@@ -30,7 +32,7 @@ export function EditFunnel({ funnelId }) {
                 <div className="card-body" data-attr="funnel-editor">
                     <input
                         required
-                        placeholder="User drop off through signup"
+                        placeholder="Name of Funnel: (e.g. User drop off through signup)"
                         type="text"
                         autoFocus
                         onChange={e => setFunnel({ name: e.target.value })}
@@ -48,6 +50,7 @@ export function EditFunnel({ funnelId }) {
                         filters={funnel.filters}
                         setFilters={filters => setFunnel({ filters }, false)}
                         typeKey={`EditFunnel-${funnel.id || 'new'}`}
+                        hideMathSelector={true}
                     />
                     <br />
                     <hr />
@@ -63,7 +66,7 @@ export function EditFunnel({ funnelId }) {
                                 },
                             })
                         }
-                        style={{ marginBottom: 0 }}
+                        style={{ marginBottom: 20 }}
                     />
                     <hr />
                     <Button
@@ -75,7 +78,6 @@ export function EditFunnel({ funnelId }) {
                         Save funnel
                     </Button>
                     <br />
-                    {isStepsEmpty && <small>Add some actions/events to save the funnel</small>}
                 </div>
             </Card>
         </form>

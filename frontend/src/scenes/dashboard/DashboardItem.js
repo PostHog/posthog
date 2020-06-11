@@ -32,6 +32,14 @@ const typeMap = {
         link: ({ filters, id, dashboard, name }) =>
             combineUrl('/trends', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
     },
+    ActionsLineGraphCumulative: {
+        className: 'graph',
+        element: ActionsLineGraph,
+        icon: LineChartOutlined,
+        viewText: 'View graph',
+        link: ({ filters, id, dashboard, name }) =>
+            combineUrl('/trends', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+    },
     ActionsTable: {
         className: 'table',
         element: ActionsTable,

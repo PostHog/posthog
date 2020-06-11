@@ -5,8 +5,10 @@ import { DeleteWithUndo } from 'lib/utils'
 import { funnelsModel } from '../../models/funnelsModel'
 import { useActions, useValues } from 'kea'
 import { Table } from 'antd'
+import { hot } from 'react-hot-loader/root'
 
-export function Funnels() {
+export const Funnels = hot(_Funnels)
+function _Funnels() {
     const { funnels, funnelsLoading } = useValues(funnelsModel)
     const { loadFunnels } = useActions(funnelsModel)
     let columns = [

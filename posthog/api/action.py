@@ -1,6 +1,7 @@
 from posthog.models import Event, Team, Action, ActionStep, Element, User, Person, Filter, Entity, Cohort, CohortPeople
 from posthog.utils import append_data, get_compare_period_dates
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_STICKINESS
+from posthog.tasks.calculate_action import calculate_action
 from rest_framework import request, serializers, viewsets, authentication
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -8,7 +9,6 @@ from rest_framework.exceptions import AuthenticationFailed
 from django.db.models import Q, Count, Prefetch, functions, QuerySet, OuterRef, Exists, Value, BooleanField
 from django.db import connection
 from django.utils.timezone import now
-from typing import Any, List, Dict, Optional, Tuple
 from typing import Any, List, Dict, Optional, Tuple, Union
 import pandas as pd
 import datetime
@@ -19,6 +19,7 @@ import numpy as np
 from dateutil.relativedelta import relativedelta
 import dateutil
 from .person import PersonSerializer
+from urllib.parse import urlsplit
 
 FREQ_MAP = {
     'minute': '60S',
@@ -31,7 +32,7 @@ FREQ_MAP = {
 class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = ActionStep
-        fields = ['id', 'event', 'tag_name', 'text', 'href', 'selector', 'url', 'name', 'url_matching']
+        fields = ['id', 'event', 'tag_name', 'text', 'href', 'selector', 'url', 'name', 'url_matching', 'properties']
 
 
 class ActionSerializer(serializers.HyperlinkedModelSerializer):
@@ -40,7 +41,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
 
     class Meta:
         model = Action
-        fields = ['id', 'name', 'post_to_slack', 'steps', 'created_at', 'deleted', 'count']
+        fields = ['id', 'name', 'post_to_slack', 'steps', 'created_at', 'deleted', 'count', 'is_calculating']
 
     def get_steps(self, action: Action):
         steps = action.steps.all()
@@ -56,13 +57,12 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: request.Request):
         # if the Origin is different, the only authentication method should be temporary_token
         # This happens when someone is trying to create actions from the editor on their own website
-        if request.headers.get('Origin') and request.headers['Origin'] not in request.build_absolute_uri('/'):
+        if request.headers.get('Origin') and urlsplit(request.headers['Origin']).netloc not in urlsplit(request.build_absolute_uri('/')).netloc:
             if not request.GET.get('temporary_token'):
-                raise AuthenticationFailed(detail="""No temporary_token set.
-                    That means you're either trying to access this API from a different site,
-                    or it means your proxy isn\'t sending the correct headers.
-                    See https://github.com/PostHog/posthog/wiki/Running-behind-a-proxy for more information.
-                    """)
+                raise AuthenticationFailed(detail="No temporary_token set. " +
+                    "That means you're either trying to access this API from a different site, " +
+                    "or it means your proxy isn\'t sending the correct headers. " +
+                    "See https://posthog.com/docs/deployment/running-behind-proxy for more information.")
         if request.GET.get('temporary_token'):
             user = User.objects.filter(temporary_token=request.GET.get('temporary_token'))
             if not user.exists():
@@ -95,10 +95,10 @@ class ActionViewSet(viewsets.ModelViewSet):
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         action, created = Action.objects.get_or_create(
             name=request.data['name'],
-            post_to_slack=request.data.get('post_to_slack', False),
             team=request.user.team_set.get(),
             deleted=False,
             defaults={
+                'post_to_slack': request.data.get('post_to_slack', False),
                 'created_by': request.user
             }
         )
@@ -111,7 +111,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                     action=action,
                     **{key: value for key, value in step.items() if key not in ('isNew', 'selection')}
                 )
-        action.calculate_events()
+        calculate_action.delay(action_id=action.pk)
         return Response(ActionSerializer(action, context={'request': request}).data)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -138,7 +138,8 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         serializer = ActionSerializer(action, context={'request': request})
         serializer.update(action, request.data)
-        action.calculate_events()
+        action.is_calculating = True
+        calculate_action.delay(action_id=action.pk)
         return Response(ActionSerializer(action, context={'request': request}).data)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -378,8 +379,10 @@ class ActionViewSet(viewsets.ModelViewSet):
                 if value != 'Total':
                     new_dict.update(self._breakdown_label(entity, value))
                 new_dict.update(append_data(dates_filled=list(item.items()), interval=interval))
+                if filter.display == TRENDS_CUMULATIVE:
+                    new_dict['data'] = np.cumsum(new_dict['data'])
                 response.append(new_dict)
-        elif request.GET['shown_as'] == 'Stickiness':
+        elif request.GET['shown_as'] == TRENDS_STICKINESS:
             new_dict = copy.deepcopy(serialized)
             new_dict.update(self._stickiness(filtered_events=events, entity=entity, filter=filter))
             response.append(new_dict)

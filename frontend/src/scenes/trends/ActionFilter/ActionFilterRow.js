@@ -7,6 +7,7 @@ import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { Tooltip } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { userLogic } from 'scenes/userLogic'
+import { DownOutlined } from '@ant-design/icons'
 
 const determineFilterLabel = (visible, filter) => {
     if (visible) return 'Hide Filters'
@@ -19,7 +20,7 @@ const determineFilterLabel = (visible, filter) => {
     return 'Add Filters'
 }
 
-export function ActionFilterRow({ logic, filter, index }) {
+export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
     const node = useRef()
     const { selectedFilter, entities } = useValues(logic)
     const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty } = useActions(logic)
@@ -52,27 +53,26 @@ export function ActionFilterRow({ logic, filter, index }) {
         value = entity.id || filter.id
     }
     return (
-        <div>
+        <div className="mt-2">
             <button
                 data-attr={'trend-element-subject-' + index}
                 ref={node}
-                className="filter-action"
+                className="filter-action btn btn-sm btn-light"
                 type="button"
                 onClick={onClick}
                 style={{
-                    border: 0,
-                    padding: 0,
                     fontWeight: 500,
-                    borderBottom: '1.5px dotted var(--blue)',
                 }}
             >
                 {name || 'Select action'}
+                <DownOutlined style={{ marginLeft: '3px', color: 'rgba(0, 0, 0, 0.25)' }} />
             </button>
-            <MathSelector math={math} index={index} onMathSelect={onMathSelect} />
+            {!hideMathSelector && <MathSelector math={math} index={index} onMathSelect={onMathSelect} />}
             <div
                 className="btn btn-sm btn-light"
                 onClick={() => setEntityFilterVisible(!entityFilterVisible)}
                 data-attr={'show-prop-filter-' + index}
+                style={{ marginLeft: 10, marginRight: 10 }}
             >
                 {determineFilterLabel(entityFilterVisible, filter)}
             </div>
@@ -80,7 +80,6 @@ export function ActionFilterRow({ logic, filter, index }) {
                 onClick={onClose}
                 style={{
                     float: 'none',
-                    marginLeft: 8,
                     position: 'absolute',
                     marginTop: 3,
                 }}
@@ -117,7 +116,7 @@ function MathSelector(props) {
         <Dropdown
             title={items[items.map(i => i.toLowerCase()).indexOf(props.math)] || 'Total'}
             buttonClassName="btn btn-sm btn-light"
-            style={{ marginLeft: 32, marginRight: 16 }}
+            style={{ marginLeft: 16 }}
             data-attr={'math-selector-' + props.index}
         >
             <Tooltip
