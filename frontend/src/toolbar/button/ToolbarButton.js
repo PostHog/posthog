@@ -31,7 +31,7 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
     const { selecting: inspectingElement } = useValues(inspectElementLogic)
 
     const { setHeatmapEnabled } = useActions(heatmapLogic)
-    const { heatmapEnabled } = useValues(heatmapLogic)
+    const { heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
 
     const { dock, float, hideButton } = useActions(dockLogic)
 
@@ -177,7 +177,34 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                         transition: 'transform 0.2s',
                         transform: `scale(${0.2 + (0.8 * heatmapDistance) / 100})`,
                     }}
-                />
+                >
+                    {heatmapLoading ? (
+                        <Circle
+                            radius={12}
+                            distance={30 * (0.2 + (0.8 * heatmapDistance) / 100)}
+                            rotate={0}
+                            animate
+                            animationId="heatmap-loading"
+                            animationDuration={0.5 + (0.5 * heatmapDistance) / 100}
+                            spin="1s linear infinite"
+                            content={<FireFilled />}
+                            zIndex={3}
+                            style={{
+                                cursor: 'pointer',
+                                background: '#FF5722',
+                                color: '#FFEB3B',
+                                fontSize: '12px',
+                                transition: 'transform 0.2s',
+                                transform: `rotate(${-getQuarterRotation({
+                                    itemCount,
+                                    index: index - 1,
+                                    padding,
+                                    quarter: quarters[quarter],
+                                })}deg)`,
+                            }}
+                        />
+                    ) : null}
+                </Circle>
                 <Circle
                     radius={48}
                     distance={distance}
