@@ -21,7 +21,7 @@ export function Heatmap({ apiURL, temporaryToken }) {
     const { domZoom, domPadding } = useValues(dockLogic)
     const {
         selecting: inspectElementActive,
-        baseElement: inspectSelectedEvent,
+        baseElement: inspectSelectedElement,
         actionStep: inspectActionStep,
     } = useValues(inspectElementLogic)
     const { stop: stopInspect } = useActions(inspectElementLogic)
@@ -31,12 +31,12 @@ export function Heatmap({ apiURL, temporaryToken }) {
     let highlightPointerEvents = false
     let highlightOnClose
 
-    if (highlightedElement && (selectedElement !== highlightedElement || inspectSelectedEvent)) {
+    if (highlightedElement && (selectedElement !== highlightedElement || inspectSelectedElement)) {
         highlightedRect = highlightedElement.getBoundingClientRect()
         highlightedMeta = highlightedElementMeta
-    } else if (inspectSelectedEvent) {
-        highlightedRect = inspectSelectedEvent.getBoundingClientRect()
-        highlightedMeta = { actionStep: inspectActionStep }
+    } else if (inspectSelectedElement) {
+        highlightedRect = inspectSelectedElement.getBoundingClientRect()
+        highlightedMeta = { element: inspectSelectedElement, actionStep: inspectActionStep }
         highlightPointerEvents = !inspectElementActive
         highlightOnClose = inspectElementActive ? null : () => stopInspect(true)
     } else if (selectedElement) {

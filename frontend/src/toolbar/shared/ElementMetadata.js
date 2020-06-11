@@ -3,9 +3,13 @@ import { useValues } from 'kea'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { ActionStep } from '~/toolbar/shared/ActionStep'
 import { CloseOutlined } from '@ant-design/icons'
+import { heatmapLogic } from '~/toolbar/shared/heatmapLogic'
 
-export function ElementMetadata({ rect, meta: { actionStep }, pointerEvents, onClose }) {
+export function ElementMetadata({ rect, meta: { actionStep, element: metaElement }, pointerEvents, onClose }) {
     const { domZoom, domPadding } = useValues(dockLogic)
+    const { elementMap, eventCount } = useValues(heatmapLogic)
+
+    const heatmapMeta = elementMap.get(metaElement)
 
     return (
         <>
@@ -30,6 +34,16 @@ export function ElementMetadata({ rect, meta: { actionStep }, pointerEvents, onC
                     boxShadow: `hsla(4, 30%, 27%, 0.6) 0px 3px 10px 2px`,
                 }}
             >
+                <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #eee' }}>
+                    {heatmapMeta && eventCount !== 0 ? (
+                        <div>
+                            This element got {heatmapMeta.count} out of {eventCount} clicks ={' '}
+                            {Math.round((heatmapMeta.count / eventCount) * 10000) / 100}%
+                        </div>
+                    ) : (
+                        <div>No clicks recorded for this element</div>
+                    )}
+                </div>
                 <ActionStep actionStep={actionStep} />
             </div>
             {onClose ? (

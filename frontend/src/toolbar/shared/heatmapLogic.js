@@ -165,6 +165,16 @@ export const heatmapLogic = kea({
                 return countedElements
             },
         ],
+        elementMap: [
+            () => [selectors.countedElements],
+            countedElements => {
+                const elementMap = new Map()
+                countedElements.forEach(e => {
+                    elementMap.set(e.element, e)
+                })
+                return elementMap
+            },
+        ],
         countedElementsWithRects: [
             () => [
                 selectors.countedElements,
