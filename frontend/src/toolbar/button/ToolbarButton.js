@@ -27,7 +27,7 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
     const { setExtensionPercentage, setQuarter } = useActions(toolbarButtonLogic)
 
     const { start, stop } = useActions(inspectElementLogic)
-    const { selecting: inspectingElement } = useValues(inspectElementLogic)
+    const { selecting: inspectingElement, selectedElement: selectedInspectElement } = useValues(inspectElementLogic)
 
     const { setHeatmapEnabled } = useActions(heatmapLogic)
     const { heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
@@ -104,7 +104,7 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
     const padding = -20
     const distance = extensionPercentage * 100
     const closeDistance = extensionPercentage * 50
-    const inspectDistance = inspectingElement ? Math.max(50, distance) : distance
+    const inspectDistance = inspectingElement || selectedInspectElement ? Math.max(50, distance) : distance
     const heatmapDistance = heatmapEnabled ? Math.max(50, distance) : distance
 
     return (
@@ -127,11 +127,17 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                     labelStyle={{ opacity: inspectDistance > 80 ? (inspectDistance - 80) / 20 : 0 }}
                     content={<SearchOutlined />}
                     zIndex={1}
-                    onClick={inspectingElement ? stop : start}
+                    onClick={inspectingElement || selectedInspectElement ? stop : start}
                     style={{
                         cursor: 'pointer',
-                        background: inspectingElement ? 'rgb(84, 138, 248)' : 'hsla(220, 52%, 96%, 1)',
-                        color: inspectingElement ? 'hsla(220, 52%, 96%, 1)' : 'rgb(84, 138, 248)',
+                        background:
+                            inspectingElement || selectedInspectElement
+                                ? 'rgb(84, 138, 248)'
+                                : 'hsla(220, 52%, 96%, 1)',
+                        color:
+                            inspectingElement || selectedInspectElement
+                                ? 'hsla(220, 52%, 96%, 1)'
+                                : 'rgb(84, 138, 248)',
                         fontSize: '32px',
                         transition: 'transform 0.2s, color 0.2s, background: 0.2s',
                         transform: `scale(${0.2 + (0.8 * inspectDistance) / 100})`,
