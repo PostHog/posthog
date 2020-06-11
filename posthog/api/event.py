@@ -1,7 +1,5 @@
 from datetime import datetime, timedelta
-from posthog.models.team import TeamManager
-
-from django.db.models.manager import BaseManager
+from dateutil.relativedelta import relativedelta
 from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId, Team
 from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value, get_compare_period_dates, dict_from_cursor_fetchall
 from rest_framework import request, response, serializers, viewsets
@@ -262,7 +260,6 @@ class EventViewSet(viewsets.ModelViewSet):
             calculated.extend(converted_compared_calculated)
         else:
             calculated = self.calculate_sessions(events, session_type, date_filter, team, request)
-
         result.update({'result': calculated})
 
         # add pagination
@@ -279,13 +276,13 @@ class EventViewSet(viewsets.ModelViewSet):
         # format date filter for session view
         _date_gte = Q()
         if session_type is None:
-            if request.GET.get('offset', None):
-                _date_gte = Q(timestamp__gte=date_filter['timestamp__gte'])
+            if request.GET.get('date_from', None):
+                _date_gte = Q(timestamp__gte=date_filter['timestamp__gte'], timestamp__lte=date_filter['timestamp__gte'] + relativedelta(days=1))
             else:
                 dt = events.order_by('-timestamp').values('timestamp')[0]['timestamp']
                 if dt:
                     dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-                _date_gte = Q(timestamp__gte=dt)
+                _date_gte = Q(timestamp__gte=dt, timestamp__lte=dt + relativedelta(days=1))
 
         sessions = events.filter(_date_gte)\
             .annotate(previous_timestamp=Window(
