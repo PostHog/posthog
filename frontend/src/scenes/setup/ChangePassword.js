@@ -1,6 +1,7 @@
 import React, { Component } from 'react'
 import { toast } from 'react-toastify'
 import api from '../../lib/api'
+import { Input, Button } from 'antd'
 
 export class ChangePassword extends Component {
     constructor(props) {
@@ -25,43 +26,44 @@ export class ChangePassword extends Component {
                 newPassword: this.state.newPassword,
             })
             toast.success('Password changed')
-        } catch (response) {
-            toast.error(response.error)
-        } finally {
             this.setState({
                 oldPassword: '',
                 newPassword: '',
             })
+        } catch (response) {
+            toast.error(response.error)
         }
     }
 
     render() {
         return (
-            <form id="change-password" onSubmit={this.save}>
+            <form onSubmit={this.save}>
                 <label>Old Password</label>
-                <input
+                <br />
+                <Input.Password
                     name="oldPassword"
                     required
-                    type="password"
-                    className="form-control"
                     onChange={this.handleChange}
                     value={this.state.oldPassword}
                     style={{ maxWidth: 400 }}
+                    autoComplete="current-password"
                 />
+                <br />
                 <label>New Password</label>
-                <input
+                <br />
+                <Input.Password
                     name="newPassword"
                     required
-                    type="password"
-                    className="form-control"
                     onChange={this.handleChange}
                     value={this.state.newPassword}
                     style={{ maxWidth: 400 }}
+                    autoComplete="new-password"
                 />
                 <br />
-                <button type="submit" className="btn btn-outline-primary">
+                <br />
+                <Button type="primary" htmlType="submit">
                     Change Password
-                </button>
+                </Button>
             </form>
         )
     }

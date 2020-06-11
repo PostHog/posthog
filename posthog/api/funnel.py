@@ -1,9 +1,8 @@
-from posthog.models import FunnelStep, Action, ActionStep, Event, Funnel, Person, PersonDistinctId
-from rest_framework import request, response, serializers, viewsets
-from rest_framework.decorators import action
-from django.db.models import QuerySet, query, Model, Q, Max, Prefetch, Exists, OuterRef, Subquery
-from django.db import models
-from typing import List, Dict, Any, Optional
+from posthog.models import Funnel
+from rest_framework import request, serializers, viewsets
+from django.db.models import QuerySet
+from typing import List, Dict, Any
+import json
 
 
 class FunnelSerializer(serializers.HyperlinkedModelSerializer):
@@ -23,7 +22,6 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
 
         if self.context['view'].action != 'retrieve' or self.context['request'].GET.get('exclude_count'):
             return []
-
         return funnel.get_steps()
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Funnel:

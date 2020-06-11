@@ -1,19 +1,22 @@
 import React, { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { entityFilterLogic } from './actionFilterLogic'
 import { EntityTypes } from '../trendsLogic'
 import { ActionSelectPanel, ActionSelectTabs } from '~/lib/components/ActionSelectBox'
-import { Link } from 'react-router-dom'
+import { Link } from 'lib/components/Link'
+import { userLogic } from 'scenes/userLogic'
+import { actionsModel } from '~/models/actionsModel'
 
-export function ActionFilterDropdown(props) {
+export function ActionFilterDropdown({ onClickOutside, logic }) {
     const dropdownRef = useRef()
-    const { formattedOptions, selectedFilter } = useValues(entityFilterLogic({ typeKey: props.typeKey }))
+    const { selectedFilter } = useValues(logic)
+    const { eventNamesGrouped } = useValues(userLogic)
+    const { actionsGrouped } = useValues(actionsModel)
 
     const deselect = e => {
         if (dropdownRef.current.contains(e.target)) {
             return
         }
-        props.onClickOutside ? props.onClickOutside(e) : null
+        onClickOutside && onClickOutside(e)
     }
 
     useEffect(() => {
@@ -26,38 +29,42 @@ export function ActionFilterDropdown(props) {
     return (
         <div ref={dropdownRef} className="action-filter-dropdown">
             <ActionSelectTabs
-                selected={selectedFilter.type && selectedFilter.type != EntityTypes.NEW ? selectedFilter.type : null}
+                selected={
+                    selectedFilter.type && selectedFilter.type !== EntityTypes.NEW_ENTITY ? selectedFilter.type : null
+                }
             >
-                {Object.entries(formattedOptions).map((item, panelIndex) => {
-                    let key = item[0]
-                    let options = item[1]
-                    return (
-                        <ActionPanelContainer
-                            key={panelIndex}
-                            title={key}
-                            entityType={key}
-                            options={options}
-                            panelIndex={panelIndex}
-                            typeKey={props.typeKey}
-                        ></ActionPanelContainer>
-                    )
-                })}
+                <ActionPanelContainer
+                    title="actions"
+                    entityType={EntityTypes.ACTIONS}
+                    options={actionsGrouped}
+                    panelIndex={0}
+                    logic={logic}
+                />
+                <ActionPanelContainer
+                    title="events"
+                    entityType={EntityTypes.EVENTS}
+                    options={eventNamesGrouped}
+                    panelIndex={1}
+                    logic={logic}
+                />
             </ActionSelectTabs>
         </div>
     )
 }
 
-export function ActionPanelContainer({ entityType, panelIndex, options, typeKey }) {
-    const { entities, selectedFilter, filters } = useValues(entityFilterLogic({ typeKey }))
-    const { updateFilter } = useActions(entityFilterLogic({ typeKey }))
-    let dropDownOnSelect = item => updateFilter({ type: entityType, value: item.value, index: selectedFilter.index })
-    let dropDownOnHover = value => entities[entityType].filter(a => a.id == value)[0]
+export function ActionPanelContainer({ entityType, panelIndex, options, logic }) {
+    const { entities, selectedFilter, filters } = useValues(logic)
+    const { updateFilter } = useActions(logic)
 
-    let redirect = () => {
-        if (selectedFilter && selectedFilter.type == EntityTypes.ACTIONS) {
-            let action = entities[selectedFilter.type].filter(a => a.id == selectedFilter.filter.id)[0]
+    const dropDownOnSelect = (value, name) =>
+        updateFilter({ type: entityType, value: value, name, index: selectedFilter.index })
+    const dropDownOnHover = value => entities[entityType].filter(a => a.id === value)[0]
+
+    const redirect = () => {
+        if (selectedFilter && selectedFilter.type === EntityTypes.ACTIONS && entityType === EntityTypes.ACTIONS) {
+            const action = entities[selectedFilter.type].filter(a => a.id === selectedFilter.filter.id)[0]
             return (
-                <a href={'/action/' + selectedFilter.filter.id} target="_blank">
+                <a href={'/action/' + selectedFilter.filter.id} target="_blank" rel="noopener noreferrer">
                     Edit "{action.name}" <i className="fi flaticon-export" />
                 </a>
             )
@@ -66,8 +73,8 @@ export function ActionPanelContainer({ entityType, panelIndex, options, typeKey 
         }
     }
 
-    let message = () => {
-        if (entityType == EntityTypes.ACTIONS && !filters[EntityTypes.ACTIONS]) {
+    const message = () => {
+        if (entityType === EntityTypes.ACTIONS && !filters[EntityTypes.ACTIONS]) {
             return (
                 <div
                     style={{
@@ -86,7 +93,6 @@ export function ActionPanelContainer({ entityType, panelIndex, options, typeKey 
             return null
         }
     }
-
     return (
         <ActionSelectPanel
             key={panelIndex}
@@ -95,9 +101,9 @@ export function ActionPanelContainer({ entityType, panelIndex, options, typeKey 
             defaultMenuIsOpen={true}
             onSelect={dropDownOnSelect}
             onHover={dropDownOnHover}
-            active={null}
+            active={selectedFilter}
             redirect={redirect()}
             message={message()}
-        ></ActionSelectPanel>
+        />
     )
 }

@@ -1,10 +1,11 @@
-from posthog.models import Person, PersonDistinctId, Event, Element, Action, ActionStep, Funnel, FunnelStep, Team, DashboardItem
+from posthog.models import Person, PersonDistinctId, Event, Element, Action, ActionStep, Funnel, Team, Dashboard, DashboardItem
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from django.http import HttpResponseNotFound, JsonResponse
 
 from posthog.urls import render_template
 from posthog.utils import render_template
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
 from typing import List
 from pathlib import Path
@@ -95,12 +96,20 @@ def _create_funnel(team: Team, base_url: str) -> None:
     user_paid = Action.objects.create(team=team, name='HogFlix paid')
     ActionStep.objects.create(action=user_paid, event='$autocapture', url='%s2/' % base_url, url_matching='exact', selector='button')
 
-    funnel = Funnel.objects.create(team=team, name='HogFlix signup -> watching movie')
-    FunnelStep.objects.create(funnel=funnel, action=homepage, order=0)
-    FunnelStep.objects.create(funnel=funnel, action=user_signed_up, order=1)
-    FunnelStep.objects.create(funnel=funnel, action=user_paid, order=2)
+    funnel = Funnel.objects.create(team=team, name='HogFlix signup -> watching movie', filters={
+        'actions': [
+            {'id': homepage.id, 'order': 0, 'type': TREND_FILTER_TYPE_ACTIONS},
+            {'id': user_signed_up.id, 'order': 1, 'type': TREND_FILTER_TYPE_ACTIONS},
+            {'id': user_paid.id, 'order': 2, 'type': TREND_FILTER_TYPE_ACTIONS},
+        ]
+    })
 
-    DashboardItem.objects.create(team=team, name='HogFlix signup -> watching movie', type='FunnelViz', filters={'funnel_id': funnel.pk})
+    dashboard = Dashboard.objects.create(
+        name="Default",
+        pinned=True,
+        team=team
+    )
+    DashboardItem.objects.create(team=team, dashboard=dashboard, name='HogFlix signup -> watching movie', type='FunnelViz', filters={'funnel_id': funnel.pk})
 
 def _recalculate(team: Team) -> None:
     actions = Action.objects.filter(team=team)
@@ -109,7 +118,7 @@ def _recalculate(team: Team) -> None:
 
 def demo(request):
     team = request.user.team_set.get()
-    if Event.objects.filter(team=team).count() == 0:
+    if not Event.objects.filter(team=team).exists():
         _create_anonymous_users(team=team, base_url=request.build_absolute_uri('/demo/'))
         _create_funnel(team=team, base_url=request.build_absolute_uri('/demo/'))
         _recalculate(team=team)

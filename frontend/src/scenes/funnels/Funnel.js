@@ -1,21 +1,25 @@
 import React from 'react'
-import { Card, Loading } from '../../lib/utils'
-import { SaveToDashboard } from '../../lib/components/SaveToDashboard'
-import { DateFilter } from '../../lib/components/DateFilter'
+import { Card, Loading } from 'lib/utils'
+import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
+import { DateFilter } from 'lib/components/DateFilter'
 import { EditFunnel } from './EditFunnel'
 import { FunnelViz } from './FunnelViz'
 import { People } from './People'
 import { funnelLogic } from './funnelLogic'
 import { useValues, useActions } from 'kea'
+import { hot } from 'react-hot-loader/root'
 
-export function Funnel({ match }) {
-    const id = match.params.id
+export const Funnel = hot(_Funnel)
+function _Funnel({ id }) {
     const { funnel, funnelLoading, stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic({ id }))
     const { setFunnel } = useActions(funnelLogic({ id }))
     if (!funnel && funnelLoading) return <Loading />
     return (
         <div className="funnel">
             {funnel.id ? <h1>Funnel: {funnel.name}</h1> : <h1>New funnel</h1>}
+            <p style={{ maxWidth: 600 }}>
+                <i>Add multiple actions and event (order sensitive) and save to see the funnel visualization</i>
+            </p>
             <EditFunnel funnelId={id} />
 
             {funnel.id && (
@@ -56,7 +60,7 @@ export function Funnel({ match }) {
                     </div>
                 </Card>
             )}
-            {funnel.id && <People match={match} />}
+            {funnel.id && <People id={id} />}
         </div>
     )
 }

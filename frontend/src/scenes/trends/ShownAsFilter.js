@@ -1,34 +1,28 @@
-import React, { Component } from 'react'
-import { selectStyle } from '../../lib/utils'
-import { Select, Col, Row } from 'antd'
+import React from 'react'
+import { Select, Row, Tooltip } from 'antd'
 
-export function ShownAsFilter({ shown_as, onChange }) {
-    let options = ['Volume', 'Stickiness']
+export function ShownAsFilter({ filters, onChange }) {
     return (
-        <Col>
+        <div>
             <Row>
-                <Select
-                    defaultValue={shown_as}
-                    value={shown_as || 'Volume'}
-                    onChange={value => onChange(value)}
-                    style={{ width: 200 }}
-                >
-                    <Select.Option value={'Volume'}>{'Volume'}</Select.Option>
-                    <Select.Option value={'Stickiness'}>{'Stickiness'}</Select.Option>
-                </Select>
+                <Tooltip title={filters.breakdown && 'Shown as is not yet available in combination with breakdown'}>
+                    <Select
+                        defaultValue={filters.shown_as}
+                        value={filters.shown_as || 'Volume'}
+                        onChange={value => onChange(value)}
+                        style={{ width: 200 }}
+                        disabled={filters.breakdown}
+                        data-attr="shownas-filter"
+                    >
+                        <Select.Option data-attr="shownas-volume-option" value={'Volume'}>
+                            {'Volume'}
+                        </Select.Option>
+                        <Select.Option data-attr="shownas-stickiness-option" value={'Stickiness'}>
+                            {'Stickiness'}
+                        </Select.Option>
+                    </Select>
+                </Tooltip>
             </Row>
-
-            <Row>
-                {shown_as == 'Stickiness' && (
-                    <small>
-                        <i>
-                            Stickiness shows you how many days users performed an action within the timeframe. If a user
-                            did an action on Monday and came back and did it twice on Friday, it would be listed as "2
-                            days" in the chart.
-                        </i>
-                    </small>
-                )}
-            </Row>
-        </Col>
+        </div>
     )
 }
