@@ -24,10 +24,12 @@ export function Heatmap({ apiURL, temporaryToken }) {
         baseElement: inspectSelectedEvent,
         actionStep: inspectActionStep,
     } = useValues(inspectElementLogic)
+    const { stop: stopInspect } = useActions(inspectElementLogic)
 
     let highlightedRect
     let highlightedMeta
     let highlightPointerEvents = false
+    let highlightOnClose
 
     if (highlightedElement && (selectedElement !== highlightedElement || inspectSelectedEvent)) {
         highlightedRect = highlightedElement.getBoundingClientRect()
@@ -36,10 +38,12 @@ export function Heatmap({ apiURL, temporaryToken }) {
         highlightedRect = inspectSelectedEvent.getBoundingClientRect()
         highlightedMeta = { actionStep: inspectActionStep }
         highlightPointerEvents = !inspectElementActive
+        highlightOnClose = inspectElementActive ? null : () => stopInspect(true)
     } else if (selectedElement) {
         highlightedRect = selectedElement.getBoundingClientRect()
         highlightedMeta = selectedElementMeta
         highlightPointerEvents = true
+        highlightOnClose = () => selectElement(null)
     }
 
     return (
@@ -57,7 +61,12 @@ export function Heatmap({ apiURL, temporaryToken }) {
         >
             {highlightedRect && showElementFinder ? <FocusRect rect={highlightedRect} /> : null}
             {highlightedRect && !showElementFinder && highlightedMeta ? (
-                <ElementMetadata rect={highlightedRect} meta={highlightedMeta} pointerEvents={highlightPointerEvents} />
+                <ElementMetadata
+                    rect={highlightedRect}
+                    meta={highlightedMeta}
+                    pointerEvents={highlightPointerEvents}
+                    onClose={highlightOnClose}
+                />
             ) : null}
             {countedElementsWithRects.map(({ rect, count, element }, index) => {
                 return (
