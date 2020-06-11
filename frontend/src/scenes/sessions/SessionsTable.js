@@ -5,10 +5,12 @@ import { Link } from 'lib/components/Link'
 import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
 import _ from 'lodash'
 import { SessionDetails } from './SessionDetails'
+import { DatePicker } from 'antd'
+import moment from 'moment'
 
 export function SessionsTable({ logic }) {
-    const { sessions, sessionsLoading, next, isLoadingNext } = useValues(logic)
-    const { fetchNextSessions } = useActions(logic)
+    const { sessions, sessionsLoading, offset, isLoadingNext, selectedDate } = useValues(logic)
+    const { fetchNextSessions, dateChanged } = useActions(logic)
     let columns = [
         {
             title: 'Person',
@@ -70,9 +72,10 @@ export function SessionsTable({ logic }) {
 
     return (
         <div className="events" data-attr="events-table">
-            <h1 className="page-header">Sessions</h1>
-
+            <h1 className="page-header">Sessions By Day</h1>
+            <DatePicker className="mb-2" value={selectedDate} onChange={dateChanged} allowClear={false}></DatePicker>
             <Table
+                locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
                 size="small"
                 rowKey={item => item.global_session_id}
@@ -87,9 +90,10 @@ export function SessionsTable({ logic }) {
                     rowExpandable: () => true,
                     expandRowByClick: true,
                 }}
+                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
             />
             <div style={{ marginTop: '5rem' }} />
-            {(next || isLoadingNext) && (
+            {offset || isLoadingNext ? (
                 <div
                     style={{
                         margin: '2rem auto 5rem',
@@ -100,6 +104,10 @@ export function SessionsTable({ logic }) {
                         {isLoadingNext ? <Spin> </Spin> : 'Load more sessions'}
                     </Button>
                 </div>
+            ) : (
+                sessions.length > 0 && (
+                    <span> {'No more Sessions on ' + moment(selectedDate).format('YYYY-MM-DD')}</span>
+                )
             )}
         </div>
     )

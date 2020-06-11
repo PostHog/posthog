@@ -50,11 +50,6 @@ class TeamManager(models.Manager):
             filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'math': 'dau', 'type': TREND_FILTER_TYPE_EVENTS}]}
         )
 
-        with connection.cursor() as cursor:
-            file_path = os.path.join(os.path.dirname(__file__), '../migrations/sql/materialize_sessions.sql')
-            materialize_sessions_sql = open(file_path).read()
-            cursor.execute(materialize_sessions_sql, [team.pk for _ in range(5)])
-
         return team
 
 

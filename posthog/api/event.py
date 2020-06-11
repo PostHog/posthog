@@ -15,8 +15,7 @@ from typing import Any, Dict, List, Union
 from django.utils.timezone import now
 import json
 import pandas as pd
-from typing import Tuple, Optional
-from posthog.tasks.refresh_materialized_sessions import refresh_materialized_sessions
+from typing import Tuple
 
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
@@ -257,32 +256,40 @@ class EventViewSet(viewsets.ModelViewSet):
         compare = request.GET.get('compare')
         result: Dict[str, Any]  = {'result': []}
         if compare and request.GET.get('date_from') != 'all':
-            calculated = self.calculate_sessions(events, session_type, date_filter, team)
+            calculated = self.calculate_sessions(events, session_type, date_filter, team, request)
             calculated = self._convert_to_comparison(calculated, 'current')
             compared_events = self._handle_compared(date_filter)
-            compared_calculated =  self.calculate_sessions(compared_events, session_type, date_filter, team)
+            compared_calculated =  self.calculate_sessions(compared_events, session_type, date_filter, team, request)
             converted_compared_calculated = self._convert_to_comparison(compared_calculated, 'previous')
             calculated.extend(converted_compared_calculated)
         else:
-            calculated = self.calculate_sessions(events, session_type, date_filter, team)
+            calculated = self.calculate_sessions(events, session_type, date_filter, team, request)
 
         result.update({'result': calculated})
 
         # add pagination
         if session_type is None:
-            path = request.get_full_path()
+            offset = int(request.GET.get('offset', '0')) + 50
             if len(calculated) > 49:
-                next: Union[bool, str] = '{}{}{}={}'.format(
-                    path[1:],
-                    '&' if '?' in path else '?',
-                    'date_to',
-                    calculated[49]['start_time'].strftime('%Y-%m-%dT%H:%M:%S.%fZ')
-                )
-                result.update({'next': next})
+                date_from = calculated[0]['start_time'].isoformat()
+                result.update({'offset': offset})
+                result.update({'date_from': date_from})
         return response.Response(result)
 
-    def calculate_sessions(self, events: QuerySet, session_type: str, date_filter: Dict[str, datetime], team: Team) -> List[Dict[str, Any]]:
-        sessions = events\
+    def calculate_sessions(self, events: QuerySet, session_type: str, date_filter: Dict[str, datetime], team: Team, request: request.Request) -> List[Dict[str, Any]]:
+
+        # format date filter for session view
+        _date_gte = Q()
+        if session_type is None:
+            if request.GET.get('offset', None):
+                _date_gte = Q(timestamp__gte=date_filter['timestamp__gte'])
+            else:
+                dt = events.order_by('-timestamp').values('timestamp')[0]['timestamp']
+                if dt:
+                    dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+                _date_gte = Q(timestamp__gte=dt)
+
+        sessions = events.filter(_date_gte)\
             .annotate(previous_timestamp=Window(
                 expression=Lag('timestamp', default=None),
                 partition_by=F('distinct_id'),
@@ -295,7 +302,6 @@ class EventViewSet(viewsets.ModelViewSet):
             ))
         
         sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
-
         all_sessions = '\
             SELECT *,\
                 SUM(new_session) OVER (ORDER BY distinct_id, timestamp) AS global_session_id,\
@@ -312,15 +318,27 @@ class EventViewSet(viewsets.ModelViewSet):
         elif session_type == 'dist': 
             result = self._session_dist(all_sessions, sessions_sql_params)
         else:
-            result = self._session_list(all_sessions, sessions_sql_params, team, date_filter)
+            result = self._session_list(all_sessions, sessions_sql_params, team, date_filter, request)
 
         return result
 
-    def _session_list(self, base_query: str, params: Tuple[Any, ...], team: Team, date_filter: Dict[str, datetime]) -> List[Dict[str, Any]]:
-        
-        session_list = 'SELECT * FROM sessions_team_{} WHERE start_time <= \'{}\' ORDER BY start_time DESC LIMIT 50'.format(team.pk, date_filter['timestamp__lte'])
+    def _session_list(self, base_query: str, params: Tuple[Any, ...], team: Team, date_filter: Dict[str, datetime], request: request.Request) -> List[Dict[str, Any]]:
+        session_list = 'SELECT * FROM (SELECT global_session_id, properties, start_time, length, sessions.distinct_id, event_count, events from\
+                                (SELECT\
+                                    global_session_id,\
+                                    count(1) as event_count,\
+                                    MAX(distinct_id) as distinct_id,\
+                                    EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp))) AS length,\
+                                    MIN(timestamp) as start_time,\
+                                    array_agg(json_build_object( \'id\', id, \'event\', event, \'timestamp\', timestamp, \'properties\', properties, \'elements_hash\', elements_hash) ORDER BY timestamp) as events\
+                                        FROM ({}) as count GROUP BY 1) as sessions\
+                                        LEFT OUTER JOIN posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id\
+                                        LEFT OUTER JOIN posthog_person ON posthog_person.id = posthog_persondistinctid.person_id\
+                                        ORDER BY start_time DESC) as ordered_sessions OFFSET %s LIMIT 50'.format(base_query)
                                         
         with connection.cursor() as cursor:
+            offset = request.GET.get('offset', 0)
+            params = params + (offset,)
             cursor.execute(session_list, params)
             sessions = dict_from_cursor_fetchall(cursor)
 
