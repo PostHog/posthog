@@ -138,9 +138,7 @@ export function DashboardItem({
                     </div>
                     <div className="dashboard-item-settings">
                         <span style={{ cursor: 'pointer', marginTop: -3 }} onClick={() => loadResults(true)}>
-                            {item.last_refresh && (
-                                <i>Last Updated {moment(item.last_refresh).format('MMMM Do YYYY h:mm a')}</i>
-                            )}
+                            {item.last_refresh && <i> Updated: {moment(item.last_refresh).fromNow()}</i>}
                             <ReloadOutlined />
                         </span>
                         <Dropdown

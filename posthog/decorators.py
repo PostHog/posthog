@@ -12,7 +12,7 @@ def generate_cache_key(obj):
 TRENDS_ENDPOINT = 'Trends'
 FUNNEL_ENDPOINT = 'Funnel'
 
-def cached_function(cache_type: str, expiry=1):
+def cached_function(cache_type: str, expiry=30):
     def inner_decorator(f):
         def wrapper(*args, **kw):
             cache_key = ''
