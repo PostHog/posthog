@@ -10,16 +10,37 @@ export function Heatmap({ apiURL, temporaryToken }) {
     const logic = heatmapLogic({ apiURL, temporaryToken })
     const {
         countedElementsWithRects,
-        highlightedElement,
         showElementFinder,
         highestEventCount,
+        selectedElement,
+        selectedElementMeta,
+        highlightedElement,
         highlightedElementMeta,
     } = useValues(logic)
-    const { highlightElement } = useActions(logic)
+    const { highlightElement, selectElement } = useActions(logic)
     const { domZoom, domPadding } = useValues(dockLogic)
-    const { selecting: inspectingElement } = useValues(inspectElementLogic)
+    const {
+        selecting: inspectElementActive,
+        baseElement: inspectSelectedEvent,
+        actionStep: inspectActionStep,
+    } = useValues(inspectElementLogic)
 
-    const highlightedRect = highlightedElement ? highlightedElement.getBoundingClientRect() : null
+    let highlightedRect
+    let highlightedMeta
+    let highlightPointerEvents = false
+
+    if (highlightedElement && (selectedElement !== highlightedElement || inspectSelectedEvent)) {
+        highlightedRect = highlightedElement.getBoundingClientRect()
+        highlightedMeta = highlightedElementMeta
+    } else if (inspectSelectedEvent) {
+        highlightedRect = inspectSelectedEvent.getBoundingClientRect()
+        highlightedMeta = { actionStep: inspectActionStep }
+        highlightPointerEvents = !inspectElementActive
+    } else if (selectedElement) {
+        highlightedRect = selectedElement.getBoundingClientRect()
+        highlightedMeta = selectedElementMeta
+        highlightPointerEvents = true
+    }
 
     return (
         <div
@@ -35,15 +56,15 @@ export function Heatmap({ apiURL, temporaryToken }) {
             }}
         >
             {highlightedRect && showElementFinder ? <FocusRect rect={highlightedRect} /> : null}
-            {highlightedRect && !showElementFinder && highlightedElementMeta ? (
-                <ElementMetadata rect={highlightedRect} meta={highlightedElementMeta} />
+            {highlightedRect && !showElementFinder && highlightedMeta ? (
+                <ElementMetadata rect={highlightedRect} meta={highlightedMeta} pointerEvents={highlightPointerEvents} />
             ) : null}
             {countedElementsWithRects.map(({ rect, count, element }, index) => {
                 return (
                     <React.Fragment key={index}>
                         <div
                             style={{
-                                pointerEvents: inspectingElement ? 'none' : 'all',
+                                pointerEvents: inspectElementActive ? 'none' : 'all',
                                 position: 'absolute',
                                 top: `${(rect.top - domPadding + window.pageYOffset) / domZoom}px`,
                                 left: `${(rect.left - domPadding + window.pageXOffset) / domZoom}px`,
@@ -63,13 +84,14 @@ export function Heatmap({ apiURL, temporaryToken }) {
                                     highlightedElement === element ? 4 : 2
                                 }px`,
                             }}
+                            onClick={() => selectElement(element)}
                             onMouseOver={() => highlightElement(element)}
                             onMouseOut={() => highlightElement(null)}
                         />
                         <div
                             style={{
                                 position: 'absolute',
-                                zIndex: 3,
+                                zIndex: 5,
                                 top: `${(rect.top - domPadding - 7 + window.pageYOffset) / domZoom}px`,
                                 left: `${(rect.left + rect.width - domPadding - 14 + window.pageXOffset) / domZoom}px`,
                                 lineHeight: '14px',

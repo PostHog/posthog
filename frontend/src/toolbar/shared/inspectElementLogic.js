@@ -24,8 +24,8 @@ function drawBox(box, element, zoom, padding) {
     box.style.left = `${(rect.left + window.pageXOffset - padding) / zoom}px`
     box.style.width = `${(rect.right - rect.left) / zoom}px`
     box.style.height = `${(rect.bottom - rect.top) / zoom}px`
-    box.style.boxShadow = '0 0 20px hsla(220, 92%, 65%, 1)'
-    box.style.background = 'hsla(220, 92%, 65%, 1)'
+    box.style.boxShadow = 'hsl(207, 80%, 24%) 0px 3px 10px 4px'
+    box.style.background = 'hsl(207, 90%, 54%)'
     box.style.backgroundBlendMode = 'multiply'
     box.style.opacity = '0.5'
     box.style.zIndex = '2147483010'

@@ -10,6 +10,7 @@ export const heatmapLogic = kea({
     actions: () => ({
         addClick: true,
         highlightElement: (element, withElementFinder = false) => ({ element, withElementFinder }),
+        selectElement: element => ({ element }),
         setHeatmapEnabled: heatmapEnabled => ({ heatmapEnabled }),
     }),
 
@@ -30,6 +31,13 @@ export const heatmapLogic = kea({
             null,
             {
                 highlightElement: (_, { element }) => element,
+                setHeatmapEnabled: (state, { heatmapEnabled }) => (heatmapEnabled ? state : null),
+            },
+        ],
+        selectedElement: [
+            null,
+            {
+                selectElement: (state, { element }) => (state === element ? null : element),
                 setHeatmapEnabled: (state, { heatmapEnabled }) => (heatmapEnabled ? state : null),
             },
         ],
@@ -190,6 +198,20 @@ export const heatmapLogic = kea({
                 return null
             },
         ],
+        selectedElementMeta: [
+            () => [selectors.selectedElement, selectors.countedElementsWithRects],
+            (selectedElement, countedElementsWithRects) => {
+                const meta = selectedElement
+                    ? countedElementsWithRects.find(({ element }) => element === selectedElement)
+                    : null
+
+                if (meta) {
+                    return { ...meta, actionStep: elementToActionStep(meta.element) }
+                }
+
+                return null
+            },
+        ],
     }),
 
     events: ({ actions, values, cache }) => ({
@@ -201,9 +223,11 @@ export const heatmapLogic = kea({
                 actions.addClick()
             }
             window.addEventListener('click', cache.onClick)
+            window.addEventListener('scroll', cache.onClick)
         },
         beforeUnmount() {
             window.removeEventListener('click', cache.onClick)
+            window.removeEventListener('scroll', cache.onClick)
         },
     }),
 
