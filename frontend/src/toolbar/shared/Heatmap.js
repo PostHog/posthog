@@ -53,8 +53,8 @@ export function Heatmap({ apiURL, temporaryToken }) {
                                 background: 'hsla(4, 90%, 58%, 0.4)',
                                 boxShadow: 'hsla(4, 90%, 27%, 0.8) 0px 3px 10px 2px',
                             }}
-                            onMouseEnter={() => highlightElement(element)}
-                            onMouseLeave={() => highlightElement(null)}
+                            onMouseOver={() => highlightElement(element)}
+                            onMouseOut={() => highlightElement(null)}
                         />
                         <div
                             style={{
@@ -65,7 +65,8 @@ export function Heatmap({ apiURL, temporaryToken }) {
                                 lineHeight: '14px',
                                 padding: '1px 4px',
                                 opacity: highlightedElement && highlightedElement !== element ? 0.4 : 1,
-                                transition: 'opacity 0.2s',
+                                transition: 'opacity 0.2s, transform 0.2s linear',
+                                transform: highlightedElement === element ? 'scale(1.3)' : 'none',
                                 color: 'hsla(54, 20%, 12%, 1)',
                                 background: '#FFEB3B',
                                 boxShadow: 'hsla(54, 100%, 32%, 1) 0px 1px 5px 1px',
