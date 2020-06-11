@@ -121,8 +121,21 @@ export const inspectElementLogic = kea({
         afterMount: () => {
             cache.box = window.document.createElement('div')
             window.document.body.appendChild(cache.box)
+
+            cache.onKeyDown = function onKeyDown(event) {
+                // stop selecting if esc key was pressed
+                if (event.keyCode === 27) {
+                    if (values.selectedElement) {
+                        actions.start()
+                    } else if (values.selecting) {
+                        actions.stop()
+                    }
+                }
+            }
+            window.addEventListener('keydown', cache.onKeyDown)
         },
         beforeUnmount: () => {
+            window.removeEventListener('keydown', cache.onKeyDown)
             if (values.inspecting) {
                 actions.stop(true)
             }
@@ -166,23 +179,15 @@ export const inspectElementLogic = kea({
                     actions.hoverElement(element)
                 }
             }
-            cache.onKeyDown = function onKeyDown(event) {
-                // stop selecting if esc key was pressed
-                if (event.keyCode === 27) {
-                    actions.stop()
-                }
-            }
             cache.onClick = function onClick() {
                 actions.selectElement(values.hoveredElement)
             }
 
             window.document.body.addEventListener('mousemove', cache.onMouseMove) // , { capture: true })
-            window.document.addEventListener('keydown', cache.onKeyDown)
             cache.box.addEventListener('click', cache.onClick)
         },
         stop: ({ clear }) => {
             window.document.body.removeEventListener('mousemove', cache.onMouseMove)
-            document.removeEventListener('keydown', cache.onKeyDown)
             cache.box.removeEventListener('click', cache.onClick)
             if (clear) {
                 cache.box.style.display = 'none'

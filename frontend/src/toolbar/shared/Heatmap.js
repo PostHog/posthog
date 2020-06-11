@@ -24,7 +24,7 @@ export function Heatmap({ apiURL, temporaryToken }) {
         baseElement: inspectSelectedElement,
         actionStep: inspectActionStep,
     } = useValues(inspectElementLogic)
-    const { stop: stopInspect } = useActions(inspectElementLogic)
+    const { start: startInspect, selectElement: selectInspectElement } = useActions(inspectElementLogic)
 
     let highlightedRect
     let highlightedMeta
@@ -34,11 +34,15 @@ export function Heatmap({ apiURL, temporaryToken }) {
     if (highlightedElement && (selectedElement !== highlightedElement || inspectSelectedElement)) {
         highlightedRect = highlightedElement.getBoundingClientRect()
         highlightedMeta = highlightedElementMeta
+        if (highlightedElement === inspectSelectedElement) {
+            highlightPointerEvents = true
+            highlightOnClose = inspectElementActive ? null : () => startInspect(true)
+        }
     } else if (inspectSelectedElement) {
         highlightedRect = inspectSelectedElement.getBoundingClientRect()
         highlightedMeta = { element: inspectSelectedElement, actionStep: inspectActionStep }
         highlightPointerEvents = !inspectElementActive
-        highlightOnClose = inspectElementActive ? null : () => stopInspect(true)
+        highlightOnClose = inspectElementActive ? null : () => startInspect(true)
     } else if (selectedElement) {
         highlightedRect = selectedElement.getBoundingClientRect()
         highlightedMeta = selectedElementMeta
@@ -93,7 +97,13 @@ export function Heatmap({ apiURL, temporaryToken }) {
                                     highlightedElement === element ? 4 : 2
                                 }px`,
                             }}
-                            onClick={() => selectElement(element)}
+                            onClick={() => {
+                                if (inspectSelectedElement && !inspectElementActive) {
+                                    selectInspectElement(element)
+                                } else {
+                                    selectElement(element)
+                                }
+                            }}
                             onMouseOver={() => highlightElement(element)}
                             onMouseOut={() => highlightElement(null)}
                         />

@@ -5,6 +5,7 @@ import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { elementToActionStep, elementToSelector } from '~/toolbar/shared/utils'
+import { inspectElementLogic } from '~/toolbar/shared/inspectElementLogic'
 
 export const heatmapLogic = kea({
     actions: () => ({
@@ -32,6 +33,7 @@ export const heatmapLogic = kea({
             {
                 highlightElement: (_, { element }) => element,
                 setHeatmapEnabled: (state, { heatmapEnabled }) => (heatmapEnabled ? state : null),
+                [inspectElementLogic.actions.start]: () => null,
             },
         ],
         selectedElement: [
@@ -39,13 +41,15 @@ export const heatmapLogic = kea({
             {
                 selectElement: (state, { element }) => (state === element ? null : element),
                 setHeatmapEnabled: (state, { heatmapEnabled }) => (heatmapEnabled ? state : null),
+                [inspectElementLogic.actions.start]: () => null,
             },
         ],
         showElementFinder: [
             false,
             {
                 highlightElement: (_, { withElementFinder }) => withElementFinder,
-                setHeatmapEnabled: (state, { heatmapEnabled }) => (heatmapEnabled ? state : null),
+                setHeatmapEnabled: (state, { heatmapEnabled }) => (heatmapEnabled ? state : false),
+                [inspectElementLogic.actions.start]: () => false,
             },
         ],
         heatmapLoading: [
@@ -229,6 +233,12 @@ export const heatmapLogic = kea({
             if (values.heatmapEnabled) {
                 actions.getEvents({ $current_url: currentPageLogic.values.href })
             }
+            cache.keyDown = function(e) {
+                if (e.keyCode === 27 && values.selectedElement) {
+                    actions.selectElement(null)
+                }
+            }
+            window.addEventListener('keydown', cache.keyDown)
             cache.onClick = function() {
                 actions.addClick()
             }
@@ -236,6 +246,7 @@ export const heatmapLogic = kea({
             window.addEventListener('scroll', cache.onClick)
         },
         beforeUnmount() {
+            window.removeEventListener('keydown', cache.keyDown)
             window.removeEventListener('click', cache.onClick)
             window.removeEventListener('scroll', cache.onClick)
         },
