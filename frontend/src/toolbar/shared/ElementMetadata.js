@@ -15,7 +15,7 @@ export function ElementMetadata({ rect, meta }) {
                 left: `${(rect.left - domPadding + window.pageXOffset) / domZoom}px`,
                 width: `${300 / domZoom}px`,
                 minHeight: `${100 / domZoom}px`,
-                zIndex: 4,
+                zIndex: 6,
                 opacity: 1,
                 transition: 'opacity 0.2s, box-shadow 0.2s',
                 cursor: 'pointer',

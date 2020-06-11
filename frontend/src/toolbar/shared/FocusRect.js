@@ -52,7 +52,7 @@ export function FocusRect({ rect }) {
                         left: rect.x,
                         width: rect.w,
                         height: rect.h,
-                        zIndex: '2147483021',
+                        zIndex: 10,
                         background: rect.bg,
                         backgroundBlendMode: 'multiply',
                         transition: 'opacity 0.3s',

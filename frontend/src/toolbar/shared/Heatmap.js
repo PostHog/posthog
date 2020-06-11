@@ -69,7 +69,7 @@ export function Heatmap({ apiURL, temporaryToken }) {
                         <div
                             style={{
                                 position: 'absolute',
-                                zIndex: 2,
+                                zIndex: 3,
                                 top: `${(rect.top - domPadding - 7 + window.pageYOffset) / domZoom}px`,
                                 left: `${(rect.left + rect.width - domPadding - 14 + window.pageXOffset) / domZoom}px`,
                                 lineHeight: '14px',
