@@ -153,7 +153,13 @@ export class LineGraph extends Component {
                                   {
                                       display: true,
                                       gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
-                                      ticks: { autoSkip: true, beginAtZero: true, min: 0, fontColor: axisLabelColor },
+                                      ticks: {
+                                          autoSkip: true,
+                                          beginAtZero: true,
+                                          min: 0,
+                                          fontColor: axisLabelColor,
+                                          precision: 0,
+                                      },
                                   },
                               ],
                               yAxes: [
@@ -165,6 +171,7 @@ export class LineGraph extends Component {
                                           beginAtZero: true,
                                           min: 0,
                                           fontColor: axisLabelColor,
+                                          precision: 0,
                                       },
                                   },
                               ],
