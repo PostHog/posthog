@@ -104,12 +104,8 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
     const padding = -20
     const distance = extensionPercentage * 100
     const closeDistance = extensionPercentage * 50
-    const inspectDistance = inspectingElement
-        ? Math.max(50, extensionPercentage * distance)
-        : extensionPercentage * distance
-    const heatmapDistance = heatmapEnabled
-        ? Math.max(50, extensionPercentage * distance)
-        : extensionPercentage * distance
+    const inspectDistance = inspectingElement ? Math.max(50, distance) : distance
+    const heatmapDistance = heatmapEnabled ? Math.max(50, distance) : distance
 
     return (
         <>
@@ -118,6 +114,8 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                 radius={64}
                 className="floating-toolbar-button"
                 content={<Logo style={{ width: 54, height: 54, filter: 'invert(1)', cursor: 'pointer' }} />}
+                label="Toolbar"
+                labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
                 {...longPressEvents}
                 zIndex={3}
             >
