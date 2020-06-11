@@ -46,7 +46,7 @@ function _Trends() {
             <PeopleModal visible={showingPeople} />
             <h1 className="page-header">Trends</h1>
             <Row gutter={16}>
-                <Col xs={24} xl={6}>
+                <Col xs={24} xl={7}>
                     <Card>
                         <div className="card-body px-4">
                             <Tabs
@@ -117,7 +117,7 @@ function _Trends() {
                         </div>
                     </Card>
                 </Col>
-                <Col xs={24} xl={18}>
+                <Col xs={24} xl={17}>
                     <Card
                         title={
                             <div className="float-right pt-1 pb-1">

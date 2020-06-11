@@ -53,7 +53,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
         value = entity.id || filter.id
     }
     return (
-        <div>
+        <div className="mt-2">
             <button
                 data-attr={'trend-element-subject-' + index}
                 ref={node}
@@ -72,7 +72,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                 className="btn btn-sm btn-light"
                 onClick={() => setEntityFilterVisible(!entityFilterVisible)}
                 data-attr={'show-prop-filter-' + index}
-                style={{ marginTop: '8px', marginLeft: 16 }}
+                style={{ marginLeft: 10, marginRight: 10 }}
             >
                 {determineFilterLabel(entityFilterVisible, filter)}
             </div>
@@ -80,7 +80,6 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                 onClick={onClose}
                 style={{
                     float: 'none',
-                    marginLeft: 8,
                     position: 'absolute',
                     marginTop: 3,
                 }}
@@ -117,7 +116,7 @@ function MathSelector(props) {
         <Dropdown
             title={items[items.map(i => i.toLowerCase()).indexOf(props.math)] || 'Total'}
             buttonClassName="btn btn-sm btn-light"
-            style={{ marginLeft: 32 }}
+            style={{ marginLeft: 16 }}
             data-attr={'math-selector-' + props.index}
         >
             <Tooltip
