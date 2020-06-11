@@ -28,7 +28,7 @@ class TestSelectors(BaseTest):
         filter = Filter(data={
             'properties': [{'key': 'selector', 'value': 'div > a', 'type': 'element'}]
         })
-        events = Event.objects.filter(filter.properties_to_Q())
+        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
         self.assertEqual(events.count(), 1)
 
 class TestPropertiesToQ(BaseTest):
@@ -38,7 +38,7 @@ class TestPropertiesToQ(BaseTest):
         filter = Filter(data={
             'properties': {'$current_url': 'https://whatever.com'}
         })
-        events = Event.objects.filter(filter.properties_to_Q())
+        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
         self.assertEqual(events.count(), 1)
 
     def test_contains(self):
@@ -47,7 +47,7 @@ class TestPropertiesToQ(BaseTest):
         filter = Filter(data={
             'properties': {'$current_url__icontains': 'whatever'}
         })
-        events = Event.objects.filter(filter.properties_to_Q())
+        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
         self.assertEqual(events.get(), event2)
 
     def test_is_not(self):
@@ -57,7 +57,7 @@ class TestPropertiesToQ(BaseTest):
         filter = Filter(data={
             'properties': {'$current_url__is_not': 'https://whatever.com'}
         })
-        events = Event.objects.filter(filter.properties_to_Q())
+        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
         self.assertEqual(events[0], event1)
         self.assertEqual(events[1], event2)
         self.assertEqual(len(events), 2)
@@ -69,7 +69,7 @@ class TestPropertiesToQ(BaseTest):
         filter = Filter(data={
             'properties': {'$current_url__not_icontains': 'whatever.com'}
         })
-        events = Event.objects.filter(filter.properties_to_Q())
+        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
         self.assertEqual(events[0], event1)
         self.assertEqual(events[1], event2)
         self.assertEqual(len(events), 2)
@@ -80,7 +80,7 @@ class TestPropertiesToQ(BaseTest):
         filter = Filter(data={
             'properties': {'$current_url__icontains': 'something.com', 'another_key': 'value'}
         })
-        events = Event.objects.filter(filter.properties_to_Q())
+        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
         self.assertEqual(events[0], event2)
         self.assertEqual(len(events), 1)
 
@@ -94,7 +94,7 @@ class TestPropertiesToQ(BaseTest):
                 {'key': 'group', 'value': 1, 'type': 'person'}
             ] 
         })
-        events = Event.objects.add_person_id(self.team.pk).filter(filter.properties_to_Q())
+        events = Event.objects.add_person_id(self.team.pk).filter(filter.properties_to_Q(team_id=self.team.pk))
         self.assertEqual(events[0], event2)
         self.assertEqual(len(events), 1)
 
@@ -104,7 +104,7 @@ class TestPropertiesToQ(BaseTest):
         filter = Filter(data={
             'properties': [{'key': 'is_first_user', 'value': 'true'}]
         })
-        events = Event.objects.filter(filter.properties_to_Q())
+        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
         self.assertEqual(events[0], event2)
         self.assertEqual(len(events), 1)
 
@@ -114,14 +114,14 @@ class TestPropertiesToQ(BaseTest):
         filter = Filter(data={
             'properties': [{'key': 'is_first_user', 'operator': 'is_set', 'value': 'false'}]
         })
-        events = Event.objects.filter(filter.properties_to_Q())
+        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
         self.assertEqual(events[0], event1)
         self.assertEqual(len(events), 1)
 
         filter = Filter(data={
             'properties': [{'key': 'is_first_user', 'operator': 'is_set', 'value': 'true'}]
         })
-        events = Event.objects.filter(filter.properties_to_Q())
+        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
 
     def test_json_object(self):
         person1 = Person.objects.create(team=self.team, distinct_ids=['person1'], properties={'name': {'first_name': 'Mary', 'last_name': 'Smith'}})
@@ -131,6 +131,6 @@ class TestPropertiesToQ(BaseTest):
                 {'key': 'name', 'value': json.dumps({'first_name': 'Mary', 'last_name': 'Smith'}), 'type': 'person'}
             ] 
         })
-        events = Event.objects.add_person_id(self.team.pk).filter(filter.properties_to_Q())
+        events = Event.objects.add_person_id(self.team.pk).filter(filter.properties_to_Q(team_id=self.team.pk))
         self.assertEqual(events[0], event1)
         self.assertEqual(len(events), 1)

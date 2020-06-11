@@ -28,7 +28,12 @@ class ElementViewSet(viewsets.ModelViewSet):
             .filter(team=team, event='$autocapture')\
 
         if self.request.GET.get('properties'):
-            events = events.filter(Filter(data={'properties': json.loads(self.request.GET['properties'])}).properties_to_Q())
+            events = events.filter(
+                Filter(data={
+                    'properties': json.loads(self.request.GET['properties'])
+                })\
+                .properties_to_Q(team_id=team.pk)
+            )
 
         events = events\
             .values('elements_hash')\
