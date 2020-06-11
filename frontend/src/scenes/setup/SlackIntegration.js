@@ -2,6 +2,7 @@ import React from 'react'
 import { kea, useActions, useValues } from 'kea'
 import { userLogic } from '../userLogic'
 import api from 'lib/api'
+import { Input, Button } from 'antd'
 
 const logic = kea({
     actions: () => ({
@@ -24,8 +25,10 @@ const logic = kea({
                 [actions.saveWebhook]: () => true,
                 [actions.testAndSaveWebhook]: () => true,
                 [actions.setError]: () => false,
-                [userLogic.actions.userUpdateSuccess]: (_, { updateKey }) => (updateKey === 'slack' ? false : state),
-                [userLogic.actions.userUpdateFailure]: (_, { updateKey }) => (updateKey === 'slack' ? false : state),
+                [userLogic.actions.userUpdateSuccess]: (state, { updateKey }) =>
+                    updateKey === 'slack' ? false : state,
+                [userLogic.actions.userUpdateFailure]: (state, { updateKey }) =>
+                    updateKey === 'slack' ? false : state,
             },
         ],
         isSaved: [
@@ -33,7 +36,7 @@ const logic = kea({
             {
                 [actions.saveWebhook]: () => false,
                 [actions.testAndSaveWebhook]: () => false,
-                [userLogic.actions.userUpdateSuccess]: (_, { updateKey }) => (updateKey === 'slack' ? true : state),
+                [userLogic.actions.userUpdateSuccess]: (state, { updateKey }) => (updateKey === 'slack' ? true : state),
                 [actions.setEditedWebhook]: () => false,
             },
         ],
@@ -80,43 +83,45 @@ export function SlackIntegration() {
     return (
         <div>
             <label>
-                Enter your Slack webhook URL here.{' '}
-                <a href="https://docs.posthog.com/#/integrations/slack">
-                    Read the docs to find out how to get this value.
-                </a>
+                Enter your Slack or Microsoft Teams webhook URL here. Read the docs to find out how to get this URL for{' '}
+                <a href="https://posthog.com/docs/integrations/slack">Slack</a> or{' '}
+                <a href="https://posthog.com/docs/integrations/microsoft-teams">Microsoft Teams</a>
             </label>
-            <form
-                onSubmit={e => {
+            <div style={{ marginBottom: 5 }}>
+                <Input
+                    value={editedWebhook}
+                    size="large"
+                    onChange={e => setEditedWebhook(e.target.value)}
+                    style={{ width: 500 }}
+                    type="url"
+                />
+            </div>
+
+            <Button
+                type="primary"
+                onClick={e => {
                     e.preventDefault()
                     testAndSaveWebhook()
                 }}
             >
-                <div style={{ marginBottom: 5 }}>
-                    <input
-                        value={editedWebhook}
-                        onChange={e => setEditedWebhook(e.target.value)}
-                        style={{ display: 'inline-block', maxWidth: 700 }}
-                        type="url"
-                        className="form-control"
-                    />
-                </div>
+                {isSaving ? '...' : editedWebhook ? 'Test & Save' : 'Save'}
+            </Button>
 
-                <button className="btn btn-success" type="submit">
-                    {isSaving ? '...' : editedWebhook ? 'Test & Save' : 'Save'}
-                </button>
+            {error && (
+                <span className="text-danger" style={{ marginLeft: 10 }}>
+                    Error: {error}
+                </span>
+            )}
 
-                {error && (
-                    <span className="text-danger" style={{ marginLeft: 10 }}>
-                        Error: {error}
-                    </span>
-                )}
-
-                {isSaved && (
-                    <span className="text-success" style={{ marginLeft: 10 }}>
-                        {editedWebhook ? 'All good! You should see a message on Slack!' : 'Slack integration removed!'}
-                    </span>
-                )}
-            </form>
+            {isSaved && (
+                <span className="text-success" style={{ marginLeft: 10 }}>
+                    {editedWebhook
+                        ? `All good! You should see a message on ${
+                              editedWebhook.indexOf('slack.com') > -1 ? 'Slack' : 'Teams'
+                          }.`
+                        : 'Integration removed'}
+                </span>
+            )}
         </div>
     )
 }

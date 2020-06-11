@@ -17,7 +17,7 @@ import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
 from sentry_sdk.integrations.django import DjangoIntegration
 
-VERSION = '1.0.11'
+VERSION = '1.8.0'
 
 def get_env(key):
     try:
@@ -42,7 +42,8 @@ if not DEBUG and not TEST:
     if os.environ.get('SENTRY_DSN'):
         sentry_sdk.init(
             dsn=os.environ['SENTRY_DSN'],
-            integrations=[DjangoIntegration()]
+            integrations=[DjangoIntegration()],
+            request_bodies="always",
         )
 
 if os.environ.get('DISABLE_SECURE_SSL_REDIRECT'):
@@ -52,6 +53,12 @@ if os.environ.get('DISABLE_SECURE_SSL_REDIRECT'):
 if os.environ.get('IS_BEHIND_PROXY', False):
     USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# IP block settings
+ALLOWED_IP_BLOCKS = os.environ.get('ALLOWED_IP_BLOCKS', False)
+TRUSTED_PROXIES = os.environ.get('TRUSTED_PROXIES', False)
+TRUST_ALL_PROXIES = os.environ.get('TRUST_ALL_PROXIES', False)
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
@@ -84,6 +91,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'posthog.middleware.AllowIP',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -93,7 +101,19 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware'
 ]
-INTERNAL_IPS = ['127.0.0.1']
+
+# Load debug_toolbar if we can (DEBUG and Dev modes)
+try:
+    import debug_toolbar
+    INSTALLED_APPS.append('debug_toolbar')
+    MIDDLEWARE.append('debug_toolbar.middleware.DebugToolbarMiddleware')
+except ImportError:
+    pass
+
+INTERNAL_IPS = [
+    '127.0.0.1',
+    '172.18.0.1' # Docker IP
+    ]
 CORS_ORIGIN_ALLOW_ALL = True
 
 ROOT_URLCONF = 'posthog.urls'
@@ -115,7 +135,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'posthog.wsgi.application'
-
 
 # Social Auth
 
@@ -184,7 +203,7 @@ else:
 
 # Broker
 
-# The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis. 
+# The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or (sys.argv[1] and sys.argv[1] == 'collectstatic'):
     REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost/')
 else:
@@ -202,10 +221,10 @@ if not REDIS_URL:
     print("⚠️ Please configure it now to avoid future surprises!")
     print("⚠️")
     print("⚠️ See here for more information!")
-    print("⚠️ --> https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011")
+    print("⚠️ --> https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011")
     print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")
 
-    raise ImproperlyConfigured(f'The environment var "REDIS_URL" or "POSTHOG_REDIS_HOST" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://docs.posthog.com/#/upgrading-posthog?id=upgrading-from-before-1011')
+    raise ImproperlyConfigured(f'The environment var "REDIS_URL" or "POSTHOG_REDIS_HOST" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011')
 
 
 CELERY_BROKER_URL = REDIS_URL       # celery connects to redis
@@ -284,6 +303,7 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'tim@posthog.com')
 # You can pass a comma deliminated list of domains with which users can sign up to this service
 RESTRICT_SIGNUPS = os.environ.get('RESTRICT_SIGNUPS', False)
 
-if os.environ.get('INCLUDE_DOCS', False):
-    INCLUDE_API_DOCS = True
-    INSTALLED_APPS.append('drf_yasg')
+# Change this to "toolbar" to work on the new toolbar, keep at "editor" and nothing will have changed
+# from 1.7.0 (except it now supports HMR!)
+TOOLBAR_VERSION = 'editor'
+# TOOLBAR_VERSION = 'toolbar'
