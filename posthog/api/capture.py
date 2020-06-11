@@ -161,6 +161,7 @@ def parse_domain(url: str) -> Optional[str]:
 def get_decide(request):
     response = {
         'config': {'enable_collect_everything': True},
+        'editorParams': {},
         'isAuthenticated': False
     }
 
@@ -175,10 +176,13 @@ def get_decide(request):
 
         if (parse_domain(request.headers.get('Origin')) in permitted_domains) or (parse_domain(request.headers.get('Referer')) in permitted_domains):
             response['isAuthenticated'] = True
+            editor_params = {}
             if hasattr(settings, 'TOOLBAR_VERSION'):
-                response['toolbarVersion'] = settings.TOOLBAR_VERSION
+                editor_params['toolbarVersion'] = settings.TOOLBAR_VERSION
             if settings.DEBUG:
-                response['jsURL'] = 'http://localhost:8234/'
+                editor_params['jsURL'] = 'http://localhost:8234/'
+
+            response['editorParams'] = editor_params
 
             if not request.user.temporary_token:
                 request.user.temporary_token = secrets.token_urlsafe(32)

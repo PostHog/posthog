@@ -79,6 +79,7 @@ def redirect_to_site(request):
         'token': team.api_token,
         'temporaryToken': request.user.temporary_token,
         'actionId': request.GET.get('actionId'),
+        'defaultTab': 'actions',
         'apiURL': request.build_absolute_uri('/'),
     }
     if settings.DEBUG:
