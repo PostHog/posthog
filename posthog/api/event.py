@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Union
 from django.utils.timezone import now
 import json
 import pandas as pd
-from typing import Tuple
+from typing import Tuple, Optional
 
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
@@ -274,7 +274,7 @@ class EventViewSet(viewsets.ModelViewSet):
                 result.update({'date_from': date_from})
         return response.Response(result)
 
-    def calculate_sessions(self, events: QuerySet, session_type: str, date_filter: Dict[str, datetime], team: Team, request: request.Request) -> List[Dict[str, Any]]:
+    def calculate_sessions(self, events: QuerySet, session_type: Optional[str], date_filter: Dict[str, datetime], team: Team, request: request.Request) -> List[Dict[str, Any]]:
 
         # format date filter for session view
         _date_gte = Q()

@@ -94,7 +94,7 @@ class PathsViewSet(viewsets.ViewSet):
     def list(self, request):
         team = request.user.team_set.get()
         resp = []
-        date_query = request_to_date_query(request.GET)
+        date_query = request_to_date_query(request.GET, exact=False)
         event, path_type, event_filter, start_comparator = self._determine_path_type(request)
         properties = request.GET.get('properties')
         start_point = request.GET.get('start')

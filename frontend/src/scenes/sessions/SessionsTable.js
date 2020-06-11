@@ -79,7 +79,7 @@ export function SessionsTable({ logic }) {
                 data-attr="sessions-table"
                 size="small"
                 rowKey={item => item.global_session_id}
-                pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 dataSource={sessions}
                 columns={columns}
                 loading={sessionsLoading}
@@ -90,7 +90,6 @@ export function SessionsTable({ logic }) {
                     rowExpandable: () => true,
                     expandRowByClick: true,
                 }}
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
             />
             <div style={{ marginTop: '5rem' }} />
             {offset || isLoadingNext ? (
