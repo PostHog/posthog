@@ -268,6 +268,11 @@ export function humanFriendlyDuration(d) {
     return hDisplay + mDisplay + sDisplay
 }
 
+export function humanFriendlyDiff(from, to) {
+    const diff = moment(to).diff(moment(from))
+    return humanFriendlyDuration(diff)
+}
+
 export function humanFriendlyDetailedTime(date) {
     let formatString = 'MMMM Do YYYY h:mm a'
     if (moment().diff(date, 'days') == 0) {
@@ -276,4 +281,10 @@ export function humanFriendlyDetailedTime(date) {
         formatString = '[Yesterday] h:mm a'
     }
     return moment(date).format(formatString)
+}
+
+export function stripHTTP(url) {
+    url = url.replace(/(^[0-9]+_)/, '')
+    url = url.replace(/(^\w+:|^)\/\//, '')
+    return url
 }

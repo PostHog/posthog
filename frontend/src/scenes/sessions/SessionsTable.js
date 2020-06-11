@@ -2,7 +2,7 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { Table, Button, Spin } from 'antd'
 import { Link } from 'lib/components/Link'
-import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
+import { humanFriendlyDuration, humanFriendlyDetailedTime, stripHTTP } from '~/lib/utils'
 import _ from 'lodash'
 import { SessionDetails } from './SessionDetails'
 import { DatePicker } from 'antd'
@@ -48,7 +48,7 @@ export function SessionsTable({ logic }) {
                 return (
                     <span>
                         {!_.isEmpty(session.events) && _.first(session.events).properties?.$current_url
-                            ? session.events[0].properties.$current_url
+                            ? stripHTTP(session.events[0].properties.$current_url)
                             : 'N/A'}
                     </span>
                 )
@@ -61,7 +61,7 @@ export function SessionsTable({ logic }) {
                 return (
                     <span>
                         {!_.isEmpty(session.events) && _.last(session.events).properties?.$current_url
-                            ? _.last(session.events).properties.$current_url
+                            ? stripHTTP(_.last(session.events).properties.$current_url)
                             : 'N/A'}
                     </span>
                 )
