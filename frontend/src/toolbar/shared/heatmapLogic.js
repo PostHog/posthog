@@ -10,9 +10,16 @@ export const heatmapLogic = kea({
     actions: () => ({
         addClick: true,
         highlightElement: (element, withElementFinder = false) => ({ element, withElementFinder }),
+        setHeatmapEnabled: heatmapEnabled => ({ heatmapEnabled }),
     }),
 
     reducers: () => ({
+        heatmapEnabled: [
+            false,
+            {
+                setHeatmapEnabled: (_, { heatmapEnabled }) => heatmapEnabled,
+            },
+        ],
         clicks: [
             0,
             {
@@ -23,12 +30,23 @@ export const heatmapLogic = kea({
             null,
             {
                 highlightElement: (_, { element }) => element,
+                setHeatmapEnabled: (state, { heatmapEnabled }) => (heatmapEnabled ? state : null),
             },
         ],
         showElementFinder: [
             false,
             {
                 highlightElement: (_, { withElementFinder }) => withElementFinder,
+                setHeatmapEnabled: (state, { heatmapEnabled }) => (heatmapEnabled ? state : null),
+            },
+        ],
+        heatmapLoading: [
+            false,
+            {
+                getEvents: () => true,
+                getEventsSuccess: () => false,
+                getEventsFailure: () => false,
+                resetEvents: () => false,
             },
         ],
     }),
@@ -38,8 +56,8 @@ export const heatmapLogic = kea({
             [],
             {
                 resetEvents: () => [],
-                getEvents: ({ $current_url }) =>
-                    fetch(
+                getEvents: ({ $current_url }, breakpoint) => {
+                    const results = fetch(
                         `${props.apiURL}api/event/?${encodeParams(
                             {
                                 event: '$autocapture',
@@ -50,7 +68,12 @@ export const heatmapLogic = kea({
                         )}`
                     )
                         .then(response => response.json())
-                        .then(response => response.results),
+                        .then(response => response.results)
+
+                    breakpoint()
+
+                    return results
+                },
             },
         ],
     }),
@@ -149,9 +172,11 @@ export const heatmapLogic = kea({
         ],
     }),
 
-    events: ({ actions, props, cache }) => ({
+    events: ({ actions, values, props, cache }) => ({
         afterMount() {
-            actions.getEvents({ $current_url: props.current_url })
+            if (values.heatmapEnabled) {
+                actions.getEvents({ $current_url: props.current_url })
+            }
             cache.onClick = function() {
                 actions.addClick()
             }
@@ -162,10 +187,17 @@ export const heatmapLogic = kea({
         },
     }),
 
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, props }) => ({
         [currentPageLogic.actions.setHref]: ({ href }) => {
             actions.resetEvents()
             actions.getEvents({ $current_url: href })
+        },
+        setHeatmapEnabled: ({ heatmapEnabled }) => {
+            if (heatmapEnabled) {
+                actions.getEvents({ $current_url: props.current_url })
+            } else {
+                actions.resetEvents()
+            }
         },
     }),
 })

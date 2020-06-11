@@ -1,20 +1,21 @@
 import './ToolbarButton.scss'
 
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { CloseOutlined, ProfileOutlined, SearchOutlined, FireFilled } from '@ant-design/icons'
 import { Tooltip } from 'antd'
 import { Logo } from '~/toolbar/assets/Logo'
-import { Circle } from '~/toolbar/shared/Circle'
+import { Circle } from '~/toolbar/button/Circle'
 import { inspectElementLogic } from '~/toolbar/shared/inspectElementLogic'
+import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+import { heatmapLogic } from '~/toolbar/shared/heatmapLogic'
 
 const quarters = { ne: 0, nw: 1, sw: 2, se: 3 }
 
 function getQuarterRotation({ itemCount, index, quarter, padding: inputPadding }) {
     const padding = typeof inputPadding !== 'undefined' ? inputPadding : 90 / itemCount
     const angle = quarter * 90 + (itemCount === 1 ? 45 : padding / 2 + ((90 - padding) / (itemCount - 1)) * index)
-    // const angle = quarter * 90 + padding / 2 + ((90 - padding) / (itemCount - 1)) * index
     return -angle
 }
 
@@ -23,14 +24,16 @@ function reverseQuarter(quarter) {
 }
 
 export function ToolbarButton({ dockLogic, shadowRef }) {
-    const { dock, float, hideButton } = useActions(dockLogic)
+    const { extensionPercentage, quarter } = useValues(toolbarButtonLogic)
+    const { setExtensionPercentage, setQuarter } = useActions(toolbarButtonLogic)
+
     const { start, stop } = useActions(inspectElementLogic)
     const { selecting: inspectingElement } = useValues(inspectElementLogic)
 
-    const [quarter, setQuarter] = useState('ne')
-    const [buttonsExtended, setButtonsExtended] = useState(false)
+    const { setHeatmapEnabled } = useActions(heatmapLogic)
+    const { heatmapEnabled } = useValues(heatmapLogic)
 
-    const timeoutRef = useRef(null)
+    const { dock, float, hideButton } = useActions(dockLogic)
 
     function setQuarterFromShadowRef(shadowRef) {
         if (shadowRef.current) {
@@ -41,7 +44,8 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                 const y = rect.y + rect.height / 2
                 const ns = y < window.innerHeight / 2 ? 's' : 'n'
                 const we = x < window.innerWidth / 2 ? 'e' : 'w'
-                if (quarter !== `${ns}${we}`) {
+                // use toolbarButtonLogic.values.quarter to always get the last state
+                if (toolbarButtonLogic.values.quarter !== `${ns}${we}`) {
                     setQuarter(`${ns}${we}`)
                 }
             }
@@ -52,22 +56,6 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
         setQuarterFromShadowRef(shadowRef)
     }, [])
 
-    function extendButtons() {
-        window.clearTimeout(timeoutRef.current)
-        if (!buttonsExtended) {
-            setButtonsExtended(true)
-        }
-    }
-
-    function onMouseMove() {
-        setQuarterFromShadowRef(shadowRef)
-        extendButtons()
-    }
-
-    function onMouseLeave() {
-        timeoutRef.current = window.setTimeout(() => setButtonsExtended(false), 1000)
-    }
-
     const longPressEvents = useLongPress(
         clicked => {
             setQuarterFromShadowRef(shadowRef)
@@ -75,19 +63,54 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
             if (clicked) {
                 dock()
             } else {
-                extendButtons()
+                // extendButtons()
             }
         },
         { ms: 700, clickMs: 1 }
     )
 
+    const globalMouseMove = useRef(null)
+    useEffect(() => {
+        globalMouseMove.current = function(e) {
+            if (shadowRef.current) {
+                setQuarterFromShadowRef(shadowRef)
+
+                const element = shadowRef.current.shadowRoot.getElementById('button-toolbar')
+                if (element) {
+                    const rect = element.getBoundingClientRect()
+                    const x = rect.left + rect.width / 2
+                    const y = rect.top + rect.height / 2
+                    const distance = Math.sqrt((e.clientX - x) * (e.clientX - x) + (e.clientY - y) * (e.clientY - y))
+
+                    if (distance >= 230) {
+                        if (toolbarButtonLogic.values.extensionPercentage !== 0) {
+                            setExtensionPercentage(0)
+                        }
+                    } else if (distance >= 130 && distance < 230) {
+                        setExtensionPercentage((230 - distance) / 100)
+                    } else if (distance < 130) {
+                        if (toolbarButtonLogic.values.extensionPercentage !== 1) {
+                            setExtensionPercentage(1)
+                        }
+                    }
+                }
+            }
+        }
+        window.addEventListener('mousemove', globalMouseMove.current)
+        return () => window.removeEventListener('mousemove', globalMouseMove.current)
+    }, [shadowRef.current])
+
     let index = 0
     const itemCount = 3
     const padding = -20
-    const distance = buttonsExtended ? 100 : 0
-    const closeDistance = buttonsExtended ? 50 : 0
-    const inspectDistance = buttonsExtended ? distance : inspectingElement ? 50 : 0
-    const heatmapDistance = buttonsExtended ? distance : 50 // TODO: reset to 0 when can be toggled
+    const distance = extensionPercentage * 100
+    const closeDistance = extensionPercentage * 50
+    const inspectDistance = inspectingElement
+        ? Math.max(50, extensionPercentage * distance)
+        : extensionPercentage * distance
+    const heatmapDistance = heatmapEnabled
+        ? Math.max(50, extensionPercentage * distance)
+        : extensionPercentage * distance
 
     return (
         <>
@@ -105,14 +128,6 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                     </Tooltip>
                 }
                 {...longPressEvents}
-                onMouseMove={e => {
-                    onMouseMove(e)
-                    longPressEvents.onMouseMove(e)
-                }}
-                onMouseLeave={e => {
-                    onMouseLeave(e)
-                    longPressEvents.onMouseLeave(e)
-                }}
                 zIndex={3}
             >
                 <Circle
@@ -129,8 +144,6 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                         </Tooltip>
                     }
                     zIndex={1}
-                    onMouseMove={onMouseMove}
-                    onMouseLeave={onMouseLeave}
                     onClick={inspectingElement ? stop : start}
                     style={{
                         cursor: 'pointer',
@@ -155,13 +168,11 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                         </Tooltip>
                     }
                     zIndex={1}
-                    onMouseMove={onMouseMove}
-                    onMouseLeave={onMouseLeave}
-                    onClick={float}
+                    onClick={() => setHeatmapEnabled(!heatmapEnabled)}
                     style={{
                         cursor: 'pointer',
-                        background: '#FF5722',
-                        color: '#FFEB3B',
+                        background: heatmapEnabled ? '#FF5722' : 'hsl(14, 100%, 97%)',
+                        color: heatmapEnabled ? '#FFEB3B' : '#FF5722',
                         fontSize: '32px',
                         transition: 'transform 0.2s',
                         transform: `scale(${0.2 + (0.8 * heatmapDistance) / 100})`,
@@ -181,8 +192,6 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                         </Tooltip>
                     }
                     zIndex={1}
-                    onMouseMove={onMouseMove}
-                    onMouseLeave={onMouseLeave}
                     onClick={float}
                     style={{
                         cursor: 'pointer',
@@ -198,10 +207,8 @@ export function ToolbarButton({ dockLogic, shadowRef }) {
                     rotate={getQuarterRotation({ itemCount: 1, quarter: quarters[reverseQuarter(quarter)] })}
                     content={<CloseOutlined />}
                     zIndex={5}
-                    onMouseMove={onMouseMove}
-                    onMouseLeave={onMouseLeave}
                     onClick={hideButton}
-                    style={{ cursor: 'pointer', background: 'rgba(255,255,255,0.5)' }}
+                    style={{ cursor: 'pointer', background: 'black', color: 'white' }}
                 />
             </Circle>
         </>

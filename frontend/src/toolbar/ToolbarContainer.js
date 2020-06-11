@@ -3,7 +3,7 @@ import { ToolbarContent } from '~/toolbar/ToolbarContent'
 import { CloseOutlined } from '@ant-design/icons'
 import React from 'react'
 import { Heatmap } from '~/toolbar/shared/Heatmap'
-import { ToolbarButton } from '~/toolbar/ToolbarButton'
+import { ToolbarButton } from '~/toolbar/button/ToolbarButton'
 import { ToolbarDraggable } from '~/toolbar/ToolbarDraggable'
 
 export function ToolbarContainer({ dockLogic, ...props }) {
