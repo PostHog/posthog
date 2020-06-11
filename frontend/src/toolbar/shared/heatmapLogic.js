@@ -161,6 +161,7 @@ export const heatmapLogic = kea({
             () => [
                 selectors.countedElements,
                 selectors.clicks,
+                selectors.highlightedElement,
                 dockLogic.selectors.dockStatus,
                 dockLogic.selectors.zoom,
             ],
@@ -174,6 +175,20 @@ export const heatmapLogic = kea({
             () => [selectors.countedElements],
             countedElements =>
                 countedElements ? countedElements.map(e => e.count).reduce((a, b) => (b > a ? b : a), 0) : 0,
+        ],
+        highlightedElementMeta: [
+            () => [selectors.highlightedElement, selectors.countedElementsWithRects],
+            (highlightedElement, countedElementsWithRects) => {
+                const meta = highlightedElement
+                    ? countedElementsWithRects.find(({ element }) => element === highlightedElement)
+                    : null
+
+                if (meta) {
+                    return { ...meta, actionStep: elementToActionStep(meta.element) }
+                }
+
+                return null
+            },
         ],
     }),
 

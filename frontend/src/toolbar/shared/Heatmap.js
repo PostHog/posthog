@@ -4,10 +4,17 @@ import { heatmapLogic } from '~/toolbar/shared/heatmapLogic'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { FocusRect } from '~/toolbar/shared/FocusRect'
 import { inspectElementLogic } from '~/toolbar/shared/inspectElementLogic'
+import { ElementMetadata } from '~/toolbar/shared/ElementMetadata'
 
 export function Heatmap({ apiURL, temporaryToken }) {
     const logic = heatmapLogic({ apiURL, temporaryToken })
-    const { countedElementsWithRects, highlightedElement, showElementFinder, highestEventCount } = useValues(logic)
+    const {
+        countedElementsWithRects,
+        highlightedElement,
+        showElementFinder,
+        highestEventCount,
+        highlightedElementMeta,
+    } = useValues(logic)
     const { highlightElement } = useActions(logic)
     const { domZoom, domPadding } = useValues(dockLogic)
     const { selecting: inspectingElement } = useValues(inspectElementLogic)
@@ -28,6 +35,9 @@ export function Heatmap({ apiURL, temporaryToken }) {
             }}
         >
             {highlightedRect && showElementFinder ? <FocusRect rect={highlightedRect} /> : null}
+            {highlightedRect && !showElementFinder && highlightedElementMeta ? (
+                <ElementMetadata rect={highlightedRect} meta={highlightedElementMeta} />
+            ) : null}
             {countedElementsWithRects.map(({ rect, count, element }, index) => {
                 return (
                     <React.Fragment key={index}>
@@ -35,8 +45,8 @@ export function Heatmap({ apiURL, temporaryToken }) {
                             style={{
                                 pointerEvents: inspectingElement ? 'none' : 'all',
                                 position: 'absolute',
-                                top: `${(rect.top - domPadding) / domZoom}px`,
-                                left: `${(rect.left - domPadding) / domZoom}px`,
+                                top: `${(rect.top - domPadding + window.pageYOffset) / domZoom}px`,
+                                left: `${(rect.left - domPadding + window.pageXOffset) / domZoom}px`,
                                 width: `${(rect.right - rect.left) / domZoom}px`,
                                 height: `${(rect.bottom - rect.top) / domZoom}px`,
                                 zIndex: 1,
@@ -60,8 +70,8 @@ export function Heatmap({ apiURL, temporaryToken }) {
                             style={{
                                 position: 'absolute',
                                 zIndex: 2,
-                                top: `${(rect.top - domPadding - 7) / domZoom}px`,
-                                left: `${(rect.left + rect.width - domPadding - 14) / domZoom}px`,
+                                top: `${(rect.top - domPadding - 7 + window.pageYOffset) / domZoom}px`,
+                                left: `${(rect.left + rect.width - domPadding - 14 + window.pageXOffset) / domZoom}px`,
                                 lineHeight: '14px',
                                 padding: '1px 4px',
                                 opacity: highlightedElement && highlightedElement !== element ? 0.4 : 1,
