@@ -47,7 +47,7 @@ class ElementViewSet(viewsets.ModelViewSet):
                     group for group in groups if group.hash == item['elements_hash']
                 ][0].element_set.all()
             ]
-        } for item in events])
+        } for item in events[0:100]])
 
     @action(methods=['GET'], detail=False)
     def values(self, request: request.Request) -> response.Response:
