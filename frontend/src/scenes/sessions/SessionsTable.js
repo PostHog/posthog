@@ -92,22 +92,18 @@ export function SessionsTable({ logic }) {
                 }}
             />
             <div style={{ marginTop: '5rem' }} />
-            {offset || isLoadingNext ? (
-                <div
-                    style={{
-                        margin: '2rem auto 5rem',
-                        textAlign: 'center',
-                    }}
-                >
+            <div
+                style={{
+                    margin: '2rem auto 5rem',
+                    textAlign: 'center',
+                }}
+            >
+                {(offset || isLoadingNext) && (
                     <Button type="primary" onClick={fetchNextSessions}>
                         {isLoadingNext ? <Spin> </Spin> : 'Load more sessions'}
                     </Button>
-                </div>
-            ) : (
-                sessions.length > 0 && (
-                    <span> {'No more Sessions on ' + moment(selectedDate).format('YYYY-MM-DD')}</span>
-                )
-            )}
+                )}
+            </div>
         </div>
     )
 }
