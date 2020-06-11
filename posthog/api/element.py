@@ -1,7 +1,8 @@
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from posthog.models import Element, Team
-from django.db.models import QuerySet
+from posthog.models import Element, Team, Event, ElementGroup, Filter
+from django.db.models import QuerySet, Count
+import json
 
 class ElementSerializer(serializers.ModelSerializer):
     class Meta:
@@ -18,6 +19,36 @@ class ElementViewSet(viewsets.ModelViewSet):
 
         return queryset.filter(group__team=self.request.user.team_set.get())
  
+
+    @action(methods=['GET'], detail=False)
+    def stats(self, request: request.Request) -> response.Response:
+        team = self.request.user.team_set.get()
+
+        events = Event.objects\
+            .filter(team=team, event='$autocapture')\
+
+        if self.request.GET.get('properties'):
+            events = events.filter(Filter(data={'properties': json.loads(self.request.GET['properties'])}).properties_to_Q())
+
+        events = events\
+            .values('elements_hash')\
+            .annotate(count=Count(1))\
+            .order_by('-count')
+
+        groups = ElementGroup.objects\
+            .filter(team=team, hash__in=[item['elements_hash'] for item in events])\
+            .prefetch_related('element_set')
+
+        return response.Response([{
+            'count': item['count'],
+            'hash': item['elements_hash'],
+            'elements': [
+                ElementSerializer(element).data for element in [
+                    group for group in groups if group.hash == item['elements_hash']
+                ][0].element_set.all()
+            ]
+        } for item in events])
+
     @action(methods=['GET'], detail=False)
     def values(self, request: request.Request) -> response.Response:
         key = request.GET.get('key')
