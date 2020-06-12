@@ -18,17 +18,13 @@ frontend/.cache/
 frontend/dist/*
 frontend/yarn-error.log
 .idea
-<<<<<<< HEAD
-
-# Google Analytics Import
-*token.pickle
-*client_secrets.json
-scripts/google_analytics/constants.py
-=======
 celerybeat-schedule
 celerybeat.pid
 yarn-error.log
 .yalc
 yalc.lock
 cypress/screenshots/*
->>>>>>> master
+# Google Analytics Import
+*token.pickle
+*client_secrets.json
+scripts/google_analytics/constants.py
