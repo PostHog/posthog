@@ -41,9 +41,9 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
     def get_elements(self, event):
         if not event.elements_hash:
             return []
-        if hasattr(event, 'elements_group'):
-            if event.elements_group:
-                return ElementSerializer(event.elements_group.element_set.all().order_by('order'), many=True).data
+        if hasattr(event, 'elements_group_cache'):
+            if event.elements_group_cache:
+                return ElementSerializer(event.elements_group_cache.element_set.all().order_by('order'), many=True).data
         elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by('order')
         return ElementSerializer(elements, many=True).data
 
@@ -58,7 +58,7 @@ class EventViewSet(viewsets.ModelViewSet):
         queryset = queryset.add_person_id(team.pk) # type: ignore
 
         if self.action == 'list' or self.action == 'sessions' or self.action == 'actions': # type: ignore
-            queryset = self._filter_request(self.request, queryset)
+            queryset = self._filter_request(self.request, queryset, team)
         
         order_by = self.request.GET.get('orderBy')
         order_by = ['-timestamp'] if not order_by else list(json.loads(order_by))
@@ -66,7 +66,7 @@ class EventViewSet(viewsets.ModelViewSet):
             .filter(team=team)\
             .order_by(*order_by)
 
-    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
+    def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
         for key, value in request.GET.items():
             if key == 'event':
                 queryset = queryset.filter(event=request.GET['event'])
@@ -85,7 +85,7 @@ class EventViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter_by_action(Action.objects.get(pk=value)) # type: ignore
             elif key == 'properties':
                 filter = Filter(data={'properties': json.loads(value)})
-                queryset = queryset.filter(filter.properties_to_Q())
+                queryset = queryset.filter(filter.properties_to_Q(team_id=team.pk))
         return queryset
 
     def _serialize_actions(self, event: Event) -> Dict:
@@ -106,7 +106,9 @@ class EventViewSet(viewsets.ModelViewSet):
             distinct_ids.append(event.distinct_id)
             if event.elements_hash:
                 hash_ids.append(event.elements_hash)
-        people = Person.objects.filter(team=team, persondistinctid__distinct_id__in=distinct_ids).prefetch_related(Prefetch('persondistinctid_set', to_attr='distinct_ids_cache'))
+        people = Person.objects\
+            .filter(team=team, persondistinctid__distinct_id__in=distinct_ids)\
+            .prefetch_related(Prefetch('persondistinctid_set', to_attr='distinct_ids_cache'))
         if len(hash_ids) > 0:
             groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related('element_set')
         else:
@@ -117,9 +119,9 @@ class EventViewSet(viewsets.ModelViewSet):
             except IndexError:
                 event.person_properties = None # type: ignore
             try:
-                event.elements_group = [group for group in groups if group.hash == event.elements_hash][0] # type: ignore
+                event.elements_group_cache = [group for group in groups if group.hash == event.elements_hash][0] # type: ignore
             except IndexError:
-                event.elements_group = None # type: ignore
+                event.elements_group_cache = None # type: ignore
         return events
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
