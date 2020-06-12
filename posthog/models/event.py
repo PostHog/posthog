@@ -8,6 +8,7 @@ from django.db.models import (
     signals,
     Prefetch,
     QuerySet,
+    Value
 )
 from django.db import connection
 from django.contrib.postgres.fields import JSONField
@@ -115,8 +116,8 @@ class EventManager(models.QuerySet):
                     )
         return (subqueries, filter)
 
-    def filter_by_element(self, filters: Dict):
-        groups = ElementGroup.objects.filter(team_id=OuterRef('team_id'))
+    def filter_by_element(self, filters: Dict, team_id: int):
+        groups = ElementGroup.objects.filter(team_id=team_id)
 
         if filters.get('selector'):
             selector = Selector(filters['selector'])
@@ -172,11 +173,11 @@ class EventManager(models.QuerySet):
 
         for step in steps:
             subquery = Event.objects.add_person_id(team_id=action.team_id).filter(
-                Filter(data={'properties': step.properties}).properties_to_Q(),
+                Filter(data={'properties': step.properties}).properties_to_Q(team_id=action.team_id),
                 pk=OuterRef("id"),
                 **self.filter_by_event(step),
-                **self.filter_by_element(model_to_dict(step))
-            )
+                **self.filter_by_element(model_to_dict(step), team_id=action.team_id)
+            ).only('id')
             subquery = self.filter_by_url(step, subquery)
             any_step |= Q(Exists(subquery))
         events = self.filter(team_id=action.team_id).filter(any_step)

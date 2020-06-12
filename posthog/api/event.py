@@ -58,7 +58,7 @@ class EventViewSet(viewsets.ModelViewSet):
         queryset = queryset.add_person_id(team.pk) # type: ignore
 
         if self.action == 'list' or self.action == 'sessions' or self.action == 'actions': # type: ignore
-            queryset = self._filter_request(self.request, queryset)
+            queryset = self._filter_request(self.request, queryset, team)
         
         order_by = self.request.GET.get('orderBy')
         order_by = ['-timestamp'] if not order_by else list(json.loads(order_by))
@@ -66,7 +66,7 @@ class EventViewSet(viewsets.ModelViewSet):
             .filter(team=team)\
             .order_by(*order_by)
 
-    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
+    def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
         for key, value in request.GET.items():
             if key == 'event':
                 queryset = queryset.filter(event=request.GET['event'])
@@ -85,7 +85,7 @@ class EventViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter_by_action(Action.objects.get(pk=value)) # type: ignore
             elif key == 'properties':
                 filter = Filter(data={'properties': json.loads(value)})
-                queryset = queryset.filter(filter.properties_to_Q())
+                queryset = queryset.filter(filter.properties_to_Q(team_id=team.pk))
         return queryset
 
     def _serialize_actions(self, event: Event) -> Dict:

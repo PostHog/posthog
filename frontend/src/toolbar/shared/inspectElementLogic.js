@@ -30,7 +30,7 @@ function drawBox(box, element, zoom, padding) {
     box.style.background = 'hsla(220, 92%, 65%, 1)'
     box.style.backgroundBlendMode = 'multiply'
     box.style.opacity = '0.5'
-    box.style.zIndex = '2147483630'
+    box.style.zIndex = '2147483010'
     box.style.pointerEvents = 'auto'
     box.style.cursor = 'pointer'
     box.style.transition = 'all ease 0.1s'
@@ -194,10 +194,20 @@ export const inspectElementLogic = kea({
             })
         },
         hoverElement: () => {
-            drawBox(cache.box, values.element, dockLogic.values.zoom, dockLogic.values.padding)
+            drawBox(
+                cache.box,
+                values.element,
+                dockLogic.values.mode === 'dock' ? dockLogic.values.zoom : 1,
+                dockLogic.values.mode === 'dock' ? dockLogic.values.padding : 0
+            )
         },
         selectElement: () => {
-            drawBox(cache.box, values.element, dockLogic.values.zoom, dockLogic.values.padding)
+            drawBox(
+                cache.box,
+                values.element,
+                dockLogic.values.mode === 'dock' ? dockLogic.values.zoom : 1,
+                dockLogic.values.mode === 'dock' ? dockLogic.values.padding : 0
+            )
             actions.stop(false)
         },
         start: () => {

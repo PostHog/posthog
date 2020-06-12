@@ -23,6 +23,7 @@ window.ph_load_editor = function(editorParams) {
                 apiURL={editorParams.apiURL}
                 temporaryToken={editorParams.temporaryToken}
                 actionId={editorParams.actionId}
+                defaultTab={editorParams.defaultTab}
                 startMinimized={editorParams.minimized}
             />
         </Provider>,
