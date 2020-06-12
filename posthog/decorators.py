@@ -29,7 +29,7 @@ def cached_function(cache_type: str, expiry=30):
                 filter =  Filter(request=request)
                 params = request.GET.dict()
                 team = request.user.team_set.get()
-                cache_key = generate_cache_key(json.dumps(params))
+                cache_key = generate_cache_key(json.dumps(params) + '_' + str(team.pk))
                 payload = {'filter': filter.toJSON(), 'params': params, 'team_id': team.pk}
             elif cache_type == FUNNEL_ENDPOINT:
                 request = args[1]
