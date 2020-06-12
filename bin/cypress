@@ -1,0 +1,7 @@
+#!/bin/bash
+
+python manage.py collectstatic --noinput
+mkdir -p cypress/screenshots 
+./bin/docker-migrate
+./bin/docker-worker &
+./bin/docker-server &

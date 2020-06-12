@@ -69,12 +69,7 @@ jobs:
                   parallel: true
                   group: 'PostHog Frontend'
                   build: yarn build
-                  start: |
-                      python manage.py collectstatic --noinput
-                      mkdir -p cypress/screenshots 
-                      ./bin/docker-migrate
-                      ./bin/docker-worker &
-                      ./bin/docker-server &
+                  start: sh ./bin/cypress
                   wait-on: http://localhost:8000
               env:
                   # pass the Dashboard record key as an environment variable
