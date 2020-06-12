@@ -70,17 +70,14 @@ export const heatmapLogic = kea({
                 resetEvents: () => [],
                 getEvents: ({ $current_url }, breakpoint) => {
                     const results = fetch(
-                        `${props.apiURL}api/event/?${encodeParams(
+                        `${props.apiURL}api/element/stats/?${encodeParams(
                             {
-                                event: '$autocapture',
-                                properties: { $current_url },
+                                properties: [{ key: '$current_url', value: $current_url }],
                                 temporary_token: props.temporaryToken,
                             },
                             ''
                         )}`
-                    )
-                        .then(response => response.json())
-                        .then(response => response.results)
+                    ).then(response => response.json())
 
                     breakpoint()
 
@@ -98,9 +95,8 @@ export const heatmapLogic = kea({
 
                 const elements = events
                     .map(event => {
-                        console.log(event.properties['$event_type'])
                         let combinedSelector
-                        for (let i = 0; i < event.elements.length; i++) {
+                        for (let i = event.elements.length - 1; i >= 0; i--) {
                             const selector = elementToSelector(event.elements[i])
                             combinedSelector = combinedSelector ? `${selector} > ${combinedSelector}` : selector
 
@@ -111,8 +107,9 @@ export const heatmapLogic = kea({
                             if (elements.length === 1) {
                                 return {
                                     element: elements[0],
-                                    selector,
-                                    event,
+                                    count: event.count,
+                                    selector: selector,
+                                    hash: event.hash,
                                 }
                             }
 
@@ -145,10 +142,10 @@ export const heatmapLogic = kea({
             elements => {
                 const elementCounter = new Map()
                 const elementSelector = new Map()
-                elements.forEach(({ element, selector }) => {
-                    const count = elementCounter.get(element) || 0
-                    elementCounter.set(element, count + 1)
-                    if (count === 0) {
+                elements.forEach(({ element, selector, count }) => {
+                    const oldCount = elementCounter.get(element) || 0
+                    elementCounter.set(element, oldCount + count)
+                    if (oldCount === 0) {
                         elementSelector.set(element, selector)
                     }
                 })
