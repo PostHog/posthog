@@ -24,7 +24,7 @@ export function InspectElement() {
                         onClick={selectingClickTargets ? selectAllElements : selectClickTargets}
                     >
                         {' '}
-                        Links Only
+                        Only Clickable
                     </Checkbox>
                 </span>
             </div>
