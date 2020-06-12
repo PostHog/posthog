@@ -65,7 +65,7 @@ def check_cached_items():
             tasks.append(_update_cache.s(key, cache_type, payload))
 
     taskset = group(tasks)
-    taskset()
+    taskset.apply_async()
 
 @app.task
 def _update_cache(key: str, cache_type: str, payload: dict):
