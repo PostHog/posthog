@@ -122,6 +122,11 @@ export const inspectElementLogic = kea({
             cache.box = window.document.createElement('div')
             window.document.body.appendChild(cache.box)
 
+            cache.onBoxClick = function onBoxClick() {
+                actions.selectElement(values.hoveredElement)
+            }
+            cache.box.addEventListener('click', cache.onBoxClick)
+
             cache.onKeyDown = function onKeyDown(event) {
                 // stop selecting if esc key was pressed
                 if (event.keyCode === 27) {
@@ -133,9 +138,24 @@ export const inspectElementLogic = kea({
                 }
             }
             window.addEventListener('keydown', cache.onKeyDown)
+
+            cache.onMouseMove = function onMouseMove(event) {
+                if (values.selecting) {
+                    cache.box.style.pointerEvents = 'none'
+                    const element = window.document.elementFromPoint(event.clientX, event.clientY)
+                    cache.box.style.pointerEvents = 'auto'
+
+                    if (values.element !== element) {
+                        actions.hoverElement(element)
+                    }
+                }
+            }
+            window.document.body.addEventListener('mousemove', cache.onMouseMove) // , { capture: true })
         },
         beforeUnmount: () => {
+            cache.box.removeEventListener('click', cache.onBoxClick)
             window.removeEventListener('keydown', cache.onKeyDown)
+            window.document.body.removeEventListener('mousemove', cache.onMouseMove)
             if (values.inspecting) {
                 actions.stop(true)
             }
@@ -169,26 +189,7 @@ export const inspectElementLogic = kea({
             )
             actions.stop(false)
         },
-        start: () => {
-            cache.onMouseMove = function onMouseMove(event) {
-                cache.box.style.pointerEvents = 'none'
-                const element = window.document.elementFromPoint(event.clientX, event.clientY)
-                cache.box.style.pointerEvents = 'auto'
-
-                if (values.element !== element) {
-                    actions.hoverElement(element)
-                }
-            }
-            cache.onClick = function onClick() {
-                actions.selectElement(values.hoveredElement)
-            }
-
-            window.document.body.addEventListener('mousemove', cache.onMouseMove) // , { capture: true })
-            cache.box.addEventListener('click', cache.onClick)
-        },
         stop: ({ clear }) => {
-            window.document.body.removeEventListener('mousemove', cache.onMouseMove)
-            cache.box.removeEventListener('click', cache.onClick)
             if (clear) {
                 cache.box.style.display = 'none'
             } else {
