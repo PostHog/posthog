@@ -1,5 +1,6 @@
 {
     "video": false,
     "baseUrl": "http://localhost:8000",
-    "defaultCommandTimeout": 15000
+    "defaultCommandTimeout": 15000,
+    "projectId": "twojfp"
 }

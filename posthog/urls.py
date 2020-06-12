@@ -8,6 +8,7 @@ from django.contrib.auth import authenticate, login, views as auth_views, decora
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.template.loader import render_to_string
+from urllib.parse import urlparse
 
 from .api import router, capture, user
 from .models import Team, User
@@ -136,6 +137,20 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
 def logout(request):
     return auth_views.logout_then_login(request)
 
+def authorize_and_redirect(request):
+    if not request.GET.get('redirect'):
+        return HttpResponse("You need to pass a url to ?redirect=", status=401)
+    url = request.GET['redirect']
+    return render_template(
+        'authorize_and_redirect.html',
+        request=request,
+        context={
+
+            'domain': urlparse(url).hostname,
+            'redirect_url': url,
+        }
+    )
+
 urlpatterns = [
     path('_health/', health),
     path('_stats/', stats),
@@ -147,6 +162,7 @@ urlpatterns = [
     path('api/user/redirect_to_site/', user.redirect_to_site),
     path('api/user/change_password/', user.change_password),
     path('api/user/test_slack_webhook/', user.test_slack_webhook),
+    path('authorize_and_redirect/', decorators.login_required(authorize_and_redirect)),
     path('decide/', capture.get_decide),
     path('engage/', capture.get_event),
     path('engage', capture.get_event),

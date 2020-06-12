@@ -12,18 +12,29 @@ function diffInCoords(e, initialCoords) {
     return Math.abs(coords[0] - initialCoords[0]) + Math.abs(coords[1] - initialCoords[1])
 }
 
+/*
+    Use: - const eventHandlers = useLongPress(callback, opts)
+         - render(<div {...eventHandlers}></div>)
+
+    Opts: - ms = 300           - number of ms before registered as long press
+          - clickMs = null     - if delay is between 0 < clickMs < x < ms --> count it as a click
+          - pixelDistance = 10 - pixels the mouse can move so that we still count it as a press
+          - touch = true       - support touch actions
+          - click = true       - support click actions
+          - exclude = ''       - selector for when to NOT start long-pressing
+ */
 export function useLongPress(
-    callback = () => {},
-    { ms = 300, pixelDistance = 10, touch = true, click = true, exclude = '' }
+    callback = (clicked = false, ms = null) => {}, // eslint-disable-line
+    { ms = 300, pixelDistance = 10, touch = true, click = true, exclude = '', clickMs = null }
 ) {
-    const [startLongPress, setStartLongPress] = useState(false)
+    const [startLongPress, setStartLongPress] = useState(null)
     const [initialCoords, setInitialCoords] = useState(null)
 
     useEffect(() => {
         let timerId
         if (startLongPress) {
             timerId = setTimeout(() => {
-                callback()
+                callback(false, window.performance.now() - startLongPress, initialCoords)
                 stop()
             }, ms)
         }
@@ -37,20 +48,37 @@ export function useLongPress(
         if (exclude && e.target.matches(exclude)) {
             return
         }
+        if (e.button && e.button > 1) {
+            return
+        }
+        if (e.ctrlKey || e.altKey || e.metaKey) {
+            return
+        }
         setInitialCoords(getCoords(e))
-        setStartLongPress(true)
+        setStartLongPress(window.performance.now())
     }
 
     function move(e) {
         if (initialCoords && diffInCoords(e, initialCoords) > pixelDistance) {
             setInitialCoords(null)
-            setStartLongPress(false)
+            setStartLongPress(null)
         }
+    }
+
+    function stopClick() {
+        if (clickMs && startLongPress) {
+            const timeDiff = window.performance.now() - startLongPress
+            if (timeDiff >= clickMs && timeDiff < ms) {
+                callback(true, timeDiff)
+            }
+        }
+        setInitialCoords(null)
+        setStartLongPress(null)
     }
 
     function stop() {
         setInitialCoords(null)
-        setStartLongPress(false)
+        setStartLongPress(null)
     }
 
     let events = {}
@@ -58,13 +86,13 @@ export function useLongPress(
     if (touch) {
         events.onTouchStart = start
         events.onTouchMove = move
-        events.onTouchEnd = stop
+        events.onTouchEnd = stopClick
     }
 
     if (click) {
         events.onMouseDown = start
         events.onMouseMove = move
-        events.onMouseUp = stop
+        events.onMouseUp = stopClick
         events.onMouseLeave = stop
     }
 

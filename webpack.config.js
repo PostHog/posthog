@@ -34,7 +34,9 @@ function createEntry(entry) {
             filename: '[name].js',
             chunkFilename: '[name].[contenthash].js',
             publicPath:
-                process.env.NODE_ENV === 'production' ? '/static/' : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234/static/`,
+                process.env.NODE_ENV === 'production'
+                    ? '/static/'
+                    : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234/static/`,
         },
         resolve: {
             alias: {

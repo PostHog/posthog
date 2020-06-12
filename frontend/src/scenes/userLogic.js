@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import api from '../lib/api'
+import { posthogEvents } from 'lib/utils'
 
 export const userLogic = kea({
     actions: () => ({
@@ -48,7 +49,7 @@ export const userLogic = kea({
                 ]
                 user.team.event_names.forEach(name => {
                     let format = { label: name, value: name }
-                    if (name[0] == '$') return data[1].options.push(format)
+                    if (posthogEvents.indexOf(name) > -1) return data[1].options.push(format)
                     data[0].options.push(format)
                 })
                 return data
