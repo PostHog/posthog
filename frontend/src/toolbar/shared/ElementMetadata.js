@@ -2,9 +2,9 @@ import React from 'react'
 import { useValues } from 'kea'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { ActionStep } from '~/toolbar/shared/ActionStep'
-import { CloseOutlined } from '@ant-design/icons'
+import { CloseOutlined, CalendarOutlined, AimOutlined } from '@ant-design/icons'
 import { heatmapLogic } from '~/toolbar/shared/heatmapLogic'
-import { Button } from 'antd'
+import { Button, Statistic, Row, Col, Divider } from 'antd'
 
 export function ElementMetadata({ rect, meta: { actionStep, element: metaElement }, pointerEvents, onClose }) {
     const { domZoom, domPadding } = useValues(dockLogic)
@@ -27,7 +27,7 @@ export function ElementMetadata({ rect, meta: { actionStep, element: metaElement
                     width: `${300 / domZoom}px`,
                     minHeight: `${100 / domZoom}px`,
                     zIndex: 6,
-                    opacity: pointerEvents ? 1 : 0.9,
+                    opacity: 1,
                     transition: 'opacity 0.2s, box-shadow 0.2s',
                     backgroundBlendMode: 'multiply',
                     background: 'white',
@@ -35,16 +35,46 @@ export function ElementMetadata({ rect, meta: { actionStep, element: metaElement
                     boxShadow: `hsla(4, 30%, 27%, 0.6) 0px 3px 10px 2px`,
                 }}
             >
-                <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #eee' }}>
-                    {heatmapMeta && eventCount !== 0 ? (
-                        <div>
-                            This element got {heatmapMeta.count} out of {eventCount} clicks ={' '}
-                            {Math.round((heatmapMeta.count / eventCount) * 10000) / 100}%
-                        </div>
-                    ) : (
-                        <div>No clicks recorded for this element</div>
-                    )}
-                </div>
+                {heatmapMeta ? (
+                    <>
+                        <p>
+                            <CalendarOutlined /> <u>Last 7 days</u>
+                        </p>
+                        <Row gutter={16}>
+                            <Col span={12}>
+                                <Statistic
+                                    title="Clicks"
+                                    value={heatmapMeta?.count || 0}
+                                    suffix={`/ ${eventCount} (${
+                                        eventCount === 0
+                                            ? '-'
+                                            : Math.round(((heatmapMeta?.count || 0) / eventCount) * 10000) / 100
+                                    }%)`}
+                                />
+                            </Col>
+                            <Col span={12}>
+                                <Statistic
+                                    title="Users"
+                                    value={heatmapMeta?.count || 0}
+                                    suffix={`/ ${eventCount} (${
+                                        eventCount === 0
+                                            ? '-'
+                                            : Math.round(((heatmapMeta?.count || 0) / eventCount) * 10000) / 100
+                                    }%)`}
+                                />
+                            </Col>
+                        </Row>
+                        <Divider />
+                    </>
+                ) : null}
+
+                <ActionStep actionStep={actionStep} />
+
+                <Divider />
+
+                <p>
+                    <AimOutlined /> Actions
+                </p>
                 <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #eee' }}>
                     {pointerEvents ? (
                         <div>
@@ -54,7 +84,6 @@ export function ElementMetadata({ rect, meta: { actionStep, element: metaElement
                         <div>Click on the element to add an action</div>
                     )}
                 </div>
-                <ActionStep actionStep={actionStep} />
             </div>
             {onClose ? (
                 <div

@@ -1,5 +1,14 @@
 import React from 'react'
-import { FontSizeOutlined, LinkOutlined, FormOutlined, CodeOutlined } from '@ant-design/icons'
+import { FontSizeOutlined, LinkOutlined, FormOutlined, BranchesOutlined } from '@ant-design/icons'
+
+function SelectorString({ value }) {
+    const [last, ...rest] = value.split(' ').reverse()
+    return (
+        <>
+            {rest.reverse().join(' ')} <strong>{last}</strong>
+        </>
+    )
+}
 
 export function ActionAttribute({ attribute, value }) {
     const icon =
@@ -8,7 +17,7 @@ export function ActionAttribute({ attribute, value }) {
         ) : attribute === 'href' ? (
             <LinkOutlined />
         ) : attribute === 'selector' ? (
-            <CodeOutlined />
+            <BranchesOutlined />
         ) : (
             <FormOutlined />
         )
@@ -19,7 +28,9 @@ export function ActionAttribute({ attribute, value }) {
                 {value}
             </a>
         ) : attribute === 'selector' ? (
-            <span style={{ fontFamily: 'monospace' }}>{value}</span>
+            <span style={{ fontFamily: 'monospace' }}>
+                <SelectorString value={value} />
+            </span>
         ) : (
             value
         )
