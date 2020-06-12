@@ -17,6 +17,7 @@ import {
     ContainerOutlined,
     LineChartOutlined,
     FundOutlined,
+    ExperimentOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -195,6 +196,11 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <ForkOutlined />
                         <span className="sidebar-label">{'Paths'}</span>
                         <Link to={'/paths'} onClick={collapseSidebar} />
+                    </Menu.Item>
+                    <Menu.Item key="experiments" style={itemStyle} data-attr="menu-item-setup">
+                        <ExperimentOutlined />
+                        <span className="sidebar-label">{'Experiments'}</span>
+                        <Link to={'/experiments/feature_flags'} onClick={collapseSidebar} />
                     </Menu.Item>
                     <Menu.Item key="setup" style={itemStyle} data-attr="menu-item-setup">
                         <SettingOutlined />
