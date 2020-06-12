@@ -43,25 +43,17 @@ export function ElementMetadata({ rect, meta: { actionStep, element: metaElement
                             <CalendarOutlined /> <u>Last 7 days</u>
                         </p>
                         <Row gutter={16}>
-                            <Col span={12}>
+                            <Col span={8}>
+                                <Statistic title="Ranking" prefix="#" value={heatmapMeta.position || 0} />
+                            </Col>
+                            <Col span={16}>
                                 <Statistic
                                     title="Clicks"
-                                    value={heatmapMeta?.count || 0}
+                                    value={heatmapMeta.count || 0}
                                     suffix={`/ ${eventCount} (${
                                         eventCount === 0
                                             ? '-'
-                                            : Math.round(((heatmapMeta?.count || 0) / eventCount) * 10000) / 100
-                                    }%)`}
-                                />
-                            </Col>
-                            <Col span={12}>
-                                <Statistic
-                                    title="Users"
-                                    value={heatmapMeta?.count || 0}
-                                    suffix={`/ ${eventCount} (${
-                                        eventCount === 0
-                                            ? '-'
-                                            : Math.round(((heatmapMeta?.count || 0) / eventCount) * 10000) / 100
+                                            : Math.round(((heatmapMeta.count || 0) / eventCount) * 10000) / 100
                                     }%)`}
                                 />
                             </Col>

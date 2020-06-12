@@ -163,7 +163,7 @@ export const heatmapLogic = kea({
 
                 countedElements.sort((a, b) => b.count - a.count)
 
-                return countedElements
+                return countedElements.map((e, i) => ({ ...e, position: i + 1 }))
             },
         ],
         elementMap: [
