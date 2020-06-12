@@ -73,7 +73,7 @@ jobs:
                       mkdir -p cypress/screenshots 
                       ./bin/docker-migrate
                       ./bin/docker-worker &
-                      ./bin/docker-server &
+                      ./bin/docker-server
                   wait-on: http://localhost:8000/setup_admin
               env:
                   # pass the Dashboard record key as an environment variable
