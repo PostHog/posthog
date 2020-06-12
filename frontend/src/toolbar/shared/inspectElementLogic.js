@@ -1,14 +1,6 @@
 import { kea } from 'kea'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { elementToActionStep, getShadowRoot } from '~/toolbar/shared/utils'
-
-const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
-
-// This trims the "hovered" DOM node down. For example:
-// - div > div > div > svg > path  <--- ignore the path, just inpsect the full image/svg
-// - div > div > button > span     <--- we probably care about the button, not the span
-// - div > div > a > span          <--- same with links
-const DOM_TRIM_DOWN_SELECTOR = 'a, svg, button'
+import { elementToActionStep, getShadowRoot, trimElement } from '~/toolbar/shared/utils'
 
 export const inspectElementLogic = kea({
     actions: () => ({
@@ -63,29 +55,8 @@ export const inspectElementLogic = kea({
                 selectors.selectingClickTargets,
             ],
             (hoveredElement, selectedElement, selecting, selectingClickTargets) => {
-                let loopElement = selecting ? hoveredElement || selectedElement : selectedElement
-
-                if (selectingClickTargets) {
-                    while (loopElement?.parentElement) {
-                        // return when we find a click target
-                        if (loopElement.matches(CLICK_TARGET_SELECTOR)) {
-                            return loopElement
-                        }
-                        loopElement = loopElement.parentElement
-                    }
-                    return null
-                } else {
-                    // selecting all elements
-                    let selectedElement = loopElement
-                    while (loopElement?.parentElement) {
-                        // trim down the dom nodes
-                        if (loopElement.matches(DOM_TRIM_DOWN_SELECTOR)) {
-                            selectedElement = loopElement
-                        }
-                        loopElement = loopElement.parentElement
-                    }
-                    return selectedElement
-                }
+                let element = selecting ? hoveredElement || selectedElement : selectedElement
+                return trimElement(element, selectingClickTargets)
             },
         ],
         element: [

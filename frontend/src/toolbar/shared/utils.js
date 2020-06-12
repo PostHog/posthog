@@ -72,3 +72,46 @@ export function elementToSelector(element) {
 export function getShadowRoot() {
     return window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot
 }
+
+const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
+
+// This trims the "hovered" DOM node down. For example:
+// - div > div > div > svg > path  <--- ignore the path, just inpsect the full image/svg
+// - div > div > button > span     <--- we probably care about the button, not the span
+// - div > div > a > span          <--- same with links
+const DOM_TRIM_DOWN_SELECTOR = 'a, svg, button'
+
+export function trimElement(element, selectingClickTargets = false) {
+    let loopElement = element
+    if (selectingClickTargets) {
+        while (loopElement?.parentElement) {
+            // return when we find a click target
+            if (loopElement.matches(CLICK_TARGET_SELECTOR)) {
+                return loopElement
+            }
+            let compStyles = window.getComputedStyle(loopElement)
+            if (compStyles.getPropertyValue('cursor') === 'pointer') {
+                const parentStyles = loopElement.parentElement
+                    ? window.getComputedStyle(loopElement.parentElement)
+                    : null
+                if (!parentStyles || parentStyles.getPropertyValue('cursor') !== 'pointer') {
+                    return loopElement
+                }
+            }
+
+            loopElement = loopElement.parentElement
+        }
+        return null
+    } else {
+        // selecting all elements
+        let selectedElement = loopElement
+        while (loopElement?.parentElement) {
+            // trim down the dom nodes
+            if (loopElement.matches(DOM_TRIM_DOWN_SELECTOR)) {
+                selectedElement = loopElement
+            }
+            loopElement = loopElement.parentElement
+        }
+        return selectedElement
+    }
+}
