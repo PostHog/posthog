@@ -24,10 +24,12 @@ export function ElementMetadata({ rect, meta: { actionStep, element: metaElement
                         window.pageXOffset +
                         (rect.width > 300 ? (rect.width - 300) / 2 : 0)) /
                         domZoom}px`,
-                    width: `${300 / domZoom}px`,
-                    minHeight: `${100 / domZoom}px`,
+                    width: 300,
+                    minHeight: 100,
                     zIndex: 6,
                     opacity: 1,
+                    transform: domZoom !== 1 ? `scale(${1 / domZoom})` : '',
+                    transformOrigin: 'top left',
                     transition: 'opacity 0.2s, box-shadow 0.2s',
                     backgroundBlendMode: 'multiply',
                     background: 'white',
@@ -98,6 +100,8 @@ export function ElementMetadata({ rect, meta: { actionStep, element: metaElement
                             288 +
                             (rect.width > 300 ? (rect.width - 300) / 2 : 0)) /
                             domZoom}px`,
+                        transform: domZoom !== 1 ? `scale(${1 / domZoom})` : '',
+                        transformOrigin: 'top left',
                         background: 'black',
                         color: 'white',
                         boxShadow: `hsla(4, 30%, 27%, 0.6) 0px 3px 10px 2px`,
