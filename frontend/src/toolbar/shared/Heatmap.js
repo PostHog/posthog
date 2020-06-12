@@ -5,6 +5,7 @@ import { dockLogic } from '~/toolbar/dockLogic'
 import { FocusRect } from '~/toolbar/shared/FocusRect'
 import { inspectElementLogic } from '~/toolbar/shared/inspectElementLogic'
 import { ElementMetadata } from '~/toolbar/shared/ElementMetadata'
+import { InspectElementRect } from '~/toolbar/shared/InspectElementRect'
 
 export function Heatmap({ apiURL, temporaryToken }) {
     const logic = heatmapLogic({ apiURL, temporaryToken })
@@ -21,7 +22,7 @@ export function Heatmap({ apiURL, temporaryToken }) {
     const { domZoom, domPadding } = useValues(dockLogic)
     const {
         selecting: inspectElementActive,
-        baseElement: inspectSelectedElement,
+        element: inspectSelectedElement,
         actionStep: inspectActionStep,
     } = useValues(inspectElementLogic)
     const { start: startInspect, selectElement: selectInspectElement } = useActions(inspectElementLogic)
@@ -64,6 +65,7 @@ export function Heatmap({ apiURL, temporaryToken }) {
             }}
         >
             {highlightedRect && showElementFinder ? <FocusRect rect={highlightedRect} /> : null}
+            {inspectSelectedElement ? <InspectElementRect /> : null}
             {highlightedRect && !showElementFinder && highlightedMeta ? (
                 <ElementMetadata
                     rect={highlightedRect}

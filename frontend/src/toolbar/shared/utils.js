@@ -68,3 +68,7 @@ export function elementToSelector(element) {
     }
     return selector
 }
+
+export function getShadowRoot() {
+    return window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot
+}
