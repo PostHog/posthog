@@ -4,7 +4,6 @@
 #
 #    pip-compile requirements/dev.in
 #
-appnope==0.1.0            # via ipython
 asgiref==3.2.7            # via django
 attrs==19.3.0             # via flake8-bugbear
 backcall==0.1.0           # via ipython
@@ -13,7 +12,7 @@ decorator==4.4.2          # via ipython, traitlets
 django-debug-toolbar==2.2  # via -r requirements/dev.in
 django-stubs==1.5.0       # via -r requirements/dev.in, djangorestframework-stubs
 django==3.0.6             # via django-debug-toolbar, django-stubs
-djangorestframework-stubs==1.1.0  # via -r requirements/dev.in
+djangorestframework-stubs==1.2.0  # via -r requirements/dev.in
 entrypoints==0.3          # via flake8
 flake8-bugbear==20.1.4    # via -r requirements/dev.in
 flake8-colors==0.1.6      # via -r requirements/dev.in
@@ -24,7 +23,6 @@ flake8-logging-format==0.6.0  # via -r requirements/dev.in
 flake8-print==3.1.4       # via -r requirements/dev.in
 flake8==3.7.9             # via -r requirements/dev.in, flake8-bugbear, flake8-colors, flake8-commas, flake8-comprehensions, flake8-print
 freezegun==0.3.15         # via -r requirements/dev.in
-importlib-metadata==1.6.0  # via flake8-comprehensions
 ipdb==0.13.2              # via -r requirements/dev.in
 ipython-genutils==0.2.0   # via traitlets
 ipython==7.14.0           # via ipdb
@@ -52,7 +50,6 @@ traitlets==4.3.3          # via ipython
 typed-ast==1.4.1          # via mypy
 typing-extensions==3.7.4.2  # via django-stubs, djangorestframework-stubs, mypy
 wcwidth==0.1.9            # via prompt-toolkit
-zipp==3.1.0               # via importlib-metadata
 
 # The following packages are considered to be unsafe in a requirements file:
 # pip
