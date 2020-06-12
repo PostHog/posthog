@@ -40,7 +40,12 @@
   ],
   "addons": [
     "heroku-postgresql",
-    "heroku-redis"
+    {
+      "plan": "heroku-redis",
+      "options": {
+        "maxmemory_policy": "allkeys-lru"
+      }
+    }
   ],
   "formation": {
     "web": {

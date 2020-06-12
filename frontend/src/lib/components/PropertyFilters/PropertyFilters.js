@@ -1,23 +1,16 @@
 import React, { useState } from 'react'
-import { PropertyFilter, operatorMap } from './PropertyFilter'
+import { PropertyFilter } from './PropertyFilter'
 import { Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { Popover, Row } from 'antd'
-import { CloseButton } from '../../utils'
+import { CloseButton, operatorMap } from 'lib/utils'
 
-const operatorEntries = Object.entries(operatorMap).reverse()
-
-const formatFilterName = str => {
-    for (let [key, value] of operatorEntries) {
-        if (str.includes(key)) return str.replace('__' + key, '') + ` ${value} `
-    }
-    return str + ` ${operatorMap['null']} `
-}
-
-function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, filters }) {
-    const { remove } = useActions(propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey }))
+function FilterRow({ item, index, filters, logic, pageKey }) {
+    const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
+    const { key, value, operator } = item
 
     let handleVisibleChange = visible => {
         if (!visible && Object.keys(item).length >= 0 && !item[Object.keys(item)[0]]) {
@@ -34,30 +27,21 @@ function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, 
                 defaultVisible={false}
                 visible={open}
                 placement="bottomLeft"
-                content={
-                    <PropertyFilter
-                        key={index}
-                        index={index}
-                        endpoint={endpoint || 'event'}
-                        onChange={onChange}
-                        onComplete={() => setOpen(false)}
-                        pageKey={pageKey}
-                    />
-                }
+                content={<PropertyFilter key={index} index={index} onComplete={() => setOpen(false)} logic={logic} />}
             >
-                {Object.keys(item).length !== 0 ? (
+                {key ? (
                     <Button type="primary" shape="round" style={{ maxWidth: '85%' }}>
                         <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {formatFilterName(Object.keys(item)[0]) + item[Object.keys(item)[0]]}
+                            {keyMapping[key]?.label || key} {operatorMap[operator || 'exact'].split(' ')[0]} {value}
                         </span>
                     </Button>
                 ) : (
-                    <Button type="default" shape="round">
-                        {'Add Filter'}
+                    <Button type="default" shape="round" data-attr={'new-prop-filter-' + pageKey}>
+                        {'New Filter'}
                     </Button>
                 )}
             </Popover>
-            {index != filters.length - 1 && (
+            {index !== filters.length - 1 && (
                 <CloseButton
                     className="ml-1"
                     onClick={() => {
@@ -70,28 +54,25 @@ function FilterRow({ endpoint, propertyFilters, item, index, onChange, pageKey, 
     )
 }
 
-export function PropertyFilters(props) {
-    let { endpoint, propertyFilters, className, style, onChange, pageKey } = props
-    const { filters } = useValues(propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey }))
+export function PropertyFilters({ endpoint, propertyFilters, onChange, pageKey }) {
+    const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
+    const { filters } = useValues(logic)
 
     return (
-        <div
-            className={className || 'col-8'}
-            style={{
-                padding: 0,
-                marginBottom: '2rem',
-                display: 'inline',
-                style,
-            }}
-        >
-            <div className="column">
-                {filters &&
-                    filters.map((item, index) => {
-                        return (
-                            <FilterRow key={index} {...props} item={item} index={index} filters={filters}></FilterRow>
-                        )
-                    })}
-            </div>
+        <div className="column" style={{ marginBottom: '15px' }}>
+            {filters &&
+                filters.map((item, index) => {
+                    return (
+                        <FilterRow
+                            key={index === filters.length - 1 ? index : `${index}_${Object.keys(item)[0]}`}
+                            logic={logic}
+                            item={item}
+                            index={index}
+                            filters={filters}
+                            pageKey={pageKey}
+                        />
+                    )
+                })}
         </div>
     )
 }

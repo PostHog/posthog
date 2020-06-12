@@ -5,12 +5,14 @@ from django.contrib.auth import update_session_auth_hash
 from django.core.exceptions import ValidationError
 from django.shortcuts import redirect
 from django.conf import settings
-from posthog.models import Event
+from rest_framework import serializers
+from posthog.models import Event, User
 import requests
 
 import urllib.parse
 import secrets
 import json
+import os
 import posthoganalytics
 
 def user(request):
@@ -29,8 +31,14 @@ def user(request):
             team.save()
 
         if 'user' in data:
-            request.user.email_opt_in = data['user'].get('email_opt_in')
-            posthoganalytics.identify(request.user.distinct_id, {'email_opt_in': request.user.email_opt_in})
+            request.user.email_opt_in = data['user'].get('email_opt_in', request.user.email_opt_in)
+            request.user.anonymize_data = data['user'].get('anonymize_data', request.user.anonymize_data)
+            posthoganalytics.identify(request.user.distinct_id, {
+                'email_opt_in': request.user.email_opt_in,
+                'anonymize_data': request.user.anonymize_data,
+                'email': request.user.email if not request.user.anonymize_data else None,
+                'is_signed_up': True
+            })
             request.user.save()
 
     return JsonResponse({
@@ -40,6 +48,7 @@ def user(request):
         'email': request.user.email,
         'has_events': Event.objects.filter(team=team).exists(),
         'email_opt_in': request.user.email_opt_in,
+        'anonymize_data': request.user.anonymize_data,
         'team': {
             'app_urls': team.app_urls,
             'api_token': team.api_token,
@@ -49,6 +58,7 @@ def user(request):
             'event_names': team.event_names,
             'event_properties': team.event_properties
         },
+        'opt_out_capture': os.environ.get('OPT_OUT_CAPTURE'),
         'posthog_version': settings.VERSION if hasattr(settings, 'VERSION') else None
     })
 
@@ -64,13 +74,20 @@ def redirect_to_site(request):
 
     request.user.temporary_token = secrets.token_urlsafe(32)
     request.user.save()
-    state = urllib.parse.quote(json.dumps({
+    params = {
         'action': 'mpeditor',
         'token': team.api_token,
         'temporaryToken': request.user.temporary_token,
         'actionId': request.GET.get('actionId'),
-        'apiURL': request.build_absolute_uri('/')
-    }))
+        'defaultTab': 'actions',
+        'apiURL': request.build_absolute_uri('/'),
+    }
+    if settings.DEBUG:
+        params['jsURL'] = 'http://localhost:8234/'
+        if hasattr(settings, 'TOOLBAR_VERSION'):
+            params['toolbarVersion'] = settings.TOOLBAR_VERSION
+
+    state = urllib.parse.quote(json.dumps(params))
 
     return redirect("{}#state={}".format(app_url, state))
 
@@ -129,11 +146,14 @@ def test_slack_webhook(request):
         response = requests.post(webhook, verify=False, json=message)
 
         if response.ok:
-            if response.text == 'ok':
-                return JsonResponse({'success': True})
-            else:
-                return JsonResponse({'error': 'invalid webhook url'})
+            return JsonResponse({'success': True})
         else:
             return JsonResponse({'error': response.text})
     except:
         return JsonResponse({'error': 'invalid webhook url'})
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'first_name', 'email']
+

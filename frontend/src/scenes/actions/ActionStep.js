@@ -1,6 +1,7 @@
 import React, { Component } from 'react'
 import { EventName } from './EventName'
 import { AppEditorLink } from '../../lib/components/AppEditorLink/AppEditorLink'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 
 let getSafeText = el => {
@@ -22,15 +23,9 @@ export class ActionStep extends Component {
         this.state = {
             step: props.step,
             selection: Object.keys(props.step).filter(key => key != 'id' && key != 'isNew' && props.step[key]),
+            inspecting: false,
         }
-        this.onMouseOver = this.onMouseOver.bind(this)
-        this.onKeyDown = this.onKeyDown.bind(this)
-        this.Option = this.Option.bind(this)
-        this.sendStep = this.sendStep.bind(this)
         this.AutocaptureFields = this.AutocaptureFields.bind(this)
-        this.TypeSwitcher = this.TypeSwitcher.bind(this)
-        this.URLMatching = this.URLMatching.bind(this)
-        this.stop = this.stop.bind(this)
 
         this.box = document.createElement('div')
         document.body.appendChild(this.box)
@@ -47,7 +42,7 @@ export class ActionStep extends Component {
         this.box.style.opacity = '0.5'
         this.box.style.zIndex = '9999999999'
     }
-    onMouseOver(event) {
+    onMouseOver = event => {
         let el = event.currentTarget
         this.drawBox(el)
         let query = this.props.simmer(el)
@@ -77,11 +72,12 @@ export class ActionStep extends Component {
             () => this.sendStep(step)
         )
     }
-    onKeyDown(event) {
+    onKeyDown = event => {
         // stop selecting if esc key was pressed
         if (event.keyCode == 27) this.stop()
     }
     start() {
+        this.setState({ inspecting: true })
         document.querySelectorAll('a, button, input, select, textarea, label').forEach(element => {
             element.addEventListener('mouseover', this.onMouseOver, {
                 capture: true,
@@ -93,7 +89,8 @@ export class ActionStep extends Component {
         document.body.style.boxShadow = 'inset 0 0px 30px -5px #007bff'
         this.box.addEventListener('click', this.stop)
     }
-    stop() {
+    stop = () => {
+        this.setState({ inspecting: false })
         this.box.style.display = 'none'
         document.body.style.boxShadow = 'none'
         document.querySelectorAll('a, button, input, select, textarea, label').forEach(element => {
@@ -103,11 +100,11 @@ export class ActionStep extends Component {
         })
         document.removeEventListener('keydown', this.onKeyDown)
     }
-    sendStep(step) {
+    sendStep = step => {
         step.selection = this.state.selection
         this.props.onChange(step)
     }
-    Option(props) {
+    Option = props => {
         let onChange = e => {
             this.props.step[props.item] = e.target.value
 
@@ -146,12 +143,13 @@ export class ActionStep extends Component {
                         checked={this.state.selection.indexOf(props.item) > -1}
                         value={props.item}
                         onChange={e => {
+                            let { selection } = this.state
                             if (e.target.checked) {
-                                this.state.selection.push(props.item)
+                                selection.push(props.item)
                             } else {
-                                this.state.selection = this.state.selection.filter(i => i !== props.item)
+                                selection = selection.filter(i => i !== props.item)
                             }
-                            this.setState({ selection: this.state.selection }, () => this.sendStep(this.props.step))
+                            this.setState({ selection }, () => this.sendStep(this.props.step))
                         }}
                     />{' '}
                     {props.label} {props.extra_options}
@@ -159,26 +157,40 @@ export class ActionStep extends Component {
                 {props.item == 'selector' ? (
                     <textarea className="form-control" onChange={onChange} value={this.props.step[props.item] || ''} />
                 ) : (
-                    <input className="form-control" onChange={onChange} value={this.props.step[props.item] || ''} />
+                    <input
+                        data-attr="edit-action-url-input"
+                        className="form-control"
+                        onChange={onChange}
+                        value={this.props.step[props.item] || ''}
+                    />
                 )}
             </div>
         )
     }
-    TypeSwitcher() {
+    TypeSwitcher = () => {
         let { step, isEditor } = this.props
         return (
             <div>
                 <div className="btn-group">
                     <button
                         type="button"
-                        onClick={() => this.sendStep({ ...step, event: '$autocapture' })}
+                        onClick={() =>
+                            this.setState(
+                                {
+                                    selection: Object.keys(step).filter(
+                                        key => key != 'id' && key != 'isNew' && step[key]
+                                    ),
+                                },
+                                () => this.sendStep({ ...step, event: '$autocapture' })
+                            )
+                        }
                         className={'btn ' + (step.event == '$autocapture' ? 'btn-secondary' : 'btn-light')}
                     >
                         Frontend element
                     </button>
                     <button
                         type="button"
-                        onClick={() => this.sendStep({ ...step, event: '' })}
+                        onClick={() => this.setState({ selection: [] }, () => this.sendStep({ ...step, event: '' }))}
                         className={
                             'btn ' +
                             (typeof step.event !== 'undefined' &&
@@ -202,48 +214,41 @@ export class ActionStep extends Component {
                                           '//' +
                                           window.location.host +
                                           window.location.pathname
-                                        : null,
+                                        : step.url,
                                 })
                             )
                         }}
                         className={'btn ' + (step.event == '$pageview' ? 'btn-secondary' : 'btn-light')}
+                        data-attr="action-step-pageview"
                     >
                         Page view
                     </button>
                 </div>
-                {step.event != null && step.event != '$autocapture' && step.event != '$pageview' && (
-                    <div style={{ marginTop: '2rem' }}>
-                        <label>Event name</label>
-                        <EventName
-                            value={step.event}
-                            onChange={item =>
-                                this.sendStep({
-                                    ...step,
-                                    event: item.value,
-                                })
-                            }
-                        />
-                    </div>
-                )}
             </div>
         )
     }
     AutocaptureFields({ step, isEditor, actionId }) {
-        if (!isEditor)
-            return (
-                <span>
-                    <AppEditorLink actionId={actionId} style={{ margin: '1rem 0' }} className="btn btn-sm btn-light">
-                        Select element on site <i className="fi flaticon-export" />
-                    </AppEditorLink>
-                    <br />
-                    <a href="https://github.com/PostHog/posthog/wiki/Actions" target="_blank">
-                        See documentation
-                    </a>{' '}
-                    on how to set up actions.
-                </span>
-            )
         return (
             <div>
+                {!isEditor && (
+                    <span>
+                        <AppEditorLink
+                            actionId={actionId}
+                            style={{ margin: '1rem 0' }}
+                            className="btn btn-sm btn-light"
+                        >
+                            Select element on site <i className="fi flaticon-export" />
+                        </AppEditorLink>
+                        <a
+                            href="https://posthog.com/docs/features/actions"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ marginLeft: 8 }}
+                        >
+                            See documentation.
+                        </a>{' '}
+                    </span>
+                )}
                 <this.Option
                     item="href"
                     label="Link href"
@@ -259,7 +264,7 @@ export class ActionStep extends Component {
             </div>
         )
     }
-    URLMatching({ step, isEditor }) {
+    URLMatching = ({ step, isEditor }) => {
         return (
             <div className="btn-group" style={{ margin: isEditor ? '4px 0 0 8px' : '0 0 0 8px' }}>
                 <button
@@ -283,7 +288,7 @@ export class ActionStep extends Component {
         )
     }
     render() {
-        let { step, isEditor, actionId } = this.props
+        let { step, isEditor, actionId, isOnlyStep } = this.props
 
         return (
             <div
@@ -294,7 +299,7 @@ export class ActionStep extends Component {
                 }}
             >
                 <div className={isEditor ? '' : 'card-body'}>
-                    {(!isEditor || step.event === '$autocapture' || !step.event) && (
+                    {!isOnlyStep && (!isEditor || step.event === '$autocapture' || !step.event) && (
                         <button
                             style={{
                                 margin: isEditor ? '12px 12px 0px 0px' : '-3px 0 0 0',
@@ -311,21 +316,52 @@ export class ActionStep extends Component {
                     <div
                         style={{
                             marginTop: step.event === '$pageview' && !isEditor ? 20 : 8,
+                            paddingBottom: isEditor ? 1 : 0,
                         }}
                     >
-                        {isEditor && (
+                        {isEditor && [
                             <button
+                                key="inspect-button"
                                 type="button"
                                 className="btn btn-sm btn-secondary"
                                 style={{ margin: '10px 0px 10px 12px' }}
                                 onClick={() => this.start()}
                             >
                                 Inspect element
-                            </button>
-                        )}
+                            </button>,
+                            this.state.inspecting && (
+                                <p key="inspect-prompt" style={{ marginLeft: 10, marginRight: 10 }}>
+                                    Hover over and click on an element you want to create an action for
+                                </p>
+                            ),
+                        ]}
 
                         {step.event === '$autocapture' && (
                             <this.AutocaptureFields step={step} isEditor={isEditor} actionId={actionId} />
+                        )}
+                        {step.event != null && step.event != '$autocapture' && step.event != '$pageview' && (
+                            <div style={{ marginTop: '2rem' }}>
+                                <label>Event name: {step.event}</label>
+                                <EventName
+                                    value={step.event}
+                                    onChange={value =>
+                                        this.sendStep({
+                                            ...step,
+                                            event: value,
+                                        })
+                                    }
+                                />
+                                <PropertyFilters
+                                    propertyFilters={step.properties}
+                                    pageKey={'action-edit'}
+                                    onChange={properties => {
+                                        this.sendStep({
+                                            ...this.props.step, // Not sure why, but the normal 'step' variable does not work here
+                                            properties,
+                                        })
+                                    }}
+                                />
+                            </div>
                         )}
                         {step.event === '$pageview' && (
                             <div>

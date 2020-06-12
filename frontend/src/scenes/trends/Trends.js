@@ -2,7 +2,7 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 
 import { Card, CloseButton, Loading } from 'lib/utils'
-import { SaveToDashboard } from 'lib/components/SaveToDashboard'
+import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DateFilter } from 'lib/components/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
@@ -16,35 +16,41 @@ import { ShownAsFilter } from './ShownAsFilter'
 import { PeopleModal } from './PeopleModal'
 import { trendsLogic, ViewType } from './trendsLogic'
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { userLogic } from 'scenes/userLogic'
-import { Tabs, Row, Col, Tooltip } from 'antd'
+import { Tabs, Row, Col, Tooltip, Checkbox } from 'antd'
 import { SessionFilter } from 'lib/components/SessionsFilter'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { InfoCircleOutlined } from '@ant-design/icons'
+import {
+    ACTIONS_LINE_GRAPH_LINEAR,
+    ACTIONS_LINE_GRAPH_CUMULATIVE,
+    LINEAR_CHART_LABEL,
+    CUMULATIVE_CHART_LABEL,
+} from 'lib/constants'
+import { hot } from 'react-hot-loader/root'
 
 const { TabPane } = Tabs
 
 const displayMap = {
-    ActionsLineGraph: 'Line chart',
+    [`${ACTIONS_LINE_GRAPH_LINEAR}`]: LINEAR_CHART_LABEL,
+    [`${ACTIONS_LINE_GRAPH_CUMULATIVE}`]: CUMULATIVE_CHART_LABEL,
     ActionsTable: 'Table',
     ActionsPie: 'Pie',
 }
 
-export function Trends() {
+export const Trends = hot(_Trends)
+function _Trends() {
     const { filters, resultsLoading, showingPeople, activeView } = useValues(trendsLogic({ dashboardItemId: null }))
     const { setFilters, setDisplay, setActiveView } = useActions(trendsLogic({ dashboardItemId: null }))
-    const { eventProperties } = useValues(userLogic)
-    const size = useWindowSize()
 
     return (
         <div className="actions-graph">
-            {showingPeople ? <PeopleModal /> : null}
-            <h1>Trends</h1>
+            <PeopleModal visible={showingPeople} />
+            <h1 className="page-header">Trends</h1>
             <Row gutter={16}>
-                <Col xs={24} xl={6}>
+                <Col xs={24} xl={7}>
                     <Card>
                         <div className="card-body px-4">
                             <Tabs
-                                defaultActiveKey={activeView}
+                                activeKey={activeView}
                                 style={{
                                     overflow: 'visible',
                                 }}
@@ -52,22 +58,10 @@ export function Trends() {
                                 animated={false}
                             >
                                 <TabPane tab={'Actions & Events'} key={ViewType.FILTERS}>
-                                    <ActionFilter
-                                        setDefaultIfEmpty={true}
-                                        setFilters={setFilters}
-                                        defaultFilters={filters}
-                                        showMaths={true}
-                                        typeKey="trends"
-                                    />
+                                    <ActionFilter filters={filters} setFilters={setFilters} typeKey="trends" />
                                     <hr />
                                     <h4 className="secondary">Filters</h4>
-                                    <PropertyFilters
-                                        pageKey="trends-filters"
-                                        properties={eventProperties}
-                                        propertyFilters={filters.properties}
-                                        onChange={properties => setFilters({ properties })}
-                                        style={{ marginBottom: 0 }}
-                                    />
+                                    <PropertyFilters pageKey="trends-filters" style={{ marginBottom: 0 }} />
                                     <hr />
                                     <h4 className="secondary">
                                         Break down by
@@ -75,18 +69,22 @@ export function Trends() {
                                             placement="right"
                                             title="Use breakdown to see the volume of events for each variation of that property. For example, breaking down by $current_url will give you the event volume for each url your users have visited."
                                         >
-                                            <small className="info">info</small>
+                                            <InfoCircleOutlined
+                                                className="info"
+                                                style={{ color: '#007bff' }}
+                                            ></InfoCircleOutlined>
                                         </Tooltip>
                                     </h4>
                                     <Row>
                                         <BreakdownFilter
-                                            properties={eventProperties}
-                                            breakdown={filters.breakdown}
-                                            onChange={breakdown => setFilters({ breakdown })}
+                                            filters={filters}
+                                            onChange={(breakdown, breakdown_type) =>
+                                                setFilters({ breakdown, breakdown_type })
+                                            }
                                         />
                                         {filters.breakdown && (
                                             <CloseButton
-                                                onClick={() => setFilters({ breakdown: false })}
+                                                onClick={() => setFilters({ breakdown: false, breakdown_type: null })}
                                                 style={{ marginTop: 1, marginLeft: 10 }}
                                             />
                                         )}
@@ -101,44 +99,30 @@ export function Trends() {
                                             performed an action on Monday and again on Friday, it would be shown 
                                             as "2 days".'
                                         >
-                                            <small className="info">info</small>
+                                            <InfoCircleOutlined
+                                                className="info"
+                                                style={{ color: '#007bff' }}
+                                            ></InfoCircleOutlined>
                                         </Tooltip>
                                     </h4>
-                                    <ShownAsFilter
-                                        shown_as={filters.shown_as}
-                                        onChange={shown_as => setFilters({ shown_as })}
-                                    />
+                                    <ShownAsFilter filters={filters} onChange={shown_as => setFilters({ shown_as })} />
                                 </TabPane>
-                                <TabPane tab="Sessions" key={ViewType.SESSIONS}>
+                                <TabPane tab="Sessions" key={ViewType.SESSIONS} data-attr="trends-sessions-tab">
                                     <SessionFilter value={filters.session} onChange={v => setFilters({ session: v })} />
                                     <hr />
                                     <h4 className="secondary">Filters</h4>
-                                    <PropertyFilters
-                                        pageKey="trends-sessions"
-                                        properties={eventProperties}
-                                        propertyFilters={filters.properties}
-                                        onChange={properties => setFilters({ properties })}
-                                        style={{ marginBottom: 0 }}
-                                    />
+                                    <PropertyFilters pageKey="trends-sessions" style={{ marginBottom: 0 }} />
                                 </TabPane>
                             </Tabs>
                         </div>
                     </Card>
                 </Col>
-                <Col xs={24} xl={18}>
+                <Col xs={24} xl={17}>
                     <Card
                         title={
                             <div className="float-right pt-1 pb-1">
-                                <IntervalFilter
-                                    setFilters={setFilters}
-                                    filters={filters}
-                                    disabled={filters.breakdown || filters.session}
-                                />
-                                <ChartFilter
-                                    displayMap={displayMap}
-                                    filters={filters}
-                                    onChange={setDisplay}
-                                ></ChartFilter>
+                                <IntervalFilter setFilters={setFilters} filters={filters} disabled={filters.session} />
+                                <ChartFilter displayMap={displayMap} filters={filters} onChange={setDisplay} />
                                 <DateFilter
                                     onChange={(date_from, date_to) =>
                                         setFilters({
@@ -149,7 +133,19 @@ export function Trends() {
                                     dateFrom={filters.date_from}
                                     dateTo={filters.date_to}
                                 />
-                                <SaveToDashboard filters={filters} type={filters.display || 'ActionsLineGraph'} />
+                                <Checkbox
+                                    onChange={e => {
+                                        setFilters({ compare: e.target.checked })
+                                    }}
+                                    checked={filters.compare}
+                                    style={{ marginLeft: 8, marginRight: 6 }}
+                                >
+                                    Compare Previous
+                                </Checkbox>
+                                <SaveToDashboard
+                                    filters={filters}
+                                    type={filters.display || ACTIONS_LINE_GRAPH_LINEAR}
+                                />
                             </div>
                         }
                     >
@@ -162,11 +158,11 @@ export function Trends() {
                                     }}
                                 >
                                     {resultsLoading && <Loading />}
-                                    {(!filters.display || filters.display == 'ActionsLineGraph') && (
-                                        <ActionsLineGraph />
-                                    )}
-                                    {filters.display == 'ActionsTable' && <ActionsTable filters={filters} />}
-                                    {filters.display == 'ActionsPie' && <ActionsPie filters={filters} />}
+                                    {(!filters.display ||
+                                        filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
+                                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && <ActionsLineGraph />}
+                                    {filters.display === 'ActionsTable' && <ActionsTable filters={filters} />}
+                                    {filters.display === 'ActionsPie' && <ActionsPie filters={filters} />}
                                 </div>
                             )}
                         </div>

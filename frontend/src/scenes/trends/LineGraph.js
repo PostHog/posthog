@@ -1,6 +1,9 @@
 import React, { Component } from 'react'
 import Chart from 'chart.js'
 import PropTypes from 'prop-types'
+import { operatorMap } from '~/lib/utils'
+import _ from 'lodash'
+import { getChartColors } from 'lib/colors'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -15,17 +18,17 @@ export class LineGraph extends Component {
     }
 
     componentDidUpdate(prevProps) {
-        if (prevProps.datasets !== this.props.datasets) {
+        if (prevProps.datasets !== this.props.datasets || prevProps.color !== this.props.color) {
             this.buildChart()
         }
     }
 
     processDataset = (dataset, index) => {
-        let colors = ['blue', 'orange', 'green', 'red', 'purple', 'gray']
-        let getVar = variable => getComputedStyle(document.body).getPropertyValue('--' + variable)
+        const colorList = getChartColors(this.props.color || 'white')
+
         return {
-            borderColor: getVar(colors[index]),
-            backgroundColor: (this.props.type == 'bar' || this.props.type == 'doughnut') && getVar(colors[index]),
+            borderColor: colorList[index],
+            backgroundColor: (this.props.type === 'bar' || this.props.type === 'doughnut') && colorList[index],
             fill: false,
             borderWidth: 1,
             pointHitRadius: 8,
@@ -35,13 +38,17 @@ export class LineGraph extends Component {
 
     buildChart = () => {
         const myChartRef = this.chartRef.current.getContext('2d')
-        let { datasets, labels, options } = this.props
+        let { datasets, labels } = this.props
+
+        const axisLabelColor = this.props.color === 'white' ? '#333' : 'rgba(255,255,255,0.8)'
+        const axisLineColor = this.props.color === 'white' ? '#ddd' : 'rgba(255,255,255,0.2)'
+        const axisColor = this.props.color === 'white' ? '#999' : 'rgba(255,255,255,0.6)'
 
         if (typeof this.myLineChart !== 'undefined') this.myLineChart.destroy()
         const _this = this
         // if chart is line graph, make duplicate lines and overlay to show dotted lines
         datasets =
-            !this.props.type || this.props.type == 'line'
+            !this.props.type || this.props.type === 'line'
                 ? [
                       ...datasets.map((dataset, index) => {
                           let datasetCopy = Object.assign({}, dataset)
@@ -60,11 +67,16 @@ export class LineGraph extends Component {
                           let datasetCopy = Object.assign({}, dataset)
                           let datasetLength = datasetCopy.data.length
                           datasetCopy.dotted = true
-                          datasetCopy.borderDash = [10, 10]
+
+                          // if last date is still active show dotted line
+                          if (this.props.isInProgress) {
+                              datasetCopy.borderDash = [10, 10]
+                          }
+
                           datasetCopy.data =
                               datasetCopy.data.length > 2
                                   ? datasetCopy.data.map((datum, index) =>
-                                        index == datasetLength - 1 || index == datasetLength - 2 ? datum : null
+                                        index === datasetLength - 1 || index === datasetLength - 2 ? datum : null
                                     )
                                   : datasetCopy.data
                           return this.processDataset(datasetCopy, index)
@@ -103,15 +115,25 @@ export class LineGraph extends Component {
                               titleSpacing: 0,
                               callbacks: {
                                   label: function(tooltipItem, data) {
-                                      if (
-                                          data.datasets[tooltipItem.datasetIndex].dotted &&
-                                          !(
-                                              tooltipItem.index ==
-                                              data.datasets[tooltipItem.datasetIndex].data.length - 1
-                                          )
-                                      )
+                                      let entityData = data.datasets[tooltipItem.datasetIndex]
+                                      if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1))
                                           return null
-                                      var label = data.datasets[tooltipItem.datasetIndex].label || ''
+                                      var label = entityData.chartLabel || entityData.label || ''
+                                      if (
+                                          entityData.action &&
+                                          entityData.action.properties &&
+                                          !_.isEmpty(entityData.action.properties)
+                                      ) {
+                                          label += ` (${entityData.action.properties
+                                              .map(
+                                                  property =>
+                                                      operatorMap[property.operator || 'exact'].split(' ')[0] +
+                                                      ' ' +
+                                                      property.value
+                                              )
+                                              .join(', ')})`
+                                      }
+
                                       return label + ' - ' + tooltipItem.yLabel.toLocaleString()
                                   },
                               },
@@ -130,17 +152,26 @@ export class LineGraph extends Component {
                               xAxes: [
                                   {
                                       display: true,
-                                      gridLines: { lineWidth: 0 },
-                                      ticks: { autoSkip: true, beginAtZero: true, min: 0 },
+                                      gridLines: { lineWidth: 0, color: axisLineColor, zeroLineColor: axisColor },
+                                      ticks: {
+                                          autoSkip: true,
+                                          beginAtZero: true,
+                                          min: 0,
+                                          fontColor: axisLabelColor,
+                                          precision: 0,
+                                      },
                                   },
                               ],
                               yAxes: [
                                   {
                                       display: true,
+                                      gridLines: { color: axisLineColor, zeroLineColor: axisColor },
                                       ticks: {
                                           autoSkip: true,
                                           beginAtZero: true,
                                           min: 0,
+                                          fontColor: axisLabelColor,
+                                          precision: 0,
                                       },
                                   },
                               ],
@@ -158,7 +189,9 @@ export class LineGraph extends Component {
                                               : undefined,
                                       day:
                                           typeof point._index !== 'undefined' && dataset.days
-                                              ? dataset.days[point._index]
+                                              ? dataset['compare']
+                                                  ? dataset.dates[point._index]
+                                                  : dataset.days[point._index]
                                               : undefined,
                                       value:
                                           typeof point._index !== 'undefined' && dataset.data
@@ -178,7 +211,7 @@ export class LineGraph extends Component {
 
     render() {
         return (
-            <div className="graph-container">
+            <div className="graph-container" data-attr={this.props['data-attr']}>
                 <canvas ref={this.chartRef} />
             </div>
         )

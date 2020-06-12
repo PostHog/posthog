@@ -1,44 +1,40 @@
-import React, { Component } from 'react'
+import React, { useRef } from 'react'
 import { toast } from 'react-toastify'
-import { Button, Tooltip, Input } from 'antd'
+import { Tooltip, Input } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
 
-export class InviteTeam extends Component {
-    urlRef = React.createRef()
-    copyToClipboard = () => {
-        this.urlRef.current.focus()
-        this.urlRef.current.select()
+export function InviteTeam({ user }) {
+    const urlRef = useRef()
+
+    function copyToClipboard() {
+        urlRef.current.focus()
+        urlRef.current.select()
         document.execCommand('copy')
-        this.urlRef.current.blur()
+        urlRef.current.blur()
         toast('Link copied!')
     }
-    render() {
-        let url = window.location.origin
-        return (
+
+    const url = window.location.origin
+    return (
+        <div data-attr="invite-team-modal">
+            <br />
+            Send your team the following URL:
+            <br />
+            <br />
             <div>
-                <br />
-                Send your team the following URL:
-                <br />
-                <br />
-                <div>
-                    <Input
-                        type="text"
-                        ref={this.urlRef}
-                        value={url + '/signup/' + this.props.user.team.signup_token}
-                        disabled={true}
-                        suffix={
-                            <Tooltip title="Copy to Clipboard">
-                                <Button
-                                    onClick={this.copyToClipboard.bind(this)}
-                                    type="default"
-                                    icon={<CopyOutlined />}
-                                />
-                            </Tooltip>
-                        }
-                    />
-                </div>
-                <br />
+                <Input
+                    data-attr="copy-invite-to-clipboard-input"
+                    type="text"
+                    ref={urlRef}
+                    value={url + '/signup/' + user.team.signup_token}
+                    suffix={
+                        <Tooltip title="Copy to Clipboard">
+                            <CopyOutlined onClick={copyToClipboard} />
+                        </Tooltip>
+                    }
+                />
             </div>
-        )
-    }
+            <br />
+        </div>
+    )
 }

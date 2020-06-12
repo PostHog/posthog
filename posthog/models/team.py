@@ -2,9 +2,10 @@ from django.db import models
 from django.contrib.postgres.fields import JSONField, ArrayField
 from .action import Action
 from .action_step import ActionStep
-from .dashboard import DashboardItem
+from .dashboard import Dashboard
+from .dashboard_item import DashboardItem
 from .user import User
-from posthog.constants import TREND_FILTER_TYPE_EVENTS
+from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from typing import Optional, List
 
 import secrets
@@ -21,15 +22,33 @@ class TeamManager(models.Manager):
         action = Action.objects.create(team=team, name="Pageviews")
         ActionStep.objects.create(action=action, event="$pageview")
 
+        dashboard = Dashboard.objects.create(
+            name="Default",
+            pinned=True,
+            team=team
+        )
 
-        DashboardItem.objects.create(team=team, name='Pageviews this week', type='ActionsLineGraph', filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'type': TREND_FILTER_TYPE_EVENTS}]})
         DashboardItem.objects.create(
             team=team,
+            dashboard=dashboard,
+            name='Pageviews this week',
+            type=TRENDS_LINEAR,
+            filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'type': TREND_FILTER_TYPE_EVENTS}]}
+        )
+        DashboardItem.objects.create(
+            team=team,
+            dashboard=dashboard,
             name='Most popular browsers this week',
             type='ActionsTable',
             filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'type': TREND_FILTER_TYPE_EVENTS}], 'display': 'ActionsTable', 'breakdown': '$browser'}
         )
-        DashboardItem.objects.create(team=team, name='Daily Active Users', type='ActionsLineGraph', filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'math': 'dau', 'type': TREND_FILTER_TYPE_EVENTS}]})
+        DashboardItem.objects.create(
+            team=team,
+            dashboard=dashboard,
+            name='Daily Active Users',
+            type=TRENDS_LINEAR,
+            filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'math': 'dau', 'type': TREND_FILTER_TYPE_EVENTS}]}
+        )
         return team
 
 
@@ -45,12 +64,15 @@ class Team(models.Model):
         models.CharField(max_length=200, null=True, blank=True), default=list
     )
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    opt_out_capture: models.BooleanField = models.BooleanField(default=False)
     slack_incoming_webhook: models.CharField = models.CharField(
         max_length=200, null=True, blank=True
     )
     event_names: JSONField = JSONField(default=list)
     event_properties: JSONField = JSONField(default=list)
+
+    # DEPRECATED: this field is deprecated in favour of OPT_OUT_CAPTURE env variable and anonymized data
+    # However, we still honor teams that have set this previously
+    opt_out_capture: models.BooleanField = models.BooleanField(default=False)
 
     objects = TeamManager()
 

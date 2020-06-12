@@ -13,6 +13,10 @@ class PersonManager(models.Manager):
             person.add_distinct_ids(distinct_ids)
             return person
 
+    @staticmethod
+    def distinct_ids_exist(team_id: int, distinct_ids: List[str]) -> bool:
+        return PersonDistinctId.objects.filter(team_id=team_id, distinct_id__in=distinct_ids).exists()
+
 
 class Person(models.Model):
     @property
@@ -28,7 +32,7 @@ class Person(models.Model):
 
     def add_distinct_id(self, distinct_id: str) -> None:
         PersonDistinctId.objects.create(
-            person=self, distinct_id=distinct_id, team=self.team
+            person=self, distinct_id=distinct_id, team_id=self.team_id
         )
 
     def add_distinct_ids(self, distinct_ids: List[str]) -> None:

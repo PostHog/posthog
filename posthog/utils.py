@@ -1,12 +1,15 @@
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
+from django.conf import settings
 from django.db.models import Q
-from typing import Dict, Any
+from typing import Dict, Any, List, Union
 from django.template.loader import get_template
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse, HttpRequest
 from dateutil import parser
+from typing import Tuple
 
 import datetime
+import json
 import re
 import os
 import pytz
@@ -48,43 +51,27 @@ def relative_date_parse(input: str) -> datetime.datetime:
             date = date - relativedelta(month=12, day=31)
     return date.replace(hour=0, minute=0, second=0, microsecond=0)
 
-def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.date]:
+def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.datetime]:
     if filters.get('date_from'):
-        date_from = relative_date_parse(filters['date_from']).date()
+        date_from = relative_date_parse(filters['date_from'])
         if filters['date_from'] == 'all':
             date_from = None # type: ignore
     else:
-        date_from = datetime.date.today() - relativedelta(days=7)
+        date_from = datetime.datetime.today() - relativedelta(days=7)
+        date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
     date_to = None
     if filters.get('date_to'):
-        date_to = relative_date_parse(filters['date_to']).date()
+        date_to = relative_date_parse(filters['date_to'])
 
     resp = {}
     if date_from:
-        resp['timestamp__gte'] = date_from
+        resp['timestamp__gte'] = date_from.replace(tzinfo=pytz.UTC)
     if date_to:
-        resp['timestamp__lte'] = date_to + relativedelta(days=1)
+        resp['timestamp__lte'] = (date_to + relativedelta(days=1)).replace(tzinfo=pytz.UTC)
     return resp
 
-def properties_to_Q(properties: Dict[str, str]) -> Q:
-    filters = Q()
-
-    if not properties:
-        return filters
-
-    for key, value in properties.items():
-        if key.endswith('__is_not'):
-            key = key.replace('__is_not', '')
-            filters &= Q(~Q(**{'properties__{}'.format(key): value}) | ~Q(properties__has_key=key))
-        elif key.endswith('__not_icontains'):
-            key = key.replace('__not_icontains', '')
-            filters &= Q(~Q(**{'properties__{}__icontains'.format(key): value}) | ~Q(properties__has_key=key))
-        else:
-            filters &= Q(**{'properties__{}'.format(key): value})
-    return filters
-
-def render_template(template_name: str, request, context=None) -> HttpResponse:
+def render_template(template_name: str, request: HttpRequest, context=None) -> HttpResponse:
     from posthog.models import Team
     if context is None:
         context = {}
@@ -101,6 +88,11 @@ def render_template(template_name: str, request, context=None) -> HttpResponse:
             context.update({
                 'opt_out_capture': team.first().opt_out_capture, # type: ignore
             })
+
+    if os.environ.get('OPT_OUT_CAPTURE'):
+        context.update({
+            'opt_out_capture': True
+        })
 
     if os.environ.get('SENTRY_DSN'):
         context.update({
@@ -128,3 +120,57 @@ def friendly_time(seconds: float):
         hours='{h} hours '.format(h=int(hours)) if hours > 0 else '',\
         minutes='{m} minutes '.format(m=int(minutes)) if minutes > 0 else '',\
         seconds='{s} seconds'.format(s=int(seconds)) if seconds > 0 or (minutes == 0 and hours == 0) else '').strip()
+
+def append_data(dates_filled: List, interval=None, math='sum') -> Dict:
+    append: Dict[str, Any] = {}
+    append['data'] = []
+    append['labels'] = []
+    append['days'] = []
+
+    labels_format = '%a. %-d %B'
+    days_format = '%Y-%m-%d'
+
+    if interval == 'hour' or interval == 'minute':
+        labels_format += ', %H:%M'
+        days_format += ' %H:%M:%S'
+
+    for item in dates_filled:
+        date=item[0]
+        value=item[1]
+        append['days'].append(date.strftime(days_format))
+        append['labels'].append(date.strftime(labels_format))
+        append['data'].append(value)
+    if math == 'sum':
+        append['count'] = sum(append['data'])
+    return append
+
+def get_ip_address(request: HttpRequest) -> str:
+    """ use requestobject to fetch client machine's IP Address """
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR')    ### Real IP address of client Machine
+    return ip
+
+def dict_from_cursor_fetchall(cursor):
+    columns = [col[0] for col in cursor.description]
+    return [
+        dict(zip(columns, row))
+        for row in cursor.fetchall()
+    ]
+
+def convert_property_value(input: Union[str, bool, dict, list]) -> str:
+    if isinstance(input, bool):
+        if input == True:
+            return 'true'
+        return 'false'
+    if isinstance(input, dict) or isinstance(input, list):
+        return json.dumps(input, sort_keys=True)
+    return input
+
+def get_compare_period_dates(date_from: datetime.datetime, date_to: datetime.datetime) -> Tuple[datetime.datetime,datetime.datetime]:
+    new_date_to = date_from
+    diff = date_to - date_from
+    new_date_from = date_from - diff
+    return new_date_from, new_date_to

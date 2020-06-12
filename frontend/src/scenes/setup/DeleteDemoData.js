@@ -16,14 +16,10 @@ const deleteDemoDataLogic = kea({
             },
         ],
     }),
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions }) => ({
         [actions.deleteDemoData]: async () => {
-            try {
-                const user = await api.get('delete_demo_data')
-                actions.demoDataDeleted()
-            } catch (error) {
-                throw error
-            }
+            await api.get('delete_demo_data')
+            actions.demoDataDeleted()
         },
     }),
 })

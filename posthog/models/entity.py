@@ -1,7 +1,8 @@
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from typing import Union, Dict, Any, Optional
+from typing import Union, Dict, Any, Optional, List
+from .property import Property, PropertyMixin
 
-class Entity(object):
+class Entity(PropertyMixin):
     """
     Filters allow us to describe what events to show/use in various places in the system, for example Trends or Funnels.
     This object isn't a table in the database. It gets stored against the specific models itself as JSON.
@@ -12,6 +13,7 @@ class Entity(object):
     order: Optional[int]
     name: Optional[str]
     math: Optional[str]
+    properties: List[Property]
 
     def __init__(self, data: Dict[str, Any]) -> None:
         self.id = data['id']
@@ -21,8 +23,9 @@ class Entity(object):
         self.order = data.get('order')
         self.name = data.get('name')
         self.math = data.get('math')
+        self.properties = self._parse_properties(data.get('properties'))
         if self.type == TREND_FILTER_TYPE_EVENTS and not self.name:
-            # if it's an event id won't be int, but mypy...
+            # It won't be an int if it's an event, but mypy...
             self.name = str(self.id)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -31,6 +34,6 @@ class Entity(object):
             'type': self.type,
             'order': self.order,
             'name': self.name,
-            'math': self.math
+            'math': self.math,
+            'properties': [prop.to_dict() for prop in self.properties]
         }
-

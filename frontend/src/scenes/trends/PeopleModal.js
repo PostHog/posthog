@@ -2,30 +2,37 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import moment from 'moment'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { Modal } from 'lib/components/Modal'
+import { Modal, Button } from 'antd'
 import { PeopleTable } from 'scenes/users/PeopleTable'
 
-export function PeopleModal() {
-    const { people, peopleCount, peopleAction, peopleDay, filters } = useValues(trendsLogic({ id: null }))
-    const { hidePeople } = useActions(trendsLogic({ dashboardItemId: null }))
+export function PeopleModal({ visible }) {
+    const { people, filters } = useValues(trendsLogic({ id: null }))
+    const { setShowingPeople } = useActions(trendsLogic({ dashboardItemId: null }))
 
     const title =
         filters.shown_as === 'Stickiness'
-            ? `"${peopleAction?.name || '...'}" stickiness ${peopleDay} day${peopleDay === 1 ? '' : 's'}`
-            : `"${peopleAction?.name || '...'}" on ${peopleDay ? moment(peopleDay).format('ll') : '...'}`
-
+            ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
+            : `"${people?.label}" on ${people?.day ? moment(people.day).format('ll') : '...'}`
+    const closeModal = () => setShowingPeople(false)
     return (
-        <Modal title={title} onDismiss={hidePeople}>
+        <Modal
+            title={title}
+            visible={visible}
+            onOk={closeModal}
+            onCancel={closeModal}
+            footer={<Button onClick={closeModal}>Close</Button>}
+            width={700}
+        >
             {people ? (
                 <p>
-                    Found {peopleCount} {peopleCount === 1 ? 'user' : 'users'}
-                    {peopleCount > 100 ? '. Showing the first 100 below.' : ''}
+                    Found {people.count} {people.count === 1 ? 'user' : 'users'}
+                    {people.count > 100 ? '. Showing the first 100 below.' : ''}
                 </p>
             ) : (
                 <p>Loading users...</p>
             )}
 
-            <PeopleTable loading={!people} people={people} />
+            <PeopleTable loading={!people?.people} people={people?.people} />
         </Modal>
     )
 }

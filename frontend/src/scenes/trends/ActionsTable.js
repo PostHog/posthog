@@ -1,6 +1,7 @@
 import React, { Component } from 'react'
 import api from '../../lib/api'
 import { Loading, toParams } from '../../lib/utils'
+import { Table } from 'antd'
 import PropTypes from 'prop-types'
 
 export class ActionsTable extends Component {
@@ -30,38 +31,21 @@ export class ActionsTable extends Component {
         let { filters } = this.props
         return data ? (
             data[0] && (filters.session || data[0].labels) ? (
-                <table className="table">
-                    <tbody>
-                        <tr>
-                            <th style={{ width: 100 }}>{filters.session ? 'Session Attribute' : 'Action'}</th>
-                            {filters.breakdown && <th>Breakdown</th>}
-                            <th style={{ width: 50 }}>{filters.session ? 'Value' : 'Count'}</th>
-                        </tr>
-                        {!filters.breakdown &&
-                            data.map(item => (
-                                <tr key={item.label}>
-                                    <td>{item.label}</td>
-                                    <td>{item.count}</td>
-                                </tr>
-                            ))}
-                        {filters.breakdown &&
-                            data
-                                .filter(item => item.count > 0)
-                                .map(item => [
-                                    <tr key={item.label}>
-                                        <td rowSpan={item.breakdown.length || 1}>{item.label}</td>
-                                        <td className="text-overflow">{item.breakdown[0] && item.breakdown[0].name}</td>
-                                        <td>{item.breakdown[0] && item.breakdown[0].count}</td>
-                                    </tr>,
-                                    item.breakdown.slice(1).map(i => (
-                                        <tr key={i.name}>
-                                            <td className="text-overflow">{i.name}</td>
-                                            <td>{i.count}</td>
-                                        </tr>
-                                    )),
-                                ])}
-                    </tbody>
-                </table>
+                <Table
+                    size="small"
+                    columns={[
+                        {
+                            title: filters.session ? 'Session Attribute' : 'Action',
+                            dataIndex: 'label',
+                            render: (_, { label }) => <div style={{ wordBreak: 'break-all' }}>{label}</div>,
+                        },
+                        { title: filters.session ? 'Value' : 'Count', dataIndex: 'count' },
+                    ]}
+                    rowKey={item => item.label}
+                    pagination={{ pageSize: 9999, hideOnSinglePage: true }}
+                    dataSource={data}
+                    data-attr="trend-table-graph"
+                />
             ) : (
                 <p style={{ textAlign: 'center', marginTop: '4rem' }}>We couldn't find any matching actions.</p>
             )

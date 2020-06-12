@@ -1,45 +1,52 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { Divider } from 'antd'
-import { JSSnippet } from '../../lib/utils'
-import { InviteTeam } from '../../lib/components/InviteTeam'
+import { JSSnippet } from 'lib/components/JSSnippet'
+import { InviteTeam } from 'lib/components/InviteTeam'
 import { OptOutCapture } from './OptOutCapture'
 import { UpdateEmailPreferences } from './UpdateEmailPreferences'
-import { SetupAppUrls } from './SetupAppUrls'
+import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
 
-import { userLogic } from '../userLogic'
+import { userLogic } from 'scenes/userLogic'
 import { DeleteDemoData } from './DeleteDemoData'
 import { SlackIntegration } from 'scenes/setup/SlackIntegration'
 import { ChangePassword } from './ChangePassword'
 import { useAnchor } from 'lib/hooks/useAnchor'
+import { router } from 'kea-router'
+import { hot } from 'react-hot-loader/root'
 
-export function Setup({ history }) {
+export const Setup = hot(_Setup)
+function _Setup() {
     const { user } = useValues(userLogic)
+    const { location } = useValues(router)
 
-    useAnchor(history.location.hash)
+    useAnchor(location.hash)
 
     return (
         <div>
-            <h1 id="urls">Setup your PostHog account</h1>
-            <SetupAppUrls />
-            <Divider />
             <h2 id="snippet">Integrate PostHog</h2>
             To integrate PostHog, copy + paste the following snippet to your website. Ideally, put it just above the{' '}
             <pre style={{ display: 'inline' }}>&lt;/head&gt;</pre> tag.{' '}
-            <a href="https://docs.posthog.com/#/integrations/js-integration">
+            <a href="https://posthog.com/docs/integrations/js-integration">
                 See docs for instructions on how to identify users.
             </a>
             <JSSnippet user={user} />
-            <a href="https://docs.posthog.com/#/integrations">Using Python/Ruby/Node/Go/PHP instead?</a>
-            <Divider />
+            <h2 id="custom events">Send Custom Events</h2>
+            To send custom events visit our <a href="https://posthog.com/docs/integrations">docs</a> and integrate the
+            library in specific language you're building in (Python/Ruby/Node/Go/PHP/iOS/Android etc.) <Divider />
             <h2 id="apikey">API key</h2>
             You can use this api key in any of our
-            <a href="https://docs.posthog.com/#/integrations"> libraries</a>.
+            <a href="https://posthog.com/docs/integrations"> libraries</a>.
             <pre className="code">{user.team.api_token}</pre>
             This key is write-only, in that it can only create new events. It can't read any events or any of your other
             data stored on PostHog.
             <Divider />
-            <h2 id="slack">Slack Integration</h2>
+            <h2 id="urls">Permitted domains</h2>
+            These are the domains and urls where the toolbar will automatically open if you're logged in. It's also the
+            domains where you'll be able to create actions on.
+            <EditAppUrls />
+            <Divider />
+            <h2 id="slack">Slack or Teams Integration</h2>
             <SlackIntegration />
             <Divider />
             <h2 id="invite">Invite your team</h2>
@@ -55,7 +62,7 @@ export function Setup({ history }) {
             <h2 id="password">Change Password</h2>
             <ChangePassword />
             <Divider />
-            <h2 id="optout">Opt out of capturing</h2>
+            <h2 id="optout">Anonymize data collection</h2>
             <OptOutCapture />
             <Divider />
             <h2>Security and feature updates</h2>

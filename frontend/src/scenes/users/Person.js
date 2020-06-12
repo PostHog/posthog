@@ -1,55 +1,56 @@
 import React, { useEffect, useState } from 'react'
-import { EventsTable } from '../events/EventsTable'
+import { Events } from '../events/Events'
 import api from 'lib/api'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { toast } from 'react-toastify'
+import { deletePersonData } from 'lib/utils'
+import { Button } from 'antd'
+import { hot } from 'react-hot-loader/root'
 
-export function Person({ match, history }) {
+export const Person = hot(_Person)
+function _Person({ _: distinctId, id }) {
     const [person, setPerson] = useState(null)
 
     useEffect(() => {
         let url = ''
-        if (match.params.distinct_id) {
-            url = `api/person/by_distinct_id/?distinct_id=${match.params.distinct_id}`
+        if (distinctId) {
+            url = `api/person/by_distinct_id/?distinct_id=${distinctId}`
         } else {
-            url = `api/person/${match.params.id}`
+            url = `api/person/${id}`
         }
         api.get(url).then(setPerson)
-    }, [match.params.distinct_id, match.params.id])
+    }, [distinctId, id])
 
     return person ? (
         <div>
-            <button
-                className="btn btn-outline-danger btn-sm float-right"
-                onClick={e =>
-                    window.confirm('Are you sure you want to delete this user? This cannot be undone') &&
-                    api.delete('api/person/' + person.id).then(() => {
-                        toast('Person succesfully deleted.')
-                        history.push('/people')
-                    })
-                }
+            <Button
+                className="float-right"
+                danger
+                onClick={() => deletePersonData(person, () => history.push('/people'))}
             >
                 Delete all data on this person
-            </button>
-            <h1>{person.name}</h1>
+            </Button>
+            <h1 className="page-header">{person.name}</h1>
             <div style={{ maxWidth: 750 }}>
-                <PropertiesTable properties={person.properties} />
-                <table className="table">
-                    <tbody>
-                        <tr>
-                            <td>Distinct IDs</td>
-                            <td>
-                                {person.distinct_ids.map(distinct_id => (
-                                    <pre style={{ margin: 0 }} key={distinct_id}>
-                                        {distinct_id}
-                                    </pre>
-                                ))}
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+                <PropertiesTable
+                    properties={{
+                        ...person.properties,
+                        distinct_id: person.distinct_ids,
+                    }}
+                />
+                <small>
+                    <a
+                        href="https://posthog.com/docs/integrations/js-integration#identifying-users"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        See documentation
+                    </a>{' '}
+                    on how to add properties to users using libraries.
+                </small>
+                <br />
+                <br />
             </div>
-            <EventsTable fixedFilters={{ person_id: person.id }} history={history} />
+            <Events fixedFilters={{ person_id: person.id }} />
         </div>
     ) : null
 }
