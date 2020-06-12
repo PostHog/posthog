@@ -49,6 +49,7 @@ class TestPerson(BaseTest):
         self.assertEqual(response[0]['count'], 2)
         self.assertEqual(response[1]['name'], 'qwerty')
         self.assertEqual(response[1]['count'], 1)
+        self.assertEqual(len(response), 2)
 
         response = self.client.get('/api/person/values/?key=random_prop&value=qw').json()
         self.assertEqual(response[0]['name'], 'qwerty')
@@ -59,6 +60,7 @@ class TestPerson(BaseTest):
         Person.objects.create(team=self.team, distinct_ids=['person_2'])
 
         cohort = Cohort.objects.create(team=self.team, groups=[{'properties': {'$os': 'Chrome'}}])
+        cohort.calculate_people()
         response = self.client.get('/api/person/?cohort=%s' % cohort.pk).json()
         self.assertEqual(len(response['results']), 1, response)
 

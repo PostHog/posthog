@@ -6,7 +6,7 @@
         <h1 class="h3 mb-3 font-weight-normal">Log in to <a href='https://posthog.com'>PostHog</a></h1>
 
         {% if error %}
-        <p>Your username and password didn't match. Please try again.</p>
+        <p data-attr="login-error">Your username and password didn't match. Please try again.</p>
         {% endif %}
         <div class='field'>
             <input type="email" name='email' id="inputEmail" placeholder="" value="{{ email }}" required autofocus>
@@ -17,5 +17,17 @@
             <label for="inputPassword">Password</label>
         </div>
         <button class="btn btn-lg btn-primary btn-block" type="submit">Sign in</button>
+        {% if github_auth or gitlab_auth %}
+        <div class="btn-toolbar mt-3 d-flex justify-content-between">
+            {% if github_auth %}
+            <a href="{% url 'social:begin' 'github' %}" class="btn btn-outline-dark">Sign In with Github</a>
+            {% endif %}
+            {% if gitlab_auth %}
+            <a href="{% url 'social:begin' 'gitlab' %}" class="btn btn-outline-dark">Sign In with Gitlab</a>
+            {% endif %}
+        </div>
+        {% endif %}
+        <br /><br />
+        <small><a href='/accounts/password_reset/'>Forgot password?</a></small>
     </form>
 {% endblock %}

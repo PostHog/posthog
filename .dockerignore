@@ -1,6 +1,5 @@
 *
-!bin/docker-preview
-!bin/docker
+!bin/docker*
 !requirements.txt
 !posthog
 !staticfiles
@@ -12,6 +11,4 @@
 !webpack.config.js
 !postcss.config.js
 !frontend/src
-!frontend/dist/array.js
-!frontend/dist
 !frontend/public

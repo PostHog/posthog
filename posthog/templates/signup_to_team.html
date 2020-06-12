@@ -20,8 +20,24 @@
                 <input type="password" name='password' id="inputPassword" placeholder="" required>
                 <label for="inputPassword">Password</label>
             </div>
+            <p>
+                <label style="cursor: pointer">
+                    <input type="checkbox" name='emailOptIn' id="emailOptIn" data-attr="updates-checkbox"> 
+                    Tick this box to receive security and feature updates via email. You can easily unsubscribe at any time.
+                </label>
+            </p>
         </div>
         <p>Already have an account? <a href='/login'>Log in here.</a></p>
         <button class="btn btn-lg btn-primary btn-block" type="submit">Sign up</button>
+        {% if github_auth or gitlab_auth %}
+        <div class="btn-toolbar mt-3 d-flex justify-content-between">
+            {% if github_auth %}
+            <a href="{% url 'social:begin' 'github' %}?signup_token={{ signup_token }}" class="btn btn-outline-dark">Sign In with Github</a>
+            {% endif %}
+            {% if gitlab_auth %}
+            <a href="{% url 'social:begin' 'gitlab' %}?signup_token={{ signup_token }}" class="btn btn-outline-dark">Sign In with Gitlab</a>
+            {% endif %}
+        </div>
+        {% endif %}
     </form>
 {% endblock %}

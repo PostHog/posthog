@@ -20,6 +20,10 @@ $badge-font-weight: 400;
 $body-bg: #fffefc;
 $body-color: #37352f;
 
+:root {
+    --gray-background: hsla(210, 6%, 95%, 1);
+}
+
 // bootstrap components
 @import 'node_modules/bootstrap/scss/_root';
 @import 'node_modules/bootstrap/scss/utilities';
@@ -47,10 +51,22 @@ $body-color: #37352f;
 // our components
 @import 'style/events';
 @import 'style/funnel';
-@import 'style/sidebar';
 @import 'style/toast';
 @import 'style/trends';
 @import 'style/send-events-overlay';
+@import 'style/action-filter-dropdown';
+
+.posthog-title {
+    font-weight: 500;
+    font-size: 20px;
+    color: #fff;
+    padding-left: 15px;
+    margin-top: 8px;
+}
+
+.layout-container {
+    max-width: 100vw;
+}
 
 .cursor-pointer {
     cursor: pointer;
@@ -96,26 +112,40 @@ $body-color: #37352f;
     position: absolute;
     top: 0;
     left: 0;
-    background: rgba(0, 0, 0, 0.3);
-    padding-top: 3rem;
+    background: #fff;
     text-align: center;
     min-height: 6rem;
-
-    & > div {
-        display: inline-block;
-        height: 44px;
-        width: 40px;
-        animation: rotation 1.3s infinite linear;
+    > div {
+        height: calc(50% - 20px);
     }
-}
-.loading-overlay div::before {
-    content: '\f138';
-    font-family: Flaticon;
-    font-size: 30px;
+    &.over-table {
+        display: block;
+        background: rgba(0, 0, 0, 0.1);
+        td {
+            display: block;
+        }
+    }
 }
 
 .content {
     padding: 0 45px;
+}
+
+.code-container {
+    position: relative;
+    .copy-icon {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        padding: 2px;
+        color: white;
+        background-color: inherit;
+        cursor: pointer;
+        &:hover {
+            transition: all 0.2s ease-in-out;
+            transform: scale(1.1);
+        }
+    }
 }
 
 pre.code {
@@ -127,6 +157,10 @@ pre.code {
     color: white;
     margin-top: 2rem;
     font-size: 15px;
+    &.scrolling-code {
+        white-space: pre;
+        overflow: scroll;
+    }
 }
 
 .text-overflow {
@@ -158,13 +192,14 @@ hr {
     color: hsl(0, 0%, 80%);
 }
 
-.property-value input {
-    opacity: 1 !important;
-}
-
 h5.modal-title {
     font-size: 120%;
 }
+
+h1.page-header {
+    font-size: 24px;
+}
+
 button.no-style {
     background: none;
     border: none;
@@ -206,4 +241,68 @@ button.no-style {
     .Toastify__progress-bar {
         background: #ffbcbc;
     }
+}
+
+label.disabled {
+    color: #888;
+}
+
+.info {
+    color: $blue;
+    cursor: pointer;
+    margin-left: 5px;
+}
+
+.ant-layout.bg-dashboard {
+    background: var(--gray-background);
+}
+
+.ant-modal-mask {
+    z-index: 1050 !important;
+}
+.ant-modal-wrap {
+    z-index: 1060 !important;
+}
+.ant-message {
+    z-index: 1070 !important;
+}
+.ant-select-dropdown {
+    z-index: 1065 !important;
+}
+.anticon {
+    // not sure why this doesn't just work..
+    vertical-align: 0.125em !important;
+}
+.ant-select-arrow .anticon {
+    vertical-align: top !important;
+}
+
+// less content padding in low resolutions
+.ant-layout .ant-layout-content.pl-5.pr-5.pt-3,
+.ant-layout .content.py-3.layout-top-content {
+    @media (min-width: 480px) and (max-width: 639px) {
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+    }
+    @media (max-width: 479px) {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+}
+
+.property-key-info-logo {
+    margin-right: 6px;
+    display: inline-block;
+    vertical-align: top;
+    height: 19px;
+    width: 15px;
+    background-image: url('/static/posthog-logo.png');
+    background-size: cover;
+}
+.ant-select-selection-item .property-key-info-logo {
+    vertical-align: text-bottom;
+}
+
+.Toastify__progress-bar--default {
+    background: var(--success) !important;
 }

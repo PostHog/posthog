@@ -1,79 +1,86 @@
-import React, { Component } from 'react'
+import React, { useState, useEffect } from 'react'
 import api from '../../api'
-import AsyncCreatableSelect from 'react-select/async-creatable/dist/react-select.esm'
-import { selectStyle, debounce } from '../../utils'
-import PropTypes from 'prop-types'
+import { Select } from 'antd'
 
-export class PropertyValue extends Component {
-    constructor(props) {
-        super(props)
-        this.state = { input: props.value }
-        this.loadPropertyValues = debounce(
-            this.loadPropertyValues.bind(this),
-            250
-        )
-        this.ref = React.createRef()
-    }
-    loadPropertyValues(value, callback) {
-        let key = this.props.propertyKey.split('__')[0]
-        api.get(
-            'api/' +
-                this.props.endpoint +
-                '/values/?key=' +
-                key +
-                (value ? '&value=' + value : '')
-        ).then(propValues =>
-            callback(
-                propValues.map(property => ({
-                    label: property.name ? property.name : '(empty)',
-                    value: property.name,
-                }))
+export function PropertyValue({
+    propertyKey,
+    type,
+    endpoint,
+    placeholder,
+    style,
+    bordered,
+    onSet,
+    value,
+    operator,
+    outerOptions,
+}) {
+    const [input, setInput] = useState('')
+    const [optionsCache, setOptionsCache] = useState({})
+    const [options, setOptions] = useState({})
+
+    function loadPropertyValues(value) {
+        let key = propertyKey.split('__')[0]
+        setOptions({ [propertyKey]: { ...options[propertyKey], status: 'loading' }, ...options })
+        setOptionsCache({ ...optionsCache, [value]: 'loading' })
+        if (outerOptions) {
+            setOptions({
+                [propertyKey]: { values: [...new Set([...outerOptions.map(option => option)])], status: true },
+                ...options,
+            })
+            setOptionsCache({ ...optionsCache, [value]: true })
+        } else {
+            api.get(endpoint || 'api/' + type + '/values/?key=' + key + (value ? '&value=' + value : '')).then(
+                propValues => {
+                    setOptions({
+                        [propertyKey]: { values: [...new Set([...propValues.map(option => option)])], status: true },
+                        ...options,
+                    })
+                    setOptionsCache({ ...optionsCache, [value]: true })
+                }
             )
-        )
+        }
     }
-    render() {
-        let { propertyKey, onSet, value } = this.props
-        let { isEditing, input } = this.state
-        return (
-            <span ref={this.ref} className="property-value">
-                <AsyncCreatableSelect
-                    loadOptions={this.loadPropertyValues}
-                    defaultOptions={true}
-                    cacheOptions
-                    formatCreateLabel={inputValue => 'Specify: ' + inputValue}
-                    allowCreateWhileLoading={true}
-                    createOptionPosition="first"
-                    key={propertyKey} // forces a reload of the component when the property changes
-                    placeholder="Property value"
-                    style={{ width: 200 }}
-                    value={{ label: value, value: value }}
-                    onChange={out => {
-                        onSet(propertyKey, out.value)
-                        this.setState({ input: out.value })
-                        this.select.blur()
-                    }}
-                    autoFocus={!value}
-                    styles={selectStyle}
-                    ref={ref => {
-                        this.select = ref
-                    }}
-                    // This is a series of hacks to make the text editable
-                    inputValue={isEditing ? this.state.input : null}
-                    onFocus={() => this.setState({ isEditing: true })}
-                    onInputChange={(input, actionMeta) => {
-                        if (actionMeta.action == 'input-change') {
-                            this.setState({ input })
-                            return input
-                        }
-                        return this.state.input
-                    }}
-                />
-            </span>
-        )
-    }
-}
-PropertyValue.propTypes = {
-    propertyKey: PropTypes.string.isRequired,
-    value: PropTypes.any.isRequired,
-    onSet: PropTypes.func.isRequired,
+
+    useEffect(() => {
+        loadPropertyValues('')
+    }, [propertyKey])
+
+    let displayOptions
+    if (operator === 'is_set') displayOptions = ['true', 'false']
+    displayOptions = ((options[propertyKey] && options[propertyKey].values) || []).filter(
+        option => input === '' || (option && option.name?.toLowerCase().indexOf(input.toLowerCase()) > -1)
+    )
+
+    return (
+        <Select
+            showSearch
+            autoFocus={!value}
+            style={{ width: '100%', ...style }}
+            onChange={(_, payload) => onSet((payload && payload.value) || null)}
+            value={value || placeholder}
+            loading={optionsCache[input] === 'loading'}
+            onSearch={input => {
+                setInput(input)
+                if (!optionsCache[input] && operator !== 'is_set') loadPropertyValues(input)
+            }}
+            data-attr="prop-val"
+            dropdownMatchSelectWidth={350}
+            bordered={bordered}
+            placeholder={placeholder}
+            allowClear={value}
+        >
+            {input && (
+                <Select.Option key={input} value={input}>
+                    Specify: {input}
+                </Select.Option>
+            )}
+            {displayOptions.map(({ name, id }, index) => (
+                <Select.Option key={id || name} value={id || name} data-attr={'prop-val-' + index}>
+                    {name === true && 'true'}
+                    {name === false && 'false'}
+                    {name}
+                </Select.Option>
+            ))}
+        </Select>
+    )
 }

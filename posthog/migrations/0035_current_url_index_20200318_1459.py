@@ -9,8 +9,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # We used to create an index here, but realised that made things slower rather than faster
         migrations.RunSQL(
-            "CREATE INDEX posthog_event_properties_current_url_gin ON posthog_event USING gin (team_id, event, UPPER(properties->>'$current_url') gin_trgm_ops)",
-            "DROP INDEX posthog_event_properties_current_url_gin"
+            "SELECT 1;",
+            "DROP INDEX IF EXISTS posthog_event_properties_current_url_gin"
         )
     ]

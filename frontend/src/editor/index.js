@@ -2,8 +2,11 @@ import React, { Component } from 'react'
 import ReactDOM from 'react-dom'
 import Simmer from 'simmerjs'
 import root from 'react-shadow'
-import { ActionEdit } from '../scenes/actions/ActionEdit'
+import { ActionEdit } from '~/scenes/actions/ActionEdit'
 import Draggable from 'react-draggable'
+import { getContext } from 'kea'
+import { Provider } from 'react-redux'
+import { hot } from 'react-hot-loader/root'
 
 window.simmer = new Simmer(window, { depth: 8 })
 
@@ -70,7 +73,8 @@ let styles = `
         height: calc(1.5rem + 4px);
     }
 `
-class App extends Component {
+
+class _App extends Component {
     constructor(props) {
         super(props)
 
@@ -82,15 +86,11 @@ class App extends Component {
             this.state.actions = [{ id: props.actionId }]
             this.state.openActionId = props.actionId
         } else {
-            if (
-                this.state.actions.filter(action => action.id === false)
-                    .length == 0
-            )
+            if (this.state.actions.filter(action => action.id === false).length == 0)
                 this.state.actions.push({ id: false })
         }
-        this.onActionSave = this.onActionSave.bind(this)
     }
-    onActionSave(action, isNew, createNew) {
+    onActionSave = (action, isNew, createNew) => {
         let { actions, openActionId } = this.state
         if (isNew) {
             actions = actions.map(a => (!a.id ? action : a))
@@ -100,12 +100,8 @@ class App extends Component {
         }
         if (createNew) {
             actions.push({ id: false })
-            openActionId = false
-        } else {
-            window.location.href = this.props.apiURL + 'action/' + action.id
-            sessionStorage.setItem('editorActions', '[]')
-            return sessionStorage.setItem('editorParams', '')
         }
+        openActionId = false
         this.setState({ actions, openActionId })
         sessionStorage.setItem('editorActions', JSON.stringify(actions))
     }
@@ -114,21 +110,15 @@ class App extends Component {
         return (
             <root.div>
                 <link
-                    href={this.props.apiURL + 'static/main.css'}
+                    href={(this.props.jsURL || this.props.apiURL) + 'static/main.css'}
                     rel="stylesheet"
-                    crossorigin="anonymous"
+                    crossOrigin="anonymous"
                 />
                 <style>{styles}</style>
                 <Draggable handle=".drag-bar">
                     <div className="box">
                         <div className="drag-bar">
-                            <img
-                                className="logo"
-                                src={
-                                    this.props.apiURL +
-                                    'static/posthog-logo.png'
-                                }
-                            />
+                            <img className="logo" src={this.props.apiURL + 'static/posthog-logo.png'} />
                             <h3>PostHog</h3>
                             <br />
                         </div>
@@ -154,15 +144,11 @@ class App extends Component {
                                     </div>
                                     <ActionEdit
                                         apiURL={this.props.apiURL}
-                                        temporaryToken={
-                                            this.props.temporaryToken
-                                        }
+                                        temporaryToken={this.props.temporaryToken}
                                         actionId={action.id}
                                         simmer={window.simmer}
                                         onSave={this.onActionSave}
-                                        showNewActionButton={
-                                            index == actions.length - 1
-                                        }
+                                        showNewActionButton={index == actions.length - 1}
                                         isEditor={true}
                                     />
                                 </div>
@@ -179,8 +165,18 @@ class App extends Component {
                                         href="#"
                                         className="float-right"
                                     >
-                                        edit
+                                        Edit
                                     </a>
+                                    {'  '}
+                                    {action.id && (
+                                        <a
+                                            href={this.props.apiURL + 'action/' + action.id}
+                                            onClick={() => sessionStorage.setItem('editorActions', '[]')}
+                                            className="float-right mr-1"
+                                        >
+                                            View
+                                        </a>
+                                    )}
                                 </div>
                             )
                         )}
@@ -191,16 +187,21 @@ class App extends Component {
     }
 }
 
+const App = hot(_App)
+
 window.ph_load_editor = function(editorParams) {
     let container = document.createElement('div')
     document.body.appendChild(container)
 
     ReactDOM.render(
-        <App
-            apiURL={editorParams.apiURL}
-            temporaryToken={editorParams.temporaryToken}
-            actionId={editorParams.actionId}
-        />,
+        <Provider store={getContext().store}>
+            <App
+                jsURL={editorParams.jsURL}
+                apiURL={editorParams.apiURL}
+                temporaryToken={editorParams.temporaryToken}
+                actionId={editorParams.actionId}
+            />
+        </Provider>,
         container
     )
 }

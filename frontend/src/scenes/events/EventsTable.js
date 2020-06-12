@@ -1,243 +1,173 @@
-import React, { Component } from 'react'
-import { fromParams, toParams } from '../../lib/utils'
-import api from '../../lib/api'
-import { Link } from 'react-router-dom'
+import React from 'react'
+import { useActions, useValues } from 'kea'
 import moment from 'moment'
-import { PropertyFilters } from '../../lib/components/PropertyFilters/PropertyFilters'
-import { FilterLink } from '../../lib/components/FilterLink'
-import { EventDetails } from './EventDetails'
-import PropTypes from 'prop-types'
 
-let eventNameMap = event => {
-    if (event.properties.$event_type == 'click') return 'clicked '
-    if (event.properties.$event_type == 'change') return 'typed something into '
-    if (event.properties.$event_type == 'submit') return 'submitted '
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+
+import { EventDetails } from 'scenes/events/EventDetails'
+import { Link } from 'lib/components/Link'
+import { Button, Spin, Table, Tooltip } from 'antd'
+import { router } from 'kea-router'
+import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
+import { Property } from 'lib/components/Property'
+
+const eventNameMap = event => {
+    if (event.properties.$event_type === 'click') return 'clicked '
+    if (event.properties.$event_type === 'change') return 'typed something into '
+    if (event.properties.$event_type === 'submit') return 'submitted '
     return event.event
 }
 
-export class EventsTable extends Component {
-    constructor(props) {
-        super(props)
+export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLiveActions }) {
+    const { properties, eventsFormatted, isLoading, hasNext, isLoadingNext, newEvents } = useValues(logic)
+    const { fetchNextEvents, prependNewEvents } = useActions(logic)
+    const {
+        location: { search },
+    } = useValues(router)
 
-        let params = fromParams()
-        this.state = {
-            properties: params.properties ? JSON.parse(params.properties) : {},
-            newEvents: [],
-            loading: true,
-            highlightEvents: [],
-        }
-        this.fetchEvents = this.fetchEvents.bind(this)
-        this.pollEvents = this.pollEvents.bind(this)
-        this.clickNext = this.clickNext.bind(this)
-        this.EventRow = this.EventRow.bind(this)
-        this.clickLoadNewEvents = this.clickLoadNewEvents.bind(this)
-        this.pollTimeout = 5000
-        this.fetchEvents()
-    }
-    fetchEvents() {
-        let params = {}
-        if (Object.keys(this.state.properties).length > 0) params.properties = this.state.properties
+    const showLinkToPerson = !fixedFilters?.person_id
 
-        if (this.props.history.location.search !== toParams(params)) {
-            this.props.history.push({
-                pathname: this.props.history.location.pathname,
-                search: toParams(params),
-            })
-        }
-        if (!this.state.loading) this.setState({ loading: true })
-        clearTimeout(this.poller)
-        params = toParams({
-            ...params,
-            ...this.props.fixedFilters,
-        })
-        api.get('api/event/?' + params).then(events => {
-            this.setState({
-                events: events.results,
-                hasNext: events.next,
-                loading: false,
-            })
-            this.poller = setTimeout(this.pollEvents, this.pollTimeout)
-        })
-    }
-    pollEvents() {
-        let params = {
-            properties: this.state.properties,
-            ...this.props.fixedFilters,
-        }
-        if (this.state.events[0])
-            params['after'] = this.state.events[0].timestamp
-                ? this.state.events[0].timestamp
-                : this.state.events[0].event.timestamp
-        api.get('api/event/?' + toParams(params)).then(events => {
-            this.setState({ newEvents: events.results, highlightEvents: [] })
-            this.poller = setTimeout(this.pollEvents, this.pollTimeout)
-        })
-    }
-    componentWillUnmount() {
-        clearTimeout(this.poller)
-    }
-
-    clickNext() {
-        let { events } = this.state
-        let params = toParams({
-            properties: this.state.properties,
-            ...this.props.fixedFilters,
-            before: events[events.length - 1].timestamp,
-        })
-        clearTimeout(this.poller)
-        this.setState({ hasNext: false })
-        api.get('api/event/?' + params).then(olderEvents => {
-            this.setState({
-                events: [...events, ...olderEvents.results],
-                hasNext: olderEvents.next,
-                loading: false,
-            })
-            this.poller = setTimeout(this.pollEvents, this.pollTimeout)
-        })
-    }
-    clickLoadNewEvents() {
-        let { newEvents, events } = this.state
-        this.setState({
-            newEvents: [],
-            events: [...newEvents, ...events],
-            highlightEvents: newEvents.map(event => event.id),
-        })
-    }
-    EventRow(props) {
-        let { event } = props
-        let { highlightEvents, eventSelected, properties } = this.state
-        let params = ['$current_url', '$lib']
-        return (
-            <tr
-                className={'cursor-pointer event-row ' + (highlightEvents.indexOf(event.id) > -1 && 'event-row-new')}
-                onClick={() =>
-                    this.setState({
-                        eventSelected: eventSelected != event.id ? event.id : false,
-                    })
-                }
-            >
-                <td>
-                    {eventNameMap(event)}
-                    {event.elements.length > 0 && (
-                        <pre style={{ marginBottom: 0, display: 'inline' }}>&lt;{event.elements[0].tag_name}&gt;</pre>
-                    )}
-                    {event.elements.length > 0 &&
-                        event.elements[0].text &&
-                        ' with text "' + event.elements[0].text + '"'}
-                </td>
-                <td>
-                    <Link to={'/person/' + encodeURIComponent(event.distinct_id)} className="ph-no-capture">
+    let columns = [
+        {
+            title: 'Event',
+            key: 'event',
+            render: function renderEvent(item) {
+                if (!item.event)
+                    return {
+                        children: item.date_break
+                            ? item.date_break
+                            : `There are ${newEvents.length} new events. Click here to load them`,
+                        props: {
+                            colSpan: isLiveActions ? 6 : 5,
+                            style: {
+                                cursor: 'pointer',
+                            },
+                        },
+                    }
+                let { event } = item
+                return (
+                    <>
+                        {eventNameMap(event)}
+                        {event.elements.length > 0 && (
+                            <pre style={{ marginBottom: 0, display: 'inline' }}>
+                                &lt;{event.elements[0].tag_name}&gt;
+                            </pre>
+                        )}
+                        {event.elements.length > 0 &&
+                            event.elements[0].text &&
+                            ' with text "' + event.elements[0].text + '"'}
+                    </>
+                )
+            },
+        },
+        {
+            title: 'Person',
+            key: 'person',
+            render: function renderPerson({ event }) {
+                if (!event) return { props: { colSpan: 0 } }
+                return showLinkToPerson ? (
+                    <Link to={`/person/${encodeURIComponent(event.distinct_id)}${search}`} className="ph-no-capture">
                         {event.person}
                     </Link>
-                </td>
-                {params.map(param => (
-                    <td key={param} title={event.properties[param]}>
-                        <FilterLink
-                            property={param}
-                            value={event.properties[param]}
-                            filters={properties}
-                            onClick={(key, value) =>
-                                this.setState(
-                                    {
-                                        properties: {
-                                            ...properties,
-                                            [key]: value,
-                                        },
-                                    },
-                                    this.fetchEvents
-                                )
-                            }
-                        />
-                    </td>
-                ))}
-                <td>{moment(event.timestamp).fromNow()}</td>
-            </tr>
-        )
-    }
-    NoItems(props) {
-        if (!props.events || props.events.length > 0) return null
-        return (
-            <tr>
-                <td colSpan="4">
-                    You don't have any items here. If you haven't integrated PostHog yet,{' '}
-                    <Link to="/setup">click here to set PostHog up on your app</Link>
-                </td>
-            </tr>
-        )
-    }
-    render() {
-        let { properties, events, loading, hasNext, newEvents, highlightEvents } = this.state
-        return (
-            <div className="events">
-                <PropertyFilters
-                    propertyFilters={properties}
-                    onChange={properties => this.setState({ properties }, this.fetchEvents)}
-                />
-                <table className="table" style={{ position: 'relative' }}>
-                    {loading && (
-                        <div className="loading-overlay">
-                            <div></div>
-                        </div>
-                    )}
-                    <thead>
-                        <tr>
-                            <th>Event</th>
-                            <th>Person</th>
-                            <th>Path</th>
-                            <th>Source</th>
-                            <th>When</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {loading && (
-                            <div className="loading">
-                                <div></div>
-                            </div>
-                        )}
-                        <tr
-                            className={'event-new-events ' + (this.state.newEvents.length > 0 ? 'show' : 'hide')}
-                            onClick={this.clickLoadNewEvents}
-                        >
-                            <td colSpan="5">
-                                <div>There are {newEvents.length} new events. Click here to load them.</div>
-                            </td>
-                        </tr>
-                        <this.NoItems events={events} />
-                        {this.state.events &&
-                            this.state.events.map((event, index) => [
-                                index > 0 && !moment(event.timestamp).isSame(events[index - 1].timestamp, 'day') && (
-                                    <tr key={event.id + '_time'}>
-                                        <td colSpan="5" className="event-day-separator">
-                                            {moment(event.timestamp).format('LL')}
-                                        </td>
-                                    </tr>
-                                ),
-                                <this.EventRow event={event} key={event.id} />,
-                                this.state.eventSelected == event.id && (
-                                    <tr key={event.id + '_open'}>
-                                        <td colSpan="5">
-                                            <EventDetails event={event} />
-                                        </td>
-                                    </tr>
-                                ),
-                            ])}
-                    </tbody>
-                </table>
-                {hasNext && (
-                    <button
-                        className="btn btn-primary"
-                        onClick={this.clickNext}
-                        style={{ margin: '2rem auto 15rem', display: 'block' }}
-                    >
-                        Load more events
-                    </button>
-                )}
-                <div style={{ marginTop: '15rem' }}></div>
+                ) : (
+                    event.person
+                )
+            },
+        },
+        {
+            title: 'URL / Screen',
+            key: 'url',
+            render: function renderURL({ event }) {
+                if (!event) return { props: { colSpan: 0 } }
+                let param = event.properties['$current_url'] ? '$current_url' : '$screen_name'
+                if (filtersEnabled)
+                    return (
+                        <FilterPropertyLink property={param} value={event.properties[param]} filters={{ properties }} />
+                    )
+                return <Property value={event.properties[param]} />
+            },
+            ellipsis: true,
+        },
+        {
+            title: 'Source',
+            key: 'source',
+            render: function renderSource({ event }) {
+                if (!event) return { props: { colSpan: 0 } }
+                if (filtersEnabled)
+                    return (
+                        <FilterPropertyLink property="$lib" value={event.properties['$lib']} filters={{ properties }} />
+                    )
+                return <Property value={event.properties['$lib']} />
+            },
+        },
+        {
+            title: 'When',
+            key: 'when',
+            render: function renderWhen({ event }) {
+                if (!event) return { props: { colSpan: 0 } }
+                return <Tooltip title={event.timestamp}>{moment(event.timestamp).fromNow()}</Tooltip>
+            },
+        },
+    ]
+    if (isLiveActions)
+        columns.splice(0, 0, {
+            title: 'Action',
+            key: 'action',
+            render: function renderAction(item) {
+                if (!item.event) return { props: { colSpan: 0 } }
+                return <Link to={'/action/' + item.event.actionId}>{item.event.actionName}</Link>
+            },
+        })
+
+    return (
+        <div className="events" data-attr="events-table">
+            <h1 className="page-header">Events</h1>
+            {filtersEnabled ? <PropertyFilters pageKey="EventsTable" /> : null}
+            <Table
+                dataSource={eventsFormatted}
+                loading={isLoading}
+                columns={columns}
+                size="small"
+                locale={{
+                    emptyText: (
+                        <span>
+                            You don't have any items here. If you haven't integrated PostHog yet,{' '}
+                            <Link to="/setup">click here to set PostHog up on your app</Link>
+                        </span>
+                    ),
+                }}
+                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                rowKey={row => (row.event ? row.event.id + '-' + row.event.actionId : row.date_break)}
+                rowClassName={row => {
+                    if (row.event) return 'event-row'
+                    if (row.date_break) return 'event-day-separator'
+                    if (row.new_events) return 'event-row-new'
+                }}
+                expandable={{
+                    expandedRowRender: function renderExpand({ event }) {
+                        return <EventDetails event={event} />
+                    },
+                    rowExpandable: ({ event }) => event,
+                    expandRowByClick: true,
+                }}
+                onRow={row => ({
+                    onClick: () => {
+                        if (row.new_events) prependNewEvents(newEvents)
+                    },
+                })}
+            />
+            <div
+                style={{
+                    visibility: hasNext || isLoadingNext ? 'visible' : 'hidden',
+                    margin: '2rem auto 5rem',
+                    textAlign: 'center',
+                }}
+            >
+                <Button type="primary" onClick={fetchNextEvents}>
+                    {isLoadingNext ? <Spin /> : 'Load more events'}
+                </Button>
             </div>
-        )
-    }
-}
-EventsTable.propTypes = {
-    fixedFilters: PropTypes.object,
-    history: PropTypes.object.isRequired,
+            <div style={{ marginTop: '5rem' }} />
+        </div>
+    )
 }
