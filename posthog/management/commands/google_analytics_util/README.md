@@ -23,4 +23,4 @@ In order to use the google analytics api you will need to first get authenticate
 
 After filing out the above information you can run the import using this command
 
-`$ python -m scripts.google_analytics`
+`$ python manage.py google_analytics`
