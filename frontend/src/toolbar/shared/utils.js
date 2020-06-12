@@ -82,6 +82,13 @@ const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
 const DOM_TRIM_DOWN_SELECTOR = 'a, svg, button'
 
 export function trimElement(element, selectingClickTargets = false) {
+    if (!element) {
+        return null
+    }
+    if (element && element.getAttribute('id') === '__POSTHOG_TOOLBAR__') {
+        return null
+    }
+
     let loopElement = element
     if (selectingClickTargets) {
         while (loopElement?.parentElement) {
