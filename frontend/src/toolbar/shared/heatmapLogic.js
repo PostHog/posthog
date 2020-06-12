@@ -242,13 +242,18 @@ export const heatmapLogic = kea({
             cache.onClick = function() {
                 actions.addClick()
             }
+            cache.onClickAndDelay = function() {
+                window.clearTimeout(cache.clickDelayTimeout)
+                actions.addClick()
+                cache.clickDelayTimeout = window.setTimeout(actions.addClick, 300)
+            }
             window.addEventListener('click', cache.onClick)
-            window.addEventListener('scroll', cache.onClick)
+            window.addEventListener('scroll', cache.onClickAndDelay)
         },
         beforeUnmount() {
             window.removeEventListener('keydown', cache.keyDown)
             window.removeEventListener('click', cache.onClick)
-            window.removeEventListener('scroll', cache.onClick)
+            window.removeEventListener('scroll', cache.onClickAndDelay)
         },
     }),
 

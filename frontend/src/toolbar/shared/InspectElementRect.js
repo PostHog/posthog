@@ -28,7 +28,7 @@ export function InspectElementRect() {
                 background: 'hsl(207, 90%, 54%)',
                 backgroundBlendMode: 'multiply',
                 opacity: '0.5',
-                zIndex: '2147483010',
+                zIndex: 3,
                 pointerEvents: 'auto',
                 cursor: 'pointer',
                 transition: 'all ease 0.1s',

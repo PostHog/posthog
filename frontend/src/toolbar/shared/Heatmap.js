@@ -6,6 +6,7 @@ import { FocusRect } from '~/toolbar/shared/FocusRect'
 import { inspectElementLogic } from '~/toolbar/shared/inspectElementLogic'
 import { ElementMetadata } from '~/toolbar/shared/ElementMetadata'
 import { InspectElementRect } from '~/toolbar/shared/InspectElementRect'
+import { inBounds } from '~/toolbar/shared/utils'
 
 export function Heatmap({ apiURL, temporaryToken }) {
     const logic = heatmapLogic({ apiURL, temporaryToken })
@@ -113,8 +114,16 @@ export function Heatmap({ apiURL, temporaryToken }) {
                             style={{
                                 position: 'absolute',
                                 zIndex: 5,
-                                top: `${(rect.top - domPadding - 7 + window.pageYOffset) / domZoom}px`,
-                                left: `${(rect.left + rect.width - domPadding - 14 + window.pageXOffset) / domZoom}px`,
+                                top: `${inBounds(
+                                    window.pageYOffset,
+                                    rect.top - domPadding - 7 + window.pageYOffset,
+                                    window.pageYOffset + window.innerHeight - 14
+                                ) / domZoom}px`,
+                                left: `${inBounds(
+                                    window.pageXOffset,
+                                    rect.left + rect.width - domPadding - 14 + window.pageXOffset,
+                                    window.pageXOffset + window.innerWidth - 14
+                                ) / domZoom}px`,
                                 lineHeight: '14px',
                                 padding: '1px 4px',
                                 opacity: highlightedElement && highlightedElement !== element ? 0.4 : 1,

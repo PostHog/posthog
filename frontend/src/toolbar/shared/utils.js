@@ -115,3 +115,7 @@ export function trimElement(element, selectingClickTargets = false) {
         return selectedElement
     }
 }
+
+export function inBounds(min, value, max) {
+    return Math.max(min, Math.min(max, value))
+}
