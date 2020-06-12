@@ -1,11 +1,10 @@
-from posthog.models import Event, Team, Action, ActionStep, Element, User, Person, Filter, Entity, Cohort, CohortPeople
-from posthog.utils import append_data, get_compare_period_dates
+from posthog.models import Event, Team, Action, ActionStep, Person, Filter, Entity, Cohort, CohortPeople
+from posthog.utils import append_data, get_compare_period_dates, TemporaryTokenAuthentication
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_STICKINESS
 from posthog.tasks.calculate_action import calculate_action
 from rest_framework import request, serializers, viewsets, authentication
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from rest_framework.exceptions import AuthenticationFailed
 from django.db.models import Q, Count, Prefetch, functions, QuerySet, OuterRef, Exists, Value, BooleanField
 from django.db import connection
 from django.utils.timezone import now
@@ -19,7 +18,6 @@ import numpy as np
 from dateutil.relativedelta import relativedelta
 import dateutil
 from .person import PersonSerializer
-from urllib.parse import urlsplit
 
 FREQ_MAP = {
     'minute': '60S',
@@ -50,24 +48,6 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
     def get_count(self, action: Action) -> Optional[int]:
         if hasattr(action, 'count'):
             return action.count  # type: ignore
-        return None
-
-
-class TemporaryTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: request.Request):
-        # if the Origin is different, the only authentication method should be temporary_token
-        # This happens when someone is trying to create actions from the editor on their own website
-        if request.headers.get('Origin') and urlsplit(request.headers['Origin']).netloc not in urlsplit(request.build_absolute_uri('/')).netloc:
-            if not request.GET.get('temporary_token'):
-                raise AuthenticationFailed(detail="No temporary_token set. " +
-                    "That means you're either trying to access this API from a different site, " +
-                    "or it means your proxy isn\'t sending the correct headers. " +
-                    "See https://posthog.com/docs/deployment/running-behind-proxy for more information.")
-        if request.GET.get('temporary_token'):
-            user = User.objects.filter(temporary_token=request.GET.get('temporary_token'))
-            if not user.exists():
-                raise AuthenticationFailed(detail='User doesnt exist')
-            return (user.first(), None)
         return None
 
 

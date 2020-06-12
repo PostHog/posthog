@@ -1,8 +1,7 @@
 from datetime import datetime, timedelta
-from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId, Team, User
+from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId, Team
 from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value, get_compare_period_dates, dict_from_cursor_fetchall
-from rest_framework import request, response, serializers, viewsets, authentication
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from django.db.models import QuerySet, F, Prefetch, Q
 from django.db.models.functions import Lag
@@ -11,7 +10,6 @@ from django.db import connection
 from django.utils.timezone import now
 from typing import Any, Dict, List, Union
 from django.utils.timezone import now
-from urllib.parse import urlsplit
 import json
 import pandas as pd
 
@@ -49,28 +47,9 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
         elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by('order')
         return ElementSerializer(elements, many=True).data
 
-# TODO: vet this before merging in any PR!
-class TemporaryTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: request.Request):
-        # if the Origin is different, the only authentication method should be temporary_token
-        # This happens when someone is trying to create actions from the editor on their own website
-        if request.headers.get('Origin') and urlsplit(request.headers['Origin']).netloc not in urlsplit(request.build_absolute_uri('/')).netloc:
-            if not request.GET.get('temporary_token'):
-                raise AuthenticationFailed(detail="No temporary_token set. " +
-                    "That means you're either trying to access this API from a different site, " +
-                    "or it means your proxy isn\'t sending the correct headers. " +
-                    "See https://posthog.com/docs/deployment/running-behind-proxy for more information.")
-        if request.GET.get('temporary_token'):
-            user = User.objects.filter(temporary_token=request.GET.get('temporary_token'))
-            if not user.exists():
-                raise AuthenticationFailed(detail='User doesnt exist')
-            return (user.first(), None)
-        return None
-
 class EventViewSet(viewsets.ModelViewSet):
     queryset = Event.objects.all()
     serializer_class = EventSerializer
-    authentication_classes = [TemporaryTokenAuthentication, authentication.SessionAuthentication, authentication.BasicAuthentication]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

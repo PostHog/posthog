@@ -1,34 +1,14 @@
 from rest_framework import request, response, serializers, viewsets, authentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import AuthenticationFailed
-from posthog.models import Element, Team, Event, ElementGroup, Filter, User
+from posthog.models import Element, Team, Event, ElementGroup, Filter
+from posthog.utils import TemporaryTokenAuthentication
 from django.db.models import QuerySet, Count
 import json
-from urllib.parse import urlsplit
 
 class ElementSerializer(serializers.ModelSerializer):
     class Meta:
         model = Element
         fields = ['text', 'tag_name', 'attr_class', 'href', 'attr_id', 'nth_child', 'nth_of_type', 'attributes', 'order']
-
-
-# TODO: vet this before merging in any PR!
-class TemporaryTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: request.Request):
-        # if the Origin is different, the only authentication method should be temporary_token
-        # This happens when someone is trying to create actions from the editor on their own website
-        if request.headers.get('Origin') and urlsplit(request.headers['Origin']).netloc not in urlsplit(request.build_absolute_uri('/')).netloc:
-            if not request.GET.get('temporary_token'):
-                raise AuthenticationFailed(detail="No temporary_token set. " +
-                    "That means you're either trying to access this API from a different site, " +
-                    "or it means your proxy isn\'t sending the correct headers. " +
-                    "See https://posthog.com/docs/deployment/running-behind-proxy for more information.")
-        if request.GET.get('temporary_token'):
-            user = User.objects.filter(temporary_token=request.GET.get('temporary_token'))
-            if not user.exists():
-                raise AuthenticationFailed(detail='User doesnt exist')
-            return (user.first(), None)
-        return None
 
 class ElementViewSet(viewsets.ModelViewSet):
     queryset = Element.objects.all()
