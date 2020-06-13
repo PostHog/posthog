@@ -44,7 +44,7 @@ function _Trends() {
     return (
         <div className="actions-graph">
             <PeopleModal visible={showingPeople} />
-            <h1 className="page-header">Trends</h1>
+            <h1 className="page-header">Chicken Trendies</h1>
             <Row gutter={16}>
                 <Col xs={24} xl={6}>
                     <Card>

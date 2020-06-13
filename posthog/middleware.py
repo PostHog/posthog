@@ -4,6 +4,8 @@ from django.http import HttpResponse, HttpRequest
 from ipaddress import ip_address, ip_network
 import re
 
+
+
 class AllowIP(object):
     def __init__(self, get_response):
         if getattr(settings, 'ALLOWED_IP_BLOCKS', False):
