@@ -7,8 +7,9 @@ import { useMountedLogic } from 'kea'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 export function ToolbarApp(props) {
-    const shadowRef = useRef(null)
     useMountedLogic(toolbarLogic(props))
+
+    const shadowRef = useRef(null)
     useMountedLogic(dockLogic({ shadowRef }))
 
     // this runs after the shadow root has been added to the dom

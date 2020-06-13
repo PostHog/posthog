@@ -6,6 +6,7 @@ import {
     updateDockToolbarVariables,
     keepInBounds,
 } from '~/toolbar/dockUtils'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 // props:
 // - shadowRef: shadowRoot ref
@@ -192,10 +193,14 @@ export const dockLogic = kea({
             window.addEventListener('scroll', cache.listener)
             window.addEventListener('resize', cache.listener)
             window.requestAnimationFrame(() => {
-                if (values.lastMode === 'dock') {
-                    actions.dock()
-                } else if (values.lastMode === 'float') {
-                    actions.float()
+                if (toolbarLogic.values.isAuthenticated) {
+                    if (values.lastMode === 'dock') {
+                        actions.dock()
+                    } else if (values.lastMode === 'float') {
+                        actions.float()
+                    } else {
+                        actions.button()
+                    }
                 } else {
                     actions.button()
                 }
