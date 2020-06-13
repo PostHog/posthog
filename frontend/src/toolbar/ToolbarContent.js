@@ -15,7 +15,7 @@ const tabComponents = {
 }
 
 export const ToolbarContent = hot(_ToolbarContent)
-function _ToolbarContent({ apiURL, temporaryToken, actionId, type, dockLogic, shadowRef, defaultTab }) {
+function _ToolbarContent({ apiURL, temporaryToken, actionId, type, shadowRef, defaultTab }) {
     const { tab, newTab } = useValues(toolbarTabLogic({ defaultTab }))
 
     const visible = tab ? { [tab]: 'visible' } : {}
@@ -27,7 +27,7 @@ function _ToolbarContent({ apiURL, temporaryToken, actionId, type, dockLogic, sh
 
     return (
         <div>
-            {type === 'float' ? <FloatingToolbarHeader dockLogic={dockLogic} /> : null}
+            {type === 'float' ? <FloatingToolbarHeader /> : null}
             <ToolbarTabs type={type} />
             <div className="toolbar-transition-area">
                 {['stats', 'actions', 'dashboards'].map(key => {

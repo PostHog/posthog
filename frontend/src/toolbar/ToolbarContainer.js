@@ -5,8 +5,9 @@ import React from 'react'
 import { Heatmap } from '~/toolbar/shared/Heatmap'
 import { ToolbarButton } from '~/toolbar/button/ToolbarButton'
 import { ToolbarDraggable } from '~/toolbar/ToolbarDraggable'
+import { dockLogic } from '~/toolbar/dockLogic'
 
-export function ToolbarContainer({ dockLogic, ...props }) {
+export function ToolbarContainer({ ...props }) {
     const apiURL = `${props.apiURL}${props.apiURL.endsWith('/') ? '' : '/'}`
     const { dockStatus, floatStatus, buttonStatus, windowWidth } = useValues(dockLogic)
     const { button } = useActions(dockLogic)
@@ -27,7 +28,7 @@ export function ToolbarContainer({ dockLogic, ...props }) {
             {showButton && windowWidth >= 0 ? (
                 <ToolbarDraggable type="button" handle="#button-toolbar">
                     <div id="button-toolbar" className={showInvisibleButton ? 'toolbar-invisible' : ''}>
-                        <ToolbarButton {...props} dockLogic={dockLogic} type="button" apiURL={apiURL} />
+                        <ToolbarButton {...props} type="button" apiURL={apiURL} />
                     </div>
                 </ToolbarDraggable>
             ) : null}
@@ -35,7 +36,7 @@ export function ToolbarContainer({ dockLogic, ...props }) {
             {showFloat && windowWidth >= 0 ? (
                 <ToolbarDraggable type="float" handle=".toolbar-block">
                     <div id="float-toolbar" className={showInvisibleFloat ? 'toolbar-invisible' : ''}>
-                        <ToolbarContent {...props} dockLogic={dockLogic} type="float" apiURL={apiURL} />
+                        <ToolbarContent {...props} type="float" apiURL={apiURL} />
                     </div>
                 </ToolbarDraggable>
             ) : null}
@@ -48,7 +49,7 @@ export function ToolbarContainer({ dockLogic, ...props }) {
                     >
                         <CloseOutlined />
                     </div>
-                    <ToolbarContent {...props} dockLogic={dockLogic} type="dock" apiURL={apiURL} />
+                    <ToolbarContent {...props} type="dock" apiURL={apiURL} />
                 </div>
             ) : null}
         </>
