@@ -67,7 +67,7 @@ This image has everything you need to try out PostHog locally! It will set up a 
 
 Don't want to install or run anything locally? Develop remotely on Porter.
 
-<a target="_blank" href="https://dashboard.getporter.dev"><img src="https://storage.googleapis.com/porter-asssets/porter-develop.svg" width="170px" /></a>
+<a target="_blank" href="http://api.getporter.dev/account/login?redirect=https://dashboard.getporter.dev/auth/check?initialize=posthog"><img src="https://storage.googleapis.com/porter-asssets/porter-develop.svg" width="170px" /></a>
 
 ## Contributing
 
