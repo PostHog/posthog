@@ -50,6 +50,7 @@ function _EditFunnel({ funnelId }) {
                         filters={funnel.filters}
                         setFilters={filters => setFunnel({ filters }, false)}
                         typeKey={`EditFunnel-${funnel.id || 'new'}`}
+                        hideMathSelector={true}
                     />
                     <br />
                     <hr />

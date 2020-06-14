@@ -8,10 +8,12 @@ from django.db.models import (
     signals,
     Prefetch,
     QuerySet,
+    Value
 )
 from django.db import connection
 from django.contrib.postgres.fields import JSONField
 from django.utils import timezone
+from django.forms.models import model_to_dict
 
 from .element_group import ElementGroup
 from .element import Element
@@ -107,19 +109,19 @@ class EventManager(models.QuerySet):
                     )
         return (subqueries, filter)
 
-    def filter_by_element(self, action_step):
-        groups = ElementGroup.objects.filter(team=action_step.action.team_id)
+    def filter_by_element(self, filters: Dict, team_id: int):
+        groups = ElementGroup.objects.filter(team_id=team_id)
 
-        if action_step.selector:
-            selector = Selector(action_step.selector)
+        if filters.get('selector'):
+            selector = Selector(filters['selector'])
             subqueries, filter = self._element_subquery(selector)
             groups = groups.annotate(**subqueries)  # type: ignore
         else:
             filter = {}
 
         for key in ["tag_name", "text", "href"]:
-            if getattr(action_step, key):
-                filter["element__{}".format(key)] = getattr(action_step, key)
+            if filters.get(key):
+                filter["element__{}".format(key)] = filters[key]
 
         if not filter:
             return {}
@@ -164,11 +166,11 @@ class EventManager(models.QuerySet):
 
         for step in steps:
             subquery = Event.objects.add_person_id(team_id=action.team_id).filter(
-                Filter(data={'properties': step.properties}).properties_to_Q(),
+                Filter(data={'properties': step.properties}).properties_to_Q(team_id=action.team_id),
                 pk=OuterRef("id"),
-                **self.filter_by_element(step),
                 **self.filter_by_event(step),
-            )
+                **self.filter_by_element(model_to_dict(step), team_id=action.team_id)
+            ).only('id')
             subquery = self.filter_by_url(step, subquery)
             any_step |= Q(Exists(subquery))
         events = self.filter(team_id=action.team_id).filter(any_step)
@@ -339,10 +341,12 @@ class Event(models.Model):
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     distinct_id: models.CharField = models.CharField(max_length=200)
     properties: JSONField = JSONField(default=dict)
-    elements: JSONField = JSONField(default=list, null=True, blank=True)
     timestamp: models.DateTimeField = models.DateTimeField(
         default=timezone.now, blank=True
     )
     elements_hash: models.CharField = models.CharField(
         max_length=200, null=True, blank=True
     )
+
+    # DEPRECATED: elements are stored against element groups now
+    elements: JSONField = JSONField(default=list, null=True, blank=True)

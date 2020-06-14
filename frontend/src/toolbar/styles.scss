@@ -9,9 +9,9 @@
 
 #float-toolbar {
     position: fixed;
-    top: 2rem;
-    z-index: 2147483640;
-    right: 2rem;
+    top: 0;
+    left: 0;
+    z-index: 2147483020;
     width: 300px;
     max-height: calc(100vh - 4rem);
     opacity: 1;
@@ -34,17 +34,17 @@
 }
 
 #dock-toolbar {
-    --zoom-out: 0.7;
+    --zoom: 0.7;
     --padding: 30px;
     --sidebar-width: 300px;
 
     background-size: 100%;
-    transform: scale(calc(1 / var(--zoom-out)));
+    transform: scale(calc(1 / var(--zoom)));
     transform-origin: top right;
     width: var(--sidebar-width);
     height: calc(100vh - 2 * var(--padding));
     top: 0;
-    right: calc((-300px - var(--padding)) / var(--zoom-out));
+    right: calc((-300px - var(--padding)) / var(--zoom));
     position: absolute;
     z-index: 999999999;
     box-sizing: border-box;
@@ -123,4 +123,9 @@
     justify-content: space-between;
     align-items: center;
     width: 100%;
+}
+
+.ant-modal-mask,
+.ant-modal-wrap {
+    z-index: 2147483030 !important;
 }

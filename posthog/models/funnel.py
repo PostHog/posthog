@@ -69,8 +69,8 @@ class Funnel(models.Model):
                         if index > 0
                         else {}
                     ),
-                    ).filter(filter.properties_to_Q())\
-                .filter(step.properties_to_Q())
+                    ).filter(filter.properties_to_Q(team_id=team_id))\
+                .filter(step.properties_to_Q(team_id=team_id))
             with connection.cursor() as cursor:
                 event_string = cursor.mogrify(*event.query.sql_with_params())
             # Replace placeholders injected by the Django ORM
