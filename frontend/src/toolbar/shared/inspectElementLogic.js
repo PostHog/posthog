@@ -1,9 +1,10 @@
 import { kea } from 'kea'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { elementToActionStep, getShadowRoot, trimElement } from '~/toolbar/shared/utils'
+import { elementToActionStep, getAllClickTargets, getShadowRoot, trimElement } from '~/toolbar/shared/utils'
 
 export const inspectElementLogic = kea({
     actions: () => ({
+        addClick: true,
         start: true,
         stop: (clear = true) => ({ clear }),
         selectElement: element => ({ element }),
@@ -13,6 +14,12 @@ export const inspectElementLogic = kea({
     }),
 
     reducers: () => ({
+        clicks: [
+            0,
+            {
+                addClick: state => state + 1,
+            },
+        ],
         selecting: [
             false,
             {
@@ -38,7 +45,7 @@ export const inspectElementLogic = kea({
             },
         ],
         selectingClickTargets: [
-            false,
+            true,
             {
                 selectAllElements: () => false,
                 selectClickTargets: () => true,
@@ -64,6 +71,20 @@ export const inspectElementLogic = kea({
             (baseElement, href) => (baseElement && href && document.body.contains(baseElement) ? baseElement : null),
         ],
         actionStep: [() => [selectors.element], element => (element ? elementToActionStep(element) : null)],
+        selectableElements: [
+            () => [selectors.selecting, selectors.selectingClickTargets],
+            (selecting, selectingClickTargets) => (selecting && selectingClickTargets ? getAllClickTargets() : []),
+        ],
+        selectableElementsWithRects: [
+            () => [selectors.selectableElements, selectors.clicks],
+            selectableElements =>
+                selectableElements.map(element => ({
+                    element,
+                    rect: element.getBoundingClientRect(),
+                    count: 0,
+                    type: 'inspect',
+                })),
+        ],
     }),
 
     events: ({ cache, values, actions }) => ({
@@ -100,8 +121,22 @@ export const inspectElementLogic = kea({
                 }
             }
             window.document.body.addEventListener('mousemove', cache.onMouseMove) // , { capture: true })
+
+            cache.onClick = function() {
+                actions.addClick()
+            }
+            cache.onClickAndDelay = function() {
+                window.clearTimeout(cache.clickDelayTimeout)
+                actions.addClick()
+                cache.clickDelayTimeout = window.setTimeout(actions.addClick, 100)
+            }
+            window.addEventListener('click', cache.onClick)
+            window.addEventListener('scroll', cache.onClickAndDelay)
         },
         beforeUnmount: () => {
+            window.removeEventListener('keydown', cache.keyDown)
+            window.removeEventListener('click', cache.onClick)
+            window.removeEventListener('scroll', cache.onClickAndDelay)
             window.removeEventListener('keydown', cache.onKeyDown)
             window.document.body.removeEventListener('mousemove', cache.onMouseMove)
             if (values.inspecting) {

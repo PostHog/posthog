@@ -25,6 +25,7 @@ export function Heatmap() {
         selecting: inspectElementActive,
         element: inspectSelectedElement,
         actionStep: inspectActionStep,
+        selectableElementsWithRects: inspectSelectableElements,
     } = useValues(inspectElementLogic)
     const { start: startInspect, selectElement: selectInspectElement } = useActions(inspectElementLogic)
 
@@ -75,6 +76,22 @@ export function Heatmap() {
                     onClose={highlightOnClose}
                 />
             ) : null}
+            {inspectSelectableElements.map(({ rect }, index) => (
+                <HeatmapElement
+                    key={`inspect-${index}`}
+                    rect={rect}
+                    domPadding={domPadding}
+                    domZoom={domZoom}
+                    style={{
+                        pointerEvents: 'none',
+                        zIndex: 0,
+                        opacity: 1,
+                        backgroundBlendMode: 'multiply',
+                        background: 'hsla(240, 90%, 58%, 0.2)',
+                        boxShadow: `hsla(240, 90%, 27%, 0.5) 0px 3px 10px 2px`,
+                    }}
+                />
+            ))}
             {countedElementsWithRects.map(({ rect, count, element }, index) => {
                 return (
                     <React.Fragment key={index}>

@@ -126,3 +126,9 @@ export function trimElement(element, selectingClickTargets = false) {
 export function inBounds(min, value, max) {
     return Math.max(min, Math.min(max, value))
 }
+
+export function getAllClickTargets() {
+    const elements = document.querySelectorAll(CLICK_TARGET_SELECTOR)
+    // TODO: add all pointer:click elements
+    return [...elements]
+}
