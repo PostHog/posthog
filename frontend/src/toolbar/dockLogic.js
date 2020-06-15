@@ -135,6 +135,11 @@ export const dockLogic = kea({
     }),
 
     selectors: ({ selectors }) => ({
+        isAnimating: [
+            () => [selectors.dockStatus, selectors.floatStatus, selectors.buttonStatus],
+            (dockStatus, floatStatus, buttonStatus) =>
+                !![dockStatus, floatStatus, buttonStatus].find(s => s === 'animating'),
+        ],
         sidebarWidth: [() => [], () => 300],
         padding: [
             () => [selectors.windowWidth],

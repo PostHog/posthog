@@ -9,7 +9,7 @@ import { dockLogic } from '~/toolbar/dockLogic'
 
 export function ToolbarContainer({ ...props }) {
     const apiURL = `${props.apiURL}${props.apiURL.endsWith('/') ? '' : '/'}`
-    const { dockStatus, floatStatus, buttonStatus, windowWidth } = useValues(dockLogic)
+    const { dockStatus, floatStatus, buttonStatus, windowWidth, isAnimating } = useValues(dockLogic)
     const { button } = useActions(dockLogic)
 
     const showButton = buttonStatus !== 'disabled'
@@ -23,7 +23,7 @@ export function ToolbarContainer({ ...props }) {
 
     return (
         <>
-            <Heatmap {...props} dockLogic={dockLogic} />
+            {isAnimating ? null : <Heatmap {...props} />}
 
             {showButton && windowWidth >= 0 ? (
                 <ToolbarDraggable type="button" handle="#button-toolbar">
