@@ -62,13 +62,13 @@ def check_cached_items():
         if item is not None and item['details'] is not None:
             cache_type = item['type']
             payload = item['details']
-            tasks.append(_update_cache.s(key, cache_type, payload))
+            tasks.append(update_cache_item.s(key, cache_type, payload))
 
     taskset = group(tasks)
     taskset.apply_async()
 
 @app.task
-def _update_cache(key: str, cache_type: str, payload: dict):
+def update_cache_item(key: str, cache_type: str, payload: dict):
     from posthog.tasks.update_cache import update_cache
     data = update_cache(cache_type, payload)
     if data:

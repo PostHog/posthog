@@ -1,8 +1,9 @@
 import json
 import hashlib
-from posthog.models import Filter
+from posthog.models import Filter, DashboardItem
 from django.core.cache import cache
 import json
+from posthog.celery import update_cache_item
 
 def generate_cache_key(obj):
     stringified = json.dumps(obj)
@@ -24,6 +25,7 @@ def cached_function(cache_type: str, expiry=30):
             team = None
             payload = None
             refresh = False
+            dashboard_item_id = None
 
             if cache_type == TRENDS_ENDPOINT:
                 request = args[1]
@@ -41,19 +43,19 @@ def cached_function(cache_type: str, expiry=30):
                 team = request.user.team_set.get()
                 cache_key = generate_cache_key(str(pk) + '_' + str(team.pk))
                 payload = {'pk': pk, 'params': params, 'team_id': team.pk}
-            
-            if params and refresh:
-                cache.delete(cache_key + '_' + cache_type)
-                cache.delete(cache_key + '_' + 'dashboard' + '_' + cache_type)
 
             if params and payload and params.get('from_dashboard'): #cache for 30 minutes if dashboard item
                 cache_key = cache_key + '_' + 'dashboard'
                 _expiry = 900
-                dashboard_id = params.get('from_dashboard')
-                payload.update({'dashboard_id': dashboard_id})
+                dashboard_item_id = params.get('from_dashboard')
+                payload.update({'dashboard_id': dashboard_item_id})
                 
-
             cache_key = cache_key + '_' + cache_type
+
+            if params and refresh and dashboard_item_id:
+                dashboard_item = DashboardItem.objects.filter(pk=dashboard_item_id)
+                dashboard_item.update(refreshing=True)
+                update_cache_item.delay(cache_key, cache_type, payload)
 
             # return result if cached
             cached_result = cache.get(cache_key)

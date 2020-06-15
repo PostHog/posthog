@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 @shared_task
 def update_cache(cache_type: str, payload: dict) -> Optional[Union[dict, List[Dict[str, Any]]]]:
-
     result: Optional[Union[dict, List[Dict[str, Any]]]] = None
 
     if cache_type == TRENDS_ENDPOINT:
@@ -32,7 +31,7 @@ def update_cache(cache_type: str, payload: dict) -> Optional[Union[dict, List[Di
         dashboard_item = DashboardItem.objects.filter(pk=payload['dashboard_id'])
         if dashboard_item[0] and dashboard_item[0].deleted:
             return None
-        dashboard_item.update(last_refresh=datetime.datetime.now())
+        dashboard_item.update(last_refresh=datetime.datetime.now(), refreshing=False)
 
     return result
 
