@@ -4,18 +4,18 @@ import { dockLogic } from '~/toolbar/dockLogic'
 
 // draw a beam around an element
 export function FocusRect({ rect }) {
-    const { zoom, padding } = useValues(dockLogic)
+    const { domZoom, domPadding } = useValues(dockLogic)
 
     const widths = [
         0,
-        (rect.left + window.pageXOffset - padding) / zoom,
-        (rect.left + window.pageXOffset + rect.width - padding) / zoom,
+        (rect.left + window.pageXOffset - domPadding) / domZoom,
+        (rect.left + window.pageXOffset + rect.width - domPadding) / domZoom,
         window.innerWidth,
     ]
     const heights = [
         0,
-        (rect.top + window.pageYOffset - padding) / zoom,
-        (rect.top + window.pageYOffset + rect.height - padding) / zoom,
+        (rect.top + window.pageYOffset - domPadding) / domZoom,
+        (rect.top + window.pageYOffset + rect.height - domPadding) / domZoom,
         document.body.scrollHeight,
     ]
 

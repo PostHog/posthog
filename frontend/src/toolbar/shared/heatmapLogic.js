@@ -21,6 +21,7 @@ export const heatmapLogic = kea({
             false,
             {
                 setHeatmapEnabled: (_, { heatmapEnabled }) => heatmapEnabled,
+                getEventsFailure: () => false,
             },
         ],
         clicks: [
@@ -69,17 +70,23 @@ export const heatmapLogic = kea({
             [],
             {
                 resetEvents: () => [],
-                getEvents: ({ $current_url }, breakpoint) => {
+                getEvents: async ({ $current_url }, breakpoint) => {
                     const params = {
                         properties: [{ key: '$current_url', value: $current_url }],
                         temporary_token: toolbarLogic.values.temporaryToken,
                     }
                     const url = `${toolbarLogic.values.apiURL}api/element/stats/${encodeParams(params, '?')}`
-                    const results = fetch(url).then(response => response.json())
+                    const response = await fetch(url)
+                    const results = await response.json()
+
+                    if (response.status === 403) {
+                        toolbarLogic.actions.authenticate()
+                        return []
+                    }
 
                     breakpoint()
 
-                    if (typeof results === 'undefined') {
+                    if (!Array.isArray(results)) {
                         throw new Error('Error loading HeatMap data!')
                     }
 
@@ -123,12 +130,7 @@ export const heatmapLogic = kea({
                                 continue
                             }
 
-                            // debugger
-
-                            // return {
-                            //     selector,
-                            //     event,
-                            // }
+                            // TODO: what if multiple elements will continue to match until the end?
                         }
                     })
                     .filter(e => e)
@@ -241,7 +243,7 @@ export const heatmapLogic = kea({
             cache.onClickAndDelay = function() {
                 window.clearTimeout(cache.clickDelayTimeout)
                 actions.addClick()
-                cache.clickDelayTimeout = window.setTimeout(actions.addClick, 300)
+                cache.clickDelayTimeout = window.setTimeout(actions.addClick, 100)
             }
             window.addEventListener('click', cache.onClick)
             window.addEventListener('scroll', cache.onClickAndDelay)
