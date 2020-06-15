@@ -70,17 +70,18 @@ export const heatmapLogic = kea({
             {
                 resetEvents: () => [],
                 getEvents: ({ $current_url }, breakpoint) => {
-                    const results = fetch(
-                        `${toolbarLogic.values.apiURL}api/element/stats/?${encodeParams(
-                            {
-                                properties: [{ key: '$current_url', value: $current_url }],
-                                temporary_token: toolbarLogic.values.temporaryToken,
-                            },
-                            ''
-                        )}`
-                    ).then(response => response.json())
+                    const params = {
+                        properties: [{ key: '$current_url', value: $current_url }],
+                        temporary_token: toolbarLogic.values.temporaryToken,
+                    }
+                    const url = `${toolbarLogic.values.apiURL}api/element/stats/${encodeParams(params, '?')}`
+                    const results = fetch(url).then(response => response.json())
 
                     breakpoint()
+
+                    if (typeof results === 'undefined') {
+                        throw new Error('Error loading HeatMap data!')
+                    }
 
                     return results
                 },
@@ -92,8 +93,6 @@ export const heatmapLogic = kea({
         elements: [
             () => [selectors.events],
             events => {
-                console.log({ events })
-
                 const elements = events
                     .map(event => {
                         let combinedSelector
@@ -134,7 +133,6 @@ export const heatmapLogic = kea({
                     })
                     .filter(e => e)
 
-                console.log({ elements })
                 return elements
             },
         ],
