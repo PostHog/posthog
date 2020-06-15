@@ -1,3 +1,5 @@
+import './Elements.scss'
+
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
@@ -23,7 +25,7 @@ export function Elements() {
 
     return (
         <div
-            id="posthog-heatmap"
+            id="posthog-toolbar-elements"
             style={{
                 width: '100%',
                 height: '100%',
