@@ -31,7 +31,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
 
     let columns = [
         {
-            title: `Event ${eventFilter && ` (${eventFilter})`}`,
+            title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
             key: 'event',
             render: function renderEvent(item) {
                 if (!item.event)
@@ -62,7 +62,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
                 )
             },
             filterIcon: function RenderFilterIcon() {
-                return <SearchOutlined style={{ color: eventFilter && '#1890ff' }} />
+                return <SearchOutlined style={{ color: eventFilter && '#1890ff' }} data-attr="event-filter-trigger" />
             },
             filterDropdown: function RenderFilter({ confirm }) {
                 return (

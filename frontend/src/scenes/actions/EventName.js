@@ -18,13 +18,18 @@ export function EventName({ value, onChange }) {
                 }
                 disabled={eventNamesGrouped[0].options.length === 0}
                 value={value}
+                data-attr="event-name-box"
             >
                 {eventNamesGrouped.map(typeGroup => {
                     if (typeGroup['options'].length > 0) {
                         return (
                             <Select.OptGroup key={typeGroup['label']} label={typeGroup['label']}>
                                 {typeGroup['options'].map(item => (
-                                    <Select.Option key={item.value} value={item.value}>
+                                    <Select.Option
+                                        key={item.value}
+                                        value={item.value}
+                                        data-attr={'prop-val-' + item.value}
+                                    >
                                         {item.label}
                                     </Select.Option>
                                 ))}

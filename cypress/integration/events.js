@@ -1,6 +1,6 @@
 describe('Events', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-events]').click()
+        cy.visit('/events')
     })
 
     it('Events loaded', () => {
@@ -23,6 +23,13 @@ describe('Events', () => {
         cy.get('[data-attr=prop-filter-event-0]').click()
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click()
+        cy.get('[data-attr=events-table').should('exist')
+    })
+
+    it('Filter by event', () => {
+        cy.get('[data-attr=event-filter-trigger]').click()
+        cy.get('[data-attr=event-name-box]').click()
+        cy.get('[data-attr=prop-val-$pageview]').click()
         cy.get('[data-attr=events-table').should('exist')
     })
 })
