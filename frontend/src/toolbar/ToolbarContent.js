@@ -7,7 +7,6 @@ import { FloatingToolbarHeader } from '~/toolbar/shared/FloatingToolbarHeader'
 import { StatsTab } from '~/toolbar/stats/StatsTab'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { DashboardsTab } from '~/toolbar/dashboards/DashboardsTab'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 const tabComponents = {
     actions: ActionsTab,
@@ -17,8 +16,7 @@ const tabComponents = {
 
 export const ToolbarContent = hot(_ToolbarContent)
 function _ToolbarContent({ type }) {
-    const { defaultTab } = useValues(toolbarLogic)
-    const { tab, newTab } = useValues(toolbarTabLogic({ defaultTab }))
+    const { tab, newTab } = useValues(toolbarTabLogic)
 
     const visible = tab ? { [tab]: 'visible' } : {}
     const invisible = newTab && tab ? { [newTab]: 'invisible' } : {}

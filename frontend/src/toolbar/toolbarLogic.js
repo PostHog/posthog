@@ -11,7 +11,7 @@ export const toolbarLogic = kea({
         rawJsURL: [props.jsURL || props.apiURL],
         temporaryToken: [props.temporaryToken || null],
         actionId: [props.actionId || null],
-        defaultTab: [props.defaultTab || null],
+        userIntent: [props.userIntent || null],
     }),
 
     selectors: ({ selectors }) => ({
