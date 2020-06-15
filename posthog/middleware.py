@@ -12,6 +12,7 @@ class AllowIP(object):
         if not settings.ALLOWED_IP_BLOCKS:
             # this will make Django skip this middleware for all future requests
             raise MiddlewareNotUsed()
+        self.ip_blocks = settings.ALLOWED_IP_BLOCKS
 
         if getattr(settings, 'TRUSTED_PROXIES', False):
             self.trusted_proxies = [item.strip() for item in getattr(settings, 'TRUSTED_PROXIES').split(',')]
