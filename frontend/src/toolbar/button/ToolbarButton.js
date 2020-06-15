@@ -26,14 +26,15 @@ function reverseQuarter(quarter) {
     return (quarter[0] === 'n' ? 's' : 'n') + (quarter[1] === 'e' ? 'w' : 'e')
 }
 
-const hedgehogWalk = () => Array.from(Array(10)).map((_, i) => [`${'_'.repeat(10 - i)}🦔${'_'.repeat(i)}`, 60])
+const walkLength = 20
+const hedgehogWalk = () =>
+    Array.from(Array(walkLength)).map((_, i) => [`${'.'.repeat(walkLength - i)}🦔${'.'.repeat(i)}`, 60])
 
 const loggedOutLines = hedgehogWalk().concat([
     ['Click', 300],
     ['here', 250],
     ['to', 200],
-    ['start', 200],
-    ['using', 200],
+    ['use', 200],
     ['the', 200],
     ['PostHog', 350],
     ['Toolbar!', 2500],
