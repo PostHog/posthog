@@ -184,6 +184,16 @@ class TestTrends(TransactionBaseTest):
             )
         return sign_up_action, person
 
+    def _create_breakdown_events(self):
+        freeze_without_time = ['2020-01-02']
+
+        sign_up_action = Action.objects.create(team=self.team, name='sign up')
+        ActionStep.objects.create(action=sign_up_action, event='sign up')
+
+        with freeze_time(freeze_without_time[0]):
+            for i in range(25):
+                Event.objects.create(team=self.team, event='sign up', distinct_id='blabla', properties={"$some_property": i})
+
     def _compare_entity_response(self, response1, response2, remove=('action', 'label')):
         if len(response1):
             for attr in remove:
@@ -415,6 +425,13 @@ class TestTrends(TransactionBaseTest):
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
+    def test_breakdown_filtering_limit(self):
+        self._create_breakdown_events()
+        with freeze_time('2020-01-04T13:01:01Z'):
+            action_response = self.client.get('/api/action/trends/?date_from=-14d&breakdown=$some_property').json()
+            event_response = self.client.get('/api/action/trends/?date_from=-14d&properties={}&actions=[]&display=ActionsTable&interval=day&breakdown=$some_property&events=%s' % jdumps([{'id': "sign up", "name": "sign up", "type": "events", "order": 0}])).json()
+        self.assertEqual(len(action_response), 20)
+        self.assertTrue(self._compare_entity_response(action_response, event_response))
 
     def test_action_filtering(self):
         sign_up_action, person = self._create_events()

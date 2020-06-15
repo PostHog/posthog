@@ -8,5 +8,5 @@
     }
   },
   "include": ["frontend/**/*"],
-  "exclude": ["node_modules/**/*", "staticfiles/**/*"]
+  "exclude": ["node_modules/**/*", "staticfiles/**/*", "frontend/dist/**/*"]
 }
