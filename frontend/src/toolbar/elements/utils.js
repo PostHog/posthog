@@ -1,4 +1,5 @@
 import Simmer from 'simmerjs'
+import { cssEscape } from 'lib/utils/cssEscape'
 
 const simmer = new Simmer(window, { depth: 8 })
 
@@ -46,25 +47,25 @@ export function elementToSelector(element) {
     let selector = ''
     // const element = events[0].elements[0]
     if (element.tag_name) {
-        selector += element.tag_name
+        selector += cssEscape(element.tag_name)
     }
     if (element.attr_id) {
-        selector += `#${element.attr_id}`
+        selector += `#${cssEscape(element.attr_id)}`
     }
     if (element.attr_class) {
         selector += element.attr_class
             .filter(a => a)
-            .map(a => `.${a}`)
+            .map(a => `.${cssEscape(a)}`)
             .join('')
     }
     if (element.href) {
-        selector += `[href="${element.href}"]`
+        selector += `[href="${cssEscape(element.href)}"]`
     }
     if (element.nth_child) {
-        selector += `:nth-child(${element.nth_child})`
+        selector += `:nth-child(${cssEscape(element.nth_child)})`
     }
     if (element.nth_of_type) {
-        selector += `:nth-of-type(${element.nth_of_type})`
+        selector += `:nth-of-type(${cssEscape(element.nth_of_type)})`
     }
     return selector
 }
