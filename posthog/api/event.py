@@ -245,7 +245,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
         # get compared period
         compare = request.GET.get('compare')
-        if compare and request.GET.get('date_from') != 'all':
+        if compare and request.GET.get('date_from') != 'all' and session_type == 'avg':
             calculated = self.calculate_sessions(events, session_type, date_filter)
             calculated = self._convert_to_comparison(calculated, 'current')
             compared_calculated = self._handle_compared(date_filter, session_type)
