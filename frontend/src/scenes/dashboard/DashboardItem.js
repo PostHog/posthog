@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Dropdown, Menu, Tooltip } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ActionsLineGraph } from 'scenes/trends/ActionsLineGraph'
 import { ActionsTable } from 'scenes/trends/ActionsTable'
 import { ActionsPie } from 'scenes/trends/ActionsPie'
@@ -24,6 +24,7 @@ import {
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
+import { usePrevious } from 'lib/hooks/usePrevious'
 import moment from 'moment'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
@@ -88,6 +89,7 @@ export function DashboardItem({
     index,
     onRefresh,
 }) {
+    const [initialLoaded, setInitialLoaded] = useState(false)
     const className = typeMap[item.type].className
     const Element = typeMap[item.type].element
     const Icon = typeMap[item.type].icon
@@ -107,9 +109,12 @@ export function DashboardItem({
     const logicProps = { dashboardItemId: item.id, filters: filters }
     const { loadResults } = useActions(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
     const { resultsLoading } = useValues(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
+    const previousLoading = usePrevious(resultsLoading)
 
+    // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
     useEffect(() => {
-        onRefresh()
+        if (previousLoading && !resultsLoading && !initialLoaded) setInitialLoaded(true)
+        else if (previousLoading && !resultsLoading && initialLoaded) onRefresh()
     }, [resultsLoading])
 
     return (

@@ -23,11 +23,13 @@ def cached_function(cache_type: str, expiry=30):
             params = None
             team = None
             payload = None
+            refresh = False
 
             if cache_type == TRENDS_ENDPOINT:
                 request = args[1]
                 filter =  Filter(request=request)
                 params = request.GET.dict()
+                refresh = params.pop('refresh', None)
                 team = request.user.team_set.get()
                 cache_key = generate_cache_key(json.dumps(params) + '_' + str(team.pk))
                 payload = {'filter': filter.toJSON(), 'params': params, 'team_id': team.pk}
@@ -35,11 +37,12 @@ def cached_function(cache_type: str, expiry=30):
                 request = args[1]
                 pk = args[2]
                 params = request.GET.dict()
+                refresh = params.pop('refresh', None)
                 team = request.user.team_set.get()
                 cache_key = generate_cache_key(str(pk) + '_' + str(team.pk))
                 payload = {'pk': pk, 'params': params, 'team_id': team.pk}
             
-            if params and params.get('refresh'):
+            if params and refresh:
                 cache.delete(cache_key + '_' + cache_type)
                 cache.delete(cache_key + '_' + 'dashboard' + '_' + cache_type)
 
