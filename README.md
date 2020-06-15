@@ -61,10 +61,6 @@ You can [sign up for a free account](https://app.posthog.com/signup) on our host
 
 [See docs for developing locally](https://posthog.com/docs/developing-locally)
 
-Don't want to install or run anything locally? Develop remotely on Porter.
-
-<a target="_blank" href="http://api.getporter.dev/account/login?redirect=https://dashboard.getporter.dev/auth/check?initialize=posthog"><img src="https://storage.googleapis.com/porter-asssets/porter-develop.svg" width="170px" /></a>
-
 ## Contributing
 
 We <3 contributions big or small. [See docs for a guide on how to get started](https://posthog.com/docs/contributing)
