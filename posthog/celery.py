@@ -1,10 +1,11 @@
 import os
-from celery import Celery
+from celery import Celery, group
 from celery.schedules import crontab
 from django.conf import settings
 from django.db import connection
 import redis
 import time
+from django.core.cache import cache
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'posthog.settings')
@@ -36,6 +37,7 @@ def setup_periodic_tasks(sender, **kwargs):
         update_event_partitions.s(),
     )
     sender.add_periodic_task(15*60, calculate_cohort.s(), name='debug')
+    sender.add_periodic_task(600, check_cached_items.s(), name='check dashboard items')
 
 @app.task
 def redis_heartbeat():
@@ -50,6 +52,27 @@ def update_event_partitions():
 def calculate_cohort():
     from posthog.tasks.calculate_cohort import calculate_cohorts
     calculate_cohorts()
+
+@app.task
+def check_cached_items():
+    keys = cache.keys("*_dashboard_*")
+    tasks = []
+    for key in keys:
+        item = cache.get(key)
+        if item is not None and item['details'] is not None:
+            cache_type = item['type']
+            payload = item['details']
+            tasks.append(_update_cache.s(key, cache_type, payload))
+
+    taskset = group(tasks)
+    taskset.apply_async()
+
+@app.task
+def _update_cache(key: str, cache_type: str, payload: dict):
+    from posthog.tasks.update_cache import update_cache
+    data = update_cache(cache_type, payload)
+    if data:
+        cache.set(key, {'result':data, 'details': payload, 'type': cache_type}, 900)
 
 @app.task(bind=True)
 def debug_task(self):

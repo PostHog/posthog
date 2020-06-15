@@ -1,4 +1,4 @@
-from posthog.models import Event, Team, Action, ActionStep, Element, User, Person, Filter, Entity, Cohort, CohortPeople
+from posthog.models import Event, Team, Action, ActionStep, DashboardItem, User, Person, Filter, Entity, Cohort, CohortPeople
 from posthog.utils import append_data, get_compare_period_dates
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_STICKINESS
 from posthog.tasks.calculate_action import calculate_action
@@ -20,6 +20,8 @@ from dateutil.relativedelta import relativedelta
 import dateutil
 from .person import PersonSerializer
 from urllib.parse import urlsplit
+from django.core.cache import cache
+from posthog.decorators import cached_function, TRENDS_ENDPOINT
 
 FREQ_MAP = {
     'minute': '60S',
@@ -70,6 +72,17 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
             return (user.first(), None)
         return None
 
+def get_actions(queryset: QuerySet, params: dict, team_id: int) -> QuerySet:
+    if params.get(TREND_FILTER_TYPE_ACTIONS):
+        queryset = queryset.filter(pk__in=[action.id for action in Filter({'actions': json.loads(params.get('actions', '[]'))}).actions])
+
+    if params.get('include_count'):
+        queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
+
+    queryset = queryset.prefetch_related(Prefetch('steps', queryset=ActionStep.objects.order_by('id')))
+    return queryset\
+        .filter(team_id=team_id)\
+        .order_by('-id')
 
 class ActionViewSet(viewsets.ModelViewSet):
     queryset = Action.objects.all()
@@ -80,17 +93,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == 'list':  # type: ignore
             queryset = queryset.filter(deleted=False)
-
-        if self.request.GET.get(TREND_FILTER_TYPE_ACTIONS):
-            queryset = queryset.filter(pk__in=[action.id for action in Filter({'actions': json.loads(self.request.GET['actions'])}).actions])
-
-        if self.request.GET.get('include_count'):
-            queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
-
-        queryset = queryset.prefetch_related(Prefetch('steps', queryset=ActionStep.objects.order_by('id')))
-        return queryset\
-            .filter(team=self.request.user.team_set.get())\
-            .order_by('-id')
+        return get_actions(queryset, self.request.GET.dict(), self.request.user.team_set.get().pk)
 
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         action, created = Action.objects.get_or_create(
@@ -149,337 +152,24 @@ class ActionViewSet(viewsets.ModelViewSet):
             actions_list.sort(key=lambda action: action.get('count', action['id']), reverse=True)
         return Response({'results': actions_list})
 
-    def _build_dataframe(self, aggregates: QuerySet, interval: str, breakdown: Optional[str]=None) -> pd.DataFrame:
-        if breakdown == 'cohorts':
-            cohort_keys = [key for key in aggregates[0].keys() if key.startswith('cohort_')]
-            # Convert queryset with day, count, cohort_88, cohort_99, ... to multiple rows, for example:
-            # 2020-01-01..., 1, cohort_88
-            # 2020-01-01..., 3, cohort_99
-            dataframe = pd.melt(pd.DataFrame(aggregates), id_vars=[interval, 'count'], value_vars=cohort_keys, var_name='breakdown')\
-                .rename(columns={interval: 'date'})
-            # Filter out false values
-            dataframe = dataframe[dataframe['value'] == True]
-            # Sum dates with same cohort
-            dataframe = dataframe.groupby(['breakdown', 'date'], as_index=False).sum()
-        else:
-            dataframe = pd.DataFrame([{'date': a[interval], 'count': a['count'], 'breakdown': a[breakdown] if breakdown else 'Total'} for a in aggregates])
-        if interval == 'week':
-            dataframe['date'] = dataframe['date'].apply(lambda x: x - pd.offsets.Week(weekday=6))
-        elif interval == 'month':
-            dataframe['date'] = dataframe['date'].apply(lambda x: x - pd.offsets.MonthEnd(n=1))
-        return dataframe
-
-    def _group_events_to_date(self, date_from: Optional[datetime.datetime], date_to: Optional[datetime.datetime], aggregates: QuerySet, interval: str, breakdown: Optional[str]=None) -> Dict[str, Dict[datetime.datetime, int]]:
-        response = {}
-
-        time_index = pd.date_range(date_from, date_to, freq=FREQ_MAP[interval])
-        if len(aggregates) > 0:
-            dataframe = self._build_dataframe(aggregates, interval, breakdown)
-            if breakdown and dataframe['breakdown'].nunique() > 20:
-                counts = dataframe.groupby(['breakdown'])['count'].sum().reset_index(name ='total').sort_values(by=['total'], ascending=False)[:20]
-                top_breakdown = counts['breakdown'].to_list()
-                dataframe = dataframe[dataframe.breakdown.isin(top_breakdown)]
-            dataframe = dataframe.astype({'breakdown': str})
-            for value in dataframe['breakdown'].unique():
-                filtered = dataframe.loc[dataframe['breakdown'] == value] if value else dataframe.loc[dataframe['breakdown'].isnull()]
-                df_dates = pd.DataFrame(filtered.groupby('date').mean(), index=time_index)
-                df_dates = df_dates.fillna(0)
-                response[value] = {key: value[0] if len(value) > 0 else 0 for key, value in df_dates.iterrows()}
-        else:
-            dataframe = pd.DataFrame([], index=time_index)
-            dataframe = dataframe.fillna(0)
-            response['total'] = {key: value[0] if len(value) > 0 else 0 for key, value in dataframe.iterrows()}
-        return response
-
-    def _filter_events(self, team: Team, filter: Filter, entity: Optional[Entity]=None) -> Q:
-        filters = Q()
-        if filter.date_from:
-            filters &= Q(timestamp__gte=filter.date_from)
-        if filter.date_to:
-            relativity = relativedelta(days=1)
-            if filter.interval == 'hour':
-                relativity = relativedelta(hours=1)
-            elif filter.interval == 'minute':
-                relativity = relativedelta(minutes=1)
-            elif filter.interval == 'week':
-                relativity = relativedelta(weeks=1)
-            elif filter.interval == 'month':
-                relativity = relativedelta(months=1) - relativity # go to last day of month instead of first of next
-            filters &= Q(timestamp__lte=filter.date_to + relativity)
-        if filter.properties:
-            filters &= filter.properties_to_Q(team_id=team.pk)
-        if entity and entity.properties:
-            filters &= entity.properties_to_Q(team_id=team.pk)
-        return filters
-
-    def _append_data(self, dates_filled: pd.DataFrame, interval: str) -> Dict:
-        append: Dict[str, Any] = {}
-        append['data'] = []
-        append['labels'] = []
-        append['days'] = []
-
-        labels_format = '%a. %-d %B'
-        days_format = '%Y-%m-%d'
-
-        if interval == 'hour' or interval == 'minute':
-            labels_format += ', %H:%M'
-            days_format += ' %H:%M:%S'
-
-        for date, value in dates_filled.items():
-            append['days'].append(date.strftime(days_format))
-            append['labels'].append(date.strftime(labels_format))
-            append['data'].append(value)
-
-        append['count'] = sum(append['data'])
-        return append
-
-    def _get_interval_annotation(self, key: str) -> Dict[str, Any]:
-        map: Dict[str, Any] = {
-            'minute': functions.TruncMinute('timestamp'),
-            'hour': functions.TruncHour('timestamp'),
-            'day': functions.TruncDay('timestamp'),
-            'week': functions.TruncWeek('timestamp'),
-            'month': functions.TruncMonth('timestamp'),
-        }
-        func = map.get(key)
-        if func is None:
-            return {'day': map.get('day')} # default
-
-        return { key: func }
-
-    def _add_cohort_annotations(self, team: Team, breakdown: List[Union[int, str]]) -> Dict[str, Union[Value, Exists]]:
-        cohorts = Cohort.objects.filter(team=team, pk__in=[b for b in breakdown if b != 'all'])
-        annotations: Dict[str, Union[Value, Exists]] = {}
-        for cohort in cohorts:
-            annotations['cohort_{}'.format(cohort.pk)] = Exists(
-                CohortPeople.objects.filter(
-                    cohort=cohort.pk,
-                    person_id=OuterRef('person_id')
-                ).only('id')
-            )
-        if 'all' in breakdown:
-            annotations['cohort_all'] = Value(True, output_field=BooleanField())
-        return annotations
-
-    def _aggregate_by_interval(self, filtered_events: QuerySet, team: Team, entity: Entity, filter: Filter, interval: str, request: request.Request, breakdown: Optional[str]=None) -> Dict[str, Any]:
-        interval_annotation = self._get_interval_annotation(interval)
-        values = [interval]
-        if breakdown:
-            if request.GET.get('breakdown_type') == 'cohort':
-                annotations = self._add_cohort_annotations(team, json.loads(request.GET['breakdown']))
-                values.extend(annotations.keys())
-                filtered_events = filtered_events.annotate(**annotations)
-                breakdown = 'cohorts'
-            else:
-                values.append(breakdown)
-        aggregates = filtered_events\
-            .annotate(**interval_annotation)\
-            .values(*values)\
-            .annotate(count=Count(1))\
-            .order_by()
-
-        if breakdown:
-            aggregates = aggregates.order_by('-count')
-
-        aggregates = self._process_math(aggregates, entity)
-
-        dates_filled = self._group_events_to_date(
-            date_from=filter.date_from,
-            date_to=filter.date_to,
-            aggregates=aggregates,
-            interval=interval,
-            breakdown=breakdown
-        )
-
-        return dates_filled
-
-    def _process_math(self, query: QuerySet, entity: Entity):
-        if entity.math == 'dau':
-            query = query.annotate(count=Count('person_id', distinct=True))
-        return query
-
-    def _execute_custom_sql(self, query, params):
-        cursor = connection.cursor()
-        cursor.execute(query, params)
-        return cursor.fetchall()
-
-    def _stickiness(self, filtered_events: QuerySet, entity: Entity, filter: Filter, team: Team) -> Dict[str, Any]:
-        if not filter.date_to or not filter.date_from:
-            raise ValueError('_stickiness needs date_to and date_from set')
-        range_days = (filter.date_to - filter.date_from).days + 2
-
-        events = filtered_events\
-            .filter(self._filter_events(team, filter, entity))\
-            .values('person_id') \
-            .annotate(day_count=Count(functions.TruncDay('timestamp'), distinct=True))\
-            .filter(day_count__lte=range_days)
-
-        events_sql, events_sql_params = events.query.sql_with_params()
-        aggregated_query = 'select count(v.person_id), v.day_count from ({}) as v group by v.day_count'.format(events_sql)
-        aggregated_counts = self._execute_custom_sql(aggregated_query, events_sql_params)
-
-        response: Dict[int, int] = {}
-        for result in aggregated_counts:
-            response[result[1]] = result[0]
-
-        labels = []
-        data = []
-
-        for day in range(1, range_days):
-            label = '{} day{}'.format(day, 's' if day > 1 else '')
-            labels.append(label)
-            data.append(response[day] if day in response else 0)
-
-        return {
-            'labels': labels,
-            'days': [day for day in range(1, range_days)],
-            'data': data,
-            'count': sum(data)
-        }
-
-    def _breakdown_label(self, entity: Entity, value: Union[str, int]) -> Dict[str, Optional[Union[str, int]]]:
-        ret_dict: Dict[str, Optional[Union[str, int]]] = {}
-        if not value or not isinstance(value, str) or 'cohort_' not in value:
-            ret_dict['label'] = '{} - {}'.format(entity.name, value if value and value != "None" and value != "nan" else 'Other') 
-            ret_dict['breakdown_value'] = value if value and not pd.isna(value) else None
-        else:
-            if value == 'cohort_all':
-                ret_dict['label'] = '{} - all users'.format(entity.name) 
-                ret_dict['breakdown_value'] = 'all'
-            else:
-                cohort = Cohort.objects.get(pk=value.replace('cohort_', ''))
-                ret_dict['label'] = '{} - {}'.format(entity.name, cohort.name)
-                ret_dict['breakdown_value'] = cohort.pk
-        return ret_dict
-
-    def _serialize_entity(self, entity: Entity, filter: Filter, request: request.Request, team: Team) -> List[Dict[str, Any]]:
-        interval = request.GET.get('interval')
-        if interval is None:
-            interval = 'day'
-
-        serialized: Dict[str, Any] = {
-            'action': entity.to_dict(),
-            'label': entity.name,
-            'count': 0,
-            'data': [],
-            'labels': [],
-            'days': []
-        }
-        response = []
-        events = self._process_entity_for_events(entity=entity, team=team, order_by=None if request.GET.get('shown_as') == 'Stickiness' else '-timestamp')
-        events = events.filter(self._filter_events(team, filter, entity))
-        if request.GET.get('shown_as', 'Volume') == 'Volume':
-            items = self._aggregate_by_interval(
-                filtered_events=events,
-                team=team,
-                entity=entity,
-                filter=filter,
-                interval=interval,
-                request=request,
-                breakdown='properties__{}'.format(request.GET['breakdown']) if request.GET.get('breakdown') else None,
-            )
-            for value, item in items.items():
-                new_dict = copy.deepcopy(serialized)
-                if value != 'Total':
-                    new_dict.update(self._breakdown_label(entity, value))
-                new_dict.update(append_data(dates_filled=list(item.items()), interval=interval))
-                if filter.display == TRENDS_CUMULATIVE:
-                    new_dict['data'] = np.cumsum(new_dict['data'])
-                response.append(new_dict)
-        elif request.GET['shown_as'] == TRENDS_STICKINESS:
-            new_dict = copy.deepcopy(serialized)
-            new_dict.update(self._stickiness(filtered_events=events, entity=entity, filter=filter, team=team))
-            response.append(new_dict)
- 
-        return response
-
-    def _serialize_people(self, people: QuerySet, request: request.Request) -> Dict:
-        people_dict = [PersonSerializer(person, context={'request': request}).data for person in  people]
-        return {
-            'people': people_dict,
-            'count': len(people_dict)
-        }
-
-    def _process_entity_for_events(self, entity: Entity, team: Team, order_by="-id") -> QuerySet:
-        if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            events = Event.objects.filter(action__pk=entity.id).add_person_id(team.pk)
-            if order_by:
-                events = events.order_by(order_by)
-            return events
-        elif entity.type == TREND_FILTER_TYPE_EVENTS:
-            return Event.objects.filter_by_event_with_people(event=entity.id, team_id=team.pk, order_by=order_by)
-        return QuerySet()
-
-    def _convert_to_comparison(self, trend_entity: List[Dict[str, Any]], filter: Filter, label: str) -> List[Dict[str, Any]]:
-        for entity in trend_entity:
-            days = [i for i in range(len(entity['days']))]
-            labels = ['{} {}'.format(filter.interval if filter.interval is not None else 'day', i) for i in range(len(entity['labels']))]
-            entity.update({'labels': labels, 'days': days, 'label': label, 'dates': entity['days'], 'compare': True})
-        return trend_entity
-    
-    def _determine_compared_filter(self, filter, request):
-        date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
-        compared_filter = Filter(request=request)
-        compared_filter._date_from = date_from.date().isoformat()
-        compared_filter._date_to = date_to.date().isoformat()
-        return compared_filter
-
     @action(methods=['GET'], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        actions = self.get_queryset()
-        actions = actions.filter(deleted=False)
+        result = self._calculate_trends(request)
+        return Response(result)
+
+    @cached_function(cache_type=TRENDS_ENDPOINT)
+    def _calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
         team = request.user.team_set.get()
-        compare = request.GET.get('compare')
-        entities_list = []
+        actions = self.get_queryset()
+        params = request.GET.dict()
         filter = Filter(request=request)
+        result = calculate_trends(filter, params, team.pk, actions)
 
-        if len(filter.entities) == 0:
-            # If no filters, automatically grab all actions and show those instead
-            filter.entities = [Entity({'id': action.id, 'name': action.name, 'type': TREND_FILTER_TYPE_ACTIONS}) for action in actions]
+        dashboard_id = request.GET.get('from_dashboard', None)
+        if dashboard_id:
+            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.datetime.now())
 
-        if not filter.date_from:
-            filter._date_from = Event.objects.filter(team=team)\
-                .order_by('timestamp')[0]\
-                .timestamp\
-                .replace(hour=0, minute=0, second=0, microsecond=0)\
-                .isoformat()
-        if not filter.date_to:
-            filter._date_to = now().isoformat()
-
-        compared_filter = None
-        if compare:
-            compared_filter = self._determine_compared_filter(filter, request)
-
-        for entity in filter.entities:
-            if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                try:
-                    db_action = [action for action in actions if action.id == entity.id][0]
-                    entity.name = db_action.name
-                except IndexError:
-                    continue
-            trend_entity = self._serialize_entity(
-                entity=entity,
-                filter=filter,
-                request=request,
-                team=team
-            )
-            if compare and compared_filter:
-                trend_entity = self._convert_to_comparison(trend_entity, filter, '{} - {}'.format(entity.name, 'current'))
-                entities_list.extend(trend_entity)
-
-                compared_trend_entity = self._serialize_entity(
-                    entity=entity,
-                    filter=compared_filter,
-                    request=request,
-                    team=team
-                )
-                
-                compared_trend_entity = self._convert_to_comparison(compared_trend_entity, compared_filter, '{} - {}'.format(entity.name, 'previous'))
-                entities_list.extend(compared_trend_entity) 
-            else:
-                entities_list.extend(trend_entity)
-            
-        return Response(entities_list)
+        return result
 
     @action(methods=['GET'], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -510,14 +200,14 @@ class ActionViewSet(viewsets.ModelViewSet):
 
             people = people.prefetch_related(Prefetch('persondistinctid_set', to_attr='distinct_ids_cache'))
 
-            return self._serialize_people(
+            return serialize_people(
                 people=people,
                 request=request
             )
 
         filtered_events: QuerySet = QuerySet()
         if request.GET.get('session'):
-            filtered_events = Event.objects.filter(team=team).filter(self._filter_events(team, filter)).add_person_id(team.pk)
+            filtered_events = Event.objects.filter(team=team).filter(filter_events(team.pk, filter)).add_person_id(team.pk)
         else:
             if len(filter.entities) >= 1:
                 entity = filter.entities[0]
@@ -528,8 +218,8 @@ class ActionViewSet(viewsets.ModelViewSet):
                 })
 
             if entity.type == TREND_FILTER_TYPE_EVENTS:
-                filtered_events =  self._process_entity_for_events(entity, team=team, order_by=None)\
-                    .filter(self._filter_events(team, filter, entity))
+                filtered_events =  process_entity_for_events(entity, team_id=team.pk, order_by=None)\
+                    .filter(filter_events(team.pk, filter, entity))
             elif entity.type == TREND_FILTER_TYPE_ACTIONS:
                 actions = super().get_queryset()
                 actions = actions.filter(deleted=False)
@@ -537,9 +227,313 @@ class ActionViewSet(viewsets.ModelViewSet):
                     action = actions.get(pk=entity.id)
                 except Action.DoesNotExist:
                     return Response([])
-                filtered_events = self\
-                    ._process_entity_for_events(entity, team=team, order_by=None)\
-                    .filter(self._filter_events(team, filter, entity))
+                filtered_events = process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(filter_events(team.pk, filter, entity))
         
         people = _calculate_people(events=filtered_events)
         return Response([people])
+
+def calculate_trends(filter: Filter, params: dict, team_id: int, actions: QuerySet) -> List[Dict[str, Any]]:
+    compare = params.get('compare')
+    entities_list = []
+    actions = actions.filter(deleted=False)
+
+    if len(filter.entities) == 0:
+        # If no filters, automatically grab all actions and show those instead
+        filter.entities = [Entity({'id': action.id, 'name': action.name, 'type': TREND_FILTER_TYPE_ACTIONS}) for action in actions]
+
+    if not filter.date_from:
+        filter._date_from = Event.objects.filter(team_id=team_id)\
+            .order_by('timestamp')[0]\
+            .timestamp\
+            .replace(hour=0, minute=0, second=0, microsecond=0)\
+            .isoformat()
+    if not filter.date_to:
+        filter._date_to = now().isoformat()
+
+    compared_filter = None
+    if compare:
+        compared_filter = determine_compared_filter(filter)
+
+    for entity in filter.entities:
+        if entity.type == TREND_FILTER_TYPE_ACTIONS:
+            try:
+                db_action = [action for action in actions if action.id == entity.id][0]
+                entity.name = db_action.name
+            except IndexError:
+                continue
+        trend_entity = serialize_entity(
+            entity=entity,
+            filter=filter,
+            params=params,
+            team_id=team_id
+        )
+        if compare and compared_filter:
+            trend_entity = convert_to_comparison(trend_entity, filter, '{} - {}'.format(entity.name, 'current'))
+            entities_list.extend(trend_entity)
+
+            compared_trend_entity = serialize_entity(
+                entity=entity,
+                filter=compared_filter,
+                params=params,
+                team_id=team_id
+            )
+            
+            compared_trend_entity = convert_to_comparison(compared_trend_entity, compared_filter, '{} - {}'.format(entity.name, 'previous'))
+            entities_list.extend(compared_trend_entity) 
+        else:
+            entities_list.extend(trend_entity)
+    return entities_list
+
+def build_dataframe(aggregates: QuerySet, interval: str, breakdown: Optional[str]=None) -> pd.DataFrame:
+    if breakdown == 'cohorts':
+        cohort_keys = [key for key in aggregates[0].keys() if key.startswith('cohort_')]
+        # Convert queryset with day, count, cohort_88, cohort_99, ... to multiple rows, for example:
+        # 2020-01-01..., 1, cohort_88
+        # 2020-01-01..., 3, cohort_99
+        dataframe = pd.melt(pd.DataFrame(aggregates), id_vars=[interval, 'count'], value_vars=cohort_keys, var_name='breakdown')\
+            .rename(columns={interval: 'date'})
+        # Filter out false values
+        dataframe = dataframe[dataframe['value'] == True]
+        # Sum dates with same cohort
+        dataframe = dataframe.groupby(['breakdown', 'date'], as_index=False).sum()
+    else:
+        dataframe = pd.DataFrame([{'date': a[interval], 'count': a['count'], 'breakdown': a[breakdown] if breakdown else 'Total'} for a in aggregates])
+    if interval == 'week':
+        dataframe['date'] = dataframe['date'].apply(lambda x: x - pd.offsets.Week(weekday=6))
+    elif interval == 'month':
+        dataframe['date'] = dataframe['date'].apply(lambda x: x - pd.offsets.MonthEnd(n=1))
+    return dataframe
+
+def group_events_to_date(date_from: Optional[datetime.datetime], date_to: Optional[datetime.datetime], aggregates: QuerySet, interval: str, breakdown: Optional[str]=None) -> Dict[str, Dict[datetime.datetime, int]]:
+    response = {}
+
+    time_index = pd.date_range(date_from, date_to, freq=FREQ_MAP[interval])
+    if len(aggregates) > 0:
+        dataframe = build_dataframe(aggregates, interval, breakdown)
+        if breakdown and dataframe['breakdown'].nunique() > 20:
+            counts = dataframe.groupby(['breakdown'])['count'].sum().reset_index(name ='total').sort_values(by=['total'], ascending=False)[:20]
+            top_breakdown = counts['breakdown'].to_list()
+            dataframe = dataframe[dataframe.breakdown.isin(top_breakdown)]
+        dataframe = dataframe.astype({'breakdown': str})
+        for value in dataframe['breakdown'].unique():
+            filtered = dataframe.loc[dataframe['breakdown'] == value] if value else dataframe.loc[dataframe['breakdown'].isnull()]
+            df_dates = pd.DataFrame(filtered.groupby('date').mean(), index=time_index)
+            df_dates = df_dates.fillna(0)
+            response[value] = {key: value[0] if len(value) > 0 else 0 for key, value in df_dates.iterrows()}
+    else:
+        dataframe = pd.DataFrame([], index=time_index)
+        dataframe = dataframe.fillna(0)
+        response['total'] = {key: value[0] if len(value) > 0 else 0 for key, value in dataframe.iterrows()}
+    return response
+
+def get_interval_annotation(key: str) -> Dict[str, Any]:
+    map: Dict[str, Any] = {
+        'minute': functions.TruncMinute('timestamp'),
+        'hour': functions.TruncHour('timestamp'),
+        'day': functions.TruncDay('timestamp'),
+        'week': functions.TruncWeek('timestamp'),
+        'month': functions.TruncMonth('timestamp'),
+    }
+    func = map.get(key)
+    if func is None:
+        return {'day': map.get('day')} # default
+
+    return { key: func }
+
+def add_cohort_annotations(team_id: int, breakdown: List[Union[int, str]]) -> Dict[str, Union[Value, Exists]]:
+    cohorts = Cohort.objects.filter(team_id=team_id, pk__in=[b for b in breakdown if b != 'all'])
+    annotations: Dict[str, Union[Value, Exists]] = {}
+    for cohort in cohorts:
+        annotations['cohort_{}'.format(cohort.pk)] = Exists(
+            CohortPeople.objects.filter(
+                cohort=cohort.pk,
+                person_id=OuterRef('person_id')
+            ).only('id')
+        )
+    if 'all' in breakdown:
+        annotations['cohort_all'] = Value(True, output_field=BooleanField())
+    return annotations
+
+def aggregate_by_interval(filtered_events: QuerySet, team_id: int, entity: Entity, filter: Filter, interval: str, params: dict, breakdown: Optional[str]=None) -> Dict[str, Any]:
+    interval_annotation = get_interval_annotation(interval)
+    values = [interval]
+    if breakdown:
+        if params.get('breakdown_type') == 'cohort':
+            annotations = add_cohort_annotations(team_id, json.loads(params.get('breakdown', '[]')))
+            values.extend(annotations.keys())
+            filtered_events = filtered_events.annotate(**annotations)
+            breakdown = 'cohorts'
+        else:
+            values.append(breakdown)
+    aggregates = filtered_events\
+        .annotate(**interval_annotation)\
+        .values(*values)\
+        .annotate(count=Count(1))\
+        .order_by()
+
+    if breakdown:
+        aggregates = aggregates.order_by('-count')
+
+    aggregates = process_math(aggregates, entity)
+
+    dates_filled = group_events_to_date(
+        date_from=filter.date_from,
+        date_to=filter.date_to,
+        aggregates=aggregates,
+        interval=interval,
+        breakdown=breakdown
+    )
+
+    return dates_filled
+
+def process_math(query: QuerySet, entity: Entity):
+    if entity.math == 'dau':
+        query = query.annotate(count=Count('person_id', distinct=True))
+    return query
+
+def execute_custom_sql(query, params):
+    cursor = connection.cursor()
+    cursor.execute(query, params)
+    return cursor.fetchall()
+
+def stickiness(filtered_events: QuerySet, entity: Entity, filter: Filter, team_id: int) -> Dict[str, Any]:
+    if not filter.date_to or not filter.date_from:
+        raise ValueError('_stickiness needs date_to and date_from set')
+    range_days = (filter.date_to - filter.date_from).days + 2
+
+    events = filtered_events\
+        .filter(filter_events(team_id, filter, entity))\
+        .values('person_id') \
+        .annotate(day_count=Count(functions.TruncDay('timestamp'), distinct=True))\
+        .filter(day_count__lte=range_days)
+
+    events_sql, events_sql_params = events.query.sql_with_params()
+    aggregated_query = 'select count(v.person_id), v.day_count from ({}) as v group by v.day_count'.format(events_sql)
+    aggregated_counts = execute_custom_sql(aggregated_query, events_sql_params)
+
+    response: Dict[int, int] = {}
+    for result in aggregated_counts:
+        response[result[1]] = result[0]
+
+    labels = []
+    data = []
+
+    for day in range(1, range_days):
+        label = '{} day{}'.format(day, 's' if day > 1 else '')
+        labels.append(label)
+        data.append(response[day] if day in response else 0)
+
+    return {
+        'labels': labels,
+        'days': [day for day in range(1, range_days)],
+        'data': data,
+        'count': sum(data)
+    }
+
+def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optional[Union[str, int]]]:
+    ret_dict: Dict[str, Optional[Union[str, int]]] = {}
+    if not value or not isinstance(value, str) or 'cohort_' not in value:
+        ret_dict['label'] = '{} - {}'.format(entity.name, value if value and value != "None" and value != "nan" else 'Other') 
+        ret_dict['breakdown_value'] = value if value and not pd.isna(value) else None
+    else:
+        if value == 'cohort_all':
+            ret_dict['label'] = '{} - all users'.format(entity.name) 
+            ret_dict['breakdown_value'] = 'all'
+        else:
+            cohort = Cohort.objects.get(pk=value.replace('cohort_', ''))
+            ret_dict['label'] = '{} - {}'.format(entity.name, cohort.name)
+            ret_dict['breakdown_value'] = cohort.pk
+    return ret_dict
+
+def serialize_entity(entity: Entity, filter: Filter, params: dict, team_id: int) -> List[Dict[str, Any]]:
+    interval = params.get('interval')
+    if interval is None:
+        interval = 'day'
+
+    serialized: Dict[str, Any] = {
+        'action': entity.to_dict(),
+        'label': entity.name,
+        'count': 0,
+        'data': [],
+        'labels': [],
+        'days': []
+    }
+    response = []
+    events = process_entity_for_events(entity=entity, team_id=team_id, order_by=None if params.get('shown_as') == 'Stickiness' else '-timestamp')
+    events = events.filter(filter_events(team_id, filter, entity))
+    if params.get('shown_as', 'Volume') == 'Volume':
+        items = aggregate_by_interval(
+            filtered_events=events,
+            team_id=team_id,
+            entity=entity,
+            filter=filter,
+            interval=interval,
+            params=params,
+            breakdown='properties__{}'.format(params.get('breakdown')) if params.get('breakdown') else None,
+        )
+        for value, item in items.items():
+            new_dict = copy.deepcopy(serialized)
+            if value != 'Total':
+                new_dict.update(breakdown_label(entity, value))
+            new_dict.update(append_data(dates_filled=list(item.items()), interval=interval))
+            if filter.display == TRENDS_CUMULATIVE:
+                new_dict['data'] = np.cumsum(new_dict['data'])
+            response.append(new_dict)
+    elif params.get('shown_as') == TRENDS_STICKINESS:
+        new_dict = copy.deepcopy(serialized)
+        new_dict.update(stickiness(filtered_events=events, entity=entity, filter=filter, team_id=team_id))
+        response.append(new_dict)
+
+    return response
+
+def serialize_people(people: QuerySet, request: request.Request) -> Dict:
+    people_dict = [PersonSerializer(person, context={'request': request}).data for person in  people]
+    return {
+        'people': people_dict,
+        'count': len(people_dict)
+    }
+
+def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> QuerySet:
+    if entity.type == TREND_FILTER_TYPE_ACTIONS:
+        events = Event.objects.filter(action__pk=entity.id).add_person_id(team_id)
+        if order_by:
+            events = events.order_by(order_by)
+        return events
+    elif entity.type == TREND_FILTER_TYPE_EVENTS:
+        return Event.objects.filter_by_event_with_people(event=entity.id, team_id=team_id, order_by=order_by)
+    return QuerySet()
+
+def filter_events(team_id: int, filter: Filter, entity: Optional[Entity]=None) -> Q:
+    filters = Q()
+    if filter.date_from:
+        filters &= Q(timestamp__gte=filter.date_from)
+    if filter.date_to:
+        relativity = relativedelta(days=1)
+        if filter.interval == 'hour':
+            relativity = relativedelta(hours=1)
+        elif filter.interval == 'minute':
+            relativity = relativedelta(minutes=1)
+        elif filter.interval == 'week':
+            relativity = relativedelta(weeks=1)
+        elif filter.interval == 'month':
+            relativity = relativedelta(months=1) - relativity # go to last day of month instead of first of next
+        filters &= Q(timestamp__lte=filter.date_to + relativity)
+    if filter.properties:
+        filters &= filter.properties_to_Q(team_id=team_id)
+    if entity and entity.properties:
+        filters &= entity.properties_to_Q(team_id=team_id)
+    return filters
+
+def determine_compared_filter(filter):
+    date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
+    compared_filter = copy.deepcopy(filter)
+    compared_filter._date_from = date_from.date().isoformat()
+    compared_filter._date_to = date_to.date().isoformat()
+    return compared_filter
+
+def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter: Filter, label: str) -> List[Dict[str, Any]]:
+    for entity in trend_entity:
+        days = [i for i in range(len(entity['days']))]
+        labels = ['{} {}'.format(filter.interval if filter.interval is not None else 'day', i) for i in range(len(entity['labels']))]
+        entity.update({'labels': labels, 'days': days, 'label': label, 'dates': entity['days'], 'compare': True})
+    return trend_entity

@@ -153,7 +153,7 @@ class EventManager(models.QuerySet):
             return {}
         return {"event": action_step.event}
 
-    def add_person_id(self, team_id: str):
+    def add_person_id(self, team_id: int):
         return self.annotate(
             person_id=Subquery(
                 PersonDistinctId.objects.filter(

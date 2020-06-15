@@ -210,7 +210,7 @@ class TestTrends(TransactionBaseTest):
     def test_trends_per_day(self):
         self._create_events()
         with freeze_time('2020-01-04T13:00:01Z'):
-            with self.assertNumQueries(14):
+            with self.assertNumQueries(16):
                 action_response = self.client.get('/api/action/trends/?date_from=-7d').json()
                 event_response = self.client.get(
                     '/api/action/trends/',
@@ -232,7 +232,7 @@ class TestTrends(TransactionBaseTest):
     def test_trends_per_day_cumulative(self):
         self._create_events()
         with freeze_time('2020-01-04T13:00:01Z'):
-            with self.assertNumQueries(14):
+            with self.assertNumQueries(16):
                 action_response = self.client.get('/api/action/trends/?date_from=-7d&display=ActionsLineGraphCumulative').json()
                 event_response = self.client.get(
                     '/api/action/trends/',

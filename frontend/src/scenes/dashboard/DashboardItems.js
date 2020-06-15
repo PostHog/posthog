@@ -17,6 +17,7 @@ export function DashboardItems({ logic }) {
     const {
         loadDashboardItems,
         renameDashboardItem,
+        refreshDashboardItem,
         updateLayouts,
         updateItemColor,
         duplicateDashboardItem,
@@ -84,6 +85,7 @@ export function DashboardItems({ logic }) {
                         dashboards={dashboards}
                         enableWobblyDragging={draggingEnabled !== 'off' ? noop : enableWobblyDragging}
                         index={index}
+                        onRefresh={() => refreshDashboardItem(item.id)}
                     />
                 </div>
             ))}
