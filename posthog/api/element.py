@@ -23,22 +23,17 @@ class ElementViewSet(viewsets.ModelViewSet):
     @action(methods=['GET'], detail=False)
     def stats(self, request: request.Request) -> response.Response:
         team = self.request.user.team_set.get()
+        filter = Filter(request=request)
 
         events = Event.objects\
             .filter(team=team, event='$autocapture')\
-
-        if self.request.GET.get('properties'):
-            events = events.filter(
-                Filter(data={
-                    'properties': json.loads(self.request.GET['properties'])
-                })\
-                .properties_to_Q(team_id=team.pk)
-            )
+            .filter(filter.properties_to_Q(team_id=team.pk))\
+            .filter(filter.date_filter_Q)
 
         events = events\
             .values('elements_hash')\
             .annotate(count=Count(1))\
-            .order_by('-count')
+            .order_by('-count')[0: 100]
 
         groups = ElementGroup.objects\
             .filter(team=team, hash__in=[item['elements_hash'] for item in events])\
@@ -52,7 +47,7 @@ class ElementViewSet(viewsets.ModelViewSet):
                     group for group in groups if group.hash == item['elements_hash']
                 ][0].element_set.all()
             ]
-        } for item in events[0:100]])
+        } for item in events])
 
     @action(methods=['GET'], detail=False)
     def values(self, request: request.Request) -> response.Response:

@@ -175,6 +175,10 @@ class ActionViewSet(viewsets.ModelViewSet):
         time_index = pd.date_range(date_from, date_to, freq=FREQ_MAP[interval])
         if len(aggregates) > 0:
             dataframe = self._build_dataframe(aggregates, interval, breakdown)
+            if breakdown and dataframe['breakdown'].nunique() > 20:
+                counts = dataframe.groupby(['breakdown'])['count'].sum().reset_index(name ='total').sort_values(by=['total'], ascending=False)[:20]
+                top_breakdown = counts['breakdown'].to_list()
+                dataframe = dataframe[dataframe.breakdown.isin(top_breakdown)]
             dataframe = dataframe.astype({'breakdown': str})
             for value in dataframe['breakdown'].unique():
                 filtered = dataframe.loc[dataframe['breakdown'] == value] if value else dataframe.loc[dataframe['breakdown'].isnull()]
