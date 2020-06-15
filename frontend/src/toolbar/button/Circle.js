@@ -12,6 +12,8 @@ export function Circle({
     bottom,
     zIndex,
     animate,
+    animationStart = rotate + 0,
+    animationEnd = rotate + 360,
     animationId,
     animationDuration = 15,
     label,
@@ -26,12 +28,12 @@ export function Circle({
             {animate ? (
                 <style>{`	
 @keyframes circle-spin-${animationId} { 
-    0% { transform: rotate(${rotate + 0}deg) translate(${distance}px, 0px); } 	
-    100% { transform: rotate(${rotate + 360}deg) translate(${distance}px, 0px); }
+    0% { transform: rotate(${animationStart}deg) translate(${distance}px, 0px); } 	
+    100% { transform: rotate(${animationEnd}deg) translate(${distance}px, 0px); }
 }
 @keyframes circle-spin-${animationId}-reverse { 	          
-    0% { transform: rotate(${-rotate}deg); } 	              
-    100% { transform: rotate(${-(rotate + 360)}deg); } 	      
+    0% { transform: rotate(${-animationStart}deg); } 	              
+    100% { transform: rotate(${-animationEnd}deg); } 	      
 }
                 `}</style>
             ) : null}
