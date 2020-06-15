@@ -1,40 +1,29 @@
 import React from 'react'
-import { Button, Checkbox } from 'antd'
-import { SearchOutlined, AimOutlined } from '@ant-design/icons'
+import { Button } from 'antd'
+import { SearchOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
-import { inspectElementLogic } from './inspectElementLogic'
-import { ActionStep } from '~/toolbar/shared/ActionStep'
+import { elementsLogic } from '../elements/elementsLogic'
+import { ActionStep } from '~/toolbar/elements/ActionStep'
 
 export function InspectElement() {
-    const { stop, start, selectAllElements, selectClickTargets } = useActions(inspectElementLogic)
-    const { selecting, element, selectingClickTargets, actionStep } = useValues(inspectElementLogic)
+    const { disableInspect, enableInspect } = useActions(elementsLogic)
+    const { inspectEnabled, selectedElementMeta } = useValues(elementsLogic)
 
     return (
         <div className="toolbar-block">
-            <div style={{ fontSize: 16, marginBottom: 10 }}>
-                <SearchOutlined /> Select an element
-            </div>
             <div>
-                <Button type={selecting ? 'primary' : 'secondary'} onClick={selecting ? stop : start}>
-                    <AimOutlined />
+                <Button
+                    type={inspectEnabled ? 'primary' : 'secondary'}
+                    onClick={inspectEnabled ? disableInspect : enableInspect}
+                >
+                    <SearchOutlined /> Select an element
                 </Button>
-                <span style={{ marginLeft: 20, display: selecting ? 'inline-block' : 'none' }}>
-                    <Checkbox
-                        checked={selectingClickTargets}
-                        onClick={selectingClickTargets ? selectAllElements : selectClickTargets}
-                    >
-                        {' '}
-                        Only Clickable
-                    </Checkbox>
-                </span>
             </div>
-            <div style={{ marginTop: 10 }}>
-                {element ? (
-                    <div style={{ marginTop: 10 }}>
-                        <ActionStep actionStep={actionStep} />
-                    </div>
-                ) : null}
-            </div>
+            {selectedElementMeta ? (
+                <div style={{ marginTop: 10 }}>
+                    <ActionStep actionStep={selectedElementMeta.actionStep} />
+                </div>
+            ) : null}
         </div>
     )
 }

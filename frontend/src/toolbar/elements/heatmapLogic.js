@@ -3,55 +3,20 @@
 import { kea } from 'kea'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { dockLogic } from '~/toolbar/dockLogic'
-import { elementToActionStep, elementToSelector } from '~/toolbar/shared/utils'
-import { inspectElementLogic } from '~/toolbar/shared/inspectElementLogic'
+import { elementToActionStep, elementToSelector } from '~/toolbar/elements/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 export const heatmapLogic = kea({
-    actions: () => ({
-        addClick: true,
-        highlightElement: (element, withElementFinder = false) => ({ element, withElementFinder }),
-        selectElement: element => ({ element }),
+    actions: {
         setHeatmapEnabled: heatmapEnabled => ({ heatmapEnabled }),
-    }),
+    },
 
-    reducers: () => ({
+    reducers: {
         heatmapEnabled: [
             false,
             {
                 setHeatmapEnabled: (_, { heatmapEnabled }) => heatmapEnabled,
                 getEventsFailure: () => false,
-            },
-        ],
-        clicks: [
-            0,
-            {
-                addClick: state => state + 1,
-            },
-        ],
-        highlightedElement: [
-            null,
-            {
-                highlightElement: (_, { element }) => element,
-                setHeatmapEnabled: (state, { heatmapEnabled }) => (heatmapEnabled ? state : null),
-                [inspectElementLogic.actions.start]: () => null,
-            },
-        ],
-        selectedElement: [
-            null,
-            {
-                selectElement: (state, { element }) => (state === element ? null : element),
-                setHeatmapEnabled: (state, { heatmapEnabled }) => (heatmapEnabled ? state : null),
-                [inspectElementLogic.actions.start]: () => null,
-            },
-        ],
-        showElementFinder: [
-            false,
-            {
-                highlightElement: (_, { withElementFinder }) => withElementFinder,
-                setHeatmapEnabled: (state, { heatmapEnabled }) => (heatmapEnabled ? state : false),
-                [inspectElementLogic.actions.start]: () => false,
             },
         ],
         heatmapLoading: [
@@ -63,9 +28,9 @@ export const heatmapLogic = kea({
                 resetEvents: () => false,
             },
         ],
-    }),
+    },
 
-    loaders: () => ({
+    loaders: {
         events: [
             [],
             {
@@ -94,11 +59,11 @@ export const heatmapLogic = kea({
                 },
             },
         ],
-    }),
+    },
 
-    selectors: ({ selectors }) => ({
+    selectors: {
         elements: [
-            () => [selectors.events],
+            selectors => [selectors.events],
             events => {
                 const elements = events
                     .map(event => {
@@ -139,7 +104,7 @@ export const heatmapLogic = kea({
             },
         ],
         countedElements: [
-            () => [selectors.elements],
+            selectors => [selectors.elements],
             elements => {
                 const elementCounter = new Map()
                 const elementSelector = new Map()
@@ -167,91 +132,22 @@ export const heatmapLogic = kea({
                 return countedElements.map((e, i) => ({ ...e, position: i + 1 }))
             },
         ],
-        elementMap: [
-            () => [selectors.countedElements],
-            countedElements => {
-                const elementMap = new Map()
-                countedElements.forEach(e => {
-                    elementMap.set(e.element, e)
-                })
-                return elementMap
-            },
-        ],
-        countedElementsWithRects: [
-            () => [
-                selectors.countedElements,
-                selectors.clicks,
-                selectors.highlightedElement,
-                dockLogic.selectors.dockStatus,
-                dockLogic.selectors.zoom,
-            ],
-            countedElements => countedElements.map(e => ({ ...e, rect: e.element.getBoundingClientRect() })),
-        ],
         eventCount: [
-            () => [selectors.countedElements],
+            selectors => [selectors.countedElements],
             countedElements => (countedElements ? countedElements.map(e => e.count).reduce((a, b) => a + b, 0) : 0),
         ],
         highestEventCount: [
-            () => [selectors.countedElements],
+            selectors => [selectors.countedElements],
             countedElements =>
                 countedElements ? countedElements.map(e => e.count).reduce((a, b) => (b > a ? b : a), 0) : 0,
         ],
-        highlightedElementMeta: [
-            () => [selectors.highlightedElement, selectors.countedElementsWithRects],
-            (highlightedElement, countedElementsWithRects) => {
-                const meta = highlightedElement
-                    ? countedElementsWithRects.find(({ element }) => element === highlightedElement)
-                    : null
+    },
 
-                if (meta) {
-                    return { ...meta, actionStep: elementToActionStep(meta.element) }
-                }
-
-                return null
-            },
-        ],
-        selectedElementMeta: [
-            () => [selectors.selectedElement, selectors.countedElementsWithRects],
-            (selectedElement, countedElementsWithRects) => {
-                const meta = selectedElement
-                    ? countedElementsWithRects.find(({ element }) => element === selectedElement)
-                    : null
-
-                if (meta) {
-                    return { ...meta, actionStep: elementToActionStep(meta.element) }
-                }
-
-                return null
-            },
-        ],
-    }),
-
-    events: ({ actions, values, cache }) => ({
+    events: ({ actions, values }) => ({
         afterMount() {
             if (values.heatmapEnabled) {
                 actions.getEvents({ $current_url: currentPageLogic.values.href })
             }
-            cache.keyDown = function(e) {
-                if (e.keyCode === 27 && values.selectedElement) {
-                    actions.selectElement(null)
-                }
-            }
-            window.addEventListener('keydown', cache.keyDown)
-            cache.onClick = function() {
-                actions.addClick()
-            }
-            cache.onClickAndDelay = function() {
-                window.clearTimeout(cache.clickDelayTimeout)
-                actions.addClick()
-                cache.clickDelayTimeout = window.setTimeout(actions.addClick, 100)
-            }
-            window.addEventListener('click', cache.onClick)
-            window.addEventListener('scroll', cache.onClickAndDelay)
-        },
-        beforeUnmount() {
-            window.removeEventListener('keydown', cache.keyDown)
-            window.removeEventListener('click', cache.onClick)
-            window.removeEventListener('scroll', cache.onClickAndDelay)
         },
     }),
 

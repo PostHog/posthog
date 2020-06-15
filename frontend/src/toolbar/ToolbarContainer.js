@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { ToolbarContent } from '~/toolbar/ToolbarContent'
 import { CloseOutlined } from '@ant-design/icons'
 import React from 'react'
-import { Heatmap } from '~/toolbar/shared/Heatmap'
+import { Elements } from '~/toolbar/elements/Elements'
 import { ToolbarButton } from '~/toolbar/button/ToolbarButton'
 import { ToolbarDraggable } from '~/toolbar/ToolbarDraggable'
 import { dockLogic } from '~/toolbar/dockLogic'
@@ -22,7 +22,7 @@ export function ToolbarContainer() {
 
     return (
         <>
-            {isAnimating ? null : <Heatmap />}
+            {isAnimating ? null : <Elements />}
 
             {showButton && windowWidth >= 0 ? (
                 <ToolbarDraggable type="button" handle="#button-toolbar">

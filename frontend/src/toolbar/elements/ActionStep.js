@@ -1,5 +1,5 @@
 import React from 'react'
-import { ActionAttribute } from '~/toolbar/shared/ActionAttribute'
+import { ActionAttribute } from '~/toolbar/elements/ActionAttribute'
 
 export function ActionStep({ actionStep }) {
     return (

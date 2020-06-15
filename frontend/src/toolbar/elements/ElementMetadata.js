@@ -1,16 +1,32 @@
 import React from 'react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { dockLogic } from '~/toolbar/dockLogic'
-import { ActionStep } from '~/toolbar/shared/ActionStep'
+import { ActionStep } from '~/toolbar/elements/ActionStep'
 import { CloseOutlined, CalendarOutlined, AimOutlined } from '@ant-design/icons'
-import { heatmapLogic } from '~/toolbar/shared/heatmapLogic'
+import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { Button, Statistic, Row, Col, Divider } from 'antd'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
-export function ElementMetadata({ rect, meta: { actionStep, element: metaElement }, pointerEvents, onClose }) {
+export function ElementMetadata() {
     const { domZoom, domPadding } = useValues(dockLogic)
-    const { elementMap, eventCount } = useValues(heatmapLogic)
+    const { eventCount } = useValues(heatmapLogic)
+    const { hoverElement, hoverElementMeta, selectedElement, selectedElementMeta, hoverElementHighlight } = useValues(
+        elementsLogic
+    )
+    const { setSelectedElement } = useActions(elementsLogic)
 
-    const heatmapMeta = elementMap.get(metaElement)
+    const activeMeta = hoverElementMeta || selectedElementMeta
+
+    if (hoverElementHighlight || !activeMeta) {
+        return null
+    }
+
+    const pointerEvents = selectedElementMeta && (!hoverElement || hoverElement === selectedElement)
+    const onClose =
+        selectedElementMeta && activeMeta.element === selectedElementMeta.element
+            ? () => setSelectedElement(null)
+            : null
+    const { rect, position, count, actionStep } = activeMeta
 
     return (
         <>
@@ -37,23 +53,21 @@ export function ElementMetadata({ rect, meta: { actionStep, element: metaElement
                     boxShadow: `hsla(4, 30%, 27%, 0.6) 0px 3px 10px 2px`,
                 }}
             >
-                {heatmapMeta ? (
+                {position ? (
                     <>
                         <p>
                             <CalendarOutlined /> <u>Last 7 days</u>
                         </p>
                         <Row gutter={16}>
                             <Col span={8}>
-                                <Statistic title="Ranking" prefix="#" value={heatmapMeta.position || 0} />
+                                <Statistic title="Ranking" prefix="#" value={position || 0} />
                             </Col>
                             <Col span={16}>
                                 <Statistic
                                     title="Clicks"
-                                    value={heatmapMeta.count || 0}
+                                    value={count || 0}
                                     suffix={`/ ${eventCount} (${
-                                        eventCount === 0
-                                            ? '-'
-                                            : Math.round(((heatmapMeta.count || 0) / eventCount) * 10000) / 100
+                                        eventCount === 0 ? '-' : Math.round(((count || 0) / eventCount) * 10000) / 100
                                     }%)`}
                                 />
                             </Col>

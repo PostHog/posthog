@@ -1,5 +1,5 @@
 import React from 'react'
-import { inBounds } from '~/toolbar/shared/utils'
+import { inBounds } from '~/toolbar/elements/utils'
 
 export function HeatmapLabel({ rect, domPadding, domZoom, style = {}, children }) {
     return (

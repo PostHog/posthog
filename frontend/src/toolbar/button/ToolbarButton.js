@@ -6,13 +6,13 @@ import { useLongPress } from 'lib/hooks/useLongPress'
 import { CloseOutlined, ProfileOutlined, SearchOutlined, FireFilled } from '@ant-design/icons'
 import { Logo } from '~/toolbar/assets/Logo'
 import { Circle } from '~/toolbar/button/Circle'
-import { inspectElementLogic } from '~/toolbar/shared/inspectElementLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import { heatmapLogic } from '~/toolbar/shared/heatmapLogic'
+import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { getShadowRoot } from '~/toolbar/shared/utils'
+import { getShadowRoot } from '~/toolbar/elements/utils'
 import { ChangingText } from '~/toolbar/button/ChangingText'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
 const quarters = { ne: 0, nw: 1, sw: 2, se: 3 }
 
@@ -43,8 +43,8 @@ export function ToolbarButton() {
     const { extensionPercentage, quarter } = useValues(toolbarButtonLogic)
     const { setExtensionPercentage, setQuarter } = useActions(toolbarButtonLogic)
 
-    const { start, stop } = useActions(inspectElementLogic)
-    const { selecting: inspectingElement, selectedElement: selectedInspectElement } = useValues(inspectElementLogic)
+    const { enableInspect, disableInspect } = useActions(elementsLogic)
+    const { inspectEnabled, selectedElement } = useValues(elementsLogic)
 
     const { setHeatmapEnabled } = useActions(heatmapLogic)
     const { heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
@@ -122,7 +122,7 @@ export function ToolbarButton() {
     const padding = -20
     const distance = extensionPercentage * 100
     const closeDistance = extensionPercentage * 50
-    const inspectDistance = inspectingElement || selectedInspectElement ? Math.max(50, distance) : distance
+    const inspectDistance = inspectEnabled ? Math.max(50, distance) : distance
     const heatmapDistance = heatmapEnabled ? Math.max(50, distance) : distance
 
     return (
@@ -163,7 +163,7 @@ export function ToolbarButton() {
                         content={
                             <div style={{ position: 'relative' }}>
                                 <SearchOutlined />
-                                {selectedInspectElement ? (
+                                {inspectEnabled && selectedElement ? (
                                     <div
                                         style={{
                                             position: 'absolute',
@@ -179,17 +179,11 @@ export function ToolbarButton() {
                             </div>
                         }
                         zIndex={1}
-                        onClick={inspectingElement || selectedInspectElement ? stop : start}
+                        onClick={inspectEnabled ? disableInspect : enableInspect}
                         style={{
                             cursor: 'pointer',
-                            background:
-                                inspectingElement || selectedInspectElement
-                                    ? 'rgb(84, 138, 248)'
-                                    : 'hsla(220, 52%, 96%, 1)',
-                            color:
-                                inspectingElement || selectedInspectElement
-                                    ? 'hsla(220, 52%, 96%, 1)'
-                                    : 'rgb(84, 138, 248)',
+                            background: inspectEnabled ? 'rgb(84, 138, 248)' : 'hsla(220, 52%, 96%, 1)',
+                            color: inspectEnabled ? 'hsla(220, 52%, 96%, 1)' : 'rgb(84, 138, 248)',
                             fontSize: '32px',
                             transition: 'transform 0.2s, color 0.2s, background: 0.2s',
                             transform: `scale(${0.2 + (0.8 * inspectDistance) / 100})`,

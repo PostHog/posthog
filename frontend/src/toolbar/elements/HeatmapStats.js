@@ -1,12 +1,14 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { Button } from 'antd'
-import { heatmapLogic } from '~/toolbar/shared/heatmapLogic'
+import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { FireFilled, FireOutlined } from '@ant-design/icons'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
 export function HeatmapStats() {
     const { countedElements, eventCount, heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
-    const { highlightElement, setHeatmapEnabled } = useActions(heatmapLogic)
+    const { setHeatmapEnabled } = useActions(heatmapLogic)
+    const { setHoverElement } = useActions(elementsLogic)
 
     return (
         <div className="toolbar-block">
@@ -26,8 +28,8 @@ export function HeatmapStats() {
                     {countedElements.map(({ element, count, actionStep }, index) => (
                         <div
                             key={index}
-                            onMouseEnter={() => highlightElement(element, true)}
-                            onMouseLeave={() => highlightElement(null)}
+                            onMouseEnter={() => setHoverElement(element, true)}
+                            onMouseLeave={() => setHoverElement(null)}
                             style={{ cursor: 'pointer' }}
                         >
                             {index + 1}. {actionStep.text} - {count} clicks
