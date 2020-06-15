@@ -72,8 +72,9 @@ export const inspectElementLogic = kea({
         ],
         actionStep: [() => [selectors.element], element => (element ? elementToActionStep(element) : null)],
         selectableElements: [
-            () => [selectors.selecting, selectors.selectingClickTargets],
-            (selecting, selectingClickTargets) => (selecting && selectingClickTargets ? getAllClickTargets() : []),
+            () => [selectors.selecting, selectors.selectingClickTargets, selectors.selectedElement],
+            (selecting, selectingClickTargets, selectedElement) =>
+                (selecting || selectedElement) && selectingClickTargets ? getAllClickTargets() : [],
         ],
         selectableElementsWithRects: [
             () => [selectors.selectableElements, selectors.clicks],

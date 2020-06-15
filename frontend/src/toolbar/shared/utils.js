@@ -129,6 +129,21 @@ export function inBounds(min, value, max) {
 
 export function getAllClickTargets() {
     const elements = document.querySelectorAll(CLICK_TARGET_SELECTOR)
-    // TODO: add all pointer:click elements
-    return [...elements]
+
+    let allElements = [...document.querySelectorAll('*')]
+    const clickTags = CLICK_TARGET_SELECTOR.split(',').map(c => c.trim())
+
+    // loop through all elements and getComputedStyle
+    const pointerElements = allElements.filter(el => {
+        if (clickTags.indexOf(el.tagName.toLowerCase()) >= 0) {
+            return false
+        }
+        let compStyles = window.getComputedStyle(el)
+        return compStyles.getPropertyValue('cursor') === 'pointer'
+    })
+
+    const selectedElements = [...elements, ...pointerElements].map(e => trimElement(e, true))
+    const uniqueElements = Array.from(new Set(selectedElements))
+
+    return uniqueElements
 }
