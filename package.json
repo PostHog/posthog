@@ -39,7 +39,7 @@
         "kea-localstorage": "^1.0.2",
         "kea-router": "^0.3.0",
         "moment": "^2.24.0",
-        "posthog-js": "1.2.1",
+        "posthog-js": "1.2.2",
         "prop-types": "^15.7.2",
         "react": ">= 16.8",
         "react-datepicker": "^2.13.0",
