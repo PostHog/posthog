@@ -51,7 +51,7 @@ class DashboardsViewSet(viewsets.ModelViewSet):
 class DashboardItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = DashboardItem
-        fields = ['id', 'name', 'filters', 'order', 'type', 'deleted', 'dashboard', 'layouts', 'color', 'last_refresh']
+        fields = ['id', 'name', 'filters', 'order', 'type', 'deleted', 'dashboard', 'layouts', 'color', 'last_refresh', 'refreshing']
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
         request = self.context['request']
