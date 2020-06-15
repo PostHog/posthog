@@ -112,17 +112,19 @@ export const elementsLogic = kea({
     events: ({ cache, actions }) => ({
         afterMount: () => {
             cache.onClick = () => actions.updateRects()
-            cache.onScroll = function() {
+            cache.onScrollResize = function() {
                 window.clearTimeout(cache.clickDelayTimeout)
                 actions.updateRects()
                 cache.clickDelayTimeout = window.setTimeout(actions.addClick, 100)
             }
             window.addEventListener('click', cache.onClick)
-            window.addEventListener('scroll', cache.onScroll)
+            window.addEventListener('scroll', cache.onScrollResize)
+            window.addEventListener('resize', cache.onScrollResize)
         },
         beforeUnmount: () => {
             window.removeEventListener('click', cache.onClick)
-            window.removeEventListener('scroll', cache.onScroll)
+            window.removeEventListener('scroll', cache.onScrollResize)
+            window.removeEventListener('resize', cache.onScrollResize)
         },
     }),
 })

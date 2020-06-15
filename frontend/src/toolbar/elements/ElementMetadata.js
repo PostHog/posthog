@@ -28,19 +28,27 @@ export function ElementMetadata() {
             : null
     const { rect, position, count, actionStep } = activeMeta
 
+    let top = rect.top + rect.height + 10 + window.pageYOffset
+    let left = rect.left + window.pageXOffset + (rect.width > 300 ? (rect.width - 300) / 2 : 0)
+    let width = 300
+
+    if (left + width > window.innerWidth - 10) {
+        left -= left + width - (window.innerWidth - 10)
+        if (left < 0) {
+            left = 5
+            width = window.innerWidth - 10
+        }
+    }
+
     return (
         <>
             <div
                 style={{
                     pointerEvents: pointerEvents ? 'all' : 'none',
                     position: 'absolute',
-                    top: `${(rect.top + rect.height - domPadding + 10 + window.pageYOffset) / domZoom}px`,
-                    left: `${(rect.left -
-                        domPadding +
-                        window.pageXOffset +
-                        (rect.width > 300 ? (rect.width - 300) / 2 : 0)) /
-                        domZoom}px`,
-                    width: 300,
+                    top: `${(top - domPadding) / domZoom}px`,
+                    left: `${(left - domPadding) / domZoom}px`,
+                    width: width,
                     minHeight: 100,
                     zIndex: 6,
                     opacity: 1,
@@ -99,12 +107,8 @@ export function ElementMetadata() {
                     style={{
                         pointerEvents: pointerEvents ? 'all' : 'none',
                         position: 'absolute',
-                        top: `${(rect.top + rect.height - domPadding - 2 + window.pageYOffset) / domZoom}px`,
-                        left: `${(rect.left -
-                            domPadding +
-                            window.pageXOffset +
-                            288 +
-                            (rect.width > 300 ? (rect.width - 300) / 2 : 0)) /
+                        top: `${(top - 12 - domPadding) / domZoom}px`,
+                        left: `${(left + width - (left + width > window.innerWidth - 20 ? 20 : 12) - domPadding) /
                             domZoom}px`,
                         transform: domZoom !== 1 ? `scale(${1 / domZoom})` : '',
                         transformOrigin: 'top left',
