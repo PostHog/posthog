@@ -7,22 +7,23 @@ export const toolbarLogic = kea({
     }),
 
     reducers: ({ props }) => ({
-        apiURL: [props.apiURL],
-        jsURL: [props.jsURL || props.apiURL],
+        rawApiURL: [props.apiURL],
+        rawJsURL: [props.jsURL || props.apiURL],
         temporaryToken: [props.temporaryToken || null],
         actionId: [props.actionId || null],
         defaultTab: [props.defaultTab || null],
     }),
 
     selectors: ({ selectors }) => ({
+        apiURL: [() => [selectors.rawApiURL], apiURL => `${apiURL}${apiURL.endsWith('/') ? '' : '/'}`],
+        jsURL: [() => [selectors.rawJsURL], jsURL => `${jsURL}${jsURL.endsWith('/') ? '' : '/'}`],
         isAuthenticated: [() => [selectors.temporaryToken], temporaryToken => !!temporaryToken],
     }),
 
     listeners: ({ values }) => ({
         authenticate: () => {
-            window.location.href = `${values.apiURL}${
-                values.apiURL.endsWith('/') ? '' : '/'
-            }authorize_and_redirect/?redirect=${encodeURIComponent(window.location.href)}`
+            const encodedUrl = encodeURIComponent(window.location.href)
+            window.location.href = `${values.apiURL}authorize_and_redirect/?redirect=${encodedUrl}`
         },
     }),
 })

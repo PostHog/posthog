@@ -7,6 +7,7 @@ import { FloatingToolbarHeader } from '~/toolbar/shared/FloatingToolbarHeader'
 import { StatsTab } from '~/toolbar/stats/StatsTab'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { DashboardsTab } from '~/toolbar/dashboards/DashboardsTab'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 const tabComponents = {
     actions: ActionsTab,
@@ -15,7 +16,8 @@ const tabComponents = {
 }
 
 export const ToolbarContent = hot(_ToolbarContent)
-function _ToolbarContent({ apiURL, temporaryToken, actionId, type, shadowRef, defaultTab }) {
+function _ToolbarContent({ type }) {
+    const { defaultTab } = useValues(toolbarLogic)
     const { tab, newTab } = useValues(toolbarTabLogic({ defaultTab }))
 
     const visible = tab ? { [tab]: 'visible' } : {}
@@ -34,18 +36,7 @@ function _ToolbarContent({ apiURL, temporaryToken, actionId, type, shadowRef, de
                     const className = fadingOut[key] || fadingIn[key] || invisible[key] || visible[key]
                     if (className) {
                         const Tab = tabComponents[key]
-                        return (
-                            <Tab
-                                key={key}
-                                tab={key}
-                                type={type}
-                                apiURL={apiURL}
-                                temporaryToken={temporaryToken}
-                                actionId={actionId}
-                                className={className}
-                                shadowRef={shadowRef}
-                            />
-                        )
+                        return <Tab key={key} type={type} />
                     } else {
                         return null
                     }

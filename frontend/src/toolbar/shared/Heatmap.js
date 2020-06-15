@@ -8,8 +8,7 @@ import { ElementMetadata } from '~/toolbar/shared/ElementMetadata'
 import { InspectElementRect } from '~/toolbar/shared/InspectElementRect'
 import { inBounds } from '~/toolbar/shared/utils'
 
-export function Heatmap({ apiURL, temporaryToken }) {
-    const logic = heatmapLogic({ apiURL, temporaryToken })
+export function Heatmap() {
     const {
         countedElementsWithRects,
         showElementFinder,
@@ -18,8 +17,8 @@ export function Heatmap({ apiURL, temporaryToken }) {
         selectedElementMeta,
         highlightedElement,
         highlightedElementMeta,
-    } = useValues(logic)
-    const { highlightElement, selectElement } = useActions(logic)
+    } = useValues(heatmapLogic)
+    const { highlightElement, selectElement } = useActions(heatmapLogic)
     const { domZoom, domPadding } = useValues(dockLogic)
     const {
         selecting: inspectElementActive,

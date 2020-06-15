@@ -6,6 +6,7 @@ import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { elementToActionStep, elementToSelector } from '~/toolbar/shared/utils'
 import { inspectElementLogic } from '~/toolbar/shared/inspectElementLogic'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 export const heatmapLogic = kea({
     actions: () => ({
@@ -63,17 +64,17 @@ export const heatmapLogic = kea({
         ],
     }),
 
-    loaders: ({ props }) => ({
+    loaders: () => ({
         events: [
             [],
             {
                 resetEvents: () => [],
                 getEvents: ({ $current_url }, breakpoint) => {
                     const results = fetch(
-                        `${props.apiURL}api/element/stats/?${encodeParams(
+                        `${toolbarLogic.values.apiURL}api/element/stats/?${encodeParams(
                             {
                                 properties: [{ key: '$current_url', value: $current_url }],
-                                temporary_token: props.temporaryToken,
+                                temporary_token: toolbarLogic.values.temporaryToken,
                             },
                             ''
                         )}`

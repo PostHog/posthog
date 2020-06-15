@@ -11,6 +11,7 @@ import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { heatmapLogic } from '~/toolbar/shared/heatmapLogic'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { getShadowRoot } from '~/toolbar/shared/utils'
 
 const quarters = { ne: 0, nw: 1, sw: 2, se: 3 }
 
@@ -24,7 +25,7 @@ function reverseQuarter(quarter) {
     return (quarter[0] === 'n' ? 's' : 'n') + (quarter[1] === 'e' ? 'w' : 'e')
 }
 
-export function ToolbarButton({ shadowRef }) {
+export function ToolbarButton() {
     const { extensionPercentage, quarter } = useValues(toolbarButtonLogic)
     const { setExtensionPercentage, setQuarter } = useActions(toolbarButtonLogic)
 
@@ -39,9 +40,10 @@ export function ToolbarButton({ shadowRef }) {
     const { isAuthenticated } = useValues(toolbarLogic)
     const { authenticate } = useActions(toolbarLogic)
 
-    function setQuarterFromShadowRef(shadowRef) {
-        if (shadowRef.current) {
-            const element = shadowRef.current.shadowRoot.getElementById('button-toolbar')
+    function setQuarterFromShadowRef() {
+        const shadowRoot = getShadowRoot()
+        if (shadowRoot) {
+            const element = shadowRoot.getElementById('button-toolbar')
             if (element) {
                 const rect = element.getBoundingClientRect()
                 const x = rect.x + rect.width / 2
@@ -57,12 +59,12 @@ export function ToolbarButton({ shadowRef }) {
     }
 
     useEffect(() => {
-        setQuarterFromShadowRef(shadowRef)
+        setQuarterFromShadowRef()
     }, [])
 
     const longPressEvents = useLongPress(
         clicked => {
-            setQuarterFromShadowRef(shadowRef)
+            setQuarterFromShadowRef()
 
             if (clicked) {
                 isAuthenticated ? dock() : authenticate()
@@ -76,10 +78,11 @@ export function ToolbarButton({ shadowRef }) {
     const globalMouseMove = useRef(null)
     useEffect(() => {
         globalMouseMove.current = function(e) {
-            if (shadowRef.current) {
-                setQuarterFromShadowRef(shadowRef)
+            const shadowRoot = getShadowRoot()
+            if (shadowRoot) {
+                setQuarterFromShadowRef()
 
-                const element = shadowRef.current.shadowRoot.getElementById('button-toolbar')
+                const element = shadowRoot.getElementById('button-toolbar')
                 if (element) {
                     const rect = element.getBoundingClientRect()
                     const x = rect.left + rect.width / 2
@@ -105,7 +108,7 @@ export function ToolbarButton({ shadowRef }) {
         }
         window.addEventListener('mousemove', globalMouseMove.current)
         return () => window.removeEventListener('mousemove', globalMouseMove.current)
-    }, [shadowRef.current, isAuthenticated])
+    }, [isAuthenticated])
 
     let index = 0
     const itemCount = 3

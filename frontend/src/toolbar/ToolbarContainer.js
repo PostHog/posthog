@@ -7,8 +7,7 @@ import { ToolbarButton } from '~/toolbar/button/ToolbarButton'
 import { ToolbarDraggable } from '~/toolbar/ToolbarDraggable'
 import { dockLogic } from '~/toolbar/dockLogic'
 
-export function ToolbarContainer({ ...props }) {
-    const apiURL = `${props.apiURL}${props.apiURL.endsWith('/') ? '' : '/'}`
+export function ToolbarContainer() {
     const { dockStatus, floatStatus, buttonStatus, windowWidth, isAnimating } = useValues(dockLogic)
     const { button } = useActions(dockLogic)
 
@@ -23,12 +22,12 @@ export function ToolbarContainer({ ...props }) {
 
     return (
         <>
-            {isAnimating ? null : <Heatmap {...props} />}
+            {isAnimating ? null : <Heatmap />}
 
             {showButton && windowWidth >= 0 ? (
                 <ToolbarDraggable type="button" handle="#button-toolbar">
                     <div id="button-toolbar" className={showInvisibleButton ? 'toolbar-invisible' : ''}>
-                        <ToolbarButton {...props} type="button" apiURL={apiURL} />
+                        <ToolbarButton />
                     </div>
                 </ToolbarDraggable>
             ) : null}
@@ -36,7 +35,7 @@ export function ToolbarContainer({ ...props }) {
             {showFloat && windowWidth >= 0 ? (
                 <ToolbarDraggable type="float" handle=".toolbar-block">
                     <div id="float-toolbar" className={showInvisibleFloat ? 'toolbar-invisible' : ''}>
-                        <ToolbarContent {...props} type="float" apiURL={apiURL} />
+                        <ToolbarContent type="float" />
                     </div>
                 </ToolbarDraggable>
             ) : null}
@@ -49,7 +48,7 @@ export function ToolbarContainer({ ...props }) {
                     >
                         <CloseOutlined />
                     </div>
-                    <ToolbarContent {...props} type="dock" apiURL={apiURL} />
+                    <ToolbarContent type="dock" />
                 </div>
             ) : null}
         </>
