@@ -9,19 +9,19 @@ const editLogic = kea({
         setRolloutPercentage: rollout_percentage => ({ rollout_percentage }),
         setFilters: filters => ({ filters }),
     }),
-    reducers: () => ({
-        filters: {
-            setFilters: (_, { filters }) => filters,
-        },
-        rollout_percentage: {
-            setRolloutPercentage: (_, { rollout_percentage }) => rollout_percentage,
-        },
-    }),
-    events: ({ actions, props }) => ({
-        afterMount: () => {
-            actions.setFilters(props.featureFlag.filters)
-            actions.setRolloutPercentage(props.featureFlag.rollout_percentage || null)
-        },
+    reducers: ({ props }) => ({
+        filters: [
+            props.featureFlag?.filters ? props.featureFlag.filters : {},
+            {
+                setFilters: (_, { filters }) => filters,
+            },
+        ],
+        rollout_percentage: [
+            props.featureFlag ? props.featureFlag.rollout_percentage : null,
+            {
+                setRolloutPercentage: (_, { rollout_percentage }) => rollout_percentage,
+            },
+        ],
     }),
 })
 
