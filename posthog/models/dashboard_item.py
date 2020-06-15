@@ -14,3 +14,5 @@ class DashboardItem(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     layouts: JSONField = JSONField(default=dict)
     color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    last_refresh: models.DateTimeField = models.DateTimeField(blank=True, null=True)
+    refreshing: models.BooleanField = models.BooleanField(default=False)

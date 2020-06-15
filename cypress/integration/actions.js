@@ -17,7 +17,7 @@ describe('Actions', () => {
         cy.get('[data-attr=create-action]').click()
         cy.get('.ant-card-head-title').should('contain', 'event or pageview')
         cy.get('[data-attr=new-action-pageview]').click()
-        cy.get('h1').should('contain', 'New action')
+        cy.get('h1').should('contain', 'New Action')
 
         cy.get('[data-attr=edit-action-input]').type(Cypress._.random(0, 1e6))
         cy.get('[data-attr=action-step-pageview]').click()

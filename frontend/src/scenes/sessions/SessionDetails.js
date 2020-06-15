@@ -1,8 +1,9 @@
 import React from 'react'
 import { Table } from 'antd'
 import { humanFriendlyDiff, humanFriendlyDetailedTime } from '~/lib/utils'
-import { EventDetails, formatEventName } from 'scenes/events'
+import { EventDetails } from 'scenes/events'
 import { Property } from 'lib/components/Property'
+import { eventToName } from 'lib/utils'
 
 export function SessionDetails({ events }) {
     const columns = [
@@ -10,7 +11,7 @@ export function SessionDetails({ events }) {
             title: 'Event',
             key: 'id',
             render: function RenderEvent(event) {
-                return formatEventName(event)
+                return eventToName(event)
             },
         },
         {

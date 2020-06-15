@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from posthog.models import Dashboard, DashboardItem
 from typing import Dict, Any
 from django.db.models import QuerySet
+from datetime import datetime
 
 class DashboardSerializer(serializers.ModelSerializer):
     items = serializers.SerializerMethodField()  # type: ignore
@@ -50,13 +51,13 @@ class DashboardsViewSet(viewsets.ModelViewSet):
 class DashboardItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = DashboardItem
-        fields = ['id', 'name', 'filters', 'order', 'type', 'deleted', 'dashboard', 'layouts', 'color']
+        fields = ['id', 'name', 'filters', 'order', 'type', 'deleted', 'dashboard', 'layouts', 'color', 'last_refresh', 'refreshing']
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
         request = self.context['request']
         team = request.user.team_set.get()
         if validated_data['dashboard'].team == team:
-            dashboard_item = DashboardItem.objects.create(team=team, **validated_data)
+            dashboard_item = DashboardItem.objects.create(team=team, last_refresh=datetime.now(), **validated_data)
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")

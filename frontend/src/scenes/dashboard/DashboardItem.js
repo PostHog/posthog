@@ -1,8 +1,9 @@
 import { Link } from 'lib/components/Link'
-import { Dropdown, Menu } from 'antd'
+import { useActions, useValues } from 'kea'
+import { Dropdown, Menu, Tooltip, Spin } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { ActionsLineGraph } from 'scenes/trends/ActionsLineGraph'
 import { ActionsTable } from 'scenes/trends/ActionsTable'
 import { ActionsPie } from 'scenes/trends/ActionsPie'
@@ -19,9 +20,14 @@ import {
     BlockOutlined,
     CopyOutlined,
     DeliveredProcedureOutlined,
+    ReloadOutlined,
 } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
+import { usePrevious } from 'lib/hooks/usePrevious'
+import moment from 'moment'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -81,7 +87,9 @@ export function DashboardItem({
     dashboards,
     enableWobblyDragging,
     index,
+    onRefresh,
 }) {
+    const [initialLoaded, setInitialLoaded] = useState(false)
     const className = typeMap[item.type].className
     const Element = typeMap[item.type].element
     const Icon = typeMap[item.type].icon
@@ -96,6 +104,18 @@ export function DashboardItem({
         click: false,
         exclude: 'table, table *',
     })
+
+    const filters = { ...item.filters, from_dashboard: item.id }
+    const logicProps = { dashboardItemId: item.id, filters: filters }
+    const { loadResults } = useActions(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
+    const { resultsLoading } = useValues(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
+    const previousLoading = usePrevious(resultsLoading)
+
+    // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
+    useEffect(() => {
+        if (previousLoading && !resultsLoading && !initialLoaded) setInitialLoaded(true)
+        else if (previousLoading && !resultsLoading && initialLoaded) onRefresh()
+    }, [resultsLoading])
 
     return (
         <div
@@ -122,6 +142,20 @@ export function DashboardItem({
                         </Link>
                     </div>
                     <div className="dashboard-item-settings">
+                        <Tooltip
+                            title={
+                                <i> Refreshed: {item.last_refresh ? moment(item.last_refresh).fromNow() : 'never'}</i>
+                            }
+                        >
+                            {item.refreshing ? (
+                                <Spin></Spin>
+                            ) : (
+                                <ReloadOutlined
+                                    style={{ cursor: 'pointer', marginTop: -3 }}
+                                    onClick={() => loadResults(true)}
+                                />
+                            )}
+                        </Tooltip>
                         <Dropdown
                             placement="bottomRight"
                             trigger="click"
@@ -213,7 +247,7 @@ export function DashboardItem({
                         <div className="graph-container">
                             <Element
                                 dashboardItemId={item.id}
-                                filters={item.filters}
+                                filters={filters}
                                 color={color}
                                 theme={color === 'white' ? 'light' : 'dark'}
                             />

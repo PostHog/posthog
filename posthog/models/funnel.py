@@ -28,7 +28,6 @@ from .utils import namedtuplefetchall
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 
-
 class Funnel(models.Model):
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
