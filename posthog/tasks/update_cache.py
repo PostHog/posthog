@@ -23,10 +23,10 @@ def update_cache(cache_type: str, payload: dict) -> Optional[Union[dict, List[Di
         filter_dict.update({'entities': entities})
         filter = Filter(data=filter_dict)
 
-        result = _calculate_trends(filter, payload['params'], payload['team_id'])
+        result = _calculate_trends(filter, payload['params'], int(payload['team_id']))
 
     elif cache_type == FUNNEL_ENDPOINT:
-        result = _calculate_funnels(payload['pk'], payload['params'], payload['team_id'])
+        result = _calculate_funnels(payload['pk'], payload['params'], int(payload['team_id']))
 
     if payload['dashboard_id']:
         dashboard_item = DashboardItem.objects.filter(pk=payload['dashboard_id'])
@@ -36,12 +36,12 @@ def update_cache(cache_type: str, payload: dict) -> Optional[Union[dict, List[Di
 
     return result
 
-def _calculate_trends(filter: Filter, params: dict, team_id: str) -> List[Dict[str, Any]]:
+def _calculate_trends(filter: Filter, params: dict, team_id: int) -> List[Dict[str, Any]]:
     actions = get_actions(Action.objects.all(), params, team_id)
     data = calculate_trends(filter, params, team_id, actions)
     return data
 
-def _calculate_funnels(pk: str, params: dict, team_id: str) -> dict:
+def _calculate_funnels(pk: str, params: dict, team_id: int) -> dict:
     funnel = Funnel.objects.get(pk=pk, team_id=team_id)
     return FunnelSerializer(funnel, context={'cache': True}).data
 
