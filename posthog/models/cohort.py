@@ -7,6 +7,7 @@ from .action import Action
 from .event import Event
 from .filter import Filter
 from dateutil.relativedelta import relativedelta
+from sentry_sdk import capture_exception
 
 from typing import Any, Dict, Optional
 import json
