@@ -9,7 +9,7 @@ from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.template.loader import render_to_string
 
-from .api import router, capture, user
+from .api import router, capture, user, decide
 from .models import Team, User
 from .utils import render_template
 from .views import health, stats
@@ -147,7 +147,7 @@ urlpatterns = [
     path('api/user/redirect_to_site/', user.redirect_to_site),
     path('api/user/change_password/', user.change_password),
     path('api/user/test_slack_webhook/', user.test_slack_webhook),
-    path('decide/', capture.get_decide),
+    path('decide/', decide.get_decide),
     path('engage/', capture.get_event),
     path('engage', capture.get_event),
     re_path(r'^demo.*', decorators.login_required(demo)),
