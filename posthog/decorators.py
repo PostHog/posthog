@@ -56,7 +56,7 @@ def cached_function(cache_type: str, expiry=30):
             if params and refresh and dashboard_item_id:
                 dashboard_item = DashboardItem.objects.filter(pk=dashboard_item_id)
                 dashboard_item.update(refreshing=True)
-                update_cache_item.delay(cache_key, cache_type, payload)
+                update_cache_item.delay(cache_key, cache_type, payload, datetime.now())
 
             # return result if cached
             cached_result = cache.get(cache_key)
