@@ -25,7 +25,7 @@ export function Cohort({ onChange }) {
             type="primary"
             data-attr="create-cohort"
         >
-            + new cohort
+            + New Cohort
         </Button>
     ) : (
         <div style={{ maxWidth: 750 }}>
@@ -40,7 +40,7 @@ export function Cohort({ onChange }) {
                                 router.actions.push(`${this.props.location.pathname}`)
                             }}
                         />
-                        {cohort.name || 'New cohort'}
+                        {cohort.name || 'New Cohort'}
                     </span>
                 }
             >
