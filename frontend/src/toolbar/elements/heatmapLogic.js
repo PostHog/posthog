@@ -72,27 +72,32 @@ export const heatmapLogic = kea({
                             const selector = elementToSelector(event.elements[i])
                             combinedSelector = combinedSelector ? `${selector} > ${combinedSelector}` : selector
 
-                            const elements = Array.from(document.querySelectorAll(combinedSelector)).filter(
-                                e => e.getBoundingClientRect().width > 0
-                            )
+                            try {
+                                const elements = Array.from(document.querySelectorAll(combinedSelector)).filter(
+                                    e => e.getBoundingClientRect().width > 0
+                                )
 
-                            if (elements.length === 1) {
-                                return {
-                                    element: elements[0],
-                                    count: event.count,
-                                    selector: selector,
-                                    hash: event.hash,
+                                if (elements.length === 1) {
+                                    return {
+                                        element: elements[0],
+                                        count: event.count,
+                                        selector: selector,
+                                        hash: event.hash,
+                                    }
                                 }
-                            }
 
-                            if (elements.length === 0 && i === 0) {
-                                console.error('found a case with 0 elements')
-                                return null
-                            }
+                                if (elements.length === 0 && i === 0) {
+                                    console.error('found a case with 0 elements')
+                                    return null
+                                }
 
-                            // not the last one in the loop
-                            if (i !== event.elements.length - 1) {
-                                continue
+                                // not the last one in the loop
+                                if (i !== event.elements.length - 1) {
+                                    continue
+                                }
+                            } catch (error) {
+                                console.error('Invalid selector!', combinedSelector)
+                                throw error
                             }
 
                             // TODO: what if multiple elements will continue to match until the end?
