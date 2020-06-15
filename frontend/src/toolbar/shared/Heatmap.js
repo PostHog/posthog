@@ -6,7 +6,8 @@ import { FocusRect } from '~/toolbar/shared/FocusRect'
 import { inspectElementLogic } from '~/toolbar/shared/inspectElementLogic'
 import { ElementMetadata } from '~/toolbar/shared/ElementMetadata'
 import { InspectElementRect } from '~/toolbar/shared/InspectElementRect'
-import { inBounds } from '~/toolbar/shared/utils'
+import { HeatmapElement } from '~/toolbar/shared/HeatmapElement'
+import { HeatmapLabel } from '~/toolbar/shared/HeatmapLabel'
 
 export function Heatmap() {
     const {
@@ -77,23 +78,17 @@ export function Heatmap() {
             {countedElementsWithRects.map(({ rect, count, element }, index) => {
                 return (
                     <React.Fragment key={index}>
-                        <div
+                        <HeatmapElement
+                            rect={rect}
+                            domPadding={domPadding}
+                            domZoom={domZoom}
                             style={{
                                 pointerEvents: inspectElementActive ? 'none' : 'all',
-                                position: 'absolute',
-                                top: `${(rect.top - domPadding + window.pageYOffset) / domZoom}px`,
-                                left: `${(rect.left - domPadding + window.pageXOffset) / domZoom}px`,
-                                width: `${(rect.right - rect.left) / domZoom}px`,
-                                height: `${(rect.bottom - rect.top) / domZoom}px`,
                                 zIndex: 1,
                                 opacity: highlightedElement && highlightedElement !== element ? 0.4 : 1,
                                 transition: 'opacity 0.2s, box-shadow 0.2s',
                                 cursor: 'pointer',
                                 backgroundBlendMode: 'multiply',
-                                // green
-                                // background: 'rgba(76, 174, 79, 0.3)',
-                                // boxShadow: 'rgba(53, 95, 54, 0.7) 0px 3px 10px 2px',
-                                // // red
                                 background: `hsla(4, 90%, 58%, ${(count / highestEventCount) * 0.4})`,
                                 boxShadow: `hsla(4, 90%, 27%, 0.8) 0px 3px 10px ${
                                     highlightedElement === element ? 4 : 2
@@ -109,36 +104,21 @@ export function Heatmap() {
                             onMouseOver={() => highlightElement(element)}
                             onMouseOut={() => highlightElement(null)}
                         />
-                        <div
+                        <HeatmapLabel
+                            rect={rect}
+                            domPadding={domPadding}
+                            domZoom={domZoom}
+                            label={<>{index + 1}</>}
                             style={{
-                                position: 'absolute',
                                 zIndex: 5,
-                                top: `${inBounds(
-                                    window.pageYOffset,
-                                    rect.top - domPadding - 7 + window.pageYOffset,
-                                    window.pageYOffset + window.innerHeight - 14
-                                ) / domZoom}px`,
-                                left: `${inBounds(
-                                    window.pageXOffset,
-                                    rect.left + rect.width - domPadding - 14 + window.pageXOffset,
-                                    window.pageXOffset + window.innerWidth - 14
-                                ) / domZoom}px`,
-                                lineHeight: '14px',
-                                padding: '1px 4px',
                                 opacity: highlightedElement && highlightedElement !== element ? 0.4 : 1,
                                 transition: 'opacity 0.2s, transform 0.2s linear',
                                 transform: highlightedElement === element ? 'scale(1.3)' : 'none',
-                                color: 'hsla(54, 20%, 12%, 1)',
-                                background: '#FFEB3B',
-                                boxShadow: 'hsla(54, 100%, 32%, 1) 0px 1px 5px 1px',
-                                fontSize: 16,
-                                fontWeight: 'bold',
-                                fontFamily: 'monospace',
                                 pointerEvents: 'none',
                             }}
                         >
                             {index + 1}
-                        </div>
+                        </HeatmapLabel>
                     </React.Fragment>
                 )
             })}
