@@ -4,6 +4,7 @@ from posthog.models import Filter, DashboardItem
 from django.core.cache import cache
 import json
 from posthog.celery import update_cache_item
+from datetime import datetime
 
 def generate_cache_key(obj):
     stringified = json.dumps(obj)
@@ -67,7 +68,7 @@ def cached_function(cache_type: str, expiry=30):
 
             # cache new data using
             if result and payload:
-                cache.set(cache_key, {'result':result, 'details': payload, 'type': cache_type}, _expiry)
+                cache.set(cache_key, {'result':result, 'details': payload, 'type': cache_type, 'last_accessed': datetime.now()}, _expiry)
 
             return result
         return wrapper
