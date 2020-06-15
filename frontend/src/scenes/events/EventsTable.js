@@ -5,11 +5,13 @@ import moment from 'moment'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { EventDetails } from 'scenes/events/EventDetails'
+import { SearchOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { Button, Spin, Table, Tooltip } from 'antd'
 import { router } from 'kea-router'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
+import { EventName } from 'scenes/actions/EventName'
 
 const eventNameMap = event => {
     if (event.properties.$event_type === 'click') return 'clicked '
@@ -19,8 +21,8 @@ const eventNameMap = event => {
 }
 
 export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLiveActions }) {
-    const { properties, eventsFormatted, isLoading, hasNext, isLoadingNext, newEvents } = useValues(logic)
-    const { fetchNextEvents, prependNewEvents } = useActions(logic)
+    const { properties, eventsFormatted, isLoading, hasNext, isLoadingNext, newEvents, eventFilter } = useValues(logic)
+    const { fetchNextEvents, prependNewEvents, setEventFilter } = useActions(logic)
     const {
         location: { search },
     } = useValues(router)
@@ -29,7 +31,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
 
     let columns = [
         {
-            title: 'Event',
+            title: `Event ${eventFilter && ` (${eventFilter})`}`,
             key: 'event',
             render: function renderEvent(item) {
                 if (!item.event)
@@ -57,6 +59,34 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
                             event.elements[0].text &&
                             ' with text "' + event.elements[0].text + '"'}
                     </>
+                )
+            },
+            filterIcon: function RenderFilterIcon() {
+                return <SearchOutlined style={{ color: eventFilter && '#1890ff' }} />
+            },
+            filterDropdown: function RenderFilter({ confirm }) {
+                return (
+                    <div style={{ padding: '1rem' }}>
+                        <Button
+                            style={{ float: 'right', marginTop: -6, marginBottom: 8 }}
+                            onClick={() => {
+                                confirm()
+                                setEventFilter(false)
+                            }}
+                            type="primary"
+                            disabled={!eventFilter}
+                        >
+                            Reset
+                        </Button>
+                        Filter by event
+                        <EventName
+                            value={eventFilter}
+                            onChange={value => {
+                                confirm()
+                                setEventFilter(value)
+                            }}
+                        />
+                    </div>
                 )
             },
         },
