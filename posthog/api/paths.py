@@ -105,7 +105,7 @@ class PathsViewSet(viewsets.ViewSet):
                 **date_query
             )\
             .filter(~Q(event__in=['$autocapture', '$pageview', '$identify', '$pageleave']) if event is None else Q())\
-            .filter(Filter(data={'properties': json.loads(properties)}).properties_to_Q() if properties else Q())\
+            .filter(Filter(data={'properties': json.loads(properties)}).properties_to_Q(team_id=team.pk) if properties else Q())\
             .annotate(previous_timestamp=Window(
                 expression=Lag('timestamp', default=None),
                 partition_by=F('distinct_id'),
