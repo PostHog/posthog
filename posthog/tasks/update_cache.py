@@ -13,11 +13,7 @@ logger = logging.getLogger(__name__)
 @shared_task
 def update_cache(cache_type: str, payload: dict) -> Optional[Union[dict, List[Dict[str, Any]]]]:
 
-    if payload['dashboard_id']:
-        dashboard_item = DashboardItem.objects.filter(pk=payload['dashboard_id'])
-        if dashboard_item[0] and dashboard_item[0].deleted:
-            return None
-        dashboard_item.update(last_refresh=datetime.datetime.now())
+    result: Optional[Union[dict, List[Dict[str, Any]]]] = None
 
     if cache_type == TRENDS_ENDPOINT:
 
@@ -27,11 +23,18 @@ def update_cache(cache_type: str, payload: dict) -> Optional[Union[dict, List[Di
         filter_dict.update({'entities': entities})
         filter = Filter(data=filter_dict)
 
-        return _calculate_trends(filter, payload['params'], payload['team_id'])
+        result = _calculate_trends(filter, payload['params'], payload['team_id'])
 
     elif cache_type == FUNNEL_ENDPOINT:
-        return _calculate_funnels(payload['pk'], payload['params'], payload['team_id'])
-    return None
+        result = _calculate_funnels(payload['pk'], payload['params'], payload['team_id'])
+
+    if payload['dashboard_id']:
+        dashboard_item = DashboardItem.objects.filter(pk=payload['dashboard_id'])
+        if dashboard_item[0] and dashboard_item[0].deleted:
+            return None
+        dashboard_item.update(last_refresh=datetime.datetime.now())
+
+    return result
 
 def _calculate_trends(filter: Filter, params: dict, team_id: str) -> List[Dict[str, Any]]:
     actions = get_actions(Action.objects.all(), params, team_id)

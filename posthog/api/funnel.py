@@ -49,10 +49,10 @@ class FunnelViewSet(viewsets.ModelViewSet):
 
     @cached_function(cache_type=FUNNEL_ENDPOINT)
     def _retrieve(self, request, pk=None) -> dict:
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
         dashboard_id = request.GET.get('from_dashboard', None)
         if dashboard_id:
             DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.datetime.now())
-        instance = self.get_object()
-        serializer = self.get_serializer(instance)
         return serializer.data
 

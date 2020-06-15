@@ -159,14 +159,17 @@ class ActionViewSet(viewsets.ModelViewSet):
 
     @cached_function(cache_type=TRENDS_ENDPOINT)
     def _calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
-        dashboard_id = request.GET.get('from_dashboard', None)
-        if dashboard_id:
-            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.datetime.now())
         team = request.user.team_set.get()
         actions = self.get_queryset()
         params = request.GET.dict()
         filter = Filter(request=request)
-        return calculate_trends(filter, params, team.pk, actions)
+        result = calculate_trends(filter, params, team.pk, actions)
+
+        dashboard_id = request.GET.get('from_dashboard', None)
+        if dashboard_id:
+            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.datetime.now())
+
+        return result
 
     @action(methods=['GET'], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:

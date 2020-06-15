@@ -1,6 +1,6 @@
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
-import { Dropdown, Menu } from 'antd'
+import { Dropdown, Menu, Tooltip } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React, { useEffect } from 'react'
@@ -137,10 +137,12 @@ export function DashboardItem({
                         </Link>
                     </div>
                     <div className="dashboard-item-settings">
-                        <span style={{ cursor: 'pointer', marginTop: -3 }} onClick={() => loadResults(true)}>
-                            {item.last_refresh && <i> Updated: {moment(item.last_refresh).fromNow()}</i>}
-                            <ReloadOutlined />
-                        </span>
+                        <Tooltip title={item.last_refresh && <i> Refreshed: {moment(item.last_refresh).fromNow()}</i>}>
+                            <ReloadOutlined
+                                style={{ cursor: 'pointer', marginTop: -3 }}
+                                onClick={() => loadResults(true)}
+                            />
+                        </Tooltip>
                         <Dropdown
                             placement="bottomRight"
                             trigger="click"
