@@ -13,12 +13,7 @@ import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { EventName } from 'scenes/actions/EventName'
 
-const eventNameMap = event => {
-    if (event.properties.$event_type === 'click') return 'clicked '
-    if (event.properties.$event_type === 'change') return 'typed something into '
-    if (event.properties.$event_type === 'submit') return 'submitted '
-    return event.event
-}
+import { eventToName } from 'lib/utils'
 
 export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLiveActions }) {
     const { properties, eventsFormatted, isLoading, hasNext, isLoadingNext, newEvents, eventFilter } = useValues(logic)
@@ -47,19 +42,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
                         },
                     }
                 let { event } = item
-                return (
-                    <>
-                        {eventNameMap(event)}
-                        {event.elements.length > 0 && (
-                            <pre style={{ marginBottom: 0, display: 'inline' }}>
-                                &lt;{event.elements[0].tag_name}&gt;
-                            </pre>
-                        )}
-                        {event.elements.length > 0 &&
-                            event.elements[0].text &&
-                            ' with text "' + event.elements[0].text + '"'}
-                    </>
-                )
+                return eventToName(event)
             },
             filterIcon: function RenderFilterIcon() {
                 return <SearchOutlined style={{ color: eventFilter && '#1890ff' }} data-attr="event-filter-trigger" />

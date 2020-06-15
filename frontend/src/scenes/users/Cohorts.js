@@ -88,7 +88,7 @@ function _Cohorts() {
         <div>
             <h1 className="page-header">Cohorts</h1>
             <LinkButton to={'/people/new_cohort'} type="primary" data-attr="create-cohort">
-                + new cohort
+                + New Cohort
             </LinkButton>
             <br />
             <br />
