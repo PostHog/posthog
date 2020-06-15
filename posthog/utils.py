@@ -2,11 +2,11 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from django.conf import settings
 from django.db.models import Q
-from typing import Dict, Any, List, Union
+from typing import Dict, Any, List, Union, Tuple
 from django.template.loader import get_template
 from django.http import HttpResponse, JsonResponse, HttpRequest
 from dateutil import parser
-from typing import Tuple
+from urllib.parse import urlparse
 
 import datetime
 import json
@@ -174,3 +174,13 @@ def get_compare_period_dates(date_from: datetime.datetime, date_to: datetime.dat
     diff = date_to - date_from
     new_date_from = date_from - diff
     return new_date_from, new_date_to
+
+def cors_response(request, response):
+    if not request.META.get('HTTP_ORIGIN'):
+        return response
+    url = urlparse(request.META['HTTP_ORIGIN'])
+    response["Access-Control-Allow-Origin"] = "%s://%s" % (url.scheme, url.netloc)
+    response["Access-Control-Allow-Credentials"] = 'true'
+    response["Access-Control-Allow-Methods"] = 'GET, POST, OPTIONS'
+    response["Access-Control-Allow-Headers"] = 'X-Requested-With'
+    return response

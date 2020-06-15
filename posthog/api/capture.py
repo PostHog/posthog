@@ -1,11 +1,9 @@
-from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from posthog.models import Team
-from posthog.utils import get_ip_address
+from posthog.utils import get_ip_address, cors_response
 from typing import Dict, Union, Optional, List, Any
-from urllib.parse import urlparse
 from posthog.tasks.process_event import process_event
 from datetime import datetime
 from dateutil import parser
@@ -17,16 +15,6 @@ import base64
 import gzip
 
 TEAM_ID_CACHE: Dict[str, int] = {}
-
-def cors_response(request, response):
-    if not request.META.get('HTTP_ORIGIN'):
-        return response
-    url = urlparse(request.META['HTTP_ORIGIN'])
-    response["Access-Control-Allow-Origin"] = "%s://%s" % (url.scheme, url.netloc)
-    response["Access-Control-Allow-Credentials"] = 'true'
-    response["Access-Control-Allow-Methods"] = 'GET, POST, OPTIONS'
-    response["Access-Control-Allow-Headers"] = 'X-Requested-With'
-    return response
 
 def _load_data(request) -> Optional[Union[Dict, List]]:
     if request.method == 'POST':

@@ -1,5 +1,11 @@
-
+from django.conf import settings
+from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from typing import Optional
+from posthog.utils import cors_response
+from urllib.parse import urlparse
+import secrets
+
 
 def parse_domain(url: str) -> Optional[str]:
     return urlparse(url).hostname

@@ -1,5 +1,7 @@
 from .base import BaseTest
 
+from django.conf import settings
+
 class TestDecide(BaseTest):
     TESTS_API = True
 
