@@ -1,7 +1,7 @@
 import React from 'react'
 
 export function Circle({
-    radius,
+    width,
     distance,
     rotate,
     content,
@@ -84,10 +84,10 @@ export function Circle({
                         className={`circle-button${className ? ` ${className}` : ''}`}
                         style={{
                             position: 'absolute',
-                            width: radius,
-                            height: radius,
-                            marginLeft: -radius / 2,
-                            marginTop: -radius / 2,
+                            width: width,
+                            height: width,
+                            marginLeft: -width / 2,
+                            marginTop: -width / 2,
                             transformOrigin: '50% 50%',
                             borderRadius: '100%',
                             background: 'white',
@@ -111,7 +111,7 @@ export function Circle({
                                 width: 100,
                                 height: 20,
                                 marginLeft: -50,
-                                marginTop: radius / 2,
+                                marginTop: width / 2,
                                 textAlign: 'center',
                                 whiteSpace: 'nowrap',
                                 color: 'white',

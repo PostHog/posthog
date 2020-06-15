@@ -122,7 +122,7 @@ export function ToolbarButton() {
         <>
             <Circle
                 rootNode
-                radius={64}
+                width={64}
                 className="floating-toolbar-button"
                 content={<Logo style={{ width: 54, height: 54, filter: 'invert(1)', cursor: 'pointer' }} />}
                 label={isAuthenticated ? 'Toolbar' : 'Oh, Hello!'}
@@ -131,7 +131,7 @@ export function ToolbarButton() {
                 zIndex={3}
             >
                 <Circle
-                    radius={32}
+                    width={32}
                     distance={closeDistance}
                     rotate={getQuarterRotation({ itemCount: 1, quarter: quarters[reverseQuarter(quarter)] })}
                     content={<CloseOutlined />}
@@ -142,7 +142,7 @@ export function ToolbarButton() {
                 {isAuthenticated ? (
                     <>
                         <Circle
-                            radius={48}
+                            width={48}
                             distance={inspectDistance}
                             rotate={getQuarterRotation({
                                 itemCount,
@@ -188,7 +188,7 @@ export function ToolbarButton() {
                             }}
                         />
                         <Circle
-                            radius={48}
+                            width={48}
                             distance={heatmapDistance}
                             rotate={getQuarterRotation({
                                 itemCount,
@@ -212,7 +212,7 @@ export function ToolbarButton() {
                         >
                             {heatmapLoading ? (
                                 <Circle
-                                    radius={12}
+                                    width={12}
                                     distance={30 * (0.2 + (0.8 * heatmapDistance) / 100)}
                                     rotate={0}
                                     animate
@@ -238,7 +238,7 @@ export function ToolbarButton() {
                             ) : null}
                         </Circle>
                         <Circle
-                            radius={48}
+                            width={48}
                             distance={distance}
                             rotate={getQuarterRotation({
                                 itemCount,
