@@ -65,7 +65,7 @@ export function ToolbarButton({ shadowRef }) {
             setQuarterFromShadowRef(shadowRef)
 
             if (clicked) {
-                dock()
+                isAuthenticated ? dock() : authenticate()
             } else {
                 // extendButtons()
             }
@@ -122,10 +122,9 @@ export function ToolbarButton({ shadowRef }) {
                 radius={64}
                 className="floating-toolbar-button"
                 content={<Logo style={{ width: 54, height: 54, filter: 'invert(1)', cursor: 'pointer' }} />}
-                label={isAuthenticated ? 'Toolbar' : 'Authenticate!'}
+                label={isAuthenticated ? 'Toolbar' : 'Oh, Hello!'}
                 labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
-                onClick={isAuthenticated ? null : authenticate}
-                {...(isAuthenticated ? longPressEvents : {})}
+                {...longPressEvents}
                 zIndex={3}
             >
                 <Circle
