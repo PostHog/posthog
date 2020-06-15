@@ -142,7 +142,11 @@ export function DashboardItem({
                         </Link>
                     </div>
                     <div className="dashboard-item-settings">
-                        <Tooltip title={item.last_refresh && <i> Refreshed: {moment(item.last_refresh).fromNow()}</i>}>
+                        <Tooltip
+                            title={
+                                <i> Refreshed: {item.last_refresh ? moment(item.last_refresh).fromNow() : 'never'}</i>
+                            }
+                        >
                             <ReloadOutlined
                                 style={{ cursor: 'pointer', marginTop: -3 }}
                                 onClick={() => loadResults(true)}
