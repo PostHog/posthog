@@ -46,7 +46,7 @@ class ElementViewSet(viewsets.ModelViewSet):
             'elements': [
                 ElementSerializer(element).data for element in [
                     group for group in groups if group.hash == item['elements_hash']
-                ][0].element_set.all()
+                ][0].element_set.all().order_by('order')
             ]
         } for item in events])
 
