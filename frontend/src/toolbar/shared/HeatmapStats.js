@@ -8,7 +8,7 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 export function HeatmapStats() {
     const { countedElements, eventCount, heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
     const { setHeatmapEnabled } = useActions(heatmapLogic)
-    const { setHoverElement } = useActions(elementsLogic)
+    const { setHighlightElement } = useActions(elementsLogic)
 
     return (
         <div className="toolbar-block">
@@ -28,8 +28,8 @@ export function HeatmapStats() {
                     {countedElements.map(({ element, count, actionStep }, index) => (
                         <div
                             key={index}
-                            onMouseEnter={() => setHoverElement(element, true)}
-                            onMouseLeave={() => setHoverElement(null)}
+                            onMouseEnter={() => setHighlightElement(element)}
+                            onMouseLeave={() => setHighlightElement(null)}
                             style={{ cursor: 'pointer' }}
                         >
                             {index + 1}. {actionStep.text} - {count} clicks

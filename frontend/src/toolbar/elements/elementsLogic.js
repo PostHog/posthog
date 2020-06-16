@@ -10,7 +10,8 @@ export const elementsLogic = kea({
         disableInspect: true,
 
         updateRects: true,
-        setHoverElement: (element, highlight = false) => ({ element, highlight }),
+        setHoverElement: element => ({ element }),
+        setHighlightElement: element => ({ element }),
         setSelectedElement: element => ({ element }),
     },
 
@@ -31,8 +32,8 @@ export const elementsLogic = kea({
         hoverElement: {
             setHoverElement: (_, { element }) => element,
         },
-        hoverElementHighlight: {
-            setHoverElement: (_, { highlight }) => highlight,
+        highlightElement: {
+            setHighlightElement: (_, { element }) => element,
         },
         selectedElement: {
             setSelectedElement: (_, { element }) => element,
@@ -84,13 +85,12 @@ export const elementsLogic = kea({
             selectors => [selectors.selectedElement, selectors.elementMap],
             (selectedElement, elementMap) => {
                 const meta = elementMap.get(selectedElement)
-                if (!meta) {
-                    return null
-                }
-                return {
-                    ...meta,
-                    actionStep: meta.actionStep || elementToActionStep(meta.element),
-                }
+                return meta
+                    ? {
+                          ...meta,
+                          actionStep: meta.actionStep || elementToActionStep(meta.element),
+                      }
+                    : null
             },
         ],
 
@@ -98,13 +98,25 @@ export const elementsLogic = kea({
             selectors => [selectors.hoverElement, selectors.elementMap],
             (hoverElement, elementMap) => {
                 const meta = elementMap.get(hoverElement)
-                if (!meta) {
-                    return null
-                }
-                return {
-                    ...meta,
-                    actionStep: meta.actionStep || elementToActionStep(meta.element),
-                }
+                return meta
+                    ? {
+                          ...meta,
+                          actionStep: meta.actionStep || elementToActionStep(meta.element),
+                      }
+                    : null
+            },
+        ],
+
+        highlightElementMeta: [
+            selectors => [selectors.highlightElement, selectors.elementMap],
+            (highlightElement, elementMap) => {
+                const meta = elementMap.get(highlightElement)
+                return meta
+                    ? {
+                          ...meta,
+                          actionStep: meta.actionStep || elementToActionStep(meta.element),
+                      }
+                    : null
             },
         ],
     },

@@ -5,21 +5,16 @@ import { useActions, useValues } from 'kea'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { FocusRect } from '~/toolbar/elements/FocusRect'
-import { ElementMetadata } from '~/toolbar/elements/ElementMetadata'
+import { HeatmapInfoWindow } from '~/toolbar/elements/HeatmapInfoWindow'
 import { HeatmapElement } from '~/toolbar/elements/HeatmapElement'
 import { HeatmapLabel } from '~/toolbar/elements/HeatmapLabel'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
 export function Elements() {
-    const { domZoom, domPadding } = useValues(dockLogic)
-    const {
-        heatmapElements,
-        inspectElements,
-        hoverElement,
-        inspectEnabled,
-        hoverElementMeta,
-        hoverElementHighlight,
-    } = useValues(elementsLogic)
+    const { domZoom, domPadding, mode } = useValues(dockLogic)
+    const { heatmapElements, inspectElements, hoverElement, inspectEnabled, highlightElementMeta } = useValues(
+        elementsLogic
+    )
     const { setHoverElement, setSelectedElement } = useActions(elementsLogic)
     const { highestEventCount } = useValues(heatmapLogic)
 
@@ -36,8 +31,8 @@ export function Elements() {
                 pointerEvents: 'none',
             }}
         >
-            {hoverElementMeta && hoverElementHighlight ? <FocusRect rect={hoverElementMeta.rect} /> : null}
-            <ElementMetadata />
+            {highlightElementMeta ? <FocusRect rect={highlightElementMeta.rect} /> : null}
+            {mode === 'dock' ? null : <HeatmapInfoWindow />}
 
             {inspectElements.map(({ rect, element }, index) => (
                 <HeatmapElement
