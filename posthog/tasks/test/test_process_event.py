@@ -277,18 +277,19 @@ class ProcessEvent(BaseTest):
             'key_on_old': 'old value'
         })
 
-    def test_long_href(self) -> None:
+    def test_long_htext(self) -> None:
         process_event('new_distinct_id', '', '', {
             'event': '$autocapture',
             'properties': {
                 'distinct_id': 'new_distinct_id',
                 'token': self.team.api_token,
                 '$elements': [
-                    {'tag_name': 'a', 'attr__href': 'a' * 2050, 'nth_child': 1, 'nth_of_type': 2, 'attr__class': 'btn btn-sm'},
+                    {'tag_name': 'a', '$el_text': 'a' * 2050, 'attr__href': 'a' * 2050, 'nth_child': 1, 'nth_of_type': 2, 'attr__class': 'btn btn-sm'},
                 ]
             }
         }, self.team.pk, now().isoformat(), now().isoformat())
         self.assertEqual(len(Element.objects.get().href), 2048)
+        self.assertEqual(len(Element.objects.get().text), 400)
 
 
 class TestIdentify(TransactionTestCase):
