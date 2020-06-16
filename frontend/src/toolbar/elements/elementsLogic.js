@@ -34,6 +34,8 @@ export const elementsLogic = kea({
         },
         highlightElement: {
             setHighlightElement: (_, { element }) => element,
+            setHoverElement: () => null,
+            setSelectedElement: () => null,
         },
         selectedElement: {
             setSelectedElement: (_, { element }) => element,
