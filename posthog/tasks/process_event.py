@@ -97,7 +97,7 @@ def _capture(ip: str,
             Element(
                 text=el.get('$el_text'),
                 tag_name=el['tag_name'],
-                href=el.get('attr__href'),
+                href=el['attr__href'][0:2048] if el.get('attr__href') else None,
                 attr_class=el['attr__class'].split(' ') if el.get('attr__class') else None,
                 attr_id=el.get('attr__id'),
                 nth_child=el.get('nth_child'),
