@@ -102,6 +102,7 @@ export const trendsLogic = kea({
                             (refresh ? 'refresh=true&' : '') +
                             toAPIParams(filterClientSideParams(values.filters))
                     )
+                    response = response.result
                 } else {
                     response = await api.get(
                         'api/action/trends/?' +
