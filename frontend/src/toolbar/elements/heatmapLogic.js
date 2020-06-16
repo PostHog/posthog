@@ -57,6 +57,17 @@ export const heatmapLogic = kea({
                         throw new Error('Error loading HeatMap data!')
                     }
 
+                    results.forEach(result => {
+                        if (
+                            result.elements &&
+                            result.elements.length > 0 &&
+                            result.elements[result.elements.length - 1] &&
+                            result.elements[result.elements.length - 1].tag_name === 'body'
+                        ) {
+                            result.elements.reverse()
+                        }
+                    })
+
                     return results
                 },
             },
