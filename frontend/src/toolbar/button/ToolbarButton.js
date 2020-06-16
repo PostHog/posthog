@@ -47,7 +47,7 @@ export function ToolbarButton() {
     const { enableInspect, disableInspect } = useActions(elementsLogic)
     const { inspectEnabled, selectedElement } = useValues(elementsLogic)
 
-    const { setHeatmapEnabled } = useActions(heatmapLogic)
+    const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
     const { heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
 
     const { dock, float, hideButton } = useActions(dockLogic)
@@ -203,7 +203,7 @@ export function ToolbarButton() {
                         labelStyle={{ opacity: heatmapDistance > 80 ? (heatmapDistance - 80) / 20 : 0 }}
                         content={<FireFilled />}
                         zIndex={1}
-                        onClick={() => setHeatmapEnabled(!heatmapEnabled)}
+                        onClick={heatmapEnabled ? disableHeatmap : enableHeatmap}
                         style={{
                             cursor: 'pointer',
                             background: heatmapEnabled ? '#FF5722' : 'hsl(14, 100%, 97%)',

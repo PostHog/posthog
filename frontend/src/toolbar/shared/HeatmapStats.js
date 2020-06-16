@@ -7,7 +7,7 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
 export function HeatmapStats() {
     const { countedElements, eventCount, heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
-    const { setHeatmapEnabled } = useActions(heatmapLogic)
+    const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
     const { setHighlightElement } = useActions(elementsLogic)
 
     return (
@@ -15,7 +15,7 @@ export function HeatmapStats() {
             <div>
                 <Button
                     type={heatmapEnabled ? 'primary' : 'default'}
-                    onClick={() => setHeatmapEnabled(!heatmapEnabled)}
+                    onClick={heatmapEnabled ? disableHeatmap : enableHeatmap}
                     loading={heatmapLoading}
                 >
                     {heatmapEnabled ? <FireFilled /> : <FireOutlined />}

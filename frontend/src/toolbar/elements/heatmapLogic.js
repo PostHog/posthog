@@ -8,14 +8,16 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 export const heatmapLogic = kea({
     actions: {
-        setHeatmapEnabled: heatmapEnabled => ({ heatmapEnabled }),
+        enableHeatmap: true,
+        disableHeatmap: true,
     },
 
     reducers: {
         heatmapEnabled: [
             false,
             {
-                setHeatmapEnabled: (_, { heatmapEnabled }) => heatmapEnabled,
+                enableHeatmap: () => true,
+                disableHeatmap: () => false,
                 getEventsFailure: () => false,
             },
         ],
@@ -163,12 +165,11 @@ export const heatmapLogic = kea({
                 actions.getEvents({ $current_url: href })
             }
         },
-        setHeatmapEnabled: ({ heatmapEnabled }) => {
-            if (heatmapEnabled) {
-                actions.getEvents({ $current_url: currentPageLogic.values.href })
-            } else {
-                actions.resetEvents()
-            }
+        enableHeatmap: () => {
+            actions.getEvents({ $current_url: currentPageLogic.values.href })
+        },
+        disableHeatmap: () => {
+            actions.resetEvents()
         },
     }),
 })

@@ -15,7 +15,7 @@ export const elementsLogic = kea({
         setSelectedElement: element => ({ element }),
     },
 
-    reducers: {
+    reducers: () => ({
         inspectEnabled: [
             false,
             {
@@ -38,7 +38,12 @@ export const elementsLogic = kea({
         selectedElement: {
             setSelectedElement: (_, { element }) => element,
         },
-    },
+        enabledLast: {
+            // keep track of what to disable first with ESC
+            enableInspect: () => 'inspect',
+            [heatmapLogic.actions.enableHeatmap]: () => 'heatmap',
+        },
+    }),
 
     selectors: {
         heatmapEnabled: [() => [heatmapLogic.selectors.heatmapEnabled], heatmapEnabled => heatmapEnabled],
@@ -121,22 +126,48 @@ export const elementsLogic = kea({
         ],
     },
 
-    events: ({ cache, actions }) => ({
+    events: ({ cache, values, actions }) => ({
         afterMount: () => {
             cache.onClick = () => actions.updateRects()
-            cache.onScrollResize = function() {
+            cache.onScrollResize = () => {
                 window.clearTimeout(cache.clickDelayTimeout)
                 actions.updateRects()
                 cache.clickDelayTimeout = window.setTimeout(actions.addClick, 100)
             }
+            cache.onKeyDown = e => {
+                if (e.keyCode !== 27) {
+                    return
+                }
+                if (values.hoverElement) {
+                    actions.setHoverElement(null)
+                }
+                if (values.selectedElement) {
+                    actions.setSelectedElement(null)
+                    return
+                }
+                if (values.enabledLast === 'heatmap' && values.heatmapEnabled) {
+                    heatmapLogic.actions.disableHeatmap()
+                    return
+                }
+                if (values.inspectEnabled) {
+                    actions.disableInspect()
+                    return
+                }
+                if (values.heatmapEnabled) {
+                    heatmapLogic.actions.disableHeatmap()
+                    return
+                }
+            }
             window.addEventListener('click', cache.onClick)
             window.addEventListener('scroll', cache.onScrollResize)
             window.addEventListener('resize', cache.onScrollResize)
+            window.addEventListener('keydown', cache.onKeyDown)
         },
         beforeUnmount: () => {
             window.removeEventListener('click', cache.onClick)
             window.removeEventListener('scroll', cache.onScrollResize)
             window.removeEventListener('resize', cache.onScrollResize)
+            window.removeEventListener('keydown', cache.onKeyDown)
         },
     }),
 })
