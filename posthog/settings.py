@@ -320,4 +320,4 @@ CACHES = {
 }
 
 if TEST:
-    CACHES['default'] = {'BACKEND': 'django.core.cache.backends.dummy.DummyCache',}
+    CACHES['default'] = {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',}
