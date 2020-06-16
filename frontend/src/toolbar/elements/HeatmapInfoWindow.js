@@ -76,7 +76,7 @@ export function HeatmapInfoWindow() {
                     style={{
                         pointerEvents: pointerEvents ? 'all' : 'none',
                         position: 'absolute',
-                        top: -5,
+                        top: -8,
                         right: left + width > window.innerWidth - 20 ? -6 : -12,
                         transformOrigin: 'top left',
                         background: 'black',
@@ -86,7 +86,9 @@ export function HeatmapInfoWindow() {
                         width: 24,
                         height: 24,
                         zIndex: 7,
-                        lineHeight: '24px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-around',
                         textAlign: 'center',
                         cursor: 'pointer',
                     }}
