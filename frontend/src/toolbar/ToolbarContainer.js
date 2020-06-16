@@ -6,10 +6,13 @@ import { Elements } from '~/toolbar/elements/Elements'
 import { ToolbarButton } from '~/toolbar/button/ToolbarButton'
 import { ToolbarDraggable } from '~/toolbar/ToolbarDraggable'
 import { dockLogic } from '~/toolbar/dockLogic'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
 export function ToolbarContainer() {
     const { dockStatus, floatStatus, buttonStatus, windowWidth, isAnimating } = useValues(dockLogic)
     const { button } = useActions(dockLogic)
+    const { selectedElement } = useValues(elementsLogic)
+    const { setSelectedElement } = useActions(elementsLogic)
 
     const showButton = buttonStatus !== 'disabled'
     const showInvisibleButton = buttonStatus === 'animating' || buttonStatus === 'fading-out'
@@ -44,7 +47,7 @@ export function ToolbarContainer() {
                 <div id="dock-toolbar" className={showInvisibleDock ? 'toolbar-invisible' : ''}>
                     <div
                         className={`toolbar-close-button${dockStatus === 'complete' ? ' visible' : ''}`}
-                        onClick={button}
+                        onClick={selectedElement ? () => setSelectedElement(null) : button}
                     >
                         <CloseOutlined />
                     </div>
