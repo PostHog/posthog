@@ -36,9 +36,11 @@ export const elementsLogic = kea({
             setHighlightElement: (_, { element }) => element,
             setHoverElement: () => null,
             setSelectedElement: () => null,
+            disableInspect: () => null,
         },
         selectedElement: {
             setSelectedElement: (_, { element }) => element,
+            disableInspect: () => null,
         },
         enabledLast: {
             // keep track of what to disable first with ESC

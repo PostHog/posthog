@@ -23,12 +23,9 @@ export function HeatmapInfoWindow() {
             ? () => setSelectedElement(null)
             : null
     const { rect } = activeMeta
-    let top = Math.max(window.pageYOffset + 8, rect.top + rect.height + 10 + window.pageYOffset)
+
     let left = rect.left + window.pageXOffset + (rect.width > 300 ? (rect.width - 300) / 2 : 0)
     let width = 300
-    let minHeight = 50
-    let maxHeight = Math.max(minHeight, window.innerHeight - top + window.pageYOffset - 10)
-
     if (left + width > window.innerWidth - 10) {
         left -= left + width - (window.innerWidth - 10)
         if (left < 0) {
@@ -37,38 +34,50 @@ export function HeatmapInfoWindow() {
         }
     }
 
+    let top = Math.max(window.pageYOffset + 8, rect.top + rect.height + 10 + window.pageYOffset)
+    let bottom
+    let minHeight = 50
+    let maxHeight
+
+    const spaceAbove = Math.max(minHeight, rect.top - 20)
+    const spaceBelow = Math.max(minHeight, window.innerHeight - top + window.pageYOffset - 10)
+
+    if (spaceAbove > spaceBelow) {
+        top = undefined
+        bottom = window.innerHeight - rect.top + 10 - window.pageYOffset
+        maxHeight = spaceAbove
+    } else {
+        maxHeight = spaceBelow
+    }
+
     return (
-        <>
-            <div
-                style={{
-                    pointerEvents: pointerEvents ? 'all' : 'none',
-                    position: 'absolute',
-                    top: `${top}px`,
-                    left: `${left}px`,
-                    width: width,
-                    minHeight: minHeight,
-                    maxHeight: maxHeight,
-                    zIndex: 6,
-                    opacity: 1,
-                    transformOrigin: 'top left',
-                    transition: 'opacity 0.2s, box-shadow 0.2s',
-                    backgroundBlendMode: 'multiply',
-                    background: 'white',
-                    padding: 15,
-                    boxShadow: `hsla(4, 30%, 27%, 0.6) 0px 3px 10px 2px`,
-                    overflow: 'auto',
-                }}
-            >
-                <ElementInfo />
-            </div>
+        <div
+            style={{
+                pointerEvents: pointerEvents ? 'all' : 'none',
+                position: 'absolute',
+                top,
+                bottom,
+                left,
+                width,
+                minHeight,
+                maxHeight,
+                zIndex: 6,
+                opacity: 1,
+                transformOrigin: 'top left',
+                transition: 'opacity 0.2s, box-shadow 0.2s',
+                backgroundBlendMode: 'multiply',
+                background: 'white',
+                boxShadow: `hsla(4, 30%, 27%, 0.6) 0px 3px 10px 2px`,
+            }}
+        >
             {onClose ? (
                 <div
                     onClick={onClose}
                     style={{
                         pointerEvents: pointerEvents ? 'all' : 'none',
                         position: 'absolute',
-                        top: `${top - (top < window.pageYOffset + 10 ? 4 : 12)}px`,
-                        left: `${left + width - (left + width > window.innerWidth - 20 ? 20 : 12)}px`,
+                        top: -8,
+                        right: left + width > window.innerWidth - 20 ? -6 : -12,
                         transformOrigin: 'top left',
                         background: 'black',
                         color: 'white',
@@ -85,6 +94,9 @@ export function HeatmapInfoWindow() {
                     <CloseOutlined />
                 </div>
             ) : null}
-        </>
+            <div style={{ minHeight, maxHeight, overflow: 'auto', padding: 15 }}>
+                <ElementInfo />
+            </div>
+        </div>
     )
 }
