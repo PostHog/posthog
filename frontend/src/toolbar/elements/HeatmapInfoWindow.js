@@ -24,13 +24,16 @@ export function HeatmapInfoWindow() {
             : null
     const { rect } = activeMeta
 
+    const windowWidth = document.documentElement.clientWidth || window.innerWidth
+    const windowHeight = document.documentElement.clientHeight || window.innerHeight
+
     let left = rect.left + window.pageXOffset + (rect.width > 300 ? (rect.width - 300) / 2 : 0)
     let width = 300
-    if (left + width > window.innerWidth - 10) {
-        left -= left + width - (window.innerWidth - 10)
+    if (left + width > windowWidth - 10) {
+        left -= left + width - (windowWidth - 10)
         if (left < 0) {
             left = 5
-            width = window.innerWidth - 10
+            width = windowWidth - 10
         }
     }
 
@@ -40,11 +43,11 @@ export function HeatmapInfoWindow() {
     let maxHeight
 
     const spaceAbove = Math.max(minHeight, rect.top - 20)
-    const spaceBelow = Math.max(minHeight, window.innerHeight - top + window.pageYOffset - 10)
+    const spaceBelow = Math.max(minHeight, windowHeight - top + window.pageYOffset - 10)
 
     if (spaceAbove > spaceBelow) {
         top = undefined
-        bottom = window.innerHeight - rect.top + 10 - window.pageYOffset
+        bottom = windowHeight - rect.top + 10 - window.pageYOffset
         maxHeight = spaceAbove
     } else {
         maxHeight = spaceBelow
@@ -77,7 +80,7 @@ export function HeatmapInfoWindow() {
                         pointerEvents: pointerEvents ? 'all' : 'none',
                         position: 'absolute',
                         top: -8,
-                        right: left + width > window.innerWidth - 20 ? -6 : -12,
+                        right: left + width > windowWidth - 20 ? -6 : -12,
                         transformOrigin: 'top left',
                         background: 'black',
                         color: 'white',
