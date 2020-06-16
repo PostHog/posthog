@@ -11,7 +11,6 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { getShadowRoot } from '~/toolbar/elements/utils'
-import { ChangingText } from '~/toolbar/button/ChangingText'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
 const quarters = { ne: 0, nw: 1, sw: 2, se: 3 }
@@ -25,20 +24,6 @@ function getQuarterRotation({ itemCount, index, quarter, padding: inputPadding }
 function reverseQuarter(quarter) {
     return (quarter[0] === 'n' ? 's' : 'n') + (quarter[1] === 'e' ? 'w' : 'e')
 }
-
-const walkLength = 20
-const hedgehogWalk = () =>
-    Array.from(Array(walkLength)).map((_, i) => [`${'.'.repeat(walkLength - i)}🦔${'.'.repeat(i)}`, 60])
-
-const loggedOutLines = hedgehogWalk().concat([
-    ['Click', 300],
-    ['here', 250],
-    ['to', 200],
-    ['use', 200],
-    ['the', 200],
-    ['PostHog', 350],
-    ['Toolbar!', 2500],
-])
 
 export function ToolbarButton() {
     const { extensionPercentage, quarter } = useValues(toolbarButtonLogic)
@@ -133,7 +118,15 @@ export function ToolbarButton() {
             className="floating-toolbar-button"
             content={<Logo style={{ width: 54, height: 54, filter: 'invert(1)', cursor: 'pointer' }} />}
             label={
-                isAuthenticated ? 'Toolbar' : extensionPercentage > 0.8 ? <ChangingText lines={loggedOutLines} /> : null
+                isAuthenticated ? (
+                    'Toolbar'
+                ) : (
+                    <div style={{ lineHeight: '22px', paddingTop: 5 }}>
+                        Click here to
+                        <br />
+                        authenticate
+                    </div>
+                )
             }
             labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
             {...longPressEvents}
