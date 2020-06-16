@@ -17,6 +17,7 @@ import {
     ContainerOutlined,
     LineChartOutlined,
     FundOutlined,
+    ClockCircleOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -53,6 +54,7 @@ const sceneOverride = {
 const submenuOverride = {
     actions: 'events',
     liveActions: 'events',
+    sessions: 'events',
     cohorts: 'people',
 }
 
@@ -160,6 +162,11 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <SyncOutlined />
                             <span className="sidebar-label">{'Live Actions'}</span>
                             <Link to={'/actions/live'} onClick={collapseSidebar} />
+                        </Menu.Item>
+                        <Menu.Item key="sessions" style={itemStyle} data-attr="menu-item-sessions">
+                            <ClockCircleOutlined />
+                            <span className="sidebar-label">{'Sessions'}</span>
+                            <Link to={'/sessions'} onClick={collapseSidebar} />
                         </Menu.Item>
                     </Menu.SubMenu>
                     <Menu.SubMenu
