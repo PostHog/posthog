@@ -45,7 +45,6 @@ export function elementToActionStep(element) {
 
 export function elementToSelector(element) {
     let selector = ''
-    // const element = events[0].elements[0]
     if (element.tag_name) {
         selector += cssEscape(element.tag_name)
     }
@@ -147,4 +146,59 @@ export function getAllClickTargets() {
     const uniqueElements = Array.from(new Set(selectedElements))
 
     return uniqueElements
+}
+
+export function stepMatchesHref(step, href) {
+    if (!step.url_matching || !step.url) {
+        return true
+    }
+    if (step.url_matching === 'exact') {
+        return href === step.url
+    }
+    if (step.url_matching === 'contains') {
+        return matchRuleShort(href, `%${step.url}%`)
+    }
+    return false
+}
+
+function matchRuleShort(str, rule) {
+    const escapeRegex = str => str.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
+    return new RegExp(
+        '^' +
+            rule
+                .split('%')
+                .map(escapeRegex)
+                .join('.*') +
+            '$'
+    ).test(str)
+}
+
+export function getElementForStep(step) {
+    let selector = ''
+    if (step.selector) {
+        selector = step.selector
+    }
+    if (step.href) {
+        selector += `[href="${cssEscape(step.href)}"]`
+    }
+    if (step.text) {
+        // TODO
+        // selector += `:nth-of-type(${parseInt(element.nth_of_type)})`
+    }
+
+    if (!selector) {
+        return null
+    }
+
+    try {
+        const elements = document.querySelectorAll(selector)
+        if (elements.length === 1) {
+            return elements[0]
+        }
+        // TODO: what if multiple match?
+    } catch (e) {
+        console.error('Can not use selector:', selector)
+        throw e
+    }
+    return null
 }

@@ -1,7 +1,8 @@
 import { kea } from 'kea'
 
+import { actionsLogic } from '~/toolbar/elements/actionsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { elementToActionStep, getAllClickTargets } from '~/toolbar/elements/utils'
+import { elementToActionStep, getAllClickTargets, getElementForStep } from '~/toolbar/elements/utils'
 import { dockLogic } from '~/toolbar/dockLogic'
 
 export const elementsLogic = kea({
@@ -129,6 +130,27 @@ export const elementsLogic = kea({
                     : null
             },
         ],
+
+        actionsWithElements: [
+            selectors => [actionsLogic.selectors.actionsForCurrentUrl, selectors.rectUpdateCounter],
+            actionsForCurrentUrl => {
+                const response = []
+                actionsForCurrentUrl.forEach(action => {
+                    action.steps
+                        .filter(step => step.event === '$autocapture')
+                        .forEach(step => {
+                            const element = getElementForStep(step)
+                            if (element) {
+                                response.push({
+                                    element,
+                                    action,
+                                })
+                            }
+                        })
+                })
+                return response
+            },
+        ],
     },
 
     events: ({ cache, values, actions }) => ({
@@ -173,6 +195,12 @@ export const elementsLogic = kea({
             window.removeEventListener('scroll', cache.onScrollResize)
             window.removeEventListener('resize', cache.onScrollResize)
             window.removeEventListener('keydown', cache.onKeyDown)
+        },
+    }),
+
+    listeners: () => ({
+        enableInspect: () => {
+            actionsLogic.actions.getActions()
         },
     }),
 })
