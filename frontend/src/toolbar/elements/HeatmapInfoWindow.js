@@ -1,16 +1,15 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { dockLogic } from '~/toolbar/dockLogic'
 import { CloseOutlined } from '@ant-design/icons'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 
 export function HeatmapInfoWindow() {
-    const { domZoom, domPadding } = useValues(dockLogic)
     const { hoverElement, hoverElementMeta, selectedElement, selectedElementMeta, hoverElementHighlight } = useValues(
         elementsLogic
     )
     const { setSelectedElement } = useActions(elementsLogic)
+    const { rectUpdateCounter: __discardButReloadComponentOnChanges } = useValues(elementsLogic) // eslint-disable-line
 
     const activeMeta = hoverElementMeta || selectedElementMeta
 
@@ -28,6 +27,8 @@ export function HeatmapInfoWindow() {
     let top = rect.top + rect.height + 10 + window.pageYOffset
     let left = rect.left + window.pageXOffset + (rect.width > 300 ? (rect.width - 300) / 2 : 0)
     let width = 300
+    let minHeight = 50
+    let maxHeight = Math.max(minHeight, window.innerHeight - top + window.pageYOffset - 10)
 
     if (left + width > window.innerWidth - 10) {
         left -= left + width - (window.innerWidth - 10)
@@ -43,19 +44,20 @@ export function HeatmapInfoWindow() {
                 style={{
                     pointerEvents: pointerEvents ? 'all' : 'none',
                     position: 'absolute',
-                    top: `${(top - domPadding) / domZoom}px`,
-                    left: `${(left - domPadding) / domZoom}px`,
+                    top: `${top}px`,
+                    left: `${left}px`,
                     width: width,
-                    minHeight: 100,
+                    minHeight: minHeight,
+                    maxHeight: maxHeight,
                     zIndex: 6,
                     opacity: 1,
-                    transform: domZoom !== 1 ? `scale(${1 / domZoom})` : '',
                     transformOrigin: 'top left',
                     transition: 'opacity 0.2s, box-shadow 0.2s',
                     backgroundBlendMode: 'multiply',
                     background: 'white',
                     padding: 15,
                     boxShadow: `hsla(4, 30%, 27%, 0.6) 0px 3px 10px 2px`,
+                    overflow: 'auto',
                 }}
             >
                 <ElementInfo />
@@ -66,10 +68,8 @@ export function HeatmapInfoWindow() {
                     style={{
                         pointerEvents: pointerEvents ? 'all' : 'none',
                         position: 'absolute',
-                        top: `${(top - 12 - domPadding) / domZoom}px`,
-                        left: `${(left + width - (left + width > window.innerWidth - 20 ? 20 : 12) - domPadding) /
-                            domZoom}px`,
-                        transform: domZoom !== 1 ? `scale(${1 / domZoom})` : '',
+                        top: `${top - 12}px`,
+                        left: `${left + width - (left + width > window.innerWidth - 20 ? 20 : 12)}px`,
                         transformOrigin: 'top left',
                         background: 'black',
                         color: 'white',
