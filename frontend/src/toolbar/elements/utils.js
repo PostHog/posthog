@@ -1,4 +1,5 @@
 import Simmer from 'simmerjs'
+import { cssEscape } from 'lib/utils/cssEscape'
 
 const simmer = new Simmer(window, { depth: 8 })
 
@@ -46,25 +47,25 @@ export function elementToSelector(element) {
     let selector = ''
     // const element = events[0].elements[0]
     if (element.tag_name) {
-        selector += element.tag_name
+        selector += cssEscape(element.tag_name)
     }
     if (element.attr_id) {
-        selector += `#${element.attr_id}`
+        selector += `#${cssEscape(element.attr_id)}`
     }
     if (element.attr_class) {
         selector += element.attr_class
             .filter(a => a)
-            .map(a => `.${a}`)
+            .map(a => `.${cssEscape(a)}`)
             .join('')
     }
     if (element.href) {
-        selector += `[href="${element.href}"]`
+        selector += `[href="${cssEscape(element.href)}"]`
     }
     if (element.nth_child) {
-        selector += `:nth-child(${element.nth_child})`
+        selector += `:nth-child(${parseInt(element.nth_child)})`
     }
     if (element.nth_of_type) {
-        selector += `:nth-of-type(${element.nth_of_type})`
+        selector += `:nth-of-type(${parseInt(element.nth_of_type)})`
     }
     return selector
 }
@@ -125,4 +126,25 @@ export function trimElement(element, selectingClickTargets = false) {
 
 export function inBounds(min, value, max) {
     return Math.max(min, Math.min(max, value))
+}
+
+export function getAllClickTargets() {
+    const elements = document.querySelectorAll(CLICK_TARGET_SELECTOR)
+
+    let allElements = [...document.querySelectorAll('*')]
+    const clickTags = CLICK_TARGET_SELECTOR.split(',').map(c => c.trim())
+
+    // loop through all elements and getComputedStyle
+    const pointerElements = allElements.filter(el => {
+        if (clickTags.indexOf(el.tagName.toLowerCase()) >= 0) {
+            return false
+        }
+        let compStyles = window.getComputedStyle(el)
+        return compStyles.getPropertyValue('cursor') === 'pointer'
+    })
+
+    const selectedElements = [...elements, ...pointerElements].map(e => trimElement(e, true))
+    const uniqueElements = Array.from(new Set(selectedElements))
+
+    return uniqueElements
 }
