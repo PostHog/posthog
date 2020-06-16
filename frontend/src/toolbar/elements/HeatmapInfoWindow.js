@@ -23,8 +23,7 @@ export function HeatmapInfoWindow() {
             ? () => setSelectedElement(null)
             : null
     const { rect } = activeMeta
-
-    let top = rect.top + rect.height + 10 + window.pageYOffset
+    let top = Math.max(window.pageYOffset + 8, rect.top + rect.height + 10 + window.pageYOffset)
     let left = rect.left + window.pageXOffset + (rect.width > 300 ? (rect.width - 300) / 2 : 0)
     let width = 300
     let minHeight = 50
@@ -68,7 +67,7 @@ export function HeatmapInfoWindow() {
                     style={{
                         pointerEvents: pointerEvents ? 'all' : 'none',
                         position: 'absolute',
-                        top: `${top - 12}px`,
+                        top: `${top - (top < window.pageYOffset + 10 ? 4 : 12)}px`,
                         left: `${left + width - (left + width > window.innerWidth - 20 ? 20 : 12)}px`,
                         transformOrigin: 'top left',
                         background: 'black',
