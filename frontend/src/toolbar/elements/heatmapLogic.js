@@ -57,17 +57,6 @@ export const heatmapLogic = kea({
                         throw new Error('Error loading HeatMap data!')
                     }
 
-                    results.forEach(result => {
-                        if (
-                            result.elements &&
-                            result.elements.length > 0 &&
-                            result.elements[result.elements.length - 1] &&
-                            result.elements[result.elements.length - 1].tag_name === 'body'
-                        ) {
-                            result.elements.reverse()
-                        }
-                    })
-
                     return results
                 },
             },
@@ -81,14 +70,12 @@ export const heatmapLogic = kea({
                 const elements = events
                     .map(event => {
                         let combinedSelector
-                        for (let i = event.elements.length - 1; i >= 0; i--) {
+                        for (let i = 0; i < event.elements.length; i++) {
                             const selector = elementToSelector(event.elements[i])
                             combinedSelector = combinedSelector ? `${selector} > ${combinedSelector}` : selector
 
                             try {
-                                const elements = Array.from(document.querySelectorAll(combinedSelector)).filter(
-                                    e => e.getBoundingClientRect().width > 0
-                                )
+                                const elements = Array.from(document.querySelectorAll(combinedSelector))
 
                                 if (elements.length === 1) {
                                     return {
@@ -99,14 +86,9 @@ export const heatmapLogic = kea({
                                     }
                                 }
 
-                                if (elements.length === 0 && i === 0) {
-                                    console.error('found a case with 0 elements')
+                                if (elements.length === 0 && i === event.elements.length - 1) {
+                                    console.error('Found a case with 0 elements')
                                     return null
-                                }
-
-                                // not the last one in the loop
-                                if (i !== event.elements.length - 1) {
-                                    continue
                                 }
                             } catch (error) {
                                 console.error('Invalid selector!', combinedSelector)
