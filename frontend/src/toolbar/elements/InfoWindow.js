@@ -11,10 +11,6 @@ export function InfoWindow() {
     const { setSelectedElement } = useActions(elementsLogic)
     const { rectUpdateCounter: __discardButReloadComponentOnChanges } = useValues(elementsLogic) // eslint-disable-line
 
-    // getting this to trigger the selectors
-    // eslint-disable-next-line
-    const { actionsWithElements } = useValues(elementsLogic)
-
     const activeMeta = hoverElementMeta || selectedElementMeta
 
     if (hoverElementHighlight || !activeMeta) {

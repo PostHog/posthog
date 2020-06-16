@@ -45,6 +45,7 @@ export const actionsLogic = kea({
                 const actionsWithSteps = allActions
                     .filter(a => a.steps && a.steps.length > 0 && a.steps.find(s => s.event === '$autocapture'))
                     .filter(a => a.steps.find(step => stepMatchesHref(step, href)))
+
                 return actionsWithSteps
             },
         ],

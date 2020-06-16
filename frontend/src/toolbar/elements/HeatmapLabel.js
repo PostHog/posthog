@@ -12,7 +12,7 @@ export const heatmapLabelStyle = {
     fontFamily: 'monospace',
 }
 
-export function HeatmapLabel({ rect, domPadding, domZoom, style = {}, children }) {
+export function HeatmapLabel({ rect, domPadding, domZoom, style = {}, align = 'right', children }) {
     return (
         <div
             style={{
@@ -24,7 +24,7 @@ export function HeatmapLabel({ rect, domPadding, domZoom, style = {}, children }
                 ) / domZoom}px`,
                 left: `${inBounds(
                     window.pageXOffset,
-                    rect.left + rect.width - domPadding - 14 + window.pageXOffset,
+                    rect.left + (align === 'left' ? 10 : rect.width) - domPadding - 14 + window.pageXOffset,
                     window.pageXOffset + window.innerWidth - 14
                 ) / domZoom}px`,
                 ...heatmapLabelStyle,

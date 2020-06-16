@@ -12,9 +12,15 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
 export function Elements() {
     const { domZoom, domPadding, mode } = useValues(dockLogic)
-    const { heatmapElements, inspectElements, hoverElement, inspectEnabled, highlightElementMeta } = useValues(
-        elementsLogic
-    )
+    const {
+        heatmapElements,
+        inspectElements,
+        hoverElement,
+        inspectEnabled,
+        highlightElementMeta,
+        elementsWithActions,
+        actionsForElementMap,
+    } = useValues(elementsLogic)
     const { setHoverElement, setSelectedElement } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapLogic)
 
@@ -99,7 +105,6 @@ export function Elements() {
                                 rect={rect}
                                 domPadding={domPadding}
                                 domZoom={domZoom}
-                                label={<>{index + 1}</>}
                                 style={{
                                     zIndex: 5,
                                     opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
@@ -111,6 +116,34 @@ export function Elements() {
                                 {index + 1}
                             </HeatmapLabel>
                         </React.Fragment>
+                    )
+                })}
+
+                {elementsWithActions.map((element, index) => {
+                    const actions = actionsForElementMap.get(element)
+                    if (!actions || actions.length === 0) {
+                        return null
+                    }
+                    return (
+                        <HeatmapLabel
+                            key={index}
+                            rect={actions[0].rect}
+                            domPadding={domPadding}
+                            domZoom={domZoom}
+                            align="left"
+                            style={{
+                                zIndex: 5,
+                                opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
+                                transition: 'opacity 0.2s, transform 0.2s linear',
+                                transform: hoverElement === element ? 'scale(1.3)' : 'none',
+                                pointerEvents: 'none',
+                                color: 'hsla(141, 21%, 12%, 1)',
+                                background: 'hsl(147, 100%, 62%)',
+                                boxShadow: 'hsla(141, 100%, 32%, 1) 0px 1px 5px 1px',
+                            }}
+                        >
+                            A:{actions.length}
+                        </HeatmapLabel>
                     )
                 })}
             </div>

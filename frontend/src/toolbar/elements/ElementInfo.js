@@ -51,7 +51,7 @@ export function ElementInfo() {
             <Divider />
 
             <p>
-                <AimOutlined /> Actions
+                <AimOutlined /> {activeMeta.actions.length} Actions
             </p>
             <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #eee' }}>
                 {pointerEvents ? (

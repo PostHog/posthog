@@ -92,63 +92,77 @@ export const elementsLogic = kea({
             },
         ],
 
-        selectedElementMeta: [
-            selectors => [selectors.selectedElement, selectors.elementMap],
-            (selectedElement, elementMap) => {
-                const meta = elementMap.get(selectedElement)
-                return meta
-                    ? {
-                          ...meta,
-                          actionStep: meta.actionStep || elementToActionStep(meta.element),
-                      }
-                    : null
-            },
-        ],
-
-        hoverElementMeta: [
-            selectors => [selectors.hoverElement, selectors.elementMap],
-            (hoverElement, elementMap) => {
-                const meta = elementMap.get(hoverElement)
-                return meta
-                    ? {
-                          ...meta,
-                          actionStep: meta.actionStep || elementToActionStep(meta.element),
-                      }
-                    : null
-            },
-        ],
-
-        highlightElementMeta: [
-            selectors => [selectors.highlightElement, selectors.elementMap],
-            (highlightElement, elementMap) => {
-                const meta = elementMap.get(highlightElement)
-                return meta
-                    ? {
-                          ...meta,
-                          actionStep: meta.actionStep || elementToActionStep(meta.element),
-                      }
-                    : null
-            },
-        ],
-
-        actionsWithElements: [
+        actionsForElementMap: [
             selectors => [actionsLogic.selectors.actionsForCurrentUrl, selectors.rectUpdateCounter],
             actionsForCurrentUrl => {
-                const response = []
+                const actionsForElementMap = new Map()
                 actionsForCurrentUrl.forEach(action => {
                     action.steps
                         .filter(step => step.event === '$autocapture')
                         .forEach(step => {
                             const element = getElementForStep(step)
                             if (element) {
-                                response.push({
-                                    element,
-                                    action,
-                                })
+                                const rect = element.getBoundingClientRect()
+                                let array = actionsForElementMap.get(element)
+                                if (!array) {
+                                    array = []
+                                    actionsForElementMap.set(element, array)
+                                }
+                                array.push({ action, step, element, rect })
                             }
                         })
                 })
-                return response
+                return actionsForElementMap
+            },
+        ],
+
+        elementsWithActions: [
+            selectors => [selectors.actionsForElementMap],
+            actionsForElementMap => [...actionsForElementMap.keys()],
+        ],
+
+        selectedElementMeta: [
+            selectors => [selectors.selectedElement, selectors.elementMap, selectors.actionsForElementMap],
+            (selectedElement, elementMap, actionsForElementMap) => {
+                const meta = elementMap.get(selectedElement)
+                const actions = actionsForElementMap.get(selectedElement)
+                return meta
+                    ? {
+                          ...meta,
+                          actionStep: meta.actionStep || elementToActionStep(meta.element),
+                          actions: actions || [],
+                      }
+                    : null
+            },
+        ],
+
+        hoverElementMeta: [
+            selectors => [selectors.hoverElement, selectors.elementMap, selectors.actionsForElementMap],
+            (hoverElement, elementMap, actionsForElementMap) => {
+                const meta = elementMap.get(hoverElement)
+                const actions = actionsForElementMap.get(hoverElement)
+                return meta
+                    ? {
+                          ...meta,
+                          actionStep: meta.actionStep || elementToActionStep(meta.element),
+                          actions: actions || [],
+                      }
+                    : null
+            },
+        ],
+
+        highlightElementMeta: [
+            selectors => [selectors.highlightElement, selectors.elementMap, selectors.actionsForElementMap],
+            (highlightElement, elementMap, actionsForElementMap) => {
+                const meta = elementMap.get(highlightElement)
+                const actions = actionsForElementMap.get(highlightElement)
+                return meta
+                    ? {
+                          ...meta,
+                          actionStep: meta.actionStep || elementToActionStep(meta.element),
+                          actions: actions || [],
+                      }
+                    : null
             },
         ],
     },
