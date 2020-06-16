@@ -80,6 +80,7 @@ export function SessionsTable({ logic }) {
                 size="small"
                 rowKey={item => item.global_session_id}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                rowClassName="cursor-pointer"
                 dataSource={sessions}
                 columns={columns}
                 loading={sessionsLoading}
