@@ -7,7 +7,7 @@ import { Button, Statistic, Row, Col, Divider } from 'antd'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
 export function ElementInfo() {
-    const { eventCount } = useValues(heatmapLogic)
+    const { clickCount } = useValues(heatmapLogic)
     const { hoverElement, hoverElementMeta, selectedElement, selectedElementMeta, hoverElementHighlight } = useValues(
         elementsLogic
     )
@@ -36,8 +36,8 @@ export function ElementInfo() {
                             <Statistic
                                 title="Clicks"
                                 value={count || 0}
-                                suffix={`/ ${eventCount} (${
-                                    eventCount === 0 ? '-' : Math.round(((count || 0) / eventCount) * 10000) / 100
+                                suffix={`/ ${clickCount} (${
+                                    clickCount === 0 ? '-' : Math.round(((count || 0) / clickCount) * 10000) / 100
                                 }%)`}
                             />
                         </Col>

@@ -6,7 +6,7 @@ import { FireFilled, FireOutlined } from '@ant-design/icons'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
 export function HeatmapStats() {
-    const { countedElements, eventCount, heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
+    const { countedElements, clickCount, heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
     const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
@@ -24,7 +24,7 @@ export function HeatmapStats() {
             </div>
             {heatmapEnabled && !heatmapLoading ? (
                 <>
-                    Found: {countedElements.length} elements with {eventCount} clicks!
+                    Found: {countedElements.length} elements with {clickCount} clicks!
                     {countedElements.map(({ element, count, actionStep }, index) => (
                         <div
                             key={index}

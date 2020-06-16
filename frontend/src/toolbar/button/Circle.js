@@ -89,7 +89,7 @@ export function Circle({
                             marginLeft: -width / 2,
                             marginTop: -width / 2,
                             transformOrigin: '50% 50%',
-                            borderRadius: '100%',
+                            borderRadius: width / 2,
                             background: 'white',
                             boxShadow: '0 0 13px 4px rgba(0, 0, 0, 0.3)',
                             display: 'flex',

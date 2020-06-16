@@ -4,7 +4,7 @@ import { CloseOutlined } from '@ant-design/icons'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 
-export function HeatmapInfoWindow() {
+export function InfoWindow() {
     const { hoverElement, hoverElementMeta, selectedElement, selectedElementMeta, hoverElementHighlight } = useValues(
         elementsLogic
     )
@@ -68,7 +68,7 @@ export function HeatmapInfoWindow() {
                 width,
                 minHeight,
                 maxHeight,
-                zIndex: 6,
+                zIndex: 1,
                 opacity: 1,
                 transformOrigin: 'top left',
                 transition: 'opacity 0.2s, box-shadow 0.2s',
