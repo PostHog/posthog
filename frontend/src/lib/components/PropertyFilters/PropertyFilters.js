@@ -6,6 +6,7 @@ import { propertyFilterLogic } from './propertyFilterLogic'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { Popover, Row } from 'antd'
 import { CloseButton, operatorMap } from 'lib/utils'
+import _ from 'lodash'
 
 function FilterRow({ item, index, filters, logic, pageKey }) {
     const { remove } = useActions(logic)
@@ -41,7 +42,7 @@ function FilterRow({ item, index, filters, logic, pageKey }) {
                     </Button>
                 )}
             </Popover>
-            {index !== filters.length - 1 && (
+            {!_.isEmpty(filters[index]) && (
                 <CloseButton
                     className="ml-1"
                     onClick={() => {

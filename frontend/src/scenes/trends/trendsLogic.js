@@ -93,15 +93,20 @@ export const trendsLogic = kea({
 
     loaders: ({ values }) => ({
         results: {
-            loadResults: async (_, breakpoint) => {
+            __default: [],
+            loadResults: async (refresh = false, breakpoint) => {
                 let response
                 if (values.activeView === ViewType.SESSIONS) {
                     response = await api.get(
-                        'api/event/sessions/?' + toAPIParams(filterClientSideParams(values.filters))
+                        'api/event/sessions/?' +
+                            (refresh ? 'refresh=true&' : '') +
+                            toAPIParams(filterClientSideParams(values.filters))
                     )
                 } else {
                     response = await api.get(
-                        'api/action/trends/?' + toAPIParams(filterClientSideParams(values.filters))
+                        'api/action/trends/?' +
+                            (refresh ? 'refresh=true&' : '') +
+                            toAPIParams(filterClientSideParams(values.filters))
                     )
                 }
                 breakpoint()

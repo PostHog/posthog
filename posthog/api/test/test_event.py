@@ -255,12 +255,15 @@ class TestEvents(TransactionBaseTest):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
 
         response = self.client.get('/api/event/sessions/?session=distribution&date_from=all').json()
-        
-        for item in response:
+        compared_response = self.client.get('/api/event/sessions/?session=distribution&date_from=all&compare=true').json()
+
+        for index, item in enumerate(response):
             if item['label'] == '30-60 minutes' or item['label'] == '3-10 seconds':
                 self.assertEqual(item['count'], 2)
+                self.assertEqual(compared_response[index]['count'], 2)
             else:
                 self.assertEqual(item['count'], 1)
+                self.assertEqual(compared_response[index]['count'], 1)
 
     def test_pagination(self):
         events = []

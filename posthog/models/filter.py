@@ -89,3 +89,7 @@ class Filter(PropertyMixin):
         if self.date_to:
             filter &= Q(timestamp__lte=self.date_to)
         return filter
+
+    def toJSON(self):
+        return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)
+        

@@ -7,7 +7,7 @@ from .dashboard_item import DashboardItem
 from .user import User
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from typing import Optional, List
-
+from datetime import datetime
 import secrets
 
 
@@ -33,21 +33,24 @@ class TeamManager(models.Manager):
             dashboard=dashboard,
             name='Pageviews this week',
             type=TRENDS_LINEAR,
-            filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'type': TREND_FILTER_TYPE_EVENTS}]}
+            filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'type': TREND_FILTER_TYPE_EVENTS}]},
+            last_refresh=datetime.now()
         )
         DashboardItem.objects.create(
             team=team,
             dashboard=dashboard,
             name='Most popular browsers this week',
             type='ActionsTable',
-            filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'type': TREND_FILTER_TYPE_EVENTS}], 'display': 'ActionsTable', 'breakdown': '$browser'}
+            filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'type': TREND_FILTER_TYPE_EVENTS}], 'display': 'ActionsTable', 'breakdown': '$browser'},
+            last_refresh=datetime.now()
         )
         DashboardItem.objects.create(
             team=team,
             dashboard=dashboard,
             name='Daily Active Users',
             type=TRENDS_LINEAR,
-            filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'math': 'dau', 'type': TREND_FILTER_TYPE_EVENTS}]}
+            filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'math': 'dau', 'type': TREND_FILTER_TYPE_EVENTS}]},
+            last_refresh=datetime.now()
         )
         return team
 
