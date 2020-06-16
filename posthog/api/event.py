@@ -9,7 +9,7 @@ from django.db.models.functions import Lag
 from django.db.models.expressions import Window
 from django.db import connection
 from django.utils.timezone import now
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional
 from django.utils.timezone import now
 import json
 import pandas as pd
@@ -145,14 +145,14 @@ class EventViewSet(viewsets.ModelViewSet):
 
         reverse = request.GET.get('orderBy', '-timestamp') != '-timestamp'
         if len(events) > 100:
-            next_url: Union[bool, str] = '{}{}{}={}'.format(
+            next_url: Optional[str] = request.build_absolute_uri('{}{}{}={}'.format(
                 path,
                 '&' if '?' in path else '?',
                 'after' if reverse else 'before',
                 events[99].timestamp.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
-            )
+            ))
         else:
-            next_url = False
+            next_url = None
 
         return response.Response({
             'next': next_url,

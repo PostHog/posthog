@@ -288,7 +288,7 @@ class TestEvents(TransactionBaseTest):
             events.append(Event(team=self.team, event='some event', distinct_id='1'))
         Event.objects.bulk_create(events)
         response = self.client.get('/api/event/?distinct_id=1').json()
-        self.assertIn('distinct_id=1', response['next'])
+        self.assertIn('http://testserver/api/event/?distinct_id=1&before=', response['next'])
 
         page2 = self.client.get(response['next']).json()
         self.assertEqual(len(page2['results']), 50)
