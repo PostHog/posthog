@@ -6,6 +6,7 @@ import {
     updateDockToolbarVariables,
     keepInBounds,
 } from '~/toolbar/dockUtils'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 // props:
 // - shadowRef: shadowRoot ref
@@ -49,10 +50,7 @@ export const dockLogic = kea({
         mode: [
             '',
             {
-                button: () => 'button',
-                dock: () => 'dock',
-                float: () => 'float',
-                hide: () => '',
+                setMode: (_, { mode }) => mode,
             },
         ],
         lastMode: [
@@ -134,6 +132,11 @@ export const dockLogic = kea({
     }),
 
     selectors: ({ selectors }) => ({
+        isAnimating: [
+            () => [selectors.dockStatus, selectors.floatStatus, selectors.buttonStatus],
+            (dockStatus, floatStatus, buttonStatus) =>
+                !![dockStatus, floatStatus, buttonStatus].find(s => s === 'animating'),
+        ],
         sidebarWidth: [() => [], () => 300],
         padding: [
             () => [selectors.windowWidth],
@@ -144,6 +147,10 @@ export const dockLogic = kea({
             (windowWidth, sidebarWidth, padding) => windowWidth - sidebarWidth - 3 * padding,
         ],
         zoom: [() => [selectors.bodyWidth, selectors.windowWidth], (bodyWidth, windowWidth) => bodyWidth / windowWidth],
+
+        domZoom: [() => [selectors.zoom, selectors.mode], (zoom, mode) => (mode === 'dock' ? zoom : 1)],
+        domPadding: [() => [selectors.padding, selectors.mode], (padding, mode) => (mode === 'dock' ? padding : 0)],
+
         defaultPositions: [
             () => [selectors.windowWidth, selectors.windowHeight, selectors.lastDragPosition],
             (windowWidth, windowHeight, lastDragPositions) => {
@@ -184,31 +191,45 @@ export const dockLogic = kea({
     events: ({ cache, actions, values }) => ({
         afterMount: () => {
             window.__POSTHOG_SET_MODE__ = actions.setMode // export this for debugging in case it goes wrong client side
-            cache.listener = () => actions.update()
-            window.addEventListener('scroll', cache.listener)
-            window.addEventListener('resize', cache.listener)
+            cache.onScrollResize = () => actions.update()
+            window.addEventListener('scroll', cache.onScrollResize)
+            window.addEventListener('resize', cache.onScrollResize)
             window.requestAnimationFrame(() => {
-                if (values.lastMode === 'dock') {
-                    actions.dock()
-                } else if (values.lastMode === 'float') {
-                    actions.float()
+                if (toolbarLogic.values.isAuthenticated) {
+                    if (values.lastMode === 'dock') {
+                        actions.dock()
+                    } else if (values.lastMode === 'float') {
+                        actions.float()
+                    } else {
+                        actions.button()
+                    }
                 } else {
                     actions.button()
                 }
             })
         },
         beforeUnmount: () => {
-            window.removeEventListener('scroll', cache.listener)
-            window.removeEventListener('resize', cache.listener)
+            window.removeEventListener('scroll', cache.onScrollResize)
+            window.removeEventListener('resize', cache.onScrollResize)
         },
     }),
 
     listeners: ({ actions, values, props }) => ({
-        button: () => actions.setMode('button', false),
-        dock: () => actions.setMode('dock', false),
-        float: () => actions.setMode('float', false),
-        hideButton: () => actions.setMode('', false),
-        update: () => actions.setMode(values.mode, true),
+        button: () => {
+            values.mode !== 'button' && actions.setMode('button', false)
+        },
+        dock: () => {
+            values.mode !== 'dock' && actions.setMode('dock', false)
+        },
+        float: () => {
+            values.mode !== 'float' && actions.setMode('float', false)
+        },
+        hideButton: () => {
+            values.mode !== '' && actions.setMode('', false)
+        },
+        update: () => {
+            values.mode !== '' && !values.isAnimating && actions.setMode(values.mode, true)
+        },
         setMode: async ({ mode, update }, breakpoint) => {
             const { padding, sidebarWidth, zoom } = values
             const bodyStyle = window.document.body.style

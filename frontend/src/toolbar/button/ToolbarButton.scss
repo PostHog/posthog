@@ -1,0 +1,18 @@
+#button-toolbar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 2147483020;
+    opacity: 1;
+    transition: opacity ease 0.5s;
+
+    &.toolbar-invisible {
+        opacity: 0;
+    }
+
+    .circle-button {
+        &:hover {
+            box-shadow: 0 0 13px 4px rgba(0, 0, 0, 0.5) !important;
+        }
+    }
+}

@@ -7,6 +7,10 @@ from django.template.loader import get_template
 from django.http import HttpResponse, JsonResponse, HttpRequest
 from dateutil import parser
 from typing import Tuple, Optional
+from rest_framework import request, authentication
+from rest_framework.exceptions import AuthenticationFailed
+from urllib.parse import urlsplit
+from django.apps import apps
 
 import datetime
 import json
@@ -175,3 +179,21 @@ def get_compare_period_dates(date_from: datetime.datetime, date_to: datetime.dat
     diff = date_to - date_from
     new_date_from = date_from - diff
     return new_date_from, new_date_to
+
+class TemporaryTokenAuthentication(authentication.BaseAuthentication):
+    def authenticate(self, request: request.Request):
+        # if the Origin is different, the only authentication method should be temporary_token
+        # This happens when someone is trying to create actions from the editor on their own website
+        if request.headers.get('Origin') and urlsplit(request.headers['Origin']).netloc not in urlsplit(request.build_absolute_uri('/')).netloc:
+            if not request.GET.get('temporary_token'):
+                raise AuthenticationFailed(detail="No temporary_token set. " +
+                    "That means you're either trying to access this API from a different site, " +
+                    "or it means your proxy isn\'t sending the correct headers. " +
+                    "See https://posthog.com/docs/deployment/running-behind-proxy for more information.")
+        if request.GET.get('temporary_token'):
+            user_model = apps.get_model(app_label='posthog', model_name='User')
+            user = user_model.objects.filter(temporary_token=request.GET.get('temporary_token'))
+            if not user.exists():
+                raise AuthenticationFailed(detail='User doesnt exist')
+            return (user.first(), None)
+        return None

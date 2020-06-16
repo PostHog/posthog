@@ -5453,27 +5453,27 @@ jsx-ast-utils@^2.2.3:
     array-includes "^3.0.3"
     object.assign "^4.1.0"
 
-kea-loaders@^0.2.2:
-  version "0.2.2"
-  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.2.2.tgz#36bbdf6472a28266fb309f7c18618e8db3c397f2"
-  integrity sha512-0GnS0i4ZoJ6Xx+sMr6HBeXv8o5dPDkM+y6mpNqdi7yFuejio/SWD4PKKOej8wMBKmeveCPRrYi8rjIFlQCd2wQ==
+kea-loaders@^0.3.0:
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/kea-loaders/-/kea-loaders-0.3.0.tgz#876a838cd65da4547d2611d8e180e7d867e2a657"
+  integrity sha512-aXrUjQf/GdJVDQqLtTWoY4gF1F+dTXv5U1LfCLffPhgrWRYHGTnaBV/K6pWxy1Qh+vMbepy80Nx9hFiK1owtHw==
 
 kea-localstorage@^1.0.2:
   version "1.0.2"
   resolved "https://registry.yarnpkg.com/kea-localstorage/-/kea-localstorage-1.0.2.tgz#2ff78abcea3ffcd2c8ce8affec09f87a9ae72fbb"
   integrity sha512-/HtVHJdyjdrX35LbvCBzF8ZNqUy9+nF7HpW/+T8vWOqjA9YCRL1p40cCZSEWoSiDVVqkx9hlpTA3SnIhNReUbg==
 
-kea-router@^0.3.0:
-  version "0.3.0"
-  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-0.3.0.tgz#2478b3669c769a5458f3b7a2157a370e203d43c6"
-  integrity sha512-ch8P9jIzRnCx1FL38uMgoDk7LQtI0/tyI+ROEnIwPmb5xkzeCeG8br0hfI+XDsrYzHTdrSE+YkGUaM1Xl5xugQ==
+kea-router@^0.4.0:
+  version "0.4.0"
+  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-0.4.0.tgz#34a8130dde47233653b098c2c7da11b3cc605085"
+  integrity sha512-nZmtwfQtKDHO19gP5NRpDp1v60x4kpGkwNLDO1wRODv3O9aEMUXir9swWJPasTIWTmSbLLPSUjBGMKkFsrtrEQ==
   dependencies:
     url-pattern "^1.0.3"
 
-kea@^2.0.0-beta.8:
-  version "2.0.0-beta.8"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.0.0-beta.8.tgz#79d7a896c2448a7be9e2235b8760b6ed9daf5294"
-  integrity sha512-tgKXu437KQXx+aBan3oHuC2ROST7iwIP6zJWDVRL3ANJ8GIXbKbbZ5vx1/wyeKSTwFfilav/DUA974On1aQETQ==
+kea@^2.1.1:
+  version "2.1.1"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.1.1.tgz#6e3c65c4873b67d270a2ec7bf73b0d178937234c"
+  integrity sha512-W9o4lHLOcEDIu3ASHPrWJJJzL1bMkGyxaHn9kuaDgI96ztBShVrf52R0QPGlQ2k9ca3XnkB/dnVHio1UB8kGWA==
 
 killable@^1.0.1:
   version "1.0.1"
