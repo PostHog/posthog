@@ -33,7 +33,7 @@ function _ToolbarContent({ type }) {
     return (
         <div>
             {type === 'float' ? <FloatingToolbarHeader /> : null}
-            {hoverElement || selectedElement ? (
+            {type === 'dock' && (hoverElement || selectedElement) ? (
                 <>
                     <div style={{ height: 66 }}>
                         {selectedElement && (!hoverElement || hoverElement === selectedElement) ? (
