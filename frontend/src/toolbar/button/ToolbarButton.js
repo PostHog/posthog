@@ -254,19 +254,33 @@ export function ToolbarButton() {
                                             ) : (
                                                 <>
                                                     <div style={{ marginBottom: 10 }}>
-                                                        Recorded {elementCount} element{elementCount === 1 ? '' : 's'}{' '}
-                                                        with {clickCount} click{clickCount === 1 ? '' : 's'} in the last
-                                                        7 days.
+                                                        {'Recorded '}
+                                                        <strong>
+                                                            {elementCount} element{elementCount === 1 ? '' : 's'}
+                                                        </strong>
+                                                        {' with '}
+                                                        <strong>
+                                                            {clickCount} click{clickCount === 1 ? '' : 's'}
+                                                        </strong>
+                                                        {' in the last  '}
+                                                        <u>7 days</u>.
                                                     </div>
                                                     <div>
-                                                        Look for the yellow labels!{' '}
+                                                        {'Look for elements with yellow labels: '}
                                                         <span style={heatmapLabelStyle}>1</span>
+                                                        {', '}
+                                                        <span style={heatmapLabelStyle}>2</span>
+                                                        {', '}
+                                                        <span style={heatmapLabelStyle}>3</span>
+                                                        {' and so on.'}
                                                     </div>
                                                 </>
                                             )
                                         }
                                     >
-                                        <span style={{ whiteSpace: 'nowrap' }}>{elementCount}</span>
+                                        <div style={{ whiteSpace: 'nowrap', minWidth: 16, textAlign: 'center' }}>
+                                            {elementCount}
+                                        </div>
                                     </Tooltip>
                                 }
                                 zIndex={4}
