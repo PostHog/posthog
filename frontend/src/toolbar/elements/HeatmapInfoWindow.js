@@ -76,7 +76,7 @@ export function HeatmapInfoWindow() {
                     style={{
                         pointerEvents: pointerEvents ? 'all' : 'none',
                         position: 'absolute',
-                        top: -8,
+                        top: -5,
                         right: left + width > window.innerWidth - 20 ? -6 : -12,
                         transformOrigin: 'top left',
                         background: 'black',
