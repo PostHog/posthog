@@ -41,6 +41,7 @@ export const elementsLogic = kea({
         selectedElement: {
             setSelectedElement: (_, { element }) => element,
             disableInspect: () => null,
+            [heatmapLogic.actions.disableHeatmap]: () => null,
         },
         enabledLast: {
             // keep track of what to disable first with ESC
