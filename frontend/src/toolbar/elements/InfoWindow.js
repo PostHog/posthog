@@ -28,8 +28,8 @@ export function InfoWindow() {
             : null
     const { rect } = activeMeta
 
-    const windowWidth = document.documentElement.clientWidth || window.innerWidth
-    const windowHeight = document.documentElement.clientHeight || window.innerHeight
+    const windowWidth = Math.min(document.documentElement.clientWidth, window.innerWidth)
+    const windowHeight = Math.min(document.documentElement.clientHeight, window.innerHeight)
 
     let left = rect.left + window.pageXOffset + (rect.width > 300 ? (rect.width - 300) / 2 : 0)
     let width = 300
