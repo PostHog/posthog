@@ -336,6 +336,9 @@ export const dashboardLogic = kea({
         refreshDashboardItem: async ({ id }) => {
             const dashboardItem = await api.get(`api/dashboard_item/${id}`)
             dashboardsModel.actions.updateDashboardItem(dashboardItem)
+            if (dashboardItem.refreshing) {
+                setTimeout(() => actions.refreshDashboardItem(id), 1000)
+            }
         },
     }),
 })
