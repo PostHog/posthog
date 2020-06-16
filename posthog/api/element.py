@@ -2,7 +2,7 @@ from rest_framework import request, response, serializers, viewsets, authenticat
 from rest_framework.decorators import action
 from posthog.models import Element, Team, Event, ElementGroup, Filter
 from posthog.utils import TemporaryTokenAuthentication
-from django.db.models import QuerySet, Count
+from django.db.models import QuerySet, Count, Prefetch
 import json
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -38,7 +38,7 @@ class ElementViewSet(viewsets.ModelViewSet):
 
         groups = ElementGroup.objects\
             .filter(team=team, hash__in=[item['elements_hash'] for item in events])\
-            .prefetch_related('element_set')
+            .prefetch_related(Prefetch('element_set', queryset=Element.objects.order_by('order', 'id')))
 
         return response.Response([{
             'count': item['count'],
@@ -46,7 +46,7 @@ class ElementViewSet(viewsets.ModelViewSet):
             'elements': [
                 ElementSerializer(element).data for element in [
                     group for group in groups if group.hash == item['elements_hash']
-                ][0].element_set.all().order_by('order')
+                ][0].element_set.all()
             ]
         } for item in events])
 
