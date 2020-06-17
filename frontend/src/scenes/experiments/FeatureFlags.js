@@ -55,7 +55,7 @@ function _FeatureFlags() {
             <p style={{ maxWidth: 600 }}>
                 <i>Feature flags are a way of turning functionality in your app on or off, based on user properties.</i>
             </p>
-            <Button type="primary" onClick={() => setOpenFeatureFlag('new')}>
+            <Button type="primary" onClick={() => setOpenFeatureFlag('new')} data-attr="new-feature-flag">
                 + New Feature Flag
             </Button>
             <br />
@@ -69,6 +69,7 @@ function _FeatureFlags() {
                 })}
                 size="small"
                 rowClassName="cursor-pointer"
+                data-attr="feature-flag-table"
             />
             {openFeatureFlag && (
                 <Drawer

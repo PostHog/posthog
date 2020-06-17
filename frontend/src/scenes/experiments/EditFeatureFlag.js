@@ -55,11 +55,15 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
                     { required: true, message: 'Please give your feature flag a name, like "experimental feature".' },
                 ]}
             >
-                <Input autoFocus={isNew} onChange={e => form.setFieldsValue({ key: slugify(e.target.value) })} />
+                <Input
+                    autoFocus={isNew}
+                    onChange={e => form.setFieldsValue({ key: slugify(e.target.value) })}
+                    data-attr="feature-flag-name"
+                />
             </Form.Item>
 
             <Form.Item name="key" label="Key" rules={[{ required: true }]}>
-                <Input />
+                <Input data-attr="feature-flag-key" />
             </Form.Item>
 
             <Form.Item name="active" label="Feature flag is active" valuePropName="checked">
@@ -79,6 +83,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
                 <Switch
                     checked={!!rollout_percentage}
                     onChange={checked => (checked ? setRolloutPercentage(30) : setRolloutPercentage(null))}
+                    data-attr="feature-flag-switch"
                 />
                 {rollout_percentage !== null && (
                     <Slider
@@ -96,7 +101,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
             </Form.Item>
 
             <Form.Item>
-                <Button disabled={submitDisabled} htmlType="submit" type="primary">
+                <Button disabled={submitDisabled} htmlType="submit" type="primary" data-attr="feature-flag-submit">
                     Save feature flag
                 </Button>
                 <br />
