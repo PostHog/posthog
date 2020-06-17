@@ -534,6 +534,34 @@ class TestTrends(TransactionBaseTest):
         self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
         self.assertTrue(self._compare_entity_response(action_response, event_response, remove=[]))
 
+    def test_people_endpoint_paginated(self):
+
+        for index in range(0, 150):
+            Person.objects.create(team=self.team, distinct_ids=['person' + str(index)])
+            Event.objects.create(team=self.team, event='sign up', distinct_id='person' + str(index), timestamp='2020-01-04T12:00:00Z')
+
+        event_response = self.client.get(
+            '/api/action/people/',
+            data={
+                'date_from': '2020-01-04',
+                'date_to': '2020-01-04',
+                'type': 'events',
+                'entityId': 'sign up',
+            },
+        ).json()
+        self.assertEqual(len(event_response['result'][0]['people']), 100)
+        event_response_next = self.client.get(
+            '/api/action/people/',
+            data={
+                'date_from': '2020-01-04',
+                'date_to': '2020-01-04',
+                'type': 'events',
+                'entityId': 'sign up',
+                'offset': event_response['offset']
+            },
+        ).json()
+        self.assertEqual(len(event_response_next['result'][0]['people']), 50)
+
     def test_people_endpoint_with_intervals(self):
         sign_up_action, person = self._create_events()
 
@@ -581,9 +609,9 @@ class TestTrends(TransactionBaseTest):
                 'entityId': 'sign up',
             },
         ).json()
-        self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
-        self.assertEqual(len(action_response[0]['people']), 1)
-        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=[]))
+        self.assertEqual(action_response['result'][0]['people'][0]['id'], person1.pk)
+        self.assertEqual(len(action_response['result'][0]['people']), 1)
+        self.assertTrue(self._compare_entity_response(action_response['result'], event_response['result'], remove=[]))
 
         # check grouped hour
         hour_grouped_action_response = self.client.get(
@@ -606,12 +634,12 @@ class TestTrends(TransactionBaseTest):
                 'entityId': 'sign up',
             },
         ).json()
-        self.assertEqual(hour_grouped_action_response[0]['people'][0]['id'], person2.pk)
-        self.assertEqual(hour_grouped_action_response[0]['people'][1]['id'], person3.pk)
-        self.assertEqual(len(hour_grouped_action_response[0]['people']), 2)
+        self.assertEqual(hour_grouped_action_response['result'][0]['people'][0]['id'], person2.pk)
+        self.assertEqual(hour_grouped_action_response['result'][0]['people'][1]['id'], person3.pk)
+        self.assertEqual(len(hour_grouped_action_response['result'][0]['people']), 2)
         self.assertTrue(self._compare_entity_response(
-            hour_grouped_action_response,
-            hour_grouped_grevent_response,
+            hour_grouped_action_response['result'],
+            hour_grouped_grevent_response['result'],
             remove=[],
         ))
 
@@ -636,12 +664,12 @@ class TestTrends(TransactionBaseTest):
                 'entityId': 'sign up',
             },
         ).json()
-        self.assertEqual(min_grouped_action_response[0]['people'][0]['id'], person4.pk)
-        self.assertEqual(min_grouped_action_response[0]['people'][1]['id'], person5.pk)
-        self.assertEqual(len(min_grouped_action_response[0]['people']), 2)
+        self.assertEqual(min_grouped_action_response['result'][0]['people'][0]['id'], person4.pk)
+        self.assertEqual(min_grouped_action_response['result'][0]['people'][1]['id'], person5.pk)
+        self.assertEqual(len(min_grouped_action_response['result'][0]['people']), 2)
         self.assertTrue(self._compare_entity_response(
-            min_grouped_action_response,
-            min_grouped_grevent_response,
+            min_grouped_action_response['result'],
+            min_grouped_grevent_response['result'],
             remove=[],
         ))
 
@@ -666,12 +694,12 @@ class TestTrends(TransactionBaseTest):
                 'entityId': 'sign up',
             },
         ).json()
-        self.assertEqual(week_grouped_action_response[0]['people'][0]['id'], person6.pk)
-        self.assertEqual(week_grouped_action_response[0]['people'][1]['id'], person7.pk)
-        self.assertEqual(len(week_grouped_action_response[0]['people']), 2)
+        self.assertEqual(week_grouped_action_response['result'][0]['people'][0]['id'], person6.pk)
+        self.assertEqual(week_grouped_action_response['result'][0]['people'][1]['id'], person7.pk)
+        self.assertEqual(len(week_grouped_action_response['result'][0]['people']), 2)
         self.assertTrue(self._compare_entity_response(
-            week_grouped_action_response,
-            week_grouped_grevent_response,
+            week_grouped_action_response['result'],
+            week_grouped_grevent_response['result'],
             remove=[],
         ))
 
@@ -696,12 +724,12 @@ class TestTrends(TransactionBaseTest):
                 'entityId': 'sign up',
             },
         ).json()
-        self.assertEqual(month_group_action_response[0]['people'][0]['id'], person6.pk)
-        self.assertEqual(month_group_action_response[0]['people'][1]['id'], person7.pk)
-        self.assertEqual(len(month_group_action_response[0]['people']), 2)
+        self.assertEqual(month_group_action_response['result'][0]['people'][0]['id'], person6.pk)
+        self.assertEqual(month_group_action_response['result'][0]['people'][1]['id'], person7.pk)
+        self.assertEqual(len(month_group_action_response['result'][0]['people']), 2)
         self.assertTrue(self._compare_entity_response(
-            month_group_action_response,
-            month_group_grevent_response,
+            month_group_action_response['result'],
+            month_group_grevent_response['result'],
             remove=[],
         ))
 
@@ -783,9 +811,9 @@ class TestTrends(TransactionBaseTest):
                 'entityId': 'watched movie',
             },
         ).json()
-        self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
+        self.assertEqual(action_response['result'][0]['people'][0]['id'], person1.pk)
 
-        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=[]))
+        self.assertTrue(self._compare_entity_response(action_response['result'], event_response['result'], remove=[]))
 
         # test all time
         response = self.client.get(
@@ -857,8 +885,8 @@ class TestTrends(TransactionBaseTest):
                 'breakdown': [cohort.pk] # this shouldn't do anything
             },
         ).json()
-        self.assertEqual(len(people[0]['people']), 1)
-        self.assertEqual(people[0]['people'][0]['id'], person1.pk)
+        self.assertEqual(len(people['result'][0]['people']), 1)
+        self.assertEqual(people['result'][0]['people'][0]['id'], person1.pk)
 
         # all people
         people = self.client.get(
@@ -873,5 +901,5 @@ class TestTrends(TransactionBaseTest):
                 'breakdown': [cohort.pk]
             },
         ).json()
-        self.assertEqual(len(people[0]['people']), 4)
-        self.assertEqual(people[0]['people'][0]['id'], person1.pk)
+        self.assertEqual(len(people['result'][0]['people']), 4)
+        self.assertEqual(people['result'][0]['people'][0]['id'], person1.pk)
