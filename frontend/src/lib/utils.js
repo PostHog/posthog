@@ -3,6 +3,7 @@ import api from './api'
 import { toast } from 'react-toastify'
 import PropTypes from 'prop-types'
 import { Spin } from 'antd'
+import moment from 'moment'
 
 export function uuid() {
     return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
@@ -238,7 +239,7 @@ export function clearDOMTextSelection() {
     if (window.getSelection) {
         if (window.getSelection().empty) {
             // Chrome
-            window.getSelection().empty()
+            window.getSelecion().empty()
         } else if (window.getSelection().removeAllRanges) {
             // Firefox
             window.getSelection().removeAllRanges()
@@ -251,7 +252,7 @@ export function clearDOMTextSelection() {
 
 export const posthogEvents = ['$autocapture', '$pageview', '$identify', '$pageleave']
 
-export default function isAndroidOrIOS() {
+export function isAndroidOrIOS() {
     return typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent)
 }
 
@@ -264,4 +265,59 @@ export function slugify(text) {
         .replace(/\s+/g, '-') // Replace spaces with -
         .replace(/[^\w-]+/g, '') // Remove all non-word chars
         .replace(/--+/g, '-')
+}
+
+export function humanFriendlyDuration(d) {
+    d = Number(d)
+    var h = Math.floor(d / 3600)
+    var m = Math.floor((d % 3600) / 60)
+    var s = Math.floor((d % 3600) % 60)
+
+    var hDisplay = h > 0 ? h + (h == 1 ? 'hr ' : 'hrs ') : ''
+    var mDisplay = m > 0 ? m + (m == 1 ? 'min ' : 'mins ') : ''
+    var sDisplay = s > 0 ? s + 's' : hDisplay || mDisplay ? '' : '0s'
+    return hDisplay + mDisplay + sDisplay
+}
+
+export function humanFriendlyDiff(from, to) {
+    const diff = moment(to).diff(moment(from), 'seconds')
+    return humanFriendlyDuration(diff)
+}
+
+export function humanFriendlyDetailedTime(date, withSeconds = false) {
+    let formatString = 'MMMM Do YYYY h:mm'
+    if (moment().diff(date, 'days') == 0) {
+        formatString = '[Today] h:mm'
+    } else if (moment().diff(date, 'days') == 1) {
+        formatString = '[Yesterday] h:mm'
+    }
+    if (withSeconds) formatString += ':s a'
+    else formatString += ' a'
+    return moment(date).format(formatString)
+}
+
+export function stripHTTP(url) {
+    url = url.replace(/(^[0-9]+_)/, '')
+    url = url.replace(/(^\w+:|^)\/\//, '')
+    return url
+}
+
+export const eventToName = event => {
+    if (event.event !== '$autocapture') return event.event
+    let name = ''
+    if (event.properties.$event_type === 'click') name += 'clicked '
+    if (event.properties.$event_type === 'change') name += 'typed something into '
+    if (event.properties.$event_type === 'submit') name += 'submitted '
+
+    if (event.elements.length > 0) {
+        if (event.elements[0].tag_name === 'a') {
+            name += 'link'
+        } else if (event.elements[0].tag_name === 'img') {
+            name += 'image'
+        } else {
+            name += event.elements[0].tag_name
+        }
+        if (event.elements[0].text) name += ' with text "' + event.elements[0].text + '"'
+    }
+    return name
 }

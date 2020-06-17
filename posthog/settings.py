@@ -307,3 +307,17 @@ RESTRICT_SIGNUPS = os.environ.get('RESTRICT_SIGNUPS', False)
 # from 1.7.0 (except it now supports HMR!)
 TOOLBAR_VERSION = 'editor'
 # TOOLBAR_VERSION = 'toolbar'
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient"
+        },
+        "KEY_PREFIX": "posthog"
+    }
+}
+
+if TEST:
+    CACHES['default'] = {'BACKEND': 'django.core.cache.backends.dummy.DummyCache',}

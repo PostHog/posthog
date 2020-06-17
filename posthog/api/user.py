@@ -79,8 +79,8 @@ def redirect_to_site(request):
         'token': team.api_token,
         'temporaryToken': request.user.temporary_token,
         'actionId': request.GET.get('actionId'),
-        'defaultTab': 'actions',
         'apiURL': request.build_absolute_uri('/'),
+        'userIntent': request.GET.get('userIntent'),
     }
     if settings.DEBUG:
         params['jsURL'] = 'http://localhost:8234/'

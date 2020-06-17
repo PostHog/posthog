@@ -6,7 +6,11 @@ from typing import Dict, Any, List, Union, Tuple
 from django.template.loader import get_template
 from django.http import HttpResponse, JsonResponse, HttpRequest
 from dateutil import parser
-from urllib.parse import urlparse
+from typing import Tuple, Optional
+from rest_framework import request, authentication
+from rest_framework.exceptions import AuthenticationFailed
+from urllib.parse import urlsplit, urlparse
+from django.apps import apps
 
 import datetime
 import json
@@ -51,7 +55,7 @@ def relative_date_parse(input: str) -> datetime.datetime:
             date = date - relativedelta(month=12, day=31)
     return date.replace(hour=0, minute=0, second=0, microsecond=0)
 
-def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.datetime]:
+def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dict[str, datetime.datetime]:
     if filters.get('date_from'):
         date_from = relative_date_parse(filters['date_from'])
         if filters['date_from'] == 'all':
@@ -68,7 +72,8 @@ def request_to_date_query(filters: Dict[str, Any]) -> Dict[str, datetime.datetim
     if date_from:
         resp['timestamp__gte'] = date_from.replace(tzinfo=pytz.UTC)
     if date_to:
-        resp['timestamp__lte'] = (date_to + relativedelta(days=1)).replace(tzinfo=pytz.UTC)
+        days = 1 if not exact else 0
+        resp['timestamp__lte'] = (date_to + relativedelta(days=days)).replace(tzinfo=pytz.UTC)
     return resp
 
 def render_template(template_name: str, request: HttpRequest, context=None) -> HttpResponse:
@@ -184,3 +189,21 @@ def cors_response(request, response):
     response["Access-Control-Allow-Methods"] = 'GET, POST, OPTIONS'
     response["Access-Control-Allow-Headers"] = 'X-Requested-With'
     return response
+
+class TemporaryTokenAuthentication(authentication.BaseAuthentication):
+    def authenticate(self, request: request.Request):
+        # if the Origin is different, the only authentication method should be temporary_token
+        # This happens when someone is trying to create actions from the editor on their own website
+        if request.headers.get('Origin') and urlsplit(request.headers['Origin']).netloc not in urlsplit(request.build_absolute_uri('/')).netloc:
+            if not request.GET.get('temporary_token'):
+                raise AuthenticationFailed(detail="No temporary_token set. " +
+                    "That means you're either trying to access this API from a different site, " +
+                    "or it means your proxy isn\'t sending the correct headers. " +
+                    "See https://posthog.com/docs/deployment/running-behind-proxy for more information.")
+        if request.GET.get('temporary_token'):
+            user_model = apps.get_model(app_label='posthog', model_name='User')
+            user = user_model.objects.filter(temporary_token=request.GET.get('temporary_token'))
+            if not user.exists():
+                raise AuthenticationFailed(detail='User doesnt exist')
+            return (user.first(), None)
+        return None

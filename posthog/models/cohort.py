@@ -7,6 +7,7 @@ from .action import Action
 from .event import Event
 from .filter import Filter
 from dateutil.relativedelta import relativedelta
+from sentry_sdk import capture_exception
 
 from typing import Any, Dict, Optional
 import json
@@ -74,32 +75,34 @@ class Cohort(models.Model):
         return filters
 
     def calculate_people(self):
-        self.is_calculating = True
-        self.save()
-        event_query, params = (
-            Person.objects.filter(self.people_filter(), team=self.team)
-            .distinct('pk')
-            .only("pk")
-            .query.sql_with_params()
-        )
-
-        query = """
-        DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {};
-        INSERT INTO "posthog_cohortpeople" ("person_id", "cohort_id")
-        {}
-        ON CONFLICT DO NOTHING
-        """.format(
-            self.pk, event_query.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1)
-        )
-
-        cursor = connection.cursor()
-        with transaction.atomic():
-            cursor.execute(query, params)
-
-            self.is_calculating = False
-            self.last_calculation = timezone.now()
+        try:
+            self.is_calculating = True
             self.save()
+            event_query, params = (
+                Person.objects.filter(self.people_filter(), team=self.team)
+                .distinct('pk')
+                .only("pk")
+                .query.sql_with_params()
+            )
 
+            query = """
+            DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {};
+            INSERT INTO "posthog_cohortpeople" ("person_id", "cohort_id")
+            {}
+            ON CONFLICT DO NOTHING
+            """.format(
+                self.pk, event_query.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1)
+            )
+
+            cursor = connection.cursor()
+            with transaction.atomic():
+                cursor.execute(query, params)
+
+                self.is_calculating = False
+                self.last_calculation = timezone.now()
+                self.save()
+        except:
+            capture_exception()
 
     def __str__(self):
         return self.name

@@ -9,7 +9,7 @@ describe('People', () => {
 
     it('Go to new cohort from people screen', () => {
         cy.get('[data-attr=create-cohort]').click()
-        cy.get('span').should('contain', 'New cohort')
+        cy.get('span').should('contain', 'New Cohort')
     })
 
     it('All people route works', () => {

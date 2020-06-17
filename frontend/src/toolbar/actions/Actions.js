@@ -45,7 +45,7 @@ export class Actions extends Component {
                     action.id === openActionId ? (
                         <div>
                             <div className="action">
-                                {!action.id && 'New action'}
+                                {!action.id && 'New Action'}
                                 {action.id && (
                                     <a
                                         onClick={e => {
@@ -73,7 +73,7 @@ export class Actions extends Component {
                         </div>
                     ) : (
                         <div className="action">
-                            {action.id ? action.name : 'New action'}
+                            {action.id ? action.name : 'New Action'}
                             <a
                                 onClick={e => {
                                     e.preventDefault()
