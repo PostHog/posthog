@@ -2,12 +2,12 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import moment from 'moment'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { Modal, Button } from 'antd'
+import { Modal, Button, Spin } from 'antd'
 import { PeopleTable } from 'scenes/users/PeopleTable'
 
 export function PeopleModal({ visible }) {
     const { people, filters } = useValues(trendsLogic({ id: null }))
-    const { setShowingPeople } = useActions(trendsLogic({ dashboardItemId: null }))
+    const { setShowingPeople, loadMorePeople } = useActions(trendsLogic({ dashboardItemId: null }))
 
     const title =
         filters.shown_as === 'Stickiness'
@@ -33,6 +33,18 @@ export function PeopleModal({ visible }) {
             )}
 
             <PeopleTable loading={!people?.people} people={people?.people} />
+            <div
+                style={{
+                    margin: '1rem',
+                    textAlign: 'center',
+                }}
+            >
+                {people?.offset > 0 && (
+                    <Button type="primary" onClick={loadMorePeople}>
+                        {people?.loadingMore ? <Spin /> : 'Load more people'}
+                    </Button>
+                )}
+            </div>
         </Modal>
     )
 }

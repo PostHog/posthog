@@ -38,7 +38,7 @@ export function PeopleTable({ people, loading, actions, onChange }) {
             columns={columns}
             loading={loading}
             rowKey={person => person.id}
-            pagination={{ pageSize: 100, hideOnSinglePage: true }}
+            pagination={{ pageSize: 99999, hideOnSinglePage: true }}
             expandable={{
                 expandedRowRender: function RenderPropertiesTable({ properties }) {
                     return <PropertiesTable properties={properties} />
