@@ -204,11 +204,13 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <span className="sidebar-label">{'Paths'}</span>
                         <Link to={'/paths'} onClick={collapseSidebar} />
                     </Menu.Item>
-                    <Menu.Item key="experiments" style={itemStyle} data-attr="menu-item-setup">
-                        <ExperimentOutlined />
-                        <span className="sidebar-label">{'Experiments'}</span>
-                        <Link to={'/experiments/feature_flags'} onClick={collapseSidebar} />
-                    </Menu.Item>
+                    {window.posthog && window.posthog.isFeatureEnabled('feature-flags') && (
+                        <Menu.Item key="experiments" style={itemStyle} data-attr="menu-item-setup">
+                            <ExperimentOutlined />
+                            <span className="sidebar-label">{'Experiments'}</span>
+                            <Link to={'/experiments/feature_flags'} onClick={collapseSidebar} />
+                        </Menu.Item>
+                    )}
                     <Menu.Item key="setup" style={itemStyle} data-attr="menu-item-setup">
                         <SettingOutlined />
                         <span className="sidebar-label">{'Setup'}</span>
