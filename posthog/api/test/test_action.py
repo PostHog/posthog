@@ -531,8 +531,8 @@ class TestTrends(TransactionBaseTest):
             },
         ).json()
 
-        self.assertEqual(action_response[0]['people'][0]['id'], person1.pk)
-        self.assertTrue(self._compare_entity_response(action_response, event_response, remove=[]))
+        self.assertEqual(action_response['result'][0]['people'][0]['id'], person1.pk)
+        self.assertTrue(self._compare_entity_response(action_response['result'], event_response['result'], remove=[]))
 
     def test_people_endpoint_paginated(self):
 
