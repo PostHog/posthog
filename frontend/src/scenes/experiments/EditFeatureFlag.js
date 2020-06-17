@@ -39,7 +39,7 @@ function Snippet({ flagKey }) {
             <span style={{ color: '#e6db74' }}>'{flagKey}'</span>
             <span style={{ color: '#f8f8f2' }}>))</span> <span style={{ color: '#f8f8f2' }}>{'{'}</span>
             <br />
-            <span style={{ color: '#75715e' }}>{'  '}\/\/ do something</span>
+            <span style={{ color: '#75715e' }}>{'  //'} do something</span>
             <br />
             <span style={{ color: '#f8f8f2' }}>{'}'}</span>
         </pre>
