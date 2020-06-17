@@ -25,6 +25,27 @@ const editLogic = kea({
     }),
 })
 
+function Snippet({ flagKey }) {
+    // Generated highlighted code html from http://hilite.me/ using the theme monokai
+    // Converted to jsx using https://magic.reactjs.net/htmltojsx.htm
+    return (
+        <pre className="code" style={{ marginTop: '0.25rem' }}>
+            <span style={{ color: '#66d9ef' }}>if</span>
+            <span style={{ color: '#f8f8f2' }}>(</span>
+            <span style={{ color: '#a6e22e' }}>posthog</span>
+            <span style={{ color: '#f8f8f2' }}>.</span>
+            <span style={{ color: '#a6e22e' }}>isFeatureEnabled</span>
+            <span style={{ color: '#f8f8f2' }}>(</span>
+            <span style={{ color: '#e6db74' }}>'{flagKey}'</span>
+            <span style={{ color: '#f8f8f2' }}>))</span> <span style={{ color: '#f8f8f2' }}>{'{'}</span>
+            <br />
+            <span style={{ color: '#75715e' }}>{'  '}\/\/ do something</span>
+            <br />
+            <span style={{ color: '#f8f8f2' }}>{'}'}</span>
+        </pre>
+    )
+}
+
 export function EditFeatureFlag({ featureFlag, logic, isNew }) {
     const [form] = Form.useForm()
     const { updateFeatureFlag, createFeatureFlag } = useActions(logic)
@@ -104,10 +125,18 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
                 <Button disabled={submitDisabled} htmlType="submit" type="primary" data-attr="feature-flag-submit">
                     Save feature flag
                 </Button>
-                <br />
-                {submitDisabled && (
-                    <small>Select either a person property or rollout percentage to save your feature flag.</small>
-                )}
+            </Form.Item>
+            <Form.Item shouldUpdate={(prevValues, currentValues) => prevValues.key !== currentValues.key}>
+                {({ getFieldValue }) => {
+                    return submitDisabled ? (
+                        <small>Select either a person property or rollout percentage to save your feature flag.</small>
+                    ) : (
+                        <span>
+                            <br />
+                            Example implementation: <Snippet flagKey={getFieldValue('key')} />
+                        </span>
+                    )
+                }}
             </Form.Item>
         </Form>
     )
