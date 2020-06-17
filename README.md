@@ -49,9 +49,15 @@ There are a couple of session-based open source libraries that are nice alternat
 
 You can [sign up for a free account](https://app.posthog.com/signup) on our hosted platform.
 
-## Deploy to Heroku
+## Deploy to PaaS
 
+### Heroku Install
 [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/posthog/posthog)
+
+### Platform.sh Install
+
+[![Deploy with Platform.sh](https://platform.sh/images/deploy/deploy-button-lg-blue.svg)](https://console.platform.sh/projects/create-project/?template=https://github.com/posthog/posthog&utm_campaign=deploy_on_platform?utm_medium=button&utm_source=affiliate_links&utm_content=https://github.com/posthog/posthog)
+
 
 ## Production deployment
 
