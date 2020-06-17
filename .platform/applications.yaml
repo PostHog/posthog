@@ -37,4 +37,4 @@
   workers:
     worker:
       commands:
-          start: (celery -A posthog beat -S redbeat.RedBeatScheduler --pidfile="/tmp/celerybeat.pid"  & celery -A posthog worker --concurrency=2 --pidfile="/tmp/celeryworker.pid")
+          start: celery -A posthog worker --scheduler redbeat.RedBeatScheduler  --pidfile="/tmp/celerybeat.pid" --concurrency=2
