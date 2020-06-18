@@ -36,6 +36,8 @@ function createEntry(entry) {
             publicPath:
                 process.env.NODE_ENV === 'production'
                     ? '/static/'
+                    : process.env.IS_PORTER
+                    ? `https://${process.env.PORTER_WEBPACK_HOST}/static/`
                     : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234/static/`,
         },
         resolve: {
@@ -147,6 +149,12 @@ function createEntry(entry) {
             hot: true,
             host: webpackDevServerHost,
             port: 8234,
+            public: process.env.IS_PORTER
+                ? `https://${process.env.PORTER_WEBPACK_HOST}`
+                : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234`,
+            allowedHosts: process.env.IS_PORTER
+                ? [`${process.env.PORTER_WEBPACK_HOST}`, `${process.env.PORTER_SERVER_HOST}`]
+                : [],
             headers: {
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Allow-Headers': '*',
