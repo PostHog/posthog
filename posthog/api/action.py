@@ -212,7 +212,23 @@ class ActionViewSet(viewsets.ModelViewSet):
                 filtered_events = process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(filter_events(team.pk, filter, entity))
 
         people = _calculate_people(events=filtered_events, offset=offset)
-        return Response({'result': [people], 'offset': offset + 100})
+
+        current_url = request.get_full_path()
+        next_url = request.get_full_path()
+        if people['count'] > 99:
+            if 'offset' in next_url:
+                next_url = next_url[1:]
+                next_url = next_url.replace('offset=' + str(offset), 'offset=' + str(offset+100))
+            else:
+                next_url = request.build_absolute_uri('{}{}offset={}'.format(
+                    next_url,
+                    '&' if '?' in next_url else '?',
+                    offset + 100
+                ))
+        else:
+            next_url = None
+
+        return Response({'result': [people], 'next': next_url, 'previous': current_url[1:]})
 
 def calculate_trends(filter: Filter, params: dict, team_id: int, actions: QuerySet) -> List[Dict[str, Any]]:
     compare = params.get('compare')

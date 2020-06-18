@@ -550,16 +550,7 @@ class TestTrends(TransactionBaseTest):
             },
         ).json()
         self.assertEqual(len(event_response['result'][0]['people']), 100)
-        event_response_next = self.client.get(
-            '/api/action/people/',
-            data={
-                'date_from': '2020-01-04',
-                'date_to': '2020-01-04',
-                'type': 'events',
-                'entityId': 'sign up',
-                'offset': event_response['offset']
-            },
-        ).json()
+        event_response_next = self.client.get(event_response['next']).json()
         self.assertEqual(len(event_response_next['result'][0]['people']), 50)
 
     def test_people_endpoint_with_intervals(self):

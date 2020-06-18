@@ -39,7 +39,7 @@ export function PeopleModal({ visible }) {
                     textAlign: 'center',
                 }}
             >
-                {people?.offset > 0 && (
+                {people?.next && (
                     <Button type="primary" onClick={loadMorePeople}>
                         {people?.loadingMore ? <Spin /> : 'Load more people'}
                     </Button>

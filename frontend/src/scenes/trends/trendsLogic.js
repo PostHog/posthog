@@ -103,9 +103,6 @@ function parsePeopleParams(peopleParams, filters) {
     if (breakdown_value && filters.breakdown_type != 'cohort') {
         params.properties = [...params.properties, { key: params.breakdown, value: breakdown_value, type: 'event' }]
     }
-    if (offset > 0) {
-        params.offset = offset
-    }
 
     return toAPIParams(params)
 }
@@ -153,14 +150,14 @@ export const trendsLogic = kea({
         loadMorePeople: true,
         setLoadingMorePeople: status => ({ status }),
         setShowingPeople: isShowing => ({ isShowing }),
-        setPeople: (people, count, action, label, day, breakdown_value, offset) => ({
+        setPeople: (people, count, action, label, day, breakdown_value, next) => ({
             people,
             count,
             action,
             label,
             day,
             breakdown_value,
-            offset,
+            next,
         }),
         setActiveView: type => ({ type }),
         setCachedUrl: (type, url) => ({ type, url }),
@@ -217,7 +214,7 @@ export const trendsLogic = kea({
         },
         [actions.loadPeople]: async ({ label, action, day, breakdown_value }, breakpoint) => {
             const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
-            actions.setPeople(null, null, action, label, day, breakdown_value, 0)
+            actions.setPeople(null, null, action, label, day, breakdown_value, null)
             const people = await api.get(`api/action/people/?include_last_event=1&${filterParams}`)
             breakpoint()
             actions.setPeople(
@@ -227,14 +224,13 @@ export const trendsLogic = kea({
                 label,
                 day,
                 breakdown_value,
-                people.offset
+                people.next
             )
         },
         [actions.loadMorePeople]: async (_, breakpoint) => {
-            const { people: currPeople, count, action, label, day, breakdown_value } = values.people
-            const filterParams = parsePeopleParams(values.people, values.filters)
+            const { people: currPeople, count, action, label, day, breakdown_value, next } = values.people
             actions.setLoadingMorePeople(true)
-            const people = await api.get(`api/action/people/?include_last_event=1&${filterParams}`)
+            const people = await api.get(next)
             actions.setLoadingMorePeople(false)
             breakpoint()
             actions.setPeople(
@@ -244,7 +240,7 @@ export const trendsLogic = kea({
                 label,
                 day,
                 breakdown_value,
-                people.result[0]?.count == 100 ? people.offset : 0
+                people.next
             )
         },
     }),
