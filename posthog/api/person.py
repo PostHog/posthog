@@ -66,7 +66,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         if request.GET.get('cohort'):
             queryset = queryset.filter(cohort__id=request.GET['cohort'])
         if request.GET.get('properties'):
-            queryset = queryset.filter(Filter(data={'properties': json.loads(request.GET['properties'])}).properties_to_Q())
+            queryset = queryset.filter(Filter(data={'properties': json.loads(request.GET['properties'])}).properties_to_Q(team_id=team.pk))
 
         queryset = queryset.prefetch_related(Prefetch('persondistinctid_set', to_attr='distinct_ids_cache'))
         return queryset

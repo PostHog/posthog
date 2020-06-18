@@ -53,10 +53,12 @@ def cached_function(cache_type: str, expiry=30):
                 
             cache_key = cache_key + '_' + cache_type
 
-            if params and refresh and dashboard_item_id:
+            if refresh and dashboard_item_id:
                 dashboard_item = DashboardItem.objects.filter(pk=dashboard_item_id)
                 dashboard_item.update(refreshing=True)
                 update_cache_item.delay(cache_key, cache_type, payload, datetime.now())
+            elif refresh:
+                cache.delete(cache_key)
 
             # return result if cached
             cached_result = cache.get(cache_key)

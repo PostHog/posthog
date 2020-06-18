@@ -95,7 +95,8 @@
     },
     "lint-staged": {
         "*.{js,css,scss}": "prettier --write",
-        "*.js": "eslint"
+        "*.js": "eslint",
+        "*.py": "black"
     },
     "optionalDependencies": {
         "fsevents": "^2.1.2"
