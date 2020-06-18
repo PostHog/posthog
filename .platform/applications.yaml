@@ -30,7 +30,6 @@
       env:
           DATABASE_URL: postgres://main:main@postgresdatabase.internal:5432/main
           REDIS_URL: redis://cache.internal:6379
-          SECRET_KEY: $PLATFORM_PROJECT_ENTROPY
           NODE_OPTIONS: --max_old_space_size=1536
   workers:
     worker:
