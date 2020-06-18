@@ -22,6 +22,7 @@ class TestFeatureFlag(BaseTest):
         Person.objects.create(team=self.team, distinct_ids=['another_id'], properties={'email': 'tim@posthog.com'})
         Person.objects.create(team=self.team, distinct_ids=['id_number_3'], properties={'email': 'example@example.com'})
         feature_flag = FeatureFlag.objects.create(team=self.team, rollout_percentage=50, filters={'properties': [{'key': 'email', 'value': 'tim@posthog.com', 'type': 'person'}]}, name='Beta feature', key='beta-feature', created_by=user)
-        self.assertTrue(feature_flag.distinct_id_matches('example_id'))
+        with self.assertNumQueries(1):
+            self.assertTrue(feature_flag.distinct_id_matches('example_id'))
         self.assertFalse(feature_flag.distinct_id_matches('another_id'))
         self.assertFalse(feature_flag.distinct_id_matches('id_number_3'))
