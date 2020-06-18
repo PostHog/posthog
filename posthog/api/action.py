@@ -321,7 +321,7 @@ class ActionViewSet(viewsets.ModelViewSet):
             next_url = None
 
         return Response(
-            {"result": [people], "next": next_url, "previous": current_url[1:]}
+            {"results": [people], "next": next_url, "previous": current_url[1:]}
         )
 
 

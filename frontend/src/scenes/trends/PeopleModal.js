@@ -26,7 +26,6 @@ export function PeopleModal({ visible }) {
             {people ? (
                 <p>
                     Found {people.count} {people.count === 1 ? 'user' : 'users'}
-                    {people.count > 100 ? '. Showing the first 100 below.' : ''}
                 </p>
             ) : (
                 <p>Loading users...</p>

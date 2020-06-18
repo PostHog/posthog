@@ -218,8 +218,8 @@ export const trendsLogic = kea({
             const people = await api.get(`api/action/people/?include_last_event=1&${filterParams}`)
             breakpoint()
             actions.setPeople(
-                people.result[0]?.people,
-                people.result[0]?.count,
+                people.results[0]?.people,
+                people.results[0]?.count,
                 action,
                 label,
                 day,
@@ -234,8 +234,8 @@ export const trendsLogic = kea({
             actions.setLoadingMorePeople(false)
             breakpoint()
             actions.setPeople(
-                [...currPeople, ...people.result[0]?.people],
-                count + people.result[0]?.count,
+                [...currPeople, ...people.results[0]?.people],
+                count + people.results[0]?.count,
                 action,
                 label,
                 day,
