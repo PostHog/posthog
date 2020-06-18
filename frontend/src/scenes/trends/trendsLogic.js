@@ -82,7 +82,7 @@ function autocorrectInterval({ date_from, interval }) {
 }
 
 function parsePeopleParams(peopleParams, filters) {
-    const { action, day, breakdown_value, offset } = peopleParams
+    const { action, day, breakdown_value } = peopleParams
     const params = filterClientSideParams({
         ...filters,
         entityId: action.id,
