@@ -42,6 +42,9 @@ class Api {
         }).then(response => {
             if (!response.ok) {
                 return response.json().then(data => {
+                    if (Array.isArray(data)) {
+                        throw data
+                    }
                     throw { status: response.status, ...data }
                 })
             }
@@ -62,6 +65,9 @@ class Api {
         }).then(response => {
             if (!response.ok) {
                 return response.json().then(data => {
+                    if (Array.isArray(data)) {
+                        throw data
+                    }
                     throw { status: response.status, ...data }
                 })
             }

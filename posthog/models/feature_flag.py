@@ -10,6 +10,13 @@ __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
 
 class FeatureFlag(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "key"], name="unique key for team"
+            )
+        ]
+
     name: models.CharField = models.CharField(max_length=400)
     key: models.CharField = models.CharField(max_length=400)
 

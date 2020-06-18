@@ -2,6 +2,7 @@ from posthog.models import FeatureFlag
 from posthog.api.user import UserSerializer
 from rest_framework import request, serializers, viewsets
 from django.db.models import QuerySet
+from django.db import IntegrityError
 from typing import List, Dict, Any
 import json
 
@@ -15,8 +16,17 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context['request']
         validated_data['created_by'] = request.user
-        feature_flag = FeatureFlag.objects.create(team=request.user.team_set.get(), **validated_data)
-        return feature_flag
+        
+        try:
+            return super().create(validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError("key-exists")
+
+    def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag: # type: ignore
+        try:
+            return super().update(instance, validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError("key-exists")
 
 class FeatureFlagViewSet(viewsets.ModelViewSet):
     queryset = FeatureFlag.objects.all()
