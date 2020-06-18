@@ -305,7 +305,7 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         current_url = request.get_full_path()
         next_url: Optional[str] = request.get_full_path()
-        if people["count"] > 99:
+        if people["count"] > 99 and next_url:
             if "offset" in next_url:
                 next_url = next_url[1:]
                 next_url = next_url.replace(
