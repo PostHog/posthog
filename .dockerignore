@@ -1,5 +1,5 @@
 *
-!bin/docker*
+!bin
 !requirements.txt
 !posthog
 !staticfiles
