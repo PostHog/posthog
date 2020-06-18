@@ -22,8 +22,7 @@
           yarn install
           yarn build
           python manage.py collectstatic  --noinput
-      deploy: |
-          python manage.py migrate
+      deploy: python manage.py migrate
   web:
       commands:
           start: "gunicorn posthog.wsgi --log-file -"
