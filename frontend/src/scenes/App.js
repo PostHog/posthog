@@ -10,6 +10,7 @@ import { ToastContainer, Slide } from 'react-toastify'
 import { Sidebar } from '~/layout/Sidebar'
 import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
+import { OnboardingWizard } from '~/layout/onboarding/OnboardingWizard'
 
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -51,6 +52,16 @@ function App() {
     if (!user) {
         return null
     }
+
+    if (!user.has_events) {
+        return (
+            <>
+                <OnboardingWizard user={user}></OnboardingWizard>
+                <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
+            </>
+        )
+    }
+
     return (
         <Layout className="bg-white">
             <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />

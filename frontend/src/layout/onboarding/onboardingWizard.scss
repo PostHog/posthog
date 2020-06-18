@@ -1,0 +1,56 @@
+
+.background {
+    background-color: hsla(210, 6%, 95%, 1);
+}
+
+.prompt-text {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.platform-item {
+    margin-right: 10px;
+    padding: 10px;
+    padding-left: 20px;
+    padding-right: 20px;
+    border:1px solid gray;
+    border-radius: 2px;
+    cursor: pointer;
+
+}
+
+.platform-item:hover {
+    border:1px solid #007bff;
+
+}
+
+.selectable-item:hover {
+    background-color: lightgray;
+    cursor: pointer;
+}
+
+.big-button {
+    background-color:  #007bff;
+}
+
+.fade-enter {
+    opacity: 0;
+    transform: translateX(100%);
+}
+.fade-enter-active{
+    opacity: 1;
+    transform: translateX(0%);
+}
+.fade-exit {
+    opacity: 1;
+    transform: translateX(0%);
+}
+.fade-exit-active {
+    opacity: 0;
+    transform: translateX(-100%);
+}
+.fade-enter-active,
+.fade-exit-active {
+    transition: opacity 500ms, transform 500ms;
+}
+  
