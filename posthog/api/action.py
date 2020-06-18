@@ -231,7 +231,6 @@ class ActionViewSet(viewsets.ModelViewSet):
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.team_set.get()
         filter = Filter(request=request)
-        offset = int(request.GET.get("offset", 0))
 
         def _calculate_people(events: QuerySet, offset: int):
             shown_as = request.GET.get("shown_as")
