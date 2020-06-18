@@ -94,6 +94,7 @@ export const trendsLogic = kea({
     loaders: ({ values }) => ({
         results: {
             __default: [],
+            setActiveView: () => [],
             loadResults: async (refresh = false, breakpoint) => {
                 let response
                 if (values.activeView === ViewType.SESSIONS) {
@@ -229,7 +230,6 @@ export const trendsLogic = kea({
                 return // don't use the URL if on the dashboard
             }
             actions.setCachedUrl(values.activeView, window.location.pathname + window.location.search)
-            actions.loadResultsSuccess([])
             const cachedUrl = values.cachedUrls[type]
             if (cachedUrl) {
                 return cachedUrl
