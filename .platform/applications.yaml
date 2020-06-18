@@ -1,6 +1,5 @@
 - name: app
   type: 'python:3.8'
-  disk: 1024
   build:
       flavor: none
   relationships:
