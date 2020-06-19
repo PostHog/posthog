@@ -1,5 +1,54 @@
 # Changelog
 
+### 1.9.0 - Thursday 18 June 2020
+
+- [Sessions view](https://github.com/PostHog/posthog/pull/926)
+![sessions overview](https://posthog.com/static/b64e1508790f6b60958d5d320f2b8a22/efc66/sessions-overview.png)
+- You can then see exactly how a user interacted with your app:
+![sessions more detail](https://posthog.com/static/c4fe51ff11bbe87eb64c00daf7cc3d78/efc66/session-broken-out.png)
+This should really help with debugging, or just trying to get a detailed view of what users are up to.
+
+#### Better testing
+
+* [Fixed Cypress tests](https://github.com/PostHog/posthog/pull/1015)
+* Enabled [running cypress in parallel](https://github.com/PostHog/posthog/pull/959), which saved a minute.
+* [Fixed cypress linting errors and sped up tests further](https://github.com/PostHog/posthog/pull/865)
+* [Cached PostHog's yarn builds](https://github.com/PostHog/posthog/pull/927), which took e2e tests down by around 30%.
+* Finally, we now [wait for PostHog to start serving requests](https://github.com/PostHog/posthog/pull/920) rather than the 60 second sleep when running Cypress.
+
+[Develop PostHog with Porter](https://posthog.com/docs/developing-locally#using-porter)
+
+[Management command for millions of events](https://github.com/PostHog/posthog/pull/475)
+
+[Set properties to anonymous users](https://github.com/PostHog/posthog-js/pull/43)
+
+#### Bug fixes and performance improvements
+* We worked hard on improving caching to speed things up. We [fixed cache refreshing](https://github.com/PostHog/posthog/pull/1035) in a few areas, we made a few [caching adjustments](https://github.com/PostHog/posthog/pull/1023) to fix #1022. Finally, we now use [redis to cache results](https://github.com/PostHog/posthog/pull/972).
+* Save time! You can now [create actions from the trends page](https://github.com/PostHog/posthog/pull/990).
+* [Upgrade to posthog-js 1.2.0 to support dynamic params](https://github.com/PostHog/posthog/pull/957).
+* We fixed long href inserts - the href [can now go up to 2048 characters](https://github.com/PostHog/posthog/pull/1027) before truncation. Someone must have had some funky urls going on...
+* [We prevented intermittent issues with yarn build](https://github.com/PostHog/posthog/pull/1026)
+* We [fixed a bug](https://github.com/PostHog/posthog/pull/1021) that caused cohorts to fail when actions were deleted
+* We [solved a problem](https://github.com/PostHog/posthog/pull/980) with comparing trend sessions distribution
+* We [added a limit to number of returned entities for breakdowns](https://github.com/PostHog/posthog/pull/1008) so queries don't time out
+* We [created a fix](https://github.com/PostHog/posthog/pull/1013) for an issue with heartbeats
+* We [made it clearer](https://github.com/PostHog/posthog/pull/1014) that PostHog SaaS users are on the latest version
+* We [slashed CPU consumption for VSCode](https://github.com/PostHog/posthog/pull/1007) by excluding a folder
+* Generated a [performance improvement for element stats](https://github.com/PostHog/posthog/pull/991)
+* We [stopped giving way too many decimal points](https://github.com/PostHog/posthog/pull/984) on our graphs!
+* Trends page [UX improvement](https://github.com/PostHog/posthog/pull/919)
+* [Improved filtering](https://github.com/PostHog/posthog/pull/986) on elements
+* We fixed [a race condition](https://github.com/PostHog/posthog/pull/973/commits/953af2326dff94e8ae1d75cd6ea0fc2c64567857)
+* [We don't rely](https://github.com/PostHog/posthog/pull/949) on \$ to separate PostHog's events
+* We [removed the redundant math selector](https://github.com/PostHog/posthog/pull/950) on funnels - it didn't do anything!
+* [Django upgraded to 3.0.7](https://github.com/PostHog/posthog/pull/932)
+* We [made HTTPS work locally](https://github.com/PostHog/posthog/pull/910) - we had lots of community issues raised, so that should make it easier to get started with!
+* We [improved the setup overlay layout](https://github.com/PostHog/posthog/pull/904)
+* We [sped up the events endpoint](https://github.com/PostHog/posthog/pull/903) by just hitting the current week's partitions
+* We solved a problem [with temporary tokens](https://github.com/PostHog/posthog/pull/909)
+* We added [webpack HMR](https://github.com/PostHog/posthog/pull/878) and hashes to chunk filenames. (#878)
+
+
 ### 1.8.0 - Wednesday 3 June 2020
 
 - [Cumulative graphs](https://github.com/PostHog/posthog/pull/862)
