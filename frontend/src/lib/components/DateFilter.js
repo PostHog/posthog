@@ -5,8 +5,8 @@ import { Select, DatePicker, Button } from 'antd'
 import moment from 'moment'
 
 let dateMapping = {
-    Today: ['dStart'],
-    Yesterday: ['-1d', 'dStart'],
+    'Last 24 hours': ['-24h'],
+    'Last 48 hours': ['-48h'],
     'Last week': ['-7d'],
     'Last 2 weeks': ['-14d'],
     'Last 30 days': ['-30d'],
