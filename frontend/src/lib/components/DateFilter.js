@@ -22,6 +22,7 @@ let isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 function dateFilterToText(date_from, date_to) {
     if (isDate.test(date_from)) return `${date_from} - ${date_to}`
     if (moment.isMoment(date_from)) return `${date_from.format('YYYY-MM-DD')} - ${date_to.format('YYYY-MM-DD')}`
+    if (date_from === 'dStart') return 'Today' // Changed to "last 24 hours" but this is backwards compatibility
     let name = 'Last 7 days'
     Object.entries(dateMapping).map(([key, value]) => {
         if (value[0] === date_from && value[1] === date_to) name = key
