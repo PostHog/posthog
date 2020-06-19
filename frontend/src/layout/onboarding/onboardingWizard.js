@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Card, Row, List, Col, Spin, Button } from 'antd'
+import { Row, List, Spin, Button } from 'antd'
 import { useActions, useValues } from 'kea'
 import './onboardingWizard.scss'
 import { JSSnippet } from 'lib/components/JSSnippet'
@@ -14,9 +14,9 @@ import {
     RubyInstructions,
     JSInstructions,
 } from './FrameworkInstructions'
-import { ArrowLeftOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { useInterval } from 'lib/hooks/useInterval'
+import { CardContainer } from './CardContainer'
 
 const PLATFORM_TYPE = 'PLATFORM_TYPE'
 const FRAMEWORK = 'FRAMEWORK'
@@ -74,7 +74,11 @@ const mobileFrameworksSnippet = {
 const content = {
     PLATFORM_TYPE: props => (
         <CardContainer index={0} totalSteps={4}>
-            <p className="prompt-text">Let's get you up and running with Posthog! What type of platform is your app?</p>
+            <h1>Welcome to Posthog</h1>
+            <p className="prompt-text">
+                Let's get you up and running with Posthog! What type of platform is your app? (You can connect to
+                multi-deployments later)
+            </p>
             <Row>
                 {platformTypes.map(type => (
                     <Button
@@ -179,7 +183,11 @@ function VerificationPanel({ reverse }) {
                         Once you have integrated the snippet and sent an event, we will verify it sent properly and
                         continue
                     </p>
-                    <b style={{ float: 'right' }} className="back-button">
+                    <b
+                        style={{ float: 'right' }}
+                        className="back-button"
+                        onClick={() => userUpdateRequest({ user: { installed_snippet: true } })}
+                    >
                         Continue without verifying
                     </b>
                 </>
@@ -259,49 +267,5 @@ function InstructionsPanel({ user, onSubmit, reverse, platformType, framework })
             )}
             {platformType === MOBILE && <>{mobileFrameworksSnippet[framework]({ user })}</>}
         </CardContainer>
-    )
-}
-
-function CardContainer(props) {
-    return (
-        <Col>
-            <Card
-                headStyle={{ minHeight: 60 }}
-                title={
-                    <Row align="middle">
-                        {props.index !== 0 && (
-                            <ArrowLeftOutlined
-                                className="back-button"
-                                onClick={() => props.onBack()}
-                            ></ArrowLeftOutlined>
-                        )}
-                        {`Step ${props.index + 1} of ${props.totalSteps}`}
-                    </Row>
-                }
-                className="card"
-                style={{ width: '65vw', maxHeight: '60vh', overflow: 'scroll' }}
-            >
-                {props.children}
-            </Card>
-
-            {props.nextButton && (
-                <Card
-                    className="card big-button"
-                    style={{
-                        marginTop: 20,
-                        width: '65vw',
-                        height: 70,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderRadius: 5,
-                        cursor: 'pointer',
-                    }}
-                    onClick={props.onSubmit}
-                >
-                    <span style={{ fontWeight: 500, fontSize: 18, color: 'white' }}>Continue</span>
-                </Card>
-            )}
-        </Col>
     )
 }
