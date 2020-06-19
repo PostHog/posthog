@@ -1,6 +1,7 @@
 from .base import BaseTest
 
 from posthog.models import Person, FeatureFlag
+from unittest.mock import patch
 from django.conf import settings
 import base64
 import json
@@ -41,6 +42,7 @@ class TestDecide(BaseTest):
             response["editorParams"]["toolbarVersion"], settings.TOOLBAR_VERSION
         )
 
+    @patch("posthog.models.team.TEAM_CACHE", {})
     def test_feature_flags(self):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
