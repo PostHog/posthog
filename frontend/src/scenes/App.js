@@ -53,7 +53,7 @@ function App() {
         return null
     }
 
-    if (!user.has_events) {
+    if (!user.installed_snippet) {
         return (
             <>
                 <OnboardingWizard user={user}></OnboardingWizard>

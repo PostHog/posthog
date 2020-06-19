@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { Card, Row, List, Col, Spin } from 'antd'
+import { Card, Row, List, Col, Spin, Button } from 'antd'
+import { useActions, useValues } from 'kea'
 import './onboardingWizard.scss'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import {
@@ -14,6 +15,8 @@ import {
     JSInstructions,
 } from './FrameworkInstructions'
 import { ArrowLeftOutlined } from '@ant-design/icons'
+import { userLogic } from 'scenes/userLogic'
+import { useInterval } from 'lib/hooks/useInterval'
 
 const PLATFORM_TYPE = 'PLATFORM_TYPE'
 const FRAMEWORK = 'FRAMEWORK'
@@ -74,9 +77,14 @@ const content = {
             <p className="prompt-text">Let's get you up and running with Posthog! What type of platform is your app?</p>
             <Row>
                 {platformTypes.map(type => (
-                    <div className="platform-item" key={type} onClick={() => props.onSubmit({ type })}>
+                    <Button
+                        type="primary"
+                        key={type}
+                        style={{ marginRight: 10 }}
+                        onClick={() => props.onSubmit({ type })}
+                    >
                         {type}
-                    </div>
+                    </Button>
                 ))}
             </Row>
         </CardContainer>
@@ -151,19 +159,42 @@ export function OnboardingWizard({ user }) {
 }
 
 function VerificationPanel({ reverse }) {
+    const { loadUser, userUpdateRequest } = useActions(userLogic)
+    const { user } = useValues(userLogic)
+
+    useInterval(() => {
+        !user.has_events && loadUser()
+    }, 3000)
+
     return (
         <CardContainer index={3} totalSteps={4} onBack={reverse}>
-            <Row align="middle">
-                <Spin></Spin>
-                <h2 className="ml-3">Listening for events!</h2>
-            </Row>
-            <p className="prompt-text">
-                {' '}
-                Once you have integrated the snippet and sent an event, we will verify it sent properly and continue
-            </p>
-            <b style={{ float: 'right' }} className="back-button">
-                Continue without verifying
-            </b>
+            {!user.has_events ? (
+                <>
+                    <Row align="middle">
+                        <Spin></Spin>
+                        <h2 className="ml-3">Listening for events!</h2>
+                    </Row>
+                    <p className="prompt-text">
+                        {' '}
+                        Once you have integrated the snippet and sent an event, we will verify it sent properly and
+                        continue
+                    </p>
+                    <b style={{ float: 'right' }} className="back-button">
+                        Continue without verifying
+                    </b>
+                </>
+            ) : (
+                <>
+                    <h2>Successfully sent events!</h2>
+                    <Button
+                        type="primary"
+                        style={{ float: 'right' }}
+                        onClick={() => userUpdateRequest({ user: { installed_snippet: true } })}
+                    >
+                        Complete
+                    </Button>
+                </>
+            )}
         </CardContainer>
     )
 }

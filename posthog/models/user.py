@@ -6,6 +6,8 @@ from django.utils.translation import ugettext_lazy as _
 
 import secrets
 
+from rest_framework.fields import BooleanField
+
 
 def is_email_restricted_from_signup(email: str) -> bool:
     if not hasattr(settings, "RESTRICT_SIGNUPS"):
@@ -78,6 +80,7 @@ class User(AbstractUser):
     anonymize_data: models.BooleanField = models.BooleanField(
         default=False, null=True, blank=True
     )
+    installed_snippet: models.BooleanField = models.BooleanField(default=False)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: List[str] = []

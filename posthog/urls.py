@@ -11,7 +11,7 @@ from django.template.loader import render_to_string
 from urllib.parse import urlparse
 
 from .api import router, capture, user
-from .models import Team, User
+from .models import Team, User, Event
 from .utils import render_template
 from .views import health, stats
 from posthog.demo import demo, delete_demo_data
@@ -65,7 +65,8 @@ def signup_to_team_view(request, token):
 
         if User.objects.filter(email=email).exists():
             return render_template('signup_to_team.html', request=request, context={'email': email, 'name': first_name, 'error': True, 'team': team, 'signup_token': token})
-        user = User.objects.create_user(email=email, password=password, first_name=first_name, email_opt_in=email_opt_in)
+        has_events = Event.objects.filter(team=team).exists()
+        user = User.objects.create_user(email=email, password=password, first_name=first_name, email_opt_in=email_opt_in, installed_snippet=has_events)
         login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         team.users.add(user)
         team.save()
@@ -125,6 +126,10 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
         processed = render_to_string('auth_error.html', {'message': "Account unable to be created. This account may already exist. Please try again or use different credentials!"})
         return HttpResponse(processed, status=401)
 
+    has_events = Event.objects.filter(team=team).exists()
+    user.installed_snippet = has_events
+    user.save()
+    
     team.users.add(user)
     team.save()
     posthoganalytics.capture(user.distinct_id, 'user signed up', properties={'is_first_user': False})
