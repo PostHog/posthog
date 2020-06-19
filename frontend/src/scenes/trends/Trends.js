@@ -128,7 +128,7 @@ function _Trends() {
                                         setFilters({
                                             date_from: date_from,
                                             date_to: date_to && date_to,
-                                            ...(date_from === '-24h' || date_from === '-48h'
+                                            ...(['-24h', '-48h', 'dStart', '-1d'].indexOf(date_from) > -1
                                                 ? { interval: 'hour' }
                                                 : {}),
                                         })
