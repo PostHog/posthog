@@ -49,7 +49,6 @@
         "react-shadow": "^17.4.0",
         "react-stripe-elements": "^6.0.1",
         "react-toastify": "^5.5.0",
-        "react-transition-group": "^4.4.1",
         "redux": "^4.0.5",
         "reselect": "^4.0.0",
         "sass": "^1.26.2",

@@ -3,6 +3,17 @@
     background-color: hsla(210, 6%, 95%, 1);
 }
 
+.back-button {
+    cursor: pointer;
+    margin-right: 10px;
+    padding: 8px;
+    border-radius: 4px;
+}
+
+.back-button:hover {
+    background-color:gainsboro;
+}
+
 .prompt-text {
     font-size: 16px;
     font-weight: 600;
@@ -20,17 +31,24 @@
 }
 
 .platform-item:hover {
-    border:1px solid #007bff;
-
+    background-color:gainsboro;
 }
 
 .selectable-item:hover {
-    background-color: lightgray;
+    background-color: gainsboro;
     cursor: pointer;
 }
 
 .big-button {
     background-color:  #007bff;
+    margin-top:20;
+    width: 65vw;
+    height: 70;
+    display: flex;
+    align-items: center;
+    justify-content: 'center';
+    border-radius: 5;
+    cursor: 'pointer';
 }
 
 .fade-enter {
@@ -53,4 +71,3 @@
 .fade-exit-active {
     transition: opacity 500ms, transform 500ms;
 }
-  
