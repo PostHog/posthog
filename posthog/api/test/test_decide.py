@@ -81,7 +81,6 @@ class TestDecide(BaseTest):
             key="filer-by-property-2",
             created_by=self.user,
         )
-        print(self.team.pk)
         with self.assertNumQueries(4):
             response = self.client.post(
                 "/decide/",
