@@ -128,6 +128,9 @@ function _Trends() {
                                         setFilters({
                                             date_from: date_from,
                                             date_to: date_to && date_to,
+                                            ...(date_from === '-24h' || date_from === '-48h'
+                                                ? { interval: 'hour' }
+                                                : {}),
                                         })
                                     }
                                     dateFrom={filters.date_from}
