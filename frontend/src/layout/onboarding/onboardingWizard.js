@@ -53,12 +53,24 @@ const webFrameworks = {
 }
 
 const webFrameworksSnippet = {
-    PURE_JS: ({ user }) => <JSInstructions user={user}></JSInstructions>,
-    NODEJS: ({ user }) => <NodeInstructions user={user}></NodeInstructions>,
-    GO: ({ user }) => <GoInstructions user={user}></GoInstructions>,
-    RUBY: ({ user }) => <RubyInstructions user={user}></RubyInstructions>,
-    PYTHON: ({ user }) => <PythonInstructions user={user}></PythonInstructions>,
-    PHP: ({ user }) => <PHPInstructions user={user}></PHPInstructions>,
+    PURE_JS: function createJSInstructions({ user }) {
+        return <JSInstructions user={user}></JSInstructions>
+    },
+    NODEJS: function createNodeInstructions({ user }) {
+        return <NodeInstructions user={user}></NodeInstructions>
+    },
+    GO: function createGoInstructions({ user }) {
+        return <GoInstructions user={user}></GoInstructions>
+    },
+    RUBY: function createRubyInstructions({ user }) {
+        return <RubyInstructions user={user}></RubyInstructions>
+    },
+    PYTHON: function createPythonInstructions({ user }) {
+        return <PythonInstructions user={user}></PythonInstructions>
+    },
+    PHP: function createPHPInstructions({ user }) {
+        return <PHPInstructions user={user}></PHPInstructions>
+    },
 }
 
 const mobileFrameworks = {
@@ -68,34 +80,42 @@ const mobileFrameworks = {
 }
 
 const mobileFrameworksSnippet = {
-    ANDROID: ({ user }) => <AndroidInstructions user={user}></AndroidInstructions>,
-    IOS: ({ user }) => <IOSInstructions user={user}></IOSInstructions>,
-    REACT_NATIVE: ({ user }) => <RNInstructions user={user}></RNInstructions>,
+    ANDROID: function createAndroidInstructions({ user }) {
+        return <AndroidInstructions user={user}></AndroidInstructions>
+    },
+    IOS: function createIOSInstructions({ user }) {
+        return <IOSInstructions user={user}></IOSInstructions>
+    },
+    REACT_NATIVE: function createRNInstructions({ user }) {
+        return <RNInstructions user={user}></RNInstructions>
+    },
 }
 
 const content = {
-    PLATFORM_TYPE: props => (
-        <CardContainer index={0} totalSteps={4}>
-            <h1>Welcome to Posthog</h1>
-            <p className="prompt-text">
-                Let's get you up and running with Posthog! What type of platform is your app? (You can connect to
-                multi-deployments later)
-            </p>
-            <Row>
-                {platformTypes.map(type => (
-                    <Button
-                        type="primary"
-                        key={type}
-                        style={{ marginRight: 10 }}
-                        onClick={() => props.onSubmit({ type })}
-                    >
-                        {type}
-                    </Button>
-                ))}
-            </Row>
-        </CardContainer>
-    ),
-    FRAMEWORK: ({ platformType, reverse, onSubmit, onApiContinue }) => {
+    PLATFORM_TYPE: function CreatePlatformPanel(props) {
+        return (
+            <CardContainer index={0} totalSteps={4}>
+                <h1>Welcome to Posthog</h1>
+                <p className="prompt-text">
+                    Let's get you up and running with Posthog! What type of platform is your app? (You can connect to
+                    multi-deployments later)
+                </p>
+                <Row>
+                    {platformTypes.map(type => (
+                        <Button
+                            type="primary"
+                            key={type}
+                            style={{ marginRight: 10 }}
+                            onClick={() => props.onSubmit({ type })}
+                        >
+                            {type}
+                        </Button>
+                    ))}
+                </Row>
+            </CardContainer>
+        )
+    },
+    FRAMEWORK: function CreateFrameworkPanel({ platformType, reverse, onSubmit, onApiContinue }) {
         let frameworks = {}
         if (platformType === WEB) frameworks = webFrameworks
         else if (platformType === MOBILE) frameworks = mobileFrameworks
@@ -131,16 +151,20 @@ const content = {
             </CardContainer>
         )
     },
-    INSTRUCTIONS: ({ user, onSubmit, reverse, platformType, framework }) => (
-        <InstructionsPanel
-            user={user}
-            onSubmit={onSubmit}
-            reverse={reverse}
-            platformType={platformType}
-            framework={framework}
-        ></InstructionsPanel>
-    ),
-    VERIFICATION: ({ reverse }) => <VerificationPanel reverse={reverse}></VerificationPanel>,
+    INSTRUCTIONS: function CreateInstructionsPanel({ user, onSubmit, reverse, platformType, framework }) {
+        return (
+            <InstructionsPanel
+                user={user}
+                onSubmit={onSubmit}
+                reverse={reverse}
+                platformType={platformType}
+                framework={framework}
+            ></InstructionsPanel>
+        )
+    },
+    VERIFICATION: function CreateVerificationPanel({ reverse }) {
+        return <VerificationPanel reverse={reverse}></VerificationPanel>
+    },
 }
 
 export function OnboardingWizard({ user }) {
