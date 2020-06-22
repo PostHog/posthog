@@ -24,6 +24,14 @@ function AndroidSetupSnippet({ user }) {
     )
 }
 
+function AndroidCaptureSnippet() {
+    return (
+        <Snippet>
+            <span>{'PostHog.with(this).capture("test-event");'}</span>
+        </Snippet>
+    )
+}
+
 export function AndroidInstructions({ user }) {
     return (
         <>
@@ -31,6 +39,8 @@ export function AndroidInstructions({ user }) {
             <AndroidInstallSnippet></AndroidInstallSnippet>
             <h3>Configure</h3>
             <AndroidSetupSnippet user={user}></AndroidSetupSnippet>
+            <h3>Send an Event</h3>
+            <AndroidCaptureSnippet></AndroidCaptureSnippet>
         </>
     )
 }

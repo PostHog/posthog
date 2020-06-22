@@ -26,6 +26,14 @@ function RubySetupSnippet({ user }) {
     )
 }
 
+function RubyCaptureSnippet() {
+    return (
+        <Snippet>
+            <span>{"posthog.capture({\n    distinct_id: 'test-id',\n    event: 'test-event'})"}</span>
+        </Snippet>
+    )
+}
+
 export function RubyInstructions({ user }) {
     return (
         <>
@@ -33,6 +41,8 @@ export function RubyInstructions({ user }) {
             <RubyInstallSnippet></RubyInstallSnippet>
             <h3>Configure</h3>
             <RubySetupSnippet user={user}></RubySetupSnippet>
+            <h3>Send an Event</h3>
+            <RubyCaptureSnippet></RubyCaptureSnippet>
         </>
     )
 }

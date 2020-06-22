@@ -23,6 +23,14 @@ function PythonSetupSnippet({ user }) {
     )
 }
 
+function PythonCaptureSnippet() {
+    return (
+        <Snippet>
+            <span>{"posthog.capture('test-id', 'test-event')"}</span>
+        </Snippet>
+    )
+}
+
 export function PythonInstructions({ user }) {
     return (
         <>
@@ -30,6 +38,8 @@ export function PythonInstructions({ user }) {
             <PythonInstallSnippet></PythonInstallSnippet>
             <h3>Configure</h3>
             <PythonSetupSnippet user={user}></PythonSetupSnippet>
+            <h3>Send an Event</h3>
+            <PythonCaptureSnippet></PythonCaptureSnippet>
         </>
     )
 }

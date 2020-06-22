@@ -35,10 +35,18 @@ function GoSetupSnippet({ user }) {
             <br></br>
             <span>{'    defer client.Close()'}</span>
             <br></br>
-            <span>{'    // run commands'}</span>
-            <br></br>
             <span>{'}'}</span>
             <br></br>
+        </Snippet>
+    )
+}
+
+function GoCaptureSnippet() {
+    return (
+        <Snippet>
+            <span>
+                {'client.Enqueue(posthog.Capture{\n\tDistinctId: "test-user",\n\tEvent:      "test-snippet"\n})'}
+            </span>
         </Snippet>
     )
 }
@@ -50,6 +58,8 @@ export function GoInstructions({ user }) {
             <GoInstallSnippet></GoInstallSnippet>
             <h3>Configure</h3>
             <GoSetupSnippet user={user}></GoSetupSnippet>
+            <h3>Send an Event</h3>
+            <GoCaptureSnippet></GoCaptureSnippet>
         </>
     )
 }

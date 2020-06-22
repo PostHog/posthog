@@ -1,5 +1,6 @@
 import React from 'react'
 import Snippet from './snippet'
+import '../onboardingWizard.scss'
 
 function JSInstallSnippet() {
     return (
@@ -31,6 +32,10 @@ export function JSInstructions({ user }) {
             <JSInstallSnippet></JSInstallSnippet>
             <h3>Configure</h3>
             <JSSetupSnippet user={user}></JSSetupSnippet>
+            <h2>Send an Event</h2>
+            <p className="prompt-text">
+                {"Once you've inserted the snippet, click on a button or form on your website to send an event!"}
+            </p>
         </>
     )
 }

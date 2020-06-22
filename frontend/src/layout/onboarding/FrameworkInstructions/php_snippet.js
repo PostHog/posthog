@@ -38,6 +38,14 @@ function PHPSetupSnippet({ user }) {
     )
 }
 
+function PHPCaptureSnippet() {
+    return (
+        <Snippet>
+            <span>{"PostHog::capture(array(\n    'distinctId' => 'test-user',\n    'event' => 'test-event'\n));"}</span>
+        </Snippet>
+    )
+}
+
 export function PHPInstructions({ user }) {
     return (
         <>
@@ -47,6 +55,8 @@ export function PHPInstructions({ user }) {
             <PHPInstallSnippet></PHPInstallSnippet>
             <h3>Configure</h3>
             <PHPSetupSnippet user={user}></PHPSetupSnippet>
+            <h3>Send an Event</h3>
+            <PHPCaptureSnippet></PHPCaptureSnippet>
         </>
     )
 }

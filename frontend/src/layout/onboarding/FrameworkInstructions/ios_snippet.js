@@ -39,6 +39,22 @@ function IOS_SWIFT_SetupSnippet({ user }) {
     )
 }
 
+function IOS_OBJ_C_CaptureSnippet() {
+    return (
+        <Snippet>
+            <span>{'[[PHGPostHog sharedPostHog] capture:@"Test Event"];'}</span>
+        </Snippet>
+    )
+}
+
+function IOS_SWIFT_CaptureSnippet() {
+    return (
+        <Snippet>
+            <span>{'posthog.capture("Test Event")'}</span>
+        </Snippet>
+    )
+}
+
 export function IOSInstructions({ user }) {
     return (
         <>
@@ -48,6 +64,11 @@ export function IOSInstructions({ user }) {
             <IOS_SWIFT_SetupSnippet user={user}></IOS_SWIFT_SetupSnippet>
             <h3>Or Configure Obj-C</h3>
             <IOS_OBJ_C_SetupSnippet user={user}></IOS_OBJ_C_SetupSnippet>
+            <h2>Send an Event</h2>
+            <h3>Swift</h3>
+            <IOS_SWIFT_CaptureSnippet></IOS_SWIFT_CaptureSnippet>
+            <h3>Obj-C</h3>
+            <IOS_OBJ_C_CaptureSnippet></IOS_OBJ_C_CaptureSnippet>
         </>
     )
 }

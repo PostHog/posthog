@@ -14,6 +14,7 @@ import {
     RubyInstructions,
     JSInstructions,
     APIInstructions,
+    ElixirInstructions,
 } from './FrameworkInstructions'
 import { userLogic } from 'scenes/userLogic'
 import { useInterval } from 'lib/hooks/useInterval'
@@ -41,15 +42,17 @@ const GO = 'GO'
 const RUBY = 'RUBY'
 const PYTHON = 'PYTHON'
 const PHP = 'PHP'
+const ELIXIR = 'ELIXIR'
 const API = 'API'
 
 const webFrameworks = {
-    [PURE_JS]: 'Pure Javascript',
+    [PURE_JS]: 'Javascript',
     [NODEJS]: 'NodeJS',
     [GO]: 'Go',
     [RUBY]: 'Ruby',
     [PYTHON]: 'Python',
     [PHP]: 'PHP',
+    [ELIXIR]: 'Elixir',
 }
 
 const webFrameworksSnippet = {
@@ -70,6 +73,9 @@ const webFrameworksSnippet = {
     },
     PHP: function createPHPInstructions({ user }) {
         return <PHPInstructions user={user}></PHPInstructions>
+    },
+    ELIXIR: function createElixirInstructions({ user }) {
+        return <ElixirInstructions user={user}></ElixirInstructions>
     },
 }
 
@@ -262,7 +268,9 @@ function InstructionsPanel({ user, onSubmit, reverse, platformType, framework })
             <CardContainer index={2} totalSteps={4} nextButton={true} onSubmit={onSubmit} onBack={reverse}>
                 <h2>API</h2>
                 <p className="prompt-text">
-                    {"Below is an easy format for capturing events using the api we've provided"}
+                    {
+                        "Below is an easy format for capturing events using the api we've provided. Use this endpoint to send your first event!"
+                    }
                 </p>
                 <APIInstructions user={user}></APIInstructions>
             </CardContainer>
@@ -315,6 +323,12 @@ function InstructionsPanel({ user, onSubmit, reverse, platformType, framework })
                         {'Just insert this snippet into your website where you configure <head> or <meta> tags. '}
                     </p>
                     <JSSnippet user={user}></JSSnippet>
+                    <h2>Send an Event</h2>
+                    <p className="prompt-text">
+                        {
+                            "Once you've inserted the snippet, click on a button or form on your website to send an event!"
+                        }
+                    </p>
                 </>
             )}
             {platformType === WEB && selected == 1 && (

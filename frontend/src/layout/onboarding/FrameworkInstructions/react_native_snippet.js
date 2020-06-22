@@ -24,6 +24,14 @@ function RNSetupSnippet({ user }) {
     )
 }
 
+function RNCaptureSnippet() {
+    return (
+        <Snippet>
+            <span>{"PostHog.capture('test-event')"}</span>
+        </Snippet>
+    )
+}
+
 export function RNInstructions({ user }) {
     return (
         <>
@@ -31,6 +39,8 @@ export function RNInstructions({ user }) {
             <RNInstallSnippet></RNInstallSnippet>
             <h3>Configure</h3>
             <RNSetupSnippet user={user}></RNSetupSnippet>
+            <h3>Send an Event</h3>
+            <RNCaptureSnippet></RNCaptureSnippet>
         </>
     )
 }

@@ -23,9 +23,17 @@ function NodeSetupSnippet({ user }) {
             <br></br>
             <span>{'    ' + user.team.api_token + ','}</span>
             <br></br>
-            <span>{'   { host: ' + url + ' }'}</span>
+            <span>{'    { host: ' + url + ' }'}</span>
             <br></br>
             <span>{')'}</span>
+        </Snippet>
+    )
+}
+
+function NodeCaptureSnippet() {
+    return (
+        <Snippet>
+            <span>{"client.capture({\n    distinctId: 'test-id',\n    event: 'test-event'\n})"}</span>
         </Snippet>
     )
 }
@@ -37,6 +45,8 @@ export function NodeInstructions({ user }) {
             <NodeInstallSnippet></NodeInstallSnippet>
             <h3>Configure</h3>
             <NodeSetupSnippet user={user}></NodeSetupSnippet>
+            <h3>Send an Event</h3>
+            <NodeCaptureSnippet></NodeCaptureSnippet>
         </>
     )
 }
