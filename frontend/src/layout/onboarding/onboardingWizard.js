@@ -104,6 +104,7 @@ const content = {
                     {platformTypes.map(type => (
                         <Button
                             type="primary"
+                            data-attr={'select-platform-' + type}
                             key={type}
                             style={{ marginRight: 10 }}
                             onClick={() => props.onSubmit({ type })}
@@ -134,6 +135,7 @@ const content = {
                         renderItem={item => (
                             <List.Item
                                 className="selectable-item"
+                                data-attr={'select-framework-' + item}
                                 onClick={() => onSubmit({ framework: item })}
                                 key={item}
                             >
@@ -224,6 +226,7 @@ function VerificationPanel({ reverse }) {
                         continue
                     </p>
                     <b
+                        data-attr="wizard-complete-button"
                         style={{ float: 'right' }}
                         className="back-button"
                         onClick={() => userUpdateRequest({ user: { installed_snippet: true } })}
@@ -239,6 +242,7 @@ function VerificationPanel({ reverse }) {
                         your users.
                     </p>
                     <Button
+                        data-attr="wizard-complete-button"
                         type="primary"
                         style={{ float: 'right' }}
                         onClick={() => userUpdateRequest({ user: { installed_snippet: true } })}

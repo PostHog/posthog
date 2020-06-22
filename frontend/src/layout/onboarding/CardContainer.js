@@ -8,7 +8,7 @@ export function CardContainer(props) {
             <Card
                 headStyle={{ minHeight: 60 }}
                 title={
-                    <Row align="middle">
+                    <Row align="middle" data-attr="wizard-step-counter">
                         {props.index !== 0 && (
                             <ArrowLeftOutlined
                                 className="back-button"
@@ -26,6 +26,7 @@ export function CardContainer(props) {
 
             {props.nextButton && (
                 <Card
+                    data-attr="wizard-continue-button"
                     className="card big-button"
                     style={{
                         marginTop: 20,
