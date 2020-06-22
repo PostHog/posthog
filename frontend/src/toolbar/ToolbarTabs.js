@@ -12,7 +12,6 @@ export function ToolbarTabs({ type }) {
             <Tabs onChange={setTab} activeKey={newTab || tab}>
                 <Tabs.TabPane tab="Stats" key="stats" />
                 <Tabs.TabPane tab="Actions" key="actions" />
-                <Tabs.TabPane tab="Dashboards" key="dashboards" />
             </Tabs>
         </div>
     )

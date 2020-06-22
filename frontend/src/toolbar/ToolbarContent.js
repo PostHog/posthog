@@ -6,7 +6,6 @@ import { ToolbarTabs } from '~/toolbar/ToolbarTabs'
 import { FloatingToolbarHeader } from '~/toolbar/shared/FloatingToolbarHeader'
 import { StatsTab } from '~/toolbar/stats/StatsTab'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
-import { DashboardsTab } from '~/toolbar/dashboards/DashboardsTab'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 import { Button } from 'antd'
@@ -14,7 +13,6 @@ import { Button } from 'antd'
 const tabComponents = {
     actions: ActionsTab,
     stats: StatsTab,
-    dashboards: DashboardsTab,
 }
 
 export const ToolbarContent = hot(_ToolbarContent)
