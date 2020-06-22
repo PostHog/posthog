@@ -11,7 +11,6 @@ const { TabPane } = Tabs
 function PropertyFilter({ breakdown, onChange }) {
     const { eventProperties } = useValues(userLogic)
     const { personProperties } = useValues(propertyFilterLogic({ pageKey: 'breakdown' }))
-    console.log(personProperties)
     return (
         <Select
             showSearch
@@ -19,7 +18,7 @@ function PropertyFilter({ breakdown, onChange }) {
             style={{ width: '100%' }}
             placeholder={'Break down by'}
             value={breakdown ? breakdown : undefined}
-            onChange={(_, { value }) => onChange(value)}
+            onChange={(_, item) => onChange(item.value.replace(/event_|person_/gi, ''), item.type)}
             filterOption={(input, option) => option.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
             data-attr="prop-breakdown-select"
         >
