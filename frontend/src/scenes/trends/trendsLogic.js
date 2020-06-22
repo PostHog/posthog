@@ -120,6 +120,7 @@ export const trendsLogic = kea({
     loaders: ({ values }) => ({
         results: {
             __default: [],
+            setActiveView: () => [],
             loadResults: async (refresh = false, breakpoint) => {
                 let response
                 if (values.activeView === ViewType.SESSIONS) {
