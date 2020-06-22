@@ -21,7 +21,6 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "name",
             "distinct_ids",
             "properties",
-            "last_event",
             "created_at",
         ]
 
