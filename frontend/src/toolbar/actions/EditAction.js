@@ -6,8 +6,8 @@ import { ActionStepField } from '~/toolbar/actions/ActionStepField'
 import { MinusCircleOutlined, SearchOutlined, PlusCircleOutlined, CloseOutlined } from '@ant-design/icons'
 
 export function EditAction() {
-    const { selectedAction, selectedActionId, inspectingElement } = useValues(actionsTabLogic)
-    const { selectAction, inspectForElementWithIndex } = useActions(actionsTabLogic)
+    const { selectedAction, selectedActionId, inspectingElement, editingFields } = useValues(actionsTabLogic)
+    const { selectAction, inspectForElementWithIndex, setEditingFields } = useActions(actionsTabLogic)
 
     const [form] = Form.useForm()
     const onFinish = values => {
@@ -24,7 +24,16 @@ export function EditAction() {
                 {selectedActionId === 'new' ? 'New Action' : 'Edit Action'}
             </h1>
 
-            <Form name="action_step" form={form} initialValues={selectedAction} onFinish={onFinish}>
+            <Form
+                name="action_step"
+                form={form}
+                initialValues={selectedAction}
+                onFinish={onFinish}
+                fields={editingFields}
+                onFieldsChange={(changedFields, allFields) => {
+                    setEditingFields(allFields)
+                }}
+            >
                 <p>What did your user do?</p>
                 <Form.Item name="name" className="action-title-field">
                     <Input placeholder="E.g: Clicked Sign Up" />
@@ -53,16 +62,20 @@ export function EditAction() {
                                             {index > 0 ? 'OR ' : null}Element #{index + 1}
                                         </h1>
 
-                                        <Button
-                                            size="small"
-                                            type={inspectingElement === index ? 'primary' : 'outline'}
-                                            onClick={() =>
-                                                inspectForElementWithIndex(inspectingElement === index ? null : index)
-                                            }
-                                        >
-                                            <SearchOutlined />{' '}
-                                            {step?.event === '$autocapture' ? 'Change Element' : 'Select Element'}
-                                        </Button>
+                                        <div className="action-inspect">
+                                            <Button
+                                                size="small"
+                                                type={inspectingElement === index ? 'primary' : 'outline'}
+                                                onClick={() =>
+                                                    inspectForElementWithIndex(
+                                                        inspectingElement === index ? null : index
+                                                    )
+                                                }
+                                            >
+                                                <SearchOutlined />{' '}
+                                                {step?.event === '$autocapture' ? 'Change Element' : 'Select Element'}
+                                            </Button>
+                                        </div>
 
                                         {step?.event === '$autocapture' || inspectingElement === index ? (
                                             <>
@@ -103,7 +116,7 @@ export function EditAction() {
                 </Form.List>
                 <Form.Item style={{ marginTop: 20, marginBottom: 0 }}>
                     <Button type="primary" htmlType="submit">
-                        {selectedActionId === 'new' ? 'Create Action' : 'Update Action'}
+                        {selectedActionId === 'new' ? 'Create Action' : 'Save Action'}
                     </Button>
                 </Form.Item>
             </Form>

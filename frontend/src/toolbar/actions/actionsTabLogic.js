@@ -14,6 +14,8 @@ export const actionsTabLogic = kea({
         newAction: true,
 
         inspectForElementWithIndex: index => ({ index }),
+
+        setEditingFields: editingFields => ({ editingFields }),
     },
 
     reducers: {
@@ -23,6 +25,11 @@ export const actionsTabLogic = kea({
         },
         inspectingElement: {
             inspectForElementWithIndex: (_, { index }) => index,
+            selectAction: () => null,
+            newAction: () => null,
+        },
+        editingFields: {
+            setEditingFields: (_, { editingFields }) => editingFields,
             selectAction: () => null,
             newAction: () => null,
         },
