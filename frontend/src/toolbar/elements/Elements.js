@@ -20,7 +20,7 @@ export function Elements() {
         selectedElement,
         inspectEnabled,
         highlightElementMeta,
-        elementsWithActions,
+        actionLabelsToDisplay,
         actionsForElementMap,
     } = useValues(elementsLogic)
     const { setHoverElement, setSelectedElement } = useActions(elementsLogic)
@@ -124,7 +124,7 @@ export function Elements() {
                     )
                 })}
 
-                {elementsWithActions.map((element, index) => {
+                {actionLabelsToDisplay.map((element, index) => {
                     const actions = actionsForElementMap.get(element)
                     if (!actions || actions.length === 0) {
                         return null
