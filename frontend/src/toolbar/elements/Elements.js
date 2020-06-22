@@ -141,13 +141,17 @@ export function Elements() {
                                 opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
                                 transition: 'opacity 0.2s, transform 0.2s linear',
                                 transform: hoverElement === element ? 'scale(1.3)' : 'none',
-                                pointerEvents: 'none',
+                                pointerEvents: 'all',
+                                cursor: 'pointer',
                                 color: 'hsla(141, 21%, 12%, 1)',
                                 background: 'hsl(147, 100%, 62%)',
                                 boxShadow: 'hsla(141, 100%, 32%, 1) 0px 1px 5px 1px',
                             }}
+                            onClick={() => setSelectedElement(element)}
+                            onMouseOver={() => setHoverElement(element)}
+                            onMouseOut={() => setHoverElement(null)}
                         >
-                            A:{actions.length}
+                            A·{actions.length}
                         </HeatmapLabel>
                     )
                 })}
