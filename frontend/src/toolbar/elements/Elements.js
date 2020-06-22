@@ -19,6 +19,7 @@ export function Elements() {
         hoverElement,
         selectedElement,
         inspectEnabled,
+        selectedElementMeta,
         highlightElementMeta,
         actionLabelsToDisplay,
         actionsForElementMap,
@@ -56,7 +57,11 @@ export function Elements() {
                     pointerEvents: 'none',
                 }}
             >
-                {highlightElementMeta ? <FocusRect rect={highlightElementMeta.rect} /> : null}
+                {highlightElementMeta ? (
+                    <FocusRect rect={highlightElementMeta.rect} />
+                ) : selectedElementMeta && mode === 'dock' ? (
+                    <FocusRect rect={selectedElementMeta.rect} />
+                ) : null}
 
                 {inspectElements.map(({ rect, element }, index) => (
                     <HeatmapElement

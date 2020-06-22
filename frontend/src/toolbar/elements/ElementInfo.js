@@ -22,6 +22,11 @@ export function ElementInfo() {
 
     return (
         <>
+            <h1 className="section-title">Selected Element</h1>
+            <ActionStep actionStep={actionStep} />
+
+            <Divider />
+
             {position ? (
                 <>
                     <h1 className="section-title">Stats</h1>
@@ -45,11 +50,6 @@ export function ElementInfo() {
                     <Divider />
                 </>
             ) : null}
-
-            <h1 className="section-title">Selected Element</h1>
-            <ActionStep actionStep={actionStep} />
-
-            <Divider />
 
             <h1 className="section-title">Actions</h1>
 

@@ -26,7 +26,7 @@ function _ToolbarContent({ type }) {
     const fadingOut = newTab && tab ? { [tab]: 'fading-out' } : {}
     const fadingIn = newTab && !tab ? { [newTab]: 'fading-in' } : {}
 
-    // This creates three different tabs, rendering each one when needed as directed by the animation logic
+    // This creates two different tabs, rendering each one when needed as directed by the animation logic
 
     return (
         <div>
@@ -56,7 +56,7 @@ function _ToolbarContent({ type }) {
                             const className = fadingOut[key] || fadingIn[key] || invisible[key] || visible[key]
                             if (className) {
                                 const Tab = tabComponents[key]
-                                return <Tab key={key} type={type} />
+                                return <Tab key={key} />
                             } else {
                                 return null
                             }

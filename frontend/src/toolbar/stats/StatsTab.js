@@ -9,8 +9,8 @@ export function StatsTab({ className }) {
     return (
         <div className={`toolbar-content ${className}`}>
             <CurrentPage />
-            <HeatmapStats />
             <InspectElement />
+            <HeatmapStats />
             <PageViewStats />
         </div>
     )
