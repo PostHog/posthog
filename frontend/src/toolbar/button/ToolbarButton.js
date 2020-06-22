@@ -23,10 +23,6 @@ function getQuarterRotation({ itemCount, index, quarter, padding: inputPadding }
     return -angle
 }
 
-function reverseQuarter(quarter) {
-    return (quarter[0] === 'n' ? 's' : 'n') + (quarter[1] === 'e' ? 'w' : 'e')
-}
-
 export function ToolbarButton() {
     const { extensionPercentage, quarter } = useValues(toolbarButtonLogic)
     const { setExtensionPercentage, setQuarter } = useActions(toolbarButtonLogic)
@@ -137,7 +133,7 @@ export function ToolbarButton() {
             <Circle
                 width={32}
                 distance={closeDistance}
-                rotate={getQuarterRotation({ itemCount: 1, quarter: quarters[reverseQuarter(quarter)] })}
+                rotate={quarter === 'sw' || quarter === 'nw' ? -45 : -135}
                 content={<CloseOutlined />}
                 zIndex={5}
                 onClick={hideButton}
@@ -163,7 +159,7 @@ export function ToolbarButton() {
                                     <div
                                         style={{
                                             position: 'absolute',
-                                            top: 6,
+                                            top: 12,
                                             left: 6,
                                             fontSize: 13,
                                             color: 'white',
