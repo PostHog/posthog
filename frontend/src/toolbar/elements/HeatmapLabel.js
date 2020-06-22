@@ -18,7 +18,7 @@ export function HeatmapLabel({ rect, domPadding, domZoom, style = {}, align = 'r
             style={{
                 position: 'absolute',
                 top: `${inBounds(
-                    window.pageYOffset - 1,
+                    window.pageYOffset - 1 - domPadding,
                     rect.top - domPadding - 7 + window.pageYOffset,
                     window.pageYOffset + window.innerHeight - 14
                 ) / domZoom}px`,
