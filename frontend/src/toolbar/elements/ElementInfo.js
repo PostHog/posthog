@@ -9,9 +9,7 @@ import { NewAction } from '~/toolbar/elements/NewAction'
 
 export function ElementInfo() {
     const { clickCount } = useValues(heatmapLogic)
-    const { hoverElement, hoverElementMeta, selectedElement, selectedElementMeta, hoverElementHighlight } = useValues(
-        elementsLogic
-    )
+    const { hoverElementMeta, selectedElementMeta, hoverElementHighlight } = useValues(elementsLogic)
     const [newAction, setNewAction] = useState(false)
 
     const activeMeta = hoverElementMeta || selectedElementMeta
@@ -20,13 +18,13 @@ export function ElementInfo() {
         return null
     }
 
-    const pointerEvents = selectedElementMeta && (!hoverElement || hoverElement === selectedElement)
     const { position, count, actionStep } = activeMeta
 
     return (
         <>
             {position ? (
                 <>
+                    <h1 className="section-title">Stats</h1>
                     <p>
                         <CalendarOutlined /> <u>Last 7 days</u>
                     </p>
@@ -48,25 +46,28 @@ export function ElementInfo() {
                 </>
             ) : null}
 
+            <h1 className="section-title">Selected Element</h1>
             <ActionStep actionStep={actionStep} />
 
             <Divider />
 
-            <p>
-                <AimOutlined /> {activeMeta.actions.length} Actions
-            </p>
+            <h1 className="section-title">Actions</h1>
+
+            {activeMeta.actions.length === 0 ? (
+                <p>No actions include this element</p>
+            ) : (
+                <p>
+                    <AimOutlined /> {activeMeta.actions.length} Actions
+                </p>
+            )}
             <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #eee' }}>
-                {pointerEvents ? (
-                    <div>
-                        {newAction ? (
-                            <NewAction actionStep={actionStep} />
-                        ) : (
-                            <Button onClick={() => setNewAction(true)}>New Action</Button>
-                        )}
-                    </div>
-                ) : (
-                    <div>Click on the element to add an action</div>
-                )}
+                <div>
+                    {newAction ? (
+                        <NewAction actionStep={actionStep} />
+                    ) : (
+                        <Button onClick={() => setNewAction(true)}>Create a new action</Button>
+                    )}
+                </div>
             </div>
         </>
     )
