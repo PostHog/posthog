@@ -202,3 +202,27 @@ export function getElementForStep(step) {
     }
     return null
 }
+
+export function getBoxColors(color, hover = false, opacity = 0.2) {
+    if (color === 'blue') {
+        return {
+            backgroundBlendMode: 'multiply',
+            background: `hsla(240, 90%, 58%, ${opacity})`,
+            boxShadow: `hsla(240, 90%, 27%, 0.5) 0px 3px 10px ${hover ? 4 : 2}px`,
+        }
+    }
+    if (color === 'red') {
+        return {
+            backgroundBlendMode: 'multiply',
+            background: `hsla(4, 90%, 58%, ${opacity})`,
+            boxShadow: `hsla(4, 90%, 27%, 0.8) 0px 3px 10px ${hover ? 4 : 2}px`,
+        }
+    }
+    if (color === 'green') {
+        return {
+            backgroundBlendMode: 'multiply',
+            background: `hsla(97, 90%, 58%, ${opacity})`,
+            boxShadow: `hsla(97, 90%, 27%, 0.8) 0px 3px 10px ${hover ? 4 : 2}px`,
+        }
+    }
+}

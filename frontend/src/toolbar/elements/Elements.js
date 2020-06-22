@@ -9,6 +9,7 @@ import { InfoWindow } from '~/toolbar/elements/InfoWindow'
 import { HeatmapElement } from '~/toolbar/elements/HeatmapElement'
 import { HeatmapLabel } from '~/toolbar/elements/HeatmapLabel'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { getBoxColors } from '~/toolbar/elements/utils'
 
 export function Elements() {
     const { domZoom, domPadding, mode } = useValues(dockLogic)
@@ -16,6 +17,7 @@ export function Elements() {
         heatmapElements,
         inspectElements,
         hoverElement,
+        selectedElement,
         inspectEnabled,
         highlightElementMeta,
         elementsWithActions,
@@ -68,9 +70,7 @@ export function Elements() {
                             zIndex: 0,
                             opacity: !hoverElement || hoverElement === element ? 1 : 0.4,
                             transition: 'opacity 0.2s, box-shadow 0.2s',
-                            backgroundBlendMode: 'multiply',
-                            background: 'hsla(240, 90%, 58%, 0.2)',
-                            boxShadow: `hsla(240, 90%, 27%, 0.5) 0px 3px 10px ${hoverElement === element ? 4 : 2}px`,
+                            ...getBoxColors(selectedElement === element ? 'green' : 'blue', hoverElement === element),
                         }}
                         onClick={() => setSelectedElement(element)}
                         onMouseOver={() => setHoverElement(element)}
@@ -91,11 +91,7 @@ export function Elements() {
                                     opacity: !hoverElement || hoverElement === element ? 1 : 0.4,
                                     transition: 'opacity 0.2s, box-shadow 0.2s',
                                     cursor: 'pointer',
-                                    backgroundBlendMode: 'multiply',
-                                    background: `hsla(4, 90%, 58%, ${(count / highestClickCount) * 0.4})`,
-                                    boxShadow: `hsla(4, 90%, 27%, 0.8) 0px 3px 10px ${
-                                        hoverElement === element ? 4 : 2
-                                    }px`,
+                                    ...getBoxColors('red', hoverElement === element, (count / highestClickCount) * 0.4),
                                 }}
                                 onClick={() => setSelectedElement(element)}
                                 onMouseOver={() => setHoverElement(element)}
