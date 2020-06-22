@@ -10,28 +10,18 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 import { Button } from 'antd'
 
-const tabComponents = {
-    actions: ActionsTab,
-    stats: StatsTab,
-}
-
 export const ToolbarContent = hot(_ToolbarContent)
 function _ToolbarContent({ type }) {
-    const { tab, newTab } = useValues(toolbarTabLogic)
+    const { tab } = useValues(toolbarTabLogic)
     const { hoverElement, selectedElement } = useValues(elementsLogic)
     const { setSelectedElement } = useActions(elementsLogic)
-
-    const visible = tab ? { [tab]: 'visible' } : {}
-    const invisible = newTab && tab ? { [newTab]: 'invisible' } : {}
-    const fadingOut = newTab && tab ? { [tab]: 'fading-out' } : {}
-    const fadingIn = newTab && !tab ? { [newTab]: 'fading-in' } : {}
 
     // This creates two different tabs, rendering each one when needed as directed by the animation logic
 
     return (
         <div>
             {type === 'float' ? <FloatingToolbarHeader /> : null}
-            {type === 'dock' && (hoverElement || selectedElement) ? (
+            {type === 'dock' && tab === 'stats' && (hoverElement || selectedElement) ? (
                 <>
                     <div style={{ height: 66 }}>
                         {selectedElement && (!hoverElement || hoverElement === selectedElement) ? (
@@ -51,17 +41,8 @@ function _ToolbarContent({ type }) {
             ) : (
                 <>
                     <ToolbarTabs type={type} />
-                    <div className="toolbar-transition-area">
-                        {['stats', 'actions', 'dashboards'].map(key => {
-                            const className = fadingOut[key] || fadingIn[key] || invisible[key] || visible[key]
-                            if (className) {
-                                const Tab = tabComponents[key]
-                                return <Tab key={key} />
-                            } else {
-                                return null
-                            }
-                        })}
-                    </div>
+                    {tab === 'stats' ? <StatsTab /> : null}
+                    {tab === 'actions' ? <ActionsTab /> : null}
                 </>
             )}
         </div>

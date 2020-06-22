@@ -64,7 +64,7 @@ export function EditAction() {
                                             {step?.event === '$autocapture' ? 'Change Element' : 'Select Element'}
                                         </Button>
 
-                                        {step?.event === '$autocapture' ? (
+                                        {step?.event === '$autocapture' || inspectingElement === index ? (
                                             <>
                                                 <ActionStepField
                                                     field={field}
