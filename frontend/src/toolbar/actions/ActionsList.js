@@ -1,58 +1,53 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { actionsLogic } from '~/toolbar/elements/actionsLogic'
-import { Button, Divider, Spin } from 'antd'
-import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { SearchOutlined } from '@ant-design/icons'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { ExportOutlined } from '@ant-design/icons'
+import { actionsLogic } from '~/toolbar/actions/actionsLogic'
+import { List, Button, Space, Spin } from 'antd'
+import { PlusOutlined } from '@ant-design/icons'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 
 export function ActionsList() {
-    const { actionsForCurrentUrl, allActions, allActionsLoading } = useValues(actionsLogic)
-    const { selectAction } = useActions(actionsTabLogic)
-    const { disableInspect, enableInspect } = useActions(elementsLogic)
-    const { inspectEnabled } = useValues(elementsLogic)
+    const { allActions, actionsForCurrentUrl, allActionsLoading } = useValues(actionsLogic)
 
-    const { apiURL } = useValues(toolbarLogic)
-
+    const { selectAction, newAction } = useActions(actionsTabLogic)
+    console.log(actionsForCurrentUrl)
     return (
-        <div className="toolbar-block">
-            <a
-                href={`${apiURL}${apiURL.endsWith('/') ? '' : '/'}actions`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ float: 'right', marginTop: -3 }}
-            >
-                All Actions <ExportOutlined />
-            </a>
+        <div>
+            <Button type="primary" size="small" onClick={newAction} style={{ float: 'right' }}>
+                <PlusOutlined /> New Action
+            </Button>
+            <h1 className="section-title" style={{ paddingTop: 4 }}>
+                Actions ({actionsForCurrentUrl.length})
+            </h1>
 
-            <h1 className="section-title">Actions</h1>
             {allActions.length === 0 && allActionsLoading ? (
                 <Spin />
             ) : (
-                <>
-                    <div>{allActions.length} actions total</div>
-                    <div>{actionsForCurrentUrl.length} actions in use on the current url</div>
-
-                    <ol>
-                        {actionsForCurrentUrl.map(action => (
-                            <li key={action.id} onClick={() => selectAction(action.id)} style={{ cursor: 'pointer' }}>
-                                {action.name || 'Untitled'}
-                            </li>
-                        ))}
-                    </ol>
-                </>
+                <List
+                    itemLayout="horizontal"
+                    dataSource={actionsForCurrentUrl}
+                    renderItem={(action, index) => (
+                        <List.Item onClick={() => selectAction(action.id)} style={{ cursor: 'pointer' }}>
+                            <List.Item.Meta
+                                title={
+                                    <Space>
+                                        <span
+                                            style={{
+                                                display: 'inline-block',
+                                                width: Math.floor(Math.log10(actionsForCurrentUrl.length) + 1) * 12 + 6,
+                                                textAlign: 'right',
+                                                marginRight: 4,
+                                            }}
+                                        >
+                                            {index + 1}.
+                                        </span>
+                                        {action.name || <span style={{ color: '#888' }}>Untitled</span>}
+                                    </Space>
+                                }
+                            />
+                        </List.Item>
+                    )}
+                />
             )}
-            <Divider />
-            <h1 className="section-title">New Action</h1>
-            <p>Select an element to add an action</p>
-            <Button
-                type={inspectEnabled ? 'primary' : 'secondary'}
-                onClick={inspectEnabled ? disableInspect : enableInspect}
-            >
-                <SearchOutlined /> Select an element
-            </Button>
         </div>
     )
 }

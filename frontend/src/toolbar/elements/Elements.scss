@@ -2,18 +2,3 @@
 #posthog-infowindow-container {
     color: #333333;
 }
-
-.action-title-field {
-    margin-bottom: 15px;
-}
-
-.action-field {
-    margin: 10px -10px;
-    padding: 5px 10px 10px 10px;
-    .ant-form-item {
-        margin-bottom: 0;
-    }
-    &.action-field-selected {
-        background: hsla(122, 59%, 45%, 0.3);
-    }
-}

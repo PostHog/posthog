@@ -1,0 +1,28 @@
+.action-section {
+    margin: 0px -20px;
+    padding: 20px 20px;
+    &.highlight {
+        background: hsla(228, 14%, 96%, 1);
+        &:nth-child(even) {
+            background: white;
+            &:last-child {
+                padding-bottom: 10px;
+            }
+        }
+    }
+}
+.action-title-field {
+    margin-bottom: 10px;
+}
+
+.action-field {
+    margin: 0px -10px;
+    padding: 5px 10px 10px 10px;
+
+    .ant-form-item {
+        margin-bottom: 0;
+    }
+    &.action-field-selected {
+        //background: hsla(122, 59%, 45%, 0.3);
+    }
+}

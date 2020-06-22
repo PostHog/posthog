@@ -1,10 +1,11 @@
 import { kea } from 'kea'
 
-import { actionsLogic } from '~/toolbar/elements/actionsLogic'
+import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementToActionStep, getAllClickTargets, getElementForStep } from '~/toolbar/elements/utils'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
+import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 
 export const elementsLogic = kea({
     actions: {
@@ -54,8 +55,13 @@ export const elementsLogic = kea({
 
     selectors: {
         inspectEnabled: [
-            selectors => [selectors.inspectEnabledRaw, toolbarTabLogic.selectors.tab],
-            (inpsectEnabledRaw, tab) => inpsectEnabledRaw && tab === 'stats',
+            selectors => [
+                selectors.inspectEnabledRaw,
+                toolbarTabLogic.selectors.tab,
+                actionsTabLogic.selectors.inspectingElement,
+            ],
+            (inpsectEnabledRaw, tab, inspectingElement) =>
+                tab === 'stats' ? inpsectEnabledRaw : tab === 'actions' ? inspectingElement !== null : false,
         ],
 
         heatmapEnabled: [

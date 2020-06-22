@@ -35,14 +35,18 @@ export const actionsLogic = kea({
     },
 
     selectors: {
+        sortedActions: [
+            s => [s.allActions],
+            allActions => [...allActions].sort((a, b) => (a.name || 'Untitled').localeCompare(b.name || 'Untitled')),
+        ],
         actionsForCurrentUrl: [
-            selectors => [selectors.allActions, currentPageLogic.selectors.href],
-            (allActions, href) => {
-                if (allActions.length === 0) {
+            s => [s.sortedActions, currentPageLogic.selectors.href],
+            (sortedActions, href) => {
+                if (sortedActions.length === 0) {
                     return []
                 }
 
-                const actionsWithSteps = allActions
+                const actionsWithSteps = sortedActions
                     .filter(a => a.steps && a.steps.length > 0 && a.steps.find(s => s.event === '$autocapture'))
                     .filter(a => a.steps.find(step => stepMatchesHref(step, href)))
 
