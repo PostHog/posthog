@@ -54,6 +54,7 @@ export const eventsTableLogic = kea({
         setSelectedEvent: selectedEvent => ({ selectedEvent }),
         setPollTimeout: pollTimeout => ({ pollTimeout }),
         setDelayedLoading: true,
+        setEventFilter: event => ({ event }),
     }),
 
     reducers: () => ({
@@ -64,6 +65,12 @@ export const eventsTableLogic = kea({
             [],
             {
                 setProperties: (_, { properties }) => properties,
+            },
+        ],
+        eventFilter: [
+            false,
+            {
+                setEventFilter: (_, { event }) => event,
             },
         ],
         isLoading: [
@@ -182,12 +189,9 @@ export const eventsTableLogic = kea({
     }),
 
     listeners: ({ actions, values, props }) => ({
-        setProperties: () => {
-            actions.fetchEvents()
-        },
-        flipSort: () => {
-            actions.fetchEvents()
-        },
+        setProperties: () => actions.fetchEvents(),
+        flipSort: () => actions.fetchEvents(),
+        setEventFilter: () => actions.fetchEvents(),
         fetchNextEvents: async () => {
             const { events, orderBy } = values
 
@@ -211,6 +215,7 @@ export const eventsTableLogic = kea({
                     properties: values.properties,
                     ...(props.fixedFilters || {}),
                     ...(nextParams || {}),
+                    ...(values.eventFilter ? { event: values.eventFilter } : {}),
                     orderBy: [values.orderBy],
                 })
 
@@ -230,6 +235,7 @@ export const eventsTableLogic = kea({
             let params = {
                 properties: values.properties,
                 ...(props.fixedFilters || {}),
+                ...(values.eventFilter ? { event: values.eventFilter } : {}),
                 orderBy: [values.orderBy],
             }
 

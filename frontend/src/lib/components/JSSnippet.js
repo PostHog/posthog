@@ -272,7 +272,7 @@ export let JSSnippet = props => {
                 <span style={{ color: '#f92672' }}>=</span>
                 <span style={{ color: '#e6db74' }}>
                     "capture identify alias people.set people.set_once set_config register register_once unregister
-                    opt_out_capturing has_opted_out_capturing opt_in_capturing reset"
+                    opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags"
                 </span>
                 <span style={{ color: '#f8f8f2' }}>.</span>
                 <span style={{ color: '#a6e22e' }}>split</span>
