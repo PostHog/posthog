@@ -10,7 +10,7 @@ import { ToastContainer, Slide } from 'react-toastify'
 import { Sidebar } from '~/layout/Sidebar'
 import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
-import { OnboardingWizard } from '~/scenes/onboarding/OnboardingWizard'
+import { OnboardingWizard } from '~/scenes/onboarding/onboardingWizard'
 
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
