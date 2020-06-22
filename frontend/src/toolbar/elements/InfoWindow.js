@@ -37,7 +37,7 @@ export function InfoWindow() {
         }
     }
 
-    let top = Math.max(window.pageYOffset + 8, rect.top + rect.height + 10 + window.pageYOffset)
+    let top = Math.max(window.pageYOffset + 16, rect.top + rect.height + 10 + window.pageYOffset)
     let bottom
     let minHeight = 50
     let maxHeight

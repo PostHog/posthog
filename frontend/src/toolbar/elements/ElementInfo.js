@@ -31,9 +31,6 @@ export function ElementInfo() {
                         <CalendarOutlined /> <u>Last 7 days</u>
                     </p>
                     <Row gutter={16}>
-                        <Col span={8}>
-                            <Statistic title="Ranking" prefix="#" value={position || 0} />
-                        </Col>
                         <Col span={16}>
                             <Statistic
                                 title="Clicks"
@@ -42,6 +39,9 @@ export function ElementInfo() {
                                     clickCount === 0 ? '-' : Math.round(((count || 0) / clickCount) * 10000) / 100
                                 }%)`}
                             />
+                        </Col>
+                        <Col span={8}>
+                            <Statistic title="Ranking" prefix="#" value={position || 0} />
                         </Col>
                     </Row>
                     <Divider />

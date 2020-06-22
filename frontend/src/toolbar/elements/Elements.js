@@ -107,12 +107,16 @@ export function Elements() {
                                 domPadding={domPadding}
                                 domZoom={domZoom}
                                 style={{
+                                    pointerEvents: 'all',
                                     zIndex: 5,
                                     opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
                                     transition: 'opacity 0.2s, transform 0.2s linear',
                                     transform: hoverElement === element ? 'scale(1.3)' : 'none',
-                                    pointerEvents: 'none',
+                                    cursor: 'pointer',
                                 }}
+                                onClick={() => setSelectedElement(element)}
+                                onMouseOver={() => setHoverElement(element)}
+                                onMouseOut={() => setHoverElement(null)}
                             >
                                 {index + 1}
                             </HeatmapLabel>
