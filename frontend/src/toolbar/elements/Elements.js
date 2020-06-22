@@ -68,9 +68,14 @@ export function Elements() {
                             pointerEvents: 'all',
                             cursor: 'pointer',
                             zIndex: 0,
-                            opacity: !hoverElement || hoverElement === element ? 1 : 0.4,
+                            opacity:
+                                (!hoverElement && !selectedElement) ||
+                                selectedElement === element ||
+                                hoverElement === element
+                                    ? 1
+                                    : 0.4,
                             transition: 'opacity 0.2s, box-shadow 0.2s',
-                            ...getBoxColors(selectedElement === element ? 'green' : 'blue', hoverElement === element),
+                            ...getBoxColors('blue', hoverElement === element || selectedElement === element),
                         }}
                         onClick={() => setSelectedElement(element)}
                         onMouseOver={() => setHoverElement(element)}
