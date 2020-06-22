@@ -1,16 +1,14 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useValues } from 'kea'
 import { ActionStep } from '~/toolbar/elements/ActionStep'
 import { CalendarOutlined, AimOutlined } from '@ant-design/icons'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { Button, Statistic, Row, Col, Divider } from 'antd'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { NewAction } from '~/toolbar/elements/NewAction'
 
 export function ElementInfo() {
     const { clickCount } = useValues(heatmapLogic)
     const { hoverElementMeta, selectedElementMeta, hoverElementHighlight } = useValues(elementsLogic)
-    const [newAction, setNewAction] = useState(false)
 
     const activeMeta = hoverElementMeta || selectedElementMeta
 
@@ -67,11 +65,7 @@ export function ElementInfo() {
             )}
             <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #eee' }}>
                 <div>
-                    {newAction ? (
-                        <NewAction actionStep={actionStep} />
-                    ) : (
-                        <Button onClick={() => setNewAction(true)}>Create a new action</Button>
-                    )}
+                    <Button>Create a new action</Button>
                 </div>
             </div>
         </>

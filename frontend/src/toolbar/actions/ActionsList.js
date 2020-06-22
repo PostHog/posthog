@@ -6,9 +6,11 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { SearchOutlined } from '@ant-design/icons'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { ExportOutlined } from '@ant-design/icons'
+import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 
 export function ActionsList() {
     const { actionsForCurrentUrl, allActions, allActionsLoading } = useValues(actionsLogic)
+    const { selectAction } = useActions(actionsTabLogic)
     const { disableInspect, enableInspect } = useActions(elementsLogic)
     const { inspectEnabled } = useValues(elementsLogic)
 
@@ -30,12 +32,14 @@ export function ActionsList() {
                 <Spin />
             ) : (
                 <>
-                    <div>{allActions.length} actions</div>
-                    <div>{actionsForCurrentUrl.length} actions for current url</div>
+                    <div>{allActions.length} actions total</div>
+                    <div>{actionsForCurrentUrl.length} actions in use on the current url</div>
 
                     <ol>
                         {actionsForCurrentUrl.map(action => (
-                            <li key={action.id}>{action.name || 'Untitled'}</li>
+                            <li key={action.id} onClick={() => selectAction(action.id)} style={{ cursor: 'pointer' }}>
+                                {action.name || 'Untitled'}
+                            </li>
                         ))}
                     </ol>
                 </>
