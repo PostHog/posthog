@@ -22,6 +22,7 @@ export const scenes = {
     trends: () => import(/* webpackChunkName: 'trends' */ './trends/Trends'),
     paths: () => import(/* webpackChunkName: 'paths' */ './paths/Paths'),
     cohorts: () => import(/* webpackChunkName: 'cohorts' */ './users/Cohorts'),
+    featureFlags: () => import(/* webpackChunkName: 'featureFlags' */ './experiments/FeatureFlags'),
 }
 
 export const redirects = {
@@ -47,6 +48,7 @@ export const routes = {
     '/people': 'people',
     '/people/new_cohort': 'people',
     '/people/cohorts': 'cohorts',
+    '/experiments/feature_flags': 'featureFlags',
     '/sessions': 'sessions',
 }
 
