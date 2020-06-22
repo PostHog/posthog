@@ -56,9 +56,14 @@ export function ElementInfo() {
             {activeMeta.actions.length === 0 ? (
                 <p>No actions include this element</p>
             ) : (
-                <p>
-                    <AimOutlined /> {activeMeta.actions.length} Actions
-                </p>
+                <>
+                    <p>
+                        <AimOutlined /> {activeMeta.actions.length} Actions
+                    </p>
+                    {activeMeta.actions.map(({ action }) => (
+                        <li key={action.id}>{action.name || 'Untitled'}</li>
+                    ))}
+                </>
             )}
             <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #eee' }}>
                 <div>
