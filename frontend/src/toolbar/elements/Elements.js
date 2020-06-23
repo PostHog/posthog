@@ -24,7 +24,7 @@ export function Elements() {
         actionLabelsToDisplay,
         actionsForElementMap,
     } = useValues(elementsLogic)
-    const { setHoverElement, setSelectedElement } = useActions(elementsLogic)
+    const { setHoverElement, selectElement } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapLogic)
 
     return (
@@ -82,7 +82,7 @@ export function Elements() {
                             transition: 'opacity 0.2s, box-shadow 0.2s',
                             ...getBoxColors('blue', hoverElement === element || selectedElement === element),
                         }}
-                        onClick={() => setSelectedElement(element)}
+                        onClick={() => selectElement(element)}
                         onMouseOver={() => setHoverElement(element)}
                         onMouseOut={() => setHoverElement(null)}
                     />
@@ -103,7 +103,7 @@ export function Elements() {
                                     cursor: 'pointer',
                                     ...getBoxColors('red', hoverElement === element, (count / highestClickCount) * 0.4),
                                 }}
-                                onClick={() => setSelectedElement(element)}
+                                onClick={() => selectElement(element)}
                                 onMouseOver={() => setHoverElement(element)}
                                 onMouseOut={() => setHoverElement(null)}
                             />
@@ -119,7 +119,7 @@ export function Elements() {
                                     transform: hoverElement === element ? 'scale(1.3)' : 'none',
                                     cursor: 'pointer',
                                 }}
-                                onClick={() => setSelectedElement(element)}
+                                onClick={() => selectElement(element)}
                                 onMouseOver={() => setHoverElement(element)}
                                 onMouseOut={() => setHoverElement(null)}
                             >
@@ -152,7 +152,7 @@ export function Elements() {
                                 background: 'hsl(147, 100%, 62%)',
                                 boxShadow: 'hsla(141, 100%, 32%, 1) 0px 1px 5px 1px',
                             }}
-                            onClick={() => setSelectedElement(element)}
+                            onClick={() => selectElement(element)}
                             onMouseOver={() => setHoverElement(element)}
                             onMouseOut={() => setHoverElement(null)}
                         >

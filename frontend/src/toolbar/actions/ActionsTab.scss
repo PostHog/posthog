@@ -8,9 +8,6 @@
             &:last-child {
                 padding-bottom: 10px;
             }
-            .action-field.action-field-selected {
-                background: hsla(228, 14%, 96%, 1);
-            }
         }
     }
 }
@@ -26,8 +23,5 @@
 
     .ant-form-item {
         margin-bottom: 0;
-    }
-    &.action-field-selected {
-        background: hsla(220, 27%, 92%, 1);
     }
 }

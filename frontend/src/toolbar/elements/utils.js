@@ -226,3 +226,18 @@ export function getBoxColors(color, hover = false, opacity = 0.2) {
         }
     }
 }
+
+export function actionStepToAntdForm(step) {
+    if (!step) {
+        return undefined
+    }
+    const newStep = {
+        ...step,
+        url_matching: step.url_matching || 'exact',
+        href_selected: step.href !== null,
+        text_selected: step.text !== null,
+        selector_selected: step.selector !== null,
+        url_selected: step.url !== null,
+    }
+    return newStep
+}

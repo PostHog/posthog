@@ -2,10 +2,14 @@ import React from 'react'
 import { Checkbox, Form, Input } from 'antd'
 import { SelectorCount } from '~/toolbar/actions/SelectorCount'
 import { cssEscape } from 'lib/utils/cssEscape'
+import { UrlMatchingToggle } from '~/toolbar/actions/UrlMatchingToggle'
 
 export function ActionStepField({ field, step, item, label }) {
+    const selected = step && step[`${item}_selected`]
+    const fieldStyle = selected ? {} : { opacity: 0.5 }
+
     return (
-        <div className={step && step[`${item}_selected`] ? 'action-field action-field-selected' : 'action-field'}>
+        <div className={selected ? 'action-field action-field-selected' : 'action-field'}>
             <Form.Item style={{ margin: 0 }}>
                 {item === 'href' && step?.href && <SelectorCount selector={`a[href="${cssEscape(step.href)}"]`} />}
                 {item === 'selector' && step?.selector && <SelectorCount selector={step.selector} />}
@@ -19,8 +23,13 @@ export function ActionStepField({ field, step, item, label }) {
                     <Checkbox>{label}</Checkbox>
                 </Form.Item>
             </Form.Item>
+            {item === 'url' ? (
+                <Form.Item name={[field.name, `${item}_matching`]} fieldKey={[field.fieldKey, `${item}_matching`]}>
+                    <UrlMatchingToggle />
+                </Form.Item>
+            ) : null}
             <Form.Item name={[field.name, item]} fieldKey={[field.fieldKey, item]}>
-                {item === 'selector' ? <Input.TextArea autoSize /> : <Input />}
+                {item === 'selector' ? <Input.TextArea autoSize style={fieldStyle} /> : <Input style={fieldStyle} />}
             </Form.Item>
         </div>
     )

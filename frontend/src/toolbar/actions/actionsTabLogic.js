@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
+import { elementToActionStep, actionStepToAntdForm } from '~/toolbar/elements/utils'
 
 function newAction() {
     return {
@@ -10,11 +11,11 @@ function newAction() {
 
 export const actionsTabLogic = kea({
     actions: {
+        setForm: form => ({ form }),
         selectAction: id => ({ id }),
         newAction: true,
-
         inspectForElementWithIndex: index => ({ index }),
-
+        inspectElementSelected: (element, index) => ({ element, index }),
         setEditingFields: editingFields => ({ editingFields }),
     },
 
@@ -25,6 +26,7 @@ export const actionsTabLogic = kea({
         },
         inspectingElement: {
             inspectForElementWithIndex: (_, { index }) => index,
+            inspectElementSelected: () => null,
             selectAction: () => null,
             newAction: () => null,
         },
@@ -33,11 +35,14 @@ export const actionsTabLogic = kea({
             selectAction: () => null,
             newAction: () => null,
         },
+        form: {
+            setForm: (_, { form }) => form,
+        },
     },
 
     selectors: {
         selectedAction: [
-            selectors => [selectors.selectedActionId, actionsLogic.selectors.allActions],
+            s => [s.selectedActionId, actionsLogic.selectors.allActions],
             (selectedActionId, allActions) => {
                 if (selectedActionId === 'new') {
                     return newAction()
@@ -45,11 +50,24 @@ export const actionsTabLogic = kea({
                 return allActions.find(a => a.id === selectedActionId)
             },
         ],
+        initialValuesForForm: [
+            s => [s.selectedAction],
+            selectedAction => ({ ...selectedAction, steps: selectedAction.steps.map(actionStepToAntdForm) }),
+        ],
     },
 
-    events: () => ({
+    listeners: ({ values }) => ({
+        inspectElementSelected: ({ element, index }) => {
+            if (values.form) {
+                const actionStep = actionStepToAntdForm(elementToActionStep(element))
+                values.form.setFields([{ name: ['steps', index], value: actionStep }])
+            }
+        },
+    }),
+
+    events: {
         afterMount: () => {
             actionsLogic.actions.getActions()
         },
-    }),
+    },
 })

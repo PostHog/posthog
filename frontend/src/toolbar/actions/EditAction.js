@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Form, Input } from 'antd'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -6,14 +6,22 @@ import { ActionStepField } from '~/toolbar/actions/ActionStepField'
 import { MinusCircleOutlined, SearchOutlined, PlusCircleOutlined, CloseOutlined } from '@ant-design/icons'
 
 export function EditAction() {
-    const { selectedAction, selectedActionId, inspectingElement, editingFields } = useValues(actionsTabLogic)
-    const { selectAction, inspectForElementWithIndex, setEditingFields } = useActions(actionsTabLogic)
-
     const [form] = Form.useForm()
+
+    const { initialValuesForForm, selectedActionId, inspectingElement, editingFields } = useValues(actionsTabLogic)
+    const { selectAction, inspectForElementWithIndex, setEditingFields, setForm } = useActions(actionsTabLogic)
+
     const onFinish = values => {
         console.log('Received values of form: ', values)
     }
     const { getFieldValue } = form
+
+    useEffect(() => {
+        // This sucks, but no time to rewrite the entire form with kea.
+        // Even if we're using `editingFields`, it'll be null before the first change in the form,
+        // Thus we can't update anything in kea...
+        setForm(form)
+    }, [form])
 
     return (
         <div>
@@ -27,7 +35,7 @@ export function EditAction() {
             <Form
                 name="action_step"
                 form={form}
-                initialValues={selectedAction}
+                initialValues={initialValuesForForm}
                 onFinish={onFinish}
                 fields={editingFields}
                 onFieldsChange={(changedFields, allFields) => {

@@ -12,6 +12,8 @@ export const elementsLogic = kea({
         enableInspect: true,
         disableInspect: true,
 
+        selectElement: element => ({ element }),
+
         updateRects: true,
         setHoverElement: element => ({ element }),
         setHighlightElement: element => ({ element }),
@@ -232,9 +234,18 @@ export const elementsLogic = kea({
         },
     }),
 
-    listeners: () => ({
+    listeners: ({ actions }) => ({
         enableInspect: () => {
             actionsLogic.actions.getActions()
+        },
+        selectElement: ({ element }) => {
+            if (toolbarTabLogic.values.tab === 'stats') {
+                actions.setSelectedElement(element)
+            } else if (toolbarTabLogic.values.tab === 'actions') {
+                if (actionsTabLogic.values.inspectingElement !== null) {
+                    actionsTabLogic.actions.inspectElementSelected(element, actionsTabLogic.values.inspectingElement)
+                }
+            }
         },
     }),
 })
