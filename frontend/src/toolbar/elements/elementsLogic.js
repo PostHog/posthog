@@ -302,7 +302,7 @@ export const elementsLogic = kea({
         },
     }),
 
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         enableInspect: () => {
             actionsLogic.actions.getActions()
         },
@@ -313,6 +313,12 @@ export const elementsLogic = kea({
                 actions.setHoverElement(null)
                 if (actionsTabLogic.values.inspectingElement !== null) {
                     actionsTabLogic.actions.inspectElementSelected(element, actionsTabLogic.values.inspectingElement)
+                }
+                if (!actionsTabLogic.values.selectedAction) {
+                    const action = values.elementsToDisplay.find(e => e.element === element)?.action
+                    if (action) {
+                        actionsTabLogic.actions.selectAction(action.id)
+                    }
                 }
             }
         },
