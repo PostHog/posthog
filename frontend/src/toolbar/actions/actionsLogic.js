@@ -5,7 +5,7 @@ import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { stepMatchesHref } from '~/toolbar/elements/utils'
 
 export const actionsLogic = kea({
-    loaders: {
+    loaders: ({ values }) => ({
         allActions: [
             [],
             {
@@ -30,9 +30,12 @@ export const actionsLogic = kea({
 
                     return results.results
                 },
+                updateAction: ({ action }) => {
+                    return values.allActions.filter(r => r.id !== action.id).concat([action])
+                },
             },
         ],
-    },
+    }),
 
     selectors: {
         sortedActions: [

@@ -261,3 +261,15 @@ export function actionStepToAntdForm(step, isNew = false) {
     }
     return newStep
 }
+
+export function stepToDatabaseFormat(step) {
+    const { href_selected, text_selected, selector_selected, url_selected, ...rest } = step
+    const newStep = {
+        ...rest,
+        href: href_selected ? rest.href : null,
+        text: text_selected ? rest.text : null,
+        selector: selector_selected ? rest.selector : null,
+        url: url_selected ? rest.url : null,
+    }
+    return newStep
+}

@@ -1,6 +1,9 @@
 import { kea } from 'kea'
+import api from 'lib/api'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { elementToActionStep, actionStepToAntdForm } from '~/toolbar/elements/utils'
+import { elementToActionStep, actionStepToAntdForm, stepToDatabaseFormat } from '~/toolbar/elements/utils'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { toast } from 'react-toastify'
 
 function newAction(element) {
     return {
@@ -18,6 +21,7 @@ export const actionsTabLogic = kea({
         inspectElementSelected: (element, index) => ({ element, index }),
         setEditingFields: editingFields => ({ editingFields }),
         incrementCounter: true,
+        saveAction: formValues => ({ formValues }),
     },
 
     reducers: {
@@ -70,7 +74,7 @@ export const actionsTabLogic = kea({
             // `editingFields` don't update on values.form.setFields(fields), so reloading by tagging a few other selectors
             s => [s.selectedAction, s.initialValuesForForm, s.form, s.editingFields, s.inspectingElement, s.counter],
             (selectedAction, initialValuesForForm, form) => {
-                return selectedAction ? form?.getFieldValue() || initialValuesForForm : null
+                return selectedAction ? { ...initialValuesForForm, ...(form?.getFieldValue() || {}) } : null
             },
         ],
     },
@@ -85,6 +89,34 @@ export const actionsTabLogic = kea({
                 values.form.setFields(fields)
                 actions.incrementCounter()
             }
+        },
+        saveAction: async ({ formValues }, breakpoint) => {
+            const actionToSave = {
+                ...formValues,
+                steps: formValues.steps.map(stepToDatabaseFormat),
+            }
+            const { apiURL, temporaryToken } = toolbarLogic.values
+            const { selectedActionId } = values
+
+            let response
+            if (selectedActionId && selectedActionId !== 'new') {
+                response = await api.update(
+                    `${apiURL}${
+                        apiURL.endsWith('/') ? '' : '/'
+                    }api/action/${selectedActionId}/?temporary_token=${temporaryToken}`,
+                    actionToSave
+                )
+            } else {
+                response = await api.create(
+                    `${apiURL}${apiURL.endsWith('/') ? '' : '/'}api/action/?temporary_token=${temporaryToken}`,
+                    actionToSave
+                )
+            }
+            breakpoint()
+
+            actionsLogic.actions.updateAction({ action: response })
+            actions.selectAction(null)
+            toast.success('Action saved!')
         },
     }),
 

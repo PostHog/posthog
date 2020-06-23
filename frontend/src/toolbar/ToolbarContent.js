@@ -13,7 +13,7 @@ import { Button } from 'antd'
 export const ToolbarContent = hot(_ToolbarContent)
 function _ToolbarContent({ type }) {
     const { tab } = useValues(toolbarTabLogic)
-    const { hoverElement, selectedElement, inspectEnabled } = useValues(elementsLogic)
+    const { hoverElement, selectedElement, inspectEnabled, heatmapEnabled } = useValues(elementsLogic)
     const { setSelectedElement } = useActions(elementsLogic)
 
     // This creates two different tabs, rendering each one when needed as directed by the animation logic
@@ -21,7 +21,10 @@ function _ToolbarContent({ type }) {
     return (
         <div>
             {type === 'float' ? <FloatingToolbarHeader /> : null}
-            {type === 'dock' && tab === 'stats' && inspectEnabled && (hoverElement || selectedElement) ? (
+            {type === 'dock' &&
+            tab === 'stats' &&
+            (inspectEnabled || heatmapEnabled) &&
+            (hoverElement || selectedElement) ? (
                 <>
                     <div style={{ height: 66 }}>
                         {selectedElement && (!hoverElement || hoverElement === selectedElement) ? (

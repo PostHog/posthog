@@ -9,11 +9,10 @@ export function EditAction() {
     const [form] = Form.useForm()
 
     const { initialValuesForForm, selectedActionId, inspectingElement, editingFields } = useValues(actionsTabLogic)
-    const { selectAction, inspectForElementWithIndex, setEditingFields, setForm } = useActions(actionsTabLogic)
+    const { selectAction, inspectForElementWithIndex, setEditingFields, setForm, saveAction } = useActions(
+        actionsTabLogic
+    )
 
-    const onFinish = values => {
-        console.log('Received values of form: ', values)
-    }
     const { getFieldValue } = form
 
     useEffect(() => {
@@ -36,7 +35,7 @@ export function EditAction() {
                 name="action_step"
                 form={form}
                 initialValues={initialValuesForForm}
-                onFinish={onFinish}
+                onFinish={saveAction}
                 fields={editingFields}
                 onFieldsChange={(changedFields, allFields) => {
                     setEditingFields(allFields)
