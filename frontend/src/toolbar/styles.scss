@@ -13,9 +13,10 @@
     left: 0;
     z-index: 2147483020;
     width: 300px;
-    max-height: calc(100vh - 4rem);
+    max-height: calc(100vh - 2rem);
     opacity: 1;
     transition: opacity ease 0.5s;
+    overflow: auto;
 
     &.toolbar-invisible {
         opacity: 0;
