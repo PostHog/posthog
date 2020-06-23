@@ -40,6 +40,7 @@ export const elementsLogic = kea({
             enableInspect: () => null,
             disableInspect: () => null,
             createAction: () => null,
+            [toolbarTabLogic.actions.setTab]: () => null,
         },
         highlightElement: {
             setHighlightElement: (_, { element }) => element,
@@ -48,11 +49,13 @@ export const elementsLogic = kea({
             selectElement: () => null,
             disableInspect: () => null,
             createAction: () => null,
+            [toolbarTabLogic.actions.setTab]: () => null,
         },
         selectedElement: {
             setSelectedElement: (_, { element }) => element,
             disableInspect: () => null,
             createAction: () => null,
+            [toolbarTabLogic.actions.setTab]: () => null,
             [heatmapLogic.actions.disableHeatmap]: () => null,
         },
         enabledLast: {

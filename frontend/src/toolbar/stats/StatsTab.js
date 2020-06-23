@@ -1,9 +1,8 @@
 import React from 'react'
 
 import { CurrentPage } from '~/toolbar/stats/CurrentPage'
-import { InspectElement } from '~/toolbar/shared/InspectElement'
-import { PageViewStats } from '~/toolbar/stats/PageViewStats'
-import { HeatmapStats } from '~/toolbar/shared/HeatmapStats'
+import { InspectElement } from '~/toolbar/stats/InspectElement'
+import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
 
 export function StatsTab({ className }) {
     return (
@@ -11,7 +10,6 @@ export function StatsTab({ className }) {
             <CurrentPage />
             <InspectElement />
             <HeatmapStats />
-            <PageViewStats />
         </div>
     )
 }
