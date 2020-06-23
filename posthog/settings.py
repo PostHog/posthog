@@ -332,3 +332,5 @@ if TEST:
     CACHES["default"] = {
         "BACKEND": "django.core.cache.backends.dummy.DummyCache",
     }
+
+SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY")

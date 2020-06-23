@@ -5,6 +5,7 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
 from posthog.models import Team, Event
+from django.conf import settings
 
 class Command(BaseCommand):
     help = 'Check user statuses and send email if necessary'
@@ -14,7 +15,7 @@ class Command(BaseCommand):
         for team in all_teams:
             team_has_events = Event.objects.filter(team=team).exists()
             count = FollowUpEmail.objects.filter(team=team).count()
-            if not team_has_events and count < 1:
+            if not team_has_events:
                 self._send_follow_up_to_team(team, count)
 
     def _send_follow_up_to_team(self, team: Team, count: int):
@@ -27,13 +28,13 @@ class Command(BaseCommand):
         message = Mail(
             from_email='eric@posthog.com',
             to_emails=email,
-            subject='Sending with Twilio SendGrid is Fun',
-            html_content='<strong>and easy to do anywhere, even with Python</strong>')
+            subject='Follow Up Email',
+            html_content='Looks like you haven\'t started sending events with Posthog yet. Want a demo?')
         try:
-            sg = SendGridAPIClient('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')
-            response = sg.send(message)
-            print(response.status_code)
-            print(response.body)
-            print(response.headers)
+            if settings.SENDGRID_API_KEY:
+                sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
+            else: 
+                raise Exception("No Sendgrid Key")
+            sg.send(message)
         except Exception as e:
             print(e.body)
