@@ -25,7 +25,7 @@ export function ActionStepField({ field, step, item, label }) {
             </Form.Item>
             {item === 'url' ? (
                 <Form.Item name={[field.name, `${item}_matching`]} fieldKey={[field.fieldKey, `${item}_matching`]}>
-                    <UrlMatchingToggle />
+                    <UrlMatchingToggle style={fieldStyle} />
                 </Form.Item>
             ) : null}
             <Form.Item name={[field.name, item]} fieldKey={[field.fieldKey, item]}>

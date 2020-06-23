@@ -36,11 +36,14 @@ export const elementsLogic = kea({
         ],
         hoverElement: {
             setHoverElement: (_, { element }) => element,
+            enableInspect: () => null,
+            disableInspect: () => null,
         },
         highlightElement: {
             setHighlightElement: (_, { element }) => element,
             setHoverElement: () => null,
             setSelectedElement: () => null,
+            selectElement: () => null,
             disableInspect: () => null,
         },
         selectedElement: {
@@ -242,6 +245,7 @@ export const elementsLogic = kea({
             if (toolbarTabLogic.values.tab === 'stats') {
                 actions.setSelectedElement(element)
             } else if (toolbarTabLogic.values.tab === 'actions') {
+                actions.setHoverElement(null)
                 if (actionsTabLogic.values.inspectingElement !== null) {
                     actionsTabLogic.actions.inspectElementSelected(element, actionsTabLogic.values.inspectingElement)
                 }

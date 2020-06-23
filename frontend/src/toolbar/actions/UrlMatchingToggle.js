@@ -1,9 +1,9 @@
 import React from 'react'
 import { Button } from 'antd'
 
-export function UrlMatchingToggle({ value, onChange }) {
+export function UrlMatchingToggle({ value, onChange, style }) {
     return (
-        <Button.Group size="small">
+        <Button.Group size="small" style={style}>
             <Button type={value === 'contains' ? 'primary' : 'outline'} onClick={() => onChange('contains')}>
                 Contains
             </Button>
