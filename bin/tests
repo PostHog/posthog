@@ -1,2 +1,5 @@
+#!/bin/bash
+set -x
+
 REDIS_URL='redis:///' OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python manage.py test --parallel=4 $@ --noinput
-REDIS_URL='redis:///' nodemon --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python manage.py test --parallel=1 --keepdb $@; mypy posthog"
+REDIS_URL='redis:///' npx nodemon --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python manage.py test --parallel=1 --noinput --keepdb $@; mypy posthog"
