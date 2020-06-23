@@ -8,7 +8,7 @@ import { Popover, Row } from 'antd'
 import { CloseButton, operatorMap } from 'lib/utils'
 import _ from 'lodash'
 
-function FilterRow({ item, index, filters, logic, pageKey }) {
+const FilterRow = React.memo(function FilterRow({ item, index, filters, logic, pageKey }) {
     const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
     const { key, value, operator, type } = item
@@ -54,7 +54,7 @@ function FilterRow({ item, index, filters, logic, pageKey }) {
             )}
         </Row>
     )
-}
+})
 
 export function PropertyFilters({ endpoint, propertyFilters, onChange, pageKey }) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
