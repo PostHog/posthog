@@ -1276,7 +1276,7 @@ class TestRetention(TransactionBaseTest):
         )
 
         result = calculate_retention(
-            Filter(data={"date_from": self._date(0, hour=0)}), total_days=7
+            Filter(data={"date_from": self._date(0, hour=0)}), self.team, total_days=7
         )
 
         self.assertEqual(len(result["data"]), 7)

@@ -214,48 +214,46 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def query_retention(self, date_from, date_to) -> models.QuerySet:
-        event_date_query = sql.SQL(
-            "DATE_TRUNC('day', \"posthog_event\".\"timestamp\" AT TIME ZONE 'UTC')"
-        )
-        in_date_range_query = sql.SQL(
-            "timestamp >= %(date_from)s AND timestamp <= %(date_to)s"
+    def query_retention(self, filters, team, event="$pageview") -> models.QuerySet:
+        filtered_events = (
+            Event.objects.filter(filters.date_filter_Q)
+            .filter(team=team)
+            .add_person_id(team.pk)
+            .filter(event=event)
         )
 
-        qstring = sql.SQL(
-            """
-            WITH first_event_date AS (
-                SELECT
-                    distinct_id,
-                    {event_date_query} AS first_date
-                FROM "posthog_event"
-                WHERE
-                    "posthog_event"."event" = '$fakepageview2' AND {in_date_range_query}
-                GROUP BY distinct_id, {event_date_query}
-            )
+        first_date = (
+            filtered_events.annotate(first_date=TruncDay("timestamp"))
+            .values("first_date", "person_id")
+            .distinct()
+        )
+
+        events_query, events_query_params = filtered_events.query.sql_with_params()
+        first_date_query, first_date_params = first_date.query.sql_with_params()
+
+        qstring = """
             SELECT
-                DATE_PART('days', first_date - %(date_from)s) AS first_date,
-                DATE_PART('days', {event_date_query} - first_date) AS date,
-                COUNT(DISTINCT "posthog_event"."distinct_id")
-            FROM "posthog_event"
-            LEFT JOIN first_event_date ON ("posthog_event"."distinct_id" = "first_event_date"."distinct_id")
-            WHERE "posthog_event"."event" = '$fakepageview2'
-              AND "posthog_event"."timestamp" > first_date
-              AND {in_date_range_query}
-            GROUP BY {event_date_query}, first_date
-            """
-        ).format(
-            event_date_query=event_date_query, in_date_range_query=in_date_range_query
+                DATE_PART('days', first_date - %s) AS first_date,
+                DATE_PART('days', timestamp - first_date) AS date,
+                COUNT(DISTINCT "events"."person_id")
+            FROM ({events_query}) events
+            LEFT JOIN ({first_date_query}) first_event_date
+              ON (events.person_id = first_event_date.person_id)
+            WHERE timestamp > first_date
+            GROUP BY date, first_date
+        """.format(
+            events_query=events_query,
+            first_date_query=first_date_query,
+            event_date_query=TruncDay("timestamp"),
         )
 
         with connection.cursor() as cursor:
             cursor.execute(
-                qstring.as_string(cursor.connection),
-                {"date_from": date_from, "date_to": date_to},
+                qstring, (filters.date_from,) + events_query_params + first_date_params
             )
-            people = namedtuplefetchall(cursor)
+            data = namedtuplefetchall(cursor)
 
-        return people
+        return data
 
     def create(self, site_url: Optional[str] = None, *args: Any, **kwargs: Any):
         with transaction.atomic():

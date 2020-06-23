@@ -234,8 +234,11 @@ class ActionViewSet(viewsets.ModelViewSet):
     def retention(
         self, request: request.Request, *args: Any, **kwargs: Any
     ) -> Response:
+        team = request.user.team_set.get()
         filter = Filter(request=request)
-        result = calculate_retention(filter)
+        filter._date_from = "-11d"
+
+        result = calculate_retention(filter, team)
         return Response(result)
 
     @action(methods=["GET"], detail=False)
@@ -414,13 +417,10 @@ def calculate_trends(
     return entities_list
 
 
-def calculate_retention(filter: Filter):
-    DAYS = 11
+def calculate_retention(filter: Filter, team: Team, total_days=11):
+    filter._date_to = (filter.date_from + timedelta(days=total_days)).isoformat()
     labels_format = "%a. %-d %B"
-
-    filter._date_from = "-11d"
-    filter._date_to = (filter.date_from + timedelta(days=DAYS)).isoformat()
-    resultset = Event.objects.query_retention(filter.date_from, filter.date_to)
+    resultset = Event.objects.query_retention(filter, team)
 
     by_dates = {(int(row.first_date), int(row.date)): row.count for row in resultset}
 
@@ -428,14 +428,15 @@ def calculate_retention(filter: Filter):
         "data": [
             {
                 "values": [
-                    by_dates.get((first_day, day), 0) for day in range(DAYS - first_day)
+                    by_dates.get((first_day, day), 0)
+                    for day in range(total_days - first_day)
                 ],
                 "label": "Day {}".format(first_day),
                 "date": (filter.date_from + timedelta(days=first_day)).strftime(
                     labels_format
                 ),
             }
-            for first_day in range(DAYS)
+            for first_day in range(total_days)
         ]
     }
 
