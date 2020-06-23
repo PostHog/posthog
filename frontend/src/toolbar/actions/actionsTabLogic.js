@@ -4,6 +4,7 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { elementToActionStep, actionStepToAntdForm, stepToDatabaseFormat } from '~/toolbar/elements/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { toast } from 'react-toastify'
+import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 
 function newAction(element) {
     return {
@@ -81,6 +82,11 @@ export const actionsTabLogic = kea({
     },
 
     listeners: ({ actions, values }) => ({
+        selectAction: ({ id }) => {
+            if (id) {
+                toolbarTabLogic.actions.setTab('actions')
+            }
+        },
         inspectElementSelected: ({ element, index }) => {
             if (values.form) {
                 const actionStep = actionStepToAntdForm(elementToActionStep(element), true)

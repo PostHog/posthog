@@ -1,14 +1,15 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { List, Button, Space, Spin } from 'antd'
+import { Button, Spin } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 
 export function ActionsList() {
     const { allActions, actionsForCurrentUrl, allActionsLoading } = useValues(actionsLogic)
 
-    const { selectAction, newAction } = useActions(actionsTabLogic)
+    const { newAction } = useActions(actionsTabLogic)
 
     return (
         <div className="actions-list">
@@ -22,31 +23,7 @@ export function ActionsList() {
             {allActions.length === 0 && allActionsLoading ? (
                 <Spin />
             ) : (
-                <List
-                    itemLayout="horizontal"
-                    dataSource={actionsForCurrentUrl}
-                    renderItem={(action, index) => (
-                        <List.Item onClick={() => selectAction(action.id)} style={{ cursor: 'pointer' }}>
-                            <List.Item.Meta
-                                title={
-                                    <Space>
-                                        <span
-                                            style={{
-                                                display: 'inline-block',
-                                                width: Math.floor(Math.log10(actionsForCurrentUrl.length) + 1) * 12 + 6,
-                                                textAlign: 'right',
-                                                marginRight: 4,
-                                            }}
-                                        >
-                                            {index + 1}.
-                                        </span>
-                                        {action.name || <span style={{ color: '#888' }}>Untitled</span>}
-                                    </Space>
-                                }
-                            />
-                        </List.Item>
-                    )}
-                />
+                <ActionsListView actions={actionsForCurrentUrl} />
             )}
         </div>
     )

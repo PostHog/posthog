@@ -13,7 +13,7 @@ export function SelectorCount({ selector }) {
     }
     return (
         <small style={{ float: 'right', color: selectorError ? 'red' : '' }}>
-            {selectorError ? 'Invalid selector' : `Matches ${matches} elements`}
+            {selectorError ? 'Invalid selector' : `Matches ${matches} element${matches === 1 ? '' : 's'}`}
         </small>
     )
 }

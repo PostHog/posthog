@@ -1,10 +1,11 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { ActionStep } from '~/toolbar/elements/ActionStep'
-import { CalendarOutlined, AimOutlined } from '@ant-design/icons'
+import { CalendarOutlined, PlusOutlined } from '@ant-design/icons'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { Button, Statistic, Row, Col, Divider } from 'antd'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 
 export function ElementInfo() {
     const { clickCount } = useValues(heatmapLogic)
@@ -51,25 +52,17 @@ export function ElementInfo() {
                 </>
             ) : null}
 
-            <h1 className="section-title">Actions</h1>
+            <h1 className="section-title">Actions ({activeMeta.actions.length})</h1>
 
             {activeMeta.actions.length === 0 ? (
                 <p>No actions include this element</p>
             ) : (
-                <>
-                    <p>
-                        <AimOutlined /> {activeMeta.actions.length} Actions
-                    </p>
-                    {activeMeta.actions.map(({ action }) => (
-                        <li key={action.id}>{action.name || 'Untitled'}</li>
-                    ))}
-                </>
+                <ActionsListView actions={activeMeta.actions.map(a => a.action)} />
             )}
-            <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #eee' }}>
-                <div>
-                    <Button onClick={() => createAction(element)}>Create a new action</Button>
-                </div>
-            </div>
+
+            <Button size="small" onClick={() => createAction(element)}>
+                <PlusOutlined /> Create a new action
+            </Button>
         </>
     )
 }
