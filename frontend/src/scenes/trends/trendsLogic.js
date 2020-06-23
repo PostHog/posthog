@@ -100,7 +100,7 @@ function parsePeopleParams(peopleParams, filters) {
     }
     // If breakdown type is cohort, we use breakdown_value
     // If breakdown type is event, we just set another filter
-    if (breakdown_value && filters.breakdown_type != 'cohort') {
+    if (breakdown_value && filters.breakdown_type != 'cohort' && filters.breakdown_type != 'person') {
         params.properties = [...params.properties, { key: params.breakdown, value: breakdown_value, type: 'event' }]
     }
 
