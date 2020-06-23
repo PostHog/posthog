@@ -16,11 +16,10 @@ export function Elements() {
     const {
         heatmapElements,
         elementsToDisplay,
-        actionElements,
+        labelsToDisplay,
         hoverElement,
         selectedElement,
         inspectEnabled,
-        selectedElementMeta,
         highlightElementMeta,
         actionLabelsToDisplay,
         actionsForElementMap,
@@ -58,11 +57,7 @@ export function Elements() {
                     pointerEvents: 'none',
                 }}
             >
-                {highlightElementMeta ? (
-                    <FocusRect rect={highlightElementMeta.rect} />
-                ) : selectedElementMeta && mode === 'dock' ? (
-                    <FocusRect rect={selectedElementMeta.rect} />
-                ) : null}
+                {highlightElementMeta ? <FocusRect rect={highlightElementMeta.rect} /> : null}
 
                 {elementsToDisplay.map(({ rect, element }, index) => (
                     <HeatmapElement
@@ -157,12 +152,12 @@ export function Elements() {
                             onMouseOver={() => setHoverElement(element)}
                             onMouseOut={() => setHoverElement(null)}
                         >
-                            A·{actions.length}
+                            {actions.length === 1 ? 'A' : 'A+'}
                         </HeatmapLabel>
                     )
                 })}
 
-                {actionElements.map(({ element, rect, index }) => {
+                {labelsToDisplay.map(({ element, rect, index }) => {
                     return (
                         <HeatmapLabel
                             key={index}

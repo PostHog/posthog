@@ -180,13 +180,13 @@ export function getElementForStep(step) {
     }
 
     let selector = ''
-    if (step.selector) {
+    if (step.selector && (step.selector_selected || typeof step.selector_selected === 'undefined')) {
         selector = step.selector
     }
-    if (step.href) {
+    if (step.href && (step.href_selected || typeof step.href_selected === 'undefined')) {
         selector += `[href="${cssEscape(step.href)}"]`
     }
-    if (step.text) {
+    if (step.text && (step.text_selected || typeof step.text_selected === 'undefined')) {
         // TODO
         // selector += `:nth-of-type(${parseInt(element.nth_of_type)})`
     }

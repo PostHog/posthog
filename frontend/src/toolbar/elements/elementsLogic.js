@@ -110,27 +110,21 @@ export const elementsLogic = kea({
                 ),
         ],
 
-        elementsToDisplay: [
-            s => [s.actionElements, s.inspectElements],
-            (actionElements, inspectElements) => {
-                if (inspectElements.length > 0) {
-                    return inspectElements
-                }
-                if (actionElements.length > 0) {
-                    return actionElements
-                }
-                return []
-            },
-        ],
-
         elementMap: [
-            s => [s.heatmapElements, s.inspectElements],
-            (heatmapElements, inspectElements) => {
+            s => [s.heatmapElements, s.inspectElements, s.actionElements],
+            (heatmapElements, inspectElements, actionElements) => {
                 const elementMap = new Map()
                 inspectElements.forEach(e => {
                     elementMap.set(e.element, e)
                 })
                 heatmapElements.forEach(e => {
+                    if (elementMap.get(e.element)) {
+                        elementMap.set(e.element, { ...elementMap.get(e.element), ...e })
+                    } else {
+                        elementMap.set(e.element, e)
+                    }
+                })
+                actionElements.forEach(e => {
                     if (elementMap.get(e.element)) {
                         elementMap.set(e.element, { ...elementMap.get(e.element), ...e })
                     } else {
@@ -145,7 +139,7 @@ export const elementsLogic = kea({
             s => [actionsLogic.selectors.actionsForCurrentUrl, s.rectUpdateCounter],
             actionsForCurrentUrl => {
                 const actionsForElementMap = new Map()
-                actionsForCurrentUrl.forEach(action => {
+                actionsForCurrentUrl.forEach((action, index) => {
                     action.steps
                         .filter(step => step.event === '$autocapture')
                         .forEach(step => {
@@ -157,7 +151,7 @@ export const elementsLogic = kea({
                                     array = []
                                     actionsForElementMap.set(element, array)
                                 }
-                                array.push({ action, step, element, rect })
+                                array.push({ action, step, element, rect, index })
                             }
                         })
                 })
@@ -166,6 +160,51 @@ export const elementsLogic = kea({
         ],
 
         elementsWithActions: [s => [s.actionsForElementMap], actionsForElementMap => [...actionsForElementMap.keys()]],
+
+        actionsListElements: [
+            s => [s.actionsForElementMap],
+            actionsForElementMap => [...actionsForElementMap.values()].map(a => a[0]),
+        ],
+
+        elementsToDisplay: [
+            s => [
+                s.actionElements,
+                s.inspectElements,
+                s.actionsListElements,
+                actionsTabLogic.selectors.selectedAction,
+                toolbarTabLogic.selectors.tab,
+            ],
+            (actionElements, inspectElements, actionsListElements, selectedAction, tab) => {
+                if (inspectElements.length > 0) {
+                    return inspectElements
+                }
+                if (tab === 'actions' && selectedAction && actionElements.length > 0) {
+                    return actionElements
+                }
+                if (tab === 'actions' && !selectedAction && actionsListElements.length > 0) {
+                    return actionsListElements
+                }
+                return []
+            },
+        ],
+
+        labelsToDisplay: [
+            s => [
+                s.actionElements,
+                s.actionsListElements,
+                actionsTabLogic.selectors.selectedAction,
+                toolbarTabLogic.selectors.tab,
+            ],
+            (actionElements, actionsListElements, selectedAction, tab) => {
+                if (tab === 'actions' && selectedAction && actionElements.length > 0) {
+                    return actionElements
+                }
+                if (tab === 'actions' && !selectedAction && actionsListElements.length > 0) {
+                    return actionsListElements
+                }
+                return []
+            },
+        ],
 
         actionLabelsToDisplay: [
             s => [s.elementsWithActions, s.inspectEnabled],
