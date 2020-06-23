@@ -9,7 +9,7 @@ export function ActionsList() {
     const { allActions, actionsForCurrentUrl, allActionsLoading } = useValues(actionsLogic)
 
     const { selectAction, newAction } = useActions(actionsTabLogic)
-    console.log(actionsForCurrentUrl)
+
     return (
         <div className="actions-list">
             <Button type="primary" size="small" onClick={() => newAction()} style={{ float: 'right' }}>
