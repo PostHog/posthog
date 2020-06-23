@@ -40,6 +40,7 @@ export function elementToActionStep(element) {
         text: getSafeText(element) || '',
         selector: query || '',
         url: window.location.protocol + '//' + window.location.host + window.location.pathname,
+        url_matching: 'exact',
     }
 }
 
@@ -227,10 +228,21 @@ export function getBoxColors(color, hover = false, opacity = 0.2) {
     }
 }
 
-export function actionStepToAntdForm(step) {
+export function actionStepToAntdForm(step, isNew = false) {
     if (!step) {
         return undefined
     }
+
+    if (isNew) {
+        if (step.tag_name === 'a') {
+            return { ...step, href_selected: true, selector_selected: true }
+        } else if (step.tag_name === 'button') {
+            return { ...step, text_selected: true, selector_selected: true }
+        } else {
+            return { ...step, selector_selected: true }
+        }
+    }
+
     const newStep = {
         ...step,
         url_matching: step.url_matching || 'exact',

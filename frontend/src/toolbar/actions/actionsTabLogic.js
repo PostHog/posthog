@@ -59,7 +59,7 @@ export const actionsTabLogic = kea({
     listeners: ({ values }) => ({
         inspectElementSelected: ({ element, index }) => {
             if (values.form) {
-                const actionStep = actionStepToAntdForm(elementToActionStep(element))
+                const actionStep = actionStepToAntdForm(elementToActionStep(element), true)
                 values.form.setFields([{ name: ['steps', index], value: actionStep }])
             }
         },
