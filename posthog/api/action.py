@@ -511,7 +511,7 @@ def add_cohort_annotations(
 
 def add_person_properties_annotations(
     team_id: int, breakdown: str
-) -> Dict[str, Union[Value, Exists]]:
+) -> Dict[str, Subquery]:
     person_properties = Subquery(
         Person.objects.filter(team_id=team_id, id=OuterRef("person_id")).values(
             "properties__{}".format(breakdown)
@@ -536,17 +536,17 @@ def aggregate_by_interval(
     if breakdown:
         breakdown_type = params.get("breakdown_type")
         if breakdown_type == "cohort":
-            annotations = add_cohort_annotations(
+            cohort_annotations = add_cohort_annotations(
                 team_id, json.loads(params.get("breakdown", "[]"))
             )
-            values.extend(annotations.keys())
-            filtered_events = filtered_events.annotate(**annotations)
+            values.extend(cohort_annotations.keys())
+            filtered_events = filtered_events.annotate(**cohort_annotations)
             breakdown = "cohorts"
         elif breakdown_type == "person":
-            annotations = add_person_properties_annotations(
+            person_annotations = add_person_properties_annotations(
                 team_id, params.get("breakdown", "")
             )
-            filtered_events = filtered_events.annotate(**annotations)
+            filtered_events = filtered_events.annotate(**person_annotations)
             values.append(breakdown)
         else:
             values.append(breakdown)
