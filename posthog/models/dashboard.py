@@ -12,3 +12,6 @@ class Dashboard(models.Model):
         "User", on_delete=models.SET_NULL, null=True, blank=True
     )
     deleted: models.BooleanField = models.BooleanField(default=False)
+    share_token: models.CharField = models.CharField(
+        max_length=400, null=True, blank=True
+    )

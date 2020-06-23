@@ -9,7 +9,13 @@ const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 // main = app
 // toolbar = new toolbar
 // editor = old toolbar
-module.exports = () => [createEntry('main'), createEntry('toolbar'), createEntry('editor')]
+// shared_dashboard = publicly available dashboard
+module.exports = () => [
+    createEntry('main'),
+    createEntry('toolbar'),
+    createEntry('editor'),
+    createEntry('shared_dashboard'),
+]
 
 function createEntry(entry) {
     return {
@@ -24,6 +30,8 @@ function createEntry(entry) {
                     ? './frontend/src/toolbar/index.js'
                     : entry === 'editor'
                     ? './frontend/src/editor/index.js'
+                    : entry === 'shared_dashboard'
+                    ? './frontend/src/scenes/dashboard/SharedDashboard.js'
                     : null,
         },
         watchOptions: {
@@ -170,6 +178,11 @@ function createEntry(entry) {
                           alwaysWriteToDisk: true,
                           title: 'PostHog',
                           template: path.join(__dirname, 'frontend', 'src', 'index.html'),
+                      }),
+                      new HtmlWebpackPlugin({
+                          alwaysWriteToDisk: true,
+                          title: 'PostHog',
+                          template: path.join(__dirname, 'frontend', 'src', 'shared_dashboard.html'),
                       }),
                       new HtmlWebpackPlugin({
                           alwaysWriteToDisk: true,
