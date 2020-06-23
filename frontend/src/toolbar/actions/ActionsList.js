@@ -11,8 +11,8 @@ export function ActionsList() {
     const { selectAction, newAction } = useActions(actionsTabLogic)
     console.log(actionsForCurrentUrl)
     return (
-        <div>
-            <Button type="primary" size="small" onClick={newAction} style={{ float: 'right' }}>
+        <div className="actions-list">
+            <Button type="primary" size="small" onClick={() => newAction()} style={{ float: 'right' }}>
                 <PlusOutlined /> New Action
             </Button>
             <h1 className="section-title" style={{ paddingTop: 4 }}>

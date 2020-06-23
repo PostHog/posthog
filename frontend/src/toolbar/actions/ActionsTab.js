@@ -21,13 +21,15 @@ export function ActionsTab({ className }) {
                 ) : (
                     <>
                         <ActionsList />
-                        <a
-                            href={`${apiURL}${apiURL.endsWith('/') ? '' : '/'}actions`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                        >
-                            View & Edit All Actions <ExportOutlined />
-                        </a>
+                        <div style={{ textAlign: 'right' }}>
+                            <a
+                                href={`${apiURL}${apiURL.endsWith('/') ? '' : '/'}actions`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                            >
+                                View & Edit All Actions <ExportOutlined />
+                            </a>
+                        </div>
                     </>
                 )}
             </div>

@@ -15,7 +15,8 @@ export function Elements() {
     const { domZoom, domPadding, mode } = useValues(dockLogic)
     const {
         heatmapElements,
-        inspectElements,
+        elementsToDisplay,
+        actionElements,
         hoverElement,
         selectedElement,
         inspectEnabled,
@@ -63,7 +64,7 @@ export function Elements() {
                     <FocusRect rect={selectedElementMeta.rect} />
                 ) : null}
 
-                {inspectElements.map(({ rect, element }, index) => (
+                {elementsToDisplay.map(({ rect, element }, index) => (
                     <HeatmapElement
                         key={`inspect-${index}`}
                         rect={rect}
@@ -157,6 +158,34 @@ export function Elements() {
                             onMouseOut={() => setHoverElement(null)}
                         >
                             A·{actions.length}
+                        </HeatmapLabel>
+                    )
+                })}
+
+                {actionElements.map(({ element, rect, index }) => {
+                    return (
+                        <HeatmapLabel
+                            key={index}
+                            rect={rect}
+                            domPadding={domPadding}
+                            domZoom={domZoom}
+                            align="left"
+                            style={{
+                                zIndex: 5,
+                                opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
+                                transition: 'opacity 0.2s, transform 0.2s linear',
+                                transform: hoverElement === element ? 'scale(1.3)' : 'none',
+                                pointerEvents: 'all',
+                                cursor: 'pointer',
+                                color: 'hsla(141, 21%, 12%, 1)',
+                                background: 'hsl(147, 100%, 62%)',
+                                boxShadow: 'hsla(141, 100%, 32%, 1) 0px 1px 5px 1px',
+                            }}
+                            onClick={() => selectElement(element)}
+                            onMouseOver={() => setHoverElement(element)}
+                            onMouseOut={() => setHoverElement(null)}
+                        >
+                            {index + 1}
                         </HeatmapLabel>
                     )
                 })}

@@ -1,5 +1,5 @@
 import React from 'react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ActionStep } from '~/toolbar/elements/ActionStep'
 import { CalendarOutlined, AimOutlined } from '@ant-design/icons'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
@@ -8,7 +8,9 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
 export function ElementInfo() {
     const { clickCount } = useValues(heatmapLogic)
+
     const { hoverElementMeta, selectedElementMeta, hoverElementHighlight } = useValues(elementsLogic)
+    const { createAction } = useActions(elementsLogic)
 
     const activeMeta = hoverElementMeta || selectedElementMeta
 
@@ -16,7 +18,7 @@ export function ElementInfo() {
         return null
     }
 
-    const { position, count, actionStep } = activeMeta
+    const { element, position, count, actionStep } = activeMeta
 
     return (
         <>
@@ -65,7 +67,7 @@ export function ElementInfo() {
             )}
             <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #eee' }}>
                 <div>
-                    <Button>Create a new action</Button>
+                    <Button onClick={() => createAction(element)}>Create a new action</Button>
                 </div>
             </div>
         </>

@@ -13,6 +13,7 @@ export const elementsLogic = kea({
         disableInspect: true,
 
         selectElement: element => ({ element }),
+        createAction: element => ({ element }),
 
         updateRects: true,
         setHoverElement: element => ({ element }),
@@ -38,6 +39,7 @@ export const elementsLogic = kea({
             setHoverElement: (_, { element }) => element,
             enableInspect: () => null,
             disableInspect: () => null,
+            createAction: () => null,
         },
         highlightElement: {
             setHighlightElement: (_, { element }) => element,
@@ -45,10 +47,12 @@ export const elementsLogic = kea({
             setSelectedElement: () => null,
             selectElement: () => null,
             disableInspect: () => null,
+            createAction: () => null,
         },
         selectedElement: {
             setSelectedElement: (_, { element }) => element,
             disableInspect: () => null,
+            createAction: () => null,
             [heatmapLogic.actions.disableHeatmap]: () => null,
         },
         enabledLast: {
@@ -60,11 +64,7 @@ export const elementsLogic = kea({
 
     selectors: {
         inspectEnabled: [
-            selectors => [
-                selectors.inspectEnabledRaw,
-                toolbarTabLogic.selectors.tab,
-                actionsTabLogic.selectors.inspectingElement,
-            ],
+            s => [s.inspectEnabledRaw, toolbarTabLogic.selectors.tab, actionsTabLogic.selectors.inspectingElement],
             (inpsectEnabledRaw, tab, inspectingElement) =>
                 tab === 'stats' ? inpsectEnabledRaw : tab === 'actions' ? inspectingElement !== null : false,
         ],
@@ -75,27 +75,56 @@ export const elementsLogic = kea({
         ],
 
         heatmapElements: [
-            selectors => [
-                heatmapLogic.selectors.countedElements,
-                selectors.rectUpdateCounter,
-                dockLogic.selectors.isAnimating,
-            ],
+            s => [heatmapLogic.selectors.countedElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
             countedElements => countedElements.map(e => ({ ...e, rect: e.element.getBoundingClientRect() })),
         ],
 
-        allInspectElements: [
-            selectors => [selectors.inspectEnabled],
-            inspectEnabled => (inspectEnabled ? getAllClickTargets() : []),
-        ],
+        allInspectElements: [s => [s.inspectEnabled], inspectEnabled => (inspectEnabled ? getAllClickTargets() : [])],
 
         inspectElements: [
-            selectors => [selectors.allInspectElements, selectors.rectUpdateCounter, dockLogic.selectors.isAnimating],
-            selectableElements =>
-                selectableElements.map(element => ({ element, rect: element.getBoundingClientRect() })),
+            s => [s.allInspectElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
+            allInspectElements =>
+                allInspectElements.map(element => ({ element, rect: element.getBoundingClientRect() })),
+        ],
+
+        allActionElements: [
+            () => [toolbarTabLogic.selectors.tab, actionsTabLogic.selectors.selectedEditedAction],
+            (tab, selectedEditedAction) => {
+                if (tab === 'actions' && selectedEditedAction?.steps) {
+                    return selectedEditedAction.steps
+                        .map((step, index) => ({
+                            element: getElementForStep(step),
+                            index,
+                        }))
+                        .filter(e => e.element)
+                }
+                return []
+            },
+        ],
+
+        actionElements: [
+            s => [s.allActionElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
+            allActionElements =>
+                allActionElements.map(element =>
+                    element.element ? { ...element, rect: element.element.getBoundingClientRect() } : element
+                ),
+        ],
+
+        elementsToDisplay: [
+            s => [s.actionElements, s.inspectElements],
+            (actionElements, inspectElements) => {
+                if (inspectElements.length > 0) {
+                    return inspectElements
+                }
+                if (actionElements.length > 0) {
+                    return actionElements
+                }
+                return []
+            },
         ],
 
         elementMap: [
-            selectors => [selectors.heatmapElements, selectors.inspectElements],
+            s => [s.heatmapElements, s.inspectElements],
             (heatmapElements, inspectElements) => {
                 const elementMap = new Map()
                 inspectElements.forEach(e => {
@@ -113,7 +142,7 @@ export const elementsLogic = kea({
         ],
 
         actionsForElementMap: [
-            selectors => [actionsLogic.selectors.actionsForCurrentUrl, selectors.rectUpdateCounter],
+            s => [actionsLogic.selectors.actionsForCurrentUrl, s.rectUpdateCounter],
             actionsForCurrentUrl => {
                 const actionsForElementMap = new Map()
                 actionsForCurrentUrl.forEach(action => {
@@ -136,18 +165,15 @@ export const elementsLogic = kea({
             },
         ],
 
-        elementsWithActions: [
-            selectors => [selectors.actionsForElementMap],
-            actionsForElementMap => [...actionsForElementMap.keys()],
-        ],
+        elementsWithActions: [s => [s.actionsForElementMap], actionsForElementMap => [...actionsForElementMap.keys()]],
 
         actionLabelsToDisplay: [
-            selectors => [selectors.elementsWithActions, selectors.inspectEnabled],
+            s => [s.elementsWithActions, s.inspectEnabled],
             (elementsWithActions, inspectEnabled) => (inspectEnabled ? elementsWithActions : []),
         ],
 
         selectedElementMeta: [
-            selectors => [selectors.selectedElement, selectors.elementMap, selectors.actionsForElementMap],
+            s => [s.selectedElement, s.elementMap, s.actionsForElementMap],
             (selectedElement, elementMap, actionsForElementMap) => {
                 const meta = elementMap.get(selectedElement)
                 const actions = actionsForElementMap.get(selectedElement)
@@ -162,7 +188,7 @@ export const elementsLogic = kea({
         ],
 
         hoverElementMeta: [
-            selectors => [selectors.hoverElement, selectors.elementMap, selectors.actionsForElementMap],
+            s => [s.hoverElement, s.elementMap, s.actionsForElementMap],
             (hoverElement, elementMap, actionsForElementMap) => {
                 const meta = elementMap.get(hoverElement)
                 const actions = actionsForElementMap.get(hoverElement)
@@ -177,7 +203,7 @@ export const elementsLogic = kea({
         ],
 
         highlightElementMeta: [
-            selectors => [selectors.highlightElement, selectors.elementMap, selectors.actionsForElementMap],
+            s => [s.highlightElement, s.elementMap, s.actionsForElementMap],
             (highlightElement, elementMap, actionsForElementMap) => {
                 const meta = elementMap.get(highlightElement)
                 const actions = actionsForElementMap.get(highlightElement)
@@ -250,6 +276,10 @@ export const elementsLogic = kea({
                     actionsTabLogic.actions.inspectElementSelected(element, actionsTabLogic.values.inspectingElement)
                 }
             }
+        },
+        createAction: ({ element }) => {
+            toolbarTabLogic.actions.setTab('actions')
+            actionsTabLogic.actions.newAction(element)
         },
     }),
 })

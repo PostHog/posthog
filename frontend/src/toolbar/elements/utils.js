@@ -175,6 +175,10 @@ function matchRuleShort(str, rule) {
 }
 
 export function getElementForStep(step) {
+    if (!step) {
+        return null
+    }
+
     let selector = ''
     if (step.selector) {
         selector = step.selector
@@ -230,26 +234,30 @@ export function getBoxColors(color, hover = false, opacity = 0.2) {
 
 export function actionStepToAntdForm(step, isNew = false) {
     if (!step) {
-        return undefined
+        return {}
+    }
+
+    if (typeof step.selector_selected !== 'undefined') {
+        return step
     }
 
     if (isNew) {
         if (step.tag_name === 'a') {
-            return { ...step, href_selected: true, selector_selected: true }
+            return { ...step, href_selected: true, selector_selected: true, text_selected: false, url_selected: false }
         } else if (step.tag_name === 'button') {
-            return { ...step, text_selected: true, selector_selected: true }
+            return { ...step, text_selected: true, selector_selected: true, href_selected: false, url_selected: false }
         } else {
-            return { ...step, selector_selected: true }
+            return { ...step, selector_selected: true, text_selected: false, url_selected: false, href_selected: false }
         }
     }
 
     const newStep = {
         ...step,
         url_matching: step.url_matching || 'exact',
-        href_selected: step.href !== null,
-        text_selected: step.text !== null,
-        selector_selected: step.selector !== null,
-        url_selected: step.url !== null,
+        href_selected: typeof step.href !== 'undefined' && step.href !== null,
+        text_selected: typeof step.text !== 'undefined' && step.text !== null,
+        selector_selected: typeof step.selector !== 'undefined' && step.selector !== null,
+        url_selected: typeof step.url !== 'undefined' && step.url !== null,
     }
     return newStep
 }
