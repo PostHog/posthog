@@ -261,6 +261,19 @@ class ActionViewSet(viewsets.ModelViewSet):
                         ).only("id")
                     )
                 )
+            if request.GET.get("breakdown_type") == "person":
+                events = events.filter(
+                    Exists(
+                        Person.objects.filter(
+                            **{
+                                "id": OuterRef("person_id"),
+                                "properties__{}".format(
+                                    request.GET["breakdown"]
+                                ): request.GET["breakdown_value"],
+                            }
+                        ).only("id")
+                    )
+                )
 
             people = Person.objects.filter(
                 team=team,
