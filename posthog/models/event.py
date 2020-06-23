@@ -214,9 +214,12 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def query_retention(self, date_from) -> models.QuerySet:
+    def query_retention(self, date_from, date_to) -> models.QuerySet:
         event_date_query = sql.SQL(
             "DATE_TRUNC('day', \"posthog_event\".\"timestamp\" AT TIME ZONE 'UTC')"
+        )
+        in_date_range_query = sql.SQL(
+            "timestamp >= %(date_from)s AND timestamp <= %(date_to)s"
         )
 
         qstring = sql.SQL(
@@ -224,11 +227,11 @@ class EventManager(models.QuerySet):
             WITH first_event_date AS (
                 SELECT
                     distinct_id,
-                    MIN({event_date_query}) AS first_date
+                    {event_date_query} AS first_date
                 FROM "posthog_event"
                 WHERE
-                    "posthog_event"."event" = '$fakepageview2'
-                GROUP BY distinct_id
+                    "posthog_event"."event" = '$fakepageview2' AND {in_date_range_query}
+                GROUP BY distinct_id, {event_date_query}
             )
             SELECT
                 DATE_PART('days', first_date - %(date_from)s) AS first_date,
@@ -237,13 +240,18 @@ class EventManager(models.QuerySet):
             FROM "posthog_event"
             LEFT JOIN first_event_date ON ("posthog_event"."distinct_id" = "first_event_date"."distinct_id")
             WHERE "posthog_event"."event" = '$fakepageview2'
+              AND "posthog_event"."timestamp" > first_date
+              AND {in_date_range_query}
             GROUP BY {event_date_query}, first_date
-        """
-        ).format(event_date_query=event_date_query, date_from=date_from)
+            """
+        ).format(
+            event_date_query=event_date_query, in_date_range_query=in_date_range_query
+        )
 
         with connection.cursor() as cursor:
             cursor.execute(
-                qstring.as_string(cursor.connection), {"date_from": date_from}
+                qstring.as_string(cursor.connection),
+                {"date_from": date_from, "date_to": date_to},
             )
             people = namedtuplefetchall(cursor)
 
