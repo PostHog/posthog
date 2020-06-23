@@ -18,12 +18,12 @@ function _ToolbarContent({ type }) {
     const { setSelectedElement } = useActions(elementsLogic)
     const { button } = useActions(dockLogic)
 
+    const showElementInsteadOfTabs =
+        type === 'dock' && tab === 'stats' && (inspectEnabled || heatmapEnabled) && (hoverElement || selectedElement)
+
     return (
         <div>
-            {type === 'dock' &&
-            tab === 'stats' &&
-            (inspectEnabled || heatmapEnabled) &&
-            (hoverElement || selectedElement) ? (
+            {showElementInsteadOfTabs ? (
                 <>
                     <div style={{ height: 66, lineHeight: '56px' }}>
                         {selectedElement && (!hoverElement || hoverElement === selectedElement) ? (
