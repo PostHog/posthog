@@ -16,8 +16,6 @@ function _ToolbarContent({ type }) {
     const { hoverElement, selectedElement, inspectEnabled, heatmapEnabled } = useValues(elementsLogic)
     const { setSelectedElement } = useActions(elementsLogic)
 
-    // This creates two different tabs, rendering each one when needed as directed by the animation logic
-
     return (
         <div>
             {type === 'float' ? <FloatingToolbarHeader /> : null}
@@ -26,7 +24,7 @@ function _ToolbarContent({ type }) {
             (inspectEnabled || heatmapEnabled) &&
             (hoverElement || selectedElement) ? (
                 <>
-                    <div style={{ height: 66 }}>
+                    <div style={{ height: 66, lineHeight: '56px' }}>
                         {selectedElement && (!hoverElement || hoverElement === selectedElement) ? (
                             <div>
                                 <Button type="link" onClick={() => setSelectedElement(null)}>

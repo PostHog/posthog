@@ -33,6 +33,9 @@ export const actionsLogic = kea({
                 updateAction: ({ action }) => {
                     return values.allActions.filter(r => r.id !== action.id).concat([action])
                 },
+                deleteAction: ({ id }) => {
+                    return values.allActions.filter(r => r.id !== id)
+                },
             },
         ],
     }),

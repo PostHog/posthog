@@ -22,6 +22,7 @@ export const actionsTabLogic = kea({
         setEditingFields: editingFields => ({ editingFields }),
         incrementCounter: true,
         saveAction: formValues => ({ formValues }),
+        deleteAction: true,
     },
 
     reducers: {
@@ -116,7 +117,22 @@ export const actionsTabLogic = kea({
 
             actionsLogic.actions.updateAction({ action: response })
             actions.selectAction(null)
-            toast.success('Action saved!')
+            toast('Action saved!')
+        },
+        deleteAction: async () => {
+            const { apiURL, temporaryToken } = toolbarLogic.values
+            const { selectedActionId } = values
+            if (selectedActionId && selectedActionId !== 'new') {
+                await api.delete(
+                    `${apiURL}${
+                        apiURL.endsWith('/') ? '' : '/'
+                    }api/action/${selectedActionId}/?temporary_token=${temporaryToken}`
+                )
+
+                actionsLogic.actions.deleteAction({ id: selectedActionId })
+                actions.selectAction(null)
+                toast('Action deleted!')
+            }
         },
     }),
 

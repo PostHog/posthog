@@ -3,15 +3,26 @@ import { useActions, useValues } from 'kea'
 import { Button, Form, Input } from 'antd'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { ActionStepField } from '~/toolbar/actions/ActionStepField'
-import { MinusCircleOutlined, SearchOutlined, PlusCircleOutlined, CloseOutlined } from '@ant-design/icons'
+import {
+    MinusCircleOutlined,
+    SearchOutlined,
+    PlusCircleOutlined,
+    CloseOutlined,
+    DeleteOutlined,
+} from '@ant-design/icons'
 
 export function EditAction() {
     const [form] = Form.useForm()
 
     const { initialValuesForForm, selectedActionId, inspectingElement, editingFields } = useValues(actionsTabLogic)
-    const { selectAction, inspectForElementWithIndex, setEditingFields, setForm, saveAction } = useActions(
-        actionsTabLogic
-    )
+    const {
+        selectAction,
+        inspectForElementWithIndex,
+        setEditingFields,
+        setForm,
+        saveAction,
+        deleteAction,
+    } = useActions(actionsTabLogic)
 
     const { getFieldValue } = form
 
@@ -122,6 +133,11 @@ export function EditAction() {
                     )}
                 </Form.List>
                 <Form.Item style={{ marginTop: 20, marginBottom: 0 }}>
+                    {selectedActionId !== 'new' ? (
+                        <Button type="link" onClick={deleteAction} danger style={{ float: 'right' }}>
+                            <DeleteOutlined />
+                        </Button>
+                    ) : null}
                     <Button type="primary" htmlType="submit">
                         {selectedActionId === 'new' ? 'Create Action' : 'Save Action'}
                     </Button>
