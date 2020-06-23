@@ -418,7 +418,7 @@ def calculate_retention(filter: Filter):
     DAYS = 11
     labels_format = "%a. %-d %B"
 
-    filter._date_from = (now() - timedelta(days=DAYS)).isoformat()
+    filter._date_from = "-11d"
     filter._date_to = (filter.date_from + timedelta(days=DAYS)).isoformat()
     resultset = Event.objects.query_retention(filter.date_from, filter.date_to)
 
