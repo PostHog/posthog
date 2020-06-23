@@ -7,13 +7,6 @@ export function RetentionTable({ logic }) {
 
     let columns = [
         {
-            title: 'Raw',
-            key: 'person',
-            render: function RenderSession(row) {
-                return JSON.stringify(row)
-            },
-        },
-        {
             title: 'Cohort',
             key: 'cohort',
             render: row => row.date,
