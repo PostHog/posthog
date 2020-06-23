@@ -42,6 +42,7 @@ from django.db.models import (
 from django.db import connection
 from django.utils.timezone import now
 from typing import Any, List, Dict, Optional, Tuple, Union
+from datetime import timedelta
 import pandas as pd
 import datetime
 import json
@@ -415,7 +416,10 @@ def calculate_trends(
 
 def calculate_retention(filter: Filter):
     DAYS = 10
+    labels_format = "%a. %-d %B"
 
+    filter._date_from = (now() - timedelta(days=DAYS)).isoformat()
+    filter._date_to = (filter.date_from + timedelta(days=DAYS)).isoformat()
     resultset = Event.objects.query_retention(filter.date_from)
 
     by_dates = {(int(row.first_date), int(row.date)): row.count for row in resultset}
@@ -426,6 +430,10 @@ def calculate_retention(filter: Filter):
             for first_day in range(DAYS)
         ],
         "labels": ["Day {}".format(day) for day in range(DAYS)],
+        "dates": [
+            (filter.date_from + timedelta(days=day)).strftime(labels_format)
+            for day in range(DAYS)
+        ],
     }
 
     return result
