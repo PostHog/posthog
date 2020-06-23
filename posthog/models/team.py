@@ -94,6 +94,9 @@ class Team(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(
         auto_now_add=True, blank=True
     )
+    updated_at: models.DateTimeField = models.DateTimeField(
+        auto_now=True, blank=True
+    )
 
     # DEPRECATED: this field is deprecated in favour of OPT_OUT_CAPTURE env variable and anonymized data
     # However, we still honor teams that have set this previously
