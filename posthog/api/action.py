@@ -230,6 +230,14 @@ class ActionViewSet(viewsets.ModelViewSet):
         return result
 
     @action(methods=["GET"], detail=False)
+    def retention(
+        self, request: request.Request, *args: Any, **kwargs: Any
+    ) -> Response:
+        filter = Filter(request=request)
+        result = calculate_retention(filter)
+        return Response(result)
+
+    @action(methods=["GET"], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.team_set.get()
         filter = Filter(request=request)
@@ -403,6 +411,24 @@ def calculate_trends(
         else:
             entities_list.extend(trend_entity)
     return entities_list
+
+
+def calculate_retention(filter: Filter):
+    DAYS = 10
+
+    resultset = Event.objects.query_retention(filter.date_from)
+
+    by_dates = {(int(row.first_date), int(row.date)): row.count for row in resultset}
+
+    result = {
+        "data": [
+            [by_dates.get((first_day, date), 0) for date in range(first_day, DAYS)]
+            for first_day in range(DAYS)
+        ],
+        "labels": ["Day {}".format(day) for day in range(DAYS)],
+    }
+
+    return result
 
 
 def build_dataframe(

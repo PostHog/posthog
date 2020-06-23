@@ -214,7 +214,7 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def query_retention(self) -> models.QuerySet:
+    def query_retention(self, date_from) -> models.QuerySet:
         event_date_query = sql.SQL(
             "DATE_TRUNC('day', \"posthog_event\".\"timestamp\" AT TIME ZONE 'UTC')"
         )
@@ -231,18 +231,20 @@ class EventManager(models.QuerySet):
                 GROUP BY distinct_id
             )
             SELECT
-                first_date,
-                {event_date_query} AS date,
+                DATE_PART('days', first_date - %(date_from)s) AS first_date,
+                DATE_PART('days', {event_date_query} - first_date) AS date,
                 COUNT(DISTINCT "posthog_event"."distinct_id")
             FROM "posthog_event"
             LEFT JOIN first_event_date ON ("posthog_event"."distinct_id" = "first_event_date"."distinct_id")
             WHERE "posthog_event"."event" = '$fakepageview2'
             GROUP BY {event_date_query}, first_date
         """
-        ).format(event_date_query=event_date_query)
+        ).format(event_date_query=event_date_query, date_from=date_from)
 
         with connection.cursor() as cursor:
-            cursor.execute(qstring.as_string(cursor.connection))
+            cursor.execute(
+                qstring.as_string(cursor.connection), {"date_from": date_from}
+            )
             people = namedtuplefetchall(cursor)
 
         return people
