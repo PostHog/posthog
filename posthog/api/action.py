@@ -415,7 +415,7 @@ def calculate_trends(
 
 
 def calculate_retention(filter: Filter):
-    DAYS = 10
+    DAYS = 11
     labels_format = "%a. %-d %B"
 
     filter._date_from = (now() - timedelta(days=DAYS)).isoformat()
