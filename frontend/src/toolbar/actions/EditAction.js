@@ -2,7 +2,7 @@ import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Form, Input } from 'antd'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
-import { ActionStepField } from '~/toolbar/actions/ActionStepField'
+import { StepField } from '~/toolbar/actions/StepField'
 import {
     MinusCircleOutlined,
     SearchOutlined,
@@ -97,20 +97,10 @@ export function EditAction() {
 
                                         {step?.event === '$autocapture' || inspectingElement === index ? (
                                             <>
-                                                <ActionStepField
-                                                    field={field}
-                                                    step={step}
-                                                    item="href"
-                                                    label="Link href"
-                                                />
-                                                <ActionStepField field={field} step={step} item="text" label="Text" />
-                                                <ActionStepField
-                                                    field={field}
-                                                    step={step}
-                                                    item="selector"
-                                                    label="Selector"
-                                                />
-                                                <ActionStepField field={field} step={step} item="url" label="URL" />
+                                                <StepField field={field} step={step} item="href" label="Link href" />
+                                                <StepField field={field} step={step} item="text" label="Text" />
+                                                <StepField field={field} step={step} item="selector" label="Selector" />
+                                                <StepField field={field} step={step} item="url" label="URL" />
                                             </>
                                         ) : null}
 

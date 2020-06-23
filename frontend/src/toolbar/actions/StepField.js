@@ -4,7 +4,7 @@ import { SelectorCount } from '~/toolbar/actions/SelectorCount'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { UrlMatchingToggle } from '~/toolbar/actions/UrlMatchingToggle'
 
-export function ActionStepField({ field, step, item, label }) {
+export function StepField({ field, step, item, label }) {
     const selected = step && step[`${item}_selected`]
     const fieldStyle = selected ? {} : { opacity: 0.5 }
 
