@@ -2,15 +2,15 @@ import 'react-toastify/dist/ReactToastify.css'
 import 'react-datepicker/dist/react-datepicker.css'
 import { hot } from 'react-hot-loader/root'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, lazy, Suspense } from 'react'
 import { useValues } from 'kea'
-import { Layout } from 'antd'
+import { Layout, Spin } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
 import { Sidebar } from '~/layout/Sidebar'
 import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
-import { OnboardingWizard } from '~/scenes/onboarding/onboardingWizard'
+const OnboardingWizard = lazy(() => import('~/scenes/onboarding/onboardingWizard'))
 
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -56,7 +56,9 @@ function App() {
     if (!user.installed_snippet) {
         return (
             <>
-                <OnboardingWizard user={user}></OnboardingWizard>
+                <Suspense fallback={<Spin></Spin>}>
+                    <OnboardingWizard user={user}></OnboardingWizard>
+                </Suspense>
                 <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
             </>
         )

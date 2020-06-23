@@ -175,7 +175,7 @@ const content = {
     },
 }
 
-export function OnboardingWizard({ user }) {
+export default function OnboardingWizard({ user }) {
     const [index, setIndex] = useState(0)
     const [platformType, setPlatformType] = useState(null)
     const [framework, setFramework] = useState(null)
