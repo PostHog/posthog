@@ -136,7 +136,7 @@ export const elementsLogic = kea({
         ],
 
         actionsForElementMap: [
-            s => [actionsLogic.selectors.actionsForCurrentUrl, s.rectUpdateCounter],
+            s => [actionsLogic.selectors.actionsForCurrentUrl, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
             actionsForCurrentUrl => {
                 const actionsForElementMap = new Map()
                 actionsForCurrentUrl.forEach((action, index) => {
@@ -323,6 +323,9 @@ export const elementsLogic = kea({
             }
         },
         createAction: ({ element }) => {
+            if (dockLogic.values.mode === 'button') {
+                dockLogic.actions.dock()
+            }
             toolbarTabLogic.actions.setTab('actions')
             actionsTabLogic.actions.newAction(element)
         },
