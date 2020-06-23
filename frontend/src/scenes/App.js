@@ -53,7 +53,7 @@ function App() {
         return null
     }
 
-    if (!user.installed_snippet) {
+    if (!user.team.completed_snippet_onboarding) {
         return (
             <>
                 <Suspense fallback={<Spin></Spin>}>

@@ -82,13 +82,11 @@ def signup_to_team_view(request, token):
                     "signup_token": token,
                 },
             )
-        has_events = Event.objects.filter(team=team).exists()
         user = User.objects.create_user(
             email=email,
             password=password,
             first_name=first_name,
-            email_opt_in=email_opt_in,
-            installed_snippet=has_events
+            email_opt_in=email_opt_in
         )
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         team.users.add(user)
@@ -183,10 +181,6 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
             },
         )
         return HttpResponse(processed, status=401)
-
-    has_events = Event.objects.filter(team=team).exists()
-    user.installed_snippet = has_events
-    user.save()
     
     team.users.add(user)
     team.save()

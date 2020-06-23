@@ -235,7 +235,7 @@ function VerificationPanel({ reverse }) {
                         data-attr="wizard-complete-button"
                         style={{ float: 'right' }}
                         className="back-button"
-                        onClick={() => userUpdateRequest({ user: { installed_snippet: true } })}
+                        onClick={() => userUpdateRequest({ team: { completed_snippet_onboarding: true } })}
                     >
                         Continue without verifying
                     </b>
@@ -251,7 +251,7 @@ function VerificationPanel({ reverse }) {
                         data-attr="wizard-complete-button"
                         type="primary"
                         style={{ float: 'right' }}
-                        onClick={() => userUpdateRequest({ user: { installed_snippet: true } })}
+                        onClick={() => userUpdateRequest({ team: { completed_snippet_onboarding: true } })}
                     >
                         Complete
                     </Button>

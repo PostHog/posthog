@@ -80,7 +80,6 @@ class User(AbstractUser):
     anonymize_data: models.BooleanField = models.BooleanField(
         default=False, null=True, blank=True
     )
-    installed_snippet: models.BooleanField = models.BooleanField(default=False)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: List[str] = []

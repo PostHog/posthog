@@ -28,11 +28,11 @@ def user(request):
             team.app_urls = data['team'].get('app_urls', team.app_urls)
             team.opt_out_capture = data['team'].get('opt_out_capture', team.opt_out_capture)
             team.slack_incoming_webhook = data['team'].get('slack_incoming_webhook', team.slack_incoming_webhook)
+            team.completed_snippet_onboarding = data['team'].get('completed_snippet_onboarding', team.completed_snippet_onboarding)
             team.save()
 
         if 'user' in data:
             request.user.email_opt_in = data['user'].get('email_opt_in', request.user.email_opt_in)
-            request.user.installed_snippet = data['user'].get('installed_snippet', request.user.installed_snippet)
             request.user.anonymize_data = data['user'].get('anonymize_data', request.user.anonymize_data)
             posthoganalytics.identify(request.user.distinct_id, {
                 'email_opt_in': request.user.email_opt_in,
@@ -48,7 +48,6 @@ def user(request):
         'name': request.user.first_name,
         'email': request.user.email,
         'has_events': Event.objects.filter(team=team).exists(),
-        'installed_snippet': request.user.installed_snippet,
         'email_opt_in': request.user.email_opt_in,
         'anonymize_data': request.user.anonymize_data,
         'team': {
@@ -58,7 +57,8 @@ def user(request):
             'opt_out_capture': team.opt_out_capture,
             'slack_incoming_webhook': team.slack_incoming_webhook,
             'event_names': team.event_names,
-            'event_properties': team.event_properties
+            'event_properties': team.event_properties,
+            'completed_snippet_onboarding': team.completed_snippet_onboarding
         },
         'opt_out_capture': os.environ.get('OPT_OUT_CAPTURE'),
         'posthog_version': settings.VERSION if hasattr(settings, 'VERSION') else None

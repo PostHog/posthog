@@ -11,8 +11,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name='user',
-            name='installed_snippet',
+            model_name='team',
+            name='completed_snippet_onboarding',
             field=models.BooleanField(default=False),
         ),
     ]
