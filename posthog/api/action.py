@@ -426,7 +426,7 @@ def calculate_retention(filter: Filter):
 
     result = {
         "data": [
-            [by_dates.get((first_day, date), 0) for date in range(first_day, DAYS)]
+            [by_dates.get((first_day, date), 0) for date in range(DAYS - first_day)]
             for first_day in range(DAYS)
         ],
         "labels": ["Day {}".format(day) for day in range(DAYS)],
