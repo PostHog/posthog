@@ -152,7 +152,7 @@ const content = {
                 </Row>
                 <Row align="middle" style={{ float: 'right', marginTop: 8 }}>
                     Don't see a supported framework?
-                    <b style={{ marginLeft: 5 }} className="back-button" onClick={() => onApiContinue()}>
+                    <b style={{ marginLeft: 5 }} className="clickable" onClick={() => onApiContinue()}>
                         Continue with API
                     </b>
                 </Row>
@@ -234,7 +234,7 @@ function VerificationPanel({ reverse }) {
                     <b
                         data-attr="wizard-complete-button"
                         style={{ float: 'right' }}
-                        className="back-button"
+                        className="clickable"
                         onClick={() => userUpdateRequest({ team: { completed_snippet_onboarding: true } })}
                     >
                         Continue without verifying
@@ -293,21 +293,19 @@ function InstructionsPanel({ user, onSubmit, reverse, platformType, framework })
     return (
         <CardContainer index={2} totalSteps={4} nextButton={true} onSubmit={onSubmit} onBack={reverse}>
             {platformType === WEB ? (
-                <Row style={{ marginLeft: -5 }}>
-                    <h2
-                        className="back-button"
-                        style={{ color: selected == 0 ? 'black' : 'gray' }}
-                        onClick={() => setSelected(0)}
-                    >
-                        Autocapture
+                <Row style={{ marginLeft: -5 }} justify="space-between" align="middle">
+                    <h2 style={{ color: 'black', marginLeft: 8 }} onClick={() => setSelected(0)}>
+                        {selected === 0 ? 'Autocapture' : 'Custom Capture'}
                     </h2>
-                    <h2
-                        className="back-button"
-                        style={{ color: selected == 1 ? 'black' : 'gray' }}
-                        onClick={() => setSelected(1)}
+                    <b
+                        style={{ marginLeft: 5, color: '#007bff', marginBottom: 10, marginRight: 0 }}
+                        className="clickable"
+                        onClick={() => setSelected((selected + 1) % 2)}
                     >
-                        Custom Capture
-                    </h2>
+                        {selected === 0
+                            ? 'I also want to capture Custom Events'
+                            : 'I want to automatically capture events'}
+                    </b>
                 </Row>
             ) : (
                 <h2>Setup</h2>

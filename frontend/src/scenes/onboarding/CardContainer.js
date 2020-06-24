@@ -10,10 +10,7 @@ export function CardContainer(props) {
                 title={
                     <Row align="middle" data-attr="wizard-step-counter">
                         {props.index !== 0 && (
-                            <ArrowLeftOutlined
-                                className="back-button"
-                                onClick={() => props.onBack()}
-                            ></ArrowLeftOutlined>
+                            <ArrowLeftOutlined className="clickable" onClick={() => props.onBack()}></ArrowLeftOutlined>
                         )}
                         {`Step ${props.index + 1} of ${props.totalSteps}`}
                     </Row>
