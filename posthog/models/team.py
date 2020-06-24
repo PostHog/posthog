@@ -91,6 +91,12 @@ class Team(models.Model):
     )
     event_names: JSONField = JSONField(default=list)
     event_properties: JSONField = JSONField(default=list)
+    created_at: models.DateTimeField = models.DateTimeField(
+        auto_now_add=True, blank=True
+    )
+    updated_at: models.DateTimeField = models.DateTimeField(
+        auto_now=True, blank=True
+    )
     anonymize_ips: models.BooleanField = models.BooleanField(default=False)
 
     # DEPRECATED: this field is deprecated in favour of OPT_OUT_CAPTURE env variable and anonymized data
