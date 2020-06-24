@@ -1,6 +1,7 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { Divider } from 'antd'
+import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { InviteTeam } from 'lib/components/InviteTeam'
 import { OptOutCapture } from './OptOutCapture'
@@ -64,6 +65,9 @@ function _Setup() {
             <Divider />
             <h2 id="optout">Anonymize data collection</h2>
             <OptOutCapture />
+            <Divider />
+            <h2 id="datacapture">Data capture configuration</h2>
+            <IPCapture />
             <Divider />
             <h2>Security and feature updates</h2>
             <UpdateEmailPreferences />
