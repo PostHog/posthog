@@ -9,14 +9,14 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 import { Button } from 'antd'
 import { dockLogic } from '~/toolbar/dockLogic'
-import { CloseOutlined } from '@ant-design/icons'
+import { CloseOutlined, InsertRowRightOutlined } from '@ant-design/icons'
 
 export const ToolbarContent = hot(_ToolbarContent)
 function _ToolbarContent({ type }) {
     const { tab } = useValues(toolbarTabLogic)
     const { hoverElement, selectedElement, inspectEnabled, heatmapEnabled } = useValues(elementsLogic)
     const { setSelectedElement } = useActions(elementsLogic)
-    const { button } = useActions(dockLogic)
+    const { button, dock } = useActions(dockLogic)
 
     const showElementInsteadOfTabs =
         type === 'dock' && tab === 'stats' && (inspectEnabled || heatmapEnabled) && (hoverElement || selectedElement)
@@ -44,6 +44,9 @@ function _ToolbarContent({ type }) {
                 <div>
                     {type === 'float' ? (
                         <div style={{ textAlign: 'right' }}>
+                            <Button onClick={dock}>
+                                Dock <InsertRowRightOutlined />
+                            </Button>
                             <Button onClick={button}>
                                 Close <CloseOutlined />
                             </Button>
