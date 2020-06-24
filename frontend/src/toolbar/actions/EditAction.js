@@ -61,7 +61,11 @@ export function EditAction() {
                 }}
             >
                 <p>What did your user do?</p>
-                <Form.Item name="name" className="action-title-field">
+                <Form.Item
+                    name="name"
+                    className="action-title-field"
+                    rules={[{ required: true, message: 'Please enter a name for this action!' }]}
+                >
                     <Input placeholder="E.g: Clicked Sign Up" />
                 </Form.Item>
                 <Form.List name="steps">
