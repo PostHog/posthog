@@ -33,7 +33,10 @@ export function ToolbarSettings() {
                     </span>
                 )}
             </label>
-            <p>You will see a small round PostHog button on your site. Click it to open the toolbar.</p>
+            <p>
+                The toolbar gives you access to heatmaps, stats and allows you to create actions, without ever leaving
+                your own website or app! Make sure you're using the snippet or the latest posthog-js.
+            </p>
             <br />
             <br />
         </div>
