@@ -3,7 +3,13 @@ from django.core.exceptions import EmptyResultSet
 from .user import User
 from sentry_sdk import capture_exception
 
+
 class Action(models.Model):
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id", "-updated_at"]),
+        ]
+
     def calculate_events(self):
         self.is_calculating = True
         self.save()
@@ -11,8 +17,7 @@ class Action(models.Model):
 
         try:
             event_query, params = (
-                Event.objects
-                .query_db_by_action(self)
+                Event.objects.query_db_by_action(self)
                 .only("pk")
                 .query.sql_with_params()
             )
