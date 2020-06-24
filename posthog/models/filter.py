@@ -26,6 +26,9 @@ class Filter(PropertyMixin):
     entities: List[Entity] = []
     display: Optional[str] = None
     selector: Optional[str] = None
+    shown_as: Optional[str] = None
+    breakdown: Optional[str] = None
+    breakdown_type: Optional[str] = None
 
     def __init__(
         self,
@@ -52,6 +55,10 @@ class Filter(PropertyMixin):
         self.selector = data.get("selector", [])
         self.interval = data.get("interval")
         self.display = data.get("display")
+        self.selector = data.get("self.selector")
+        self.shown_as = data.get("self.shown_as")
+        self.breakdown = data.get("self.breakdown")
+        self.breakdown_type = data.get("self.breakdown_type")
 
         if data.get("actions"):
             self.entities.extend(
@@ -75,9 +82,13 @@ class Filter(PropertyMixin):
         return {
             "date_from": self._date_from,
             "date_to": self._date_to,
-            "entities": self.entities,
-            "interval": self.interval,
             "properties": [prop.to_dict() for prop in self.properties],
+            "interval": self.interval,
+            "entities": self.entities,
+            "selector": self.selector,
+            "shown_as": self.shown_as,
+            "breakdown": self.breakdown,
+            "breakdown_type": self.breakdown_type,
         }
 
     @property

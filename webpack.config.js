@@ -179,11 +179,7 @@ function createEntry(entry) {
                           title: 'PostHog',
                           template: path.join(__dirname, 'frontend', 'src', 'index.html'),
                       }),
-                      new HtmlWebpackPlugin({
-                          alwaysWriteToDisk: true,
-                          title: 'PostHog',
-                          template: path.join(__dirname, 'frontend', 'src', 'shared_dashboard.html'),
-                      }),
+
                       new HtmlWebpackPlugin({
                           alwaysWriteToDisk: true,
                           title: 'PostHog',
@@ -192,6 +188,15 @@ function createEntry(entry) {
                           template: path.join(__dirname, 'frontend', 'src', 'layout.ejs'),
                       }),
                       new HtmlWebpackHarddiskPlugin(),
+                  ]
+                : entry === 'shared_dashboard'
+                ? [
+                      new HtmlWebpackPlugin({
+                          alwaysWriteToDisk: true,
+                          title: 'PostHog',
+                          filename: 'shared_dashboard.html',
+                          template: path.join(__dirname, 'frontend', 'src', 'shared_dashboard.ejs'),
+                      }),
                   ]
                 : [],
     }
