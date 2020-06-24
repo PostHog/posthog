@@ -134,7 +134,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
     return (
         <div className="events" data-attr="events-table">
             <h1 className="page-header">Events</h1>
-            {filtersEnabled ? <PropertyFilters pageKey="EventsTable" /> : null}
+            {filtersEnabled ? <PropertyFilters pageKey={isLiveActions ? 'LiveActionsTable' : 'EventsTable'} /> : null}
             <Table
                 dataSource={eventsFormatted}
                 loading={isLoading}
