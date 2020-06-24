@@ -3,7 +3,7 @@ import './commands'
 beforeEach(() => {
     cy.visit('/')
 
-    return cy.url().then(url => {
+    cy.url().then(url => {
         if (url.includes('setup_admin')) {
             cy.get('#inputCompany')
                 .type('company')
@@ -36,8 +36,8 @@ beforeEach(() => {
 
             cy.get('.btn').click()
         }
-
-        return cy.get('body').then($body => {
+        cy.wait(2000)
+        cy.get('body').then($body => {
             if ($body.find('[data-attr=select-platform-Web]').length) {
                 cy.get('[data-attr=select-platform-Web]').click()
                 cy.get('[data-attr=wizard-step-counter]').should('contain', 'Step 2')
