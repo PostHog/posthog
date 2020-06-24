@@ -16,7 +16,7 @@ def backwards(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0064_team_updated_at'),
+        ('posthog', '0062_team_anonymize_ips'),
     ]
 
     operations = [
