@@ -1,5 +1,9 @@
 from .base import BaseTest, TransactionBaseTest
-from posthog.models import Dashboard
+from posthog.models import Dashboard, Filter, DashboardItem
+from posthog.api.action import calculate_trends
+from posthog.decorators import TRENDS_ENDPOINT
+from posthog.tasks.update_cache import update_cache
+from django.core.cache import cache
 
 
 class TestDashboard(TransactionBaseTest):
@@ -23,5 +27,20 @@ class TestDashboard(TransactionBaseTest):
         dashboard = Dashboard.objects.create(
             team=self.team, share_token="testtoken", name="public dashboard"
         )
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+        update_cache.apply(
+            TRENDS_ENDPOINT,
+            {"filter": filter_dict, "params": {}, "team_id": self.team.pk},
+        )
+        item = DashboardItem.objects.create(
+            dashboard=dashboard, filters=filter_dict, team=self.team
+        )
+
+        import ipdb
+
+        ipdb.set_trace()
         response = self.client.get("/shared_dashboard/testtoken")
         self.assertIn("bla", response)

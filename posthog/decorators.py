@@ -36,7 +36,7 @@ def cached_function(cache_type: str, expiry=30):
                 params = request.GET.dict()
                 refresh = params.pop("refresh", None)
                 team = request.user.team_set.get()
-                cache_key = generate_cache_key(json.dumps(params) + "_" + str(team.pk))
+                cache_key = generate_cache_key(filter.toJSON() + "_" + str(team.pk))
                 payload = {
                     "filter": filter.toJSON(),
                     "params": params,

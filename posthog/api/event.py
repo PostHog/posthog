@@ -381,6 +381,9 @@ class EventViewSet(viewsets.ModelViewSet):
         if not events:
             return []
 
+        if not events:
+            return []
+
         # format date filter for session view
         _date_gte = Q()
         if session_type is None:
