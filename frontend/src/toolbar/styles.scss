@@ -16,13 +16,15 @@
     max-height: calc(100vh - 2rem);
     opacity: 1;
     transition: opacity ease 0.5s;
-    overflow: auto;
 
     &.toolbar-invisible {
         opacity: 0;
     }
 
     .toolbar-block {
+        max-height: calc(100vh - 200px);
+        overflow: auto;
+        box-shadow: hsla(219, 14%, 20%, 0.3) 12px 30px 70px, hsla(219, 14%, 20%, 0.3) 3px 8px 10px;
         .ant-tabs-bar {
             margin: 0;
         }
@@ -30,7 +32,6 @@
             border-top: 1px solid hsla(219, 14%, 20%, 0.3);
             margin-top: 0px;
         }
-        box-shadow: hsla(219, 14%, 20%, 0.3) 12px 30px 70px, hsla(219, 14%, 20%, 0.3) 3px 8px 10px;
     }
 }
 
