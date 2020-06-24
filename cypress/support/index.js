@@ -36,6 +36,18 @@ beforeEach(() => {
 
             cy.get('.btn').click()
         }
+        cy.wait(2000)
+        cy.get('body').then($body => {
+            if ($body.find('[data-attr=select-platform-Web]').length) {
+                cy.get('[data-attr=select-platform-Web]').click()
+                cy.get('[data-attr=wizard-step-counter]').should('contain', 'Step 2')
+                cy.get('[data-attr=select-framework-NODEJS]').click()
+                cy.get('[data-attr=wizard-step-counter]').should('contain', 'Step 3')
+                cy.get('[data-attr=wizard-continue-button]').click()
+                cy.get('[data-attr=wizard-complete-button]').should('exist')
+                cy.get('[data-attr=wizard-complete-button]').click()
+            }
+        })
     })
 })
 

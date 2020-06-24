@@ -6,6 +6,8 @@ from django.utils.translation import ugettext_lazy as _
 
 import secrets
 
+from rest_framework.fields import BooleanField
+
 
 def is_email_restricted_from_signup(email: str) -> bool:
     if not hasattr(settings, "RESTRICT_SIGNUPS"):
