@@ -37,6 +37,7 @@ export function RetentionTable({ logic }) {
         <Table
             data-attr="retention-table"
             size="small"
+            className="retention-table"
             pagination={{ pageSize: 99999, hideOnSinglePage: true }}
             rowClassName="cursor-pointer"
             dataSource={retention.data}
@@ -47,9 +48,12 @@ export function RetentionTable({ logic }) {
 }
 
 const renderPercentage = (value, total) => {
-    if (total === 0) {
-        return '100.0%'
-    }
-    const percentage = (100.0 * value) / total
-    return `${percentage.toFixed(1)}%`
+    const percentage = total > 0 ? (100.0 * value) / total : 100
+    const backgroundColor = `hsl(212, 63%, ${30 + (100 - percentage) * 0.65}%)`
+    const color = percentage >= 65 ? 'hsl(0, 0%, 80%)' : undefined
+    return (
+        <div style={{ backgroundColor, color }} className="percentage-cell">
+            {percentage.toFixed(1)}%
+        </div>
+    )
 }
