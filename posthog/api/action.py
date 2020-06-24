@@ -1,3 +1,5 @@
+from django.db.models.expressions import Subquery
+from posthog.models import person
 from posthog.models import (
     Event,
     Team,
@@ -259,6 +261,19 @@ class ActionViewSet(viewsets.ModelViewSet):
                         ).only("id")
                     )
                 )
+            if request.GET.get("breakdown_type") == "person":
+                events = events.filter(
+                    Exists(
+                        Person.objects.filter(
+                            **{
+                                "id": OuterRef("person_id"),
+                                "properties__{}".format(
+                                    request.GET["breakdown"]
+                                ): request.GET["breakdown_value"],
+                            }
+                        ).only("id")
+                    )
+                )
 
             people = Person.objects.filter(
                 team=team,
@@ -507,6 +522,19 @@ def add_cohort_annotations(
     return annotations
 
 
+def add_person_properties_annotations(
+    team_id: int, breakdown: str
+) -> Dict[str, Subquery]:
+    person_properties = Subquery(
+        Person.objects.filter(team_id=team_id, id=OuterRef("person_id")).values(
+            "properties__{}".format(breakdown)
+        )
+    )
+    annotations = {}
+    annotations["properties__{}".format(breakdown)] = person_properties
+    return annotations
+
+
 def aggregate_by_interval(
     filtered_events: QuerySet,
     team_id: int,
@@ -519,13 +547,20 @@ def aggregate_by_interval(
     interval_annotation = get_interval_annotation(interval)
     values = [interval]
     if breakdown:
-        if params.get("breakdown_type") == "cohort":
-            annotations = add_cohort_annotations(
+        breakdown_type = params.get("breakdown_type")
+        if breakdown_type == "cohort":
+            cohort_annotations = add_cohort_annotations(
                 team_id, json.loads(params.get("breakdown", "[]"))
             )
-            values.extend(annotations.keys())
-            filtered_events = filtered_events.annotate(**annotations)
+            values.extend(cohort_annotations.keys())
+            filtered_events = filtered_events.annotate(**cohort_annotations)
             breakdown = "cohorts"
+        elif breakdown_type == "person":
+            person_annotations = add_person_properties_annotations(
+                team_id, params.get("breakdown", "")
+            )
+            filtered_events = filtered_events.annotate(**person_annotations)
+            values.append(breakdown)
         else:
             values.append(breakdown)
     aggregates = (

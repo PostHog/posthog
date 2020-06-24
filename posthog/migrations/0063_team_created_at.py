@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0061_featureflag'),
+        ('posthog', '0062_team_anonymize_ips'),
     ]
 
     operations = [

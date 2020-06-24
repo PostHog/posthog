@@ -1181,3 +1181,63 @@ class TestTrends(TransactionBaseTest):
         ).json()
         self.assertEqual(len(people["results"][0]["people"]), 4)
         self.assertEqual(people["results"][0]["people"][0]["id"], person1.pk)
+
+    def test_breakdown_by_person_property(self):
+        person1, person2, person3, person4 = self._create_multiple_people()
+        action = Action.objects.create(name="watched movie", team=self.team)
+        ActionStep.objects.create(action=action, event="watched movie")
+        action.calculate_events()
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            event_response = self.client.get(
+                "/api/action/trends/?date_from=-14d&breakdown=%s&breakdown_type=person&events=%s"
+                % (
+                    'name',
+                    jdumps(
+                        [
+                            {
+                                "id": "watched movie",
+                                "name": "watched movie",
+                                "type": "events",
+                                "order": 0,
+                            }
+                        ]
+                    ),
+                )
+            ).json()
+            action_response = self.client.get(
+                "/api/action/trends/?date_from=-14d&breakdown=%s&breakdown_type=person&actions=%s"
+                % (
+                    'name',
+                    jdumps([{"id": action.pk, "type": "actions", "order": 0}]),
+                )
+            ).json()
+        
+        self.assertEqual(event_response[0]["count"], 3)
+        self.assertEqual(event_response[0]["breakdown_value"], 'person2')
+
+        self.assertEqual(event_response[1]["count"], 1)
+        self.assertEqual(event_response[1]["breakdown_value"], 'person1')
+
+        self.assertEqual(event_response[2]["count"], 3)
+        self.assertEqual(event_response[2]["breakdown_value"], 'person3')
+
+        self.assertEqual(event_response[3]["count"], 0)
+        self.assertEqual(event_response[3]["breakdown_value"], 'person4')
+
+        self.assertTrue(self._compare_entity_response(event_response, action_response,))
+
+        people = self.client.get(
+            "/api/action/people/",
+            data={
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-07",
+                "type": "events",
+                "entityId": "watched movie",
+                "breakdown_type": "person",
+                "breakdown_value": 'person3',
+                "breakdown": 'name',
+            },
+        ).json()
+        self.assertEqual(len(people["results"][0]["people"]), 1)
+        self.assertEqual(people["results"][0]["people"][0]["name"], 'person3')

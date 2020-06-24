@@ -28,6 +28,7 @@ const urlBackgroundMap = {
     '/dashboard': 'https://posthog.s3.eu-west-2.amazonaws.com/graphs.png',
     '/dashboard/1': 'https://posthog.s3.eu-west-2.amazonaws.com/graphs.png',
     '/events': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
+    '/sessions': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
     '/actions': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
     '/actions/live': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
     '/trends': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-action-trends.png',
