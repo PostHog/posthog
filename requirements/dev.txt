@@ -13,6 +13,7 @@ black==19.10b0            # via -r requirements/dev.in
 click==7.1.1              # via black, pip-tools
 decorator==4.4.2          # via ipython, traitlets
 django-debug-toolbar==2.2  # via -r requirements/dev.in
+django-extensions==2.2.9  # via -r requirements/dev.in
 django-stubs==1.5.0       # via -r requirements/dev.in, djangorestframework-stubs
 django==3.0.6             # via django-debug-toolbar, django-stubs
 djangorestframework-stubs==1.1.0  # via -r requirements/dev.in
@@ -49,7 +50,7 @@ pyparsing==2.4.7          # via packaging
 python-dateutil==2.8.1    # via freezegun
 pytz==2020.1              # via django
 regex==2020.6.8           # via black
-six==1.14.0               # via flake8-print, freezegun, packaging, pip-tools, python-dateutil, traitlets
+six==1.14.0               # via django-extensions, flake8-print, freezegun, packaging, pip-tools, python-dateutil, traitlets
 sqlparse==0.3.1           # via django, django-debug-toolbar
 tblib==1.6.0              # via -r requirements/dev.in
 toml==0.10.1              # via black

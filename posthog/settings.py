@@ -114,6 +114,13 @@ INSTALLED_APPS = [
     "social_django",
 ]
 
+try:
+    import django_extensions
+
+    INSTALLED_APPS.append("django_extensions")
+except ImportError:
+    pass
+
 MIDDLEWARE = [
     "posthog.middleware.SameSiteSessionMiddleware",  # keep this at the top
     "django.middleware.security.SecurityMiddleware",

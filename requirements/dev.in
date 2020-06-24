@@ -16,6 +16,7 @@ ipdb
 mypy
 mypy-extensions
 djangorestframework-stubs
+django-extensions
 django-stubs
 freezegun
 packaging
