@@ -42,6 +42,7 @@ from django.db.models import (
 from django.db import connection
 from django.utils.timezone import now
 from typing import Any, List, Dict, Optional, Tuple, Union
+from datetime import timedelta
 import pandas as pd
 import datetime
 import json
@@ -230,6 +231,17 @@ class ActionViewSet(viewsets.ModelViewSet):
         return result
 
     @action(methods=["GET"], detail=False)
+    def retention(
+        self, request: request.Request, *args: Any, **kwargs: Any
+    ) -> Response:
+        team = request.user.team_set.get()
+        filter = Filter(request=request)
+        filter._date_from = "-11d"
+
+        result = calculate_retention(filter, team)
+        return Response(result)
+
+    @action(methods=["GET"], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.team_set.get()
         filter = Filter(request=request)
@@ -403,6 +415,31 @@ def calculate_trends(
         else:
             entities_list.extend(trend_entity)
     return entities_list
+
+
+def calculate_retention(filter: Filter, team: Team, total_days=11):
+    date_from: datetime.datetime = filter.date_from  # type: ignore
+    filter._date_to = (date_from + timedelta(days=total_days)).isoformat()
+    labels_format = "%a. %-d %B"
+    resultset = Event.objects.query_retention(filter, team)
+
+    by_dates = {(int(row.first_date), int(row.date)): row.count for row in resultset}
+
+    result = {
+        "data": [
+            {
+                "values": [
+                    by_dates.get((first_day, day), 0)
+                    for day in range(total_days - first_day)
+                ],
+                "label": "Day {}".format(first_day),
+                "date": (date_from + timedelta(days=first_day)).strftime(labels_format),
+            }
+            for first_day in range(total_days)
+        ]
+    }
+
+    return result
 
 
 def build_dataframe(
