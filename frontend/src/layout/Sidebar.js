@@ -58,6 +58,7 @@ const submenuOverride = {
     liveActions: 'events',
     sessions: 'events',
     cohorts: 'people',
+    retention: 'people',
 }
 
 export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
