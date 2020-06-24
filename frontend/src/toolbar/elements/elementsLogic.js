@@ -169,7 +169,7 @@ export const elementsLogic = kea({
             actionsForElementMap => [...actionsForElementMap.values()].map(a => a[0]),
         ],
 
-        elementsToDisplay: [
+        elementsToDisplayRaw: [
             s => [
                 s.actionElements,
                 s.inspectElements,
@@ -188,6 +188,13 @@ export const elementsLogic = kea({
                     return actionsListElements
                 }
                 return []
+            },
+        ],
+
+        elementsToDisplay: [
+            s => [s.elementsToDisplayRaw],
+            elementsToDisplayRaw => {
+                return elementsToDisplayRaw.filter(({ rect }) => rect.width !== 0 || rect.height !== 0)
             },
         ],
 
