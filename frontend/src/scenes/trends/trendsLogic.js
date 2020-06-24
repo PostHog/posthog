@@ -100,7 +100,7 @@ function parsePeopleParams(peopleParams, filters) {
     }
     // If breakdown type is cohort, we use breakdown_value
     // If breakdown type is event, we just set another filter
-    if (breakdown_value && filters.breakdown_type != 'cohort') {
+    if (breakdown_value && filters.breakdown_type != 'cohort' && filters.breakdown_type != 'person') {
         params.properties = [...params.properties, { key: params.breakdown, value: breakdown_value, type: 'event' }]
     }
 
@@ -216,7 +216,7 @@ export const trendsLogic = kea({
         [actions.loadPeople]: async ({ label, action, day, breakdown_value }, breakpoint) => {
             const filterParams = parsePeopleParams({ label, action, day, breakdown_value }, values.filters)
             actions.setPeople(null, null, action, label, day, breakdown_value, null)
-            const people = await api.get(`api/action/people/?include_last_event=1&${filterParams}`)
+            const people = await api.get(`api/action/people/?${filterParams}`)
             breakpoint()
             actions.setPeople(
                 people.results[0]?.people,

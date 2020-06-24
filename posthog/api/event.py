@@ -275,6 +275,9 @@ class EventViewSet(viewsets.ModelViewSet):
 
     def calculate_sessions(self, events: QuerySet, session_type: Optional[str], date_filter: Dict[str, datetime], team: Team, request: request.Request) -> List[Dict[str, Any]]:
 
+        if not events:
+            return []
+            
         # format date filter for session view
         _date_gte = Q()
         if session_type is None:
