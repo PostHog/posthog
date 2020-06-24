@@ -418,7 +418,8 @@ def calculate_trends(
 
 
 def calculate_retention(filter: Filter, team: Team, total_days=11):
-    filter._date_to = (filter.date_from + timedelta(days=total_days)).isoformat()
+    date_from: datetime.datetime = filter.date_from  # type: ignore
+    filter._date_to = (date_from + timedelta(days=total_days)).isoformat()
     labels_format = "%a. %-d %B"
     resultset = Event.objects.query_retention(filter, team)
 
@@ -432,9 +433,7 @@ def calculate_retention(filter: Filter, team: Team, total_days=11):
                     for day in range(total_days - first_day)
                 ],
                 "label": "Day {}".format(first_day),
-                "date": (filter.date_from + timedelta(days=first_day)).strftime(
-                    labels_format
-                ),
+                "date": (date_from + timedelta(days=first_day)).strftime(labels_format),
             }
             for first_day in range(total_days)
         ]

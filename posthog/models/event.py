@@ -231,7 +231,7 @@ class EventManager(models.QuerySet):
         events_query, events_query_params = filtered_events.query.sql_with_params()
         first_date_query, first_date_params = first_date.query.sql_with_params()
 
-        qstring = """
+        full_query = """
             SELECT
                 DATE_PART('days', first_date - %s) AS first_date,
                 DATE_PART('days', timestamp - first_date) AS date,
@@ -241,7 +241,9 @@ class EventManager(models.QuerySet):
               ON (events.person_id = first_event_date.person_id)
             WHERE timestamp > first_date
             GROUP BY date, first_date
-        """.format(
+        """
+
+        full_query = full_query.format(
             events_query=events_query,
             first_date_query=first_date_query,
             event_date_query=TruncDay("timestamp"),
@@ -249,7 +251,8 @@ class EventManager(models.QuerySet):
 
         with connection.cursor() as cursor:
             cursor.execute(
-                qstring, (filters.date_from,) + events_query_params + first_date_params
+                full_query,
+                (filters.date_from,) + events_query_params + first_date_params,
             )
             data = namedtuplefetchall(cursor)
 
