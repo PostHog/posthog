@@ -91,6 +91,7 @@ class Team(models.Model):
     )
     event_names: JSONField = JSONField(default=list)
     event_properties: JSONField = JSONField(default=list)
+    anonymize_ips: models.BooleanField = models.BooleanField(default=False)
 
     # DEPRECATED: this field is deprecated in favour of OPT_OUT_CAPTURE env variable and anonymized data
     # However, we still honor teams that have set this previously
