@@ -1,0 +1,40 @@
+
+.background {
+    background-color: hsla(210, 6%, 95%, 1);
+}
+
+.clickable {
+    cursor: pointer;
+    margin-right: 10px;
+    padding: 8px;
+    border-radius: 4px;
+}
+
+.clickable:hover {
+    background-color:gainsboro;
+}
+
+.prompt-text {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.platform-item {
+    margin-right: 10px;
+    padding: 10px;
+    padding-left: 20px;
+    padding-right: 20px;
+    border:1px solid gray;
+    border-radius: 2px;
+    cursor: pointer;
+
+}
+
+.platform-item:hover {
+    background-color:gainsboro;
+}
+
+.selectable-item:hover {
+    background-color: gainsboro;
+    cursor: pointer;
+}

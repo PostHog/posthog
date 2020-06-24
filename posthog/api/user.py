@@ -34,6 +34,9 @@ def user(request):
                 "slack_incoming_webhook", team.slack_incoming_webhook
             )
             team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
+            team.completed_snippet_onboarding = data["team"].get(
+                "completed_snippet_onboarding", team.completed_snippet_onboarding
+            )
             team.save()
 
         if "user" in data:
@@ -74,6 +77,7 @@ def user(request):
                 "slack_incoming_webhook": team.slack_incoming_webhook,
                 "event_names": team.event_names,
                 "event_properties": team.event_properties,
+                "completed_snippet_onboarding": team.completed_snippet_onboarding,
             },
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
             "posthog_version": settings.VERSION

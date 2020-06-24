@@ -6,7 +6,7 @@ from django.utils.timezone import now
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0062_team_anonymize_ips'),
+        ('posthog', '0063_team_completed_snippet_onboarding'),
     ]
 
     operations = [
