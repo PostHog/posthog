@@ -46,7 +46,7 @@ def user(request):
             request.user.anonymize_data = data["user"].get(
                 "anonymize_data", request.user.anonymize_data
             )
-            request.user.toolbar_mode = data['user'].get(
+            request.user.toolbar_mode = data["user"].get(
                 "toolbar_mode", request.user.toolbar_mode
             )
             posthoganalytics.identify(
@@ -113,8 +113,8 @@ def redirect_to_site(request):
     }
     if settings.DEBUG:
         params["jsURL"] = "http://localhost:8234/"
-        if request.user.toolbar_mode == "toolbar":
-            params["toolbarVersion"] = "toolbar"
+    if request.user.toolbar_mode == "toolbar":
+        params["toolbarVersion"] = "toolbar"
 
     state = urllib.parse.quote(json.dumps(params))
 
