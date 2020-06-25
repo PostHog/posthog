@@ -5,6 +5,7 @@ import { elementToActionStep, actionStepToAntdForm, stepToDatabaseFormat } from 
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { toast } from 'react-toastify'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
+import { dockLogic } from '~/toolbar/dockLogic'
 
 function newAction(element) {
     return {
@@ -140,11 +141,20 @@ export const actionsTabLogic = kea({
                 toast('Action deleted!')
             }
         },
+        [toolbarTabLogic.actions.setTab]: ({ tab }) => {
+            if (tab === 'actions') {
+                actionsLogic.actions.getActions()
+            }
+        },
     }),
 
     events: {
         afterMount: () => {
-            actionsLogic.actions.getActions()
+            const { mode } = dockLogic.values
+            const { tab } = toolbarTabLogic.values
+            if (tab === 'actions' && (mode === 'float' || mode === 'dock')) {
+                actionsLogic.actions.getActions()
+            }
         },
     },
 })
