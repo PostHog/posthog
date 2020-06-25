@@ -1,5 +1,5 @@
 from django.test import TestCase, Client
-from posthog.models import User, DashboardItem, Action, Person, Event, Funnel
+from posthog.models import User, DashboardItem, Action, Person, Event, Funnel, Team
 from posthog.api.test.base import BaseTest
 
 class TestDemo(BaseTest):
@@ -13,6 +13,7 @@ class TestDemo(BaseTest):
         self.assertEqual(Action.objects.count(), 3)
 
         self.assertEqual(Action.objects.all()[1].events.count(), 9)
+        self.assertIn('$pageview', Team.objects.get().event_names)
  
     def test_do_not_create_demo_data_if_already_exists(self):
         Event.objects.create(team=self.team, event='random event')

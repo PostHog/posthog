@@ -25,8 +25,8 @@ export const funnelLogic = kea({
             },
         ],
         stepsWithCount: {
-            loadStepsWithCount: async (id = props.id) => {
-                return (await api.get('api/funnel/' + id)).steps
+            loadStepsWithCount: async ({ id, refresh }) => {
+                return (await api.get('api/funnel/' + id + (refresh ? '/?refresh=true' : ''))).steps
             },
         },
         people: {
@@ -75,11 +75,11 @@ export const funnelLogic = kea({
             if (update) actions.updateFunnel(values.funnel)
         },
         updateFunnelSuccess: async ({ funnel }) => {
-            actions.loadStepsWithCount(funnel.id)
+            actions.loadStepsWithCount({ id: funnel.id, refresh: true })
             toast('Funnel saved!')
         },
         createFunnelSuccess: ({ funnel }) => {
-            actions.loadStepsWithCount(funnel.id)
+            actions.loadStepsWithCount({ id: funnel.id, refresh: true })
             toast('Funnel saved!')
         },
     }),
@@ -88,13 +88,13 @@ export const funnelLogic = kea({
         createFunnelSuccess: ({ funnel }) => `/funnel/${funnel.id}`,
     }),
 
-    events: ({ actions, key }) => ({
+    events: ({ actions, key, props }) => ({
         afterMount: () => {
             if (key === 'new') {
                 return
             }
             actions.loadFunnel()
-            actions.loadStepsWithCount()
+            actions.loadStepsWithCount({ id: props.id })
         },
     }),
 })

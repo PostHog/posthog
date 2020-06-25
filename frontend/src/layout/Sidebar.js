@@ -17,6 +17,9 @@ import {
     ContainerOutlined,
     LineChartOutlined,
     FundOutlined,
+    ExperimentOutlined,
+    ClockCircleOutlined,
+    RetweetOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -53,7 +56,9 @@ const sceneOverride = {
 const submenuOverride = {
     actions: 'events',
     liveActions: 'events',
+    sessions: 'events',
     cohorts: 'people',
+    retention: 'people',
 }
 
 export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
@@ -161,6 +166,11 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <span className="sidebar-label">{'Live Actions'}</span>
                             <Link to={'/actions/live'} onClick={collapseSidebar} />
                         </Menu.Item>
+                        <Menu.Item key="sessions" style={itemStyle} data-attr="menu-item-sessions">
+                            <ClockCircleOutlined />
+                            <span className="sidebar-label">{'Sessions'}</span>
+                            <Link to={'/sessions'} onClick={collapseSidebar} />
+                        </Menu.Item>
                     </Menu.SubMenu>
                     <Menu.SubMenu
                         key="people"
@@ -185,6 +195,11 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <span className="sidebar-label">{'Cohorts'}</span>
                             <Link to={'/people/cohorts'} onClick={collapseSidebar} />
                         </Menu.Item>
+                        <Menu.Item key="retention" style={itemStyle} data-attr="menu-item-retention">
+                            <RetweetOutlined />
+                            <span className="sidebar-label">{'Retention'}</span>
+                            <Link to={'/people/retention'} onClick={collapseSidebar} />
+                        </Menu.Item>
                     </Menu.SubMenu>
                     <Menu.Item key="funnels" style={itemStyle} data-attr="menu-item-funnels">
                         <FunnelPlotOutlined />
@@ -195,6 +210,11 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <ForkOutlined />
                         <span className="sidebar-label">{'Paths'}</span>
                         <Link to={'/paths'} onClick={collapseSidebar} />
+                    </Menu.Item>
+                    <Menu.Item key="experiments" style={itemStyle} data-attr="menu-item-feature-f">
+                        <ExperimentOutlined />
+                        <span className="sidebar-label">{'Experiments'}</span>
+                        <Link to={'/experiments/feature_flags'} onClick={collapseSidebar} />
                     </Menu.Item>
                     <Menu.Item key="setup" style={itemStyle} data-attr="menu-item-setup">
                         <SettingOutlined />

@@ -6,7 +6,7 @@ class Element(models.Model):
     USEFUL_ELEMENTS = ["a", "button", "input", "select", "textarea", "label"]
     text: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     tag_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    href: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    href: models.CharField = models.CharField(max_length=2048, null=True, blank=True)
     attr_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     attr_class = ArrayField(
         models.CharField(max_length=200, blank=True), null=True, blank=True

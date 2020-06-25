@@ -8,12 +8,15 @@ from django.db.models import (
     signals,
     Prefetch,
     QuerySet,
-    Value
+    Value,
 )
 from django.db import connection
+from django.db.models.functions import TruncDay
 from django.contrib.postgres.fields import JSONField
 from django.utils import timezone
 from django.forms.models import model_to_dict
+
+from psycopg2 import sql  # type: ignore
 
 from .element_group import ElementGroup
 from .element import Element
@@ -36,12 +39,14 @@ attribute_regex = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 
 
 LAST_UPDATED_TEAM_ACTION: Dict[int, datetime.datetime] = {}
-TEAM_EVENT_ACTION_QUERY_CACHE: Dict[int,Dict[str, tuple]] = defaultdict(dict)
+TEAM_EVENT_ACTION_QUERY_CACHE: Dict[int, Dict[str, tuple]] = defaultdict(dict)
 # TEAM_EVENT_ACTION_QUERY_CACHE looks like team_id -> event ex('$pageview') -> query
 TEAM_ACTION_QUERY_CACHE: Dict[int, str] = {}
 
+
 class SelectorPart(object):
     direct_descendant = False
+    unique_order = 0
 
     def __init__(self, tag: str, direct_descendant: bool):
         self.direct_descendant = direct_descendant
@@ -80,6 +85,7 @@ class Selector(object):
             if index > 0 and tags[index - 1] == ">":
                 direct_descendant = True
             part = SelectorPart(tag, direct_descendant)
+            part.unique_order = len([p for p in self.parts if p.data == part.data])
             self.parts.append(copy.deepcopy(part))
 
 
@@ -91,9 +97,11 @@ class EventManager(models.QuerySet):
         subqueries = {}
         for index, tag in enumerate(selector.parts):
             subqueries["match_{}".format(index)] = Subquery(
-                Element.objects.filter(group_id=OuterRef("pk"), **tag.data).values(
-                    "order"
-                )[:1]
+                Element.objects.filter(group_id=OuterRef("pk"), **tag.data)
+                .values("order")
+                .order_by("order")
+                # If there's two of the same element, for the second one we need to shift one
+                [tag.unique_order : tag.unique_order + 1]
             )
             filter["match_{}__isnull".format(index)] = False
             if index > 0:
@@ -112,8 +120,8 @@ class EventManager(models.QuerySet):
     def filter_by_element(self, filters: Dict, team_id: int):
         groups = ElementGroup.objects.filter(team_id=team_id)
 
-        if filters.get('selector'):
-            selector = Selector(filters['selector'])
+        if filters.get("selector"):
+            selector = Selector(filters["selector"])
             subqueries, filter = self._element_subquery(selector)
             groups = groups.annotate(**subqueries)  # type: ignore
         else:
@@ -146,7 +154,7 @@ class EventManager(models.QuerySet):
             return {}
         return {"event": action_step.event}
 
-    def add_person_id(self, team_id: str):
+    def add_person_id(self, team_id: int):
         return self.annotate(
             person_id=Subquery(
                 PersonDistinctId.objects.filter(
@@ -165,12 +173,20 @@ class EventManager(models.QuerySet):
             return self.none()
 
         for step in steps:
-            subquery = Event.objects.add_person_id(team_id=action.team_id).filter(
-                Filter(data={'properties': step.properties}).properties_to_Q(team_id=action.team_id),
-                pk=OuterRef("id"),
-                **self.filter_by_event(step),
-                **self.filter_by_element(model_to_dict(step), team_id=action.team_id)
-            ).only('id')
+            subquery = (
+                Event.objects.add_person_id(team_id=action.team_id)
+                .filter(
+                    Filter(data={"properties": step.properties}).properties_to_Q(
+                        team_id=action.team_id
+                    ),
+                    pk=OuterRef("id"),
+                    **self.filter_by_event(step),
+                    **self.filter_by_element(
+                        model_to_dict(step), team_id=action.team_id
+                    )
+                )
+                .only("id")
+            )
             subquery = self.filter_by_url(step, subquery)
             any_step |= Q(Exists(subquery))
         events = self.filter(team_id=action.team_id).filter(any_step)
@@ -198,6 +214,50 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
+    def query_retention(self, filters, team, event="$pageview") -> models.QuerySet:
+        filtered_events = (
+            Event.objects.filter(filters.date_filter_Q)
+            .filter(team=team)
+            .add_person_id(team.pk)
+            .filter(event=event)
+        )
+
+        first_date = (
+            filtered_events.annotate(first_date=TruncDay("timestamp"))
+            .values("first_date", "person_id")
+            .distinct()
+        )
+
+        events_query, events_query_params = filtered_events.query.sql_with_params()
+        first_date_query, first_date_params = first_date.query.sql_with_params()
+
+        full_query = """
+            SELECT
+                DATE_PART('days', first_date - %s) AS first_date,
+                DATE_PART('days', timestamp - first_date) AS date,
+                COUNT(DISTINCT "events"."person_id")
+            FROM ({events_query}) events
+            LEFT JOIN ({first_date_query}) first_event_date
+              ON (events.person_id = first_event_date.person_id)
+            WHERE timestamp > first_date
+            GROUP BY date, first_date
+        """
+
+        full_query = full_query.format(
+            events_query=events_query,
+            first_date_query=first_date_query,
+            event_date_query=TruncDay("timestamp"),
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                full_query,
+                (filters.date_from,) + events_query_params + first_date_params,
+            )
+            data = namedtuplefetchall(cursor)
+
+        return data
+
     def create(self, site_url: Optional[str] = None, *args: Any, **kwargs: Any):
         with transaction.atomic():
             if kwargs.get("elements"):
@@ -221,12 +281,8 @@ class EventManager(models.QuerySet):
                     should_post_to_slack = True
 
             Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
-            team = kwargs.get('team', event.team)
-            if (
-                should_post_to_slack
-                and team
-                and team.slack_incoming_webhook
-            ):
+            team = kwargs.get("team", event.team)
+            if should_post_to_slack and team and team.slack_incoming_webhook:
                 post_event_to_slack.delay(event.pk, site_url)
 
             return event
@@ -263,23 +319,24 @@ class Event(models.Model):
             team_id=self.team_id, persondistinctid__distinct_id=self.distinct_id
         )
 
-
     # This (ab)uses query_db_by_action to find which actions match this event
     # We can't use filter_by_action here, as we use this function when we create an event so
     # the event won't be in the Action-Event relationship yet.
     # We use query caching to reduce the time spent on generating redundant queries
     @property
     def actions(self) -> List:
-        last_updated_action_ts = Action.objects.filter(team_id=self.team_id).aggregate(models.Max("updated_at"))['updated_at__max']
+        last_updated_action_ts = Action.objects.filter(team_id=self.team_id).aggregate(
+            models.Max("updated_at")
+        )["updated_at__max"]
 
         actions = (
             Action.objects.filter(
                 team_id=self.team_id,
                 steps__event=self.event,  # filter by event name to narrow down
-                deleted=False
+                deleted=False,
             )
-                .distinct("id")
-                .prefetch_related(
+            .distinct("id")
+            .prefetch_related(
                 Prefetch("steps", queryset=ActionStep.objects.order_by("id"))
             )
         )
@@ -303,7 +360,7 @@ class Event(models.Model):
             # We then take the parameters and replace the event id's with a placeholder
             # We use this later to sub back in future event id's
             # The rest of the parameters are shared between action types
-            qp = tuple(['%s' if i == self.pk else i for i in p])
+            qp = tuple(["%s" if i == self.pk else i for i in p])
 
             # Create a cache item and add it to the cache keyed on team_id and event id
             qcache = {self.event: (q, qp)}
@@ -320,7 +377,7 @@ class Event(models.Model):
             q, p = TEAM_EVENT_ACTION_QUERY_CACHE[self.team_id][self.event]
 
             # Replace the query param placeholders with the event id (opposite of what we did above)
-            qp = tuple([self.pk if i == '%s' else i for i in p])
+            qp = tuple([self.pk if i == "%s" else i for i in p])
 
             with connection.cursor() as cursor:
                 # Format and execute the cached query using the mostly cached params

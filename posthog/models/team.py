@@ -6,9 +6,11 @@ from .dashboard import Dashboard
 from .dashboard_item import DashboardItem
 from .user import User
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
-from typing import Optional, List
-
+from typing import Optional, List, Dict
+from datetime import datetime
 import secrets
+
+TEAM_CACHE: Dict[str, "Team"] = {}
 
 
 class TeamManager(models.Manager):
@@ -22,33 +24,53 @@ class TeamManager(models.Manager):
         action = Action.objects.create(team=team, name="Pageviews")
         ActionStep.objects.create(action=action, event="$pageview")
 
-        dashboard = Dashboard.objects.create(
-            name="Default",
-            pinned=True,
-            team=team
-        )
+        dashboard = Dashboard.objects.create(name="Default", pinned=True, team=team)
 
         DashboardItem.objects.create(
             team=team,
             dashboard=dashboard,
-            name='Pageviews this week',
+            name="Pageviews this week",
             type=TRENDS_LINEAR,
-            filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'type': TREND_FILTER_TYPE_EVENTS}]}
+            filters={
+                TREND_FILTER_TYPE_EVENTS: [
+                    {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}
+                ]
+            },
+            last_refresh=datetime.now(),
         )
         DashboardItem.objects.create(
             team=team,
             dashboard=dashboard,
-            name='Most popular browsers this week',
-            type='ActionsTable',
-            filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'type': TREND_FILTER_TYPE_EVENTS}], 'display': 'ActionsTable', 'breakdown': '$browser'}
+            name="Most popular browsers this week",
+            type="ActionsTable",
+            filters={
+                TREND_FILTER_TYPE_EVENTS: [
+                    {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}
+                ],
+                "display": "ActionsTable",
+                "breakdown": "$browser",
+            },
+            last_refresh=datetime.now(),
         )
         DashboardItem.objects.create(
             team=team,
             dashboard=dashboard,
-            name='Daily Active Users',
+            name="Daily Active Users",
             type=TRENDS_LINEAR,
-            filters={TREND_FILTER_TYPE_EVENTS: [{'id': '$pageview', 'math': 'dau', 'type': TREND_FILTER_TYPE_EVENTS}]}
+            filters={
+                TREND_FILTER_TYPE_EVENTS: [
+                    {"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}
+                ]
+            },
+            last_refresh=datetime.now(),
         )
+        return team
+
+    def get_cached_from_token(self, token: str) -> "Team":
+        if TEAM_CACHE.get(token):
+            return TEAM_CACHE[token]
+        team = Team.objects.get(api_token=token)
+        TEAM_CACHE[token] = team
         return team
 
 
@@ -69,7 +91,11 @@ class Team(models.Model):
     )
     event_names: JSONField = JSONField(default=list)
     event_properties: JSONField = JSONField(default=list)
-
+    anonymize_ips: models.BooleanField = models.BooleanField(default=False)
+    completed_snippet_onboarding: models.BooleanField = models.BooleanField(
+        default=False
+    )
+    
     # DEPRECATED: this field is deprecated in favour of OPT_OUT_CAPTURE env variable and anonymized data
     # However, we still honor teams that have set this previously
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)

@@ -6,11 +6,12 @@ import { propertyFilterLogic } from './propertyFilterLogic'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { Popover, Row } from 'antd'
 import { CloseButton, operatorMap } from 'lib/utils'
+import _ from 'lodash'
 
 function FilterRow({ item, index, filters, logic, pageKey }) {
     const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
-    const { key, value, operator } = item
+    const { key, value, operator, type } = item
 
     let handleVisibleChange = visible => {
         if (!visible && Object.keys(item).length >= 0 && !item[Object.keys(item)[0]]) {
@@ -32,7 +33,8 @@ function FilterRow({ item, index, filters, logic, pageKey }) {
                 {key ? (
                     <Button type="primary" shape="round" style={{ maxWidth: '85%' }}>
                         <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {keyMapping[key]?.label || key} {operatorMap[operator || 'exact'].split(' ')[0]} {value}
+                            {keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key}{' '}
+                            {operatorMap[operator || 'exact'].split(' ')[0]} {value}
                         </span>
                     </Button>
                 ) : (
@@ -41,7 +43,7 @@ function FilterRow({ item, index, filters, logic, pageKey }) {
                     </Button>
                 )}
             </Popover>
-            {index !== filters.length - 1 && (
+            {!_.isEmpty(filters[index]) && (
                 <CloseButton
                     className="ml-1"
                     onClick={() => {

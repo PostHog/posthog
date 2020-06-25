@@ -2,7 +2,7 @@ import React from 'react'
 import { Select } from 'antd'
 import { operatorMap } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { PropertyKeyInfo, keyMapping } from 'lib/components/PropertyKeyInfo'
 import { useValues, useActions } from 'kea'
 
 export function PropertyFilter({ index, onComplete, logic }) {
@@ -17,9 +17,18 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     autoFocus={!key}
                     defaultOpen={!key}
                     placeholder="Property key"
-                    value={key}
+                    labelInValue
+                    value={{ key, label: keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key }}
                     filterOption={(input, option) => option.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
-                    onChange={(_, new_key) => setFilter(index, new_key.value, undefined, operator, new_key.type)}
+                    onChange={(_, new_key) =>
+                        setFilter(
+                            index,
+                            new_key.value.replace(/event_|person_|element_/gi, ''),
+                            undefined,
+                            operator,
+                            new_key.type
+                        )
+                    }
                     style={{ width: '100%' }}
                     virtual={false}
                 >
@@ -28,7 +37,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                             {eventProperties.map((item, index) => (
                                 <Select.Option
                                     key={'event_' + item.value}
-                                    value={item.value}
+                                    value={'event_' + item.value}
                                     type="event"
                                     data-attr={'prop-filter-event-' + index}
                                 >
@@ -42,7 +51,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                             {personProperties.map((item, index) => (
                                 <Select.Option
                                     key={'person_' + item.value}
-                                    value={item.value}
+                                    value={'person_' + item.value}
                                     type="person"
                                     data-attr={'prop-filter-person-' + index}
                                 >
@@ -56,7 +65,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                             {['tag_name', 'text', 'href', 'selector'].map((item, index) => (
                                 <Select.Option
                                     key={'element_' + item}
-                                    value={item}
+                                    value={'element_' + item}
                                     type="element"
                                     data-attr={'prop-filter-element-' + index}
                                 >

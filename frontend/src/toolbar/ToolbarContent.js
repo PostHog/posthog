@@ -1,56 +1,62 @@
 import React from 'react'
 import { hot } from 'react-hot-loader/root'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { ToolbarTabs } from '~/toolbar/ToolbarTabs'
-import { FloatingToolbarHeader } from '~/toolbar/shared/FloatingToolbarHeader'
 import { StatsTab } from '~/toolbar/stats/StatsTab'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
-import { DashboardsTab } from '~/toolbar/dashboards/DashboardsTab'
-
-const tabComponents = {
-    actions: ActionsTab,
-    stats: StatsTab,
-    dashboards: DashboardsTab,
-}
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { ElementInfo } from '~/toolbar/elements/ElementInfo'
+import { Button } from 'antd'
+import { dockLogic } from '~/toolbar/dockLogic'
+import { CloseOutlined, InsertRowRightOutlined } from '@ant-design/icons'
 
 export const ToolbarContent = hot(_ToolbarContent)
-function _ToolbarContent({ apiURL, temporaryToken, actionId, type, dockLogic, shadowRef, defaultTab }) {
-    const { tab, newTab } = useValues(toolbarTabLogic({ defaultTab }))
+function _ToolbarContent({ type }) {
+    const { tab } = useValues(toolbarTabLogic)
+    const { hoverElement, selectedElement, inspectEnabled, heatmapEnabled } = useValues(elementsLogic)
+    const { setSelectedElement } = useActions(elementsLogic)
+    const { button, dock } = useActions(dockLogic)
 
-    const visible = tab ? { [tab]: 'visible' } : {}
-    const invisible = newTab && tab ? { [newTab]: 'invisible' } : {}
-    const fadingOut = newTab && tab ? { [tab]: 'fading-out' } : {}
-    const fadingIn = newTab && !tab ? { [newTab]: 'fading-in' } : {}
-
-    // This creates three different tabs, rendering each one when needed as directed by the animation logic
+    const showElementInsteadOfTabs =
+        type === 'dock' && tab === 'stats' && (inspectEnabled || heatmapEnabled) && (hoverElement || selectedElement)
 
     return (
         <div>
-            {type === 'float' ? <FloatingToolbarHeader dockLogic={dockLogic} /> : null}
-            <ToolbarTabs type={type} />
-            <div className="toolbar-transition-area">
-                {['stats', 'actions', 'dashboards'].map(key => {
-                    const className = fadingOut[key] || fadingIn[key] || invisible[key] || visible[key]
-                    if (className) {
-                        const Tab = tabComponents[key]
-                        return (
-                            <Tab
-                                key={key}
-                                tab={key}
-                                type={type}
-                                apiURL={apiURL}
-                                temporaryToken={temporaryToken}
-                                actionId={actionId}
-                                className={className}
-                                shadowRef={shadowRef}
-                            />
-                        )
-                    } else {
-                        return null
-                    }
-                })}
-            </div>
+            {showElementInsteadOfTabs ? (
+                <>
+                    <div style={{ height: 66, lineHeight: '56px' }}>
+                        {selectedElement && (!hoverElement || hoverElement === selectedElement) ? (
+                            <div>
+                                <Button type="link" onClick={() => setSelectedElement(null)}>
+                                    Select a different element
+                                </Button>
+                            </div>
+                        ) : hoverElement ? (
+                            <div>Click on an element to select it!</div>
+                        ) : null}
+                    </div>
+                    <div className="toolbar-block">
+                        <ElementInfo />
+                    </div>
+                </>
+            ) : (
+                <div>
+                    {type === 'float' ? (
+                        <div style={{ textAlign: 'right' }}>
+                            <Button onClick={dock}>
+                                Dock <InsertRowRightOutlined />
+                            </Button>
+                            <Button onClick={button}>
+                                Close <CloseOutlined />
+                            </Button>
+                        </div>
+                    ) : null}
+                    <ToolbarTabs type={type} />
+                    {tab === 'stats' ? <StatsTab /> : null}
+                    {tab === 'actions' ? <ActionsTab /> : null}
+                </div>
+            )}
         </div>
     )
 }

@@ -9,7 +9,7 @@ describe('People', () => {
 
     it('Go to new cohort from people screen', () => {
         cy.get('[data-attr=create-cohort]').click()
-        cy.get('span').should('contain', 'New cohort')
+        cy.get('span').should('contain', 'New Cohort')
     })
 
     it('All people route works', () => {
@@ -17,5 +17,11 @@ describe('People', () => {
         cy.get('[data-attr=menu-item-all-people]').click()
 
         cy.get('h1').should('contain', 'Users')
+    })
+
+    it('Retention route works', () => {
+        cy.get('[data-attr=menu-item-retention]').click()
+
+        cy.get('h1').should('contain', 'Retention')
     })
 })
