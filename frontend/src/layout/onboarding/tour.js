@@ -2,10 +2,21 @@ import React from 'react'
 import Tour from 'reactour'
 import { useValues, useActions } from 'kea'
 import { onboardingLogic, TourType } from './onboardingLogic'
+import { Button } from 'antd'
 
 export function PGTour() {
     const { tourActive, tourType, tourStep } = useValues(onboardingLogic)
-    const { setTourFinish, setTourStep } = useActions(onboardingLogic)
+    const { setTourFinish, setTourStep, updateOnboardingStep } = useActions(onboardingLogic)
+
+    function updateTourStatus(type, step) {
+        const tourSteps = determineTour(type)
+        if (step === tourSteps.length - 1) {
+            if (type === TourType.ACTION) updateOnboardingStep(0)
+            else if (type === TourType.TRENDS) updateOnboardingStep(1)
+            else if (type === TourType.FUNNEL) updateOnboardingStep(2)
+        }
+    }
+
     return (
         <Tour
             steps={determineTour(tourType)}
@@ -17,9 +28,12 @@ export function PGTour() {
             goToStep={tourStep}
             nextStep={() => {
                 setTourStep(tourStep + 1)
+                updateTourStatus(tourType, tourStep + 1)
             }}
             prevStep={() => setTourStep(tourStep - 1)}
             startAt={tourStep}
+            disableFocusLock
+            lastStepNextButton={<Button type="primary">Done!</Button>}
         />
     )
 }
@@ -57,14 +71,13 @@ const actionTour = [
         action: node => {
             node.click()
         },
-        stepInteraction: false,
     },
     {
         selector: '[data-attr="action-edit-frontend-element"]',
         content: (
             <ToolTipText>
                 {
-                    "For example, adding an action by frontend element means that you can filter for a specific element that's being autocaptured"
+                    "For example, adding an action by frontend element means that you can filter for a specific element that's being autocaptured. Select this!"
                 }
             </ToolTipText>
         ),
@@ -77,10 +90,11 @@ const actionTour = [
         selector: '[data-attr="action-editor-card"]',
         content: (
             <ToolTipText>
-                {'You can manually enter details on a frontend element that you can to filter for'}
+                {
+                    'You can manually enter details on a frontend element that you can to filter for. Enter the details to an element on your site!'
+                }
             </ToolTipText>
         ),
-        stepInteraction: false,
     },
     {
         selector: '[data-attr="action-editor-inspect-button"]',
@@ -95,6 +109,10 @@ const actionTour = [
         stepInteraction: false,
     },
     {
+        selector: '[data-attr="edit-action-input"]',
+        content: <ToolTipText>{'Give your action a name. What are your users doing here?'}</ToolTipText>,
+    },
+    {
         selector: '[data-attr="save-action-button"]',
         content: (
             <ToolTipText>
@@ -103,7 +121,6 @@ const actionTour = [
                 }
             </ToolTipText>
         ),
-        stepInteraction: false,
     },
 ]
 
@@ -115,12 +132,10 @@ const trendsTour = [
                 {"This is the trend editor. You're changes will automatically update the visualization."}
             </ToolTipText>
         ),
-        stepInteraction: false,
     },
     {
         selector: '[data-attr="action-filter"]',
         content: <ToolTipText>{'You can add actions and events you want to see data for'}</ToolTipText>,
-        stepInteraction: false,
     },
     {
         selector: '[data-attr="trends-viz"]',
@@ -131,14 +146,12 @@ const trendsTour = [
                 }
             </ToolTipText>
         ),
-        stepInteraction: false,
     },
     {
         selector: '[data-attr="save-to-dashboard-button"]',
         content: (
             <ToolTipText>{'Once you have added actions and events you can save this to your dashboards'}</ToolTipText>
         ),
-        stepInteraction: false,
     },
 ]
 
@@ -146,18 +159,16 @@ const funnelTour = [
     {
         selector: '[data-attr="edit-funnel"]',
         content: <ToolTipText>{'This is the funnel editor'}</ToolTipText>,
-        stepInteraction: false,
     },
     {
         selector: '[data-attr="funnel-editor-required-fields"]',
         content: (
             <ToolTipText>
                 {
-                    'Your funnel steps will be determined by the actions and events that you add here. You will also be required to enter a name for you funnel.'
+                    'Your funnel steps will be determined by the actions and events that you add here. You will also be required to enter a name for your funnel.'
                 }
             </ToolTipText>
         ),
-        stepInteraction: false,
     },
     {
         selector: '[data-attr="prop-filters"]',
@@ -168,7 +179,6 @@ const funnelTour = [
                 }
             </ToolTipText>
         ),
-        stepInteraction: false,
     },
     {
         selector: '[data-attr="save-funnel-button"]',
@@ -179,6 +189,5 @@ const funnelTour = [
                 }
             </ToolTipText>
         ),
-        stepInteraction: false,
     },
 ]

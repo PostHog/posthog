@@ -53,7 +53,6 @@ export function SaveToDashboardModal({
     const [newItem, setNewItem] = useState(type === 'FunnelViz' || !fromItem)
     const fromDashboardName =
         (fromDashboard ? dashboards.find(d => d.id === parseInt(fromDashboard)) : null)?.name || 'Untitled'
-    const { updateOnboardingStep } = useActions(onboardingLogic)
 
     async function save(event) {
         event.preventDefault()
@@ -68,9 +67,6 @@ export function SaveToDashboardModal({
                 <Link to={`/dashboard/${dashboardId}`}>Click here to see it.</Link>
             </div>
         )
-        if (type.includes('Actions')) {
-            updateOnboardingStep(1)
-        }
         closeModal()
     }
 

@@ -57,24 +57,26 @@ export function OnboardingWidget() {
             >
                 <h2>Get Started</h2>
                 <i>
-                    Complete these steps to learn how to use Posthog! Click on an item below to learn how to complete it
+                    Complete these steps to learn how to use Posthog! Click on an item below to learn how to create one
                 </i>
                 {Object.entries(TourType).map(([, value], index) => {
                     return (
                         <div key={index}>
                             <hr style={{ height: 3, visibility: 'hidden' }} />
-                            <Checkbox checked={user.onboarding.steps[index] || checked[index]}>
-                                <Link
-                                    onClick={() => {
-                                        closePopup()
-                                        setInstructionalModal(true)
-                                        setTourType(value)
-                                    }}
-                                    data-attr={'onboarding-item-' + index}
-                                >
-                                    Create {value}
-                                </Link>
-                            </Checkbox>
+                            <Link
+                                onClick={() => {
+                                    closePopup()
+                                    setInstructionalModal(true)
+                                    setTourType(value)
+                                }}
+                                data-attr={'onboarding-item-' + index}
+                            >
+                                <Checkbox
+                                    style={{ marginRight: 12 }}
+                                    checked={user.onboarding.steps[index] || checked[index]}
+                                ></Checkbox>
+                                <span>{value}</span>
+                            </Link>
                         </div>
                     )
                 })}
@@ -141,20 +143,20 @@ const ModalContent = {
         description:
             'Events can get overwhelming. Use actions to filter and group events you want to analyze as a distinct entity.',
         link: '/action',
-        buttonText: 'Create Action',
+        buttonText: 'Get Started',
     },
     [TourType.TRENDS]: {
         src: TrendImage,
         title: 'Trends',
         description: 'Trends show you aggregate data on actions and events',
         link: '/trends',
-        buttonText: 'Create Trend Graph',
+        buttonText: 'Get Started',
     },
     [TourType.FUNNEL]: {
         src: FunnelImage,
         title: 'Funnels',
         description: 'Funnels are used to understand how your users are converting from one step to the next.',
         link: '/funnel/new',
-        buttonText: 'Create Funnel',
+        buttonText: 'Get Started',
     },
 }

@@ -15,7 +15,6 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
     })
     const { action, actionLoading, errorActionId } = useValues(logic)
     const { setAction, saveAction, setCreateNew } = useActions(logic)
-    const { updateOnboardingStep } = useActions(onboardingLogic)
     const [edited, setEdited] = useState(false)
     const slackEnabled = user && user.team && user.team.slack_incoming_webhook
 
@@ -42,7 +41,6 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                     e.preventDefault()
                     if (isEditor && showNewActionButton) setCreateNew(true)
                     saveAction()
-                    updateOnboardingStep(0)
                 }}
             >
                 <input
