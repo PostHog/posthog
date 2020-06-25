@@ -85,6 +85,9 @@ export const actionsTabLogic = kea({
     listeners: ({ actions, values }) => ({
         selectAction: ({ id }) => {
             if (id) {
+                if (dockLogic.values.mode === 'button') {
+                    dockLogic.actions.dock()
+                }
                 toolbarTabLogic.actions.setTab('actions')
             }
         },
