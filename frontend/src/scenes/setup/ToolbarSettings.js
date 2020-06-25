@@ -29,7 +29,7 @@ export function ToolbarSettings() {
                 Try the new PostHog Toolbar?
                 {saved && (
                     <span className="text-success" style={{ marginLeft: 10 }}>
-                        Preference saved. You might need to restart your browser session for the change to take effect.
+                        Preference saved. You might need to restart your browser for the change to take effect.
                     </span>
                 )}
             </label>
