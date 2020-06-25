@@ -15,7 +15,7 @@ def update_old_rows_reverse(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0057_action_updated_at'),
+        ('posthog', '0064_toolbar_mode'),
     ]
 
     operations = [
