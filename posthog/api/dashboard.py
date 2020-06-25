@@ -4,6 +4,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from posthog.models import Dashboard, DashboardItem, Filter
 from typing import Dict, Any, List
 from django.db.models import QuerySet, Prefetch
+from django.shortcuts import get_object_or_404
 from datetime import datetime
 from posthog.utils import render_template, generate_cache_key
 from django.contrib.auth.models import AnonymousUser
@@ -180,4 +181,9 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
 
 
 def shared_dashboard(request: HttpRequest, share_token: str):
-    return render_template("shared_dashboard.html", request=request, context={})
+    dashboard = get_object_or_404(Dashboard, is_shared=True, share_token=share_token)
+    return render_template(
+        "shared_dashboard.html",
+        request=request,
+        context={"dashboard_id": dashboard.pk, "share_token": dashboard.share_token},
+    )

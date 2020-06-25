@@ -77,7 +77,7 @@ function createEntry(entry) {
                     // Loaders are applying from right to left(!)
                     // The first loader will be applied after others
                     use: [
-                        entry === 'main'
+                        entry === 'main' || entry === 'shared_dashboard'
                             ? {
                                   // After all CSS loaders we use plugin to do his work.
                                   // It gets all transformed CSS and extracts it into separate
@@ -191,12 +191,16 @@ function createEntry(entry) {
                   ]
                 : entry === 'shared_dashboard'
                 ? [
+                      new MiniCssExtractPlugin({
+                          filename: '[name].css',
+                      }),
                       new HtmlWebpackPlugin({
                           alwaysWriteToDisk: true,
                           title: 'PostHog',
                           filename: 'shared_dashboard.html',
                           template: path.join(__dirname, 'frontend', 'src', 'shared_dashboard.ejs'),
                       }),
+                      new HtmlWebpackHarddiskPlugin(),
                   ]
                 : [],
     }

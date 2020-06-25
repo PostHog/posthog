@@ -29,7 +29,9 @@ export function ShareModal({ logic, onCancel }) {
             {isShared ? (
                 <span>
                     Your dashboard is visible to everyone with the link.
-                    <CopyToClipboard url={url + '/shared_dashboard/' + dashboard.share_token} />
+                    {dashboard.share_token && (
+                        <CopyToClipboard url={url + '/shared_dashboard/' + dashboard.share_token} />
+                    )}
                 </span>
             ) : (
                 'Your dashboard is private.'

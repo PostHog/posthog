@@ -11,15 +11,15 @@ import { HedgehogOverlay } from 'lib/components/HedgehogOverlay/HedgehogOverlay'
 import { hot } from 'react-hot-loader/root'
 
 export const Dashboard = hot(_Dashboard)
-function _Dashboard({ id }) {
-    const logic = dashboardLogic({ id: parseInt(id) })
+function _Dashboard({ id, share_token }) {
+    const logic = dashboardLogic({ id: parseInt(id), share_token })
     const { dashboard, itemsLoading, items } = useValues(logic)
     const { user } = useValues(userLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
     return (
         <div>
-            <DashboardHeader id={id} logic={logic} />
+            {!share_token && <DashboardHeader id={id} logic={logic} />}
 
             {dashboardsLoading ? (
                 <SceneLoading />
