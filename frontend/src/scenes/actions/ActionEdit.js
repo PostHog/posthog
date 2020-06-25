@@ -3,7 +3,6 @@ import { uuid, Loading } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
-import { onboardingLogic } from '~/layout/onboarding'
 import { ActionStep } from './ActionStep'
 
 export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, showNewActionButton, temporaryToken }) {

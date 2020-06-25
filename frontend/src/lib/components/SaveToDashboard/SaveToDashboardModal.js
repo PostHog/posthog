@@ -6,7 +6,6 @@ import { kea, useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Input, Select, Modal, Radio, Alert } from 'antd'
 import { prompt } from 'lib/logic/prompt'
-import { onboardingLogic } from '~/layout/onboarding'
 
 const saveToDashboardModalLogic = kea({
     actions: () => ({

@@ -9,7 +9,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Button } from 'antd'
 import { userLogic } from 'scenes/userLogic'
 import { hot } from 'react-hot-loader/root'
-import { onboardingLogic } from '~/layout/onboarding'
 
 export const EditFunnel = hot(_EditFunnel)
 function _EditFunnel({ funnelId }) {

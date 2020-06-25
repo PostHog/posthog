@@ -77,7 +77,7 @@ const actionTour = [
         content: (
             <ToolTipText>
                 {
-                    "For example, adding an action by frontend element means that you can filter for a specific element that's being autocaptured. Select this!"
+                    "For example, adding an action by frontend element means that you can filter for a specific element that's being autocaptured."
                 }
             </ToolTipText>
         ),
