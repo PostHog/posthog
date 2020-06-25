@@ -158,7 +158,7 @@ export class ActionStep extends Component {
                     <textarea className="form-control" onChange={onChange} value={this.props.step[props.item] || ''} />
                 ) : (
                     <input
-                        data-attr={'edit-action-url-input' + '-' + props['data-attr']}
+                        data-attr={'edit-action-url-input'}
                         className="form-control"
                         onChange={onChange}
                         value={this.props.step[props.item] || ''}
@@ -255,7 +255,7 @@ export class ActionStep extends Component {
                     label="Link href"
                     selector={this.state.element && 'a[href="' + this.state.element.getAttribute('href') + '"]'}
                 />
-                <this.Option data-attr="autocapture-text" item="text" label="Text" />
+                <this.Option item="text" label="Text" />
                 <this.Option item="selector" label="Selector" selector={step.selector} />
                 <this.Option
                     item="url"
