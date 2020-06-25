@@ -1,4 +1,5 @@
 import './../../style.scss'
+import 'scenes/dashboard/DashboardItems.scss'
 import React from 'react'
 import ReactDOM from 'react-dom'
 import { Provider } from 'react-redux'
@@ -11,7 +12,9 @@ initKea()
 
 ReactDOM.render(
     <Provider store={getContext().store}>
-        <Dashboard id={267} public_token="blabla" />
+        <div style={{ background: 'var(--gray-background)' }}>
+            <Dashboard id={267} public_token="blabla" />
+        </div>
     </Provider>,
     document.getElementById('root')
 )

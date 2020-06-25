@@ -106,7 +106,7 @@ export function DashboardItem({
     })
 
     const filters = { ...item.filters, from_dashboard: item.id }
-    const logicProps = { dashboardItemId: item.id, filters: filters }
+    const logicProps = { dashboardItemId: item.id, filters: filters, cachedResults: item.result }
     const { loadResults } = useActions(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
     const { resultsLoading } = useValues(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
     const previousLoading = usePrevious(resultsLoading)
@@ -247,6 +247,7 @@ export function DashboardItem({
                         <div className="graph-container">
                             <Element
                                 dashboardItemId={item.id}
+                                cachedResults={item.result}
                                 filters={filters}
                                 color={color}
                                 theme={color === 'white' ? 'light' : 'dark'}

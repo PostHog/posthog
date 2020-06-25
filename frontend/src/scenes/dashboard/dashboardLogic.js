@@ -18,6 +18,7 @@ export const dashboardLogic = kea({
         renameDashboard: true,
         renameDashboardItem: id => ({ id }),
         renameDashboardItemSuccess: item => ({ item }),
+        setIsSharedDashboard: (id, is_shared) => ({ id, is_shared }),
         duplicateDashboardItem: (id, dashboardId, move = false) => ({ id, dashboardId, move }),
         duplicateDashboardItemSuccess: item => ({ item }),
         updateLayouts: layouts => ({ layouts }),
@@ -192,6 +193,10 @@ export const dashboardLogic = kea({
 
         [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
             router.actions.push(`/dashboard/${dashboard.id}`)
+        },
+
+        setIsSharedDashboard: ({ id, is_shared }) => {
+            dashboardsModel.actions.setIsSharedDashboard({ id, is_shared })
         },
 
         renameDashboard: async () => {

@@ -1,13 +1,15 @@
 from rest_framework import request, response, serializers, viewsets, authentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
-from posthog.models import Dashboard, DashboardItem
+from posthog.models import Dashboard, DashboardItem, Filter
 from typing import Dict, Any, List
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Prefetch
 from datetime import datetime
-from posthog.utils import render_template
+from posthog.utils import render_template, generate_cache_key
 from django.contrib.auth.models import AnonymousUser
 from django.http import HttpRequest
+from django.core.cache import cache
+import secrets
 
 
 class PublicTokenAuthentication(authentication.BaseAuthentication):
@@ -32,7 +34,16 @@ class DashboardSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dashboard
-        fields = ["id", "name", "pinned", "items", "created_at", "created_by"]
+        fields = [
+            "id",
+            "name",
+            "pinned",
+            "items",
+            "created_at",
+            "created_by",
+            "is_shared",
+            "share_token",
+        ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
@@ -54,10 +65,17 @@ class DashboardSerializer(serializers.ModelSerializer):
 
         return dashboard
 
+    def update(
+        self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any
+    ) -> Dashboard:
+        if validated_data.get("is_shared") and not instance.share_token:
+            instance.share_token = secrets.token_urlsafe(22)
+        return super().update(instance, validated_data)
+
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
             return None
-        items = dashboard.items.filter(deleted=False).order_by("order").all()
+        items = dashboard.items.all()
         return DashboardItemSerializer(items, many=True).data
 
 
@@ -76,6 +94,12 @@ class DashboardsViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset().order_by("name")
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "items",
+                queryset=DashboardItem.objects.filter(deleted=False).order_by("order"),
+            )
+        )
 
         if self.request.user.is_anonymous:
             if self.request.GET.get("share_token"):
@@ -89,6 +113,8 @@ class DashboardsViewSet(viewsets.ModelViewSet):
 
 
 class DashboardItemSerializer(serializers.ModelSerializer):
+    result = serializers.SerializerMethodField()  # type: ignore
+
     class Meta:
         model = DashboardItem
         fields = [
@@ -103,6 +129,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "color",
             "last_refresh",
             "refreshing",
+            "result",
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
@@ -115,6 +142,18 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
+
+    def get_result(self, dashboard_item: DashboardItem):
+        if not dashboard_item.filters:
+            return None
+        filter = Filter(data=dashboard_item.filters)
+        cache_key = generate_cache_key(
+            filter.toJSON() + "_" + str(dashboard_item.team_id)
+        )
+        result = cache.get(cache_key)
+        if not result:
+            return None
+        return result["result"]
 
 
 class DashboardItemsViewSet(viewsets.ModelViewSet):

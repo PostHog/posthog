@@ -15,3 +15,4 @@ class Dashboard(models.Model):
     share_token: models.CharField = models.CharField(
         max_length=400, null=True, blank=True
     )
+    is_shared: models.BooleanField = models.BooleanField(default=False)
