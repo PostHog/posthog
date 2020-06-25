@@ -2,9 +2,20 @@ from json import dumps as jdumps
 
 from freezegun import freeze_time
 from unittest.mock import patch, call
+from datetime import datetime
 
-from posthog.models import Action, ActionStep, Element, Event, Person, Team, Cohort
+from posthog.models import (
+    Action,
+    ActionStep,
+    Element,
+    Event,
+    Filter,
+    Person,
+    Team,
+    Cohort,
+)
 from .base import BaseTest, TransactionBaseTest
+from posthog.api.action import calculate_retention
 
 
 @patch("posthog.tasks.calculate_action.calculate_action.delay")
@@ -1212,7 +1223,7 @@ class TestTrends(TransactionBaseTest):
                     jdumps([{"id": action.pk, "type": "actions", "order": 0}]),
                 )
             ).json()
-        
+
         self.assertEqual(event_response[0]["count"], 3)
         self.assertEqual(event_response[0]["breakdown_value"], 'person2')
 
@@ -1241,3 +1252,64 @@ class TestTrends(TransactionBaseTest):
         ).json()
         self.assertEqual(len(people["results"][0]["people"]), 1)
         self.assertEqual(people["results"][0]["people"][0]["name"], 'person3')
+
+class TestRetention(TransactionBaseTest):
+    def test_retention(self):
+        person1 = Person.objects.create(
+            team=self.team, distinct_ids=["person1", "alias1"]
+        )
+        person2 = Person.objects.create(team=self.team, distinct_ids=["person2"])
+
+        self._create_pageviews(
+            [
+                ("person1", self._date(0)),
+                ("person1", self._date(1)),
+                ("person1", self._date(2)),
+                ("person1", self._date(5)),
+                ("alias1", self._date(5, 9)),
+                ("person1", self._date(6)),
+                ("person2", self._date(1)),
+                ("person2", self._date(2)),
+                ("person2", self._date(3)),
+                ("person2", self._date(6)),
+            ]
+        )
+
+        result = calculate_retention(
+            Filter(data={"date_from": self._date(0, hour=0)}), self.team, total_days=7
+        )
+
+        self.assertEqual(len(result["data"]), 7)
+        self.assertEqual(
+            self.pluck(result["data"], "label"),
+            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
+        )
+        self.assertEqual(result["data"][0]["date"], "Wed. 10 June")
+
+        self.assertEqual(
+            self.pluck(result["data"], "values"),
+            [
+                [1, 1, 1, 0, 0, 1, 1],
+                [2, 2, 1, 0, 1, 2],
+                [2, 1, 0, 1, 2],
+                [1, 0, 0, 1],
+                [0, 0, 0],
+                [1, 1],
+                [2],
+            ],
+        )
+
+    def _create_pageviews(self, user_and_timestamps):
+        for distinct_id, timestamp in user_and_timestamps:
+            Event.objects.create(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+            )
+
+    def _date(self, day, hour=5):
+        return datetime(2020, 6, 10 + day, hour).isoformat()
+
+    def pluck(self, list_of_dicts, key):
+        return [d[key] for d in list_of_dicts]

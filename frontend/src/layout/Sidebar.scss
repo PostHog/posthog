@@ -7,7 +7,7 @@
             top: 0;
             left: 0;
             width: 100vw;
-            height: 100vh;
+            min-height: 100vh;
             background: rgba(0, 0, 0, 0.3);
             z-index: 1031;
             opacity: 100;
@@ -29,7 +29,7 @@
 }
 
 aside.ant-layout-sider {
-    height: 100vh;
+    min-height: 100vh;
 
     .ant-layout-sider-children {
         overflow-y: auto;

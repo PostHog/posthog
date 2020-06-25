@@ -66,6 +66,13 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractUser):
+    DEFAULT = 'default'
+    TOOLBAR = 'toolbar'
+    TOOLBAR_CHOICES = [
+        (DEFAULT, DEFAULT),
+        (TOOLBAR, TOOLBAR),
+    ]
+
     username = None  # type: ignore
     email = models.EmailField(_("email address"), unique=True)
     temporary_token: models.CharField = models.CharField(
@@ -79,6 +86,9 @@ class User(AbstractUser):
     )
     anonymize_data: models.BooleanField = models.BooleanField(
         default=False, null=True, blank=True
+    )
+    toolbar_mode: models.CharField = models.CharField(
+        max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=DEFAULT
     )
 
     USERNAME_FIELD = "email"

@@ -3,6 +3,7 @@ import './ToolbarButton.scss'
 import React, { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { useLongPress } from 'lib/hooks/useLongPress'
+import { Tooltip } from 'antd'
 import { CloseOutlined, ProfileOutlined, SearchOutlined, FireFilled } from '@ant-design/icons'
 import { Logo } from '~/toolbar/assets/Logo'
 import { Circle } from '~/toolbar/button/Circle'
@@ -12,6 +13,7 @@ import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { getShadowRoot } from '~/toolbar/elements/utils'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { heatmapLabelStyle } from '~/toolbar/elements/HeatmapLabel'
 
 const quarters = { ne: 0, nw: 1, sw: 2, se: 3 }
 
@@ -19,10 +21,6 @@ function getQuarterRotation({ itemCount, index, quarter, padding: inputPadding }
     const padding = typeof inputPadding !== 'undefined' ? inputPadding : 90 / itemCount
     const angle = quarter * 90 + (itemCount === 1 ? 45 : padding / 2 + ((90 - padding) / (itemCount - 1)) * index)
     return -angle
-}
-
-function reverseQuarter(quarter) {
-    return (quarter[0] === 'n' ? 's' : 'n') + (quarter[1] === 'e' ? 'w' : 'e')
 }
 
 export function ToolbarButton() {
@@ -33,7 +31,7 @@ export function ToolbarButton() {
     const { inspectEnabled, selectedElement } = useValues(elementsLogic)
 
     const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
-    const { heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
+    const { heatmapEnabled, heatmapLoading, elementCount, clickCount } = useValues(heatmapLogic)
 
     const { dock, float, hideButton } = useActions(dockLogic)
 
@@ -135,7 +133,7 @@ export function ToolbarButton() {
             <Circle
                 width={32}
                 distance={closeDistance}
-                rotate={getQuarterRotation({ itemCount: 1, quarter: quarters[reverseQuarter(quarter)] })}
+                rotate={quarter === 'sw' || quarter === 'nw' ? -45 : -135}
                 content={<CloseOutlined />}
                 zIndex={5}
                 onClick={hideButton}
@@ -229,6 +227,73 @@ export function ToolbarButton() {
                                         padding,
                                         quarter: quarters[quarter],
                                     })}deg)`,
+                                }}
+                            />
+                        ) : heatmapEnabled ? (
+                            <Circle
+                                width={16}
+                                distance={30 * (0.1 + (0.8 * heatmapDistance) / 100)}
+                                rotate={
+                                    -getQuarterRotation({
+                                        itemCount,
+                                        index: index - 1,
+                                        padding,
+                                        quarter: quarters[quarter],
+                                    }) - (quarter === 'sw' || quarter === 'nw' ? 135 : 45)
+                                }
+                                content={
+                                    <Tooltip
+                                        getPopupContainer={getShadowRoot}
+                                        title={
+                                            elementCount === 0 ? (
+                                                'No clicks were recorded on this page in the last 7 days'
+                                            ) : (
+                                                <>
+                                                    <div style={{ marginBottom: 10 }}>
+                                                        {'Recorded '}
+                                                        <strong>
+                                                            {elementCount} element{elementCount === 1 ? '' : 's'}
+                                                        </strong>
+                                                        {' with '}
+                                                        <strong>
+                                                            {clickCount} click{clickCount === 1 ? '' : 's'}
+                                                        </strong>
+                                                        {' in the last  '}
+                                                        <u>7 days</u>.
+                                                    </div>
+                                                    <div>
+                                                        {'Look for elements with yellow labels: '}
+                                                        <span style={heatmapLabelStyle}>1</span>
+                                                        {', '}
+                                                        <span style={heatmapLabelStyle}>2</span>
+                                                        {', '}
+                                                        <span style={heatmapLabelStyle}>3</span>
+                                                        {' and so on.'}
+                                                    </div>
+                                                </>
+                                            )
+                                        }
+                                    >
+                                        <div style={{ whiteSpace: 'nowrap', minWidth: 16, textAlign: 'center' }}>
+                                            {elementCount}
+                                        </div>
+                                    </Tooltip>
+                                }
+                                zIndex={4}
+                                style={{
+                                    cursor: 'pointer',
+                                    background: 'hsla(14, 92%, 23%, 1)',
+                                    color: 'white',
+                                    fontSize: '12px',
+                                    transition: 'transform 0.2s',
+                                    transform: `rotate(${-getQuarterRotation({
+                                        itemCount,
+                                        index: index - 1,
+                                        padding,
+                                        quarter: quarters[quarter],
+                                    })}deg)`,
+                                    width: 'auto',
+                                    minWidth: 16,
                                 }}
                             />
                         ) : null}

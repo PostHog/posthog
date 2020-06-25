@@ -1,16 +1,17 @@
 import React from 'react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ActionStep } from '~/toolbar/elements/ActionStep'
-import { CalendarOutlined, AimOutlined } from '@ant-design/icons'
+import { CalendarOutlined, PlusOutlined } from '@ant-design/icons'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { Button, Statistic, Row, Col, Divider } from 'antd'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 
 export function ElementInfo() {
-    const { eventCount } = useValues(heatmapLogic)
-    const { hoverElement, hoverElementMeta, selectedElement, selectedElementMeta, hoverElementHighlight } = useValues(
-        elementsLogic
-    )
+    const { clickCount } = useValues(heatmapLogic)
+
+    const { hoverElementMeta, selectedElementMeta, hoverElementHighlight } = useValues(elementsLogic)
+    const { createAction } = useActions(elementsLogic)
 
     const activeMeta = hoverElementMeta || selectedElementMeta
 
@@ -18,50 +19,50 @@ export function ElementInfo() {
         return null
     }
 
-    const pointerEvents = selectedElementMeta && (!hoverElement || hoverElement === selectedElement)
-    const { position, count, actionStep } = activeMeta
+    const { element, position, count, actionStep } = activeMeta
 
     return (
         <>
+            <h1 className="section-title">Selected Element</h1>
+            <ActionStep actionStep={actionStep} />
+
+            <Divider />
+
             {position ? (
                 <>
+                    <h1 className="section-title">Stats</h1>
                     <p>
                         <CalendarOutlined /> <u>Last 7 days</u>
                     </p>
                     <Row gutter={16}>
-                        <Col span={8}>
-                            <Statistic title="Ranking" prefix="#" value={position || 0} />
-                        </Col>
                         <Col span={16}>
                             <Statistic
                                 title="Clicks"
                                 value={count || 0}
-                                suffix={`/ ${eventCount} (${
-                                    eventCount === 0 ? '-' : Math.round(((count || 0) / eventCount) * 10000) / 100
+                                suffix={`/ ${clickCount} (${
+                                    clickCount === 0 ? '-' : Math.round(((count || 0) / clickCount) * 10000) / 100
                                 }%)`}
                             />
+                        </Col>
+                        <Col span={8}>
+                            <Statistic title="Ranking" prefix="#" value={position || 0} />
                         </Col>
                     </Row>
                     <Divider />
                 </>
             ) : null}
 
-            <ActionStep actionStep={actionStep} />
+            <h1 className="section-title">Actions ({activeMeta.actions.length})</h1>
 
-            <Divider />
+            {activeMeta.actions.length === 0 ? (
+                <p>No actions include this element</p>
+            ) : (
+                <ActionsListView actions={activeMeta.actions.map(a => a.action)} />
+            )}
 
-            <p>
-                <AimOutlined /> Actions
-            </p>
-            <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #eee' }}>
-                {pointerEvents ? (
-                    <div>
-                        <Button>Add Action</Button>
-                    </div>
-                ) : (
-                    <div>Click on the element to add an action</div>
-                )}
-            </div>
+            <Button size="small" onClick={() => createAction(element)}>
+                <PlusOutlined /> Create a new action
+            </Button>
         </>
     )
 }

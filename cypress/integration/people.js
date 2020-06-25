@@ -18,4 +18,10 @@ describe('People', () => {
 
         cy.get('h1').should('contain', 'Users')
     })
+
+    it('Retention route works', () => {
+        cy.get('[data-attr=menu-item-retention]').click()
+
+        cy.get('h1').should('contain', 'Retention')
+    })
 })

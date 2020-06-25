@@ -19,6 +19,7 @@ import {
     FundOutlined,
     ExperimentOutlined,
     ClockCircleOutlined,
+    RetweetOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -57,6 +58,7 @@ const submenuOverride = {
     liveActions: 'events',
     sessions: 'events',
     cohorts: 'people',
+    retention: 'people',
 }
 
 export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
@@ -192,6 +194,11 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <UsergroupAddOutlined />
                             <span className="sidebar-label">{'Cohorts'}</span>
                             <Link to={'/people/cohorts'} onClick={collapseSidebar} />
+                        </Menu.Item>
+                        <Menu.Item key="retention" style={itemStyle} data-attr="menu-item-retention">
+                            <RetweetOutlined />
+                            <span className="sidebar-label">{'Retention'}</span>
+                            <Link to={'/people/retention'} onClick={collapseSidebar} />
                         </Menu.Item>
                     </Menu.SubMenu>
                     <Menu.Item key="funnels" style={itemStyle} data-attr="menu-item-funnels">
