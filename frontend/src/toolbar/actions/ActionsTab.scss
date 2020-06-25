@@ -1,0 +1,33 @@
+.action-section {
+    margin: 0px -20px;
+    padding: 20px 20px;
+    &.highlight {
+        background: hsla(228, 14%, 96%, 1);
+        &:nth-child(even) {
+            background: white;
+            &:last-child {
+                padding-bottom: 10px;
+            }
+        }
+    }
+}
+.action-title-field {
+    margin-bottom: 10px;
+}
+.action-inspect {
+    margin: 20px 0;
+}
+.action-field {
+    margin: 5px -20px;
+    padding: 2px 20px 8px 20px;
+
+    .ant-form-item {
+        margin-bottom: 0;
+    }
+}
+
+.actions-list {
+    .ant-list-item {
+        padding: 6px 0;
+    }
+}
