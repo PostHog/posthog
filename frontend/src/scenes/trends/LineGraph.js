@@ -10,6 +10,9 @@ import { getChartColors } from 'lib/colors'
 Chart.defaults.global.legend.display = false
 //--Chart Style Options--//
 
+const Annotation = require('chartjs-plugin-annotation')
+Chart.plugins.register(Annotation)
+
 export class LineGraph extends Component {
     chartRef = React.createRef()
 
@@ -147,6 +150,24 @@ export class LineGraph extends Component {
                                       else e.target.style.cursor = 'default'
                                   }
                               },
+                          },
+                          annotation: {
+                              annotations: [
+                                  {
+                                      drawTime: 'afterDatasetsDraw',
+                                      type: 'line',
+                                      mode: 'vertical',
+                                      scaleID: 'x-axis-0',
+                                      value: 1,
+                                      borderWidth: 5,
+                                      borderColor: 'red',
+                                      label: {
+                                          content: 'TODAY',
+                                          enabled: true,
+                                          position: 'top',
+                                      },
+                                  },
+                              ],
                           },
                           scales: {
                               xAxes: [
