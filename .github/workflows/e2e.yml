@@ -102,7 +102,6 @@ jobs:
             - name: Cypress run
               uses: cypress-io/github-action@v1
               with:
-                  browser: chrome
                   config-file: cypress.json
                   record: true
                   parallel: true
