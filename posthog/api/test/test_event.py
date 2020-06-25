@@ -172,6 +172,24 @@ class TestEvents(TransactionBaseTest):
         self.assertEqual(len(response['results']), 1)
         self.assertEqual(response['results'][0]['id'], event2.pk)
 
+    def test_sessions_list(self):
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            Event.objects.create(team=self.team, event='1st action', distinct_id="1")
+            Event.objects.create(team=self.team, event='1st action', distinct_id="2")
+        with freeze_time("2012-01-14T03:25:34.000Z"):
+            Event.objects.create(team=self.team, event='2nd action', distinct_id="1")
+            Event.objects.create(team=self.team, event='2nd action', distinct_id="2")
+        with freeze_time("2012-01-15T03:59:34.000Z"):
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="1")
+            Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            Event.objects.create(team=self.team, event='4th action', distinct_id="1")
+            Event.objects.create(team=self.team, event='4th action', distinct_id="2")
+
+        response = self.client.get('/api/event/sessions/').json()
+        self.assertEqual(len(response['result']), 2)
+        self.assertEqual(response['result'][0]['global_session_id'], 1)
+
     def test_sessions_avg_length(self):
         with freeze_time("2012-01-14T03:21:34.000Z"):
             Event.objects.create(team=self.team, event='1st action', distinct_id="1")
@@ -187,15 +205,15 @@ class TestEvents(TransactionBaseTest):
             Event.objects.create(team=self.team, event='4th action', distinct_id="2")
 
         response = self.client.get('/api/event/sessions/?session=avg&date_from=all').json()
-        self.assertEqual(response[0]['count'], 3) # average length of all sessions
+        self.assertEqual(response['result'][0]['count'], 3) # average length of all sessions
 
         # time series 
-        self.assertEqual(response[0]['data'][0], 240)
-        self.assertEqual(response[0]['data'][1], 120)
-        self.assertEqual(response[0]['labels'][0], 'Sat. 14 January')
-        self.assertEqual(response[0]['labels'][1], 'Sun. 15 January')
-        self.assertEqual(response[0]['days'][0], '2012-01-14')
-        self.assertEqual(response[0]['days'][1], '2012-01-15')
+        self.assertEqual(response['result'][0]['data'][0], 240)
+        self.assertEqual(response['result'][0]['data'][1], 120)
+        self.assertEqual(response['result'][0]['labels'][0], 'Sat. 14 January')
+        self.assertEqual(response['result'][0]['labels'][1], 'Sun. 15 January')
+        self.assertEqual(response['result'][0]['days'][0], '2012-01-14')
+        self.assertEqual(response['result'][0]['days'][1], '2012-01-15')
 
     def test_sessions_count_buckets(self):
 
@@ -254,16 +272,15 @@ class TestEvents(TransactionBaseTest):
         with freeze_time("2012-01-21T06:00:30.000Z"):
             Event.objects.create(team=self.team, event='3rd action', distinct_id="2")
 
-        response = self.client.get('/api/event/sessions/?session=distribution&date_from=all').json()
-        compared_response = self.client.get('/api/event/sessions/?session=distribution&date_from=all&compare=true').json()
-
-        for index, item in enumerate(response):
+        response = self.client.get('/api/event/sessions/?session=dist&date_from=all').json()
+        compared_response = self.client.get('/api/event/sessions/?session=dist&date_from=all&compare=true').json()
+        for index, item in enumerate(response['result']):
             if item['label'] == '30-60 minutes' or item['label'] == '3-10 seconds':
                 self.assertEqual(item['count'], 2)
-                self.assertEqual(compared_response[index]['count'], 2)
+                self.assertEqual(compared_response['result'][index]['count'], 2)
             else:
                 self.assertEqual(item['count'], 1)
-                self.assertEqual(compared_response[index]['count'], 1)
+                self.assertEqual(compared_response['result'][index]['count'], 1)
 
     def test_pagination(self):
         events = []
@@ -271,7 +288,7 @@ class TestEvents(TransactionBaseTest):
             events.append(Event(team=self.team, event='some event', distinct_id='1'))
         Event.objects.bulk_create(events)
         response = self.client.get('/api/event/?distinct_id=1').json()
-        self.assertIn('distinct_id=1', response['next'])
+        self.assertIn('http://testserver/api/event/?distinct_id=1&before=', response['next'])
 
         page2 = self.client.get(response['next']).json()
         self.assertEqual(len(page2['results']), 50)

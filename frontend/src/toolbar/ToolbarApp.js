@@ -3,10 +3,14 @@ import { dockLogic } from '~/toolbar/dockLogic'
 import { useSecondRender } from 'lib/hooks/useSecondRender'
 import root from 'react-shadow'
 import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
+import { useMountedLogic } from 'kea'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 export function ToolbarApp(props) {
+    useMountedLogic(toolbarLogic(props))
+
     const shadowRef = useRef(null)
-    const logic = dockLogic({ shadowRef })
+    useMountedLogic(dockLogic({ shadowRef }))
 
     // this runs after the shadow root has been added to the dom
     const didRender = useSecondRender(() => {
@@ -25,7 +29,7 @@ export function ToolbarApp(props) {
         <>
             <root.div id="__POSTHOG_TOOLBAR__" ref={shadowRef}>
                 <div id="posthog-toolbar-styles" />
-                {didRender ? <ToolbarContainer {...props} dockLogic={logic} shadowRef={shadowRef} /> : null}
+                {didRender ? <ToolbarContainer {...props} shadowRef={shadowRef} /> : null}
             </root.div>
         </>
     )

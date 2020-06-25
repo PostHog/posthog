@@ -1,6 +1,7 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { Divider } from 'antd'
+import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { InviteTeam } from 'lib/components/InviteTeam'
 import { OptOutCapture } from './OptOutCapture'
@@ -14,6 +15,7 @@ import { ChangePassword } from './ChangePassword'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { hot } from 'react-hot-loader/root'
+import { ToolbarSettings } from 'scenes/setup/ToolbarSettings'
 
 export const Setup = hot(_Setup)
 function _Setup() {
@@ -65,8 +67,16 @@ function _Setup() {
             <h2 id="optout">Anonymize data collection</h2>
             <OptOutCapture />
             <Divider />
+            <h2 id="datacapture">Data capture configuration</h2>
+            <IPCapture />
+            <Divider />
             <h2>Security and feature updates</h2>
             <UpdateEmailPreferences />
+            <Divider />
+            <h2>
+                PostHog Toolbar (<span style={{ color: 'red' }}>BETA</span>)
+            </h2>
+            <ToolbarSettings />
         </div>
     )
 }

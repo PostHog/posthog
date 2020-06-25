@@ -76,7 +76,7 @@ function _Action({ id }) {
 
     return (
         <div>
-            <h1>{id ? 'Edit action' : 'New action'}</h1>
+            <h1>{id ? 'Edit action' : 'New Action'}</h1>
             <ActionEdit
                 apiURL=""
                 actionId={id}

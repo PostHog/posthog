@@ -15,59 +15,88 @@ import json
 import os
 import posthoganalytics
 
+
 def user(request):
     if not request.user.is_authenticated:
-        return HttpResponse('Unauthorized', status=401)
+        return HttpResponse("Unauthorized", status=401)
 
     team = request.user.team_set.get()
 
-    if request.method == 'PATCH':
+    if request.method == "PATCH":
         data = json.loads(request.body)
 
-        if 'team' in data:
-            team.app_urls = data['team'].get('app_urls', team.app_urls)
-            team.opt_out_capture = data['team'].get('opt_out_capture', team.opt_out_capture)
-            team.slack_incoming_webhook = data['team'].get('slack_incoming_webhook', team.slack_incoming_webhook)
+        if "team" in data:
+            team.app_urls = data["team"].get("app_urls", team.app_urls)
+            team.opt_out_capture = data["team"].get(
+                "opt_out_capture", team.opt_out_capture
+            )
+            team.slack_incoming_webhook = data["team"].get(
+                "slack_incoming_webhook", team.slack_incoming_webhook
+            )
+            team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
+            team.completed_snippet_onboarding = data["team"].get(
+                "completed_snippet_onboarding", team.completed_snippet_onboarding
+            )
             team.save()
 
-        if 'user' in data:
-            request.user.email_opt_in = data['user'].get('email_opt_in', request.user.email_opt_in)
-            request.user.anonymize_data = data['user'].get('anonymize_data', request.user.anonymize_data)
-            posthoganalytics.identify(request.user.distinct_id, {
-                'email_opt_in': request.user.email_opt_in,
-                'anonymize_data': request.user.anonymize_data,
-                'email': request.user.email if not request.user.anonymize_data else None,
-                'is_signed_up': True
-            })
+        if "user" in data:
+            request.user.email_opt_in = data["user"].get(
+                "email_opt_in", request.user.email_opt_in
+            )
+            request.user.anonymize_data = data["user"].get(
+                "anonymize_data", request.user.anonymize_data
+            )
+            request.user.toolbar_mode = data["user"].get(
+                "toolbar_mode", request.user.toolbar_mode
+            )
+            posthoganalytics.identify(
+                request.user.distinct_id,
+                {
+                    "email_opt_in": request.user.email_opt_in,
+                    "anonymize_data": request.user.anonymize_data,
+                    "email": request.user.email
+                    if not request.user.anonymize_data
+                    else None,
+                    "is_signed_up": True,
+                },
+            )
             request.user.save()
 
-    return JsonResponse({
-        'id': request.user.pk,
-        'distinct_id': request.user.distinct_id,
-        'name': request.user.first_name,
-        'email': request.user.email,
-        'has_events': Event.objects.filter(team=team).exists(),
-        'email_opt_in': request.user.email_opt_in,
-        'anonymize_data': request.user.anonymize_data,
-        'team': {
-            'app_urls': team.app_urls,
-            'api_token': team.api_token,
-            'signup_token': team.signup_token,
-            'opt_out_capture': team.opt_out_capture,
-            'slack_incoming_webhook': team.slack_incoming_webhook,
-            'event_names': team.event_names,
-            'event_properties': team.event_properties
-        },
-        'opt_out_capture': os.environ.get('OPT_OUT_CAPTURE'),
-        'posthog_version': settings.VERSION if hasattr(settings, 'VERSION') else None
-    })
+    return JsonResponse(
+        {
+            "id": request.user.pk,
+            "distinct_id": request.user.distinct_id,
+            "name": request.user.first_name,
+            "email": request.user.email,
+            "has_events": Event.objects.filter(team=team).exists(),
+            "email_opt_in": request.user.email_opt_in,
+            "anonymize_data": request.user.anonymize_data,
+            "toolbar_mode": request.user.toolbar_mode,
+            "team": {
+                "app_urls": team.app_urls,
+                "api_token": team.api_token,
+                "signup_token": team.signup_token,
+                "opt_out_capture": team.opt_out_capture,
+                "anonymize_ips": team.anonymize_ips,
+                "slack_incoming_webhook": team.slack_incoming_webhook,
+                "event_names": team.event_names,
+                "event_properties": team.event_properties,
+                "completed_snippet_onboarding": team.completed_snippet_onboarding,
+            },
+            "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
+            "posthog_version": settings.VERSION
+            if hasattr(settings, "VERSION")
+            else None,
+        }
+    )
+
 
 def redirect_to_site(request):
     if not request.user.is_authenticated:
-        return HttpResponse('Unauthorized', status=401)
+        return HttpResponse("Unauthorized", status=401)
 
     team = request.user.team_set.get()
-    app_url = request.GET.get('appUrl') or (team.app_urls and team.app_urls[0])
+    app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
 
     if not app_url:
         return HttpResponse(status=404)
@@ -75,24 +104,24 @@ def redirect_to_site(request):
     request.user.temporary_token = secrets.token_urlsafe(32)
     request.user.save()
     params = {
-        'action': 'mpeditor',
-        'token': team.api_token,
-        'temporaryToken': request.user.temporary_token,
-        'actionId': request.GET.get('actionId'),
-        'defaultTab': 'actions',
-        'apiURL': request.build_absolute_uri('/'),
+        "action": "mpeditor",
+        "token": team.api_token,
+        "temporaryToken": request.user.temporary_token,
+        "actionId": request.GET.get("actionId"),
+        "apiURL": request.build_absolute_uri("/"),
+        "userIntent": request.GET.get("userIntent"),
     }
     if settings.DEBUG:
-        params['jsURL'] = 'http://localhost:8234/'
-        if hasattr(settings, 'TOOLBAR_VERSION'):
-            params['toolbarVersion'] = settings.TOOLBAR_VERSION
+        params["jsURL"] = "http://localhost:8234/"
+    if request.user.toolbar_mode == "toolbar":
+        params["toolbarVersion"] = "toolbar"
 
     state = urllib.parse.quote(json.dumps(params))
 
     return redirect("{}#state={}".format(app_url, state))
 
 
-@require_http_methods(['PATCH'])
+@require_http_methods(["PATCH"])
 def change_password(request):
     """Change the password of a regular User."""
     if not request.user.is_authenticated:
@@ -101,21 +130,21 @@ def change_password(request):
     try:
         body = json.loads(request.body)
     except (TypeError, json.decoder.JSONDecodeError):
-        return JsonResponse({'error': 'Cannot parse request body'}, status=400)
+        return JsonResponse({"error": "Cannot parse request body"}, status=400)
 
-    old_password = body.get('oldPassword')
-    new_password = body.get('newPassword')
+    old_password = body.get("oldPassword")
+    new_password = body.get("newPassword")
 
     if not old_password or not new_password:
-        return JsonResponse({'error': 'Missing payload'}, status=400)
+        return JsonResponse({"error": "Missing payload"}, status=400)
 
     if not request.user.check_password(old_password):
-        return JsonResponse({'error': 'Incorrect old password'}, status=400)
+        return JsonResponse({"error": "Incorrect old password"}, status=400)
 
     try:
         validate_password(new_password, request.user)
     except ValidationError as err:
-        return JsonResponse({'error': err.messages[0]}, status=400)
+        return JsonResponse({"error": err.messages[0]}, status=400)
 
     request.user.set_password(new_password)
     request.user.save()
@@ -124,7 +153,7 @@ def change_password(request):
     return JsonResponse({})
 
 
-@require_http_methods(['POST'])
+@require_http_methods(["POST"])
 def test_slack_webhook(request):
     """Change the password of a regular User."""
     if not request.user.is_authenticated:
@@ -133,27 +162,25 @@ def test_slack_webhook(request):
     try:
         body = json.loads(request.body)
     except (TypeError, json.decoder.JSONDecodeError):
-        return JsonResponse({'error': 'Cannot parse request body'}, status=400)
+        return JsonResponse({"error": "Cannot parse request body"}, status=400)
 
-    webhook = body.get('webhook')
+    webhook = body.get("webhook")
 
     if not webhook:
-        return JsonResponse({'error': 'no webhook'})
-    message = {
-        "text": "Greetings from PostHog!"
-    }
+        return JsonResponse({"error": "no webhook"})
+    message = {"text": "Greetings from PostHog!"}
     try:
         response = requests.post(webhook, verify=False, json=message)
 
         if response.ok:
-            return JsonResponse({'success': True})
+            return JsonResponse({"success": True})
         else:
-            return JsonResponse({'error': response.text})
+            return JsonResponse({"error": response.text})
     except:
-        return JsonResponse({'error': 'invalid webhook url'})
+        return JsonResponse({"error": "invalid webhook url"})
+
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'first_name', 'email']
-
+        fields = ["id", "first_name", "email"]

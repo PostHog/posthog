@@ -17,8 +17,13 @@ class TestFilterByActions(BaseTest):
         event2 = Event.objects.create(event='$autocapture', team=self.team, distinct_id='whatever', elements=[
             Element(tag_name='a', nth_child=2, nth_of_type=0, order=0, attr_id='someId'),
             Element(tag_name='div', nth_child=0, nth_of_type=0, order=1),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=2),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=3),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=4),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=5),
+            Element(tag_name='div', nth_child=0, nth_of_type=0, order=6),
             # make sure elements don't get double counted if they're part of the same event
-            Element(href='/a-url-2', nth_child=0, nth_of_type=0, order=2)
+            Element(href='/a-url-2', nth_child=0, nth_of_type=0, order=7)
         ])
 
         # make sure other teams' data doesn't get mixed in
@@ -30,7 +35,7 @@ class TestFilterByActions(BaseTest):
 
         # test direct decendant ordering
         action1 = Action.objects.create(team=self.team, name='action1')
-        ActionStep.objects.create(event='$autocapture', action=action1, selector='div > a')
+        ActionStep.objects.create(event='$autocapture', action=action1, selector='div > div > a')
         ActionStep.objects.create(event='$autocapture', action=action1, selector='div > a.somethingthatdoesntexist')
         action1.calculate_events()
 
@@ -354,30 +359,35 @@ class TestSelectors(BaseTest):
 
     def test_selector_child(self):
         selector1 = Selector("div span")
-        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
-        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div'}, 'direct_descendant': False})
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False, 'unique_order': 0})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div'}, 'direct_descendant': False, 'unique_order': 0})
 
     def test_selector_child_direct_descendant(self):
         selector1 = Selector("div > span")
-        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
-        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div'}, 'direct_descendant': True})
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False, 'unique_order': 0})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div'}, 'direct_descendant': True, 'unique_order': 0})
 
     def test_selector_attribute(self):
         selector1 = Selector('div[data-id="5"] > span')
-        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
-        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div', 'attributes__data-id': '5'}, 'direct_descendant': True})
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False, 'unique_order': 0})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div', 'attributes__data-id': '5'}, 'direct_descendant': True, 'unique_order': 0})
 
     def test_selector_id(self):
         selector1 = Selector('[id="5"] > span')
-        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
-        self.assertEqual(selector1.parts[1].__dict__, {'data': {'attr_id': '5'}, 'direct_descendant': True})
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False, 'unique_order': 0})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'attr_id': '5'}, 'direct_descendant': True, 'unique_order': 0})
 
     def test_class(self):
         selector1 = Selector('div.classone.classtwo > span')
-        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False})
-        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div', 'attr_class__contains': ['classone', 'classtwo']}, 'direct_descendant': True})
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span'}, 'direct_descendant': False, 'unique_order': 0})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div', 'attr_class__contains': ['classone', 'classtwo']}, 'direct_descendant': True, 'unique_order': 0})
 
     def test_nth_child(self):
         selector1 = Selector('div > span:nth-child(3)')
-        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span', 'nth_child': '3'}, 'direct_descendant': False})
-        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div'}, 'direct_descendant': True})
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'span', 'nth_child': '3'}, 'direct_descendant': False, 'unique_order': 0})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div'}, 'direct_descendant': True, 'unique_order': 0})
+
+    def test_unique_order(self):
+        selector1 = Selector('div > div')
+        self.assertEqual(selector1.parts[0].__dict__, {'data': {'tag_name': 'div'}, 'direct_descendant': False, 'unique_order': 0})
+        self.assertEqual(selector1.parts[1].__dict__, {'data': {'tag_name': 'div'}, 'direct_descendant': True, 'unique_order': 1})

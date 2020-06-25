@@ -10,9 +10,12 @@ export function SessionFilter(props) {
             value={value}
             dropdownMatchSelectWidth={false}
             onChange={onChange}
+            data-attr="sessions-filter"
         >
             <Select.Option value="avg">Average Session Length</Select.Option>
-            <Select.Option value="dist">Distribution of Session Lengths</Select.Option>
+            <Select.Option value="dist" data-attr="sessions-filter-distribution">
+                Distribution of Session Lengths
+            </Select.Option>
         </Select>
     )
 }

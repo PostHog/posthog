@@ -1,7 +1,8 @@
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import request, response, serializers, viewsets, authentication
 from rest_framework.decorators import action
 from posthog.models import Element, Team, Event, ElementGroup, Filter
-from django.db.models import QuerySet, Count
+from posthog.utils import TemporaryTokenAuthentication
+from django.db.models import QuerySet, Count, Prefetch
 import json
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -9,10 +10,10 @@ class ElementSerializer(serializers.ModelSerializer):
         model = Element
         fields = ['text', 'tag_name', 'attr_class', 'href', 'attr_id', 'nth_child', 'nth_of_type', 'attributes', 'order']
 
-
 class ElementViewSet(viewsets.ModelViewSet):
     queryset = Element.objects.all()
     serializer_class = ElementSerializer
+    authentication_classes = [TemporaryTokenAuthentication, authentication.SessionAuthentication, authentication.BasicAuthentication]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -37,7 +38,7 @@ class ElementViewSet(viewsets.ModelViewSet):
 
         groups = ElementGroup.objects\
             .filter(team=team, hash__in=[item['elements_hash'] for item in events])\
-            .prefetch_related('element_set')
+            .prefetch_related(Prefetch('element_set', queryset=Element.objects.order_by('order', 'id')))
 
         return response.Response([{
             'count': item['count'],

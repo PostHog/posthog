@@ -4,11 +4,13 @@
 #
 #    pip-compile requirements/dev.in
 #
+appdirs==1.4.4            # via black
 appnope==0.1.0            # via ipython
 asgiref==3.2.7            # via django
-attrs==19.3.0             # via flake8-bugbear
+attrs==19.3.0             # via black, flake8-bugbear
 backcall==0.1.0           # via ipython
-click==7.1.1              # via pip-tools
+black==19.10b0            # via -r requirements/dev.in
+click==7.1.1              # via black, pip-tools
 decorator==4.4.2          # via ipython, traitlets
 django-debug-toolbar==2.2  # via -r requirements/dev.in
 django-stubs==1.5.0       # via -r requirements/dev.in, djangorestframework-stubs
@@ -34,6 +36,7 @@ mypy-extensions==0.4.3    # via -r requirements/dev.in, mypy
 mypy==0.770               # via -r requirements/dev.in, django-stubs, djangorestframework-stubs
 packaging==20.4           # via -r requirements/dev.in
 parso==0.7.0              # via jedi
+pathspec==0.8.0           # via black
 pexpect==4.8.0            # via ipython
 pickleshare==0.7.5        # via ipython
 pip-tools==5.0.0          # via -r requirements/dev.in
@@ -45,11 +48,13 @@ pygments==2.6.1           # via ipython
 pyparsing==2.4.7          # via packaging
 python-dateutil==2.8.1    # via freezegun
 pytz==2020.1              # via django
+regex==2020.6.8           # via black
 six==1.14.0               # via flake8-print, freezegun, packaging, pip-tools, python-dateutil, traitlets
 sqlparse==0.3.1           # via django, django-debug-toolbar
 tblib==1.6.0              # via -r requirements/dev.in
+toml==0.10.1              # via black
 traitlets==4.3.3          # via ipython
-typed-ast==1.4.1          # via mypy
+typed-ast==1.4.1          # via black, mypy
 typing-extensions==3.7.4.2  # via django-stubs, djangorestframework-stubs, mypy
 wcwidth==0.1.9            # via prompt-toolkit
 zipp==3.1.0               # via importlib-metadata

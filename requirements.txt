@@ -19,6 +19,7 @@ Django==3.0.7
 django-cors-headers==3.2.1
 django-extensions==2.2.9
 django-loginas==0.3.8
+django-redis==4.12.1
 djangorestframework==3.11.0
 djangorestframework-csv==2.1.0
 gunicorn==20.0.4

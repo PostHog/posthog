@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Tooltip, Select, Tabs, Popover, Button } from 'antd'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
+import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { cohortsModel } from '../../models/cohortsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
@@ -9,6 +10,7 @@ const { TabPane } = Tabs
 
 function PropertyFilter({ breakdown, onChange }) {
     const { eventProperties } = useValues(userLogic)
+    const { personProperties } = useValues(propertyFilterLogic({ pageKey: 'breakdown' }))
     return (
         <Select
             showSearch
@@ -16,17 +18,38 @@ function PropertyFilter({ breakdown, onChange }) {
             style={{ width: '100%' }}
             placeholder={'Break down by'}
             value={breakdown ? breakdown : undefined}
-            onChange={(_, { value }) => onChange(value)}
+            onChange={(_, item) => onChange(item.value.replace(/event_|person_/gi, ''), item.type)}
             filterOption={(input, option) => option.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
             data-attr="prop-breakdown-select"
         >
-            {Object.entries(eventProperties).map(([key, item], index) => {
-                return (
-                    <Select.Option key={key} value={item.value} data-attr={'prop-breakdown-' + index}>
-                        <PropertyKeyInfo value={item.value} />
-                    </Select.Option>
-                )
-            })}
+            {eventProperties.length > 0 && (
+                <Select.OptGroup key="Event properties" label="Event properties">
+                    {Object.entries(eventProperties).map(([key, item], index) => (
+                        <Select.Option
+                            key={'event_' + key}
+                            value={'event_' + item.value}
+                            type="event"
+                            data-attr={'prop-breakdown-' + index}
+                        >
+                            <PropertyKeyInfo value={item.value} />
+                        </Select.Option>
+                    ))}
+                </Select.OptGroup>
+            )}
+            {personProperties && (
+                <Select.OptGroup key="User properties" label="User properties">
+                    {Object.entries(personProperties).map(([key, item], index) => (
+                        <Select.Option
+                            key={'person_' + key}
+                            value={'person_' + item.value}
+                            type="person"
+                            data-attr={'prop-filter-person-' + (eventProperties.length + index)}
+                        >
+                            <PropertyKeyInfo value={item.value} />
+                        </Select.Option>
+                    ))}
+                </Select.OptGroup>
+            )}
         </Select>
     )
 }

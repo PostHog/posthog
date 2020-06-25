@@ -9,8 +9,10 @@ export const scenes = {
     dashboards: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboards'),
     dashboard: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
     events: () => import(/* webpackChunkName: 'events' */ './events/Events'),
+    sessions: () => import(/* webpackChunkName: 'events' */ './sessions/Sessions'),
     person: () => import(/* webpackChunkName: 'person' */ './users/Person'),
     people: () => import(/* webpackChunkName: 'people' */ './users/People'),
+    retention: () => import(/* webpackChunkName: 'retention' */ './retention/Retention'),
     actions: () => import(/* webpackChunkName: 'actions' */ './actions/Actions'),
     action: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     liveActions: () => import(/* webpackChunkName: 'liveActions' */ './actions/LiveActions'),
@@ -21,6 +23,7 @@ export const scenes = {
     trends: () => import(/* webpackChunkName: 'trends' */ './trends/Trends'),
     paths: () => import(/* webpackChunkName: 'paths' */ './paths/Paths'),
     cohorts: () => import(/* webpackChunkName: 'cohorts' */ './users/Cohorts'),
+    featureFlags: () => import(/* webpackChunkName: 'featureFlags' */ './experiments/FeatureFlags'),
 }
 
 export const redirects = {
@@ -45,7 +48,10 @@ export const routes = {
     '/person/*': 'person',
     '/people': 'people',
     '/people/new_cohort': 'people',
+    '/people/retention': 'retention',
     '/people/cohorts': 'cohorts',
+    '/experiments/feature_flags': 'featureFlags',
+    '/sessions': 'sessions',
 }
 
 export const sceneLogic = kea({

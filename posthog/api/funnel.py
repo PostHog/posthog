@@ -1,9 +1,11 @@
-from posthog.models import Funnel
+from posthog.models import Funnel, DashboardItem
 from rest_framework import request, serializers, viewsets
+from rest_framework.response import Response
 from django.db.models import QuerySet
 from typing import List, Dict, Any
 import json
-
+from posthog.decorators import cached_function, FUNNEL_ENDPOINT
+import datetime
 
 class FunnelSerializer(serializers.HyperlinkedModelSerializer):
     steps = serializers.SerializerMethodField()
@@ -20,7 +22,7 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
             return []
         funnel.steps_cache = True # type: ignore
 
-        if self.context['view'].action != 'retrieve' or self.context['request'].GET.get('exclude_count'):
+        if self.context.get('cache', None) is None and (self.context['view'].action != 'retrieve' or self.context['request'].GET.get('exclude_count')):
             return []
         return funnel.get_steps()
 
@@ -39,3 +41,18 @@ class FunnelViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(deleted=False)
         return queryset\
             .filter(team=self.request.user.team_set.get())
+    
+
+    def retrieve(self, request, pk=None):
+        data = self._retrieve(request, pk)
+        return Response(data)
+
+    @cached_function(cache_type=FUNNEL_ENDPOINT)
+    def _retrieve(self, request, pk=None) -> dict:
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        dashboard_id = request.GET.get('from_dashboard', None)
+        if dashboard_id:
+            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.datetime.now())
+        return serializer.data
+

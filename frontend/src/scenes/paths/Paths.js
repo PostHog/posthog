@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react'
 import api from 'lib/api'
-import { Card, Loading } from 'lib/utils'
+import { Card, Loading, stripHTTP } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter'
 import { Row, Modal, Button, Spin, Select } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
@@ -18,12 +18,6 @@ import {
     pathOptionsToProperty,
 } from 'scenes/paths/pathsLogic'
 import { userLogic } from 'scenes/userLogic'
-
-let stripHTTP = url => {
-    url = url.replace(/(^[0-9]+_)/, '')
-    url = url.replace(/(^\w+:|^)\/\//, '')
-    return url
-}
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval

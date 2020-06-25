@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from posthog.models import Event, Person, Element, Action, ElementGroup, Filter, PersonDistinctId, Team
 from posthog.utils import friendly_time, request_to_date_query, append_data, convert_property_value, get_compare_period_dates, dict_from_cursor_fetchall
 from rest_framework import request, response, serializers, viewsets
@@ -8,10 +9,11 @@ from django.db.models.functions import Lag
 from django.db.models.expressions import Window
 from django.db import connection
 from django.utils.timezone import now
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional
 from django.utils.timezone import now
 import json
 import pandas as pd
+from typing import Tuple, Optional
 
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
@@ -124,6 +126,12 @@ class EventViewSet(viewsets.ModelViewSet):
                 event.elements_group_cache = None # type: ignore
         return events
 
+    def _prefech_elements(self, hash_ids: List[str], team: Team) -> QuerySet:
+        groups = ElementGroup.objects.none()
+        if len(hash_ids) > 0:
+            groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related('element_set')
+        return groups
+
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         queryset = self.get_queryset()
         monday = now() + timedelta(days=-now().weekday())
@@ -137,14 +145,14 @@ class EventViewSet(viewsets.ModelViewSet):
 
         reverse = request.GET.get('orderBy', '-timestamp') != '-timestamp'
         if len(events) > 100:
-            next_url: Union[bool, str] = '{}{}{}={}'.format(
+            next_url: Optional[str] = request.build_absolute_uri('{}{}{}={}'.format(
                 path,
                 '&' if '?' in path else '?',
                 'after' if reverse else 'before',
                 events[99].timestamp.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
-            )
+            ))
         else:
-            next_url = False
+            next_url = None
 
         return response.Response({
             'next': next_url,
@@ -207,15 +215,12 @@ class EventViewSet(viewsets.ModelViewSet):
 
         return response.Response([{'name': convert_property_value(value.value)} for value in values])
 
-    def _handle_compared(self, date_filter: Dict[str, datetime], session_type: str) -> List[Dict[str, Any]]:
+    def _handle_compared(self, date_filter: Dict[str, datetime]) -> QuerySet:
         date_from, date_to = get_compare_period_dates(date_filter['timestamp__gte'],  date_filter['timestamp__lte'])
         date_filter['timestamp__gte'] = date_from
         date_filter['timestamp__lte'] = date_to
         compared_events = self.get_queryset().filter(**date_filter)
-
-        compared_calculated = self.calculate_sessions(compared_events, session_type, date_filter)
-
-        return compared_calculated
+        return compared_events
 
     def _convert_to_comparison(self, trend_entity: List[Dict[str, Any]], label: str) -> List[Dict[str, Any]]:
         for entity in trend_entity:
@@ -227,8 +232,9 @@ class EventViewSet(viewsets.ModelViewSet):
     @action(methods=['GET'], detail=False)
     def sessions(self, request: request.Request) -> response.Response:
         team = self.request.user.team_set.get()
-        date_filter = request_to_date_query(request.GET.dict())
+        session_type = self.request.GET.get('session')
 
+        date_filter = request_to_date_query(request.GET.dict(), exact=True)
         if not date_filter.get('timestamp__gte'):
              date_filter['timestamp__gte'] = Event.objects.filter(team=team)\
                 .order_by('timestamp')[0]\
@@ -238,26 +244,52 @@ class EventViewSet(viewsets.ModelViewSet):
         if not date_filter.get('timestamp__lte'):
             date_filter['timestamp__lte'] = now()
 
-        events = self.get_queryset().filter(**date_filter) 
-
-        session_type = self.request.GET.get('session')
+        events = self.get_queryset()
+        if session_type is not None:
+            events = events.filter(**date_filter) 
+        
         calculated = []
 
         # get compared period
         compare = request.GET.get('compare')
+        result: Dict[str, Any]  = {'result': []}
         if compare and request.GET.get('date_from') != 'all' and session_type == 'avg':
-            calculated = self.calculate_sessions(events, session_type, date_filter)
+            calculated = self.calculate_sessions(events, session_type, date_filter, team, request)
             calculated = self._convert_to_comparison(calculated, 'current')
-            compared_calculated = self._handle_compared(date_filter, session_type)
+            compared_events = self._handle_compared(date_filter)
+            compared_calculated =  self.calculate_sessions(compared_events, session_type, date_filter, team, request)
             converted_compared_calculated = self._convert_to_comparison(compared_calculated, 'previous')
             calculated.extend(converted_compared_calculated)
         else:
-            calculated = self.calculate_sessions(events, session_type, date_filter)
+            calculated = self.calculate_sessions(events, session_type, date_filter, team, request)
+        result.update({'result': calculated})
 
-        return response.Response(calculated)
+        # add pagination
+        if session_type is None:
+            offset = int(request.GET.get('offset', '0')) + 50
+            if len(calculated) > 49:
+                date_from = calculated[0]['start_time'].isoformat()
+                result.update({'offset': offset})
+                result.update({'date_from': date_from})
+        return response.Response(result)
 
-    def calculate_sessions(self, events: QuerySet, session_type: str, date_filter) -> List[Dict[str, Any]]:
-        sessions = events\
+    def calculate_sessions(self, events: QuerySet, session_type: Optional[str], date_filter: Dict[str, datetime], team: Team, request: request.Request) -> List[Dict[str, Any]]:
+
+        if not events:
+            return []
+            
+        # format date filter for session view
+        _date_gte = Q()
+        if session_type is None:
+            if request.GET.get('date_from', None):
+                _date_gte = Q(timestamp__gte=date_filter['timestamp__gte'], timestamp__lte=date_filter['timestamp__gte'] + relativedelta(days=1))
+            else:
+                dt = events.order_by('-timestamp').values('timestamp')[0]['timestamp']
+                if dt:
+                    dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+                _date_gte = Q(timestamp__gte=dt, timestamp__lte=dt + relativedelta(days=1))
+
+        sessions = events.filter(_date_gte)\
             .annotate(previous_timestamp=Window(
                 expression=Lag('timestamp', default=None),
                 partition_by=F('distinct_id'),
@@ -270,20 +302,94 @@ class EventViewSet(viewsets.ModelViewSet):
             ))
         
         sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
-        # TODO: add midnight condition
-
         all_sessions = '\
-            SELECT distinct_id, timestamp,\
+            SELECT *,\
                 SUM(new_session) OVER (ORDER BY distinct_id, timestamp) AS global_session_id,\
                 SUM(new_session) OVER (PARTITION BY distinct_id ORDER BY timestamp) AS user_session_id\
-                FROM (SELECT *, CASE WHEN EXTRACT(\'EPOCH\' FROM (timestamp - previous_timestamp)) >= (60 * 30)\
+                FROM (SELECT id, distinct_id, event, elements_hash, timestamp, properties, CASE WHEN EXTRACT(\'EPOCH\' FROM (timestamp - previous_timestamp)) >= (60 * 30)\
                     OR previous_timestamp IS NULL \
                     THEN 1 ELSE 0 END AS new_session \
                     FROM ({}) AS inner_sessions\
                 ) AS outer_sessions'.format(sessions_sql)
 
-        def distribution(query):
-            return 'SELECT COUNT(CASE WHEN length = 0 THEN 1 ELSE NULL END) as first,\
+        result: List = []
+        if session_type == 'avg':
+            result = self._session_avg(all_sessions, sessions_sql_params, date_filter)
+        elif session_type == 'dist': 
+            result = self._session_dist(all_sessions, sessions_sql_params)
+        else:
+            result = self._session_list(all_sessions, sessions_sql_params, team, date_filter, request)
+
+        return result
+
+    def _session_list(self, base_query: str, params: Tuple[Any, ...], team: Team, date_filter: Dict[str, datetime], request: request.Request) -> List[Dict[str, Any]]:
+        session_list = 'SELECT * FROM (SELECT global_session_id, properties, start_time, length, sessions.distinct_id, event_count, events from\
+                                (SELECT\
+                                    global_session_id,\
+                                    count(1) as event_count,\
+                                    MAX(distinct_id) as distinct_id,\
+                                    EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp))) AS length,\
+                                    MIN(timestamp) as start_time,\
+                                    array_agg(json_build_object( \'id\', id, \'event\', event, \'timestamp\', timestamp, \'properties\', properties, \'elements_hash\', elements_hash) ORDER BY timestamp) as events\
+                                        FROM ({}) as count GROUP BY 1) as sessions\
+                                        LEFT OUTER JOIN posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id\
+                                        LEFT OUTER JOIN posthog_person ON posthog_person.id = posthog_persondistinctid.person_id\
+                                        ORDER BY start_time DESC) as ordered_sessions OFFSET %s LIMIT 50'.format(base_query)
+                                        
+        with connection.cursor() as cursor:
+            offset = request.GET.get('offset', 0)
+            params = params + (offset,)
+            cursor.execute(session_list, params)
+            sessions = dict_from_cursor_fetchall(cursor)
+
+            hash_ids = []
+            for session in sessions:
+                for event in session['events']:
+                    if event.get('elements_hash'):
+                        hash_ids.append(event['elements_hash'])
+
+            groups = self._prefech_elements(hash_ids, team)
+
+            for session in sessions:
+                for event in session['events']:
+                    try:
+                        event.update({'elements': ElementSerializer([group for group in groups if group.hash == event['elements_hash']][0].element_set.all().order_by('order'), many=True).data})
+                    except IndexError:
+                        event.update({'elements': []})
+            result = sessions
+        return result
+
+    def _session_avg(self, base_query: str, params: Tuple[Any, ...], date_filter: Dict[str, datetime]) -> List[Dict[str, Any]]:
+        average_length_time = 'SELECT date_trunc(\'day\', timestamp) as start_time,\
+                        AVG(length) AS average_session_length_per_day,\
+                        SUM(length) AS total_session_length_per_day, \
+                        COUNT(1) as num_sessions_per_day\
+                        FROM (SELECT global_session_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
+                            AS length,\
+                            MIN(timestamp) as timestamp FROM ({}) as count GROUP BY 1) as agg group by 1 order by start_time'.format(base_query)
+
+        cursor = connection.cursor()
+        cursor.execute(average_length_time, params)
+        time_series_avg = cursor.fetchall()
+        time_series_avg_friendly = []
+        date_range = pd.date_range(date_filter['timestamp__gte'].date(), date_filter['timestamp__lte'].date(), freq='D')
+        time_series_avg_friendly = [(day, round(time_series_avg[index][1] if index < len(time_series_avg) else 0)) for index, day in enumerate(date_range)]
+
+        time_series_data = append_data(time_series_avg_friendly, math=None)
+
+        # calculate average
+        totals = [sum(x) for x in list(zip(*time_series_avg))[2:4]]
+        overall_average = (totals[0] / totals[1]) if totals else 0
+        avg_formatted = friendly_time(overall_average)
+        avg_split = avg_formatted.split(' ')
+        
+        time_series_data.update({'label': 'Average Duration of Session ({})'.format(avg_split[1]), 'count': int(avg_split[0])})
+        time_series_data.update({"chartLabel": 'Average Duration of Session (seconds)'})
+        result = [time_series_data]
+        return result
+
+    def _session_dist(self, base_query: str, params: Tuple[Any, ...]) -> List[Dict[str, Any]]:
+        distribution = 'SELECT COUNT(CASE WHEN length = 0 THEN 1 ELSE NULL END) as first,\
                         COUNT(CASE WHEN length > 0 AND length <= 3 THEN 1 ELSE NULL END) as second,\
                         COUNT(CASE WHEN length > 3 AND length <= 10 THEN 1 ELSE NULL END) as third,\
                         COUNT(CASE WHEN length > 10 AND length <= 30 THEN 1 ELSE NULL END) as fourth,\
@@ -294,44 +400,11 @@ class EventViewSet(viewsets.ModelViewSet):
                         COUNT(CASE WHEN length > 1800 AND length <= 3600 THEN 1 ELSE NULL END) as ninth,\
                         COUNT(CASE WHEN length > 3600 THEN 1 ELSE NULL END) as tenth\
                         FROM (SELECT global_session_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
-                            AS length FROM ({}) as count GROUP BY 1) agg'.format(query)
+                            AS length FROM ({}) as count GROUP BY 1) agg'.format(base_query)
 
-        def average_length_time(query):
-            return 'SELECT date_trunc(\'day\', timestamp) as start_time,\
-                        AVG(length) AS average_session_length_per_day,\
-                        SUM(length) AS total_session_length_per_day, \
-                        COUNT(1) as num_sessions_per_day\
-                        FROM (SELECT global_session_id, EXTRACT(\'EPOCH\' FROM (MAX(timestamp) - MIN(timestamp)))\
-                            AS length,\
-                            MIN(timestamp) as timestamp FROM ({}) as count GROUP BY 1) as agg group by 1 order by start_time'.format(query)
-
-        result: List = []
-        if session_type == 'avg':
-
-            cursor = connection.cursor()
-            cursor.execute(average_length_time(all_sessions), sessions_sql_params)
-            time_series_avg = cursor.fetchall()
-            time_series_avg_friendly = []
-            date_range = pd.date_range(date_filter['timestamp__gte'].date(), date_filter['timestamp__lte'].date(), freq='D')
-            time_series_avg_friendly = [(day, round(time_series_avg[index][1] if index < len(time_series_avg) else 0)) for index, day in enumerate(date_range)]
-
-            time_series_data = append_data(time_series_avg_friendly, math=None)
-
-            # calculate average
-            totals = [sum(x) for x in list(zip(*time_series_avg))[2:4]]
-            overall_average = (totals[0] / totals[1]) if totals else 0
-            avg_formatted = friendly_time(overall_average)
-            avg_split = avg_formatted.split(' ')
-            
-            time_series_data.update({'label': 'Average Duration of Session ({})'.format(avg_split[1]), 'count': int(avg_split[0])})
-            time_series_data.update({"chartLabel": 'Average Duration of Session (seconds)'})
-
-            result = [time_series_data]
-        else: 
-            dist_labels = ['0 seconds (1 event)', '0-3 seconds', '3-10 seconds', '10-30 seconds', '30-60 seconds', '1-3 minutes', '3-10 minutes', '10-30 minutes', '30-60 minutes', '1+ hours']
-            cursor = connection.cursor()
-            cursor.execute(distribution(all_sessions), sessions_sql_params)
-            calculated = cursor.fetchall()
-            result = [{'label': dist_labels[index], 'count': calculated[0][index]} for index in range(len(dist_labels))]
-
+        dist_labels = ['0 seconds (1 event)', '0-3 seconds', '3-10 seconds', '10-30 seconds', '30-60 seconds', '1-3 minutes', '3-10 minutes', '10-30 minutes', '30-60 minutes', '1+ hours']
+        cursor = connection.cursor()
+        cursor.execute(distribution, params)
+        calculated = cursor.fetchall()
+        result = [{'label': dist_labels[index], 'count': calculated[0][index]} for index in range(len(dist_labels))]
         return result

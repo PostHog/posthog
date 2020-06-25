@@ -344,6 +344,7 @@ export class ActionStep extends Component {
                                 <label>Event name: {step.event}</label>
                                 <EventName
                                     value={step.event}
+                                    isActionStep={true}
                                     onChange={value =>
                                         this.sendStep({
                                             ...step,

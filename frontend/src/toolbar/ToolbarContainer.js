@@ -2,13 +2,17 @@ import { useActions, useValues } from 'kea'
 import { ToolbarContent } from '~/toolbar/ToolbarContent'
 import { CloseOutlined } from '@ant-design/icons'
 import React from 'react'
-import { ToolbarButton } from '~/toolbar/ToolbarButton'
+import { Elements } from '~/toolbar/elements/Elements'
+import { ToolbarButton } from '~/toolbar/button/ToolbarButton'
 import { ToolbarDraggable } from '~/toolbar/ToolbarDraggable'
+import { dockLogic } from '~/toolbar/dockLogic'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
-export function ToolbarContainer({ dockLogic, ...props }) {
-    const apiURL = `${props.apiURL}${props.apiURL.endsWith('/') ? '' : '/'}`
-    const { dockStatus, floatStatus, buttonStatus, windowWidth } = useValues(dockLogic)
+export function ToolbarContainer() {
+    const { dockStatus, floatStatus, buttonStatus, windowWidth, isAnimating, mode } = useValues(dockLogic)
     const { button } = useActions(dockLogic)
+    const { selectedElement } = useValues(elementsLogic)
+    const { setSelectedElement } = useActions(elementsLogic)
 
     const showButton = buttonStatus !== 'disabled'
     const showInvisibleButton = buttonStatus === 'animating' || buttonStatus === 'fading-out'
@@ -21,10 +25,12 @@ export function ToolbarContainer({ dockLogic, ...props }) {
 
     return (
         <>
+            {mode === '' || isAnimating ? null : <Elements />}
+
             {showButton && windowWidth >= 0 ? (
                 <ToolbarDraggable type="button" handle="#button-toolbar">
                     <div id="button-toolbar" className={showInvisibleButton ? 'toolbar-invisible' : ''}>
-                        <ToolbarButton {...props} dockLogic={dockLogic} type="button" apiURL={apiURL} />
+                        <ToolbarButton />
                     </div>
                 </ToolbarDraggable>
             ) : null}
@@ -32,7 +38,7 @@ export function ToolbarContainer({ dockLogic, ...props }) {
             {showFloat && windowWidth >= 0 ? (
                 <ToolbarDraggable type="float" handle=".toolbar-block">
                     <div id="float-toolbar" className={showInvisibleFloat ? 'toolbar-invisible' : ''}>
-                        <ToolbarContent {...props} dockLogic={dockLogic} type="float" apiURL={apiURL} />
+                        <ToolbarContent type="float" />
                     </div>
                 </ToolbarDraggable>
             ) : null}
@@ -41,11 +47,11 @@ export function ToolbarContainer({ dockLogic, ...props }) {
                 <div id="dock-toolbar" className={showInvisibleDock ? 'toolbar-invisible' : ''}>
                     <div
                         className={`toolbar-close-button${dockStatus === 'complete' ? ' visible' : ''}`}
-                        onClick={button}
+                        onClick={selectedElement ? () => setSelectedElement(null) : button}
                     >
                         <CloseOutlined />
                     </div>
-                    <ToolbarContent {...props} dockLogic={dockLogic} type="dock" apiURL={apiURL} />
+                    <ToolbarContent type="dock" />
                 </div>
             ) : null}
         </>

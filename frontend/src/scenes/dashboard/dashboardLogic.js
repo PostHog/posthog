@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import { Link } from 'lib/components/Link'
 import React from 'react'
-import isAndroidOrIOS, { clearDOMTextSelection } from 'lib/utils'
+import { isAndroidOrIOS, clearDOMTextSelection } from 'lib/utils'
 
 export const dashboardLogic = kea({
     connect: [dashboardsModel],
@@ -26,6 +26,7 @@ export const dashboardLogic = kea({
         enableDragging: true,
         enableWobblyDragging: true,
         disableDragging: true,
+        refreshDashboardItem: id => ({ id }),
     }),
 
     loaders: ({ props }) => ({
@@ -330,6 +331,13 @@ export const dashboardLogic = kea({
             if (cache.draggingToastId) {
                 toast.dismiss(cache.draggingToastId)
                 cache.draggingToastId = null
+            }
+        },
+        refreshDashboardItem: async ({ id }) => {
+            const dashboardItem = await api.get(`api/dashboard_item/${id}`)
+            dashboardsModel.actions.updateDashboardItem(dashboardItem)
+            if (dashboardItem.refreshing) {
+                setTimeout(() => actions.refreshDashboardItem(id), 1000)
             }
         },
     }),

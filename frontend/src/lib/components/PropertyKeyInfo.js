@@ -104,6 +104,11 @@ export const keyMapping = {
             ),
             examples: ['1234', '16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
         },
+        $active_feature_flags: {
+            label: 'Active Feature Flags',
+            description: 'Keys of the feature flags that were active while this event was sent.',
+            examples: ['beta-feature'],
+        },
         // Events we maybe hide entirely from the list
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',

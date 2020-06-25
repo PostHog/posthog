@@ -7,6 +7,7 @@ from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
 from .event import Event
+from .feature_flag import FeatureFlag
 from .filter import Filter
 from .funnel import Funnel
 from .person import Person, PersonDistinctId

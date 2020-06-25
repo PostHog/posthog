@@ -1,60 +1,47 @@
-import React, { Component } from 'react'
-import api from '../../lib/api'
+import React, { useEffect } from 'react'
 import { Loading, toParams } from '../../lib/utils'
 import { Table } from 'antd'
 import PropTypes from 'prop-types'
+import { useActions, useValues } from 'kea'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
-export class ActionsTable extends Component {
-    constructor(props) {
-        super(props)
+export function ActionsTable({ dashboardItemId = null, filters: filtersParam }) {
+    const { filters, results, resultsLoading } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
+    const { loadResults } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
 
-        this.state = {}
-        this.fetchGraph = this.fetchGraph.bind(this)
-        this.fetchGraph()
-    }
-    fetchGraph() {
-        let url = 'api/action/trends/?'
-        if (this.props.filters.session) url = 'api/event/sessions/?'
-        api.get(url + toParams(this.props.filters)).then(data => {
-            if (!this.props.filters.session) data = data.sort((a, b) => b.count - a.count)
-            this.setState({ data })
-            this.props.onData && this.props.onData(data)
-        })
-    }
-    componentDidUpdate(prevProps) {
-        if (prevProps.filters !== this.props.filters) {
-            this.fetchGraph()
-        }
-    }
-    render() {
-        let { data } = this.state
-        let { filters } = this.props
-        return data ? (
-            data[0] && (filters.session || data[0].labels) ? (
-                <Table
-                    size="small"
-                    columns={[
-                        {
-                            title: filters.session ? 'Session Attribute' : 'Action',
-                            dataIndex: 'label',
-                            render: (_, { label }) => <div style={{ wordBreak: 'break-all' }}>{label}</div>,
+    useEffect(() => {
+        loadResults()
+    }, [toParams(filters)])
+
+    let data = results
+    if (!filters.session) data = data.sort((a, b) => b.count - a.count)
+    return data && !resultsLoading ? (
+        data[0] && (filters.session || data[0].labels) ? (
+            <Table
+                size="small"
+                columns={[
+                    {
+                        title: filters.session ? 'Session Attribute' : 'Action',
+                        dataIndex: 'label',
+                        render: function renderLabel(_, { label }) {
+                            return <div style={{ wordBreak: 'break-all' }}>{label}</div>
                         },
-                        { title: filters.session ? 'Value' : 'Count', dataIndex: 'count' },
-                    ]}
-                    rowKey={item => item.label}
-                    pagination={{ pageSize: 9999, hideOnSinglePage: true }}
-                    dataSource={data}
-                    data-attr="trend-table-graph"
-                />
-            ) : (
-                <p style={{ textAlign: 'center', marginTop: '4rem' }}>We couldn't find any matching actions.</p>
-            )
+                    },
+                    { title: filters.session ? 'Value' : 'Count', dataIndex: 'count' },
+                ]}
+                rowKey={item => item.label}
+                pagination={{ pageSize: 9999, hideOnSinglePage: true }}
+                dataSource={data}
+                data-attr="trend-table-graph"
+            />
         ) : (
-            <Loading />
+            <p style={{ textAlign: 'center', marginTop: '4rem' }}>We couldn't find any matching actions.</p>
         )
-    }
+    ) : (
+        <Loading />
+    )
 }
+
 ActionsTable.propTypes = {
     filters: PropTypes.object.isRequired,
-    onData: PropTypes.func,
 }

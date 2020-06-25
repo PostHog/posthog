@@ -12,7 +12,7 @@
     },
     "homepage": "https://github.com/posthog/posthog#readme",
     "scripts": {
-        "copy-array": "cp node_modules/posthog-js/dist/array.js frontend/dist/",
+        "copy-array": "cp node_modules/posthog-js/dist/array.js* frontend/dist/",
         "start": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack-dev-server --hotOnly",
         "start-https": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack-dev-server --hotOnly --https",
         "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-array",
@@ -34,12 +34,12 @@
         "editor": "^1.0.0",
         "eslint-plugin-cypress": "^2.10.3",
         "funnel-graph-js": "^1.4.1",
-        "kea": "^2.0.0-beta.8",
-        "kea-loaders": "^0.2.2",
+        "kea": "^2.1.1",
+        "kea-loaders": "^0.3.0",
         "kea-localstorage": "^1.0.2",
-        "kea-router": "^0.3.0",
+        "kea-router": "^0.4.0",
         "moment": "^2.24.0",
-        "posthog-js": "1.2.1",
+        "posthog-js": "1.2.2-beta.0",
         "prop-types": "^15.7.2",
         "react": ">= 16.8",
         "react-datepicker": "^2.13.0",
@@ -79,6 +79,7 @@
         "husky": ">=4",
         "lint-staged": ">=10",
         "mini-css-extract-plugin": "^0.9.0",
+        "nodemon": "^2.0.4",
         "postcss-loader": "^3.0.0",
         "prettier": "1.19.1",
         "react-hot-loader": "^4.12.21",
@@ -95,7 +96,8 @@
     },
     "lint-staged": {
         "*.{js,css,scss}": "prettier --write",
-        "*.js": "eslint"
+        "*.js": "eslint",
+        "*.py": "black"
     },
     "optionalDependencies": {
         "fsevents": "^2.1.2"

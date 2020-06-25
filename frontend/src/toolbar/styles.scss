@@ -13,7 +13,7 @@
     left: 0;
     z-index: 2147483020;
     width: 300px;
-    max-height: calc(100vh - 4rem);
+    max-height: calc(100vh - 2rem);
     opacity: 1;
     transition: opacity ease 0.5s;
 
@@ -22,6 +22,9 @@
     }
 
     .toolbar-block {
+        max-height: calc(100vh - 200px);
+        overflow: auto;
+        box-shadow: hsla(219, 14%, 20%, 0.3) 12px 30px 70px, hsla(219, 14%, 20%, 0.3) 3px 8px 10px;
         .ant-tabs-bar {
             margin: 0;
         }
@@ -29,7 +32,6 @@
             border-top: 1px solid hsla(219, 14%, 20%, 0.3);
             margin-top: 0px;
         }
-        box-shadow: hsla(219, 14%, 20%, 0.3) 12px 30px 70px, hsla(219, 14%, 20%, 0.3) 3px 8px 10px;
     }
 }
 
@@ -128,4 +130,15 @@
 .ant-modal-mask,
 .ant-modal-wrap {
     z-index: 2147483030 !important;
+}
+.ant-tooltip {
+    z-index: 2147483031 !important;
+}
+
+.section-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    font-weight: bold;
+    color: hsla(220, 15%, 49%, 1);
+    margin-bottom: 10px;
 }

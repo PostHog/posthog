@@ -75,7 +75,6 @@ jobs:
             - name: Yarn install deps
               run: |
                   yarn install --frozen-lockfile
-              if: steps.yarn-dep-cache.outputs.cache-hit != 'true'
             - uses: actions/cache@v1
               name: Setup Yarn build cache
               id: yarn-build-cache

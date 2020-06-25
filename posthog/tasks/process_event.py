@@ -10,17 +10,26 @@ from django.db import IntegrityError
 import datetime
 
 
-def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True) -> None:
+def _alias(
+    previous_distinct_id: str,
+    distinct_id: str,
+    team_id: int,
+    retry_if_failed: bool = True,
+) -> None:
     old_person: Optional[Person] = None
     new_person: Optional[Person] = None
 
     try:
-        old_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=previous_distinct_id)
+        old_person = Person.objects.get(
+            team_id=team_id, persondistinctid__distinct_id=previous_distinct_id
+        )
     except Person.DoesNotExist:
         pass
 
     try:
-        new_person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=distinct_id)
+        new_person = Person.objects.get(
+            team_id=team_id, persondistinctid__distinct_id=distinct_id
+        )
     except Person.DoesNotExist:
         pass
 
@@ -44,7 +53,10 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
 
     if not old_person and not new_person:
         try:
-            Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id), str(previous_distinct_id)])
+            Person.objects.create(
+                team_id=team_id,
+                distinct_ids=[str(distinct_id), str(previous_distinct_id)],
+            )
         # Catch race condition where in between getting and creating, another request already created this user.
         except IntegrityError:
             if retry_if_failed:
@@ -59,7 +71,9 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
         new_person.properties = {**old_person.properties, **new_person.properties}
         new_person.save()
 
-        old_person_distinct_ids = PersonDistinctId.objects.filter(person=old_person, team_id=team_id)
+        old_person_distinct_ids = PersonDistinctId.objects.filter(
+            person=old_person, team_id=team_id
+        )
 
         for person_distinct_id in old_person_distinct_ids:
             person_distinct_id.person = new_person
@@ -82,32 +96,44 @@ def _store_names_and_properties(team: Team, event: str, properties: Dict) -> Non
         team.save()
 
 
-def _capture(ip: str,
-             site_url: str,
-             team_id: int,
-             event: str,
-             distinct_id: str,
-             properties: Dict,
-             timestamp: Union[datetime.datetime, str]) -> None:
-    elements = properties.get('$elements')
+def _capture(
+    ip: str,
+    site_url: str,
+    team_id: int,
+    event: str,
+    distinct_id: str,
+    properties: Dict,
+    timestamp: Union[datetime.datetime, str],
+) -> None:
+    elements = properties.get("$elements")
     elements_list = None
     if elements:
-        del properties['$elements']
+        del properties["$elements"]
         elements_list = [
             Element(
-                text=el.get('$el_text'),
-                tag_name=el['tag_name'],
-                href=el.get('attr__href'),
-                attr_class=el['attr__class'].split(' ') if el.get('attr__class') else None,
-                attr_id=el.get('attr__id'),
-                nth_child=el.get('nth_child'),
-                nth_of_type=el.get('nth_of_type'),
-                attributes={key: value for key, value in el.items() if key.startswith('attr__')},
-                order=index
-            ) for index, el in enumerate(elements)
+                text=el["$el_text"][0:400] if el.get("$el_text") else None,
+                tag_name=el["tag_name"],
+                href=el["attr__href"][0:2048] if el.get("attr__href") else None,
+                attr_class=el["attr__class"].split(" ")
+                if el.get("attr__class")
+                else None,
+                attr_id=el.get("attr__id"),
+                nth_child=el.get("nth_child"),
+                nth_of_type=el.get("nth_of_type"),
+                attributes={
+                    key: value for key, value in el.items() if key.startswith("attr__")
+                },
+                order=index,
+            )
+            for index, el in enumerate(elements)
         ]
-    properties["$ip"] = ip
-    team = Team.objects.only('slack_incoming_webhook', 'event_names', 'event_properties').get(pk=team_id)
+
+    team = Team.objects.only(
+        "slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips"
+    ).get(pk=team_id)
+
+    if not team.anonymize_ips:
+        properties["$ip"] = ip
 
     Event.objects.create(
         event=event,
@@ -115,12 +141,14 @@ def _capture(ip: str,
         properties=properties,
         team=team,
         site_url=site_url,
-        **({'timestamp': timestamp} if timestamp else {}),
-        **({'elements': elements_list} if elements_list else {})
+        **({"timestamp": timestamp} if timestamp else {}),
+        **({"elements": elements_list} if elements_list else {})
     )
     _store_names_and_properties(team=team, event=event, properties=properties)
 
-    if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
+    if not Person.objects.distinct_ids_exist(
+        team_id=team_id, distinct_ids=[str(distinct_id)]
+    ):
         # Catch race condition where in between getting and creating, another request already created this user.
         try:
             Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
@@ -130,53 +158,85 @@ def _capture(ip: str,
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
     try:
-        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+        person = Person.objects.get(
+            team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+        )
     except Person.DoesNotExist:
         try:
-            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+            person = Person.objects.create(
+                team_id=team_id, distinct_ids=[str(distinct_id)]
+            )
         # Catch race condition where in between getting and creating, another request already created this user.
         except:
-            person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+            person = Person.objects.get(
+                team_id=team_id, persondistinctid__distinct_id=str(distinct_id)
+            )
     person.properties.update(properties)
     person.save()
 
 
-def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[datetime.datetime, str]:
-    if data.get('timestamp'):
+def _handle_timestamp(
+    data: dict, now: str, sent_at: Optional[str]
+) -> Union[datetime.datetime, str]:
+    if data.get("timestamp"):
         if sent_at:
             # sent_at - timestamp == now - x
             # x = now + (timestamp - sent_at)
             try:
                 # timestamp and sent_at must both be in the same format: either both with or both without timezones
                 # otherwise we can't get a diff to add to now
-                return parser.isoparse(now) + (parser.isoparse(data['timestamp']) - parser.isoparse(sent_at))
+                return parser.isoparse(now) + (
+                    parser.isoparse(data["timestamp"]) - parser.isoparse(sent_at)
+                )
             except TypeError as e:
                 capture_exception(e)
 
-        return data['timestamp']
+        return data["timestamp"]
     now_datetime = parser.isoparse(now)
-    if data.get('offset'):
-        return now_datetime - relativedelta(microseconds=data['offset'] * 1000)
+    if data.get("offset"):
+        return now_datetime - relativedelta(microseconds=data["offset"] * 1000)
     return now_datetime
 
 
 @shared_task
-def process_event(distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str]) -> None:
-    if data['event'] == '$create_alias':
-        _alias(previous_distinct_id=data['properties']['alias'], distinct_id=distinct_id, team_id=team_id)
+def process_event(
+    distinct_id: str,
+    ip: str,
+    site_url: str,
+    data: dict,
+    team_id: int,
+    now: str,
+    sent_at: Optional[str],
+) -> None:
+    if data["event"] == "$create_alias":
+        _alias(
+            previous_distinct_id=data["properties"]["alias"],
+            distinct_id=distinct_id,
+            team_id=team_id,
+        )
 
-    if data['event'] == '$identify' and data.get('properties') and data['properties'].get('$anon_distinct_id'):
-        _alias(previous_distinct_id=data['properties']['$anon_distinct_id'], distinct_id=distinct_id, team_id=team_id)
+    if (
+        data["event"] == "$identify"
+        and data.get("properties")
+        and data["properties"].get("$anon_distinct_id")
+    ):
+        _alias(
+            previous_distinct_id=data["properties"]["$anon_distinct_id"],
+            distinct_id=distinct_id,
+            team_id=team_id,
+        )
 
-    if data['event'] == '$identify' and data.get('$set'):
-        _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data['$set'])
+    if data["event"] == "$identify" and data.get("$set"):
+        _update_person_properties(
+            team_id=team_id, distinct_id=distinct_id, properties=data["$set"]
+        )
 
     _capture(
         ip=ip,
         site_url=site_url,
         team_id=team_id,
-        event=data['event'],
+        event=data["event"],
         distinct_id=distinct_id,
-        properties=data.get('properties', data.get('$set', {})),
-        timestamp=_handle_timestamp(data, now, sent_at)
+        properties=data.get("properties", data.get("$set", {})),
+        timestamp=_handle_timestamp(data, now, sent_at),
     )

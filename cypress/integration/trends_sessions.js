@@ -5,6 +5,14 @@ describe('Trends sessions', () => {
         cy.contains('Sessions').click()
     })
 
+    it('Navigate from distributed sessions to /trends', () => {
+        cy.get('[data-attr=sessions-filter]').click()
+        cy.get('[data-attr=sessions-filter-distribution]').click()
+        cy.get('[data-attr=trend-table-graph]').should('exist')
+        cy.contains('Actions & Events').click()
+        cy.get('[data-attr=trend-line-graph] canvas').should('exist')
+    })
+
     it('Sessions exists', () => {
         // then
         cy.get('[data-attr=trend-line-graph]').should('exist')

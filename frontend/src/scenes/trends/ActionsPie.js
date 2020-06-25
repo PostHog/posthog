@@ -1,15 +1,19 @@
 import React, { useEffect, useState } from 'react'
-import api from 'lib/api'
-import { Loading, toParams } from 'lib/utils'
+import { Loading } from 'lib/utils'
 import { LineGraph } from './LineGraph'
 import { getChartColors } from 'lib/colors'
+import { useValues, useActions } from 'kea'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
-export function ActionsPie({ filters, color }) {
+export function ActionsPie({ dashboardItemId, filters: filtersParam, color }) {
     const [data, setData] = useState(null)
     const [total, setTotal] = useState(0)
 
-    async function fetchGraph() {
-        const data = await api.get('api/action/trends/?' + toParams(filters))
+    const { filters, results, resultsLoading } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
+    const { loadResults } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
+
+    function updateData() {
+        const data = results
         data.sort((a, b) => b.count - a.count)
 
         const colorList = getChartColors(color)
@@ -30,10 +34,14 @@ export function ActionsPie({ filters, color }) {
     }
 
     useEffect(() => {
-        fetchGraph()
+        loadResults()
     }, [filters, color])
 
-    return data ? (
+    useEffect(() => {
+        updateData()
+    }, [results])
+
+    return data && !resultsLoading ? (
         data[0] && data[0].labels ? (
             <div
                 style={{
