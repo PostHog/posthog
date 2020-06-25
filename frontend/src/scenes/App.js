@@ -73,7 +73,7 @@ function App() {
                 className={`${darkerScenes[scene] ? 'bg-dashboard' : 'bg-white'}${
                     !sidebarCollapsed ? ' with-open-sidebar' : ''
                 }`}
-                style={{ height: '100vh' }}
+                style={{ minHeight: '100vh' }}
             >
                 <div className="content py-3 layout-top-content">
                     <TopContent user={user} />

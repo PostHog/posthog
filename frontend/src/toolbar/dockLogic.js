@@ -278,7 +278,7 @@ export const dockLogic = kea({
                 // Second tick.
                 window.requestAnimationFrame(() => {
                     updateDockToolbarVariables(shadowRef, zoom, padding, sidebarWidth)
-                    bodyStyle.overflow = 'auto'
+                    bodyStyle.overflow = 'visible'
                     if (mode !== 'dock') {
                         bodyStyle.width = `auto`
                         bodyStyle.minHeight = `auto`
@@ -294,6 +294,9 @@ export const dockLogic = kea({
 
                 // Third tick.
                 window.requestAnimationFrame(() => {
+                    if (mode === 'dock') {
+                        bodyStyle.overflow = 'visible'
+                    }
                     updateDockToolbarVariables(shadowRef, zoom, padding, sidebarWidth)
                     mode === 'button' && actions.buttonFaded()
                     mode === 'dock' && actions.dockFaded()

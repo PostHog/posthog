@@ -300,15 +300,15 @@ export const elementsLogic = kea({
                 }
             }
             window.addEventListener('click', cache.onClick)
-            window.addEventListener('scroll', cache.onScrollResize)
             window.addEventListener('resize', cache.onScrollResize)
             window.addEventListener('keydown', cache.onKeyDown)
+            window.document.addEventListener('scroll', cache.onScrollResize, true)
         },
         beforeUnmount: () => {
             window.removeEventListener('click', cache.onClick)
-            window.removeEventListener('scroll', cache.onScrollResize)
             window.removeEventListener('resize', cache.onScrollResize)
             window.removeEventListener('keydown', cache.onKeyDown)
+            window.document.removeEventListener('scroll', cache.onScrollResize, true)
         },
     }),
 
