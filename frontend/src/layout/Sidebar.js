@@ -25,7 +25,7 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import whiteLogo from './_assets/white-logo.svg'
+import whiteLogo from './../../public/posthog-logo.svg'
 import { triggerResizeAfterADelay } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 
@@ -38,7 +38,6 @@ function Logo() {
             style={{ margin: 16, height: 42, whiteSpace: 'nowrap', width: 168, overflow: 'hidden' }}
         >
             <img className="logo posthog-logo" src={whiteLogo} style={{ maxHeight: '100%' }} />
-            <div className="posthog-title">PostHog</div>
         </div>
     )
 }
