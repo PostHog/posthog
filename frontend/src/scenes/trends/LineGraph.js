@@ -14,6 +14,12 @@ const Annotation = require('chartjs-plugin-annotation')
 Chart.plugins.register(Annotation)
 
 export class LineGraph extends Component {
+    state = {
+        where: 'front',
+        left: 0,
+        right: 0,
+    }
+
     chartRef = React.createRef()
 
     componentDidMount() {
@@ -206,6 +212,7 @@ export class LineGraph extends Component {
                                   },
                               ],
                           },
+                          events: ['mousemove', 'click'],
                           onClick: (event, [point]) => {
                               if (point && this.props.onClick) {
                                   const dataset = datasets[point._datasetIndex]
@@ -230,6 +237,17 @@ export class LineGraph extends Component {
                                   })
                               }
                           },
+                          onHover: evt => {
+                              console.log(this.myLineChart.chartArea.left)
+                              this.setState({
+                                  left: this.myLineChart.chartArea.left,
+                              })
+                              if (evt.offsetX < 300) {
+                                  _this.setState({ where: 'front' })
+                              } else {
+                                  _this.setState({ where: 'back' })
+                              }
+                          },
                       }
                     : {
                           responsive: true,
@@ -243,6 +261,16 @@ export class LineGraph extends Component {
         return (
             <div className="graph-container" data-attr={this.props['data-attr']}>
                 <canvas ref={this.chartRef} />
+                <button
+                    style={{
+                        position: 'absolute',
+                        left: this.state.where === 'front' ? this.state.left - 25 : 335,
+                        bottom: 20,
+                        width: 50,
+                    }}
+                >
+                    HE
+                </button>
             </div>
         )
     }
