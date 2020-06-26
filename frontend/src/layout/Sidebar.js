@@ -25,7 +25,7 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import whiteLogo from './../../public/posthog-logo.svg'
+import whiteLogo from './../../public/posthog-logo-white.svg'
 import { triggerResizeAfterADelay } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 
