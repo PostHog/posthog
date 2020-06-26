@@ -61,7 +61,7 @@ export function ToolbarButton() {
                 if (clicked) {
                     dock()
                 } else {
-                    // extendButtons()
+                    setExtensionPercentage(1)
                 }
             } else {
                 authenticate()
