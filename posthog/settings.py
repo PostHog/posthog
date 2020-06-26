@@ -14,6 +14,7 @@ import ast
 import os
 import sys
 from typing import List, Optional
+from distutils.util import strtobool
 
 import sentry_sdk
 from sentry_sdk.integrations.django import DjangoIntegration
@@ -42,7 +43,7 @@ def get_bool_from_env(name: str, default_value: bool) -> bool:
     if name in os.environ:
         value = os.environ[name]
         try:
-            return ast.literal_eval(value)
+            return bool(strtobool(str(value)))
         except ValueError as e:
             raise ValueError(f"{value} is an invalid value for {name}, expected boolean") from e
     return default_value
