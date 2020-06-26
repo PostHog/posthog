@@ -309,7 +309,7 @@ export function ToolbarButton() {
                         })}
                         label="Float"
                         labelStyle={{ opacity: distance > 80 ? (distance - 80) / 20 : 0 }}
-                        content={<ProfileOutlined />}
+                        content={<ProfileOutlined style={{ color: '#333' }} />}
                         zIndex={1}
                         onClick={float}
                         style={{
