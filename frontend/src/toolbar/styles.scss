@@ -16,6 +16,7 @@
     max-height: calc(100vh - 2rem);
     opacity: 1;
     transition: opacity ease 0.5s;
+    color: #333;
 
     &.toolbar-invisible {
         opacity: 0;
