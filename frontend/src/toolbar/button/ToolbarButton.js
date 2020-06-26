@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { Tooltip } from 'antd'
 import { CloseOutlined, ProfileOutlined, SearchOutlined, FireFilled } from '@ant-design/icons'
-import { Logo } from '~/toolbar/assets/Logo'
+import { Hog } from '~/toolbar/assets/Hog'
 import { Circle } from '~/toolbar/button/Circle'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
@@ -114,7 +114,7 @@ export function ToolbarButton() {
             rootNode
             width={64}
             className="floating-toolbar-button"
-            content={<Logo style={{ width: 54, height: 54, filter: 'invert(1)', cursor: 'pointer' }} />}
+            content={<Hog style={{ width: 45, cursor: 'pointer' }} />}
             label={
                 isAuthenticated ? (
                     'Toolbar'
