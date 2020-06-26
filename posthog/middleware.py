@@ -67,7 +67,9 @@ class AllowIP(object):
 
 class SameSiteSessionMiddleware(SessionMiddleware):
     def process_response(self, request, response):
-        response = super(SessionMiddleware, self).process_response(request, response)
+        response = super(SameSiteSessionMiddleware, self).process_response(
+            request, response
+        )
 
         if settings.SESSION_COOKIE_NAME in response.cookies:
             response.cookies[settings.SESSION_COOKIE_NAME]["samesite"] = "None"
