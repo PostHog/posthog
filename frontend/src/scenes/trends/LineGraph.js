@@ -152,19 +152,28 @@ export class LineGraph extends Component {
                               },
                           },
                           annotation: {
+                              drawTime: 'afterDraw',
+                              events: ['mouseenter'],
                               annotations: [
                                   {
-                                      drawTime: 'afterDatasetsDraw',
                                       type: 'line',
                                       mode: 'vertical',
                                       scaleID: 'x-axis-0',
                                       value: 1,
-                                      borderWidth: 5,
-                                      borderColor: 'red',
+                                      borderWidth: 2,
+                                      borderColor: 'rgba(0,0,0,0.3)',
                                       label: {
-                                          content: 'TODAY',
+                                          content: 'Test',
                                           enabled: true,
                                           position: 'top',
+                                          backgroundColor: 'rgba(0,0,0,0.3)',
+                                      },
+                                      onMouseenter: function(e) {
+                                          this.options.borderColor = 'white'
+                                          this.options.label.enabled = true
+                                      },
+                                      onMouseleave: function(e) {
+                                          this.options.borderColor = 'white'
                                       },
                                   },
                               ],
