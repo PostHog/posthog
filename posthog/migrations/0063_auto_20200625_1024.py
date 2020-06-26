@@ -18,6 +18,8 @@ def forwards_func(apps, schema_editor):
     for item in items:
         if item.filters == {}:
             continue
+        if item.filters.get("funnel_id"):
+            item.funnel_id = item.filters["funnel_id"]
         item.filters = Filter(data=item.filters).to_dict()
         item.save()
 
@@ -42,6 +44,21 @@ class Migration(migrations.Migration):
             model_name="dashboard",
             name="share_token",
             field=models.CharField(blank=True, max_length=400, null=True),
+        ),
+        migrations.AddField(
+            model_name="dashboard",
+            name="last_accessed_at",
+            field=models.DateTimeField(blank=True, null=True),
+        ),
+        migrations.AddField(
+            model_name="dashboarditem",
+            name="funnel",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=models.deletion.CASCADE,
+                to="posthog.Funnel",
+            ),
         ),
         migrations.RunPython(forwards_func, reverse_func),
     ]

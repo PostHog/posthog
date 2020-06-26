@@ -2,9 +2,9 @@ from .base import BaseTest, TransactionBaseTest
 from posthog.models import Dashboard, Filter, DashboardItem
 from posthog.api.action import calculate_trends
 from posthog.decorators import TRENDS_ENDPOINT
-from posthog.tasks.update_cache import update_cache
 from django.core.cache import cache
 from django.utils.timezone import now
+from freezegun import freeze_time
 import json
 
 
@@ -83,6 +83,12 @@ class TestDashboard(TransactionBaseTest):
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
 
-        with self.assertNumQueries(5):
-            response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+        with self.assertNumQueries(6):
+            with freeze_time("2020-01-04T13:00:01Z"):
+                response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+
+        self.assertEqual(
+            Dashboard.objects.get().last_accessed_at.isoformat(),
+            "2020-01-04T13:00:01+00:00",
+        )
         self.assertEqual(response["items"][0]["result"][0]["count"], 0)

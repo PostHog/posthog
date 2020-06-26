@@ -4,7 +4,6 @@ from posthog.models import Filter, DashboardItem
 from posthog.utils import generate_cache_key
 from django.core.cache import cache
 import json
-from posthog.celery import update_cache_item
 from datetime import datetime
 
 TRENDS_ENDPOINT = "Trends"
@@ -14,6 +13,8 @@ FUNNEL_ENDPOINT = "Funnel"
 def cached_function(cache_type: str, expiry=30):
     def inner_decorator(f):
         def wrapper(*args, **kw):
+            from posthog.tasks.update_cache import update_cache_item
+
             cache_key = ""
             _expiry = expiry
 

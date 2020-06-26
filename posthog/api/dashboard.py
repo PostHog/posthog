@@ -10,6 +10,7 @@ from posthog.utils import render_template, generate_cache_key
 from django.contrib.auth.models import AnonymousUser
 from django.http import HttpRequest
 from django.core.cache import cache
+from django.utils.timezone import now
 import secrets
 
 
@@ -111,6 +112,16 @@ class DashboardsViewSet(viewsets.ModelViewSet):
                 )
 
         return queryset.filter(team=self.request.user.team_set.get())
+
+    def retrieve(self, request, pk: int = None):
+        queryset = self.get_queryset()
+        dashboard = get_object_or_404(queryset, pk=pk)
+        dashboard.last_accessed_at = now()
+        dashboard.save()
+        serializer = DashboardSerializer(
+            dashboard, context={"view": self, "request": request}
+        )
+        return response.Response(serializer.data)
 
 
 class DashboardItemSerializer(serializers.ModelSerializer):

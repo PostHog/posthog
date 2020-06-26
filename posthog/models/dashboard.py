@@ -16,3 +16,4 @@ class Dashboard(models.Model):
         max_length=400, null=True, blank=True
     )
     is_shared: models.BooleanField = models.BooleanField(default=False)
+    last_accessed_at: models.DateTimeField = models.DateTimeField(blank=True, null=True)

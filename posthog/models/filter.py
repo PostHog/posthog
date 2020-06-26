@@ -29,6 +29,8 @@ class Filter(PropertyMixin):
     shown_as: Optional[str] = None
     breakdown: Optional[str] = None
     breakdown_type: Optional[str] = None
+    compare: Optional[bool] = None
+    funnel_id: Optional[int] = None
 
     def __init__(
         self,
@@ -55,10 +57,11 @@ class Filter(PropertyMixin):
         self.selector = data.get("selector", [])
         self.interval = data.get("interval")
         self.display = data.get("display")
-        self.selector = data.get("self.selector")
-        self.shown_as = data.get("self.shown_as")
-        self.breakdown = data.get("self.breakdown")
-        self.breakdown_type = data.get("self.breakdown_type")
+        self.selector = data.get("selector")
+        self.shown_as = data.get("shown_as")
+        self.breakdown = data.get("breakdown")
+        self.breakdown_type = data.get("breakdown_type")
+        self.compare = data.get("compare")
 
         if data.get("actions"):
             self.entities.extend(
@@ -90,6 +93,7 @@ class Filter(PropertyMixin):
             "shown_as": self.shown_as,
             "breakdown": self.breakdown,
             "breakdown_type": self.breakdown_type,
+            "compare": self.compare,
         }
 
     @property

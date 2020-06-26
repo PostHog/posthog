@@ -16,3 +16,6 @@ class DashboardItem(models.Model):
     color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     last_refresh: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     refreshing: models.BooleanField = models.BooleanField(default=False)
+    funnel: models.ForeignKey = models.ForeignKey(
+        "Funnel", on_delete=models.CASCADE, null=True, blank=True
+    )
