@@ -4,11 +4,28 @@ from posthog.api.action import calculate_trends
 from posthog.decorators import TRENDS_ENDPOINT
 from posthog.tasks.update_cache import update_cache
 from django.core.cache import cache
+from django.utils.timezone import now
 import json
 
 
 class TestDashboard(TransactionBaseTest):
     TESTS_API = True
+
+    def test_create_dashboard_item(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team, share_token="testtoken", name="public dashboard"
+        )
+        response = self.client.post(
+            "/api/dashboard_item/",
+            {
+                "dashboard": dashboard.pk,
+                "name": "dashboard item",
+                "last_refresh": now(),  # This happens when you duplicate a dashboard item, caused error
+            },
+            content_type="application/json",
+        )
+        dashboard_item = DashboardItem.objects.get()
+        self.assertEqual(dashboard_item.name, "dashboard item")
 
     def test_token_auth(self):
         self.client.logout()
