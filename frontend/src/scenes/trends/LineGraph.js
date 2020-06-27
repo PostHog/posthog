@@ -158,33 +158,33 @@ export class LineGraph extends Component {
                                   }
                               },
                           },
-                          annotation: {
-                              drawTime: 'afterDraw',
-                              events: ['mouseenter'],
-                              annotations: [
-                                  {
-                                      type: 'line',
-                                      mode: 'vertical',
-                                      scaleID: 'x-axis-0',
-                                      value: 1,
-                                      borderWidth: 2,
-                                      borderColor: 'rgba(0,0,0,0.3)',
-                                      label: {
-                                          content: 'Test',
-                                          enabled: true,
-                                          position: 'top',
-                                          backgroundColor: 'rgba(0,0,0,0.3)',
-                                      },
-                                      onMouseenter: function(e) {
-                                          this.options.borderColor = 'white'
-                                          this.options.label.enabled = true
-                                      },
-                                      onMouseleave: function(e) {
-                                          this.options.borderColor = 'white'
-                                      },
-                                  },
-                              ],
-                          },
+                          //   annotation: {
+                          //       drawTime: 'afterDraw',
+                          //       events: ['mouseenter'],
+                          //       annotations: [
+                          //           {
+                          //               type: 'line',
+                          //               mode: 'vertical',
+                          //               scaleID: 'x-axis-0',
+                          //               value: 1,
+                          //               borderWidth: 2,
+                          //               borderColor: 'rgba(0,0,0,0.3)',
+                          //               label: {
+                          //                   content: 'Test',
+                          //                   enabled: true,
+                          //                   position: 'top',
+                          //                   backgroundColor: 'rgba(0,0,0,0.3)',
+                          //               },
+                          //               onMouseenter: function(e) {
+                          //                   this.options.borderColor = 'white'
+                          //                   this.options.label.enabled = true
+                          //               },
+                          //               onMouseleave: function(e) {
+                          //                   this.options.borderColor = 'white'
+                          //               },
+                          //           },
+                          //       ],
+                          //   },
                           scales: {
                               xAxes: [
                                   {
@@ -196,6 +196,7 @@ export class LineGraph extends Component {
                                           min: 0,
                                           fontColor: axisLabelColor,
                                           precision: 0,
+                                          padding: 40,
                                       },
                                   },
                               ],
@@ -245,11 +246,19 @@ export class LineGraph extends Component {
                               const ticks = this.myLineChart.scales['x-axis-0'].ticks.length
                               const delta = rightExtent - leftExtent
                               const interval = delta / (ticks - 1)
-
-                              const index = map(evt.offsetX, leftExtent, rightExtent, 0, ticks - 1)
-                              this.setState({
-                                  left: (index + 1) * interval,
-                              })
+                              if (evt.offsetX < leftExtent - interval / 2) return
+                              const index = map(
+                                  evt.offsetX,
+                                  leftExtent - interval / 2,
+                                  rightExtent + interval / 2,
+                                  0,
+                                  ticks
+                              )
+                              if (index >= 0 && index < ticks) {
+                                  this.setState({
+                                      left: index * interval + leftExtent,
+                                  })
+                              }
                           },
                       }
                     : {
@@ -267,13 +276,18 @@ export class LineGraph extends Component {
                 data-attr={this.props['data-attr']}
                 onMouseLeave={() => this.setState({ enabled: false })}
             >
-                <canvas ref={this.chartRef} onMouseOver={() => this.setState({ enabled: true })} />
-                {this.state.enabled && (
+                <canvas
+                    ref={this.chartRef}
+                    onMouseOver={e => {
+                        this.setState({ enabled: true, left: -1 })
+                    }}
+                />
+                {this.state.enabled && this.state.left >= 0 && (
                     <button
                         style={{
                             position: 'absolute',
                             left: this.state.where === 'front' ? this.state.left - 25 : 335,
-                            bottom: 20,
+                            bottom: 45,
                             width: 50,
                         }}
                     >
@@ -285,7 +299,7 @@ export class LineGraph extends Component {
     }
 }
 
-const map = (value, x1, y1, x2, y2) => Math.round(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
+const map = (value, x1, y1, x2, y2) => Math.floor(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
 
 LineGraph.propTypes = {
     datasets: PropTypes.arrayOf(PropTypes.shape({ label: PropTypes.string, count: PropTypes.number })).isRequired,
