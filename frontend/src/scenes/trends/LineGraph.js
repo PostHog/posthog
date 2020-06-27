@@ -18,6 +18,7 @@ export class LineGraph extends Component {
         where: 'front',
         left: 0,
         right: 0,
+        enabled: false,
     }
 
     chartRef = React.createRef()
@@ -214,6 +215,7 @@ export class LineGraph extends Component {
                           },
                           events: ['mousemove', 'click'],
                           onClick: (event, [point]) => {
+                              console.log(this)
                               if (point && this.props.onClick) {
                                   const dataset = datasets[point._datasetIndex]
                                   this.props.onClick({
@@ -238,15 +240,16 @@ export class LineGraph extends Component {
                               }
                           },
                           onHover: evt => {
-                              console.log(this.myLineChart.chartArea.left)
+                              const leftExtent = this.myLineChart.scales['x-axis-0'].left
+                              const rightExtent = this.myLineChart.scales['x-axis-0'].right
+                              const ticks = this.myLineChart.scales['x-axis-0'].ticks.length
+                              const delta = rightExtent - leftExtent
+                              const interval = delta / (ticks - 1)
+
+                              const index = map(evt.offsetX, leftExtent, rightExtent, 0, ticks - 1)
                               this.setState({
-                                  left: this.myLineChart.chartArea.left,
+                                  left: (index + 1) * interval,
                               })
-                              if (evt.offsetX < 300) {
-                                  _this.setState({ where: 'front' })
-                              } else {
-                                  _this.setState({ where: 'back' })
-                              }
                           },
                       }
                     : {
@@ -259,22 +262,31 @@ export class LineGraph extends Component {
 
     render() {
         return (
-            <div className="graph-container" data-attr={this.props['data-attr']}>
-                <canvas ref={this.chartRef} />
-                <button
-                    style={{
-                        position: 'absolute',
-                        left: this.state.where === 'front' ? this.state.left - 25 : 335,
-                        bottom: 20,
-                        width: 50,
-                    }}
-                >
-                    HE
-                </button>
+            <div
+                className="graph-container"
+                data-attr={this.props['data-attr']}
+                onMouseLeave={() => this.setState({ enabled: false })}
+            >
+                <canvas ref={this.chartRef} onMouseOver={() => this.setState({ enabled: true })} />
+                {this.state.enabled && (
+                    <button
+                        style={{
+                            position: 'absolute',
+                            left: this.state.where === 'front' ? this.state.left - 25 : 335,
+                            bottom: 20,
+                            width: 50,
+                        }}
+                    >
+                        HE
+                    </button>
+                )}
             </div>
         )
     }
 }
+
+const map = (value, x1, y1, x2, y2) => Math.round(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
+
 LineGraph.propTypes = {
     datasets: PropTypes.arrayOf(PropTypes.shape({ label: PropTypes.string, count: PropTypes.number })).isRequired,
     labels: PropTypes.array.isRequired,
