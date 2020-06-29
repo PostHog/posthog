@@ -7,7 +7,6 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filters: filtersParam }) {
     const { filters, results, resultsLoading } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
     const { loadResults, loadPeople } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
-
     const { people_action, people_day, ...otherFilters } = filters
 
     useEffect(() => {
@@ -16,6 +15,7 @@ export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filt
     return results && !resultsLoading ? (
         filters.session || results.reduce((total, item) => total + item.count, 0) > 0 ? (
             <LineGraph
+                pageKey={'trends-annotations'}
                 data-attr="trend-line-graph"
                 type="line"
                 color={color}

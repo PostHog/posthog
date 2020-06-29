@@ -113,7 +113,6 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
                         tooltipVisible={true}
                         value={rollout_percentage}
                         onChange={value => {
-                            console.log(value)
                             setRolloutPercentage(value)
                         }}
                     />

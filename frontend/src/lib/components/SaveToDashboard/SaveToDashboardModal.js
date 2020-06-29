@@ -6,6 +6,7 @@ import { kea, useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Input, Select, Modal, Radio, Alert } from 'antd'
 import { prompt } from 'lib/logic/prompt'
+import moment from 'moment'
 
 const saveToDashboardModalLogic = kea({
     actions: () => ({
@@ -41,6 +42,7 @@ export function SaveToDashboardModal({
     fromItem,
     fromDashboard,
     fromItemName,
+    annotations,
 }) {
     const { dashboards, lastVisitedDashboardId } = useValues(dashboardsModel)
     const [dashboardId, setDashboardId] = useState(
@@ -56,7 +58,18 @@ export function SaveToDashboardModal({
     async function save(event) {
         event.preventDefault()
         if (newItem) {
-            await api.create('api/dashboard_item', { filters, type, name, dashboard: dashboardId })
+            const response = await api.create('api/dashboard_item', { filters, type, name, dashboard: dashboardId })
+            if (annotations) {
+                for (const { content, date_marker, created_at } of annotations) {
+                    console.log(created_at)
+                    await api.create('api/annotation', {
+                        content,
+                        date_marker: moment(date_marker),
+                        created_at,
+                        dashboard_item: response.id,
+                    })
+                }
+            }
         } else {
             await api.update(`api/dashboard_item/${fromItem}`, { filters, type })
         }

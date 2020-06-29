@@ -43,7 +43,7 @@ export const annotationsModel = kea({
         ],
     }),
     selectors: ({ selectors }) => ({
-        annotations: [
+        annotationsList: [
             () => [selectors.annotationsToCreate],
             annotationsToCreate => {
                 return Object.entries(annotationsToCreate).map(([key, value]) => ({

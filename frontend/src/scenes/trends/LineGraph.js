@@ -1,5 +1,5 @@
 import React, { Component, useState, useEffect, useRef } from 'react'
-import { useValues, useActions } from 'kea'
+import { useValues, useActions, useMountedLogic } from 'kea'
 import Chart from 'chart.js'
 import PropTypes from 'prop-types'
 import { operatorMap } from '~/lib/utils'
@@ -326,14 +326,16 @@ export function LineGraph({ datasets, labels, color, type, isInProgress, onClick
 const Annotations = React.memo(function Annotations({ labeledDates, leftExtent, interval, topExtent }) {
     const [groupedAnnotations, setGroupedAnnotations] = useState({})
     const [diffType, setDiffType] = useState(determineDifferenceType(labeledDates[0], labeledDates[1]))
-    const { annotations } = useValues(annotationsModel)
+    const { annotationsList } = useValues(annotationsModel)
+    const { createAnnotation } = useActions(annotationsModel)
+    const [textInput, setTextInput] = useState('')
 
     useEffect(() => {
         // calculate groups
         setDiffType(determineDifferenceType(labeledDates[0], labeledDates[1]))
-        let groupedResults = _.groupBy(annotations, annote => moment(annote['date_marker']).startOf(diffType))
+        let groupedResults = _.groupBy(annotationsList, annote => moment(annote['date_marker']).startOf(diffType))
         setGroupedAnnotations(groupedResults)
-    }, [annotations, labeledDates])
+    }, [annotationsList, labeledDates])
 
     const markers = []
     labeledDates.forEach((date, index) => {
@@ -348,9 +350,22 @@ const Annotations = React.memo(function Annotations({ labeledDates, leftExtent, 
                             {groupedAnnotations[moment(date).startOf(diffType)].map(data => (
                                 <div key={data.id}>{data.content}</div>
                             ))}
-                            <TextArea style={{ marginBottom: 12 }} rows={4}></TextArea>
+                            <TextArea
+                                style={{ marginBottom: 12 }}
+                                rows={4}
+                                value={textInput}
+                                onChange={e => setTextInput(e.target.value)}
+                            ></TextArea>
                             <Row justify="end">
-                                <Button type="primary">Add</Button>
+                                <Button
+                                    type="primary"
+                                    onClick={() => {
+                                        createAnnotation(textInput, labeledDates[index])
+                                        setTextInput('')
+                                    }}
+                                >
+                                    Add
+                                </Button>
                             </Row>
                         </div>
                     }

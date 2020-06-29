@@ -1,3 +1,4 @@
+from posthog.models import DashboardItem
 from django.db.models import QuerySet
 from posthog.models import Annotation
 from rest_framework import request, serializers, viewsets
@@ -9,7 +10,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Annotation
-        fields = ['id', 'content', 'creation_type', 'created_by', 'created_at', 'updated_at', 'date_marker']
+        fields = ['id', 'content', 'date_marker', 'creation_type', 'dashboard_item', 'created_by', 'created_at', 'updated_at']
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
         request = self.context['request']

@@ -10,7 +10,7 @@ class Annotation(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     content: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     created_at: models.DateTimeField = models.DateTimeField(
-        auto_now_add=True, blank=True
+        null=True, blank=True
     )
     updated_at: models.DateTimeField = models.DateTimeField(
         auto_now=True
@@ -26,7 +26,7 @@ class Annotation(models.Model):
         choices=CreationType.choices,
         default=CreationType.USER,
     )
-    date_marker: models.DateTimeField(null=True, blank=True)
+    date_marker: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     apply_all: models.BooleanField = models.BooleanField(default=False)
     deleted: models.BooleanField = models.BooleanField(default=False)
