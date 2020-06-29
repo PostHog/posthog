@@ -5,6 +5,7 @@ import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { useActions, useValues } from 'kea'
 import { Fade } from 'lib/components/Fade/Fade'
 import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
+import { Fire } from '~/toolbar/button/icons/Fire'
 
 export function DraggableButton({ showInvisibleButton }) {
     const { dragPosition, heatmapPosition, heatmapButtonIndependent } = useValues(toolbarButtonLogic)
@@ -25,12 +26,16 @@ export function DraggableButton({ showInvisibleButton }) {
 
             <Fade visible={heatmapButtonIndependent}>
                 <Draggable
-                    handle=".toolbar-info-windows"
+                    handle=".toolbar-info-window-title"
                     position={heatmapPosition}
                     onDrag={(e, { x, y }) => saveHeatmapPosition(x, y)}
                     onStop={(e, { x, y }) => saveHeatmapPosition(x, y)}
                 >
                     <div className="toolbar-info-windows heatmap-button-window">
+                        <div className="toolbar-info-window-title">
+                            <Fire engaged style={{ height: 18 }} />
+                            <span>Heatmap</span>{' '}
+                        </div>
                         <HeatmapStats buttonMode />
                     </div>
                 </Draggable>

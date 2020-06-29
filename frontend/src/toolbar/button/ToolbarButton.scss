@@ -27,10 +27,24 @@
     opacity: 1;
     transition: opacity ease 0.5s;
 
+    .toolbar-info-window-title {
+        height: 42px;
+        line-height: 26px;
+        padding-left: 15px;
+        display: flex;
+        width: 100%;
+        align-items: center;
+        cursor: move;
+    }
+
     &.heatmap-button-window {
         border-left: 4px solid #f54d01;
         .toolbar-block {
             background: hsla(19, 99%, 99%, 1);
+        }
+        .toolbar-info-window-title {
+            color: hsla(19, 89%, 15%, 1);
+            background: hsla(19, 99%, 83%, 1);
         }
     }
 }
