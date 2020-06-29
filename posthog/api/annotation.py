@@ -9,7 +9,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Annotation
-        fields = ['id', 'content', 'creation_type', 'created_by', 'created_at', 'updated_at']
+        fields = ['id', 'content', 'creation_type', 'created_by', 'created_at', 'updated_at', 'date_marker']
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
         request = self.context['request']
