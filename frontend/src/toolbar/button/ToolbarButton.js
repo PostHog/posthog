@@ -243,7 +243,6 @@ export function ToolbarButton() {
                                         {heatmapButtonIndependent ? 'X' : elementCount}
                                     </div>
                                 }
-                                labelPosition={side === 'left' ? 'right' : 'left'}
                                 zIndex={4}
                                 onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
                                 style={{
