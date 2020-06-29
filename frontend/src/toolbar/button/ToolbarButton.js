@@ -226,12 +226,18 @@ export function ToolbarButton() {
                         ) : heatmapEnabled ? (
                             <Circle
                                 width={26}
-                                x={-50}
+                                x={-50 * extensionPercentage}
                                 y={0}
                                 content={
                                     <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
                                 }
                                 label="Stats"
+                                labelStyle={{
+                                    opacity:
+                                        heatmapEnabled && !heatmapLoading && extensionPercentage > 0.8
+                                            ? (extensionPercentage - 0.8) / 0.2
+                                            : 0,
+                                }}
                                 labelPosition="left"
                                 zIndex={4}
                                 onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
@@ -240,8 +246,9 @@ export function ToolbarButton() {
                                     background: heatmapInfoVisible ? '#FF5722' : 'hsl(14, 100%, 97%)',
                                     color: heatmapInfoVisible ? '#FFEB3B' : '#FF5722',
                                     fontSize: '20px',
+                                    lineHeight: '26px',
                                     transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
-                                    borderRadius,
+                                    borderRadius: 7,
                                 }}
                             />
                         ) : null}
