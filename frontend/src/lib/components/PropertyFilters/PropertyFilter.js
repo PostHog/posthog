@@ -86,7 +86,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                         labelInValue
                         value={{
                             value: operator || '=',
-                            label: operatorMap[operator || '='],
+                            label: operatorMap[operator || 'exact'],
                         }}
                         placeholder="Property key"
                         onChange={(_, new_operator) => {
@@ -104,7 +104,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     >
                         {Object.keys(operatorMap).map(operator => (
                             <Select.Option key={operator} value={operator}>
-                                {operatorMap[operator] || '= equals'}
+                                {operatorMap[operator || 'exact']}
                             </Select.Option>
                         ))}
                     </Select>
