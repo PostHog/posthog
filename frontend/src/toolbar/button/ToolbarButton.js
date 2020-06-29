@@ -2,14 +2,7 @@ import './ToolbarButton.scss'
 
 import React, { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import {
-    CloseOutlined,
-    FlagOutlined,
-    SearchOutlined,
-    FireFilled,
-    DatabaseOutlined,
-    LineChartOutlined,
-} from '@ant-design/icons'
+import { CloseOutlined, FireFilled, DatabaseOutlined } from '@ant-design/icons'
 import { HogLogo } from '~/toolbar/assets/HogLogo'
 import { Circle } from '~/toolbar/button/Circle'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
@@ -19,6 +12,10 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { getShadowRoot } from '~/toolbar/utils'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { useLongPress } from 'lib/hooks/useLongPress'
+import { Stats } from '~/toolbar/button/icons/Stats'
+import { Flag } from '~/toolbar/button/icons/Flag'
+import { Fire } from '~/toolbar/button/icons/Fire'
+import { Magnifier } from '~/toolbar/button/icons/Magnifier'
 
 export function ToolbarButton() {
     const {
@@ -163,7 +160,7 @@ export function ToolbarButton() {
                         }}
                         content={
                             <div style={{ position: 'relative' }}>
-                                <SearchOutlined />
+                                <Magnifier style={{ height: 34, paddingTop: 2 }} engaged={inspectEnabled} />
                                 {inspectEnabled && selectedElement ? (
                                     <div
                                         style={{
@@ -183,9 +180,7 @@ export function ToolbarButton() {
                         onClick={inspectEnabled ? disableInspect : enableInspect}
                         style={{
                             cursor: 'pointer',
-                            background: inspectEnabled ? 'rgb(84, 138, 248)' : 'hsla(220, 52%, 96%, 1)',
-                            color: inspectEnabled ? 'hsla(220, 52%, 96%, 1)' : 'rgb(84, 138, 248)',
-                            fontSize: '32px',
+                            background: inspectEnabled ? '#8F98FF' : '#E7EAFD',
                             transition: 'transform 0.2s, color 0.2s, background: 0.2s',
                             transform: `scale(${0.2 + 0.8 * inspectExtensionPercentage})`,
                             borderRadius,
@@ -207,14 +202,12 @@ export function ToolbarButton() {
                                     ? (heatmapExtensionPercentage - 0.8) / 0.2
                                     : 0,
                         }}
-                        content={<FireFilled />}
+                        content={<Fire style={{ height: 26 }} engaged={heatmapEnabled} />}
                         zIndex={2}
                         onClick={heatmapEnabled ? disableHeatmap : enableHeatmap}
                         style={{
                             cursor: 'pointer',
-                            background: heatmapEnabled ? '#FF5722' : 'hsl(14, 100%, 97%)',
-                            color: heatmapEnabled ? '#FFEB3B' : '#FF5722',
-                            fontSize: '32px',
+                            background: heatmapEnabled ? '#FF9870' : '#FEE3DA',
                             transform: `scale(${0.2 + 0.8 * heatmapExtensionPercentage})`,
                             borderRadius,
                         }}
@@ -248,14 +241,6 @@ export function ToolbarButton() {
                                         {heatmapButtonIndependent ? 'X' : elementCount}
                                     </div>
                                 }
-                                label="Stats"
-                                labelStyle={{
-                                    opacity: heatmapButtonIndependent
-                                        ? 0
-                                        : heatmapEnabled && !heatmapLoading && heatmapExtensionPercentage > 0.8
-                                        ? (heatmapExtensionPercentage - 0.8) / 0.2
-                                        : 0,
-                                }}
                                 labelPosition={side === 'left' ? 'right' : 'left'}
                                 zIndex={4}
                                 onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
@@ -283,15 +268,13 @@ export function ToolbarButton() {
                         label="Actions"
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
-                        content={<FlagOutlined />}
+                        content={<Flag style={{ height: 30 }} />}
                         zIndex={1}
                         onClick={dock}
                         style={{
                             cursor: 'pointer',
-                            fontSize: '24px',
                             transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
-                            color: 'hsl(111, 42%, 41%)',
-                            background: 'hsla(111, 42%, 95%, 1)',
+                            background: '#D6EBCC', // engaged: #94D674
                             borderRadius,
                         }}
                     />
@@ -304,15 +287,13 @@ export function ToolbarButton() {
                         label="Stats"
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
-                        content={<LineChartOutlined />}
+                        content={<Stats style={{ height: 23 }} />}
                         zIndex={1}
                         onClick={dock}
                         style={{
                             cursor: 'pointer',
-                            fontSize: '24px',
                             transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
-                            background: 'hsla(42, 95%, 93%, 1)',
-                            color: 'hsla(42, 95%, 38%, 1)',
+                            background: '#FFE19B', // engaged: #FFCB51
                             borderRadius,
                         }}
                     />
