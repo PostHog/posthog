@@ -244,14 +244,12 @@ export function DashboardItem({
                 </div>
                 <div className="dashboard-item-content">
                     {Element ? (
-                        <div className="graph-container">
-                            <Element
-                                dashboardItemId={item.id}
-                                filters={filters}
-                                color={color}
-                                theme={color === 'white' ? 'light' : 'dark'}
-                            />
-                        </div>
+                        <Element
+                            dashboardItemId={item.id}
+                            filters={filters}
+                            color={color}
+                            theme={color === 'white' ? 'light' : 'dark'}
+                        />
                     ) : (
                         <Loading />
                     )}
