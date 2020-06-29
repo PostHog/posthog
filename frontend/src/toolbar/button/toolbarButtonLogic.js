@@ -1,5 +1,7 @@
 import { kea } from 'kea'
 import { inBounds } from '~/toolbar/utils'
+import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
 export const toolbarButtonLogic = kea({
     actions: () => ({
@@ -7,6 +9,7 @@ export const toolbarButtonLogic = kea({
         hideHeatmapInfo: true,
         setExtensionPercentage: percentage => ({ percentage }),
         saveDragPosition: (x, y) => ({ x, y }),
+        saveHeatmapPosition: (x, y) => ({ x, y }),
     }),
 
     windowValues: () => ({
@@ -14,12 +17,14 @@ export const toolbarButtonLogic = kea({
         windowWidth: window => Math.min(window.innerWidth, window.document.body.clientWidth),
     }),
 
-    reducers: {
+    reducers: () => ({
         heatmapInfoVisible: [
             false,
             {
                 showHeatmapInfo: () => true,
                 hideHeatmapInfo: () => false,
+                [heatmapLogic.actions.disableHeatmap]: () => false,
+                [heatmapLogic.actions.enableHeatmap]: () => false,
             },
         ],
         extensionPercentage: [
@@ -35,7 +40,13 @@ export const toolbarButtonLogic = kea({
                 saveDragPosition: (state, { x, y }) => ({ x, y }),
             },
         ],
-    },
+        heatmapPosition: [
+            { x: 100, y: 100 },
+            {
+                saveHeatmapPosition: (state, { x, y }) => ({ x, y }),
+            },
+        ],
+    }),
 
     selectors: {
         dragPosition: [
@@ -61,11 +72,11 @@ export const toolbarButtonLogic = kea({
             s => [s.dragPosition, s.windowHeight],
             ({ y }, windowHeight) => {
                 if (y < 90) {
-                    return 90 - y
+                    return -60 + 90 - y
                 } else if (y > windowHeight - 160) {
-                    return -(160 - (windowHeight - y))
+                    return -60 - (160 - (windowHeight - y))
                 }
-                return 0
+                return -60
             },
         ],
         dockButtonOnTop: [s => [s.dragPosition, s.windowHeight], ({ y }, windowHeight) => y > windowHeight - 100],
@@ -77,6 +88,57 @@ export const toolbarButtonLogic = kea({
         closeRotation: [
             s => [s.dragPosition, s.windowWidth],
             ({ x, y }, windowWidth) => -54 + (x > windowWidth - 40 || y < 80 ? 10 : 0) + (y < 40 ? 10 : 0),
+        ],
+        inspectExtensionPercentage: [
+            s => [elementsLogic.selectors.inspectEnabled, s.extensionPercentage],
+            (inspectEnabled, extensionPercentage) =>
+                inspectEnabled ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
+        ],
+        heatmapExtensionPercentage: [
+            s => [heatmapLogic.selectors.heatmapEnabled, s.extensionPercentage],
+            (heatmapEnabled, extensionPercentage) =>
+                heatmapEnabled ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
+        ],
+        heatmapButtonIndependent: [
+            s => [s.heatmapInfoVisible, heatmapLogic.selectors.heatmapEnabled],
+            (heatmapInfoVisible, heatmapEnabled) => heatmapInfoVisible && heatmapEnabled,
+        ],
+        heatmapButtonPosition: [
+            s => [s.heatmapExtensionPercentage, s.side],
+            (heatmapExtensionPercentage, side) => {
+                return {
+                    x: (side === 'left' ? 50 : -50) * heatmapExtensionPercentage * heatmapExtensionPercentage,
+                    y: 0,
+                }
+            },
+        ],
+        // TODO: make the button move between origin and diff on show/hide
+        heatmapButtonActiveDiff: [
+            s => [
+                s.heatmapButtonPosition,
+                s.dragPosition,
+                s.heatmapPosition,
+                s.heatmapExtensionPercentage,
+                s.side,
+                s.toolbarListVerticalPadding,
+            ],
+            (
+                heatmapButtonPosition,
+                dragPosition,
+                heatmapPosition,
+                heatmapExtensionPercentage,
+                side,
+                toolbarListVerticalPadding
+            ) => {
+                const toolbarX = (side === 'left' ? 80 : -80) * heatmapExtensionPercentage + heatmapButtonPosition.x
+                const toolbarY =
+                    (toolbarListVerticalPadding + 1 * 60) * heatmapExtensionPercentage + heatmapButtonPosition.y
+
+                return {
+                    x: heatmapPosition.x - (dragPosition.x + toolbarX) + 300,
+                    y: heatmapPosition.y - (dragPosition.y + toolbarY),
+                }
+            },
         ],
     },
 })

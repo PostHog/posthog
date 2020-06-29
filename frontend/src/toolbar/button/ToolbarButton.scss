@@ -16,3 +16,39 @@
         }
     }
 }
+
+.toolbar-info-windows {
+    position: fixed;
+    width: 300px;
+    left: 0;
+    top: 0;
+    z-index: 2147483020;
+    box-shadow: hsla(4, 30%, 27%, 0.6) 0px 3px 10px 2px;
+    opacity: 1;
+    transition: opacity ease 0.5s;
+
+    .heatmap-button-window {
+        border-left: 4px solid #f54d01;
+        .toolbar-block {
+            backgorund: hsla(19, 99%, 99%, 1);
+        }
+    }
+}
+
+@keyframes fadeIn {
+    0% {
+        opacity: 0;
+    }
+    100% {
+        opacity: 1;
+    }
+}
+
+@keyframes fadeOut {
+    0% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+    }
+}
