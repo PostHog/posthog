@@ -4,7 +4,10 @@ import PropTypes from 'prop-types'
 import { operatorMap } from '~/lib/utils'
 import _ from 'lodash'
 import { getChartColors } from 'lib/colors'
+import { Button, Popover, Row, Input, Space } from 'antd'
+const { TextArea } = Input
 
+import { PlusOutlined } from '@ant-design/icons'
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
 Chart.defaults.global.legend.display = false
@@ -19,6 +22,9 @@ export class LineGraph extends Component {
         left: 0,
         right: 0,
         enabled: false,
+        focused: false,
+        labelIndex: null,
+        selectedDayLabel: null,
     }
 
     chartRef = React.createRef()
@@ -108,6 +114,7 @@ export class LineGraph extends Component {
                           maintainAspectRatio: false,
                           scaleShowHorizontalLines: false,
                           tooltips: {
+                              yAlign: 'bottom',
                               enabled: true,
                               intersect: false,
                               mode: 'nearest',
@@ -241,6 +248,7 @@ export class LineGraph extends Component {
                               }
                           },
                           onHover: evt => {
+                              if (this.state.focused) return
                               const leftExtent = this.myLineChart.scales['x-axis-0'].left
                               const rightExtent = this.myLineChart.scales['x-axis-0'].right
                               const ticks = this.myLineChart.scales['x-axis-0'].ticks.length
@@ -257,6 +265,7 @@ export class LineGraph extends Component {
                               if (index >= 0 && index < ticks) {
                                   this.setState({
                                       left: index * interval + leftExtent,
+                                      labelIndex: index,
                                   })
                               }
                           },
@@ -269,6 +278,10 @@ export class LineGraph extends Component {
         })
     }
 
+    changeFocus = visible => {
+        this.setState({ focused: visible })
+    }
+
     render() {
         return (
             <div
@@ -279,20 +292,50 @@ export class LineGraph extends Component {
                 <canvas
                     ref={this.chartRef}
                     onMouseOver={e => {
-                        this.setState({ enabled: true, left: -1 })
+                        !this.state.focused && this.setState({ enabled: true, left: -1 })
                     }}
                 />
-                {this.state.enabled && this.state.left >= 0 && (
-                    <button
-                        style={{
-                            position: 'absolute',
-                            left: this.state.where === 'front' ? this.state.left - 25 : 335,
-                            bottom: 45,
-                            width: 50,
-                        }}
+                {(this.state.enabled || this.state.focused) && this.state.left >= 0 && (
+                    <Popover
+                        trigger="click"
+                        defaultVisible={false}
+                        content={
+                            <div>
+                                <span style={{ marginBottom: 12 }}>{this.state.selectedDayLabel}</span>
+                                <TextArea style={{ marginBottom: 12 }} rows={4}></TextArea>
+                                <Row justify="end">
+                                    <Button onClick={() => this.setState({ focused: false })}>Cancel</Button>
+                                    <Button type="primary" onClick={() => this.setState({ focused: false })}>
+                                        Add
+                                    </Button>
+                                </Row>
+                            </div>
+                        }
+                        title={'Add Annotation'}
+                        visible={this.state.focused}
                     >
-                        HE
-                    </button>
+                        <Button
+                            style={{
+                                position: 'absolute',
+                                left: this.state.where === 'front' ? this.state.left - 15 : 335,
+                                bottom: 45,
+                                width: 30,
+                                height: 30,
+                                display: 'flex',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                            }}
+                            type="primary"
+                            onClick={() => {
+                                this.setState({
+                                    focused: true,
+                                    selectedDayLabel: this.props.datasets[0].labels[this.state.labelIndex],
+                                })
+                            }}
+                        >
+                            <PlusOutlined></PlusOutlined>
+                        </Button>
+                    </Popover>
                 )}
             </div>
         )
