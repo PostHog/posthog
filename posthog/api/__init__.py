@@ -8,10 +8,12 @@ from . import (
     cohort,
     element,
     feature_flag,
+    annotation
 )
 from rest_framework import routers
 
 router = routers.DefaultRouter()
+router.register(r"annotation", annotation.AnnotationsViewSet)
 router.register(r"event", event.EventViewSet)
 router.register(r"element", element.ElementViewSet)
 router.register(r"person", person.PersonViewSet)
