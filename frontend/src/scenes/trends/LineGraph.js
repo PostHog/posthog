@@ -4,7 +4,7 @@ import PropTypes from 'prop-types'
 import { operatorMap } from '~/lib/utils'
 import _ from 'lodash'
 import { getChartColors } from 'lib/colors'
-import { Button, Popover, Row, Input, Space } from 'antd'
+import { Button, Popover, Row, Input } from 'antd'
 const { TextArea } = Input
 
 import { PlusOutlined } from '@ant-design/icons'
@@ -318,7 +318,7 @@ export class LineGraph extends Component {
                             style={{
                                 position: 'absolute',
                                 left: this.state.where === 'front' ? this.state.left - 15 : 335,
-                                bottom: 45,
+                                top: this.myLineChart.scales['x-axis-0'].top + 12,
                                 width: 30,
                                 height: 30,
                                 display: 'flex',
