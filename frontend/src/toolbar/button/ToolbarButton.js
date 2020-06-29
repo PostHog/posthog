@@ -18,6 +18,7 @@ import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { getShadowRoot } from '~/toolbar/utils'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { useLongPress } from 'lib/hooks/useLongPress'
 
 export function ToolbarButton() {
     const { extensionPercentage, heatmapInfoVisible, toolbarListVerticalPadding, dockButtonOnTop, side } = useValues(
@@ -66,6 +67,24 @@ export function ToolbarButton() {
         return () => window.removeEventListener('mousemove', globalMouseMove.current)
     }, [isAuthenticated])
 
+    const clickEvents = useLongPress(
+        clicked => {
+            if (clicked) {
+                if (isAuthenticated) {
+                    setExtensionPercentage(extensionPercentage === 1 ? 0 : 1)
+                } else {
+                    authenticate()
+                }
+            }
+        },
+        {
+            ms: null,
+            clickMs: 1,
+            touch: true,
+            click: true,
+        }
+    )
+
     const borderRadius = 14
     const buttonWidth = 42
 
@@ -85,13 +104,7 @@ export function ToolbarButton() {
                 )
             }
             labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0, marginTop: 16 }}
-            onClick={() => {
-                if (isAuthenticated) {
-                    setExtensionPercentage(extensionPercentage === 1 ? 0 : 1)
-                } else {
-                    authenticate()
-                }
-            }}
+            {...clickEvents}
             style={{ borderRadius: 10, height: 46, marginTop: -23 }}
             zIndex={3}
         >

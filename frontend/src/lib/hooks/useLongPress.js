@@ -32,7 +32,7 @@ export function useLongPress(
 
     useEffect(() => {
         let timerId
-        if (startLongPress) {
+        if (startLongPress && ms) {
             timerId = setTimeout(() => {
                 callback(false, window.performance.now() - startLongPress, initialCoords)
                 stop()
@@ -68,7 +68,7 @@ export function useLongPress(
     function stopClick() {
         if (clickMs && startLongPress) {
             const timeDiff = window.performance.now() - startLongPress
-            if (timeDiff >= clickMs && timeDiff < ms) {
+            if (timeDiff >= clickMs && (!ms || timeDiff < ms)) {
                 callback(true, timeDiff)
             }
         }
