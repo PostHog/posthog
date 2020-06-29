@@ -30,7 +30,6 @@ export function ToolbarButton() {
         inspectExtensionPercentage,
         heatmapExtensionPercentage,
         heatmapButtonPosition,
-        heatmapButtonIndependent,
     } = useValues(toolbarButtonLogic)
 
     const { setExtensionPercentage, showHeatmapInfo, hideHeatmapInfo } = useActions(toolbarButtonLogic)
@@ -220,9 +219,7 @@ export function ToolbarButton() {
                                 x={heatmapButtonPosition.x}
                                 y={heatmapButtonPosition.y}
                                 content={
-                                    <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
-                                        {heatmapButtonIndependent ? 'X' : elementCount}
-                                    </div>
+                                    <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
                                 }
                                 zIndex={4}
                                 onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
@@ -250,7 +247,7 @@ export function ToolbarButton() {
                         label="Actions"
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
-                        content={<Flag style={{ height: 30 }} />}
+                        content={<Flag style={{ height: 29 }} />}
                         zIndex={1}
                         onClick={() => {
                             dock()
@@ -272,13 +269,13 @@ export function ToolbarButton() {
                         label="Stats"
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
-                        content={<Stats style={{ height: 23 }} />}
+                        content={<Stats style={{ height: 25 }} />}
                         zIndex={1}
                         onClick={dock}
                         style={{
                             cursor: 'pointer',
                             transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
-                            background: '#FFE19B', // engaged: #FFCB51
+                            background: '#FEF5E2', // engaged: #F1AA04
                             borderRadius,
                         }}
                     />
