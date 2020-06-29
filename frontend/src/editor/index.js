@@ -4,13 +4,9 @@ import Simmer from 'simmerjs'
 import root from 'react-shadow'
 import { ActionEdit } from '~/scenes/actions/ActionEdit'
 import Draggable from 'react-draggable'
-import { connect, getContext } from 'kea'
+import { getContext } from 'kea'
 import { Provider } from 'react-redux'
 import { hot } from 'react-hot-loader/root'
-import { initKea } from '~/initKea'
-import { userLogic } from 'scenes/userLogic'
-
-initKea()
 
 window.simmer = new Simmer(window, { depth: 8 })
 
@@ -190,7 +186,8 @@ class _App extends Component {
         )
     }
 }
-const App = hot(connect([userLogic])(_App))
+
+const App = hot(_App)
 
 window.ph_load_editor = function(editorParams) {
     let container = document.createElement('div')
