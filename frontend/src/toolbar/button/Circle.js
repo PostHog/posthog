@@ -26,11 +26,13 @@ export function Circle({
     children,
     rootNode = false,
     accumulatedRotation = 0,
+    rotationFixer = () => 0,
     ...props
 }) {
     const useCoords = typeof x !== 'undefined' && typeof y !== 'undefined'
     const usedDistance = useCoords ? Math.sqrt(x * x + y * y) * extensionPercentage : distance * extensionPercentage
-    const usedRotation = (useCoords ? Math.atan2(y, x) * (180 / Math.PI) + 360 : rotation) - accumulatedRotation
+    let usedRotation = (useCoords ? Math.atan2(y, x) * (180 / Math.PI) : rotation) - accumulatedRotation
+    usedRotation = usedRotation + rotationFixer(usedRotation)
 
     const clonedChildren = React.Children.toArray(children).map(child =>
         React.cloneElement(child, {

@@ -124,7 +124,7 @@ export function ToolbarButton() {
                         width={32}
                         extensionPercentage={extensionPercentage}
                         distance={dockButtonOnTop ? 90 : 55}
-                        rotation={dockButtonOnTop ? -95 : 90}
+                        rotation={dockButtonOnTop ? (side === 'left' ? -95 + 360 : -95) : 90}
                         content={<DatabaseOutlined />}
                         label="Dock"
                         zIndex={5}
@@ -142,6 +142,7 @@ export function ToolbarButton() {
                         x={side === 'left' ? 80 : -80}
                         y={-90 + toolbarListVerticalPadding}
                         extensionPercentage={extensionPercentage}
+                        rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
                         label="Inspect"
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
@@ -180,6 +181,7 @@ export function ToolbarButton() {
                         x={side === 'left' ? 80 : -80}
                         y={-30 + toolbarListVerticalPadding}
                         extensionPercentage={extensionPercentage}
+                        rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
                         label={heatmapEnabled && !heatmapLoading ? null : 'Heatmap'}
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{
@@ -249,6 +251,7 @@ export function ToolbarButton() {
                         x={side === 'left' ? 80 : -80}
                         y={30 + toolbarListVerticalPadding}
                         extensionPercentage={extensionPercentage}
+                        rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
                         label="Actions"
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
@@ -269,6 +272,7 @@ export function ToolbarButton() {
                         x={side === 'left' ? 80 : -80}
                         y={90 + toolbarListVerticalPadding}
                         extensionPercentage={extensionPercentage}
+                        rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
                         label="Stats"
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
