@@ -28,7 +28,6 @@
         "babel-preset-nano-react-app": "^0.1.0",
         "bootstrap": "^4.4.1",
         "chart.js": "^2.9.3",
-        "chartjs-plugin-annotation": "^0.5.7",
         "core-js": "3",
         "d3": "^5.15.0",
         "d3-sankey": "^0.12.3",
