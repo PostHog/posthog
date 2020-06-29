@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { elementToActionStep, actionStepToAntdForm, stepToDatabaseFormat } from '~/toolbar/elements/utils'
+import { elementToActionStep, actionStepToAntdForm, stepToDatabaseFormat } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { toast } from 'react-toastify'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'

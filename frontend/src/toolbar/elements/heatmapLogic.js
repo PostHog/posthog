@@ -3,7 +3,7 @@
 import { kea } from 'kea'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { elementToActionStep, elementToSelector } from '~/toolbar/elements/utils'
+import { elementToActionStep, elementToSelector } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 export const heatmapLogic = kea({

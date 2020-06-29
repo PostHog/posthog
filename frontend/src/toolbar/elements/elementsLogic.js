@@ -2,7 +2,7 @@ import { kea } from 'kea'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { elementToActionStep, getAllClickTargets, getElementForStep } from '~/toolbar/elements/utils'
+import { elementToActionStep, getAllClickTargets, getElementForStep } from '~/toolbar/utils'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
