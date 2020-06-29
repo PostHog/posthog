@@ -7,35 +7,6 @@
     }
 }
 
-#float-toolbar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    z-index: 2147483020;
-    width: 300px;
-    max-height: calc(100vh - 2rem);
-    opacity: 1;
-    transition: opacity ease 0.5s;
-    color: #333;
-
-    &.toolbar-invisible {
-        opacity: 0;
-    }
-
-    .toolbar-block {
-        max-height: calc(100vh - 200px);
-        overflow: auto;
-        box-shadow: hsla(219, 14%, 20%, 0.3) 12px 30px 70px, hsla(219, 14%, 20%, 0.3) 3px 8px 10px;
-        .ant-tabs-bar {
-            margin: 0;
-        }
-        & + .toolbar-block {
-            border-top: 1px solid hsla(219, 14%, 20%, 0.3);
-            margin-top: 0px;
-        }
-    }
-}
-
 #dock-toolbar {
     --zoom: 0.7;
     --padding: 30px;
@@ -91,10 +62,7 @@
             color: hsla(240, 14%, 42%, 1);
         }
     }
-}
 
-#dock-toolbar,
-#float-toolbar {
     .ant-tabs-nav-scroll {
         text-align: center;
     }

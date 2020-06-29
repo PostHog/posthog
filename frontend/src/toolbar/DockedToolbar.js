@@ -1,5 +1,4 @@
 import React from 'react'
-import { hot } from 'react-hot-loader/root'
 import { useActions, useValues } from 'kea'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { ToolbarTabs } from '~/toolbar/ToolbarTabs'
@@ -8,15 +7,11 @@ import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 import { Button } from 'antd'
-import { dockLogic } from '~/toolbar/dockLogic'
-import { CloseOutlined, InsertRowRightOutlined } from '@ant-design/icons'
 
-export const ToolbarContent = hot(_ToolbarContent)
-function _ToolbarContent({ type }) {
+export function DockedToolbar({ type }) {
     const { tab } = useValues(toolbarTabLogic)
     const { hoverElement, selectedElement, inspectEnabled, heatmapEnabled } = useValues(elementsLogic)
     const { setSelectedElement } = useActions(elementsLogic)
-    const { button, dock } = useActions(dockLogic)
 
     const showElementInsteadOfTabs =
         type === 'dock' && tab === 'stats' && (inspectEnabled || heatmapEnabled) && (hoverElement || selectedElement)
@@ -42,16 +37,6 @@ function _ToolbarContent({ type }) {
                 </>
             ) : (
                 <div>
-                    {type === 'float' ? (
-                        <div style={{ textAlign: 'right' }}>
-                            <Button onClick={dock}>
-                                Dock <InsertRowRightOutlined />
-                            </Button>
-                            <Button onClick={button}>
-                                Close <CloseOutlined />
-                            </Button>
-                        </div>
-                    ) : null}
                     <ToolbarTabs type={type} />
                     {tab === 'stats' ? <StatsTab /> : null}
                     {tab === 'actions' ? <ActionsTab /> : null}

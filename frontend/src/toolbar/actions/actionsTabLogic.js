@@ -155,7 +155,7 @@ export const actionsTabLogic = kea({
         afterMount: () => {
             const { mode } = dockLogic.values
             const { tab } = toolbarTabLogic.values
-            if (tab === 'actions' && (mode === 'float' || mode === 'dock')) {
+            if (tab === 'actions' && mode === 'dock') {
                 actionsLogic.actions.getActions()
             }
         },
