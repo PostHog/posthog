@@ -1,6 +1,6 @@
 import React from 'react'
 import { Select } from 'antd'
-import { operatorMap } from 'lib/utils'
+import { operatorMap, isOperatorNonparametric } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { PropertyKeyInfo, keyMapping } from 'lib/components/PropertyKeyInfo'
 import { useValues, useActions } from 'kea'
@@ -9,6 +9,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
     const { eventProperties, personProperties, filters } = useValues(logic)
     const { setFilter } = useActions(logic)
     let { key, value, operator, type } = filters[index]
+
     return (
         <div className="row" style={{ margin: '0.5rem -15px', minWidth: key ? 700 : 400 }}>
             <div className={key ? 'col-4' : 'col'}>
@@ -78,20 +79,26 @@ export function PropertyFilter({ index, onComplete, logic }) {
             </div>
 
             {key && (
-                <div className="col-3 pl-0">
+                <div className={`col-${isOperatorNonparametric(operator) ? 8 : 3} pl-0`}>
                     <Select
                         style={{ width: '100%' }}
                         defaultActiveFirstOption
                         labelInValue
                         value={{
                             value: operator || '=',
-                            label: operatorMap[operator] || '= equals',
+                            label: operatorMap[operator || '='],
                         }}
                         placeholder="Property key"
                         onChange={(_, new_operator) => {
                             let new_value = value
-                            if (operator === 'is_set') new_value = undefined
-                            if (new_operator.value === 'is_set') new_value = 'true'
+                            if (isOperatorNonparametric(new_operator.value)) {
+                                // change value to induce reload
+                                new_value = new_operator.value
+                                onComplete()
+                            } else {
+                                // clear value if switching from nonparametric to parametric
+                                if (isOperatorNonparametric(operator)) new_value = undefined
+                            }
                             setFilter(index, key, new_value, new_operator.value, type)
                         }}
                     >
@@ -103,7 +110,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     </Select>
                 </div>
             )}
-            {key && (
+            {key && !isOperatorNonparametric(operator) && (
                 <div className="col-5 pl-0">
                     <PropertyValue
                         type={type}
