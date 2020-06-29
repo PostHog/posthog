@@ -214,7 +214,7 @@ export function ToolbarButton() {
                             borderRadius,
                         }}
                     >
-                        {heatmapEnabled ? (
+                        {heatmapEnabled && !heatmapLoading ? (
                             <Circle
                                 width={26}
                                 x={heatmapButtonPosition.x}
