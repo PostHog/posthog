@@ -368,16 +368,18 @@ export class ActionStep extends Component {
                                 )}
                             </div>
                         )}
-                        <PropertyFilters
-                            propertyFilters={step.properties}
-                            pageKey={'action-edit'}
-                            onChange={properties => {
-                                this.sendStep({
-                                    ...this.props.step, // Not sure why, but the normal 'step' variable does not work here
-                                    properties,
-                                })
-                            }}
-                        />
+                        {!isEditor && (
+                            <PropertyFilters
+                                propertyFilters={step.properties}
+                                pageKey={'action-edit'}
+                                onChange={properties => {
+                                    this.sendStep({
+                                        ...this.props.step, // Not sure why, but the normal 'step' variable does not work here
+                                        properties,
+                                    })
+                                }}
+                            />
+                        )}
                     </div>
                 </div>
             </div>
