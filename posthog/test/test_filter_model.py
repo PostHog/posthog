@@ -108,18 +108,18 @@ class TestPropertiesToQ(BaseTest):
         self.assertEqual(events[0], event2)
         self.assertEqual(len(events), 1)
 
-    def test_is_set(self):
+    def test_is_not_set_and_is_set(self):
         event1 = Event.objects.create(team=self.team, event='$pageview')
         event2 = Event.objects.create(team=self.team, event='$pageview', properties={'is_first_user': True})
         filter = Filter(data={
-            'properties': [{'key': 'is_first_user', 'operator': 'is_set', 'value': 'false'}]
+            'properties': [{'key': 'is_first_user', 'operator': 'is_not_set', 'value': 'is_not_set'}]
         })
         events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
         self.assertEqual(events[0], event1)
         self.assertEqual(len(events), 1)
 
         filter = Filter(data={
-            'properties': [{'key': 'is_first_user', 'operator': 'is_set', 'value': 'true'}]
+            'properties': [{'key': 'is_first_user', 'operator': 'is_set', 'value': 'is_set'}]
         })
         events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
 
