@@ -42,7 +42,9 @@ def setup_periodic_tasks(sender, **kwargs):
         update_event_partitions.s(),
     )
     sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
-    sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
+    sender.add_periodic_task(
+        10 * 60, check_cached_items.s(), name="check dashboard items"
+    )
 
 
 @app.task
@@ -70,6 +72,13 @@ def check_cached_items():
     from posthog.tasks.update_cache import update_cached_items
 
     update_cached_items()
+
+
+@app.task
+def update_cache_item(key: str, cache_type: str, payload: dict) -> None:
+    from posthog.tasks.update_cache import update_cache_item
+
+    update_cache_item(key, cache_type, payload)
 
 
 @app.task(bind=True)

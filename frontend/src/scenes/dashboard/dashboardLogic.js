@@ -36,10 +36,10 @@ export const dashboardLogic = kea({
             {
                 loadDashboardItems: async () => {
                     try {
-                        const { items } = await api.get(
+                        const dashboard = await api.get(
                             `api/dashboard/${props.id}${props.share_token ? '/?share_token=' + props.share_token : ''}`
                         )
-                        return items
+                        return dashboard
                     } catch (error) {
                         if (error.status === 404) {
                             // silently escape
@@ -89,12 +89,12 @@ export const dashboardLogic = kea({
         ],
     }),
 
-    selectors: ({ props, selectors }) => ({
-        items: [() => [selectors.allItems], allItems => allItems.filter(i => !i.deleted)],
+    selectors: ({ props, selectors, values }) => ({
+        items: [() => [selectors.allItems], allItems => allItems?.items?.filter(i => !i.deleted)],
         itemsLoading: [() => [selectors.allItemsLoading], allItemsLoading => allItemsLoading],
         dashboard: [
-            () => [dashboardsModel.selectors.dashboards],
-            dashboards => dashboards.find(d => d.id === props.id) || null,
+            () => [selectors.allItems, dashboardsModel.selectors.dashboards],
+            dashboards => (values.allItems ? values.allItems : dashboards.find(d => d.id === props.id) || null),
         ],
         breakpoints: [() => [], () => ({ lg: 1600, sm: 940, xs: 480, xxs: 0 })],
         cols: [() => [], () => ({ lg: 24, sm: 12, xs: 6, xxs: 2 })],

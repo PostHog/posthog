@@ -11,7 +11,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 const ReactGridLayout = WidthProvider(Responsive)
 const noop = () => {}
 
-export function DashboardItems({ logic }) {
+export function DashboardItems({ logic, inSharedMode }) {
     const { dashboards } = useValues(dashboardsModel)
     const { dashboard, items, layouts, breakpoints, cols, draggingEnabled } = useValues(logic)
     const {
@@ -36,7 +36,7 @@ export function DashboardItems({ logic }) {
             className={`layout${draggingEnabled !== 'off' ? ' dragging-items' : ''}${
                 draggingEnabled === 'wobbly' ? ' wobbly' : ''
             }`}
-            isDraggable={draggingEnabled !== 'off'}
+            isDraggable={!inSharedMode && draggingEnabled !== 'off'}
             isResizable={draggingEnabled !== 'off'}
             layouts={layouts}
             rowHeight={50}
@@ -83,6 +83,7 @@ export function DashboardItems({ logic }) {
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         dashboards={dashboards}
+                        inSharedMode={inSharedMode}
                         enableWobblyDragging={draggingEnabled !== 'off' ? noop : enableWobblyDragging}
                         index={index}
                         onRefresh={() => refreshDashboardItem(item.id)}

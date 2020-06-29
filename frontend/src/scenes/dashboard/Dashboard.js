@@ -19,7 +19,7 @@ function _Dashboard({ id, share_token }) {
 
     return (
         <div>
-            {!share_token && <DashboardHeader id={id} logic={logic} />}
+            {!share_token ? <DashboardHeader id={id} logic={logic} /> : <h1>{dashboard.name}</h1>}
 
             {dashboardsLoading ? (
                 <SceneLoading />
@@ -28,8 +28,8 @@ function _Dashboard({ id, share_token }) {
                     <p>A dashboard with the ID {id} was not found!</p>
                     <HedgehogOverlay type="sad" />
                 </>
-            ) : items.length > 0 ? (
-                <DashboardItems logic={logic} />
+            ) : items && items.length > 0 ? (
+                <DashboardItems logic={logic} inSharedMode={share_token} />
             ) : itemsLoading ? (
                 <SceneLoading />
             ) : user.has_events ? (
