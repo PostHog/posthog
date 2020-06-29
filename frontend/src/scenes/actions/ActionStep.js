@@ -335,7 +335,6 @@ export class ActionStep extends Component {
                                 </p>
                             ),
                         ]}
-
                         {step.event === '$autocapture' && (
                             <this.AutocaptureFields step={step} isEditor={isEditor} actionId={actionId} />
                         )}
@@ -368,16 +367,18 @@ export class ActionStep extends Component {
                                 )}
                             </div>
                         )}
-                        <PropertyFilters
-                            propertyFilters={step.properties}
-                            pageKey={'action-edit'}
-                            onChange={properties => {
-                                this.sendStep({
-                                    ...this.props.step, // Not sure why, but the normal 'step' variable does not work here
-                                    properties,
-                                })
-                            }}
-                        />
+                        {!isEditor ? (
+                            <PropertyFilters
+                                propertyFilters={step.properties}
+                                pageKey={'action-edit'}
+                                onChange={properties => {
+                                    this.sendStep({
+                                        ...this.props.step, // Not sure why, but the normal 'step' variable does not work here
+                                        properties,
+                                    })
+                                }}
+                            />
+                        ) : null}
                     </div>
                 </div>
             </div>
