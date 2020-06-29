@@ -70,5 +70,13 @@ export const toolbarButtonLogic = kea({
         ],
         dockButtonOnTop: [s => [s.dragPosition, s.windowHeight], ({ y }, windowHeight) => y > windowHeight - 100],
         side: [s => [s.dragPosition, s.windowWidth], ({ x }, windowWidth) => (x < windowWidth / 2 ? 'left' : 'right')],
+        closeDistance: [
+            s => [s.dragPosition, s.windowWidth],
+            ({ x, y }, windowWidth) => 58 + (x > windowWidth - 40 || y < 80 ? -28 : 0) + (y < 40 ? -6 : 0),
+        ],
+        closeRotation: [
+            s => [s.dragPosition, s.windowWidth],
+            ({ x, y }, windowWidth) => -54 + (x > windowWidth - 40 || y < 80 ? 10 : 0) + (y < 40 ? 10 : 0),
+        ],
     },
 })

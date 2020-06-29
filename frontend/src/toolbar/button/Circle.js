@@ -65,9 +65,11 @@ export function Circle({
                               left,
                               right,
                               bottom,
+                              zIndex,
                           }
                         : // we are an outer circle
                           {
+                              zIndex,
                               position: 'absolute',
                               top: 0,
                               left: 0,

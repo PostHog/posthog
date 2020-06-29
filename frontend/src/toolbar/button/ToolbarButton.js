@@ -21,9 +21,15 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { useLongPress } from 'lib/hooks/useLongPress'
 
 export function ToolbarButton() {
-    const { extensionPercentage, heatmapInfoVisible, toolbarListVerticalPadding, dockButtonOnTop, side } = useValues(
-        toolbarButtonLogic
-    )
+    const {
+        extensionPercentage,
+        heatmapInfoVisible,
+        toolbarListVerticalPadding,
+        dockButtonOnTop,
+        side,
+        closeDistance,
+        closeRotation,
+    } = useValues(toolbarButtonLogic)
     const { setExtensionPercentage, showHeatmapInfo, hideHeatmapInfo } = useActions(toolbarButtonLogic)
 
     const { enableInspect, disableInspect } = useActions(elementsLogic)
@@ -111,10 +117,10 @@ export function ToolbarButton() {
             <Circle
                 width={26}
                 extensionPercentage={extensionPercentage}
-                distance={58}
-                rotation={-54}
+                distance={closeDistance}
+                rotation={closeRotation}
                 content={<CloseOutlined />}
-                zIndex={5}
+                zIndex={extensionPercentage > 0.95 ? 5 : 2}
                 onClick={hideButton}
                 style={{ cursor: 'pointer', background: 'black', color: 'white' }}
             />
@@ -127,7 +133,7 @@ export function ToolbarButton() {
                         rotation={dockButtonOnTop ? (side === 'left' ? -95 + 360 : -95) : 90}
                         content={<DatabaseOutlined />}
                         label="Dock"
-                        zIndex={5}
+                        zIndex={2}
                         onClick={dock}
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
                         style={{
@@ -226,7 +232,7 @@ export function ToolbarButton() {
                         ) : heatmapEnabled ? (
                             <Circle
                                 width={26}
-                                x={-50 * extensionPercentage}
+                                x={(side === 'left' ? 50 : -50) * extensionPercentage}
                                 y={0}
                                 content={
                                     <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
@@ -238,15 +244,18 @@ export function ToolbarButton() {
                                             ? (extensionPercentage - 0.8) / 0.2
                                             : 0,
                                 }}
-                                labelPosition="left"
+                                labelPosition={side === 'left' ? 'right' : 'left'}
                                 zIndex={4}
                                 onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
                                 style={{
                                     cursor: 'pointer',
                                     background: heatmapInfoVisible ? '#FF5722' : 'hsl(14, 100%, 97%)',
                                     color: heatmapInfoVisible ? '#FFEB3B' : '#FF5722',
+                                    width: 'auto',
+                                    minWidth: 26,
                                     fontSize: '20px',
                                     lineHeight: '26px',
+                                    padding: '0 4px',
                                     transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
                                     borderRadius: 7,
                                 }}
