@@ -193,6 +193,12 @@ export const operatorMap = {
     gt: '> greater than',
     lt: '< lower than',
     is_set: '✓ is set',
+    is_not_set: '✕ is not set',
+}
+
+export function isOperatorNonparametric(operator) {
+    // these filter operators can only be just set, no additional parameter
+    return ['is_set', 'is_not_set'].includes(operator)
 }
 
 export const formatProperty = property => {
