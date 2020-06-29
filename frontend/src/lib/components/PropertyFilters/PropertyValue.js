@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Select } from 'antd'
 import api from '../../api'
-import { isOperatorNonparametric } from 'lib/utils'
+import { isOperatorFlag } from 'lib/utils'
 
 export function PropertyValue({
     propertyKey,
@@ -61,7 +61,7 @@ export function PropertyValue({
             loading={optionsCache[input] === 'loading'}
             onSearch={input => {
                 setInput(input)
-                if (!optionsCache[input] && !isOperatorNonparametric(operator)) loadPropertyValues(input)
+                if (!optionsCache[input] && !isOperatorFlag(operator)) loadPropertyValues(input)
             }}
             data-attr="prop-val"
             dropdownMatchSelectWidth={350}

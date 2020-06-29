@@ -196,7 +196,7 @@ export const operatorMap = {
     is_not_set: '✕ is not set',
 }
 
-export function isOperatorNonparametric(operator) {
+export function isOperatorFlag(operator) {
     // these filter operators can only be just set, no additional parameter
     return ['is_set', 'is_not_set'].includes(operator)
 }

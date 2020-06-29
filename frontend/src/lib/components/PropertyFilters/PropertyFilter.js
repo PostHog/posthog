@@ -1,6 +1,6 @@
 import React from 'react'
 import { Select } from 'antd'
-import { operatorMap, isOperatorNonparametric } from 'lib/utils'
+import { operatorMap, isOperatorFlag } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { PropertyKeyInfo, keyMapping } from 'lib/components/PropertyKeyInfo'
 import { useValues, useActions } from 'kea'
@@ -79,7 +79,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
             </div>
 
             {key && (
-                <div className={`col-${isOperatorNonparametric(operator) ? 8 : 3} pl-0`}>
+                <div className={`col-${isOperatorFlag(operator) ? 8 : 3} pl-0`}>
                     <Select
                         style={{ width: '100%' }}
                         defaultActiveFirstOption
@@ -91,13 +91,13 @@ export function PropertyFilter({ index, onComplete, logic }) {
                         placeholder="Property key"
                         onChange={(_, new_operator) => {
                             let new_value = value
-                            if (isOperatorNonparametric(new_operator.value)) {
+                            if (isOperatorFlag(new_operator.value)) {
                                 // change value to induce reload
                                 new_value = new_operator.value
                                 onComplete()
                             } else {
-                                // clear value if switching from nonparametric to parametric
-                                if (isOperatorNonparametric(operator)) new_value = undefined
+                                // clear value if switching from nonparametric (flag) to parametric
+                                if (isOperatorFlag(operator)) new_value = undefined
                             }
                             setFilter(index, key, new_value, new_operator.value, type)
                         }}
@@ -110,7 +110,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     </Select>
                 </div>
             )}
-            {key && !isOperatorNonparametric(operator) && (
+            {key && !isOperatorFlag(operator) && (
                 <div className="col-5 pl-0">
                     <PropertyValue
                         type={type}
