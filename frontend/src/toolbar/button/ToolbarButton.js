@@ -127,7 +127,12 @@ export function ToolbarButton() {
                 content={<CloseOutlined />}
                 zIndex={extensionPercentage > 0.95 ? 5 : 2}
                 onClick={hideButton}
-                style={{ cursor: 'pointer', background: 'black', color: 'white' }}
+                style={{
+                    cursor: 'pointer',
+                    background: 'black',
+                    color: 'white',
+                    transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
+                }}
             />
             {isAuthenticated ? (
                 <>
@@ -146,6 +151,7 @@ export function ToolbarButton() {
                             background: 'hsla(228, 29%, 26%, 1)',
                             color: 'white',
                             borderRadius: 8,
+                            transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
                         }}
                     />
                     <Circle
