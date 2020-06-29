@@ -3,7 +3,7 @@ import { ToolbarButton } from '~/toolbar/button/ToolbarButton'
 import Draggable from 'react-draggable'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { useActions, useValues } from 'kea'
-import { Fade } from '~/toolbar/button/Fade'
+import { Fade } from 'lib/components/Fade/Fade'
 import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
 
 export function DraggableButton({ showInvisibleButton }) {
@@ -23,7 +23,7 @@ export function DraggableButton({ showInvisibleButton }) {
                 </div>
             </Draggable>
 
-            <Fade show={heatmapButtonIndependent}>
+            <Fade visible={heatmapButtonIndependent}>
                 <Draggable
                     handle=".toolbar-info-windows"
                     position={heatmapPosition}
