@@ -55,6 +55,7 @@ $body-color: #37352f;
 @import 'style/trends';
 @import 'style/send-events-overlay';
 @import 'style/action-filter-dropdown';
+@import 'style/retention-table';
 
 .posthog-title {
     font-weight: 500;
@@ -155,7 +156,7 @@ pre.code {
     padding: 20px;
     border-radius: 3px;
     color: white;
-    margin-top: 2rem;
+    margin-top: 1rem;
     font-size: 15px;
     &.scrolling-code {
         white-space: pre;

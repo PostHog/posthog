@@ -51,7 +51,9 @@ class Property:
         if self.operator == 'not_icontains':
             return Q(~Q(**{'properties__{}__icontains'.format(self.key): value}) | ~Q(properties__has_key=self.key))
         if self.operator == 'is_set':
-            return Q(**{'properties__{}__isnull'.format(self.key): not value})
+            return Q(**{'properties__{}__isnull'.format(self.key): False})
+        if self.operator == 'is_not_set':
+            return Q(**{'properties__{}__isnull'.format(self.key): True})
         return Q(**{'properties__{}{}'.format(self.key, '__{}'.format(self.operator) if self.operator else ''): value})
 
 class PropertyMixin:

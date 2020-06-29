@@ -9,7 +9,7 @@ import { dockLogic } from '~/toolbar/dockLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
 export function ToolbarContainer() {
-    const { dockStatus, floatStatus, buttonStatus, windowWidth, isAnimating } = useValues(dockLogic)
+    const { dockStatus, floatStatus, buttonStatus, windowWidth, isAnimating, mode } = useValues(dockLogic)
     const { button } = useActions(dockLogic)
     const { selectedElement } = useValues(elementsLogic)
     const { setSelectedElement } = useActions(elementsLogic)
@@ -25,7 +25,7 @@ export function ToolbarContainer() {
 
     return (
         <>
-            {isAnimating ? null : <Elements />}
+            {mode === '' || isAnimating ? null : <Elements />}
 
             {showButton && windowWidth >= 0 ? (
                 <ToolbarDraggable type="button" handle="#button-toolbar">

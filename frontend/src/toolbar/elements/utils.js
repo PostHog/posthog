@@ -40,12 +40,12 @@ export function elementToActionStep(element) {
         text: getSafeText(element) || '',
         selector: query || '',
         url: window.location.protocol + '//' + window.location.host + window.location.pathname,
+        url_matching: 'exact',
     }
 }
 
 export function elementToSelector(element) {
     let selector = ''
-    // const element = events[0].elements[0]
     if (element.tag_name) {
         selector += cssEscape(element.tag_name)
     }
@@ -147,4 +147,129 @@ export function getAllClickTargets() {
     const uniqueElements = Array.from(new Set(selectedElements))
 
     return uniqueElements
+}
+
+export function stepMatchesHref(step, href) {
+    if (!step.url_matching || !step.url) {
+        return true
+    }
+    if (step.url_matching === 'exact') {
+        return href === step.url
+    }
+    if (step.url_matching === 'contains') {
+        return matchRuleShort(href, `%${step.url}%`)
+    }
+    return false
+}
+
+function matchRuleShort(str, rule) {
+    const escapeRegex = str => str.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
+    return new RegExp(
+        '^' +
+            rule
+                .split('%')
+                .map(escapeRegex)
+                .join('.*') +
+            '$'
+    ).test(str)
+}
+
+export function getElementForStep(step) {
+    if (!step) {
+        return null
+    }
+
+    let selector = ''
+    if (step.selector && (step.selector_selected || typeof step.selector_selected === 'undefined')) {
+        selector = step.selector
+    }
+    if (step.href && (step.href_selected || typeof step.href_selected === 'undefined')) {
+        selector += `[href="${cssEscape(step.href)}"]`
+    }
+    if (step.text && (step.text_selected || typeof step.text_selected === 'undefined')) {
+        // TODO
+        // selector += `:nth-of-type(${parseInt(element.nth_of_type)})`
+    }
+
+    if (!selector) {
+        return null
+    }
+
+    try {
+        const elements = document.querySelectorAll(selector)
+        if (elements.length === 1) {
+            return elements[0]
+        }
+        // TODO: what if multiple match?
+    } catch (e) {
+        console.error('Can not use selector:', selector)
+        throw e
+    }
+    return null
+}
+
+export function getBoxColors(color, hover = false, opacity = 0.2) {
+    if (color === 'blue') {
+        return {
+            backgroundBlendMode: 'multiply',
+            background: `hsla(240, 90%, 58%, ${opacity})`,
+            boxShadow: `hsla(240, 90%, 27%, 0.5) 0px 3px 10px ${hover ? 4 : 2}px`,
+        }
+    }
+    if (color === 'red') {
+        return {
+            backgroundBlendMode: 'multiply',
+            background: `hsla(4, 90%, 58%, ${opacity})`,
+            boxShadow: `hsla(4, 90%, 27%, 0.8) 0px 3px 10px ${hover ? 4 : 2}px`,
+        }
+    }
+    if (color === 'green') {
+        return {
+            backgroundBlendMode: 'multiply',
+            background: `hsla(97, 90%, 58%, ${opacity})`,
+            boxShadow: `hsla(97, 90%, 27%, 0.8) 0px 3px 10px ${hover ? 4 : 2}px`,
+        }
+    }
+}
+
+export function actionStepToAntdForm(step, isNew = false) {
+    if (!step) {
+        return {}
+    }
+
+    if (typeof step.selector_selected !== 'undefined') {
+        return step
+    }
+
+    if (isNew) {
+        if (step.tag_name === 'a') {
+            return { ...step, href_selected: true, selector_selected: true, text_selected: false, url_selected: false }
+        } else if (step.tag_name === 'button') {
+            return { ...step, text_selected: true, selector_selected: true, href_selected: false, url_selected: false }
+        } else {
+            return { ...step, selector_selected: true, text_selected: false, url_selected: false, href_selected: false }
+        }
+    }
+
+    const newStep = {
+        ...step,
+        url_matching: step.url_matching || 'exact',
+        href_selected: typeof step.href !== 'undefined' && step.href !== null,
+        text_selected: typeof step.text !== 'undefined' && step.text !== null,
+        selector_selected: typeof step.selector !== 'undefined' && step.selector !== null,
+        url_selected: typeof step.url !== 'undefined' && step.url !== null,
+    }
+    return newStep
+}
+
+export function stepToDatabaseFormat(step) {
+    const { href_selected, text_selected, selector_selected, url_selected, ...rest } = step
+    const newStep = {
+        ...rest,
+        href: href_selected ? rest.href : null,
+        text: text_selected ? rest.text : null,
+        selector: selector_selected ? rest.selector : null,
+        url: url_selected ? rest.url : null,
+    }
+    return newStep
 }

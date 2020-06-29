@@ -181,14 +181,14 @@ def dict_from_cursor_fetchall(cursor):
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def convert_property_value(input: Union[str, bool, dict, list]) -> str:
+def convert_property_value(input: Union[str, bool, dict, list, int]) -> str:
     if isinstance(input, bool):
         if input == True:
             return "true"
         return "false"
     if isinstance(input, dict) or isinstance(input, list):
         return json.dumps(input, sort_keys=True)
-    return input
+    return str(input)
 
 
 def get_compare_period_dates(

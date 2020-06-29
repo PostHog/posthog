@@ -132,11 +132,12 @@ export const heatmapLogic = kea({
                 return countedElements.map((e, i) => ({ ...e, position: i + 1 }))
             },
         ],
-        eventCount: [
+        elementCount: [selectors => [selectors.countedElements], countedElements => countedElements.length],
+        clickCount: [
             selectors => [selectors.countedElements],
             countedElements => (countedElements ? countedElements.map(e => e.count).reduce((a, b) => a + b, 0) : 0),
         ],
-        highestEventCount: [
+        highestClickCount: [
             selectors => [selectors.countedElements],
             countedElements =>
                 countedElements ? countedElements.map(e => e.count).reduce((a, b) => (b > a ? b : a), 0) : 0,

@@ -3,39 +3,29 @@ import { hot } from 'react-hot-loader/root'
 import { useActions, useValues } from 'kea'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { ToolbarTabs } from '~/toolbar/ToolbarTabs'
-import { FloatingToolbarHeader } from '~/toolbar/shared/FloatingToolbarHeader'
 import { StatsTab } from '~/toolbar/stats/StatsTab'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
-import { DashboardsTab } from '~/toolbar/dashboards/DashboardsTab'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 import { Button } from 'antd'
-
-const tabComponents = {
-    actions: ActionsTab,
-    stats: StatsTab,
-    dashboards: DashboardsTab,
-}
+import { dockLogic } from '~/toolbar/dockLogic'
+import { CloseOutlined, InsertRowRightOutlined } from '@ant-design/icons'
 
 export const ToolbarContent = hot(_ToolbarContent)
 function _ToolbarContent({ type }) {
-    const { tab, newTab } = useValues(toolbarTabLogic)
-    const { hoverElement, selectedElement } = useValues(elementsLogic)
+    const { tab } = useValues(toolbarTabLogic)
+    const { hoverElement, selectedElement, inspectEnabled, heatmapEnabled } = useValues(elementsLogic)
     const { setSelectedElement } = useActions(elementsLogic)
+    const { button, dock } = useActions(dockLogic)
 
-    const visible = tab ? { [tab]: 'visible' } : {}
-    const invisible = newTab && tab ? { [newTab]: 'invisible' } : {}
-    const fadingOut = newTab && tab ? { [tab]: 'fading-out' } : {}
-    const fadingIn = newTab && !tab ? { [newTab]: 'fading-in' } : {}
-
-    // This creates three different tabs, rendering each one when needed as directed by the animation logic
+    const showElementInsteadOfTabs =
+        type === 'dock' && tab === 'stats' && (inspectEnabled || heatmapEnabled) && (hoverElement || selectedElement)
 
     return (
         <div>
-            {type === 'float' ? <FloatingToolbarHeader /> : null}
-            {type === 'dock' && (hoverElement || selectedElement) ? (
+            {showElementInsteadOfTabs ? (
                 <>
-                    <div style={{ height: 66 }}>
+                    <div style={{ height: 66, lineHeight: '56px' }}>
                         {selectedElement && (!hoverElement || hoverElement === selectedElement) ? (
                             <div>
                                 <Button type="link" onClick={() => setSelectedElement(null)}>
@@ -51,20 +41,21 @@ function _ToolbarContent({ type }) {
                     </div>
                 </>
             ) : (
-                <>
+                <div>
+                    {type === 'float' ? (
+                        <div style={{ textAlign: 'right' }}>
+                            <Button onClick={dock}>
+                                Dock <InsertRowRightOutlined />
+                            </Button>
+                            <Button onClick={button}>
+                                Close <CloseOutlined />
+                            </Button>
+                        </div>
+                    ) : null}
                     <ToolbarTabs type={type} />
-                    <div className="toolbar-transition-area">
-                        {['stats', 'actions', 'dashboards'].map(key => {
-                            const className = fadingOut[key] || fadingIn[key] || invisible[key] || visible[key]
-                            if (className) {
-                                const Tab = tabComponents[key]
-                                return <Tab key={key} type={type} />
-                            } else {
-                                return null
-                            }
-                        })}
-                    </div>
-                </>
+                    {tab === 'stats' ? <StatsTab /> : null}
+                    {tab === 'actions' ? <ActionsTab /> : null}
+                </div>
             )}
         </div>
     )

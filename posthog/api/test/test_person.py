@@ -44,7 +44,7 @@ class TestPerson(BaseTest):
 
         response = self.client.get(
             "/api/person/?properties=%s"
-            % json.dumps([{"key": "email", "operator": "is_set", "value": "true"}])
+            % json.dumps([{"key": "email", "operator": "is_set", "value": "is_set"}])
         ).json()
         self.assertEqual(len(response["results"]), 2)
 

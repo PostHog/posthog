@@ -2,14 +2,15 @@ import 'react-toastify/dist/ReactToastify.css'
 import 'react-datepicker/dist/react-datepicker.css'
 import { hot } from 'react-hot-loader/root'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, lazy, Suspense } from 'react'
 import { useValues } from 'kea'
-import { Layout } from 'antd'
+import { Layout, Spin } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
 import { Sidebar } from '~/layout/Sidebar'
 import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
+const OnboardingWizard = lazy(() => import('~/scenes/onboarding/onboardingWizard'))
 
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -52,6 +53,18 @@ function App() {
     if (!user) {
         return null
     }
+
+    if (!user.team.completed_snippet_onboarding) {
+        return (
+            <>
+                <Suspense fallback={<Spin></Spin>}>
+                    <OnboardingWizard user={user}></OnboardingWizard>
+                </Suspense>
+                <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
+            </>
+        )
+    }
+
     return (
         <Layout className="bg-white">
             <Sidebar user={user} sidebarCollapsed={sidebarCollapsed} setSidebarCollapsed={setSidebarCollapsed} />
@@ -59,7 +72,7 @@ function App() {
                 className={`${darkerScenes[scene] ? 'bg-dashboard' : 'bg-white'}${
                     !sidebarCollapsed ? ' with-open-sidebar' : ''
                 }`}
-                style={{ height: '100vh' }}
+                style={{ minHeight: '100vh' }}
             >
                 <div className="content py-3 layout-top-content">
                     <TopContent user={user} />

@@ -4,7 +4,7 @@ import { CloseOutlined } from '@ant-design/icons'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 
-export function HeatmapInfoWindow() {
+export function InfoWindow() {
     const { hoverElement, hoverElementMeta, selectedElement, selectedElementMeta, hoverElementHighlight } = useValues(
         elementsLogic
     )
@@ -24,27 +24,30 @@ export function HeatmapInfoWindow() {
             : null
     const { rect } = activeMeta
 
+    const windowWidth = Math.min(document.documentElement.clientWidth, window.innerWidth)
+    const windowHeight = Math.min(document.documentElement.clientHeight, window.innerHeight)
+
     let left = rect.left + window.pageXOffset + (rect.width > 300 ? (rect.width - 300) / 2 : 0)
     let width = 300
-    if (left + width > window.innerWidth - 10) {
-        left -= left + width - (window.innerWidth - 10)
+    if (left + width > windowWidth - 10) {
+        left -= left + width - (windowWidth - 10)
         if (left < 0) {
             left = 5
-            width = window.innerWidth - 10
+            width = windowWidth - 10
         }
     }
 
-    let top = Math.max(window.pageYOffset + 8, rect.top + rect.height + 10 + window.pageYOffset)
+    let top = Math.max(window.pageYOffset + 16, rect.top + rect.height + 10 + window.pageYOffset)
     let bottom
     let minHeight = 50
     let maxHeight
 
     const spaceAbove = Math.max(minHeight, rect.top - 20)
-    const spaceBelow = Math.max(minHeight, window.innerHeight - top + window.pageYOffset - 10)
+    const spaceBelow = Math.max(minHeight, windowHeight - top + window.pageYOffset - 10)
 
     if (spaceAbove > spaceBelow) {
         top = undefined
-        bottom = window.innerHeight - rect.top + 10 - window.pageYOffset
+        bottom = windowHeight - rect.top + 10 - window.pageYOffset
         maxHeight = spaceAbove
     } else {
         maxHeight = spaceBelow
@@ -61,7 +64,7 @@ export function HeatmapInfoWindow() {
                 width,
                 minHeight,
                 maxHeight,
-                zIndex: 6,
+                zIndex: 1,
                 opacity: 1,
                 transformOrigin: 'top left',
                 transition: 'opacity 0.2s, box-shadow 0.2s',
@@ -77,7 +80,7 @@ export function HeatmapInfoWindow() {
                         pointerEvents: pointerEvents ? 'all' : 'none',
                         position: 'absolute',
                         top: -8,
-                        right: left + width > window.innerWidth - 20 ? -6 : -12,
+                        right: left + width > windowWidth - 20 ? -6 : -12,
                         transformOrigin: 'top left',
                         background: 'black',
                         color: 'white',

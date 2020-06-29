@@ -31,7 +31,7 @@ def reverse_func(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0062_team_anonymize_ips"),
+        ("posthog", "0065_auto_20200624_1842"),
     ]
 
     operations = [

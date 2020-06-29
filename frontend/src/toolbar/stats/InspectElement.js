@@ -4,10 +4,13 @@ import { SearchOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { elementsLogic } from '../elements/elementsLogic'
 import { ActionStep } from '~/toolbar/elements/ActionStep'
+import { dockLogic } from '~/toolbar/dockLogic'
 
 export function InspectElement() {
     const { disableInspect, enableInspect } = useActions(elementsLogic)
     const { inspectEnabled, selectedElementMeta } = useValues(elementsLogic)
+
+    const { mode } = useValues(dockLogic)
 
     return (
         <div className="toolbar-block">
@@ -19,7 +22,7 @@ export function InspectElement() {
                     <SearchOutlined /> Select an element
                 </Button>
             </div>
-            {selectedElementMeta ? (
+            {mode === 'dock' && selectedElementMeta ? (
                 <div style={{ marginTop: 10 }}>
                     <ActionStep actionStep={selectedElementMeta.actionStep} />
                 </div>

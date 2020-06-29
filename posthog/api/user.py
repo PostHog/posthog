@@ -34,6 +34,9 @@ def user(request):
                 "slack_incoming_webhook", team.slack_incoming_webhook
             )
             team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
+            team.completed_snippet_onboarding = data["team"].get(
+                "completed_snippet_onboarding", team.completed_snippet_onboarding
+            )
             team.save()
 
         if "user" in data:
@@ -42,6 +45,9 @@ def user(request):
             )
             request.user.anonymize_data = data["user"].get(
                 "anonymize_data", request.user.anonymize_data
+            )
+            request.user.toolbar_mode = data["user"].get(
+                "toolbar_mode", request.user.toolbar_mode
             )
             posthoganalytics.identify(
                 request.user.distinct_id,
@@ -65,6 +71,7 @@ def user(request):
             "has_events": Event.objects.filter(team=team).exists(),
             "email_opt_in": request.user.email_opt_in,
             "anonymize_data": request.user.anonymize_data,
+            "toolbar_mode": request.user.toolbar_mode,
             "team": {
                 "app_urls": team.app_urls,
                 "api_token": team.api_token,
@@ -74,6 +81,7 @@ def user(request):
                 "slack_incoming_webhook": team.slack_incoming_webhook,
                 "event_names": team.event_names,
                 "event_properties": team.event_properties,
+                "completed_snippet_onboarding": team.completed_snippet_onboarding,
             },
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
             "posthog_version": settings.VERSION
@@ -105,8 +113,8 @@ def redirect_to_site(request):
     }
     if settings.DEBUG:
         params["jsURL"] = "http://localhost:8234/"
-        if hasattr(settings, "TOOLBAR_VERSION"):
-            params["toolbarVersion"] = settings.TOOLBAR_VERSION
+    if request.user.toolbar_mode == "toolbar":
+        params["toolbarVersion"] = "toolbar"
 
     state = urllib.parse.quote(json.dumps(params))
 
