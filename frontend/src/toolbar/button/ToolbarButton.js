@@ -93,6 +93,10 @@ export function ToolbarButton() {
 
     const borderRadius = 14
     const buttonWidth = 42
+    const inspectExtensionPercentage = inspectEnabled ? Math.max(extensionPercentage, 0.53) : extensionPercentage
+    const heatmapExtensionPercentage = heatmapEnabled ? Math.max(extensionPercentage, 0.53) : extensionPercentage
+    const iconStart = -60 + toolbarListVerticalPadding
+    let n = 0
 
     return (
         <Circle
@@ -146,12 +150,14 @@ export function ToolbarButton() {
                     <Circle
                         width={buttonWidth}
                         x={side === 'left' ? 80 : -80}
-                        y={-90 + toolbarListVerticalPadding}
-                        extensionPercentage={extensionPercentage}
+                        y={iconStart + n++ * 60}
+                        extensionPercentage={inspectExtensionPercentage}
                         rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
                         label="Inspect"
                         labelPosition={side === 'left' ? 'right' : 'left'}
-                        labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
+                        labelStyle={{
+                            opacity: inspectExtensionPercentage > 0.8 ? (inspectExtensionPercentage - 0.8) / 0.2 : 0,
+                        }}
                         content={
                             <div style={{ position: 'relative' }}>
                                 <SearchOutlined />
@@ -178,15 +184,15 @@ export function ToolbarButton() {
                             color: inspectEnabled ? 'hsla(220, 52%, 96%, 1)' : 'rgb(84, 138, 248)',
                             fontSize: '32px',
                             transition: 'transform 0.2s, color 0.2s, background: 0.2s',
-                            transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
+                            transform: `scale(${0.2 + 0.8 * inspectExtensionPercentage})`,
                             borderRadius,
                         }}
                     />
                     <Circle
                         width={buttonWidth}
                         x={side === 'left' ? 80 : -80}
-                        y={-30 + toolbarListVerticalPadding}
-                        extensionPercentage={extensionPercentage}
+                        y={iconStart + n++ * 60}
+                        extensionPercentage={heatmapExtensionPercentage}
                         rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
                         label={heatmapEnabled && !heatmapLoading ? null : 'Heatmap'}
                         labelPosition={side === 'left' ? 'right' : 'left'}
@@ -194,8 +200,8 @@ export function ToolbarButton() {
                             opacity:
                                 heatmapEnabled && !heatmapLoading
                                     ? 0
-                                    : extensionPercentage > 0.8
-                                    ? (extensionPercentage - 0.8) / 0.2
+                                    : heatmapExtensionPercentage > 0.8
+                                    ? (heatmapExtensionPercentage - 0.8) / 0.2
                                     : 0,
                         }}
                         content={<FireFilled />}
@@ -206,18 +212,18 @@ export function ToolbarButton() {
                             background: heatmapEnabled ? '#FF5722' : 'hsl(14, 100%, 97%)',
                             color: heatmapEnabled ? '#FFEB3B' : '#FF5722',
                             fontSize: '32px',
-                            transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
+                            transform: `scale(${0.2 + 0.8 * heatmapExtensionPercentage})`,
                             borderRadius,
                         }}
                     >
                         {heatmapLoading ? (
                             <Circle
                                 width={12}
-                                distance={30 * (0.2 + 0.8 * extensionPercentage)}
+                                distance={30 * (0.2 + 0.8 * heatmapExtensionPercentage)}
                                 rotation={0}
                                 animate
                                 animationId="heatmap-loading"
-                                animationDuration={0.5 + 0.5 * extensionPercentage}
+                                animationDuration={0.5 + 0.5 * heatmapExtensionPercentage}
                                 spin="1s linear infinite"
                                 content={<FireFilled />}
                                 zIndex={3}
@@ -232,7 +238,11 @@ export function ToolbarButton() {
                         ) : heatmapEnabled ? (
                             <Circle
                                 width={26}
-                                x={(side === 'left' ? 50 : -50) * extensionPercentage}
+                                x={
+                                    (side === 'left' ? 50 : -50) *
+                                    heatmapExtensionPercentage *
+                                    heatmapExtensionPercentage
+                                }
                                 y={0}
                                 content={
                                     <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
@@ -240,8 +250,8 @@ export function ToolbarButton() {
                                 label="Stats"
                                 labelStyle={{
                                     opacity:
-                                        heatmapEnabled && !heatmapLoading && extensionPercentage > 0.8
-                                            ? (extensionPercentage - 0.8) / 0.2
+                                        heatmapEnabled && !heatmapLoading && heatmapExtensionPercentage > 0.8
+                                            ? (heatmapExtensionPercentage - 0.8) / 0.2
                                             : 0,
                                 }}
                                 labelPosition={side === 'left' ? 'right' : 'left'}
@@ -256,7 +266,7 @@ export function ToolbarButton() {
                                     fontSize: '20px',
                                     lineHeight: '26px',
                                     padding: '0 4px',
-                                    transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
+                                    transform: `scale(${0.2 + 0.8 * heatmapExtensionPercentage})`,
                                     borderRadius: 7,
                                 }}
                             />
@@ -265,7 +275,7 @@ export function ToolbarButton() {
                     <Circle
                         width={buttonWidth}
                         x={side === 'left' ? 80 : -80}
-                        y={30 + toolbarListVerticalPadding}
+                        y={iconStart + n++ * 60}
                         extensionPercentage={extensionPercentage}
                         rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
                         label="Actions"
@@ -286,7 +296,7 @@ export function ToolbarButton() {
                     <Circle
                         width={buttonWidth}
                         x={side === 'left' ? 80 : -80}
-                        y={90 + toolbarListVerticalPadding}
+                        y={iconStart + n++ * 60}
                         extensionPercentage={extensionPercentage}
                         rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
                         label="Stats"

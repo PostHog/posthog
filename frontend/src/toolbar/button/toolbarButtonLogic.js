@@ -60,10 +60,10 @@ export const toolbarButtonLogic = kea({
         toolbarListVerticalPadding: [
             s => [s.dragPosition, s.windowHeight],
             ({ y }, windowHeight) => {
-                if (y < 120) {
-                    return 120 - y
-                } else if (y > windowHeight - 130) {
-                    return -(130 - (windowHeight - y))
+                if (y < 90) {
+                    return 90 - y
+                } else if (y > windowHeight - 160) {
+                    return -(160 - (windowHeight - y))
                 }
                 return 0
             },
