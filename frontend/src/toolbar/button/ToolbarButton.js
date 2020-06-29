@@ -73,6 +73,7 @@ export function ToolbarButton() {
         return () => window.removeEventListener('mousemove', globalMouseMove.current)
     }, [isAuthenticated])
 
+    // using useLongPress for short presses (clicks) since it detects if the element was dragged (no click) or not (click)
     const clickEvents = useLongPress(
         clicked => {
             if (clicked) {
