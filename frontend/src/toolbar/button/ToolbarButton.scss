@@ -27,10 +27,10 @@
     opacity: 1;
     transition: opacity ease 0.5s;
 
-    .heatmap-button-window {
+    &.heatmap-button-window {
         border-left: 4px solid #f54d01;
         .toolbar-block {
-            backgorund: hsla(19, 99%, 99%, 1);
+            background: hsla(19, 99%, 99%, 1);
         }
     }
 }

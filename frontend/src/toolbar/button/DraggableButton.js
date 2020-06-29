@@ -30,7 +30,7 @@ export function DraggableButton({ showInvisibleButton }) {
                     onDrag={(e, { x, y }) => saveHeatmapPosition(x, y)}
                     onStop={(e, { x, y }) => saveHeatmapPosition(x, y)}
                 >
-                    <div className="toolbar-info-windows">
+                    <div className="toolbar-info-windows heatmap-button-window">
                         <HeatmapStats buttonMode />
                     </div>
                 </Draggable>
