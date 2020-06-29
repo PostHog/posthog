@@ -13,7 +13,7 @@ initKea()
 let dashboard = window.__SHARED_DASHBOARD__
 ReactDOM.render(
     <Provider store={getContext().store}>
-        <div style={{ background: 'var(--gray-background)', minHeight: '100vh', top: 0 }}>
+        <div style={{ background: 'var(--gray-background)', minHeight: '100vh', top: 0, padding: '2rem' }}>
             <Dashboard id={dashboard.id} share_token={dashboard.share_token} />
         </div>
     </Provider>,
