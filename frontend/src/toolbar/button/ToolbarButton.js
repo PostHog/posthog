@@ -2,7 +2,7 @@ import './ToolbarButton.scss'
 
 import React, { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { CloseOutlined, FireFilled, DatabaseOutlined } from '@ant-design/icons'
+import { CloseOutlined, DatabaseOutlined } from '@ant-design/icons'
 import { HogLogo } from '~/toolbar/assets/HogLogo'
 import { Circle } from '~/toolbar/button/Circle'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
@@ -204,7 +204,7 @@ export function ToolbarButton() {
                                     ? (heatmapExtensionPercentage - 0.8) / 0.2
                                     : 0,
                         }}
-                        content={<Fire style={{ height: 26 }} engaged={heatmapEnabled} />}
+                        content={<Fire style={{ height: 26 }} engaged={heatmapEnabled} animated={heatmapLoading} />}
                         zIndex={2}
                         onClick={heatmapEnabled ? disableHeatmap : enableHeatmap}
                         style={{
@@ -214,26 +214,7 @@ export function ToolbarButton() {
                             borderRadius,
                         }}
                     >
-                        {heatmapLoading ? (
-                            <Circle
-                                width={12}
-                                distance={30 * (0.2 + 0.8 * heatmapExtensionPercentage)}
-                                rotation={0}
-                                animate
-                                animationId="heatmap-loading"
-                                animationDuration={0.5 + 0.5 * heatmapExtensionPercentage}
-                                spin="1s linear infinite"
-                                content={<FireFilled />}
-                                zIndex={3}
-                                style={{
-                                    cursor: 'pointer',
-                                    background: '#FF5722',
-                                    color: '#FFEB3B',
-                                    fontSize: '12px',
-                                    transition: 'transform 0.2s',
-                                }}
-                            />
-                        ) : heatmapEnabled ? (
+                        {heatmapEnabled ? (
                             <Circle
                                 width={26}
                                 x={heatmapButtonPosition.x}
