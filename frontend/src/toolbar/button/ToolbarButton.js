@@ -11,6 +11,7 @@ import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { getShadowRoot } from '~/toolbar/utils'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { Stats } from '~/toolbar/button/icons/Stats'
 import { Flag } from '~/toolbar/button/icons/Flag'
@@ -44,6 +45,7 @@ export function ToolbarButton() {
 
     const { isAuthenticated } = useValues(toolbarLogic)
     const { authenticate } = useActions(toolbarLogic)
+    const { setTab } = useActions(toolbarTabLogic)
 
     const globalMouseMove = useRef(null)
     useEffect(() => {
@@ -270,7 +272,10 @@ export function ToolbarButton() {
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
                         content={<Flag style={{ height: 30 }} />}
                         zIndex={1}
-                        onClick={dock}
+                        onClick={() => {
+                            dock()
+                            setTab('actions')
+                        }}
                         style={{
                             cursor: 'pointer',
                             transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
