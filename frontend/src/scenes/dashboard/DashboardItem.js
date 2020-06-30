@@ -259,7 +259,7 @@ export function DashboardItem({
                 </div>
                 <div className="dashboard-item-content">
                     {Element ? (
-                        <div className="graph-container">
+                        <span>
                             {inSharedMode && !item.result ? (
                                 <span>This item is still being calculated, please check back later.</span>
                             ) : (
@@ -271,7 +271,7 @@ export function DashboardItem({
                                     theme={color === 'white' ? 'light' : 'dark'}
                                 />
                             )}
-                        </div>
+                        </span>
                     ) : (
                         <Loading />
                     )}
