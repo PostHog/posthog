@@ -5,6 +5,7 @@ import PropTypes from 'prop-types'
 import { operatorMap } from '~/lib/utils'
 import _ from 'lodash'
 import { getChartColors } from 'lib/colors'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { annotationsModel } from '~/models'
 import { Button, Popover, Row, Input } from 'antd'
 const { TextArea } = Input
@@ -28,6 +29,7 @@ export function LineGraph({ datasets, labels, color, type, isInProgress, onClick
     const [leftExtent, setLeftExtent] = useState(0)
     const [interval, setInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
+    const size = useWindowSize()
 
     useEffect(() => {
         buildChart()
@@ -43,7 +45,7 @@ export function LineGraph({ datasets, labels, color, type, isInProgress, onClick
         setLeftExtent(leftExtent)
         setInterval(interval)
         setTopExtent(topExtent)
-    }, [myLineChart.current])
+    }, [myLineChart.current, size])
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
