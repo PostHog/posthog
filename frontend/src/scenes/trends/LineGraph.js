@@ -291,7 +291,9 @@ export function LineGraph({
                                 onChange={e => setTextInput(e.target.value)}
                             ></TextArea>
                             <Row justify="end">
-                                <Button onClick={() => setFocused(false)}>Cancel</Button>
+                                <Button style={{ marginRight: 10 }} onClick={() => setFocused(false)}>
+                                    Cancel
+                                </Button>
                                 <Button
                                     type="primary"
                                     onClick={() => {
