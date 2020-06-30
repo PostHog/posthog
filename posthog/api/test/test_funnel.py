@@ -33,6 +33,22 @@ class TestCreateFunnel(BaseTest):
         self.assertEqual(funnels.get_steps()[0]['order'], 0)
         self.assertEqual(funnels.get_steps()[1]['order'], 1)
 
+    def test_create_funnel_element_filters(self):
+        self.client.post('/api/funnel/', data={
+            'name': 'Whatever',
+            'filters': {
+                'events': [
+                    {
+                        'id': '$autocapture', 'name': '$autocapture', 'type': 'events', 'order': 0,
+                        'properties': [{ 'key': 'text', 'type': 'element', 'value': 'Sign up' }]
+                    }
+                ]
+            }
+        }, content_type='application/json').json()
+        funnels = Funnel.objects.get()
+        self.assertEqual(funnels.filters['events'][0]['id'], '$autocapture')
+        self.assertEqual(funnels.get_steps()[0]['order'], 0)
+
     def test_delete_funnel(self):
         funnel = Funnel.objects.create(team=self.team)
         response = self.client.patch('/api/funnel/%s/' % funnel.pk, data={'deleted': True, 'steps': []}, content_type='application/json').json()
