@@ -3,17 +3,19 @@ import { ToolbarButton } from '~/toolbar/button/ToolbarButton'
 import Draggable from 'react-draggable'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { useActions, useValues } from 'kea'
-import { Fade } from 'lib/components/Fade/Fade'
 import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
 import { Fire } from '~/toolbar/button/icons/Fire'
 import { Flag } from '~/toolbar/button/icons/Flag'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
+import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
 
 export function DraggableButton({ showInvisibleButton }) {
     const { dragPosition, heatmapPosition, heatmapWindowVisible, actionsWindowVisible, actionsPosition } = useValues(
         toolbarButtonLogic
     )
-    const { saveDragPosition, saveHeatmapPosition, saveActionsPosition } = useActions(toolbarButtonLogic)
+    const { saveDragPosition, saveHeatmapPosition, saveActionsPosition, hideActionsInfo, hideHeatmapInfo } = useActions(
+        toolbarButtonLogic
+    )
 
     return (
         <>
@@ -28,39 +30,29 @@ export function DraggableButton({ showInvisibleButton }) {
                 </div>
             </Draggable>
 
-            <Fade visible={heatmapWindowVisible}>
-                <Draggable
-                    handle=".toolbar-info-window-title"
-                    position={heatmapPosition}
-                    onDrag={(e, { x, y }) => saveHeatmapPosition(x, y)}
-                    onStop={(e, { x, y }) => saveHeatmapPosition(x, y)}
-                >
-                    <div className="toolbar-info-windows heatmap-button-window">
-                        <div className="toolbar-info-window-title">
-                            <Fire engaged style={{ height: 18 }} />
-                            <span>Heatmap</span>{' '}
-                        </div>
-                        <HeatmapStats buttonMode />
-                    </div>
-                </Draggable>
-            </Fade>
+            <ButtonWindow
+                name="heatmap"
+                label="Heatmap"
+                icon={<Fire engaged style={{ height: 18 }} />}
+                visible={heatmapWindowVisible}
+                close={hideHeatmapInfo}
+                position={heatmapPosition}
+                savePosition={saveHeatmapPosition}
+            >
+                <HeatmapStats buttonMode />
+            </ButtonWindow>
 
-            <Fade visible={actionsWindowVisible}>
-                <Draggable
-                    handle=".toolbar-info-window-title"
-                    position={actionsPosition}
-                    onDrag={(e, { x, y }) => saveActionsPosition(x, y)}
-                    onStop={(e, { x, y }) => saveActionsPosition(x, y)}
-                >
-                    <div className="toolbar-info-windows actions-button-window">
-                        <div className="toolbar-info-window-title">
-                            <Flag engaged style={{ height: 18 }} />
-                            <span>Actions</span>{' '}
-                        </div>
-                        <ActionsTab />
-                    </div>
-                </Draggable>
-            </Fade>
+            <ButtonWindow
+                name="actions"
+                label="Actions"
+                icon={<Flag engaged style={{ height: 18 }} />}
+                visible={actionsWindowVisible}
+                close={hideActionsInfo}
+                position={actionsPosition}
+                savePosition={saveActionsPosition}
+            >
+                <ActionsTab />
+            </ButtonWindow>
         </>
     )
 }

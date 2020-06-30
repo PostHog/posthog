@@ -35,6 +35,20 @@
         width: 100%;
         align-items: center;
         cursor: move;
+
+        .window-label {
+            flex: 1;
+        }
+        .close-button {
+            cursor: pointer;
+            width: 40px;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.4);
+            line-height: 42px;
+            &:hover {
+                background: rgba(255, 255, 255, 0.6);
+            }
+        }
     }
 
     &.heatmap-button-window {
