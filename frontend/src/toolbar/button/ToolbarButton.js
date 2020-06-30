@@ -240,8 +240,8 @@ export function ToolbarButton() {
                                 onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
                                 style={{
                                     cursor: 'pointer',
-                                    background: heatmapInfoVisible ? '#FF5722' : 'hsl(14, 100%, 97%)',
-                                    color: heatmapInfoVisible ? '#FFEB3B' : '#FF5722',
+                                    background: heatmapInfoVisible ? 'hsla(17, 100%, 47%, 1)' : 'hsla(17, 84%, 95%, 1)',
+                                    color: heatmapInfoVisible ? '#FFEB3B' : 'hsl(17, 64%, 32%)',
                                     width: 'auto',
                                     minWidth: 26,
                                     fontSize: '20px',
@@ -294,8 +294,8 @@ export function ToolbarButton() {
                                 onClick={actionsInfoVisible ? hideActionsInfo : showActionsInfo}
                                 style={{
                                     cursor: 'pointer',
-                                    background: actionsInfoVisible ? '#FF5722' : 'hsl(14, 100%, 97%)',
-                                    color: actionsInfoVisible ? '#FFEB3B' : '#FF5722',
+                                    background: actionsInfoVisible ? 'hsl(100, 65%, 31%)' : 'hsla(101, 44%, 93%, 1)',
+                                    color: actionsInfoVisible ? 'hsl(100, 22%, 93%)' : 'hsla(100, 34%, 35%, 1)',
                                     width: 'auto',
                                     minWidth: 26,
                                     fontSize: '20px',
