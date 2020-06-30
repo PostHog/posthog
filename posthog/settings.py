@@ -22,7 +22,8 @@ from sentry_sdk.integrations.django import DjangoIntegration
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
-VERSION = '1.9.0'
+VERSION = "1.9.0"
+
 
 def get_env(key):
     try:
@@ -45,7 +46,9 @@ def get_bool_from_env(name: str, default_value: bool) -> bool:
         try:
             return bool(strtobool(str(value)))
         except ValueError as e:
-            raise ValueError(f"{value} is an invalid value for {name}, expected boolean") from e
+            raise ValueError(
+                f"{value} is an invalid value for {name}, expected boolean"
+            ) from e
     return default_value
 
 
@@ -53,7 +56,7 @@ def get_bool_from_env(name: str, default_value: bool) -> bool:
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEBUG = get_bool_from_env("DEBUG", False)
-TEST = 'test' in sys.argv
+TEST = "test" in sys.argv
 
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000")
 
@@ -69,18 +72,18 @@ if not DEBUG and not TEST:
             request_bodies="always",
         )
 
-if get_bool_from_env('DISABLE_SECURE_SSL_REDIRECT', False):
+if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
     SECURE_SSL_REDIRECT = False
     SESSION_COOKIE_SECURE = False
 
-if get_bool_from_env('IS_BEHIND_PROXY', False):
+if get_bool_from_env("IS_BEHIND_PROXY", False):
     USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # IP block settings
-ALLOWED_IP_BLOCKS = get_list(os.environ.get('ALLOWED_IP_BLOCKS', ''))
-TRUSTED_PROXIES = os.environ.get('TRUSTED_PROXIES', False)
-TRUST_ALL_PROXIES = os.environ.get('TRUST_ALL_PROXIES', False)
+ALLOWED_IP_BLOCKS = get_list(os.environ.get("ALLOWED_IP_BLOCKS", ""))
+TRUSTED_PROXIES = os.environ.get("TRUSTED_PROXIES", False)
+TRUST_ALL_PROXIES = os.environ.get("TRUST_ALL_PROXIES", False)
 
 
 # Quick-start development settings - unsuitable for production
@@ -112,6 +115,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "posthog.middleware.SameSiteSessionMiddleware",  # keep this at the top
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.AllowIP",
     "django.contrib.sessions.middleware.SessionMiddleware",
