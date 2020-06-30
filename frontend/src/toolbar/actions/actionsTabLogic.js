@@ -6,6 +6,7 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { toast } from 'react-toastify'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { dockLogic } from '~/toolbar/dockLogic'
+import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 
 function newAction(element) {
     return {
@@ -95,9 +96,17 @@ export const actionsTabLogic = kea({
         selectAction: ({ id }) => {
             if (id) {
                 if (dockLogic.values.mode === 'button') {
-                    dockLogic.actions.dock()
+                    if (!values.buttonActionsVisible) {
+                        actions.showButtonActions()
+                    }
+                    if (!toolbarButtonLogic.values.actionsInfoVisible) {
+                        toolbarButtonLogic.actions.showActionsInfo()
+                    }
+                } else {
+                    if (toolbarTabLogic.values.tab !== 'actions') {
+                        toolbarTabLogic.actions.setTab('actions')
+                    }
                 }
-                toolbarTabLogic.actions.setTab('actions')
             }
         },
         inspectElementSelected: ({ element, index }) => {
