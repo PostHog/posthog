@@ -10,7 +10,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Annotation
-        fields = ['id', 'content', 'date_marker', 'creation_type', 'dashboard_item', 'created_by', 'created_at', 'updated_at']
+        fields = ['id', 'content', 'date_marker', 'creation_type', 'dashboard_item', 'created_by', 'created_at', 'updated_at', 'deleted']
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
         request = self.context['request']
@@ -27,6 +27,7 @@ class AnnotationsViewSet(viewsets.ModelViewSet):
         team = self.request.user.team_set.get()
         if self.action == 'list':  # type: ignore
             queryset = self._filter_request(self.request, queryset)
+            queryset = queryset.filter(deleted =False)
 
         return queryset\
             .filter(team=team)

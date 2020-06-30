@@ -1,13 +1,15 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Loading, toParams } from '../../lib/utils'
 import { LineGraph } from './LineGraph'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { router } from 'kea-router'
 
 export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filters: filtersParam }) {
     const { filters, results, resultsLoading } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
     const { loadResults, loadPeople } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
     const { people_action, people_day, ...otherFilters } = filters
+    const [{ fromItem }] = useState(router.values.hashParams)
 
     useEffect(() => {
         loadResults()
@@ -22,7 +24,7 @@ export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filt
                 datasets={results}
                 labels={(results[0] && results[0].labels) || []}
                 isInProgress={!filters.date_to}
-                dashboardItemId={dashboardItemId}
+                dashboardItemId={dashboardItemId || fromItem}
                 onClick={
                     dashboardItemId
                         ? null

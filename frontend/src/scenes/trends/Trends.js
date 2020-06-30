@@ -181,9 +181,7 @@ function _Trends() {
                                     {resultsLoading && <Loading />}
                                     {(!filters.display ||
                                         filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && (
-                                        <ActionsLineGraph dashboardItemId={fromItem} />
-                                    )}
+                                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && <ActionsLineGraph />}
                                     {filters.display === ACTIONS_TABLE && <ActionsTable filters={filters} />}
                                     {filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={filters} />}
                                 </div>

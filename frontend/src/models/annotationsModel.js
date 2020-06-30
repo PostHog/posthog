@@ -2,9 +2,11 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import moment from 'moment'
+import _ from 'lodash'
+import { deleteWithUndo } from 'lib/utils'
 
 export const annotationsModel = kea({
-    key: props => props.pageKey || 'default',
+    key: props => (props.pageKey && props.pageKey + '_annotations') || 'annotations_default',
     actions: ({ values }) => ({
         createAnnotation: (content, date_marker) => ({
             content,
@@ -53,10 +55,19 @@ export const annotationsModel = kea({
     }),
     reducers: () => ({
         annotations: {
-            createAnnotationNow: (state, { content, date_marker, nextKey, created_at }) => ({
+            createAnnotationNow: (state, { content, date_marker, nextKey, created_at }) => [
                 ...state,
-                [nextKey]: { content, date_marker, created_at },
-            }),
+                { id: nextKey, content, date_marker, created_at },
+            ],
+            deleteAnnotation: (state, { id }) => {
+                if (id >= 0) {
+                    let newState = [...state]
+                    _.remove(newState, { id })
+                    return newState
+                } else {
+                    return state
+                }
+            },
         },
         annotationsToCreate: [
             {},
@@ -67,9 +78,13 @@ export const annotationsModel = kea({
                 }),
                 clearAnnotationsToCreate: () => ({}),
                 deleteAnnotation: (state, { id }) => {
-                    let newState = { ...state }
-                    delete newState[id]
-                    return newState
+                    if (id < 0) {
+                        let newState = { ...state }
+                        delete newState[id]
+                        return newState
+                    } else {
+                        return state
+                    }
                 },
             },
         ],
@@ -88,9 +103,9 @@ export const annotationsModel = kea({
                     ...value,
                     id: parseInt(key),
                 }))
-                let retrieved = Object.entries(annotations).map(([key, value]) => ({
-                    ...value,
-                    id: parseInt(key),
+                let retrieved = annotations.map(val => ({
+                    ...val,
+                    id: parseInt(val.id),
                 }))
                 return toCreate.concat(retrieved)
             },
@@ -111,6 +126,15 @@ export const annotationsModel = kea({
                 created_at,
                 dashboard_item: props.pageKey,
             })
+            actions.loadAnnotations({})
+        },
+        deleteAnnotation: async ({ id }) => {
+            id >= 0 &&
+                deleteWithUndo({
+                    endpoint: 'annotation',
+                    object: { name: 'Annotation', id },
+                    callback: () => actions.loadAnnotations({}),
+                })
         },
     }),
     events: ({ actions, props }) => ({

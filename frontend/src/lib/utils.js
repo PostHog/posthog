@@ -86,7 +86,7 @@ export const deleteWithUndo = ({ undo = false, ...props }) => {
         ...props.object,
         deleted: !undo,
     }).then(() => {
-        props.callback()
+        props.callback && props.callback()
         let response = (
             <div>
                 {!undo ? (

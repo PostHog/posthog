@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useValues, useActions } from 'kea'
+import { useActions } from 'kea'
 import Chart from 'chart.js'
 import PropTypes from 'prop-types'
-import { operatorMap, humanFriendlyDetailedTime } from '~/lib/utils'
+import { operatorMap } from '~/lib/utils'
 import _ from 'lodash'
 import { getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { annotationsModel } from '~/models'
 import { Button, Popover, Row, Input } from 'antd'
 const { TextArea } = Input
-import moment from 'moment'
+
 import { PlusOutlined } from '@ant-design/icons'
-import { userLogic } from 'scenes/userLogic'
+import { Annotations } from 'lib/components/Annotations'
+
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
 Chart.defaults.global.legend.display = false
@@ -338,111 +339,6 @@ export function LineGraph({
             ></Annotations>
         </div>
     )
-}
-
-const Annotations = React.memo(function Annotations({
-    labeledDates,
-    leftExtent,
-    interval,
-    topExtent,
-    dashboardItemId,
-}) {
-    const [groupedAnnotations, setGroupedAnnotations] = useState({})
-    const [diffType, setDiffType] = useState(determineDifferenceType(labeledDates[0], labeledDates[1]))
-    const { annotationsList } = useValues(annotationsModel({ pageKey: dashboardItemId ? dashboardItemId : null }))
-    const { createAnnotation, createAnnotationNow } = useActions(
-        annotationsModel({ pageKey: dashboardItemId ? dashboardItemId : null })
-    )
-    const [textInput, setTextInput] = useState('')
-    const {
-        user: { name, email },
-    } = useValues(userLogic)
-
-    useEffect(() => {
-        // calculate groups
-        setDiffType(determineDifferenceType(labeledDates[0], labeledDates[1]))
-        let groupedResults = _.groupBy(annotationsList, annote => moment(annote['date_marker']).startOf(diffType))
-        setGroupedAnnotations(groupedResults)
-    }, [annotationsList, labeledDates])
-
-    const markers = []
-    labeledDates.forEach((date, index) => {
-        if (groupedAnnotations[moment(date).startOf(diffType)]) {
-            markers.push(
-                <Popover
-                    key={index}
-                    trigger="click"
-                    defaultVisible={false}
-                    content={
-                        <div style={{ minWidth: 300 }}>
-                            {groupedAnnotations[moment(date).startOf(diffType)].map(data => (
-                                <div key={data.id} style={{ marginBottom: 25 }}>
-                                    <Row justify="space-between">
-                                        <b>
-                                            {(data.created_by &&
-                                                (data.created_by.first_name || data.created_by.email)) ||
-                                                name ||
-                                                email}
-                                        </b>
-                                        <span>{humanFriendlyDetailedTime(data.created_at)}</span>
-                                    </Row>
-                                    <span>{data.content}</span>
-                                </div>
-                            ))}
-                            <TextArea
-                                style={{ marginBottom: 12 }}
-                                rows={4}
-                                value={textInput}
-                                onChange={e => setTextInput(e.target.value)}
-                            ></TextArea>
-                            <Row justify="end">
-                                <Button
-                                    type="primary"
-                                    onClick={() => {
-                                        dashboardItemId
-                                            ? createAnnotationNow(textInput, labeledDates[index])
-                                            : createAnnotation(textInput, labeledDates[index])
-                                        setTextInput('')
-                                    }}
-                                >
-                                    Add
-                                </Button>
-                            </Row>
-                        </div>
-                    }
-                    title={'Annotation'}
-                >
-                    <Button
-                        style={{
-                            position: 'absolute',
-                            left: index * interval + leftExtent - 15,
-                            top: topExtent,
-                            width: 30,
-                            height: 30,
-                            display: 'flex',
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                        }}
-                        type="primary"
-                    >
-                        <span>{groupedAnnotations[moment(date).startOf(diffType)].length}</span>
-                    </Button>
-                </Popover>
-            )
-        }
-    })
-    return markers
-})
-
-function determineDifferenceType(firstDate, secondDate) {
-    const first = moment(firstDate)
-    const second = moment(secondDate)
-    if (first.diff(second, 'years') !== 0) return 'year'
-    else if (first.diff(second, 'months') !== 0) return 'month'
-    else if (first.diff(second, 'weeks') !== 0) return 'week'
-    else if (first.diff(second, 'days') !== 0) return 'day'
-    else if (first.diff(second, 'hours') !== 0) return 'hour'
-    else return 'minute'
 }
 
 const map = (value, x1, y1, x2, y2) => Math.floor(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
