@@ -177,11 +177,29 @@ export function LineGraph({
                           },
                           hover: {
                               mode: 'nearest',
-                              onHover(e) {
-                                  if (_this.props.onClick) {
-                                      const point = this.getElementAtEvent(e)
-                                      if (point.length) e.target.style.cursor = 'pointer'
-                                      else e.target.style.cursor = 'default'
+                              onHover(evt) {
+                                  console.log('HELLO')
+                                  if (onClick) {
+                                      const point = this.getElementAtEvent(evt)
+                                      if (point.length) evt.target.style.cursor = 'pointer'
+                                      else evt.target.style.cursor = 'default'
+                                  }
+                                  const leftExtent = myLineChart.current.scales['x-axis-0'].left
+                                  const rightExtent = myLineChart.current.scales['x-axis-0'].right
+                                  const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
+                                  const delta = rightExtent - leftExtent
+                                  const interval = delta / (ticks - 1)
+                                  if (evt.offsetX < leftExtent - interval / 2) return
+                                  const index = map(
+                                      evt.offsetX,
+                                      leftExtent - interval / 2,
+                                      rightExtent + interval / 2,
+                                      0,
+                                      ticks
+                                  )
+                                  if (index >= 0 && index < ticks) {
+                                      setLeft(index * interval + leftExtent)
+                                      setLabelIndex(index)
                                   }
                               },
                           },
@@ -239,25 +257,6 @@ export function LineGraph({
                                   })
                               }
                           },
-                          onHover: evt => {
-                              const leftExtent = myLineChart.current.scales['x-axis-0'].left
-                              const rightExtent = myLineChart.current.scales['x-axis-0'].right
-                              const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
-                              const delta = rightExtent - leftExtent
-                              const interval = delta / (ticks - 1)
-                              if (evt.offsetX < leftExtent - interval / 2) return
-                              const index = map(
-                                  evt.offsetX,
-                                  leftExtent - interval / 2,
-                                  rightExtent + interval / 2,
-                                  0,
-                                  ticks
-                              )
-                              if (index >= 0 && index < ticks) {
-                                  setLeft(index * interval + leftExtent)
-                                  setLabelIndex(index)
-                              }
-                          },
                       }
                     : {
                           responsive: true,
@@ -271,7 +270,7 @@ export function LineGraph({
         <div className="graph-container" data-attr={dataAttr} onMouseLeave={() => setEnabled(false)}>
             <canvas
                 ref={chartRef}
-                onMouseOver={_ => {
+                onMouseOver={() => {
                     if (!focused) {
                         setEnabled(true)
                         setLeft(-1)
