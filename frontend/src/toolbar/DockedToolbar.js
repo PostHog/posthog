@@ -31,9 +31,7 @@ export function DockedToolbar({ type }) {
                             <div>Click on an element to select it!</div>
                         ) : null}
                     </div>
-                    <div className="toolbar-block">
-                        <ElementInfo />
-                    </div>
+                    <ElementInfo />
                 </>
             ) : (
                 <div>

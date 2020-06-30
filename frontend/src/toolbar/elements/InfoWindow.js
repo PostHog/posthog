@@ -99,7 +99,7 @@ export function InfoWindow() {
                     <CloseOutlined />
                 </div>
             ) : null}
-            <div style={{ minHeight, maxHeight, overflow: 'auto', padding: 15 }}>
+            <div style={{ minHeight, maxHeight, overflow: 'auto' }}>
                 <ElementInfo />
             </div>
         </div>
