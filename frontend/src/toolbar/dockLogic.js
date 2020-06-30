@@ -43,6 +43,7 @@ export const dockLogic = kea({
     windowValues: {
         windowWidth: window => window.innerWidth,
         windowHeight: window => window.innerHeight,
+        windowScroll: window => window.scrollY,
     },
 
     reducers: () => ({
@@ -107,6 +108,8 @@ export const dockLogic = kea({
 
         domZoom: [() => [selectors.zoom, selectors.mode], (zoom, mode) => (mode === 'dock' ? zoom : 1)],
         domPadding: [() => [selectors.padding, selectors.mode], (padding, mode) => (mode === 'dock' ? padding : 0)],
+
+        dockTopMargin: [s => [s.windowScroll], windowScroll => windowScroll],
     }),
 
     events: ({ cache, actions, values }) => ({

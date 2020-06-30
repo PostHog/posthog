@@ -7,17 +7,19 @@ import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 import { Button } from 'antd'
+import { dockLogic } from '~/toolbar/dockLogic'
 
 export function DockedToolbar({ type }) {
     const { tab } = useValues(toolbarTabLogic)
     const { hoverElement, selectedElement, inspectEnabled, heatmapEnabled } = useValues(elementsLogic)
     const { setSelectedElement } = useActions(elementsLogic)
+    const { dockTopMargin } = useValues(dockLogic)
 
     const showElementInsteadOfTabs =
         type === 'dock' && tab === 'stats' && (inspectEnabled || heatmapEnabled) && (hoverElement || selectedElement)
 
     return (
-        <div>
+        <div style={{ marginTop: dockTopMargin }}>
             {showElementInsteadOfTabs ? (
                 <>
                     <div style={{ height: 66, lineHeight: '56px' }}>
