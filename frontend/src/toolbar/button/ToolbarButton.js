@@ -2,7 +2,6 @@ import './ToolbarButton.scss'
 
 import React, { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { CloseOutlined, DatabaseOutlined } from '@ant-design/icons'
 import { HogLogo } from '~/toolbar/assets/HogLogo'
 import { Circle } from '~/toolbar/button/Circle'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
@@ -18,6 +17,8 @@ import { Fire } from '~/toolbar/button/icons/Fire'
 import { Magnifier } from '~/toolbar/button/icons/Magnifier'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
+import { Close } from '~/toolbar/button/icons/Close'
+import { Dock } from '~/toolbar/button/icons/Dock'
 
 export function ToolbarButton() {
     const {
@@ -137,12 +138,13 @@ export function ToolbarButton() {
                 extensionPercentage={extensionPercentage}
                 distance={closeDistance}
                 rotation={closeRotation}
-                content={<CloseOutlined />}
+                content={<Close style={{ width: 14, height: 14 }} />}
                 zIndex={extensionPercentage > 0.95 ? 5 : 2}
                 onClick={hideButton}
                 style={{
                     cursor: 'pointer',
-                    background: 'black',
+                    background: '#393939',
+                    borderRadius: 4,
                     color: 'white',
                     transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
                 }}
@@ -154,16 +156,16 @@ export function ToolbarButton() {
                         extensionPercentage={extensionPercentage}
                         distance={dockButtonOnTop ? 90 : 55}
                         rotation={dockButtonOnTop ? (side === 'left' ? -95 + 360 : -95) : 90}
-                        content={<DatabaseOutlined />}
+                        content={<Dock style={{ height: 18 }} />}
                         label="Dock"
                         zIndex={2}
                         onClick={dock}
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
                         style={{
                             cursor: 'pointer',
-                            background: 'hsla(228, 29%, 26%, 1)',
+                            background: '#808080',
                             color: 'white',
-                            borderRadius: 8,
+                            borderRadius: 3,
                             transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
                         }}
                     />
@@ -186,12 +188,12 @@ export function ToolbarButton() {
                                         style={{
                                             position: 'absolute',
                                             top: 8,
-                                            left: 8,
+                                            left: 9,
                                             fontSize: 13,
                                             color: 'white',
                                         }}
                                     >
-                                        <CloseOutlined />
+                                        <Close style={{ width: 10, height: 10 }} />
                                     </div>
                                 ) : null}
                             </div>
