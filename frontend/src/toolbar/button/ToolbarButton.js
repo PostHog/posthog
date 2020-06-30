@@ -177,8 +177,8 @@ export function ToolbarButton() {
                                     <div
                                         style={{
                                             position: 'absolute',
-                                            top: 12,
-                                            left: 6,
+                                            top: 8,
+                                            left: 8,
                                             fontSize: 13,
                                             color: 'white',
                                         }}
