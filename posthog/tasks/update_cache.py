@@ -29,7 +29,7 @@ def update_cache_item(key: str, cache_type: str, payload: dict) -> None:
 
 
 def update_cached_items() -> None:
-    from posthog.celery import update_cache_item
+    from posthog.celery import update_cache_item_task
 
     tasks = []
     items = DashboardItem.objects.filter(
@@ -48,14 +48,14 @@ def update_cached_items() -> None:
         filter = Filter(data=item.filters)
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
         payload = {"filter": filter.toJSON(), "team_id": item.team_id}
-        tasks.append(update_cache_item.s(cache_key, TRENDS_ENDPOINT, payload))
+        tasks.append(update_cache_item_task.s(cache_key, TRENDS_ENDPOINT, payload))
 
     for item in items.filter(funnel_id__isnull=False).distinct("funnel_id"):
         cache_key = generate_cache_key(
             "funnel_{}_{}".format(item.funnel_id, item.team_id)
         )
         payload = {"funnel_id": item.funnel_id, "team_id": item.team_id}
-        tasks.append(update_cache_item.s(cache_key, FUNNEL_ENDPOINT, payload))
+        tasks.append(update_cache_item_task.s(cache_key, FUNNEL_ENDPOINT, payload))
 
     logger.info("Found {} items to refresh".format(len(tasks)))
     taskset = group(tasks)

@@ -128,19 +128,23 @@ export function DashboardItem({
             <div className={`dashboard-item-container ${className}`}>
                 <div className="dashboard-item-header">
                     <div className="dashboard-item-title">
-                        <Link
-                            draggable={false}
-                            to={link}
-                            title={item.name}
-                            preventClick
-                            onClick={() => {
-                                if (!isDraggingRef.current) {
-                                    router.actions.push(link)
-                                }
-                            }}
-                        >
-                            {item.name}
-                        </Link>
+                        {inSharedMode ? (
+                            item.name
+                        ) : (
+                            <Link
+                                draggable={false}
+                                to={link}
+                                title={item.name}
+                                preventClick
+                                onClick={() => {
+                                    if (!isDraggingRef.current) {
+                                        router.actions.push(link)
+                                    }
+                                }}
+                            >
+                                {item.name}
+                            </Link>
+                        )}
                     </div>
                     {!inSharedMode && (
                         <div className="dashboard-item-settings">

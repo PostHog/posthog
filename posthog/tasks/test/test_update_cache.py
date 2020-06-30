@@ -4,7 +4,7 @@ from posthog.models import Filter, DashboardItem, Dashboard, Funnel
 from posthog.utils import generate_cache_key
 from django.core.cache import cache
 from freezegun import freeze_time
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from django.utils.timezone import now
 import json
 
@@ -15,7 +15,7 @@ class TestUpdateCache(BaseTest):
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.tasks.update_cache.update_cache_item.s")
     def test_refresh_dashboard_cache(
-        self, patch_update_cache_item, patch_apply_async
+        self, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock
     ) -> None:
         # There's two things we want to refresh
         # Any shared dashboard, as we only use cached items to show those
@@ -64,14 +64,14 @@ class TestUpdateCache(BaseTest):
 
         # pass the caught calls straight to the function
         # we do this to skip Redis
-        for item in patch_update_cache_item.call_args_list:
-            update_cache_item(*item[0])
-        # self.assertEqual(patch_update_cache_item.call_args_list[0][0][0], item_key)
-        # self.assertEqual(patch_update_cache_item.call_args_list[3][0][0], funnel_key)
+        for call_item in patch_update_cache_item.call_args_list:
+            update_cache_item(*call_item[0])
 
-        self.assertIsNotNone(Dashboard.objects.get(pk=item.pk).last_refresh)
-        self.assertIsNotNone(Dashboard.objects.get(pk=item_to_cache.pk).last_refresh)
+        self.assertIsNotNone(DashboardItem.objects.get(pk=item.pk).last_refresh)
         self.assertIsNotNone(
-            Dashboard.objects.get(pk=item_do_not_cache.pk).last_refresh
+            DashboardItem.objects.get(pk=item_to_cache.pk).last_refresh
+        )
+        self.assertIsNotNone(
+            DashboardItem.objects.get(pk=item_do_not_cache.pk).last_refresh
         )
         self.assertEqual(cache.get(item_key)["result"][0]["count"], 0)

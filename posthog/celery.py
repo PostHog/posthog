@@ -75,7 +75,7 @@ def check_cached_items():
 
 
 @app.task
-def update_cache_item(key: str, cache_type: str, payload: dict) -> None:
+def update_cache_item_task(key: str, cache_type: str, payload: dict) -> None:
     from posthog.tasks.update_cache import update_cache_item
 
     update_cache_item(key, cache_type, payload)

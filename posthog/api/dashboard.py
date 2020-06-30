@@ -26,7 +26,7 @@ class PublicTokenAuthentication(authentication.BaseAuthentication):
                 pk=request.parser_context["kwargs"].get("pk"),
             )
             if not dashboard.exists():
-                raise AuthenticationFailed(detail="Dashboard doesnt exist")
+                raise AuthenticationFailed(detail="Dashboard doesn't exist")
             return (AnonymousUser(), None)
         return None
 
@@ -68,7 +68,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         return dashboard
 
     def update(
-        self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any
+        self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any  # type: ignore
     ) -> Dashboard:
         if validated_data.get("is_shared") and not instance.share_token:
             instance.share_token = secrets.token_urlsafe(22)
@@ -113,7 +113,10 @@ class DashboardsViewSet(viewsets.ModelViewSet):
 
         return queryset.filter(team=self.request.user.team_set.get())
 
-    def retrieve(self, request, pk: int = None):
+    def retrieve(
+        self, request: request.Request, *args: Any, **kwargs: Any
+    ) -> response.Response:
+        pk = kwargs["pk"]
         queryset = self.get_queryset()
         dashboard = get_object_or_404(queryset, pk=pk)
         dashboard.last_accessed_at = now()
@@ -125,7 +128,7 @@ class DashboardsViewSet(viewsets.ModelViewSet):
 
 
 class DashboardItemSerializer(serializers.ModelSerializer):
-    result = serializers.SerializerMethodField()  # type: ignore
+    result = serializers.SerializerMethodField()
 
     class Meta:
         model = DashboardItem
@@ -191,7 +194,7 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
                 layouts=data["layouts"]
             )
 
-        serializer = self.get_serializer(self.queryset, many=True)
+        serializer = self.get_serializer(self.queryset.filter(team=team), many=True)
         return response.Response(serializer.data)
 
 
@@ -200,5 +203,5 @@ def shared_dashboard(request: HttpRequest, share_token: str):
     return render_template(
         "shared_dashboard.html",
         request=request,
-        context={"dashboard_id": dashboard.pk, "share_token": dashboard.share_token},
+        context={"dashboard": dashboard, "team_name": dashboard.team.name},
     )

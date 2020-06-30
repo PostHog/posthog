@@ -19,7 +19,7 @@ function _Dashboard({ id, share_token }) {
 
     return (
         <div>
-            {!share_token ? <DashboardHeader id={id} logic={logic} /> : <h1>{dashboard.name}</h1>}
+            {!share_token && <DashboardHeader id={id} logic={logic} />}
 
             {dashboardsLoading ? (
                 <SceneLoading />

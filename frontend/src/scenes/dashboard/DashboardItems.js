@@ -37,7 +37,7 @@ export function DashboardItems({ logic, inSharedMode }) {
                 draggingEnabled === 'wobbly' ? ' wobbly' : ''
             }`}
             isDraggable={!inSharedMode && draggingEnabled !== 'off'}
-            isResizable={draggingEnabled !== 'off'}
+            isResizable={!inSharedMode && draggingEnabled !== 'off'}
             layouts={layouts}
             rowHeight={50}
             margin={[20, 20]}

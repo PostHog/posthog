@@ -43,10 +43,13 @@ class TestDashboard(TransactionBaseTest):
     def test_shared_dashboard(self):
         self.client.logout()
         dashboard = Dashboard.objects.create(
-            team=self.team, share_token="testtoken", name="public dashboard"
+            team=self.team,
+            share_token="testtoken",
+            name="public dashboard",
+            is_shared=True,
         )
         response = self.client.get("/shared_dashboard/testtoken")
-        self.assertIn("bla", response)
+        self.assertIn(b"testtoken", response.content)
 
     def test_share_dashboard(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")

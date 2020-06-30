@@ -13,51 +13,27 @@ FUNNEL_ENDPOINT = "Funnel"
 def cached_function(cache_type: str, expiry=30):
     def inner_decorator(f):
         def wrapper(*args, **kw):
-            from posthog.tasks.update_cache import update_cache_item
+            from posthog.celery import update_cache_item_task
 
             cache_key = ""
-            _expiry = expiry
 
             # prepare caching params
-            filter = None
-            params = None
-            team = None
+            request = args[1]
+            team = request.user.team_set.get()
             payload = None
-            refresh = False
             dashboard_item_id = None
+            refresh = request.GET.get("refresh", None)
 
             if cache_type == TRENDS_ENDPOINT:
-                request = args[1]
                 filter = Filter(request=request)
-                params = request.GET.dict()
-                refresh = params.pop("refresh", None)
-                team = request.user.team_set.get()
                 cache_key = generate_cache_key(filter.toJSON() + "_" + str(team.pk))
-                payload = {
-                    "filter": filter.toJSON(),
-                    "params": params,
-                    "team_id": team.pk,
-                }
+                payload = {"filter": filter.toJSON(), "team_id": team.pk}
             elif cache_type == FUNNEL_ENDPOINT:
-                request = args[1]
                 pk = args[2]
-                params = request.GET.dict()
-                refresh = params.pop("refresh", None)
-                team = request.user.team_set.get()
-                cache_key = generate_cache_key(str(pk) + "_" + str(team.pk))
-                payload = {"pk": pk, "params": params, "team_id": team.pk}
+                cache_key = generate_cache_key("funnel_{}_{}".format(pk, team.pk))
+                payload = {"funnel_id": pk, "team_id": team.pk}
 
-            if (
-                params and payload and params.get("from_dashboard")
-            ):  # cache for 30 minutes if dashboard item
-                _expiry = 900
-                dashboard_item_id = params.get("from_dashboard")
-                payload.update({"dashboard_id": dashboard_item_id})
-
-            if refresh and dashboard_item_id:
-                dashboard_item = DashboardItem.objects.filter(pk=dashboard_item_id)
-                dashboard_item.update(refreshing=True)
-                update_cache_item.delay(cache_key, cache_type, payload, datetime.now())
+            update_cache_item_task.delay(cache_key, cache_type, payload)
 
             # return result if cached
             cached_result = cache.get(cache_key)
@@ -71,13 +47,8 @@ def cached_function(cache_type: str, expiry=30):
             if result and payload:
                 cache.set(
                     cache_key,
-                    {
-                        "result": result,
-                        "details": payload,
-                        "type": cache_type,
-                        "last_accessed": datetime.now(),
-                    },
-                    _expiry,
+                    {"result": result, "details": payload, "type": cache_type,},
+                    expiry,
                 )
 
             return result
