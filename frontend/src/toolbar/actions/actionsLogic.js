@@ -59,5 +59,6 @@ export const actionsLogic = kea({
                 return actionsWithSteps
             },
         ],
+        actionCount: [s => [s.actionsForCurrentUrl], actionsForCurrentUrl => actionsForCurrentUrl.length],
     },
 })

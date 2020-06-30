@@ -25,9 +25,18 @@ export const actionsTabLogic = kea({
         incrementCounter: true,
         saveAction: formValues => ({ formValues }),
         deleteAction: true,
+        showButtonActions: true,
+        hideButtonActions: true,
     },
 
     reducers: {
+        buttonActionsVisible: [
+            false,
+            {
+                showButtonActions: () => true,
+                hideButtonActions: () => false,
+            },
+        ],
         selectedActionId: {
             selectAction: (_, { id }) => id,
             newAction: () => 'new',
@@ -143,6 +152,9 @@ export const actionsTabLogic = kea({
                 actions.selectAction(null)
                 toast('Action deleted!')
             }
+        },
+        showButtonActions: () => {
+            actionsLogic.actions.getActions()
         },
         [toolbarTabLogic.actions.setTab]: ({ tab }) => {
             if (tab === 'actions') {

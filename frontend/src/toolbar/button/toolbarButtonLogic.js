@@ -2,11 +2,16 @@ import { kea } from 'kea'
 import { inBounds } from '~/toolbar/utils'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 
 export const toolbarButtonLogic = kea({
     actions: () => ({
         showHeatmapInfo: true,
         hideHeatmapInfo: true,
+        showActionsInfo: true,
+        hideActionsInfo: true,
+        showStats: true,
+        hideStats: true,
         setExtensionPercentage: percentage => ({ percentage }),
         saveDragPosition: (x, y) => ({ x, y }),
         saveHeatmapPosition: (x, y) => ({ x, y }),
@@ -25,6 +30,22 @@ export const toolbarButtonLogic = kea({
                 hideHeatmapInfo: () => false,
                 [heatmapLogic.actions.disableHeatmap]: () => false,
                 [heatmapLogic.actions.enableHeatmap]: () => false,
+            },
+        ],
+        actionsInfoVisible: [
+            false,
+            {
+                showActionsInfo: () => true,
+                hideActionsInfo: () => false,
+                [actionsTabLogic.actions.showButtonActions]: () => false,
+                [actionsTabLogic.actions.hideButtonActions]: () => false,
+            },
+        ],
+        statsVisible: [
+            false,
+            {
+                showStats: () => true,
+                hideStats: () => false,
             },
         ],
         extensionPercentage: [

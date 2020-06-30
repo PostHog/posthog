@@ -11,12 +11,13 @@ import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { getShadowRoot } from '~/toolbar/utils'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { Stats } from '~/toolbar/button/icons/Stats'
 import { Flag } from '~/toolbar/button/icons/Flag'
 import { Fire } from '~/toolbar/button/icons/Fire'
 import { Magnifier } from '~/toolbar/button/icons/Magnifier'
+import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 
 export function ToolbarButton() {
     const {
@@ -30,9 +31,14 @@ export function ToolbarButton() {
         inspectExtensionPercentage,
         heatmapExtensionPercentage,
         heatmapButtonPosition,
+        actionsInfoVisible,
     } = useValues(toolbarButtonLogic)
-
-    const { setExtensionPercentage, showHeatmapInfo, hideHeatmapInfo } = useActions(toolbarButtonLogic)
+    const { setExtensionPercentage, showHeatmapInfo, hideHeatmapInfo, showActionsInfo, hideActionsInfo } = useActions(
+        toolbarButtonLogic
+    )
+    const { buttonActionsVisible } = useValues(actionsTabLogic)
+    const { hideButtonActions, showButtonActions } = useActions(actionsTabLogic)
+    const { actionCount, allActionsLoading } = useValues(actionsLogic)
 
     const { enableInspect, disableInspect } = useActions(elementsLogic)
     const { inspectEnabled, selectedElement } = useValues(elementsLogic)
@@ -44,7 +50,6 @@ export function ToolbarButton() {
 
     const { isAuthenticated } = useValues(toolbarLogic)
     const { authenticate } = useActions(toolbarLogic)
-    const { setTab } = useActions(toolbarTabLogic)
 
     const globalMouseMove = useRef(null)
     useEffect(() => {
@@ -97,6 +102,7 @@ export function ToolbarButton() {
 
     const borderRadius = 14
     const buttonWidth = 42
+    const actionsExtensionPercentage = extensionPercentage
     let n = 0
 
     return (
@@ -250,22 +256,48 @@ export function ToolbarButton() {
                         y={toolbarListVerticalPadding + n++ * 60}
                         extensionPercentage={extensionPercentage}
                         rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
-                        label="Actions"
+                        label={buttonActionsVisible && !allActionsLoading ? null : 'Actions'}
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
-                        content={<Flag style={{ height: 29 }} />}
+                        content={
+                            <Flag
+                                style={{ height: 29 }}
+                                engaged={buttonActionsVisible}
+                                animated={buttonActionsVisible && allActionsLoading}
+                            />
+                        }
                         zIndex={1}
-                        onClick={() => {
-                            dock()
-                            setTab('actions')
-                        }}
+                        onClick={buttonActionsVisible ? hideButtonActions : showButtonActions}
                         style={{
                             cursor: 'pointer',
                             transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
-                            background: '#D6EBCC', // engaged: #94D674
+                            background: buttonActionsVisible ? '#94D674' : '#D6EBCC',
                             borderRadius,
                         }}
-                    />
+                    >
+                        {buttonActionsVisible && !allActionsLoading ? (
+                            <Circle
+                                width={26}
+                                x={-50 * actionsExtensionPercentage * actionsExtensionPercentage}
+                                y={0}
+                                content={<div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>}
+                                zIndex={4}
+                                onClick={actionsInfoVisible ? hideActionsInfo : showActionsInfo}
+                                style={{
+                                    cursor: 'pointer',
+                                    background: actionsInfoVisible ? '#FF5722' : 'hsl(14, 100%, 97%)',
+                                    color: actionsInfoVisible ? '#FFEB3B' : '#FF5722',
+                                    width: 'auto',
+                                    minWidth: 26,
+                                    fontSize: '20px',
+                                    lineHeight: '26px',
+                                    padding: '0 4px',
+                                    transform: `scale(${0.2 + 0.8 * actionsExtensionPercentage})`,
+                                    borderRadius: 7,
+                                }}
+                            />
+                        ) : null}
+                    </Circle>
                     <Circle
                         width={buttonWidth}
                         x={side === 'left' ? 80 : -80}
