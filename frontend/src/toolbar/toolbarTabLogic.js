@@ -11,7 +11,6 @@ export const toolbarTabLogic = kea({
             {
                 setTab: (_, { tab }) => tab,
                 [dockLogic.actions.button]: () => 'stats',
-                [dockLogic.actions.float]: () => 'stats',
                 [dockLogic.actions.dock]: () => 'stats',
             },
         ],

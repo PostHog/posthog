@@ -2,80 +2,69 @@ import './ToolbarButton.scss'
 
 import React, { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { useLongPress } from 'lib/hooks/useLongPress'
-import { Tooltip } from 'antd'
-import { CloseOutlined, ProfileOutlined, SearchOutlined, FireFilled } from '@ant-design/icons'
-import { Logo } from '~/toolbar/assets/Logo'
+import { HogLogo } from '~/toolbar/assets/HogLogo'
 import { Circle } from '~/toolbar/button/Circle'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { getShadowRoot } from '~/toolbar/elements/utils'
+import { getShadowRoot } from '~/toolbar/utils'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { heatmapLabelStyle } from '~/toolbar/elements/HeatmapLabel'
-
-const quarters = { ne: 0, nw: 1, sw: 2, se: 3 }
-
-function getQuarterRotation({ itemCount, index, quarter, padding: inputPadding }) {
-    const padding = typeof inputPadding !== 'undefined' ? inputPadding : 90 / itemCount
-    const angle = quarter * 90 + (itemCount === 1 ? 45 : padding / 2 + ((90 - padding) / (itemCount - 1)) * index)
-    return -angle
-}
+import { useLongPress } from 'lib/hooks/useLongPress'
+import { Stats } from '~/toolbar/button/icons/Stats'
+import { Flag } from '~/toolbar/button/icons/Flag'
+import { Fire } from '~/toolbar/button/icons/Fire'
+import { Magnifier } from '~/toolbar/button/icons/Magnifier'
+import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { actionsLogic } from '~/toolbar/actions/actionsLogic'
+import { Close } from '~/toolbar/button/icons/Close'
+import { Dock } from '~/toolbar/button/icons/Dock'
 
 export function ToolbarButton() {
-    const { extensionPercentage, quarter } = useValues(toolbarButtonLogic)
-    const { setExtensionPercentage, setQuarter } = useActions(toolbarButtonLogic)
+    const {
+        extensionPercentage,
+        heatmapInfoVisible,
+        toolbarListVerticalPadding,
+        dockButtonOnTop,
+        side,
+        closeDistance,
+        closeRotation,
+        inspectExtensionPercentage,
+        heatmapExtensionPercentage,
+        actionsExtensionPercentage,
+        actionsInfoVisible,
+        statsExtensionPercentage,
+        statsVisible,
+    } = useValues(toolbarButtonLogic)
+    const {
+        setExtensionPercentage,
+        showHeatmapInfo,
+        hideHeatmapInfo,
+        showActionsInfo,
+        hideActionsInfo,
+        showStats,
+        hideStats,
+    } = useActions(toolbarButtonLogic)
+    const { buttonActionsVisible } = useValues(actionsTabLogic)
+    const { hideButtonActions, showButtonActions } = useActions(actionsTabLogic)
+    const { actionCount, allActionsLoading } = useValues(actionsLogic)
 
     const { enableInspect, disableInspect } = useActions(elementsLogic)
     const { inspectEnabled, selectedElement } = useValues(elementsLogic)
 
     const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
-    const { heatmapEnabled, heatmapLoading, elementCount, clickCount } = useValues(heatmapLogic)
+    const { heatmapEnabled, heatmapLoading, elementCount } = useValues(heatmapLogic)
 
-    const { dock, float, hideButton } = useActions(dockLogic)
+    const { dock, hideButton } = useActions(dockLogic)
 
     const { isAuthenticated } = useValues(toolbarLogic)
     const { authenticate } = useActions(toolbarLogic)
-
-    function updateQuarter(buttonDiv = getShadowRoot()?.getElementById('button-toolbar')) {
-        if (buttonDiv) {
-            const rect = buttonDiv.getBoundingClientRect()
-            const x = rect.x + rect.width / 2
-            const y = rect.y + rect.height / 2
-            const ns = y < window.innerHeight / 2 ? 's' : 'n'
-            const we = x < window.innerWidth / 2 ? 'e' : 'w'
-            // use toolbarButtonLogic.values.quarter to always get the last state
-            if (toolbarButtonLogic.values.quarter !== `${ns}${we}`) {
-                setQuarter(`${ns}${we}`)
-            }
-        }
-    }
-
-    useEffect(() => updateQuarter(), [])
-
-    const longPressEvents = useLongPress(
-        clicked => {
-            updateQuarter()
-            if (isAuthenticated) {
-                if (clicked) {
-                    dock()
-                } else {
-                    // extendButtons()
-                }
-            } else {
-                authenticate()
-            }
-        },
-        { ms: 700, clickMs: 1 }
-    )
 
     const globalMouseMove = useRef(null)
     useEffect(() => {
         globalMouseMove.current = function(e) {
             const buttonDiv = getShadowRoot()?.getElementById('button-toolbar')
             if (buttonDiv) {
-                updateQuarter(buttonDiv)
                 const rect = buttonDiv.getBoundingClientRect()
                 const x = rect.left + rect.width / 2
                 const y = rect.top + rect.height / 2
@@ -101,24 +90,37 @@ export function ToolbarButton() {
         return () => window.removeEventListener('mousemove', globalMouseMove.current)
     }, [isAuthenticated])
 
-    let index = 0
-    const itemCount = 3
-    const padding = -20
-    const distance = extensionPercentage * 100
-    const closeDistance = extensionPercentage * 50
-    const inspectDistance = inspectEnabled ? Math.max(50, distance) : distance
-    const heatmapDistance = heatmapEnabled ? Math.max(50, distance) : distance
+    // using useLongPress for short presses (clicks) since it detects if the element was dragged (no click) or not (click)
+    const clickEvents = useLongPress(
+        clicked => {
+            if (clicked) {
+                if (isAuthenticated) {
+                    setExtensionPercentage(extensionPercentage === 1 ? 0 : 1)
+                } else {
+                    authenticate()
+                }
+            }
+        },
+        {
+            ms: null,
+            clickMs: 1,
+            touch: true,
+            click: true,
+        }
+    )
+
+    const borderRadius = 14
+    const buttonWidth = 42
+    let n = 0
 
     return (
         <Circle
             rootNode
-            width={64}
+            width={62}
             className="floating-toolbar-button"
-            content={<Logo style={{ width: 54, height: 54, filter: 'invert(1)', cursor: 'pointer' }} />}
+            content={<HogLogo style={{ width: 45, cursor: 'pointer' }} />}
             label={
-                isAuthenticated ? (
-                    'Toolbar'
-                ) : (
+                isAuthenticated ? null : (
                     <div style={{ lineHeight: '22px', paddingTop: 5 }}>
                         Click here to
                         <br />
@@ -126,46 +128,72 @@ export function ToolbarButton() {
                     </div>
                 )
             }
-            labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
-            {...longPressEvents}
+            labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0, marginTop: 16 }}
+            {...clickEvents}
+            style={{ borderRadius: 10, height: 46, marginTop: -23 }}
             zIndex={3}
         >
             <Circle
-                width={32}
+                width={26}
+                extensionPercentage={extensionPercentage}
                 distance={closeDistance}
-                rotate={quarter === 'sw' || quarter === 'nw' ? -45 : -135}
-                content={<CloseOutlined />}
-                zIndex={5}
+                rotation={closeRotation}
+                content={<Close style={{ width: 14, height: 14 }} />}
+                zIndex={extensionPercentage > 0.95 ? 5 : 2}
                 onClick={hideButton}
-                style={{ cursor: 'pointer', background: 'black', color: 'white' }}
+                style={{
+                    cursor: 'pointer',
+                    background: '#393939',
+                    borderRadius: 4,
+                    color: 'white',
+                    transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
+                }}
             />
             {isAuthenticated ? (
                 <>
                     <Circle
-                        width={48}
-                        distance={inspectDistance}
-                        rotate={getQuarterRotation({
-                            itemCount,
-                            index: index++,
-                            padding,
-                            quarter: quarters[quarter],
-                        })}
+                        width={32}
+                        extensionPercentage={extensionPercentage}
+                        distance={dockButtonOnTop ? 90 : 55}
+                        rotation={dockButtonOnTop ? (side === 'left' ? -95 + 360 : -95) : 90}
+                        content={<Dock style={{ height: 18, width: 18 }} />}
+                        label="Dock"
+                        zIndex={2}
+                        onClick={dock}
+                        labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
+                        style={{
+                            cursor: 'pointer',
+                            background: '#808080',
+                            color: 'white',
+                            borderRadius: 3,
+                            transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
+                        }}
+                    />
+                    <Circle
+                        width={buttonWidth}
+                        x={side === 'left' ? 80 : -80}
+                        y={toolbarListVerticalPadding + n++ * 60}
+                        extensionPercentage={inspectExtensionPercentage}
+                        rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
                         label="Inspect"
-                        labelStyle={{ opacity: inspectDistance > 80 ? (inspectDistance - 80) / 20 : 0 }}
+                        labelPosition={side === 'left' ? 'right' : 'left'}
+                        labelStyle={{
+                            opacity: inspectExtensionPercentage > 0.8 ? (inspectExtensionPercentage - 0.8) / 0.2 : 0,
+                        }}
                         content={
                             <div style={{ position: 'relative' }}>
-                                <SearchOutlined />
+                                <Magnifier style={{ height: 34, paddingTop: 2 }} engaged={inspectEnabled} />
                                 {inspectEnabled && selectedElement ? (
                                     <div
                                         style={{
                                             position: 'absolute',
-                                            top: 12,
-                                            left: 6,
+                                            top: 8,
+                                            left: 9,
                                             fontSize: 13,
                                             color: 'white',
                                         }}
                                     >
-                                        <CloseOutlined />
+                                        <Close style={{ width: 10, height: 10 }} />
                                     </div>
                                 ) : null}
                             </div>
@@ -174,149 +202,140 @@ export function ToolbarButton() {
                         onClick={inspectEnabled ? disableInspect : enableInspect}
                         style={{
                             cursor: 'pointer',
-                            background: inspectEnabled ? 'rgb(84, 138, 248)' : 'hsla(220, 52%, 96%, 1)',
-                            color: inspectEnabled ? 'hsla(220, 52%, 96%, 1)' : 'rgb(84, 138, 248)',
-                            fontSize: '32px',
+                            background: inspectEnabled ? '#8F98FF' : '#E7EAFD',
                             transition: 'transform 0.2s, color 0.2s, background: 0.2s',
-                            transform: `scale(${0.2 + (0.8 * inspectDistance) / 100})`,
+                            transform: `scale(${0.2 + 0.8 * inspectExtensionPercentage})`,
+                            borderRadius,
                         }}
                     />
                     <Circle
-                        width={48}
-                        distance={heatmapDistance}
-                        rotate={getQuarterRotation({
-                            itemCount,
-                            index: index++,
-                            padding,
-                            quarter: quarters[quarter],
-                        })}
-                        label="Heatmap"
-                        labelStyle={{ opacity: heatmapDistance > 80 ? (heatmapDistance - 80) / 20 : 0 }}
-                        content={<FireFilled />}
-                        zIndex={1}
+                        width={buttonWidth}
+                        x={side === 'left' ? 80 : -80}
+                        y={toolbarListVerticalPadding + n++ * 60}
+                        extensionPercentage={heatmapExtensionPercentage}
+                        rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
+                        label={heatmapEnabled && !heatmapLoading ? null : 'Heatmap'}
+                        labelPosition={side === 'left' ? 'right' : 'left'}
+                        labelStyle={{
+                            opacity:
+                                heatmapEnabled && !heatmapLoading
+                                    ? 0
+                                    : heatmapExtensionPercentage > 0.8
+                                    ? (heatmapExtensionPercentage - 0.8) / 0.2
+                                    : 0,
+                        }}
+                        content={<Fire style={{ height: 26 }} engaged={heatmapEnabled} animated={heatmapLoading} />}
+                        zIndex={2}
                         onClick={heatmapEnabled ? disableHeatmap : enableHeatmap}
                         style={{
                             cursor: 'pointer',
-                            background: heatmapEnabled ? '#FF5722' : 'hsl(14, 100%, 97%)',
-                            color: heatmapEnabled ? '#FFEB3B' : '#FF5722',
-                            fontSize: '32px',
-                            transition: 'transform 0.2s',
-                            transform: `scale(${0.2 + (0.8 * heatmapDistance) / 100})`,
+                            background: heatmapEnabled ? '#FF9870' : '#FEE3DA',
+                            transform: `scale(${0.2 + 0.8 * heatmapExtensionPercentage})`,
+                            borderRadius,
                         }}
                     >
-                        {heatmapLoading ? (
+                        {heatmapEnabled && !heatmapLoading ? (
                             <Circle
-                                width={12}
-                                distance={30 * (0.2 + (0.8 * heatmapDistance) / 100)}
-                                rotate={0}
-                                animate
-                                animationId="heatmap-loading"
-                                animationDuration={0.5 + (0.5 * heatmapDistance) / 100}
-                                spin="1s linear infinite"
-                                content={<FireFilled />}
-                                zIndex={3}
-                                style={{
-                                    cursor: 'pointer',
-                                    background: '#FF5722',
-                                    color: '#FFEB3B',
-                                    fontSize: '12px',
-                                    transition: 'transform 0.2s',
-                                    transform: `rotate(${-getQuarterRotation({
-                                        itemCount,
-                                        index: index - 1,
-                                        padding,
-                                        quarter: quarters[quarter],
-                                    })}deg)`,
-                                }}
-                            />
-                        ) : heatmapEnabled ? (
-                            <Circle
-                                width={16}
-                                distance={30 * (0.1 + (0.8 * heatmapDistance) / 100)}
-                                rotate={
-                                    -getQuarterRotation({
-                                        itemCount,
-                                        index: index - 1,
-                                        padding,
-                                        quarter: quarters[quarter],
-                                    }) - (quarter === 'sw' || quarter === 'nw' ? 135 : 45)
+                                width={26}
+                                x={
+                                    (side === 'left' ? 50 : -50) *
+                                    heatmapExtensionPercentage *
+                                    heatmapExtensionPercentage
                                 }
+                                y={0}
                                 content={
-                                    <Tooltip
-                                        getPopupContainer={getShadowRoot}
-                                        title={
-                                            elementCount === 0 ? (
-                                                'No clicks were recorded on this page in the last 7 days'
-                                            ) : (
-                                                <>
-                                                    <div style={{ marginBottom: 10 }}>
-                                                        {'Recorded '}
-                                                        <strong>
-                                                            {elementCount} element{elementCount === 1 ? '' : 's'}
-                                                        </strong>
-                                                        {' with '}
-                                                        <strong>
-                                                            {clickCount} click{clickCount === 1 ? '' : 's'}
-                                                        </strong>
-                                                        {' in the last  '}
-                                                        <u>7 days</u>.
-                                                    </div>
-                                                    <div>
-                                                        {'Look for elements with yellow labels: '}
-                                                        <span style={heatmapLabelStyle}>1</span>
-                                                        {', '}
-                                                        <span style={heatmapLabelStyle}>2</span>
-                                                        {', '}
-                                                        <span style={heatmapLabelStyle}>3</span>
-                                                        {' and so on.'}
-                                                    </div>
-                                                </>
-                                            )
-                                        }
-                                    >
-                                        <div style={{ whiteSpace: 'nowrap', minWidth: 16, textAlign: 'center' }}>
-                                            {elementCount}
-                                        </div>
-                                    </Tooltip>
+                                    <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
                                 }
                                 zIndex={4}
+                                onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
                                 style={{
                                     cursor: 'pointer',
-                                    background: 'hsla(14, 92%, 23%, 1)',
-                                    color: 'white',
-                                    fontSize: '12px',
-                                    transition: 'transform 0.2s',
-                                    transform: `rotate(${-getQuarterRotation({
-                                        itemCount,
-                                        index: index - 1,
-                                        padding,
-                                        quarter: quarters[quarter],
-                                    })}deg)`,
+                                    background: heatmapInfoVisible ? 'hsla(17, 100%, 47%, 1)' : 'hsla(17, 84%, 95%, 1)',
+                                    color: heatmapInfoVisible ? '#FFEB3B' : 'hsl(17, 64%, 32%)',
                                     width: 'auto',
-                                    minWidth: 16,
+                                    minWidth: 26,
+                                    fontSize: '20px',
+                                    lineHeight: '26px',
+                                    padding: '0 4px',
+                                    transform: `scale(${0.2 + 0.8 * heatmapExtensionPercentage})`,
+                                    borderRadius: 7,
                                 }}
                             />
                         ) : null}
                     </Circle>
                     <Circle
-                        width={48}
-                        distance={distance}
-                        rotate={getQuarterRotation({
-                            itemCount,
-                            index: index++,
-                            padding,
-                            quarter: quarters[quarter],
-                        })}
-                        label="Float"
-                        labelStyle={{ opacity: distance > 80 ? (distance - 80) / 20 : 0 }}
-                        content={<ProfileOutlined />}
+                        width={buttonWidth}
+                        x={side === 'left' ? 80 : -80}
+                        y={toolbarListVerticalPadding + n++ * 60}
+                        extensionPercentage={actionsExtensionPercentage}
+                        rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
+                        label={buttonActionsVisible && (!allActionsLoading || actionCount > 0) ? null : 'Actions'}
+                        labelPosition={side === 'left' ? 'right' : 'left'}
+                        labelStyle={{
+                            opacity: actionsExtensionPercentage > 0.8 ? (actionsExtensionPercentage - 0.8) / 0.2 : 0,
+                        }}
+                        content={
+                            <Flag
+                                style={{ height: 29 }}
+                                engaged={buttonActionsVisible}
+                                animated={buttonActionsVisible && allActionsLoading}
+                            />
+                        }
                         zIndex={1}
-                        onClick={float}
+                        onClick={buttonActionsVisible ? hideButtonActions : showButtonActions}
                         style={{
                             cursor: 'pointer',
-                            fontSize: '24px',
-                            transition: 'transform 0.2s',
-                            transform: `scale(${0.2 + (0.8 * distance) / 100})`,
+                            transform: `scale(${0.2 + 0.8 * actionsExtensionPercentage})`,
+                            background: buttonActionsVisible ? '#94D674' : '#D6EBCC',
+                            borderRadius,
+                        }}
+                    >
+                        {buttonActionsVisible && (!allActionsLoading || actionCount > 0) ? (
+                            <Circle
+                                width={26}
+                                x={
+                                    (side === 'left' ? 50 : -50) *
+                                    actionsExtensionPercentage *
+                                    actionsExtensionPercentage
+                                }
+                                y={0}
+                                content={<div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>}
+                                zIndex={4}
+                                onClick={actionsInfoVisible ? hideActionsInfo : showActionsInfo}
+                                style={{
+                                    cursor: 'pointer',
+                                    background: actionsInfoVisible ? 'hsl(100, 65%, 31%)' : 'hsla(101, 44%, 93%, 1)',
+                                    color: actionsInfoVisible ? 'hsl(100, 22%, 93%)' : 'hsla(100, 34%, 35%, 1)',
+                                    width: 'auto',
+                                    minWidth: 26,
+                                    fontSize: '20px',
+                                    lineHeight: '26px',
+                                    padding: '0 4px',
+                                    transform: `scale(${0.2 + 0.8 * actionsExtensionPercentage})`,
+                                    borderRadius: 7,
+                                }}
+                            />
+                        ) : null}
+                    </Circle>
+                    <Circle
+                        width={buttonWidth}
+                        x={side === 'left' ? 80 : -80}
+                        y={toolbarListVerticalPadding + n++ * 60}
+                        extensionPercentage={statsExtensionPercentage}
+                        rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
+                        label="Stats"
+                        labelPosition={side === 'left' ? 'right' : 'left'}
+                        labelStyle={{
+                            opacity: statsExtensionPercentage > 0.8 ? (statsExtensionPercentage - 0.8) / 0.2 : 0,
+                        }}
+                        content={<Stats style={{ height: 25 }} engaged={statsVisible} />}
+                        zIndex={1}
+                        onClick={statsVisible ? hideStats : showStats}
+                        style={{
+                            cursor: 'pointer',
+                            transform: `scale(${0.2 + 0.8 * statsExtensionPercentage})`,
+                            background: statsVisible ? '#F1AA04' : '#FEF5E2',
+                            borderRadius,
                         }}
                     />
                 </>

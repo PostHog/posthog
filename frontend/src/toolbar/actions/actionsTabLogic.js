@@ -1,11 +1,12 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { elementToActionStep, actionStepToAntdForm, stepToDatabaseFormat } from '~/toolbar/elements/utils'
+import { elementToActionStep, actionStepToAntdForm, stepToDatabaseFormat } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { toast } from 'react-toastify'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { dockLogic } from '~/toolbar/dockLogic'
+import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 
 function newAction(element) {
     return {
@@ -25,9 +26,18 @@ export const actionsTabLogic = kea({
         incrementCounter: true,
         saveAction: formValues => ({ formValues }),
         deleteAction: true,
+        showButtonActions: true,
+        hideButtonActions: true,
     },
 
     reducers: {
+        buttonActionsVisible: [
+            false,
+            {
+                showButtonActions: () => true,
+                hideButtonActions: () => false,
+            },
+        ],
         selectedActionId: {
             selectAction: (_, { id }) => id,
             newAction: () => 'new',
@@ -86,9 +96,17 @@ export const actionsTabLogic = kea({
         selectAction: ({ id }) => {
             if (id) {
                 if (dockLogic.values.mode === 'button') {
-                    dockLogic.actions.dock()
+                    if (!values.buttonActionsVisible) {
+                        actions.showButtonActions()
+                    }
+                    if (!toolbarButtonLogic.values.actionsInfoVisible) {
+                        toolbarButtonLogic.actions.showActionsInfo()
+                    }
+                } else {
+                    if (toolbarTabLogic.values.tab !== 'actions') {
+                        toolbarTabLogic.actions.setTab('actions')
+                    }
                 }
-                toolbarTabLogic.actions.setTab('actions')
             }
         },
         inspectElementSelected: ({ element, index }) => {
@@ -144,6 +162,9 @@ export const actionsTabLogic = kea({
                 toast('Action deleted!')
             }
         },
+        showButtonActions: () => {
+            actionsLogic.actions.getActions()
+        },
         [toolbarTabLogic.actions.setTab]: ({ tab }) => {
             if (tab === 'actions') {
                 actionsLogic.actions.getActions()
@@ -155,7 +176,7 @@ export const actionsTabLogic = kea({
         afterMount: () => {
             const { mode } = dockLogic.values
             const { tab } = toolbarTabLogic.values
-            if (tab === 'actions' && (mode === 'float' || mode === 'dock')) {
+            if (tab === 'actions' && mode === 'dock') {
                 actionsLogic.actions.getActions()
             }
         },

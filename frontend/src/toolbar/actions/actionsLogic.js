@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { stepMatchesHref } from '~/toolbar/elements/utils'
+import { stepMatchesHref } from '~/toolbar/utils'
 
 export const actionsLogic = kea({
     loaders: ({ values }) => ({
@@ -59,5 +59,6 @@ export const actionsLogic = kea({
                 return actionsWithSteps
             },
         ],
+        actionCount: [s => [s.actionsForCurrentUrl], actionsForCurrentUrl => actionsForCurrentUrl.length],
     },
 })

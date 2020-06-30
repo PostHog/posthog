@@ -5676,6 +5676,11 @@ kea-router@^0.4.0:
   dependencies:
     url-pattern "^1.0.3"
 
+kea-window-values@^0.0.1:
+  version "0.0.1"
+  resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.0.1.tgz#918eee6647507e2d3d5d19466b9561261e7bc8d7"
+  integrity sha512-60SfOqHrmnCC8hSD2LALMJemYcohQ8tGcTHlA5u4rQy0l0wFFE4gqH1WbKd+73j9m4f6zdoOk07rwJf+P8maiQ==
+
 kea@^2.1.1:
   version "2.1.1"
   resolved "https://registry.yarnpkg.com/kea/-/kea-2.1.1.tgz#6e3c65c4873b67d270a2ec7bf73b0d178937234c"
