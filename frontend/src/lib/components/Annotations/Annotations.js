@@ -1,45 +1,47 @@
 import React, { useState, useEffect } from 'react'
 import moment from 'moment'
-import { annotationsModel } from '~/models'
+import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
 
 export const Annotations = React.memo(function Annotations({
-    labeledDates,
+    dates,
+    labeledDays,
     leftExtent,
     interval,
     topExtent,
     dashboardItemId,
 }) {
     const [groupedAnnotations, setGroupedAnnotations] = useState({})
-    const [diffType, setDiffType] = useState(determineDifferenceType(labeledDates[0], labeledDates[1]))
-    const { annotationsList } = useValues(annotationsModel({ pageKey: dashboardItemId ? dashboardItemId : null }))
+    const [diffType, setDiffType] = useState(determineDifferenceType(dates[0], dates[1]))
+    const { annotationsList } = useValues(annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null }))
 
     const { createAnnotation, createAnnotationNow, deleteAnnotation } = useActions(
-        annotationsModel({ pageKey: dashboardItemId ? dashboardItemId : null })
+        annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
     )
 
     useEffect(() => {
         // calculate groups
-        setDiffType(determineDifferenceType(labeledDates[0], labeledDates[1]))
+        setDiffType(determineDifferenceType(dates[0], dates[1]))
         let groupedResults = _.groupBy(annotationsList, annote => moment(annote['date_marker']).startOf(diffType))
         setGroupedAnnotations(groupedResults)
-    }, [annotationsList, labeledDates])
+    }, [annotationsList, dates])
 
     const markers = []
-    labeledDates.forEach((date, index) => {
+    dates.forEach((date, index) => {
         const annotations = groupedAnnotations[moment(date).startOf(diffType)]
         if (annotations) {
             markers.push(
                 <AnnotationMarker
+                    label={labeledDays[index]}
                     key={index}
-                    left={index * interval + leftExtent - 15}
+                    left={index * interval + leftExtent - 12.5}
                     top={topExtent}
                     annotations={annotations}
                     onCreate={input => {
                         dashboardItemId
-                            ? createAnnotationNow(input, labeledDates[index])
-                            : createAnnotation(input, labeledDates[index])
+                            ? createAnnotationNow(input, dates[index])
+                            : createAnnotation(input, dates[index])
                     }}
                     onDelete={id => deleteAnnotation(id)}
                 ></AnnotationMarker>

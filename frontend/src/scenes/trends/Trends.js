@@ -30,7 +30,7 @@ import {
     ACTIONS_PIE_CHART,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
-import { annotationsModel } from '~/models'
+import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
 const { TabPane } = Tabs
@@ -47,8 +47,8 @@ function _Trends() {
     const { filters, resultsLoading, showingPeople, activeView } = useValues(trendsLogic({ dashboardItemId: null }))
     const { setFilters, setDisplay, setActiveView } = useActions(trendsLogic({ dashboardItemId: null }))
     const [{ fromItem }] = useState(router.values.hashParams)
-    const { clearAnnotationsToCreate } = useActions(annotationsModel({ pageKey: fromItem }))
-    const { annotationsList } = useValues(annotationsModel({ pageKey: fromItem }))
+    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
+    const { annotationsList } = useValues(annotationsLogic({ pageKey: fromItem }))
 
     return (
         <div className="actions-graph">

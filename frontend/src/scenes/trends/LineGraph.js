@@ -6,12 +6,11 @@ import { operatorMap } from '~/lib/utils'
 import _ from 'lodash'
 import { getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { annotationsModel } from '~/models'
 import { Button, Popover, Row, Input } from 'antd'
 const { TextArea } = Input
 
 import { PlusOutlined } from '@ant-design/icons'
-import { Annotations } from 'lib/components/Annotations'
+import { Annotations, annotationsLogic } from 'lib/components/Annotations'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -38,7 +37,7 @@ export function LineGraph({
     const [holdLabelIndex, setHoldLabelIndex] = useState(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState(null)
     const { createAnnotation, createAnnotationNow } = useActions(
-        annotationsModel({ pageKey: dashboardItemId ? dashboardItemId : null })
+        annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
     )
     const [textInput, setTextInput] = useState('')
     const [leftExtent, setLeftExtent] = useState(0)
@@ -197,7 +196,7 @@ export function LineGraph({
                                           min: 0,
                                           fontColor: axisLabelColor,
                                           precision: 0,
-                                          padding: 40,
+                                          padding: 35,
                                       },
                                   },
                               ],
@@ -310,16 +309,19 @@ export function LineGraph({
                     title={'Add Annotation'}
                     visible={focused}
                 >
-                    <Button
+                    <div
                         style={{
                             position: 'absolute',
-                            left: (focused ? holdLeft : left) - 15,
+                            left: (focused ? holdLeft : left) - 12.5,
                             top: myLineChart.current.scales['x-axis-0'].top + 12,
-                            width: 30,
-                            height: 30,
+                            width: 25,
+                            height: 25,
                             display: 'flex',
                             justifyContent: 'center',
                             alignItems: 'center',
+                            backgroundColor: '#1890ff',
+                            borderRadius: 5,
+                            cursor: 'pointer',
                         }}
                         type="primary"
                         onClick={() => {
@@ -329,12 +331,13 @@ export function LineGraph({
                             setSelectedDayLabel(datasets[0].labels[labelIndex])
                         }}
                     >
-                        <PlusOutlined></PlusOutlined>
-                    </Button>
+                        <PlusOutlined style={{ color: 'white' }}></PlusOutlined>
+                    </div>
                 </Popover>
             )}
             <Annotations
-                labeledDates={datasets[0].days}
+                labeledDays={datasets[0].labels}
+                dates={datasets[0].days}
                 leftExtent={leftExtent}
                 interval={interval}
                 topExtent={topExtent}

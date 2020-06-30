@@ -6,10 +6,10 @@ import { userLogic } from 'scenes/userLogic'
 import { Button, Popover, Row, Input } from 'antd'
 const { TextArea } = Input
 import { humanFriendlyDetailedTime } from '~/lib/utils'
-import { CloseOutlined, DeleteOutlined } from '@ant-design/icons'
+import { DeleteOutlined } from '@ant-design/icons'
 import _ from 'lodash'
 
-export function AnnotationMarker({ annotations, left, top, onCreate, onDelete }) {
+export function AnnotationMarker({ label, annotations, left, top, onCreate, onDelete }) {
     const [textInput, setTextInput] = useState('')
     const [textAreaVisible, setTextAreaVisible] = useState(false)
     const {
@@ -26,12 +26,12 @@ export function AnnotationMarker({ annotations, left, top, onCreate, onDelete })
                         <div key={data.id} style={{ marginBottom: 25 }}>
                             <Row justify="space-between" align="middle">
                                 <div>
-                                    <b>
+                                    <b style={{ marginRight: 5 }}>
                                         {(data.created_by && (data.created_by.first_name || data.created_by.email)) ||
                                             name ||
                                             email}
                                     </b>
-                                    <span>{humanFriendlyDetailedTime(data.created_at)}</span>
+                                    <i style={{ color: 'gray' }}>{humanFriendlyDetailedTime(data.created_at)}</i>
                                 </div>
                                 <DeleteOutlined
                                     className="clickable"
@@ -80,26 +80,28 @@ export function AnnotationMarker({ annotations, left, top, onCreate, onDelete })
             }
             title={
                 <Row justify="space-between" align="middle">
-                    {'Annotation'}
-                    <CloseOutlined></CloseOutlined>
+                    {label}
                 </Row>
             }
         >
-            <Button
+            <div
                 style={{
                     position: 'absolute',
                     left: left,
                     top: top,
-                    width: 30,
-                    height: 30,
+                    width: 25,
+                    height: 25,
                     display: 'flex',
                     justifyContent: 'center',
                     alignItems: 'center',
+                    backgroundColor: '#1890ff',
+                    borderRadius: 5,
+                    cursor: 'pointer',
                 }}
                 type="primary"
             >
-                <span>{annotations.length}</span>
-            </Button>
+                <span style={{ color: 'white', fontSize: 12 }}>{annotations.length}</span>
+            </div>
         </Popover>
     )
 }

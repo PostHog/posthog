@@ -5,7 +5,7 @@ import moment from 'moment'
 import _ from 'lodash'
 import { deleteWithUndo } from 'lib/utils'
 
-export const annotationsModel = kea({
+export const annotationsLogic = kea({
     key: props => (props.pageKey && props.pageKey + '_annotations') || 'annotations_default',
     actions: ({ values }) => ({
         createAnnotation: (content, date_marker) => ({
