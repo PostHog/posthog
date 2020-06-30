@@ -19,7 +19,7 @@ export function DockedToolbar({ type }) {
         type === 'dock' && tab === 'stats' && (inspectEnabled || heatmapEnabled) && (hoverElement || selectedElement)
 
     return (
-        <div style={{ marginTop: dockTopMargin }}>
+        <div style={{ transform: `translate(0, ${dockTopMargin}px)`, transition: 'transform 0.3s' }}>
             {showElementInsteadOfTabs ? (
                 <>
                     <div style={{ height: 66, lineHeight: '56px' }}>
