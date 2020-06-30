@@ -1,5 +1,5 @@
-import React from 'react'
-import { useActions, useValues, useMountedLogic } from 'kea'
+import React, { useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import { Card, CloseButton, Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
@@ -31,6 +31,7 @@ import {
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 import { annotationsModel } from '~/models'
+import { router } from 'kea-router'
 
 const { TabPane } = Tabs
 
@@ -45,8 +46,9 @@ export const Trends = hot(_Trends)
 function _Trends() {
     const { filters, resultsLoading, showingPeople, activeView } = useValues(trendsLogic({ dashboardItemId: null }))
     const { setFilters, setDisplay, setActiveView } = useActions(trendsLogic({ dashboardItemId: null }))
-    const { clearAnnotationsToCreate } = useActions(annotationsModel)
-    const { annotationsList } = useValues(annotationsModel)
+    const [{ fromItem }] = useState(router.values.hashParams)
+    const { clearAnnotationsToCreate } = useActions(annotationsModel({ pageKey: fromItem }))
+    const { annotationsList } = useValues(annotationsModel({ pageKey: fromItem }))
 
     return (
         <div className="actions-graph">
@@ -179,7 +181,9 @@ function _Trends() {
                                     {resultsLoading && <Loading />}
                                     {(!filters.display ||
                                         filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && <ActionsLineGraph />}
+                                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && (
+                                        <ActionsLineGraph dashboardItemId={fromItem} />
+                                    )}
                                     {filters.display === ACTIONS_TABLE && <ActionsTable filters={filters} />}
                                     {filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={filters} />}
                                 </div>

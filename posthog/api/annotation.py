@@ -14,6 +14,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
         request = self.context['request']
+        print(validated_data)
         annotation = Annotation.objects.create(team=request.user.team_set.get(), created_by=request.user, **validated_data)
         return annotation
 
@@ -36,4 +37,6 @@ class AnnotationsViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(created_at__gt=request.GET['after'])
             elif key == 'before':
                 queryset = queryset.filter(created_at__lt=request.GET['before'])
+            elif key == 'dashboardItemId':
+                queryset = queryset.filter(dashboard_item_id=request.GET['dashboardItemId'])
         return queryset

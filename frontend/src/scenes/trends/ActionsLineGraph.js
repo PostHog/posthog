@@ -22,6 +22,7 @@ export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filt
                 datasets={results}
                 labels={(results[0] && results[0].labels) || []}
                 isInProgress={!filters.date_to}
+                dashboardItemId={dashboardItemId}
                 onClick={
                     dashboardItemId
                         ? null

@@ -16,7 +16,16 @@ import { PlusOutlined } from '@ant-design/icons'
 Chart.defaults.global.legend.display = false
 //--Chart Style Options--//
 
-export function LineGraph({ datasets, labels, color, type, isInProgress, onClick, ['data-attr']: dataAttr }) {
+export function LineGraph({
+    datasets,
+    labels,
+    color,
+    type,
+    isInProgress,
+    onClick,
+    ['data-attr']: dataAttr,
+    dashboardItemId,
+}) {
     const chartRef = useRef()
     const myLineChart = useRef()
     const [left, setLeft] = useState(0)
@@ -24,7 +33,9 @@ export function LineGraph({ datasets, labels, color, type, isInProgress, onClick
     const [focused, setFocused] = useState(false)
     const [labelIndex, setLabelIndex] = useState(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState(null)
-    const { createAnnotation } = useActions(annotationsModel)
+    const { createAnnotation, createAnnotationNow } = useActions(
+        annotationsModel({ pageKey: dashboardItemId ? dashboardItemId : null })
+    )
     const [textInput, setTextInput] = useState('')
     const [leftExtent, setLeftExtent] = useState(0)
     const [interval, setInterval] = useState(0)
@@ -283,7 +294,9 @@ export function LineGraph({ datasets, labels, color, type, isInProgress, onClick
                                     type="primary"
                                     onClick={() => {
                                         setFocused(false)
-                                        createAnnotation(textInput, datasets[0].days[labelIndex])
+                                        dashboardItemId
+                                            ? createAnnotationNow(textInput, datasets[0].days[labelIndex])
+                                            : createAnnotation(textInput, datasets[0].days[labelIndex])
                                     }}
                                 >
                                     Add
@@ -320,16 +333,25 @@ export function LineGraph({ datasets, labels, color, type, isInProgress, onClick
                 leftExtent={leftExtent}
                 interval={interval}
                 topExtent={topExtent}
+                dashboardItemId={dashboardItemId}
             ></Annotations>
         </div>
     )
 }
 
-const Annotations = React.memo(function Annotations({ labeledDates, leftExtent, interval, topExtent }) {
+const Annotations = React.memo(function Annotations({
+    labeledDates,
+    leftExtent,
+    interval,
+    topExtent,
+    dashboardItemId,
+}) {
     const [groupedAnnotations, setGroupedAnnotations] = useState({})
     const [diffType, setDiffType] = useState(determineDifferenceType(labeledDates[0], labeledDates[1]))
-    const { annotationsList } = useValues(annotationsModel)
-    const { createAnnotation } = useActions(annotationsModel)
+    const { annotationsList } = useValues(annotationsModel({ pageKey: dashboardItemId ? dashboardItemId : null }))
+    const { createAnnotation, createAnnotationNow } = useActions(
+        annotationsModel({ pageKey: dashboardItemId ? dashboardItemId : null })
+    )
     const [textInput, setTextInput] = useState('')
 
     useEffect(() => {
@@ -362,7 +384,9 @@ const Annotations = React.memo(function Annotations({ labeledDates, leftExtent, 
                                 <Button
                                     type="primary"
                                     onClick={() => {
-                                        createAnnotation(textInput, labeledDates[index])
+                                        dashboardItemId
+                                            ? createAnnotationNow(textInput, labeledDates[index])
+                                            : createAnnotation(textInput, labeledDates[index])
                                         setTextInput('')
                                     }}
                                 >

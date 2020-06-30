@@ -61,7 +61,6 @@ export function SaveToDashboardModal({
             const response = await api.create('api/dashboard_item', { filters, type, name, dashboard: dashboardId })
             if (annotations) {
                 for (const { content, date_marker, created_at } of annotations) {
-                    console.log(created_at)
                     await api.create('api/annotation', {
                         content,
                         date_marker: moment(date_marker),
