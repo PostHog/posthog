@@ -6,9 +6,11 @@ import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
 
 export function StatsTab({ className }) {
     return (
-        <div className={`toolbar-content ${className}`}>
+        <div className={`toolbar-content ${className} toolbar-block`}>
             <CurrentPage />
+            <br />
             <InspectElement />
+            <br />
             <HeatmapStats />
         </div>
     )
