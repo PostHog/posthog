@@ -1,5 +1,5 @@
 import React from 'react'
-import { inBounds } from '~/toolbar/elements/utils'
+import { inBounds } from '~/toolbar/utils'
 
 export const heatmapLabelStyle = {
     lineHeight: '14px',

@@ -55,14 +55,13 @@
         }
     }
     .dashboard-item-content {
-        padding: 8px 15px 15px 15px;
+        margin: 8px 15px 15px 15px;
         overflow: hidden;
         flex-grow: 1;
         position: relative;
         .graph-container {
             width: 100%;
             height: 100%;
-            position: relative;
         }
     }
     .dashboard-item-container.table .dashboard-item-content {

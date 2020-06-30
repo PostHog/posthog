@@ -9,7 +9,7 @@ import { InfoWindow } from '~/toolbar/elements/InfoWindow'
 import { HeatmapElement } from '~/toolbar/elements/HeatmapElement'
 import { HeatmapLabel } from '~/toolbar/elements/HeatmapLabel'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { getBoxColors } from '~/toolbar/elements/utils'
+import { getBoxColors } from '~/toolbar/utils'
 
 export function Elements() {
     const { domZoom, domPadding, mode } = useValues(dockLogic)

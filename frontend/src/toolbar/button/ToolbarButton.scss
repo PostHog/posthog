@@ -16,3 +16,76 @@
         }
     }
 }
+
+.toolbar-info-windows {
+    position: fixed;
+    width: 300px;
+    left: 0;
+    top: 0;
+    z-index: 2147483020;
+    box-shadow: hsla(4, 30%, 27%, 0.6) 0px 3px 10px 2px;
+    opacity: 1;
+    transition: opacity ease 0.5s;
+
+    .toolbar-info-window-title {
+        height: 42px;
+        line-height: 26px;
+        padding-left: 15px;
+        display: flex;
+        width: 100%;
+        align-items: center;
+        cursor: move;
+
+        > svg:first-child {
+            margin-right: 9px;
+            height: 18px;
+            width: auto;
+        }
+        .window-label {
+            flex: 1;
+        }
+        .close-button {
+            cursor: pointer;
+            width: 40px;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.4);
+            line-height: 42px;
+            &:hover {
+                background: rgba(255, 255, 255, 0.6);
+            }
+        }
+    }
+
+    &.heatmap-button-window {
+        border-left: 4px solid #f54d01;
+        .toolbar-block {
+            background: hsla(19, 99%, 99%, 1);
+        }
+        .toolbar-info-window-title {
+            color: hsla(19, 89%, 15%, 1);
+            background: hsla(19, 99%, 83%, 1);
+        }
+    }
+
+    &.actions-button-window {
+        border-left: 4px solid #94d674;
+        .toolbar-block {
+            background: hsla(100, 74%, 98%, 1);
+        }
+        .toolbar-info-window-title {
+            color: hsla(100, 34%, 15%, 1);
+            background: #d6ebcc;
+        }
+    }
+
+    &.stats-button-window {
+        border-left: 4px solid #f1aa04;
+        .toolbar-block {
+            background: hsla(41, 93%, 99%, 1);
+        }
+        .toolbar-info-window-title {
+            color: hsla(41, 33%, 12%, 1);
+            background: #fef5e2;
+        }
+    }
+}

@@ -2,10 +2,11 @@ import { kea } from 'kea'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { elementToActionStep, getAllClickTargets, getElementForStep } from '~/toolbar/elements/utils'
+import { elementToActionStep, getAllClickTargets, getElementForStep } from '~/toolbar/utils'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 
 export const elementsLogic = kea({
     actions: {
@@ -57,6 +58,7 @@ export const elementsLogic = kea({
             createAction: () => null,
             [toolbarTabLogic.actions.setTab]: () => null,
             [heatmapLogic.actions.disableHeatmap]: () => null,
+            [actionsTabLogic.actions.selectAction]: () => null,
         },
         enabledLast: {
             // keep track of what to disable first with ESC
@@ -67,9 +69,21 @@ export const elementsLogic = kea({
 
     selectors: {
         inspectEnabled: [
-            s => [s.inspectEnabledRaw, toolbarTabLogic.selectors.tab, actionsTabLogic.selectors.inspectingElement],
-            (inpsectEnabledRaw, tab, inspectingElement) =>
-                tab === 'stats' ? inpsectEnabledRaw : tab === 'actions' ? inspectingElement !== null : false,
+            s => [
+                dockLogic.selectors.mode,
+                s.inspectEnabledRaw,
+                toolbarTabLogic.selectors.tab,
+                actionsTabLogic.selectors.inspectingElement,
+                actionsTabLogic.selectors.buttonActionsVisible,
+            ],
+            (mode, inpsectEnabledRaw, tab, inspectingElement, buttonActionsVisible) =>
+                mode === 'dock'
+                    ? tab === 'stats'
+                        ? inpsectEnabledRaw
+                        : tab === 'actions'
+                        ? inspectingElement !== null
+                        : false
+                    : inpsectEnabledRaw || (buttonActionsVisible && inspectingElement !== null),
         ],
 
         heatmapEnabled: [
@@ -90,10 +104,19 @@ export const elementsLogic = kea({
                 allInspectElements.map(element => ({ element, rect: element.getBoundingClientRect() })),
         ],
 
+        displayActionElements: [
+            () => [
+                dockLogic.selectors.mode,
+                toolbarTabLogic.selectors.tab,
+                actionsTabLogic.selectors.buttonActionsVisible,
+            ],
+            (mode, tab, buttonActionsVisible) => (mode === 'button' ? buttonActionsVisible : tab === 'actions'),
+        ],
+
         allActionElements: [
-            () => [toolbarTabLogic.selectors.tab, actionsTabLogic.selectors.selectedEditedAction],
-            (tab, selectedEditedAction) => {
-                if (tab === 'actions' && selectedEditedAction?.steps) {
+            s => [s.displayActionElements, actionsTabLogic.selectors.selectedEditedAction],
+            (displayActionElements, selectedEditedAction) => {
+                if (displayActionElements && selectedEditedAction?.steps) {
                     return selectedEditedAction.steps
                         .map((step, index) => ({
                             element: getElementForStep(step),
@@ -114,9 +137,10 @@ export const elementsLogic = kea({
         ],
 
         elementMap: [
-            s => [s.heatmapElements, s.inspectElements, s.actionElements],
-            (heatmapElements, inspectElements, actionElements) => {
+            s => [s.heatmapElements, s.inspectElements, s.actionElements, s.actionsListElements],
+            (heatmapElements, inspectElements, actionElements, actionsListElements) => {
                 const elementMap = new Map()
+
                 inspectElements.forEach(e => {
                     elementMap.set(e.element, e)
                 })
@@ -127,7 +151,7 @@ export const elementsLogic = kea({
                         elementMap.set(e.element, e)
                     }
                 })
-                actionElements.forEach(e => {
+                ;[...actionElements, ...actionsListElements].forEach(e => {
                     if (elementMap.get(e.element)) {
                         elementMap.set(e.element, { ...elementMap.get(e.element), ...e })
                     } else {
@@ -171,20 +195,20 @@ export const elementsLogic = kea({
 
         elementsToDisplayRaw: [
             s => [
+                s.displayActionElements,
                 s.actionElements,
                 s.inspectElements,
                 s.actionsListElements,
                 actionsTabLogic.selectors.selectedAction,
-                toolbarTabLogic.selectors.tab,
             ],
-            (actionElements, inspectElements, actionsListElements, selectedAction, tab) => {
+            (displayActionElements, actionElements, inspectElements, actionsListElements, selectedAction) => {
                 if (inspectElements.length > 0) {
                     return inspectElements
                 }
-                if (tab === 'actions' && selectedAction && actionElements.length > 0) {
+                if (displayActionElements && selectedAction && actionElements.length > 0) {
                     return actionElements
                 }
-                if (tab === 'actions' && !selectedAction && actionsListElements.length > 0) {
+                if (displayActionElements && !selectedAction && actionsListElements.length > 0) {
                     return actionsListElements
                 }
                 return []
@@ -200,16 +224,16 @@ export const elementsLogic = kea({
 
         labelsToDisplay: [
             s => [
+                s.displayActionElements,
                 s.actionElements,
                 s.actionsListElements,
                 actionsTabLogic.selectors.selectedAction,
-                toolbarTabLogic.selectors.tab,
             ],
-            (actionElements, actionsListElements, selectedAction, tab) => {
-                if (tab === 'actions' && selectedAction && actionElements.length > 0) {
+            (displayActionElements, actionElements, actionsListElements, selectedAction) => {
+                if (displayActionElements && selectedAction && actionElements.length > 0) {
                     return actionElements
                 }
-                if (tab === 'actions' && !selectedAction && actionsListElements.length > 0) {
+                if (displayActionElements && !selectedAction && actionsListElements.length > 0) {
                     return actionsListElements
                 }
                 return []
@@ -217,8 +241,9 @@ export const elementsLogic = kea({
         ],
 
         actionLabelsToDisplay: [
-            s => [s.elementsWithActions, s.inspectEnabled],
-            (elementsWithActions, inspectEnabled) => (inspectEnabled ? elementsWithActions : []),
+            s => [s.elementsWithActions, s.inspectEnabled, s.displayActionElements],
+            (elementsWithActions, inspectEnabled, displayActionElements) =>
+                inspectEnabled && !displayActionElements ? elementsWithActions : [],
         ],
 
         selectedElementMeta: [
@@ -312,31 +337,31 @@ export const elementsLogic = kea({
         },
     }),
 
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions }) => ({
         enableInspect: () => {
             actionsLogic.actions.getActions()
         },
         selectElement: ({ element }) => {
-            if (toolbarTabLogic.values.tab === 'stats') {
-                actions.setSelectedElement(element)
-            } else if (toolbarTabLogic.values.tab === 'actions') {
+            const inpsectForAction =
+                (dockLogic.values.mode === 'dock'
+                    ? toolbarTabLogic.values.tab === 'actions'
+                    : actionsTabLogic.values.buttonActionsVisible) && actionsTabLogic.values.inspectingElement !== null
+
+            if (inpsectForAction) {
                 actions.setHoverElement(null)
-                if (actionsTabLogic.values.inspectingElement !== null) {
-                    actionsTabLogic.actions.inspectElementSelected(element, actionsTabLogic.values.inspectingElement)
-                }
-                if (!actionsTabLogic.values.selectedAction) {
-                    const action = values.elementsToDisplay.find(e => e.element === element)?.action
-                    if (action) {
-                        actionsTabLogic.actions.selectAction(action.id)
-                    }
-                }
+                actionsTabLogic.actions.inspectElementSelected(element, actionsTabLogic.values.inspectingElement)
+            } else {
+                actions.setSelectedElement(element)
             }
         },
         createAction: ({ element }) => {
             if (dockLogic.values.mode === 'button') {
-                dockLogic.actions.dock()
+                actionsTabLogic.actions.showButtonActions()
+                toolbarButtonLogic.actions.showActionsInfo()
+                elementsLogic.actions.selectElement(null)
+            } else {
+                toolbarTabLogic.actions.setTab('actions')
             }
-            toolbarTabLogic.actions.setTab('actions')
             actionsTabLogic.actions.newAction(element)
         },
     }),

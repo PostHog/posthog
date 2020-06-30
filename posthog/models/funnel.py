@@ -1,4 +1,5 @@
 from collections import defaultdict
+import re
 
 from django.db import models
 from django.contrib.postgres.fields import JSONField, ArrayField
@@ -75,15 +76,22 @@ class Funnel(models.Model):
             # Replace placeholders injected by the Django ORM
             # We do this because the Django ORM doesn't easily allow us to parameterize sql identifiers
             # This is probably the most hacky part of the entire query generation
-            query = sql.SQL(event_string.decode('utf-8')
-                            .replace("'1234321'", "{prev_step_person_id}")
-                            .replace("'2000-01-01T00:00:00+00:00'::timestamptz", "{prev_step_ts}")
-                            .replace('"posthog_event"."distinct_id"', '"pdi"."person_id"')
-                            .replace('99999999', '"pdi"."person_id"')
-                            .replace(', "pdi"."person_id" AS "person_id"', '')
-                            .replace('FROM "posthog_event"',
-                                     'FROM posthog_event JOIN posthog_persondistinctid pdi'
-                                     + ' ON pdi.distinct_id = posthog_event.distinct_id'))
+            event_string = event_string\
+                .decode('utf-8')\
+                .replace("'1234321'", "{prev_step_person_id}")\
+                .replace("'2000-01-01T00:00:00+00:00'::timestamptz", "{prev_step_ts}")\
+                .replace('"posthog_event"."distinct_id"', '"pdi"."person_id"')\
+                .replace('99999999', '"pdi"."person_id"')\
+                .replace(', "pdi"."person_id" AS "person_id"', '')
+            event_string = re.sub(
+                # accommodate for identifier e.g. W0 so that it still ends up right after `FROM posthog_event`
+                # not after `ON pdi.distinct_id = posthog_event.distinct_id`
+                r'FROM "posthog_event"( [A-Z][0-9])?',
+                r'FROM posthog_event\1 JOIN posthog_persondistinctid pdi '
+                r'ON pdi.distinct_id = posthog_event.distinct_id',
+                event_string
+            )
+            query = sql.SQL(event_string)
             annotations["step_{}".format(index)] = query
         return annotations
 

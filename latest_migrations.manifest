@@ -1,6 +1,6 @@
 admin: 0003_logentry_add_action_flag_choices
 auth: 0011_update_proxy_permissions
 contenttypes: 0002_remove_content_type_name
-posthog: 0066_auto_20200629_1322
+posthog: 0068_auto_20200629_1322
 sessions: 0001_initial
 social_django: 0008_partial_timestamp

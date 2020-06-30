@@ -5,26 +5,28 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { FireFilled, FireOutlined } from '@ant-design/icons'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
-export function HeatmapStats() {
+export function HeatmapStats({ buttonMode }) {
     const { countedElements, clickCount, heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
     const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
     return (
         <div className="toolbar-block">
-            <div>
-                <Button
-                    type={heatmapEnabled ? 'primary' : 'default'}
-                    onClick={heatmapEnabled ? disableHeatmap : enableHeatmap}
-                    loading={heatmapLoading}
-                >
-                    {heatmapEnabled ? <FireFilled /> : <FireOutlined />}
-                    Enable Heatmap
-                </Button>
-            </div>
+            {!buttonMode ? (
+                <div>
+                    <Button
+                        type={heatmapEnabled ? 'primary' : 'default'}
+                        onClick={heatmapEnabled ? disableHeatmap : enableHeatmap}
+                        loading={heatmapLoading}
+                    >
+                        {heatmapEnabled ? <FireFilled /> : <FireOutlined />}
+                        Enable Heatmap
+                    </Button>
+                </div>
+            ) : null}
             {heatmapEnabled && !heatmapLoading ? (
                 <>
-                    <div style={{ marginTop: 20, marginBottom: 10 }}>
+                    <div style={{ marginTop: buttonMode ? 0 : 20, marginBottom: 10 }}>
                         <span style={{ borderBottom: '2px dashed hsla(230, 14%, 78%, 1)' }}>Last 7 days</span>
                     </div>
                     <div style={{ marginTop: 20, marginBottom: 10 }}>
