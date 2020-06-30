@@ -18,6 +18,7 @@ export function ShareModal({ logic, onCancel }) {
             <Switch
                 onClick={(_, e) => e.stopPropagation()}
                 checked={isShared}
+                data-attr="share-dashboard-switch"
                 onChange={active => {
                     setIsShared(active)
                     setIsSharedDashboard(dashboard.id, active)
@@ -30,7 +31,10 @@ export function ShareModal({ logic, onCancel }) {
                 <span>
                     Your dashboard is visible to everyone with the link.
                     {dashboard.share_token && (
-                        <CopyToClipboard url={url + '/shared_dashboard/' + dashboard.share_token} />
+                        <CopyToClipboard
+                            url={url + '/shared_dashboard/' + dashboard.share_token}
+                            data-attr="share-dashboard-link"
+                        />
                     )}
                 </span>
             ) : (

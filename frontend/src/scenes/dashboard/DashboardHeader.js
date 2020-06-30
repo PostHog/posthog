@@ -78,6 +78,7 @@ export function DashboardHeader({ logic }) {
                                     className="button-box-when-small enable-dragging-button"
                                     type={dashboard.is_shared ? 'primary' : ''}
                                     onClick={() => setShowShareModal(true)}
+                                    data-attr="dashboard-share-button"
                                 >
                                     <ShareAltOutlined />
                                     {dashboard.is_shared ? 'Shared' : 'Share dashboard'}
