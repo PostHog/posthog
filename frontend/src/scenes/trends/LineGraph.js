@@ -1,8 +1,8 @@
-import React, { Component, useState, useEffect, useRef } from 'react'
-import { useValues, useActions, useMountedLogic } from 'kea'
+import React, { useState, useEffect, useRef } from 'react'
+import { useValues, useActions } from 'kea'
 import Chart from 'chart.js'
 import PropTypes from 'prop-types'
-import { operatorMap } from '~/lib/utils'
+import { operatorMap, humanFriendlyDetailedTime } from '~/lib/utils'
 import _ from 'lodash'
 import { getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
@@ -11,6 +11,7 @@ import { Button, Popover, Row, Input } from 'antd'
 const { TextArea } = Input
 import moment from 'moment'
 import { PlusOutlined } from '@ant-design/icons'
+import { userLogic } from 'scenes/userLogic'
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
 Chart.defaults.global.legend.display = false
@@ -353,6 +354,9 @@ const Annotations = React.memo(function Annotations({
         annotationsModel({ pageKey: dashboardItemId ? dashboardItemId : null })
     )
     const [textInput, setTextInput] = useState('')
+    const {
+        user: { name, email },
+    } = useValues(userLogic)
 
     useEffect(() => {
         // calculate groups
@@ -370,9 +374,20 @@ const Annotations = React.memo(function Annotations({
                     trigger="click"
                     defaultVisible={false}
                     content={
-                        <div>
+                        <div style={{ minWidth: 300 }}>
                             {groupedAnnotations[moment(date).startOf(diffType)].map(data => (
-                                <div key={data.id}>{data.content}</div>
+                                <div key={data.id} style={{ marginBottom: 25 }}>
+                                    <Row justify="space-between">
+                                        <b>
+                                            {(data.created_by &&
+                                                (data.created_by.first_name || data.created_by.email)) ||
+                                                name ||
+                                                email}
+                                        </b>
+                                        <span>{humanFriendlyDetailedTime(data.created_at)}</span>
+                                    </Row>
+                                    <span>{data.content}</span>
+                                </div>
                             ))}
                             <TextArea
                                 style={{ marginBottom: 12 }}
