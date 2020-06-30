@@ -286,6 +286,7 @@ export function LineGraph({
                         <div>
                             <span style={{ marginBottom: 12 }}>{selectedDayLabel}</span>
                             <TextArea
+                                maxLength={300}
                                 style={{ marginBottom: 12 }}
                                 rows={4}
                                 onChange={e => setTextInput(e.target.value)}

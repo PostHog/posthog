@@ -45,6 +45,7 @@ export function AnnotationMarker({ label, annotations, left, top, onCreate, onDe
                     ))}
                     {textAreaVisible && (
                         <TextArea
+                            maxLength={300}
                             style={{ marginBottom: 12 }}
                             rows={4}
                             value={textInput}
