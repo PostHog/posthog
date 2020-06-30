@@ -31,9 +31,11 @@ export function LineGraph({
     const chartRef = useRef()
     const myLineChart = useRef()
     const [left, setLeft] = useState(0)
+    const [holdLeft, setHoldLeft] = useState(0)
     const [enabled, setEnabled] = useState(false)
     const [focused, setFocused] = useState(false)
     const [labelIndex, setLabelIndex] = useState(null)
+    const [holdLabelIndex, setHoldLabelIndex] = useState(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState(null)
     const { createAnnotation, createAnnotationNow } = useActions(
         annotationsModel({ pageKey: dashboardItemId ? dashboardItemId : null })
@@ -239,7 +241,6 @@ export function LineGraph({
                               }
                           },
                           onHover: evt => {
-                              if (focused) return
                               const leftExtent = myLineChart.current.scales['x-axis-0'].left
                               const rightExtent = myLineChart.current.scales['x-axis-0'].right
                               const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
@@ -297,8 +298,8 @@ export function LineGraph({
                                     onClick={() => {
                                         setFocused(false)
                                         dashboardItemId
-                                            ? createAnnotationNow(textInput, datasets[0].days[labelIndex])
-                                            : createAnnotation(textInput, datasets[0].days[labelIndex])
+                                            ? createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
+                                            : createAnnotation(textInput, datasets[0].days[holdLabelIndex])
                                     }}
                                 >
                                     Add
@@ -312,7 +313,7 @@ export function LineGraph({
                     <Button
                         style={{
                             position: 'absolute',
-                            left: left - 15,
+                            left: (focused ? holdLeft : left) - 15,
                             top: myLineChart.current.scales['x-axis-0'].top + 12,
                             width: 30,
                             height: 30,
@@ -323,6 +324,8 @@ export function LineGraph({
                         type="primary"
                         onClick={() => {
                             setFocused(true)
+                            setHoldLeft(left)
+                            setHoldLabelIndex(labelIndex)
                             setSelectedDayLabel(datasets[0].labels[labelIndex])
                         }}
                     >
