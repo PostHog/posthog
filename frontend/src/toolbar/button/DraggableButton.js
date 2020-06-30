@@ -52,7 +52,9 @@ export function DraggableButton({ showInvisibleButton }) {
                 position={heatmapPosition}
                 savePosition={saveHeatmapPosition}
             >
-                <HeatmapStats buttonMode />
+                <div className="toolbar-block">
+                    <HeatmapStats buttonMode />
+                </div>
             </ButtonWindow>
 
             <ButtonWindow
