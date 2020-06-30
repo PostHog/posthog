@@ -15,6 +15,7 @@ export const toolbarButtonLogic = kea({
         setExtensionPercentage: percentage => ({ percentage }),
         saveDragPosition: (x, y) => ({ x, y }),
         saveHeatmapPosition: (x, y) => ({ x, y }),
+        saveActionsPosition: (x, y) => ({ x, y }),
     }),
 
     windowValues: () => ({
@@ -65,6 +66,12 @@ export const toolbarButtonLogic = kea({
             { x: 100, y: 100 },
             {
                 saveHeatmapPosition: (state, { x, y }) => ({ x, y }),
+            },
+        ],
+        actionsPosition: [
+            { x: 100, y: 100 },
+            {
+                saveActionsPosition: (state, { x, y }) => ({ x, y }),
             },
         ],
     }),
@@ -120,7 +127,7 @@ export const toolbarButtonLogic = kea({
             (heatmapEnabled, extensionPercentage) =>
                 heatmapEnabled ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
-        heatmapButtonIndependent: [
+        heatmapWindowVisible: [
             s => [s.heatmapInfoVisible, heatmapLogic.selectors.heatmapEnabled],
             (heatmapInfoVisible, heatmapEnabled) => heatmapInfoVisible && heatmapEnabled,
         ],
@@ -128,6 +135,10 @@ export const toolbarButtonLogic = kea({
             s => [actionsTabLogic.selectors.buttonActionsVisible, s.extensionPercentage],
             (buttonActionsVisible, extensionPercentage) =>
                 buttonActionsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
+        ],
+        actionsWindowVisible: [
+            s => [s.actionsInfoVisible, actionsTabLogic.selectors.buttonActionsVisible],
+            (actionsInfoVisible, buttonActionsVisible) => actionsInfoVisible && buttonActionsVisible,
         ],
     },
 })

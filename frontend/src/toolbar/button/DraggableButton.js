@@ -6,10 +6,14 @@ import { useActions, useValues } from 'kea'
 import { Fade } from 'lib/components/Fade/Fade'
 import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
 import { Fire } from '~/toolbar/button/icons/Fire'
+import { Flag } from '~/toolbar/button/icons/Flag'
+import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 
 export function DraggableButton({ showInvisibleButton }) {
-    const { dragPosition, heatmapPosition, heatmapButtonIndependent } = useValues(toolbarButtonLogic)
-    const { saveDragPosition, saveHeatmapPosition } = useActions(toolbarButtonLogic)
+    const { dragPosition, heatmapPosition, heatmapWindowVisible, actionsWindowVisible, actionsPosition } = useValues(
+        toolbarButtonLogic
+    )
+    const { saveDragPosition, saveHeatmapPosition, saveActionsPosition } = useActions(toolbarButtonLogic)
 
     return (
         <>
@@ -24,7 +28,7 @@ export function DraggableButton({ showInvisibleButton }) {
                 </div>
             </Draggable>
 
-            <Fade visible={heatmapButtonIndependent}>
+            <Fade visible={heatmapWindowVisible}>
                 <Draggable
                     handle=".toolbar-info-window-title"
                     position={heatmapPosition}
@@ -37,6 +41,23 @@ export function DraggableButton({ showInvisibleButton }) {
                             <span>Heatmap</span>{' '}
                         </div>
                         <HeatmapStats buttonMode />
+                    </div>
+                </Draggable>
+            </Fade>
+
+            <Fade visible={actionsWindowVisible}>
+                <Draggable
+                    handle=".toolbar-info-window-title"
+                    position={actionsPosition}
+                    onDrag={(e, { x, y }) => saveActionsPosition(x, y)}
+                    onStop={(e, { x, y }) => saveActionsPosition(x, y)}
+                >
+                    <div className="toolbar-info-windows actions-button-window">
+                        <div className="toolbar-info-window-title">
+                            <Flag engaged style={{ height: 18 }} />
+                            <span>Actions</span>{' '}
+                        </div>
+                        <ActionsTab />
                     </div>
                 </Draggable>
             </Fade>

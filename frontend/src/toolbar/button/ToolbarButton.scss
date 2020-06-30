@@ -47,4 +47,15 @@
             background: hsla(19, 99%, 83%, 1);
         }
     }
+
+    &.actions-button-window {
+        border-left: 4px solid #94d674;
+        .toolbar-block {
+            background: hsla(100, 74%, 98%, 1);
+        }
+        .toolbar-info-window-title {
+            color: hsla(100, 34%, 15%, 1);
+            background: #d6ebcc;
+        }
+    }
 }
