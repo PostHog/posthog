@@ -124,42 +124,10 @@ export const toolbarButtonLogic = kea({
             s => [s.heatmapInfoVisible, heatmapLogic.selectors.heatmapEnabled],
             (heatmapInfoVisible, heatmapEnabled) => heatmapInfoVisible && heatmapEnabled,
         ],
-        heatmapButtonPosition: [
-            s => [s.heatmapExtensionPercentage, s.side],
-            (heatmapExtensionPercentage, side) => {
-                return {
-                    x: (side === 'left' ? 50 : -50) * heatmapExtensionPercentage * heatmapExtensionPercentage,
-                    y: 0,
-                }
-            },
-        ],
-        // TODO: make the button move between origin and diff on show/hide
-        heatmapButtonActiveDiff: [
-            s => [
-                s.heatmapButtonPosition,
-                s.dragPosition,
-                s.heatmapPosition,
-                s.heatmapExtensionPercentage,
-                s.side,
-                s.toolbarListVerticalPadding,
-            ],
-            (
-                heatmapButtonPosition,
-                dragPosition,
-                heatmapPosition,
-                heatmapExtensionPercentage,
-                side,
-                toolbarListVerticalPadding
-            ) => {
-                const toolbarX = (side === 'left' ? 80 : -80) * heatmapExtensionPercentage + heatmapButtonPosition.x
-                const toolbarY =
-                    (toolbarListVerticalPadding + 1 * 60) * heatmapExtensionPercentage + heatmapButtonPosition.y
-
-                return {
-                    x: heatmapPosition.x - (dragPosition.x + toolbarX) + 300,
-                    y: heatmapPosition.y - (dragPosition.y + toolbarY),
-                }
-            },
+        actionsExtensionPercentage: [
+            s => [actionsTabLogic.selectors.buttonActionsVisible, s.extensionPercentage],
+            (buttonActionsVisible, extensionPercentage) =>
+                buttonActionsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
     },
 })

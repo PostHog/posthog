@@ -30,7 +30,7 @@ export function ToolbarButton() {
         closeRotation,
         inspectExtensionPercentage,
         heatmapExtensionPercentage,
-        heatmapButtonPosition,
+        actionsExtensionPercentage,
         actionsInfoVisible,
     } = useValues(toolbarButtonLogic)
     const { setExtensionPercentage, showHeatmapInfo, hideHeatmapInfo, showActionsInfo, hideActionsInfo } = useActions(
@@ -102,7 +102,6 @@ export function ToolbarButton() {
 
     const borderRadius = 14
     const buttonWidth = 42
-    const actionsExtensionPercentage = extensionPercentage
     let n = 0
 
     return (
@@ -228,8 +227,12 @@ export function ToolbarButton() {
                         {heatmapEnabled && !heatmapLoading ? (
                             <Circle
                                 width={26}
-                                x={heatmapButtonPosition.x}
-                                y={heatmapButtonPosition.y}
+                                x={
+                                    (side === 'left' ? 50 : -50) *
+                                    heatmapExtensionPercentage *
+                                    heatmapExtensionPercentage
+                                }
+                                y={0}
                                 content={
                                     <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
                                 }
@@ -254,11 +257,13 @@ export function ToolbarButton() {
                         width={buttonWidth}
                         x={side === 'left' ? 80 : -80}
                         y={toolbarListVerticalPadding + n++ * 60}
-                        extensionPercentage={extensionPercentage}
+                        extensionPercentage={actionsExtensionPercentage}
                         rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
-                        label={buttonActionsVisible && !allActionsLoading ? null : 'Actions'}
+                        label={buttonActionsVisible && (!allActionsLoading || actionCount > 0) ? null : 'Actions'}
                         labelPosition={side === 'left' ? 'right' : 'left'}
-                        labelStyle={{ opacity: extensionPercentage > 0.8 ? (extensionPercentage - 0.8) / 0.2 : 0 }}
+                        labelStyle={{
+                            opacity: actionsExtensionPercentage > 0.8 ? (actionsExtensionPercentage - 0.8) / 0.2 : 0,
+                        }}
                         content={
                             <Flag
                                 style={{ height: 29 }}
@@ -270,15 +275,19 @@ export function ToolbarButton() {
                         onClick={buttonActionsVisible ? hideButtonActions : showButtonActions}
                         style={{
                             cursor: 'pointer',
-                            transform: `scale(${0.2 + 0.8 * extensionPercentage})`,
+                            transform: `scale(${0.2 + 0.8 * actionsExtensionPercentage})`,
                             background: buttonActionsVisible ? '#94D674' : '#D6EBCC',
                             borderRadius,
                         }}
                     >
-                        {buttonActionsVisible && !allActionsLoading ? (
+                        {buttonActionsVisible && (!allActionsLoading || actionCount > 0) ? (
                             <Circle
                                 width={26}
-                                x={-50 * actionsExtensionPercentage * actionsExtensionPercentage}
+                                x={
+                                    (side === 'left' ? 50 : -50) *
+                                    actionsExtensionPercentage *
+                                    actionsExtensionPercentage
+                                }
                                 y={0}
                                 content={<div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>}
                                 zIndex={4}
