@@ -33,7 +33,7 @@ export function DraggableButton({ showInvisibleButton }) {
     return (
         <>
             <Draggable
-                handle="#button-toolbar"
+                handle=".floating-toolbar-button"
                 position={dragPosition}
                 onDrag={(e, { x, y }) => saveDragPosition(x, y)}
                 onStop={(e, { x, y }) => saveDragPosition(x, y)}
