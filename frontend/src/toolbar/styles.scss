@@ -87,6 +87,11 @@
             }
         }
     }
+
+    .toolbar-block {
+        max-height: calc(100vh - var(--padding) * 2 - 66px);
+        overflow: auto;
+    }
 }
 
 .posthog-header-block {
