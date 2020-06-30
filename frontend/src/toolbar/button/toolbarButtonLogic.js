@@ -16,6 +16,7 @@ export const toolbarButtonLogic = kea({
         saveDragPosition: (x, y) => ({ x, y }),
         saveHeatmapPosition: (x, y) => ({ x, y }),
         saveActionsPosition: (x, y) => ({ x, y }),
+        saveStatsPosition: (x, y) => ({ x, y }),
     }),
 
     windowValues: () => ({
@@ -69,9 +70,15 @@ export const toolbarButtonLogic = kea({
             },
         ],
         actionsPosition: [
-            { x: 100, y: 100 },
+            { x: 120, y: 100 },
             {
                 saveActionsPosition: (state, { x, y }) => ({ x, y }),
+            },
+        ],
+        statsPosition: [
+            { x: 140, y: 100 },
+            {
+                saveStatsPosition: (state, { x, y }) => ({ x, y }),
             },
         ],
     }),
@@ -139,6 +146,11 @@ export const toolbarButtonLogic = kea({
         actionsWindowVisible: [
             s => [s.actionsInfoVisible, actionsTabLogic.selectors.buttonActionsVisible],
             (actionsInfoVisible, buttonActionsVisible) => actionsInfoVisible && buttonActionsVisible,
+        ],
+        statsExtensionPercentage: [
+            s => [s.statsVisible, s.extensionPercentage],
+            (statsVisible, extensionPercentage) =>
+                statsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
     },
 })

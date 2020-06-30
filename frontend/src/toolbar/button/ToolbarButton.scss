@@ -36,6 +36,11 @@
         align-items: center;
         cursor: move;
 
+        > svg:first-child {
+            margin-right: 9px;
+            height: 18px;
+            width: auto;
+        }
         .window-label {
             flex: 1;
         }
@@ -70,6 +75,17 @@
         .toolbar-info-window-title {
             color: hsla(100, 34%, 15%, 1);
             background: #d6ebcc;
+        }
+    }
+
+    &.stats-button-window {
+        border-left: 4px solid #f1aa04;
+        .toolbar-block {
+            background: hsla(41, 93%, 99%, 1);
+        }
+        .toolbar-info-window-title {
+            color: hsla(41, 33%, 12%, 1);
+            background: #fef5e2;
         }
     }
 }

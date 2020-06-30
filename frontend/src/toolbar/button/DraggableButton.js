@@ -8,14 +8,27 @@ import { Fire } from '~/toolbar/button/icons/Fire'
 import { Flag } from '~/toolbar/button/icons/Flag'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
+import { Stats } from '~/toolbar/button/icons/Stats'
 
 export function DraggableButton({ showInvisibleButton }) {
-    const { dragPosition, heatmapPosition, heatmapWindowVisible, actionsWindowVisible, actionsPosition } = useValues(
-        toolbarButtonLogic
-    )
-    const { saveDragPosition, saveHeatmapPosition, saveActionsPosition, hideActionsInfo, hideHeatmapInfo } = useActions(
-        toolbarButtonLogic
-    )
+    const {
+        dragPosition,
+        heatmapPosition,
+        heatmapWindowVisible,
+        actionsWindowVisible,
+        actionsPosition,
+        statsVisible,
+        statsPosition,
+    } = useValues(toolbarButtonLogic)
+    const {
+        saveDragPosition,
+        saveHeatmapPosition,
+        saveActionsPosition,
+        hideActionsInfo,
+        hideHeatmapInfo,
+        hideStats,
+        saveStatsPosition,
+    } = useActions(toolbarButtonLogic)
 
     return (
         <>
@@ -33,7 +46,7 @@ export function DraggableButton({ showInvisibleButton }) {
             <ButtonWindow
                 name="heatmap"
                 label="Heatmap"
-                icon={<Fire engaged style={{ height: 18 }} />}
+                icon={<Fire engaged />}
                 visible={heatmapWindowVisible}
                 close={hideHeatmapInfo}
                 position={heatmapPosition}
@@ -45,13 +58,47 @@ export function DraggableButton({ showInvisibleButton }) {
             <ButtonWindow
                 name="actions"
                 label="Actions"
-                icon={<Flag engaged style={{ height: 18 }} />}
+                icon={<Flag engaged />}
                 visible={actionsWindowVisible}
                 close={hideActionsInfo}
                 position={actionsPosition}
                 savePosition={saveActionsPosition}
             >
                 <ActionsTab />
+            </ButtonWindow>
+
+            <ButtonWindow
+                name="stats"
+                label="Stats"
+                icon={<Stats />}
+                visible={statsVisible}
+                close={hideStats}
+                position={statsPosition}
+                savePosition={saveStatsPosition}
+            >
+                <div className="toolbar-block">
+                    <p>Thank you for trying out the PostHog Toolbar!</p>
+                    <p>The stats view is coming soon!</p>
+                    <p>
+                        Follow the{' '}
+                        <a
+                            href="https://github.com/PostHog/posthog/projects/7"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            Toolbar Project
+                        </a>{' '}
+                        and the{' '}
+                        <a
+                            href="https://github.com/PostHog/posthog/issues/871"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            stats issue
+                        </a>{' '}
+                        on GitHub to stay up to date with the releases!
+                    </p>
+                </div>
             </ButtonWindow>
         </>
     )
