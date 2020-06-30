@@ -6,6 +6,7 @@ import { elementToActionStep, getAllClickTargets, getElementForStep } from '~/to
 import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 
 export const elementsLogic = kea({
     actions: {
@@ -57,6 +58,7 @@ export const elementsLogic = kea({
             createAction: () => null,
             [toolbarTabLogic.actions.setTab]: () => null,
             [heatmapLogic.actions.disableHeatmap]: () => null,
+            [actionsTabLogic.actions.selectAction]: () => null,
         },
         enabledLast: {
             // keep track of what to disable first with ESC
@@ -72,15 +74,16 @@ export const elementsLogic = kea({
                 s.inspectEnabledRaw,
                 toolbarTabLogic.selectors.tab,
                 actionsTabLogic.selectors.inspectingElement,
+                actionsTabLogic.selectors.buttonActionsVisible,
             ],
-            (mode, inpsectEnabledRaw, tab, inspectingElement) =>
+            (mode, inpsectEnabledRaw, tab, inspectingElement, buttonActionsVisible) =>
                 mode === 'dock'
                     ? tab === 'stats'
                         ? inpsectEnabledRaw
                         : tab === 'actions'
                         ? inspectingElement !== null
                         : false
-                    : inpsectEnabledRaw,
+                    : inpsectEnabledRaw || (buttonActionsVisible && inspectingElement !== null),
         ],
 
         heatmapEnabled: [
@@ -134,9 +137,10 @@ export const elementsLogic = kea({
         ],
 
         elementMap: [
-            s => [s.heatmapElements, s.inspectElements, s.actionElements],
-            (heatmapElements, inspectElements, actionElements) => {
+            s => [s.heatmapElements, s.inspectElements, s.actionElements, s.actionsListElements],
+            (heatmapElements, inspectElements, actionElements, actionsListElements) => {
                 const elementMap = new Map()
+
                 inspectElements.forEach(e => {
                     elementMap.set(e.element, e)
                 })
@@ -147,7 +151,7 @@ export const elementsLogic = kea({
                         elementMap.set(e.element, e)
                     }
                 })
-                actionElements.forEach(e => {
+                ;[...actionElements, ...actionsListElements].forEach(e => {
                     if (elementMap.get(e.element)) {
                         elementMap.set(e.element, { ...elementMap.get(e.element), ...e })
                     } else {
@@ -333,33 +337,32 @@ export const elementsLogic = kea({
         },
     }),
 
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions }) => ({
         enableInspect: () => {
             actionsLogic.actions.getActions()
         },
         selectElement: ({ element }) => {
-            if (toolbarTabLogic.values.tab === 'stats') {
-                actions.setSelectedElement(element)
-            } else if (toolbarTabLogic.values.tab === 'actions') {
+            const inpsectForAction =
+                (dockLogic.values.mode === 'dock'
+                    ? toolbarTabLogic.values.tab === 'actions'
+                    : actionsTabLogic.values.buttonActionsVisible) && actionsTabLogic.values.inspectingElement !== null
+
+            if (inpsectForAction) {
                 actions.setHoverElement(null)
-                if (actionsTabLogic.values.inspectingElement !== null) {
-                    actionsTabLogic.actions.inspectElementSelected(element, actionsTabLogic.values.inspectingElement)
-                }
-                if (!actionsTabLogic.values.selectedAction) {
-                    const action = values.elementsToDisplay.find(e => e.element === element)?.action
-                    if (action) {
-                        actionsTabLogic.actions.selectAction(action.id)
-                    }
-                }
+                actionsTabLogic.actions.inspectElementSelected(element, actionsTabLogic.values.inspectingElement)
+            } else {
+                actions.setSelectedElement(element)
             }
         },
         createAction: ({ element }) => {
             if (dockLogic.values.mode === 'button') {
-                // TODO
+                actionsTabLogic.actions.showButtonActions()
+                toolbarButtonLogic.actions.showActionsInfo()
+                elementsLogic.actions.selectElement(null)
             } else {
                 toolbarTabLogic.actions.setTab('actions')
-                actionsTabLogic.actions.newAction(element)
             }
+            actionsTabLogic.actions.newAction(element)
         },
     }),
 })

@@ -103,6 +103,11 @@
 .ant-tooltip {
     z-index: 2147483031 !important;
 }
+.ant-list-item {
+    &:hover {
+        background: #f0f0f0;
+    }
+}
 
 .section-title {
     font-size: 12px;

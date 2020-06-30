@@ -156,7 +156,7 @@ export function ToolbarButton() {
                         extensionPercentage={extensionPercentage}
                         distance={dockButtonOnTop ? 90 : 55}
                         rotation={dockButtonOnTop ? (side === 'left' ? -95 + 360 : -95) : 90}
-                        content={<Dock style={{ height: 18 }} />}
+                        content={<Dock style={{ height: 18, width: 18 }} />}
                         label="Dock"
                         zIndex={2}
                         onClick={dock}

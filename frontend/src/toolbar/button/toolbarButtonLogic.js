@@ -153,4 +153,10 @@ export const toolbarButtonLogic = kea({
                 statsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
     },
+
+    listeners: () => ({
+        hideActionsInfo: () => {
+            actionsTabLogic.actions.selectAction(null)
+        },
+    }),
 })
