@@ -46,7 +46,6 @@ const RUBY = 'RUBY'
 const PYTHON = 'PYTHON'
 const PHP = 'PHP'
 const ELIXIR = 'ELIXIR'
-const FLUTTER = 'FLUTTER'
 const API = 'API'
 
 const webFrameworks = {
