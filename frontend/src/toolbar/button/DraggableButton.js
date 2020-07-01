@@ -33,7 +33,7 @@ export function DraggableButton({ showInvisibleButton }) {
     return (
         <>
             <Draggable
-                handle="#button-toolbar"
+                handle=".floating-toolbar-button"
                 position={dragPosition}
                 onDrag={(e, { x, y }) => saveDragPosition(x, y)}
                 onStop={(e, { x, y }) => saveDragPosition(x, y)}
@@ -52,7 +52,9 @@ export function DraggableButton({ showInvisibleButton }) {
                 position={heatmapPosition}
                 savePosition={saveHeatmapPosition}
             >
-                <HeatmapStats buttonMode />
+                <div className="toolbar-block">
+                    <HeatmapStats buttonMode />
+                </div>
             </ButtonWindow>
 
             <ButtonWindow
@@ -97,6 +99,19 @@ export function DraggableButton({ showInvisibleButton }) {
                             stats issue
                         </a>{' '}
                         on GitHub to stay up to date with the releases!
+                    </p>
+                    <p>
+                        <strong>
+                            To ask questions and to provide feedback during the beta program, please{' '}
+                            <a
+                                href="https://github.com/PostHog/posthog/issues/1129"
+                                target="_blank"
+                                rel="noreferrer noopener"
+                            >
+                                click here
+                            </a>
+                            !
+                        </strong>
                     </p>
                 </div>
             </ButtonWindow>

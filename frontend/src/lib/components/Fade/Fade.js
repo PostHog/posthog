@@ -18,6 +18,7 @@ export function Fade({ visible, children, ...props }) {
 
     return shouldRender ? (
         <div
+            className="fade-component-container"
             style={{ animation: `${visible ? 'fadeComponentFadeIn' : 'fadeComponentFadeOut'} 0.3s` }}
             onAnimationEnd={onAnimationEnd}
             {...props}

@@ -121,7 +121,7 @@ export function ToolbarButton() {
             content={<HogLogo style={{ width: 45, cursor: 'pointer' }} />}
             label={
                 isAuthenticated ? null : (
-                    <div style={{ lineHeight: '22px', paddingTop: 5 }}>
+                    <div style={{ lineHeight: '22px', paddingTop: 15 }}>
                         Click here to
                         <br />
                         authenticate

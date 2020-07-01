@@ -87,6 +87,11 @@
             }
         }
     }
+
+    .toolbar-block {
+        max-height: calc(100vh - var(--padding) * 2 - 66px);
+        overflow: auto;
+    }
 }
 
 .posthog-header-block {
@@ -120,4 +125,9 @@
 .ant-tabs > .ant-tabs-nav .ant-tabs-nav-wrap,
 .ant-tabs > div > .ant-tabs-nav .ant-tabs-nav-wrap {
     justify-content: center;
+}
+
+.fade-component-container {
+    position: fixed;
+    z-index: 2147483020;
 }

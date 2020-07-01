@@ -11,7 +11,7 @@ export function HeatmapStats({ buttonMode }) {
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
     return (
-        <div className="toolbar-block">
+        <div>
             {!buttonMode ? (
                 <div>
                     <Button

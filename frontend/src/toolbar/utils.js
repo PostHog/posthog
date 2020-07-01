@@ -1,6 +1,15 @@
 import Simmer from 'simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
 
+const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
+
+// This trims the "hovered" DOM node down. For example:
+// - div > div > div > svg > path  <--- ignore the path, just inpsect the full image/svg
+// - div > div > button > span     <--- we probably care about the button, not the span
+// - div > div > a > span          <--- same with links
+const DOM_TRIM_DOWN_SELECTOR = 'a, svg, button'
+const TAGS_TO_IGNORE = ['html', 'body', 'meta', 'head', 'script', 'link', 'style']
+
 const simmer = new Simmer(window, { depth: 8 })
 
 export function getSafeText(el) {
@@ -74,13 +83,9 @@ export function getShadowRoot() {
     return window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot
 }
 
-const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
-
-// This trims the "hovered" DOM node down. For example:
-// - div > div > div > svg > path  <--- ignore the path, just inpsect the full image/svg
-// - div > div > button > span     <--- we probably care about the button, not the span
-// - div > div > a > span          <--- same with links
-const DOM_TRIM_DOWN_SELECTOR = 'a, svg, button'
+export function hasCursorPointer(element) {
+    return window.getComputedStyle(element)?.getPropertyValue('cursor') === 'pointer'
+}
 
 export function trimElement(element, selectingClickTargets = false) {
     if (!element) {
@@ -174,6 +179,18 @@ function matchRuleShort(str, rule) {
     ).test(str)
 }
 
+export function isParentOf(element, possibleParent) {
+    let loopElement = element
+    while (loopElement) {
+        if (loopElement !== element && loopElement === possibleParent) {
+            return true
+        }
+        loopElement = loopElement.parentElement
+    }
+
+    return false
+}
+
 export function getElementForStep(step) {
     if (!step) {
         return null
@@ -183,28 +200,42 @@ export function getElementForStep(step) {
     if (step.selector && (step.selector_selected || typeof step.selector_selected === 'undefined')) {
         selector = step.selector
     }
+
     if (step.href && (step.href_selected || typeof step.href_selected === 'undefined')) {
         selector += `[href="${cssEscape(step.href)}"]`
     }
-    if (step.text && (step.text_selected || typeof step.text_selected === 'undefined')) {
-        // TODO
-        // selector += `:nth-of-type(${parseInt(element.nth_of_type)})`
-    }
 
-    if (!selector) {
+    const hasText = step.text && step.text.trim() && (step.text_selected || typeof step.text_selected === 'undefined')
+
+    if (!selector && !hasText) {
         return null
     }
 
+    let elements
     try {
-        const elements = document.querySelectorAll(selector)
-        if (elements.length === 1) {
-            return elements[0]
-        }
-        // TODO: what if multiple match?
+        elements = document.querySelectorAll(selector || '*')
     } catch (e) {
         console.error('Can not use selector:', selector)
         throw e
     }
+
+    if (hasText) {
+        const textToSearch = step.text.toString().trim()
+        elements = [...elements].filter(
+            e =>
+                TAGS_TO_IGNORE.indexOf(e.tagName.toLowerCase()) === -1 &&
+                e.innerText?.trim() === textToSearch &&
+                (e.matches(CLICK_TARGET_SELECTOR) || hasCursorPointer(e))
+        )
+        elements = elements.filter(e => !elements.find(e2 => isParentOf(e2, e)))
+    }
+
+    if (elements.length === 1) {
+        return elements[0]
+    }
+
+    // TODO: what if multiple match?
+
     return null
 }
 
