@@ -13,7 +13,7 @@ export function AnnotationMarker({ label, annotations, left, top, onCreate, onDe
     const [textInput, setTextInput] = useState('')
     const [textAreaVisible, setTextAreaVisible] = useState(false)
     const {
-        user: { name, email },
+        user: { id, name, email },
     } = useValues(userLogic)
 
     return (
@@ -33,12 +33,14 @@ export function AnnotationMarker({ label, annotations, left, top, onCreate, onDe
                                     </b>
                                     <i style={{ color: 'gray' }}>{humanFriendlyDetailedTime(data.created_at)}</i>
                                 </div>
-                                <DeleteOutlined
-                                    className="clickable"
-                                    onClick={() => {
-                                        onDelete(data.id)
-                                    }}
-                                ></DeleteOutlined>
+                                {(!data.created_by || data.created_by.id === id) && (
+                                    <DeleteOutlined
+                                        className="clickable"
+                                        onClick={() => {
+                                            onDelete(data.id)
+                                        }}
+                                    ></DeleteOutlined>
+                                )}
                             </Row>
                             <span>{data.content}</span>
                         </div>

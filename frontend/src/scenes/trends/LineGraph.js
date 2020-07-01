@@ -8,7 +8,7 @@ import { getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Button, Popover, Row, Input } from 'antd'
 const { TextArea } = Input
-
+import { toast } from 'react-toastify'
 import { PlusOutlined } from '@ant-design/icons'
 import { Annotations, annotationsLogic } from 'lib/components/Annotations'
 
@@ -178,7 +178,6 @@ export function LineGraph({
                           hover: {
                               mode: 'nearest',
                               onHover(evt) {
-                                  console.log('HELLO')
                                   if (onClick) {
                                       const point = this.getElementAtEvent(evt)
                                       if (point.length) evt.target.style.cursor = 'pointer'
@@ -300,7 +299,10 @@ export function LineGraph({
                                         setFocused(false)
                                         dashboardItemId
                                             ? createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
-                                            : createAnnotation(textInput, datasets[0].days[holdLabelIndex])
+                                            : createAnnotation(textInput, datasets[0].days[holdLabelIndex]),
+                                            toast(
+                                                'This annotation will be saved if the graph is made into a dashboard item!'
+                                            )
                                     }}
                                 >
                                     Add
