@@ -22,7 +22,8 @@ from sentry_sdk.integrations.django import DjangoIntegration
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
-VERSION = "1.9.0"
+
+VERSION = "1.10.0"
 
 
 def get_env(key):
