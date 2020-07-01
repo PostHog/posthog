@@ -40,7 +40,7 @@
         "kea-router": "^0.4.0",
         "kea-window-values": "^0.0.1",
         "moment": "^2.24.0",
-        "posthog-js": "1.2.3",
+        "posthog-js": "1.2.4",
         "prop-types": "^15.7.2",
         "react": ">= 16.8",
         "react-datepicker": "^2.13.0",
