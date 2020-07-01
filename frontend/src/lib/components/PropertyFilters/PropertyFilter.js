@@ -14,14 +14,16 @@ export function PropertyFilter({ index, onComplete, logic }) {
     const { setFilter } = useActions(logic)
     let { key, value, operator, type } = filters[index]
 
+    const displayOperatorAndValue = key && type !== 'cohort'
+
     return (
         <Tabs
             defaultActiveKey={type === 'cohort' ? 'cohort' : 'property'}
             tabPosition="top"
-            style={{ minWidth: key ? 700 : 400 }}
+            style={{ minWidth: displayOperatorAndValue ? 700 : 350 }}
         >
             <TabPane tab="Property" key="property" style={{ display: 'flex' }}>
-                <div className={key && type !== 'cohort' ? 'col-4 pl-0' : 'col p-0'}>
+                <div className={displayOperatorAndValue ? 'col-4 pl-0' : 'col p-0'}>
                     <Select
                         showSearch
                         autoFocus={!key}
@@ -93,7 +95,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                         )}
                     </Select>
                 </div>
-                {key && type !== 'cohort' && (
+                {displayOperatorAndValue && (
                     <div className={isOperatorFlag(operator) ? 'col-8 p-0' : 'col-3 pl-0'}>
                         <Select
                             style={{ width: '100%' }}
@@ -125,7 +127,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                         </Select>
                     </div>
                 )}
-                {key && type !== 'cohort' && !isOperatorFlag(operator) && (
+                {displayOperatorAndValue && !isOperatorFlag(operator) && (
                     <div className="col-5 p-0">
                         <PropertyValue
                             type={type}
