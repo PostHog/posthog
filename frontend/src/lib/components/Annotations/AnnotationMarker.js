@@ -8,8 +8,20 @@ const { TextArea } = Input
 import { humanFriendlyDetailedTime } from '~/lib/utils'
 import { DeleteOutlined } from '@ant-design/icons'
 import _ from 'lodash'
+import { PlusOutlined } from '@ant-design/icons'
 
-export function AnnotationMarker({ label, annotations, left, top, onCreate, onDelete }) {
+export const AnnotationMarker = React.memo(function AnnotationMarker({
+    label,
+    annotations,
+    left,
+    top,
+    onCreate,
+    onDelete,
+    onClick,
+    visible,
+    content,
+    size = 25,
+}) {
     const [textInput, setTextInput] = useState('')
     const [textAreaVisible, setTextAreaVisible] = useState(false)
     const {
@@ -21,79 +33,85 @@ export function AnnotationMarker({ label, annotations, left, top, onCreate, onDe
             trigger="click"
             defaultVisible={false}
             content={
-                <div style={{ minWidth: 300 }}>
-                    {_.orderBy(annotations, ['created_at'], ['asc']).map(data => (
-                        <div key={data.id} style={{ marginBottom: 25 }}>
-                            <Row justify="space-between" align="middle">
-                                <div>
-                                    <b style={{ marginRight: 5 }}>
-                                        {(data.created_by && (data.created_by.first_name || data.created_by.email)) ||
-                                            name ||
-                                            email}
-                                    </b>
-                                    <i style={{ color: 'gray' }}>{humanFriendlyDetailedTime(data.created_at)}</i>
-                                </div>
-                                {(!data.created_by || data.created_by.id === id) && (
-                                    <DeleteOutlined
-                                        className="clickable"
-                                        onClick={() => {
-                                            onDelete(data.id)
-                                        }}
-                                    ></DeleteOutlined>
-                                )}
+                content ? (
+                    content
+                ) : (
+                    <div style={{ minWidth: 300 }}>
+                        {_.orderBy(annotations, ['created_at'], ['asc']).map(data => (
+                            <div key={data.id} style={{ marginBottom: 25 }}>
+                                <Row justify="space-between" align="middle">
+                                    <div>
+                                        <b style={{ marginRight: 5 }}>
+                                            {(data.created_by &&
+                                                (data.created_by.first_name || data.created_by.email)) ||
+                                                name ||
+                                                email}
+                                        </b>
+                                        <i style={{ color: 'gray' }}>{humanFriendlyDetailedTime(data.created_at)}</i>
+                                    </div>
+                                    {(!data.created_by || data.created_by.id === id) && (
+                                        <DeleteOutlined
+                                            className="clickable"
+                                            onClick={() => {
+                                                onDelete(data.id)
+                                            }}
+                                        ></DeleteOutlined>
+                                    )}
+                                </Row>
+                                <span>{data.content}</span>
+                            </div>
+                        ))}
+                        {textAreaVisible && (
+                            <TextArea
+                                maxLength={300}
+                                style={{ marginBottom: 12 }}
+                                rows={4}
+                                value={textInput}
+                                onChange={e => setTextInput(e.target.value)}
+                            ></TextArea>
+                        )}
+                        {textAreaVisible ? (
+                            <Row justify="end">
+                                <Button
+                                    type="primary"
+                                    onClick={() => {
+                                        onCreate(textInput)
+                                        setTextInput('')
+                                        setTextAreaVisible(false)
+                                    }}
+                                >
+                                    Add
+                                </Button>
                             </Row>
-                            <span>{data.content}</span>
-                        </div>
-                    ))}
-                    {textAreaVisible && (
-                        <TextArea
-                            maxLength={300}
-                            style={{ marginBottom: 12 }}
-                            rows={4}
-                            value={textInput}
-                            onChange={e => setTextInput(e.target.value)}
-                        ></TextArea>
-                    )}
-                    {textAreaVisible ? (
-                        <Row justify="end">
-                            <Button
-                                type="primary"
-                                onClick={() => {
-                                    onCreate(textInput)
-                                    setTextInput('')
-                                    setTextAreaVisible(false)
-                                }}
-                            >
-                                Add
-                            </Button>
-                        </Row>
-                    ) : (
-                        <Row justify="end">
-                            <Button
-                                type="primary"
-                                onClick={() => {
-                                    setTextAreaVisible(true)
-                                }}
-                            >
-                                Add Annotation
-                            </Button>
-                        </Row>
-                    )}
-                </div>
+                        ) : (
+                            <Row justify="end">
+                                <Button
+                                    type="primary"
+                                    onClick={() => {
+                                        setTextAreaVisible(true)
+                                    }}
+                                >
+                                    Add Annotation
+                                </Button>
+                            </Row>
+                        )}
+                    </div>
+                )
             }
             title={
                 <Row justify="space-between" align="middle">
                     {label}
                 </Row>
             }
+            {...{ ...(visible !== null && visible !== undefined && { visible }) }}
         >
             <div
                 style={{
                     position: 'absolute',
                     left: left,
                     top: top,
-                    width: 25,
-                    height: 25,
+                    width: size,
+                    height: size,
                     display: 'flex',
                     justifyContent: 'center',
                     alignItems: 'center',
@@ -102,9 +120,14 @@ export function AnnotationMarker({ label, annotations, left, top, onCreate, onDe
                     cursor: 'pointer',
                 }}
                 type="primary"
+                onClick={onClick}
             >
-                <span style={{ color: 'white', fontSize: 12 }}>{annotations.length}</span>
+                {annotations ? (
+                    <span style={{ color: 'white', fontSize: 12 }}>{annotations.length}</span>
+                ) : (
+                    <PlusOutlined style={{ color: 'white' }}></PlusOutlined>
+                )}
             </div>
         </Popover>
     )
-}
+})

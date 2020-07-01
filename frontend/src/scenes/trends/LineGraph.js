@@ -6,11 +6,10 @@ import { operatorMap } from '~/lib/utils'
 import _ from 'lodash'
 import { getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { Button, Popover, Row, Input } from 'antd'
+import { Button, Row, Input } from 'antd'
 const { TextArea } = Input
 import { toast } from 'react-toastify'
-import { PlusOutlined } from '@ant-design/icons'
-import { Annotations, annotationsLogic } from 'lib/components/Annotations'
+import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -277,9 +276,14 @@ export function LineGraph({
                 }}
             />
             {(enabled || focused) && left >= 0 && (
-                <Popover
-                    trigger="click"
-                    defaultVisible={false}
+                <AnnotationMarker
+                    onClick={() => {
+                        setFocused(true)
+                        setHoldLeft(left)
+                        setHoldLabelIndex(labelIndex)
+                        setSelectedDayLabel(datasets[0].labels[labelIndex])
+                    }}
+                    visible={focused}
                     content={
                         <div>
                             <span style={{ marginBottom: 12 }}>{selectedDayLabel}</span>
@@ -310,34 +314,10 @@ export function LineGraph({
                             </Row>
                         </div>
                     }
-                    title={'Add Annotation'}
-                    visible={focused}
-                >
-                    <div
-                        style={{
-                            position: 'absolute',
-                            left: (focused ? holdLeft : left) - 12.5,
-                            top: myLineChart.current.scales['x-axis-0'].top + 12,
-                            width: 25,
-                            height: 25,
-                            display: 'flex',
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            backgroundColor: '#1890ff',
-                            borderRadius: 5,
-                            cursor: 'pointer',
-                        }}
-                        type="primary"
-                        onClick={() => {
-                            setFocused(true)
-                            setHoldLeft(left)
-                            setHoldLabelIndex(labelIndex)
-                            setSelectedDayLabel(datasets[0].labels[labelIndex])
-                        }}
-                    >
-                        <PlusOutlined style={{ color: 'white' }}></PlusOutlined>
-                    </div>
-                </Popover>
+                    left={(focused ? holdLeft : left) - 12.5}
+                    top={myLineChart.current.scales['x-axis-0'].top + 12}
+                    label={'Add Annotation'}
+                ></AnnotationMarker>
             )}
             <Annotations
                 labeledDays={datasets[0].labels}
