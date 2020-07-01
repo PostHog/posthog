@@ -20,6 +20,7 @@ export function PropertyValue({
     const [options, setOptions] = useState({})
 
     function loadPropertyValues(value) {
+        if (type === 'cohort') return
         let key = propertyKey.split('__')[0]
         setOptions({ [propertyKey]: { ...options[propertyKey], status: 'loading' }, ...options })
         setOptionsCache({ ...optionsCache, [value]: 'loading' })
