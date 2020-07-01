@@ -100,6 +100,19 @@ export function DraggableButton({ showInvisibleButton }) {
                         </a>{' '}
                         on GitHub to stay up to date with the releases!
                     </p>
+                    <p>
+                        <strong>
+                            To ask questions and to provide feedback during the beta program, please{' '}
+                            <a
+                                href="https://github.com/PostHog/posthog/issues/1129"
+                                target="_blank"
+                                rel="noreferrer noopener"
+                            >
+                                click here
+                            </a>
+                            !
+                        </strong>
+                    </p>
                 </div>
             </ButtonWindow>
         </>
