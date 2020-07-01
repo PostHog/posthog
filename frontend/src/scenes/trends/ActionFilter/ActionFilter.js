@@ -47,6 +47,10 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector })
               draggableHandle=".mt-2"
               isResizable={false}
               onDragStop={updateFilterRowIndex}
+              // We disable this because we would have to add a lot of CSS changes
+              // to let ReactGridLayout properly render the Dropdown and Popups
+              // inside the ActionFilterRow
+              useCSSTransforms={false}
             >
               { renderLocalFilters() }
             </ReactGridLayout>
