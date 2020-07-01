@@ -151,10 +151,17 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     style={{ width: '100%' }}
                     labelInValue
                     placeholder="Cohort name"
-                    value={{ key: key, label: cohorts?.find(cohort => cohort.id === parseInt(value))?.name || key }}
+                    value={
+                        type !== 'cohort'
+                            ? { key: '' }
+                            : {
+                                  key,
+                                  label: cohorts?.find(cohort => cohort.id === parseInt(key.substring(1)))?.name || key,
+                              }
+                    }
                     onChange={(_, new_cohort) => {
                         onComplete()
-                        setFilter(index, `%${new_cohort.value}`, parseInt(new_cohort.value), undefined, 'cohort')
+                        setFilter(index, `#${new_cohort.value}`, true, undefined, 'cohort')
                     }}
                 >
                     {cohorts.map((item, index) => (
