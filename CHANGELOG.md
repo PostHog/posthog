@@ -1,11 +1,63 @@
 # Changelog
 
+### [1.10.0](https://posthog.com/blog/the-posthog-array-1-10-0) - Wednesday 1 July 2020
+
+- [Toolbar](https://github.com/PostHog/posthog/issues/870) 
+
+![inspect](https://posthog.com/images/3ce1232ef29d0d59b4ac2779d8e97cf8/inspect.gif)
+
+- [Feature Flags](https://github.com/PostHog/posthog/issues/517)
+
+![feature flags](https://posthog.com/static/2824e49b2d3200ba4260a1bb83edb6ad/db910/feature-flags.png)
+
+- [Retention Page](https://github.com/PostHog/posthog/issues/327)
+
+![toolbar icon](https://posthog.com/static/c72806fa990efb5ea9bcf852c9ba9ffe/dc333/retention-view.png)
+
+- [Better Onboarding](https://github.com/PostHog/posthog/issues/901) & [more onboarding](https://github.com/PostHog/posthog/issues/1112)
+
+- [Platform.sh deployment #1044](https://github.com/PostHog/posthog/issues/1044)
+
+- [Porter](https://github.com/PostHog/posthog/pull/1012) 
+
+- Filtering by event name
+![filter by event name](https://user-images.githubusercontent.com/1727427/84702990-c7f59f00-af57-11ea-8455-92fb89d9c9ae.png)
+
+#### Bug fixes and performance improvements
+
+* We are now more privacy friendly - you can [discard IP address data](https://github.com/PostHog/posthog/pull/1081)
+* We fixed a bug with [the start times for the session view](https://github.com/PostHog/posthog/pull/1077)
+* We [improved the ./bin/test command](https://github.com/PostHog/posthog/pull/1074)
+* We now let you [break down users by their properties](https://github.com/PostHog/posthog/pull/1070) (it wasn't working before!)
+* We [sped up the people page](https://github.com/PostHog/posthog/pull/1056) - pro tip: don't load stuff you don't need!
+* We [disabled batching in the snippet](https://github.com/PostHog/posthog/pull/1049), since this helps prevent data loss
+* Fix moving from sessions to trends (#1039)
+* Fix person properties being selected (#1040)
+* Automatically select hourly if today/yesterday (#1057)
+* 1052 replace today with 24 hours (#1054)
+* 1041 paginate people modal (#1042)
+* Copy array.js.map as well to better debug errors (#1047)
+* Show upgrade warning if using a really old browser (#1046)
+* Add black (#1043)
+* Fix Typo (#1032)
+* Fix force refresh for cache (#1035)
+* Fix failing tests (#1036)
+* Closes #975 add prroperties to person and fix pagination (#976)
+* Fix texts too long (#1029)
+* Add free pairing session to contributing guide (#1028)
+* chore: clean the configs for release-drafter (#1088)
+* chore: Automate the creation of the change log (#1080)
+
 ### 1.9.0 - Thursday 18 June 2020
 
 - [Sessions view](https://github.com/PostHog/posthog/pull/926)
+
 ![sessions overview](https://posthog.com/static/b64e1508790f6b60958d5d320f2b8a22/efc66/sessions-overview.png)
+
 - You can then see exactly how a user interacted with your app:
+
 ![sessions more detail](https://posthog.com/static/c4fe51ff11bbe87eb64c00daf7cc3d78/efc66/session-broken-out.png)
+
 This should really help with debugging, or just trying to get a detailed view of what users are up to.
 
 #### Better testing
