@@ -162,7 +162,7 @@ function CohortPaneContents({ onComplete, setThisFilter, propkey, displayOperato
                         : {
                               propkey,
                               label:
-                                  cohorts?.find(cohort => cohort.id === parseInt(propkey.substring(1)))?.name ||
+                                  cohorts?.find(cohort => cohort.id === parseInt(propkey?.substring(1)))?.name ||
                                   propkey,
                           }
                 }
