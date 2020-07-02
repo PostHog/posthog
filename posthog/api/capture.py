@@ -16,14 +16,10 @@ import base64
 import gzip
 
 
-
 def _load_data(request) -> Optional[Union[Dict, List]]:
     if request.method == "POST":
         if request.content_type == "application/json":
             data = request.body
-
-            if request.headers.get("content-encoding", "").lower() == "gzip":
-                data = gzip.decompress(data)
         else:
             data = request.POST.get("data")
     else:
@@ -36,8 +32,16 @@ def _load_data(request) -> Optional[Union[Dict, List]]:
         scope.set_context("data", data)
 
     if (
-        request.GET.get("compression") == "lz-string"
-        or request.POST.get("compression") == "lz-string"
+        request.GET.get("compression") == "gzip"
+        or request.POST.get("compression") == "gzip"
+        or request.headers.get("content-encoding", "").lower() == "gzip"
+    ):
+        data = gzip.decompress(data)
+
+    if (
+        request.GET.get("compression") == "lz64"
+        or request.POST.get("compression") == "lz64"
+        or request.headers.get("content-encoding", "").lower() == "lz64"
     ):
         data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
 

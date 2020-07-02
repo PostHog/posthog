@@ -42,6 +42,7 @@ def get_decide(request: HttpRequest):
         "config": {"enable_collect_everything": True},
         "editorParams": {},
         "isAuthenticated": False,
+        "supportedCompression": ["gzip", "lz64"],
     }
 
     if request.user.is_authenticated:
