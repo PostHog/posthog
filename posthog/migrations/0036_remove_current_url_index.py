@@ -9,9 +9,4 @@ class Migration(migrations.Migration):
         ("posthog", "0035_current_url_index_20200318_1459"),
     ]
 
-    operations = [
-        migrations.RunSQL(
-            "DROP INDEX IF EXISTS posthog_event_properties_current_url_gin;",
-            "SELECT 1;",
-        )
-    ]
+    operations = [migrations.RunSQL("DROP INDEX IF EXISTS posthog_event_properties_current_url_gin;", "SELECT 1;",)]

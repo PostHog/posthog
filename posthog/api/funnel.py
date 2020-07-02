@@ -24,17 +24,14 @@ class FunnelSerializer(serializers.HyperlinkedModelSerializer):
         funnel.steps_cache = True  # type: ignore
 
         if self.context.get("cache", None) is None and (
-            self.context["view"].action != "retrieve"
-            or self.context["request"].GET.get("exclude_count")
+            self.context["view"].action != "retrieve" or self.context["request"].GET.get("exclude_count")
         ):
             return []
         return funnel.get_steps()
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Funnel:
         request = self.context["request"]
-        funnel = Funnel.objects.create(
-            team=request.user.team_set.get(), created_by=request.user, **validated_data
-        )
+        funnel = Funnel.objects.create(team=request.user.team_set.get(), created_by=request.user, **validated_data)
         return funnel
 
 
@@ -58,7 +55,5 @@ class FunnelViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(instance)
         dashboard_id = request.GET.get("from_dashboard", None)
         if dashboard_id:
-            DashboardItem.objects.filter(pk=dashboard_id).update(
-                last_refresh=datetime.datetime.now()
-            )
+            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.datetime.now())
         return serializer.data

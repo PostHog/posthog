@@ -11,8 +11,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="user",
-            name="temporary_token",
-            field=models.CharField(blank=True, max_length=200, null=True),
+            model_name="user", name="temporary_token", field=models.CharField(blank=True, max_length=200, null=True),
         ),
     ]

@@ -20,27 +20,17 @@ class Command(BaseCommand):
             el_dict = model_to_dict(element)
             [el_dict.pop(key) for key in ["event", "id", "group"]]
             elements_list.append(el_dict)
-        return hashlib.md5(
-            json.dumps(elements_list, sort_keys=True, default=str).encode("utf-8")
-        ).hexdigest()
+        return hashlib.md5(json.dumps(elements_list, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
     def handle(self, *args, **options):
         hashes_seen = []
         elements_count = 0
         elements_saved = 0
-        while Event.objects.filter(
-            element__isnull=False, elements_hash__isnull=True, event="$autocapture"
-        ).exists():
+        while Event.objects.filter(element__isnull=False, elements_hash__isnull=True, event="$autocapture").exists():
             with transaction.atomic():
                 events = (
-                    Event.objects.filter(
-                        element__isnull=False,
-                        elements_hash__isnull=True,
-                        event="$autocapture",
-                    )
-                    .prefetch_related(
-                        models.Prefetch("element_set", to_attr="elements_cache")
-                    )
+                    Event.objects.filter(element__isnull=False, elements_hash__isnull=True, event="$autocapture",)
+                    .prefetch_related(models.Prefetch("element_set", to_attr="elements_cache"))
                     .distinct("pk")[:1000]
                 )
                 print("1k")
@@ -52,13 +42,9 @@ class Command(BaseCommand):
                     elements_count += len(elements)
                     if hash not in hashes_seen:
                         try:
-                            group = ElementGroup.objects.get(
-                                team_id=event.team_id, hash=hash
-                            )
+                            group = ElementGroup.objects.get(team_id=event.team_id, hash=hash)
                         except:
-                            group = ElementGroup.objects.create(
-                                team_id=event.team_id, hash=hash, elements=elements
-                            )
+                            group = ElementGroup.objects.create(team_id=event.team_id, hash=hash, elements=elements)
                         hashes_seen.append(hash)
                     else:
                         elements_saved += len(elements)

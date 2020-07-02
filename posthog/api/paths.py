@@ -67,9 +67,7 @@ class PathsViewSet(viewsets.ViewSet):
         rows = dict_from_cursor_fetchall(cursor)
         return Response(rows)
 
-    def _apply_start_point(
-        self, start_comparator: str, query_string: str, start_point: str
-    ) -> str:
+    def _apply_start_point(self, start_comparator: str, query_string: str, start_point: str) -> str:
         marked = "\
             SELECT *, CASE WHEN {} '{}' THEN timestamp ELSE NULL END as mark from ({}) as sessionified\
         ".format(
@@ -107,24 +105,16 @@ class PathsViewSet(viewsets.ViewSet):
         team = request.user.team_set.get()
         resp = []
         date_query = request_to_date_query(request.GET, exact=False)
-        event, path_type, event_filter, start_comparator = self._determine_path_type(
-            request
-        )
+        event, path_type, event_filter, start_comparator = self._determine_path_type(request)
         properties = request.GET.get("properties")
         start_point = request.GET.get("start")
 
         sessions = (
             Event.objects.add_person_id(team.pk)
             .filter(team=team, **(event_filter), **date_query)
+            .filter(~Q(event__in=["$autocapture", "$pageview", "$identify", "$pageleave"]) if event is None else Q())
             .filter(
-                ~Q(event__in=["$autocapture", "$pageview", "$identify", "$pageleave"])
-                if event is None
-                else Q()
-            )
-            .filter(
-                Filter(data={"properties": json.loads(properties)}).properties_to_Q(
-                    team_id=team.pk
-                )
+                Filter(data={"properties": json.loads(properties)}).properties_to_Q(team_id=team.pk)
                 if properties
                 else Q()
             )
@@ -161,9 +151,7 @@ class PathsViewSet(viewsets.ViewSet):
 
         if start_point:
             sessionified = self._apply_start_point(
-                start_comparator=start_comparator,
-                query_string=sessionified,
-                start_point=start_point,
+                start_comparator=start_comparator, query_string=sessionified, start_point=start_point,
             )
 
         final = "\
@@ -204,13 +192,7 @@ class PathsViewSet(viewsets.ViewSet):
 
         for row in rows:
             resp.append(
-                {
-                    "source": row[0],
-                    "target": row[1],
-                    "target_id": row[2],
-                    "source_id": row[3],
-                    "value": row[4],
-                }
+                {"source": row[0], "target": row[1], "target_id": row[2], "source_id": row[3], "value": row[4],}
             )
 
         resp = sorted(resp, key=lambda x: x["value"], reverse=True)

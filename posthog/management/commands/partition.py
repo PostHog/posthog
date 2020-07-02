@@ -13,9 +13,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--element", default=[], dest="element", action="append")
-        parser.add_argument(
-            "--reverse", action="store_true", help="unpartition event table"
-        )
+        parser.add_argument("--reverse", action="store_true", help="unpartition event table")
 
     def handle(self, *args, **options):
 
@@ -47,6 +45,4 @@ class Command(BaseCommand):
                     [elements],
                 )
         else:
-            raise Exception(
-                "Postgres must be version 12 or greater to apply this partitioning"
-            )
+            raise Exception("Postgres must be version 12 or greater to apply this partitioning")

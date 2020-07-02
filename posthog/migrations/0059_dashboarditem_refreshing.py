@@ -10,9 +10,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="dashboarditem",
-            name="refreshing",
-            field=models.BooleanField(default=False),
-        ),
+        migrations.AddField(model_name="dashboarditem", name="refreshing", field=models.BooleanField(default=False),),
     ]

@@ -55,9 +55,7 @@ class EventManager(object):
                     attr_class = tag.pop("attr_class")
                     tag["attr_class__contains"] = attr_class
                 subqueries["match_{}".format(index)] = Subquery(
-                    Element.objects.filter(group_id=OuterRef("pk"), **tag).values(
-                        "order"
-                    )[:1]
+                    Element.objects.filter(group_id=OuterRef("pk"), **tag).values("order")[:1]
                 )
             groups = groups.annotate(**subqueries)
             for index, _ in enumerate(parts):
@@ -84,15 +82,11 @@ class EventManager(object):
             return {}
         return {"event": action_step.event}
 
-    def query_db_by_action(
-        self, events: models.QuerySet, action, apps
-    ) -> models.QuerySet:
+    def query_db_by_action(self, events: models.QuerySet, action, apps) -> models.QuerySet:
         any_step = Q()
         for step in action.steps.all():
             any_step |= Q(
-                **self.filter_by_element(step, apps),
-                **self.filter_by_url(step),
-                **self.filter_by_event(step)
+                **self.filter_by_element(step, apps), **self.filter_by_url(step), **self.filter_by_event(step)
             )
         events = events.filter(team_id=action.team_id).filter(any_step)
 
@@ -110,9 +104,7 @@ def migrate_to_precalculate_actions(apps, schema_editor):
         print("team: {} action: {}".format(action.team, action.name))
         try:
             event_query, params = (
-                manager.query_db_by_action(Event.objects.all(), action, apps)
-                .only("pk")
-                .query.sql_with_params()
+                manager.query_db_by_action(Event.objects.all(), action, apps).only("pk").query.sql_with_params()
             )
         except:  # make specific
             action.events.all().delete()
@@ -124,8 +116,7 @@ def migrate_to_precalculate_actions(apps, schema_editor):
         {}
         ON CONFLICT DO NOTHING
         """.format(
-            action.pk,
-            event_query.replace("SELECT ", "SELECT {}, ".format(action.pk), 1),
+            action.pk, event_query.replace("SELECT ", "SELECT {}, ".format(action.pk), 1),
         )
 
         cursor = connection.cursor()
@@ -144,9 +135,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="action",
-            name="events",
-            field=models.ManyToManyField(blank=True, to="posthog.Event"),
+            model_name="action", name="events", field=models.ManyToManyField(blank=True, to="posthog.Event"),
         ),
         migrations.RunPython(migrate_to_precalculate_actions, rollback),
     ]

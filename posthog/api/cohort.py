@@ -28,9 +28,7 @@ class CohortSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["is_calculating"] = True
-        cohort = Cohort.objects.create(
-            team=request.user.team_set.get(), **validated_data
-        )
+        cohort = Cohort.objects.create(team=request.user.team_set.get(), **validated_data)
         calculate_cohort.delay(cohort_id=cohort.pk)
         return cohort
 
@@ -59,8 +57,4 @@ class CohortViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.annotate(count=Count("people"))
-        return (
-            queryset.filter(team=self.request.user.team_set.get())
-            .select_related("created_by")
-            .order_by("id")
-        )
+        return queryset.filter(team=self.request.user.team_set.get()).select_related("created_by").order_by("id")

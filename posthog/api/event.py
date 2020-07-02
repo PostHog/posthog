@@ -84,14 +84,9 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
         if hasattr(event, "elements_group_cache"):
             if event.elements_group_cache:
                 return ElementSerializer(
-                    event.elements_group_cache.element_set.all().order_by("order"),
-                    many=True,
+                    event.elements_group_cache.element_set.all().order_by("order"), many=True,
                 ).data
-        elements = (
-            ElementGroup.objects.get(hash=event.elements_hash)
-            .element_set.all()
-            .order_by("order")
-        )
+        elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by("order")
         return ElementSerializer(elements, many=True).data
 
 
@@ -112,9 +107,7 @@ class EventViewSet(viewsets.ModelViewSet):
         order_by = ["-timestamp"] if not order_by else list(json.loads(order_by))
         return queryset.filter(team=team).order_by(*order_by)
 
-    def _filter_request(
-        self, request: request.Request, queryset: QuerySet, team: Team
-    ) -> QuerySet:
+    def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
         for key, value in request.GET.items():
             if key == "event":
                 queryset = queryset.filter(event=request.GET["event"])
@@ -125,9 +118,9 @@ class EventViewSet(viewsets.ModelViewSet):
             elif key == "person_id":
                 person = Person.objects.get(pk=request.GET["person_id"])
                 queryset = queryset.filter(
-                    distinct_id__in=PersonDistinctId.objects.filter(
-                        person_id=request.GET["person_id"]
-                    ).values("distinct_id")
+                    distinct_id__in=PersonDistinctId.objects.filter(person_id=request.GET["person_id"]).values(
+                        "distinct_id"
+                    )
                 )
             elif key == "distinct_id":
                 queryset = queryset.filter(distinct_id=request.GET["distinct_id"])
@@ -156,15 +149,11 @@ class EventViewSet(viewsets.ModelViewSet):
             distinct_ids.append(event.distinct_id)
             if event.elements_hash:
                 hash_ids.append(event.elements_hash)
-        people = Person.objects.filter(
-            team=team, persondistinctid__distinct_id__in=distinct_ids
-        ).prefetch_related(
+        people = Person.objects.filter(team=team, persondistinctid__distinct_id__in=distinct_ids).prefetch_related(
             Prefetch("persondistinctid_set", to_attr="distinct_ids_cache")
         )
         if len(hash_ids) > 0:
-            groups = ElementGroup.objects.filter(
-                team=team, hash__in=hash_ids
-            ).prefetch_related("element_set")
+            groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related("element_set")
         else:
             groups = ElementGroup.objects.none()
         for event in events:
@@ -181,19 +170,13 @@ class EventViewSet(viewsets.ModelViewSet):
     def _prefech_elements(self, hash_ids: List[str], team: Team) -> QuerySet:
         groups = ElementGroup.objects.none()
         if len(hash_ids) > 0:
-            groups = ElementGroup.objects.filter(
-                team=team, hash__in=hash_ids
-            ).prefetch_related("element_set")
+            groups = ElementGroup.objects.filter(team=team, hash__in=hash_ids).prefetch_related("element_set")
         return groups
 
-    def list(
-        self, request: request.Request, *args: Any, **kwargs: Any
-    ) -> response.Response:
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         queryset = self.get_queryset()
         monday = now() + timedelta(days=-now().weekday())
-        events = queryset.filter(
-            timestamp__gte=monday.replace(hour=0, minute=0, second=0)
-        )[0:101]
+        events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[0:101]
 
         if len(events) < 101:
             events = queryset[0:101]
@@ -214,21 +197,14 @@ class EventViewSet(viewsets.ModelViewSet):
         else:
             next_url = None
 
-        return response.Response(
-            {
-                "next": next_url,
-                "results": EventSerializer(prefetched_events, many=True).data,
-            }
-        )
+        return response.Response({"next": next_url, "results": EventSerializer(prefetched_events, many=True).data,})
 
     @action(methods=["GET"], detail=False)
     def actions(self, request: request.Request) -> response.Response:
         events = (
             self.get_queryset()
             .filter(action__deleted=False, action__isnull=False)
-            .prefetch_related(
-                Prefetch("action_set", queryset=Action.objects.order_by("id"))
-            )[0:101]
+            .prefetch_related(Prefetch("action_set", queryset=Action.objects.order_by("id")))[0:101]
         )
         matches = []
         ids_seen: List[int] = []
@@ -241,12 +217,7 @@ class EventViewSet(viewsets.ModelViewSet):
                 matches.append(event)
         prefetched_events = self._prefetch_events(matches)
         return response.Response(
-            {
-                "next": len(events) > 100,
-                "results": [
-                    self._serialize_actions(event) for event in prefetched_events
-                ],
-            }
+            {"next": len(events) > 100, "results": [self._serialize_actions(event) for event in prefetched_events],}
         )
 
     @action(methods=["GET"], detail=False)
@@ -286,22 +257,16 @@ class EventViewSet(viewsets.ModelViewSet):
             params,
         )
 
-        return response.Response(
-            [{"name": convert_property_value(value.value)} for value in values]
-        )
+        return response.Response([{"name": convert_property_value(value.value)} for value in values])
 
     def _handle_compared(self, date_filter: Dict[str, datetime]) -> QuerySet:
-        date_from, date_to = get_compare_period_dates(
-            date_filter["timestamp__gte"], date_filter["timestamp__lte"]
-        )
+        date_from, date_to = get_compare_period_dates(date_filter["timestamp__gte"], date_filter["timestamp__lte"])
         date_filter["timestamp__gte"] = date_from
         date_filter["timestamp__lte"] = date_to
         compared_events = self.get_queryset().filter(**date_filter)
         return compared_events
 
-    def _convert_to_comparison(
-        self, trend_entity: List[Dict[str, Any]], label: str
-    ) -> List[Dict[str, Any]]:
+    def _convert_to_comparison(self, trend_entity: List[Dict[str, Any]], label: str) -> List[Dict[str, Any]]:
         for entity in trend_entity:
             days = [i for i in range(len(entity["days"]))]
             labels = ["{} {}".format("Day", i) for i in range(len(entity["labels"]))]
@@ -342,22 +307,14 @@ class EventViewSet(viewsets.ModelViewSet):
         compare = request.GET.get("compare")
         result: Dict[str, Any] = {"result": []}
         if compare and request.GET.get("date_from") != "all" and session_type == "avg":
-            calculated = self.calculate_sessions(
-                events, session_type, date_filter, team, request
-            )
+            calculated = self.calculate_sessions(events, session_type, date_filter, team, request)
             calculated = self._convert_to_comparison(calculated, "current")
             compared_events = self._handle_compared(date_filter)
-            compared_calculated = self.calculate_sessions(
-                compared_events, session_type, date_filter, team, request
-            )
-            converted_compared_calculated = self._convert_to_comparison(
-                compared_calculated, "previous"
-            )
+            compared_calculated = self.calculate_sessions(compared_events, session_type, date_filter, team, request)
+            converted_compared_calculated = self._convert_to_comparison(compared_calculated, "previous")
             calculated.extend(converted_compared_calculated)
         else:
-            calculated = self.calculate_sessions(
-                events, session_type, date_filter, team, request
-            )
+            calculated = self.calculate_sessions(events, session_type, date_filter, team, request)
         result.update({"result": calculated})
 
         # add pagination
@@ -387,16 +344,13 @@ class EventViewSet(viewsets.ModelViewSet):
             if request.GET.get("date_from", None):
                 _date_gte = Q(
                     timestamp__gte=date_filter["timestamp__gte"],
-                    timestamp__lte=date_filter["timestamp__gte"]
-                    + relativedelta(days=1),
+                    timestamp__lte=date_filter["timestamp__gte"] + relativedelta(days=1),
                 )
             else:
                 dt = events.order_by("-timestamp").values("timestamp")[0]["timestamp"]
                 if dt:
                     dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-                _date_gte = Q(
-                    timestamp__gte=dt, timestamp__lte=dt + relativedelta(days=1)
-                )
+                _date_gte = Q(timestamp__gte=dt, timestamp__lte=dt + relativedelta(days=1))
 
         sessions = (
             events.filter(_date_gte)
@@ -409,9 +363,7 @@ class EventViewSet(viewsets.ModelViewSet):
             )
             .annotate(
                 previous_event=Window(
-                    expression=Lag("event", default=None),
-                    partition_by=F("distinct_id"),
-                    order_by=F("timestamp").asc(),
+                    expression=Lag("event", default=None), partition_by=F("distinct_id"), order_by=F("timestamp").asc(),
                 )
             )
         )
@@ -435,9 +387,7 @@ class EventViewSet(viewsets.ModelViewSet):
         elif session_type == "dist":
             result = self._session_dist(all_sessions, sessions_sql_params)
         else:
-            result = self._session_list(
-                all_sessions, sessions_sql_params, team, date_filter, request
-            )
+            result = self._session_list(all_sessions, sessions_sql_params, team, date_filter, request)
 
         return result
 
@@ -484,11 +434,7 @@ class EventViewSet(viewsets.ModelViewSet):
                         event.update(
                             {
                                 "elements": ElementSerializer(
-                                    [
-                                        group
-                                        for group in groups
-                                        if group.hash == event["elements_hash"]
-                                    ][0]
+                                    [group for group in groups if group.hash == event["elements_hash"]][0]
                                     .element_set.all()
                                     .order_by("order"),
                                     many=True,
@@ -518,15 +464,10 @@ class EventViewSet(viewsets.ModelViewSet):
         time_series_avg = cursor.fetchall()
         time_series_avg_friendly = []
         date_range = pd.date_range(
-            date_filter["timestamp__gte"].date(),
-            date_filter["timestamp__lte"].date(),
-            freq="D",
+            date_filter["timestamp__gte"].date(), date_filter["timestamp__lte"].date(), freq="D",
         )
         time_series_avg_friendly = [
-            (
-                day,
-                round(time_series_avg[index][1] if index < len(time_series_avg) else 0),
-            )
+            (day, round(time_series_avg[index][1] if index < len(time_series_avg) else 0),)
             for index, day in enumerate(date_range)
         ]
 
@@ -539,18 +480,13 @@ class EventViewSet(viewsets.ModelViewSet):
         avg_split = avg_formatted.split(" ")
 
         time_series_data.update(
-            {
-                "label": "Average Duration of Session ({})".format(avg_split[1]),
-                "count": int(avg_split[0]),
-            }
+            {"label": "Average Duration of Session ({})".format(avg_split[1]), "count": int(avg_split[0]),}
         )
         time_series_data.update({"chartLabel": "Average Duration of Session (seconds)"})
         result = [time_series_data]
         return result
 
-    def _session_dist(
-        self, base_query: str, params: Tuple[Any, ...]
-    ) -> List[Dict[str, Any]]:
+    def _session_dist(self, base_query: str, params: Tuple[Any, ...]) -> List[Dict[str, Any]]:
         distribution = "SELECT COUNT(CASE WHEN length = 0 THEN 1 ELSE NULL END) as first,\
                         COUNT(CASE WHEN length > 0 AND length <= 3 THEN 1 ELSE NULL END) as second,\
                         COUNT(CASE WHEN length > 3 AND length <= 10 THEN 1 ELSE NULL END) as third,\
@@ -581,8 +517,5 @@ class EventViewSet(viewsets.ModelViewSet):
         cursor = connection.cursor()
         cursor.execute(distribution, params)
         calculated = cursor.fetchall()
-        result = [
-            {"label": dist_labels[index], "count": calculated[0][index]}
-            for index in range(len(dist_labels))
-        ]
+        result = [{"label": dist_labels[index], "count": calculated[0][index]} for index in range(len(dist_labels))]
         return result

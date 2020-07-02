@@ -23,9 +23,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="team",
-            name="signup_token",
-            field=models.CharField(blank=True, max_length=200, null=True),
+            model_name="team", name="signup_token", field=models.CharField(blank=True, max_length=200, null=True),
         ),
         migrations.RunPython(add_signup_tokens, backwards),
     ]

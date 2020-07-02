@@ -12,8 +12,4 @@ def calculate_action(action_id: int) -> None:
     start_time = time.time()
     action = Action.objects.get(pk=action_id)
     action.calculate_events()
-    logger.info(
-        "Calculating action {} took {:.2f} seconds".format(
-            action.pk, (time.time() - start_time)
-        )
-    )
+    logger.info("Calculating action {} took {:.2f} seconds".format(action.pk, (time.time() - start_time)))

@@ -14,9 +14,7 @@ class Migration(migrations.Migration):
             model_name="actionstep",
             name="url_matching",
             field=models.CharField(
-                choices=[("exact", "exact"), ("contains", "contains")],
-                default="contains",
-                max_length=400,
+                choices=[("exact", "exact"), ("contains", "contains")], default="contains", max_length=400,
             ),
         ),
     ]

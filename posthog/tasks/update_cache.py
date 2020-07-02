@@ -12,27 +12,21 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task
-def update_cache(
-    cache_type: str, payload: dict
-) -> Optional[Union[dict, List[Dict[str, Any]]]]:
+def update_cache(cache_type: str, payload: dict) -> Optional[Union[dict, List[Dict[str, Any]]]]:
     result: Optional[Union[dict, List[Dict[str, Any]]]] = None
 
     if cache_type == TRENDS_ENDPOINT:
 
         # convert filter
         filter_dict = json.loads(payload["filter"])
-        entities = [
-            Entity(entity_dict) for entity_dict in filter_dict.get("entities", [])
-        ]
+        entities = [Entity(entity_dict) for entity_dict in filter_dict.get("entities", [])]
         filter_dict.update({"entities": entities})
         filter = Filter(data=filter_dict)
 
         result = _calculate_trends(filter, payload["params"], int(payload["team_id"]))
 
     elif cache_type == FUNNEL_ENDPOINT:
-        result = _calculate_funnels(
-            payload["pk"], payload["params"], int(payload["team_id"])
-        )
+        result = _calculate_funnels(payload["pk"], payload["params"], int(payload["team_id"]))
 
     if payload["dashboard_id"]:
         dashboard_item = DashboardItem.objects.filter(pk=payload["dashboard_id"])
@@ -43,9 +37,7 @@ def update_cache(
     return result
 
 
-def _calculate_trends(
-    filter: Filter, params: dict, team_id: int
-) -> List[Dict[str, Any]]:
+def _calculate_trends(filter: Filter, params: dict, team_id: int) -> List[Dict[str, Any]]:
     actions = get_actions(Action.objects.all(), params, team_id)
     data = calculate_trends(filter, params, team_id, actions)
     return data

@@ -15,30 +15,11 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Person",
             fields=[
-                (
-                    "id",
-                    models.AutoField(
-                        auto_created=True,
-                        primary_key=True,
-                        serialize=False,
-                        verbose_name="ID",
-                    ),
-                ),
-                (
-                    "distinct_ids",
-                    django.contrib.postgres.fields.jsonb.JSONField(default=list),
-                ),
+                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID",),),
+                ("distinct_ids", django.contrib.postgres.fields.jsonb.JSONField(default=list),),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
-                (
-                    "properties",
-                    django.contrib.postgres.fields.jsonb.JSONField(default=dict),
-                ),
-                (
-                    "team",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, to="posthog.Team"
-                    ),
-                ),
+                ("properties", django.contrib.postgres.fields.jsonb.JSONField(default=dict),),
+                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Team"),),
             ],
         ),
     ]

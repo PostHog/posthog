@@ -24,9 +24,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="team",
-            name="completed_snippet_onboarding",
-            field=models.BooleanField(default=False),
+            model_name="team", name="completed_snippet_onboarding", field=models.BooleanField(default=False),
         ),
         migrations.RunPython(set_history_default, reverse_code=backwards),
     ]

@@ -15,10 +15,7 @@ import json
 
 class Group(object):
     def __init__(
-        self,
-        properties: Optional[Dict[str, Any]] = None,
-        action_id: Optional[int] = None,
-        days: Optional[int] = None,
+        self, properties: Optional[Dict[str, Any]] = None, action_id: Optional[int] = None, days: Optional[int] = None,
     ):
         if not properties and not action_id:
             raise ValueError("Cohort group needs properties or action_id")
@@ -39,16 +36,10 @@ class Cohort(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted: models.BooleanField = models.BooleanField(default=False)
     groups: JSONField = JSONField(default=list)
-    people: models.ManyToManyField = models.ManyToManyField(
-        "Person", through="CohortPeople"
-    )
+    people: models.ManyToManyField = models.ManyToManyField("Person", through="CohortPeople")
 
-    created_by: models.ForeignKey = models.ForeignKey(
-        "User", on_delete=models.SET_NULL, blank=True, null=True
-    )
-    created_at: models.DateTimeField = models.DateTimeField(
-        default=timezone.now, blank=True, null=True
-    )
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, blank=True, null=True)
+    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True, null=True)
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     last_calculation: models.DateTimeField = models.DateTimeField(blank=True, null=True)
 
@@ -64,10 +55,7 @@ class Cohort(models.Model):
                     .filter(
                         team_id=self.team_id,
                         **(
-                            {
-                                "timestamp__gt": timezone.now()
-                                - relativedelta(days=group["days"])
-                            }
+                            {"timestamp__gt": timezone.now() - relativedelta(days=group["days"])}
                             if group.get("days")
                             else {}
                         ),
@@ -81,9 +69,7 @@ class Cohort(models.Model):
                 filters |= Q(persondistinctid__distinct_id__in=events)
             elif group.get("properties"):
                 filter = Filter(data=group)
-                filters |= Q(
-                    filter.properties_to_Q(team_id=self.team_id, is_person_query=True)
-                )
+                filters |= Q(filter.properties_to_Q(team_id=self.team_id, is_person_query=True))
         return filters
 
     def calculate_people(self):
@@ -103,12 +89,7 @@ class Cohort(models.Model):
             {}
             ON CONFLICT DO NOTHING
             """.format(
-                self.pk,
-                event_query.replace(
-                    'FROM "posthog_person"',
-                    ', {} FROM "posthog_person"'.format(self.pk),
-                    1,
-                ),
+                self.pk, event_query.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
             )
 
             cursor = connection.cursor()

@@ -11,8 +11,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="user",
-            name="anonymize_data",
-            field=models.BooleanField(blank=True, default=False, null=True),
+            model_name="user", name="anonymize_data", field=models.BooleanField(blank=True, default=False, null=True),
         ),
     ]

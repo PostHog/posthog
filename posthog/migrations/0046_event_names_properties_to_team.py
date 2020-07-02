@@ -37,9 +37,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="team",
-            name="event_names",
-            field=django.contrib.postgres.fields.jsonb.JSONField(default=list),
+            model_name="team", name="event_names", field=django.contrib.postgres.fields.jsonb.JSONField(default=list),
         ),
         migrations.AddField(
             model_name="team",

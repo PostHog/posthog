@@ -14,8 +14,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="event",
             name="elements",
-            field=django.contrib.postgres.fields.jsonb.JSONField(
-                blank=True, default=list, null=True
-            ),
+            field=django.contrib.postgres.fields.jsonb.JSONField(blank=True, default=list, null=True),
         ),
     ]

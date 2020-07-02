@@ -22,11 +22,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         if request.data.get("items"):
             for item in request.data["items"]:
                 DashboardItem.objects.create(
-                    **{
-                        key: value
-                        for key, value in item.items()
-                        if key not in ("id", "deleted", "dashboard", "team")
-                    },
+                    **{key: value for key, value in item.items() if key not in ("id", "deleted", "dashboard", "team")},
                     dashboard=dashboard,
                     team=team,
                 )
@@ -73,9 +69,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team = request.user.team_set.get()
         if validated_data["dashboard"].team == team:
-            dashboard_item = DashboardItem.objects.create(
-                team=team, last_refresh=datetime.now(), **validated_data
-            )
+            dashboard_item = DashboardItem.objects.create(team=team, last_refresh=datetime.now(), **validated_data)
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
@@ -96,9 +90,7 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
         team = request.user.team_set.get()
 
         for data in request.data["items"]:
-            self.queryset.filter(team=team, pk=data["id"]).update(
-                layouts=data["layouts"]
-            )
+            self.queryset.filter(team=team, pk=data["id"]).update(layouts=data["layouts"])
 
         serializer = self.get_serializer(self.queryset, many=True)
         return response.Response(serializer.data)

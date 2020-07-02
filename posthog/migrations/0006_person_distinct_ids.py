@@ -15,10 +15,7 @@ class Migration(migrations.Migration):
             model_name="person",
             name="distinct_ids",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(blank=True, max_length=400),
-                blank=True,
-                null=True,
-                size=None,
+                base_field=models.CharField(blank=True, max_length=400), blank=True, null=True, size=None,
             ),
         ),
     ]

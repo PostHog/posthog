@@ -33,9 +33,7 @@ class Migration(migrations.Migration):
             model_name="team",
             name="app_urls",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(blank=True, max_length=200, null=True),
-                default=list,
-                size=None,
+                base_field=models.CharField(blank=True, max_length=200, null=True), default=list, size=None,
             ),
         ),
         migrations.RunPython(migrate_to_array, rollback_to_string),

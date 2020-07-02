@@ -10,9 +10,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="user",
-            name="email_opt_in",
-            field=models.BooleanField(default=False),
-        ),
+        migrations.AddField(model_name="user", name="email_opt_in", field=models.BooleanField(default=False),),
     ]

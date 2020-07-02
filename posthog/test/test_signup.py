@@ -60,12 +60,7 @@ class TestSignup(TestCase):
         with self.settings(TEST=False):
             response = self.client.post(
                 "/signup/{}".format(team.signup_token),
-                {
-                    "name": "Jane",
-                    "email": "jane@acme.com",
-                    "password": "hunter2",
-                    "emailOptIn": "",
-                },
+                {"name": "Jane", "email": "jane@acme.com", "password": "hunter2", "emailOptIn": "",},
                 follow=True,
             )
         self.assertRedirects(response, "/")

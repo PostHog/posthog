@@ -75,18 +75,10 @@ class User(AbstractUser):
 
     username = None  # type: ignore
     email = models.EmailField(_("email address"), unique=True)
-    temporary_token: models.CharField = models.CharField(
-        max_length=200, null=True, blank=True
-    )
-    distinct_id: models.CharField = models.CharField(
-        max_length=200, null=True, blank=True
-    )
-    email_opt_in: models.BooleanField = models.BooleanField(
-        default=False, null=True, blank=True
-    )
-    anonymize_data: models.BooleanField = models.BooleanField(
-        default=False, null=True, blank=True
-    )
+    temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    anonymize_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     toolbar_mode: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=DEFAULT
     )

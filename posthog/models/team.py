@@ -31,11 +31,7 @@ class TeamManager(models.Manager):
             dashboard=dashboard,
             name="Pageviews this week",
             type=TRENDS_LINEAR,
-            filters={
-                TREND_FILTER_TYPE_EVENTS: [
-                    {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}
-                ]
-            },
+            filters={TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}]},
             last_refresh=datetime.now(),
         )
         DashboardItem.objects.create(
@@ -44,9 +40,7 @@ class TeamManager(models.Manager):
             name="Most popular browsers this week",
             type="ActionsTable",
             filters={
-                TREND_FILTER_TYPE_EVENTS: [
-                    {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}
-                ],
+                TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}],
                 "display": "ActionsTable",
                 "breakdown": "$browser",
             },
@@ -57,11 +51,7 @@ class TeamManager(models.Manager):
             dashboard=dashboard,
             name="Daily Active Users",
             type=TRENDS_LINEAR,
-            filters={
-                TREND_FILTER_TYPE_EVENTS: [
-                    {"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}
-                ]
-            },
+            filters={TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "dau", "type": TREND_FILTER_TYPE_EVENTS}]},
             last_refresh=datetime.now(),
         )
         return team
@@ -76,27 +66,17 @@ class TeamManager(models.Manager):
 
 class Team(models.Model):
     users: models.ManyToManyField = models.ManyToManyField(User, blank=True)
-    api_token: models.CharField = models.CharField(
-        max_length=200, null=True, blank=True
-    )
-    signup_token: models.CharField = models.CharField(
-        max_length=200, null=True, blank=True
-    )
-    app_urls: ArrayField = ArrayField(
-        models.CharField(max_length=200, null=True, blank=True), default=list
-    )
+    api_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    slack_incoming_webhook: models.CharField = models.CharField(
-        max_length=200, null=True, blank=True
-    )
+    slack_incoming_webhook: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     event_names: JSONField = JSONField(default=list)
     event_properties: JSONField = JSONField(default=list)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     anonymize_ips: models.BooleanField = models.BooleanField(default=False)
-    completed_snippet_onboarding: models.BooleanField = models.BooleanField(
-        default=False
-    )
+    completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
 
     # DEPRECATED: this field is deprecated in favour of OPT_OUT_CAPTURE env variable and anonymized data
     # However, we still honor teams that have set this previously

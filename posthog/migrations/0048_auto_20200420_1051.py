@@ -10,14 +10,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveIndex(
-            model_name="event", name="posthog_eve_timesta_b00cec_idx",
-        ),
+        migrations.RemoveIndex(model_name="event", name="posthog_eve_timesta_b00cec_idx",),
         migrations.AddIndex(
             model_name="event",
-            index=models.Index(
-                fields=["timestamp", "team_id", "event"],
-                name="posthog_eve_timesta_1f6a8c_idx",
-            ),
+            index=models.Index(fields=["timestamp", "team_id", "event"], name="posthog_eve_timesta_1f6a8c_idx",),
         ),
     ]

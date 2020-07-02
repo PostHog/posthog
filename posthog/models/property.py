@@ -10,13 +10,7 @@ class Property:
     value: str
     type: str
 
-    def __init__(
-        self,
-        key: str,
-        value: str,
-        operator: Optional[str] = None,
-        type: Optional[str] = None,
-    ) -> None:
+    def __init__(self, key: str, value: str, operator: Optional[str] = None, type: Optional[str] = None,) -> None:
         self.key = key
         self.value = value
         self.operator = operator
@@ -24,10 +18,7 @@ class Property:
 
     def __repr__(self):
         return "Property({}: {}{}={})".format(
-            self.type,
-            self.key,
-            "__{}".format(self.operator) if self.operator else "",
-            self.value,
+            self.type, self.key, "__{}".format(self.operator) if self.operator else "", self.value,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -53,26 +44,14 @@ class Property:
     def property_to_Q(self) -> Q:
         value = self._parse_value(self.value)
         if self.operator == "is_not":
-            return Q(
-                ~Q(**{"properties__{}".format(self.key): value})
-                | ~Q(properties__has_key=self.key)
-            )
+            return Q(~Q(**{"properties__{}".format(self.key): value}) | ~Q(properties__has_key=self.key))
         if self.operator == "not_icontains":
-            return Q(
-                ~Q(**{"properties__{}__icontains".format(self.key): value})
-                | ~Q(properties__has_key=self.key)
-            )
+            return Q(~Q(**{"properties__{}__icontains".format(self.key): value}) | ~Q(properties__has_key=self.key))
         if self.operator == "is_set":
             return Q(**{"properties__{}__isnull".format(self.key): False})
         if self.operator == "is_not_set":
             return Q(**{"properties__{}__isnull".format(self.key): True})
-        return Q(
-            **{
-                "properties__{}{}".format(
-                    self.key, "__{}".format(self.operator) if self.operator else ""
-                ): value
-            }
-        )
+        return Q(**{"properties__{}{}".format(self.key, "__{}".format(self.operator) if self.operator else ""): value})
 
 
 class PropertyMixin:
@@ -98,20 +77,12 @@ class PropertyMixin:
             person_Q = Q()
             for property in person_properties:
                 person_Q &= property.property_to_Q()
-            filters &= Q(
-                Exists(
-                    Person.objects.filter(person_Q, id=OuterRef("person_id"),).only(
-                        "pk"
-                    )
-                )
-            )
+            filters &= Q(Exists(Person.objects.filter(person_Q, id=OuterRef("person_id"),).only("pk")))
 
         for property in [prop for prop in self.properties if prop.type == "event"]:
             filters &= property.property_to_Q()
 
-        element_properties = [
-            prop for prop in self.properties if prop.type == "element"
-        ]
+        element_properties = [prop for prop in self.properties if prop.type == "element"]
         if len(element_properties) > 0:
             from .event import Event
 
@@ -120,8 +91,7 @@ class PropertyMixin:
                     Event.objects.filter(pk=OuterRef("id"))
                     .filter(
                         **Event.objects.filter_by_element(
-                            {item.key: item.value for item in element_properties},
-                            team_id=team_id,
+                            {item.key: item.value for item in element_properties}, team_id=team_id,
                         )
                     )
                     .only("id")
@@ -142,10 +112,7 @@ class PropertyMixin:
             key_split = key.split("__")
             ret.append(
                 Property(
-                    key=key_split[0],
-                    value=value,
-                    operator=key_split[1] if len(key_split) > 1 else None,
-                    type="event",
+                    key=key_split[0], value=value, operator=key_split[1] if len(key_split) > 1 else None, type="event",
                 )
             )
         return ret

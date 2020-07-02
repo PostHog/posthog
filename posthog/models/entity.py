@@ -23,9 +23,7 @@ class Entity(PropertyMixin):
             TREND_FILTER_TYPE_ACTIONS,
             TREND_FILTER_TYPE_EVENTS,
         ]:
-            raise TypeError(
-                "Type needs to be either TREND_FILTER_TYPE_ACTIONS or TREND_FILTER_TYPE_EVENTS"
-            )
+            raise TypeError("Type needs to be either TREND_FILTER_TYPE_ACTIONS or TREND_FILTER_TYPE_EVENTS")
         self.type = data["type"]
         self.order = data.get("order")
         self.name = data.get("name")

@@ -10,9 +10,7 @@ __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
 class FeatureFlag(models.Model):
     class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["team", "key"], name="unique key for team")
-        ]
+        constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
 
     name: models.CharField = models.CharField(max_length=400)
     key: models.CharField = models.CharField(max_length=400)
@@ -29,14 +27,8 @@ class FeatureFlag(models.Model):
     def distinct_id_matches(self, distinct_id: str) -> bool:
         if len(self.filters.get("properties", [])) > 0:
             if (
-                not Person.objects.filter(
-                    team_id=self.team_id, persondistinctid__distinct_id=distinct_id
-                )
-                .filter(
-                    Filter(data=self.filters).properties_to_Q(
-                        team_id=self.team_id, is_person_query=True
-                    )
-                )
+                not Person.objects.filter(team_id=self.team_id, persondistinctid__distinct_id=distinct_id)
+                .filter(Filter(data=self.filters).properties_to_Q(team_id=self.team_id, is_person_query=True))
                 .exists()
             ):
                 return False

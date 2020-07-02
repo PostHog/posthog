@@ -33,24 +33,17 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENT
 class Funnel(models.Model):
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    created_by: models.ForeignKey = models.ForeignKey(
-        "User", on_delete=models.CASCADE, null=True, blank=True
-    )
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
     filters: JSONField = JSONField(default=dict)
 
     def _gen_lateral_bodies(self, team_id: int, filter: Filter):
         annotations = {}
         for index, step in enumerate(filter.entities):
-            filter_key = (
-                "event" if step.type == TREND_FILTER_TYPE_EVENTS else "action__pk"
-            )
+            filter_key = "event" if step.type == TREND_FILTER_TYPE_EVENTS else "action__pk"
             event = (
                 Event.objects.values("distinct_id")
-                .annotate(
-                    step_ts=Min("timestamp"),
-                    person_id=Value("99999999", IntegerField()),
-                )
+                .annotate(step_ts=Min("timestamp"), person_id=Value("99999999", IntegerField()),)
                 .filter(
                     filter.date_filter_Q,
                     **{filter_key: step.id},
@@ -86,9 +79,7 @@ class Funnel(models.Model):
             annotations["step_{}".format(index)] = query
         return annotations
 
-    def _serialize_step(
-        self, step: Entity, people: Optional[List[int]] = None
-    ) -> Dict[str, Any]:
+    def _serialize_step(self, step: Entity, people: Optional[List[int]] = None) -> Dict[str, Any]:
         if step.type == TREND_FILTER_TYPE_ACTIONS:
             name = Action.objects.get(team=self.team_id, pk=step.id).name
         else:
@@ -111,9 +102,7 @@ class Funnel(models.Model):
         LEFT_JOIN_LATERAL = "LEFT JOIN LATERAL"
         QUERY_HEADER = "SELECT {people}, {fields} FROM "
         LAT_JOIN_BODY = (
-            """({query}) {step} {on_true} {join}"""
-            if len(query_bodies) > 1
-            else """({query}) {step} {on_true} """
+            """({query}) {step} {on_true} {join}""" if len(query_bodies) > 1 else """({query}) {step} {on_true} """
         )
         PERSON_FIELDS = [
             [sql.Identifier("posthog_person"), sql.Identifier("id")],
@@ -129,39 +118,22 @@ class Funnel(models.Model):
             GROUP BY {group_by}"""
         )
 
-        person_fields = sql.SQL(",").join(
-            [sql.SQL(".").join(col) for col in PERSON_FIELDS]
-        )
+        person_fields = sql.SQL(",").join([sql.SQL(".").join(col) for col in PERSON_FIELDS])
 
         steps = [sql.Identifier(step) for step, query in query_bodies.items()]
         select_steps = [
-            sql.Composed(
-                [
-                    sql.SQL("MIN("),
-                    step,
-                    sql.SQL("."),
-                    sql.Identifier("step_ts"),
-                    sql.SQL(") as "),
-                    step,
-                ]
-            )
+            sql.Composed([sql.SQL("MIN("), step, sql.SQL("."), sql.Identifier("step_ts"), sql.SQL(") as "), step,])
             for step in steps
         ]
         lateral_joins = []
-        query = sql.SQL(QUERY_HEADER).format(
-            fields=sql.SQL(",").join(select_steps), people=person_fields
-        )
+        query = sql.SQL(QUERY_HEADER).format(fields=sql.SQL(",").join(select_steps), people=person_fields)
         i = 0
         for step, qb in query_bodies.items():
             if i > 0:
                 # For each step after the first we must reference the previous step's person_id and step_ts
                 q = qb.format(
-                    prev_step_person_id=sql.Composed(
-                        [steps[i - 1], sql.SQL("."), sql.Identifier("person_id")]
-                    ),
-                    prev_step_ts=sql.Composed(
-                        [steps[i - 1], sql.SQL("."), sql.Identifier("step_ts")]
-                    ),
+                    prev_step_person_id=sql.Composed([steps[i - 1], sql.SQL("."), sql.Identifier("person_id")]),
+                    prev_step_ts=sql.Composed([steps[i - 1], sql.SQL("."), sql.Identifier("step_ts")]),
                 )
 
             if i == 0:
@@ -169,30 +141,21 @@ class Funnel(models.Model):
                 # The join conditions are different for first, middles, and last
                 # For the first step we include the alias, lateral join, but not 'ON TRUE'
                 base_body = sql.SQL(LAT_JOIN_BODY).format(
-                    query=qb,
-                    step=sql.SQL(step),
-                    on_true=sql.SQL(""),
-                    join=sql.SQL(LEFT_JOIN_LATERAL),
+                    query=qb, step=sql.SQL(step), on_true=sql.SQL(""), join=sql.SQL(LEFT_JOIN_LATERAL),
                 )
             elif i == len(query_bodies) - 1:
                 # Generate last lateral join body
                 # The join conditions are different for first, middles, and last
                 # For the last step we include the alias, 'ON TRUE', but not another `LATERAL JOIN`
                 base_body = sql.SQL(LAT_JOIN_BODY).format(
-                    query=q,
-                    step=sql.SQL(step),
-                    on_true=sql.SQL(ON_TRUE),
-                    join=sql.SQL(""),
+                    query=q, step=sql.SQL(step), on_true=sql.SQL(ON_TRUE), join=sql.SQL(""),
                 )
             else:
                 # Generate middle lateral join body
                 # The join conditions are different for first, middles, and last
                 # For the middle steps we include the alias, 'ON TRUE', and `LATERAL JOIN`
                 base_body = sql.SQL(LAT_JOIN_BODY).format(
-                    query=q,
-                    step=sql.SQL(step),
-                    on_true=sql.SQL(ON_TRUE),
-                    join=sql.SQL(LEFT_JOIN_LATERAL),
+                    query=q, step=sql.SQL(step), on_true=sql.SQL(ON_TRUE), join=sql.SQL(LEFT_JOIN_LATERAL),
                 )
             lateral_joins.append(base_body)
             i += 1
@@ -203,9 +166,9 @@ class Funnel(models.Model):
     def get_steps(self) -> List[Dict[str, Any]]:
         filter = Filter(data=self.filters)
         with connection.cursor() as cursor:
-            qstring = self._build_query(
-                self._gen_lateral_bodies(team_id=self.team_id, filter=filter)
-            ).as_string(cursor.connection)
+            qstring = self._build_query(self._gen_lateral_bodies(team_id=self.team_id, filter=filter)).as_string(
+                cursor.connection
+            )
             cursor.execute(qstring)
             people = namedtuplefetchall(cursor)
         steps = []
@@ -221,7 +184,7 @@ class Funnel(models.Model):
 
         if len(steps) > 0:
             for index, _ in enumerate(steps):
-                steps[index]["people"] = sorted(
-                    steps[index]["people"], key=lambda p: person_score[p], reverse=True
-                )[0:100]
+                steps[index]["people"] = sorted(steps[index]["people"], key=lambda p: person_score[p], reverse=True)[
+                    0:100
+                ]
         return steps

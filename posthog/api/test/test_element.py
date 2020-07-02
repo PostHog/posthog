@@ -11,12 +11,7 @@ class TestElement(BaseTest):
 
     def test_event_property_values(self):
         group = ElementGroup.objects.create(
-            team=self.team,
-            elements=[
-                Element(
-                    tag_name="a", href="https://posthog.com/about", text="click here"
-                )
-            ],
+            team=self.team, elements=[Element(tag_name="a", href="https://posthog.com/about", text="click here")],
         )
         team2 = Team.objects.create()
         ElementGroup.objects.create(team=team2, elements=[Element(tag_name="bla")])
@@ -30,18 +25,8 @@ class TestElement(BaseTest):
 
     def test_element_stats(self):
         elements = [
-            Element(
-                tag_name="a",
-                href="https://posthog.com/about",
-                text="click here",
-                order=0,
-            ),
-            Element(
-                tag_name="div",
-                href="https://posthog.com/about",
-                text="click here",
-                order=1,
-            ),
+            Element(tag_name="a", href="https://posthog.com/about", text="click here", order=0,),
+            Element(tag_name="div", href="https://posthog.com/about", text="click here", order=1,),
         ]
         event1 = Event.objects.create(
             team=self.team,

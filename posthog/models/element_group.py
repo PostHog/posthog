@@ -14,9 +14,7 @@ class ElementGroupManager(models.Manager):
             el_dict = model_to_dict(element)
             [el_dict.pop(key) for key in ["event", "id", "group"]]
             elements_list.append(el_dict)
-        return hashlib.md5(
-            json.dumps(elements_list, sort_keys=True, default=str).encode("utf-8")
-        ).hexdigest()
+        return hashlib.md5(json.dumps(elements_list, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
     def create(self, *args: Any, **kwargs: Any):
         elements = kwargs.pop("elements")
@@ -27,10 +25,7 @@ class ElementGroupManager(models.Manager):
                     group = super().create(*args, **kwargs)
             except:
                 return ElementGroup.objects.get(
-                    hash=kwargs["hash"],
-                    team_id=kwargs["team"].pk
-                    if kwargs.get("team")
-                    else kwargs["team_id"],
+                    hash=kwargs["hash"], team_id=kwargs["team"].pk if kwargs.get("team") else kwargs["team_id"],
                 )
             for element in elements:
                 element.group = group
@@ -42,11 +37,7 @@ class ElementGroupManager(models.Manager):
 
 class ElementGroup(models.Model):
     class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["team", "hash"], name="unique hash for each team"
-            )
-        ]
+        constraints = [models.UniqueConstraint(fields=["team", "hash"], name="unique hash for each team")]
 
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)

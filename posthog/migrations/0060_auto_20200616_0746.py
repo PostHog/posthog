@@ -11,8 +11,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AlterField(
-            model_name="element",
-            name="href",
-            field=models.CharField(blank=True, max_length=2048, null=True),
+            model_name="element", name="href", field=models.CharField(blank=True, max_length=2048, null=True),
         ),
     ]

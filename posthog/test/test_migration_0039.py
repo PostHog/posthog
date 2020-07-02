@@ -14,17 +14,11 @@ class TestMigrations(TestCase):
 
     @property
     def migrate_from(self) -> Optional[str]:
-        raise NotImplementedError(
-            "TestCase '{}' must define migrate_from property".format(
-                type(self).__name__
-            )
-        )
+        raise NotImplementedError("TestCase '{}' must define migrate_from property".format(type(self).__name__))
 
     @property
     def migrate_to(self) -> Optional[str]:
-        raise NotImplementedError(
-            "TestCase '{}' must define migrate_to property".format(type(self).__name__)
-        )
+        raise NotImplementedError("TestCase '{}' must define migrate_to property".format(type(self).__name__))
 
     def setUpBeforeMigration(self, apps):
         pass
@@ -64,10 +58,7 @@ class TagsTestCase(TestMigrations):
         team = Team.objects.create()
 
         Event.objects.bulk_create(
-            [
-                Event(team=team, event="$autocapture", ip="127.0.0.1")
-                for i in range(default_event_count)
-            ],
+            [Event(team=team, event="$autocapture", ip="127.0.0.1") for i in range(default_event_count)],
             default_batch_size,
         )
 

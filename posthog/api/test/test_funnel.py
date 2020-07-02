@@ -7,13 +7,9 @@ class TestCreateFunnel(BaseTest):
 
     def test_create_funnel(self):
         action_sign_up = Action.objects.create(team=self.team, name="signed up")
-        ActionStep.objects.create(
-            action=action_sign_up, tag_name="button", text="Sign up!"
-        )
+        ActionStep.objects.create(action=action_sign_up, tag_name="button", text="Sign up!")
         action_credit_card = Action.objects.create(team=self.team, name="paid")
-        ActionStep.objects.create(
-            action=action_credit_card, tag_name="button", text="Pay $10"
-        )
+        ActionStep.objects.create(action=action_credit_card, tag_name="button", text="Pay $10")
         action_play_movie = Action.objects.create(team=self.team, name="watched movie")
         ActionStep.objects.create(action=action_play_movie, tag_name="a", href="/movie")
         action_logout = Action.objects.create(team=self.team, name="user logged out")
@@ -26,9 +22,7 @@ class TestCreateFunnel(BaseTest):
                 "name": "Whatever",
                 "filters": {
                     "events": [{"id": "user signed up", "type": "events", "order": 0},],
-                    "actions": [
-                        {"id": action_sign_up.pk, "type": "actions", "order": 1},
-                    ],
+                    "actions": [{"id": action_sign_up.pk, "type": "actions", "order": 1},],
                 },
             },
             content_type="application/json",
@@ -51,9 +45,7 @@ class TestCreateFunnel(BaseTest):
                             "name": "$autocapture",
                             "type": "events",
                             "order": 0,
-                            "properties": [
-                                {"key": "text", "type": "element", "value": "Sign up"}
-                            ],
+                            "properties": [{"key": "text", "type": "element", "value": "Sign up"}],
                         }
                     ]
                 },
@@ -67,24 +59,18 @@ class TestCreateFunnel(BaseTest):
     def test_delete_funnel(self):
         funnel = Funnel.objects.create(team=self.team)
         response = self.client.patch(
-            "/api/funnel/%s/" % funnel.pk,
-            data={"deleted": True, "steps": []},
-            content_type="application/json",
+            "/api/funnel/%s/" % funnel.pk, data={"deleted": True, "steps": []}, content_type="application/json",
         ).json()
         response = self.client.get("/api/funnel/").json()
         self.assertEqual(len(response["results"]), 0)
 
     # Autosaving in frontend means funnel without steps get created
     def test_create_and_update_funnel_no_steps(self):
-        response = self.client.post(
-            "/api/funnel/", data={"name": "Whatever"}, content_type="application/json"
-        ).json()
+        response = self.client.post("/api/funnel/", data={"name": "Whatever"}, content_type="application/json").json()
         self.assertEqual(Funnel.objects.get().name, "Whatever")
 
         response = self.client.patch(
-            "/api/funnel/%s/" % response["id"],
-            data={"name": "Whatever2"},
-            content_type="application/json",
+            "/api/funnel/%s/" % response["id"], data={"name": "Whatever2"}, content_type="application/json",
         ).json()
         self.assertEqual(Funnel.objects.get().name, "Whatever2")
 
@@ -96,16 +82,10 @@ class TestGetFunnel(BaseTest):
         Event.objects.create(team=self.team, event="user signed up", **kwargs)
 
     def _pay_event(self, **kwargs):
-        Event.objects.create(
-            team=self.team,
-            elements=[Element(tag_name="button", text="Pay $10")],
-            **kwargs
-        )
+        Event.objects.create(team=self.team, elements=[Element(tag_name="button", text="Pay $10")], **kwargs)
 
     def _movie_event(self, **kwargs):
-        Event.objects.create(
-            team=self.team, elements=[Element(tag_name="a", href="/movie")], **kwargs
-        )
+        Event.objects.create(team=self.team, elements=[Element(tag_name="a", href="/movie")], **kwargs)
 
     def _single_step_funnel(self, properties=None, filters=None):
         if filters is None:
@@ -121,9 +101,7 @@ class TestGetFunnel(BaseTest):
 
     def _basic_funnel(self, properties=None, filters=None):
         action_credit_card = Action.objects.create(team=self.team, name="paid")
-        ActionStep.objects.create(
-            action=action_credit_card, tag_name="button", text="Pay $10"
-        )
+        ActionStep.objects.create(action=action_credit_card, tag_name="button", text="Pay $10")
         action_play_movie = Action.objects.create(team=self.team, name="watched movie")
         ActionStep.objects.create(action=action_play_movie, tag_name="a", href="/movie")
 
@@ -146,14 +124,10 @@ class TestGetFunnel(BaseTest):
         funnel = self._single_step_funnel()
 
         # event
-        person1_stopped_after_signup = Person.objects.create(
-            distinct_ids=["stopped_after_signup1"], team=self.team
-        )
+        person1_stopped_after_signup = Person.objects.create(distinct_ids=["stopped_after_signup1"], team=self.team)
         self._signup_event(distinct_id="stopped_after_signup1")
 
-        person2_stopped_after_signup = Person.objects.create(
-            distinct_ids=["stopped_after_signup2"], team=self.team
-        )
+        person2_stopped_after_signup = Person.objects.create(distinct_ids=["stopped_after_signup2"], team=self.team)
         self._signup_event(distinct_id="stopped_after_signup2")
 
         with self.assertNumQueries(6):
@@ -162,22 +136,17 @@ class TestGetFunnel(BaseTest):
         self.assertEqual(response["steps"][0]["count"], 2)
         # check ordering of people in first step
         self.assertEqual(
-            response["steps"][0]["people"],
-            [person1_stopped_after_signup.pk, person2_stopped_after_signup.pk],
+            response["steps"][0]["people"], [person1_stopped_after_signup.pk, person2_stopped_after_signup.pk],
         )
 
     def test_funnel_events(self):
         funnel = self._basic_funnel()
 
         # events
-        person_stopped_after_signup = Person.objects.create(
-            distinct_ids=["stopped_after_signup"], team=self.team
-        )
+        person_stopped_after_signup = Person.objects.create(distinct_ids=["stopped_after_signup"], team=self.team)
         self._signup_event(distinct_id="stopped_after_signup")
 
-        person_stopped_after_pay = Person.objects.create(
-            distinct_ids=["stopped_after_pay"], team=self.team
-        )
+        person_stopped_after_pay = Person.objects.create(distinct_ids=["stopped_after_pay"], team=self.team)
         self._signup_event(distinct_id="stopped_after_pay")
         self._pay_event(distinct_id="stopped_after_pay")
 
@@ -188,14 +157,10 @@ class TestGetFunnel(BaseTest):
         self._pay_event(distinct_id="completed_movie")
         self._movie_event(distinct_id="completed_movie")
 
-        person_that_just_did_movie = Person.objects.create(
-            distinct_ids=["just_did_movie"], team=self.team
-        )
+        person_that_just_did_movie = Person.objects.create(distinct_ids=["just_did_movie"], team=self.team)
         self._movie_event(distinct_id="just_did_movie")
 
-        person_wrong_order = Person.objects.create(
-            distinct_ids=["wrong_order"], team=self.team
-        )
+        person_wrong_order = Person.objects.create(distinct_ids=["wrong_order"], team=self.team)
         self._pay_event(distinct_id="wrong_order")
         self._signup_event(distinct_id="wrong_order")
         self._movie_event(distinct_id="wrong_order")
@@ -220,14 +185,10 @@ class TestGetFunnel(BaseTest):
         self.assertEqual(response["steps"][1]["count"], 2)
         self.assertEqual(response["steps"][2]["name"], "watched movie")
         self.assertEqual(response["steps"][2]["count"], 1)
-        self.assertEqual(
-            response["steps"][2]["people"], [person_stopped_after_movie.pk]
-        )
+        self.assertEqual(response["steps"][2]["people"], [person_stopped_after_movie.pk])
 
         # make sure it's O(n)
-        person_wrong_order = Person.objects.create(
-            distinct_ids=["badalgo"], team=self.team
-        )
+        person_wrong_order = Person.objects.create(distinct_ids=["badalgo"], team=self.team)
         self._signup_event(distinct_id="badalgo")
         with self.assertNumQueries(8):
             response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
@@ -245,9 +206,7 @@ class TestGetFunnel(BaseTest):
     def test_funnel_skipped_step(self):
         funnel = self._basic_funnel()
 
-        person_wrong_order = Person.objects.create(
-            distinct_ids=["wrong_order"], team=self.team
-        )
+        person_wrong_order = Person.objects.create(distinct_ids=["wrong_order"], team=self.team)
         self._signup_event(distinct_id="wrong_order")
         self._movie_event(distinct_id="wrong_order")
 
@@ -259,30 +218,18 @@ class TestGetFunnel(BaseTest):
         funnel = self._basic_funnel(properties={"$browser": "Safari"})
 
         # events
-        with_property = Person.objects.create(
-            distinct_ids=["with_property"], team=self.team
-        )
-        self._signup_event(
-            distinct_id="with_property", properties={"$browser": "Safari"}
-        )
+        with_property = Person.objects.create(distinct_ids=["with_property"], team=self.team)
+        self._signup_event(distinct_id="with_property", properties={"$browser": "Safari"})
         self._pay_event(distinct_id="with_property", properties={"$browser": "Safari"})
 
         # should not add a count
-        without_property = Person.objects.create(
-            distinct_ids=["without_property"], team=self.team
-        )
+        without_property = Person.objects.create(distinct_ids=["without_property"], team=self.team)
         self._signup_event(distinct_id="without_property")
-        self._pay_event(
-            distinct_id="without_property", properties={"$browser": "Safari"}
-        )
+        self._pay_event(distinct_id="without_property", properties={"$browser": "Safari"})
 
         # will add to first step
-        half_property = Person.objects.create(
-            distinct_ids=["half_property"], team=self.team
-        )
-        self._signup_event(
-            distinct_id="half_property", properties={"$browser": "Safari"}
-        )
+        half_property = Person.objects.create(distinct_ids=["half_property"], team=self.team)
+        self._signup_event(distinct_id="half_property", properties={"$browser": "Safari"})
         self._pay_event(distinct_id="half_property")
 
         response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
@@ -291,9 +238,7 @@ class TestGetFunnel(BaseTest):
 
     def test_funnel_prop_filters_per_entity(self):
         action_credit_card = Action.objects.create(team=self.team, name="paid")
-        ActionStep.objects.create(
-            action=action_credit_card, tag_name="button", text="Pay $10"
-        )
+        ActionStep.objects.create(action=action_credit_card, tag_name="button", text="Pay $10")
         action_play_movie = Action.objects.create(team=self.team, name="watched movie")
         ActionStep.objects.create(action=action_play_movie, tag_name="a", href="/movie")
         filters = {
@@ -310,9 +255,7 @@ class TestGetFunnel(BaseTest):
                     "id": action_credit_card.pk,
                     "type": "actions",
                     "order": 1,
-                    "properties": [
-                        {"key": "$browser", "value": "Safari", "type": "person"}
-                    ],
+                    "properties": [{"key": "$browser", "value": "Safari", "type": "person"}],
                 },
                 {
                     "id": action_play_movie.pk,
@@ -326,29 +269,19 @@ class TestGetFunnel(BaseTest):
 
         # events
         with_property = Person.objects.create(
-            distinct_ids=["with_property"],
-            team=self.team,
-            properties={"$browser": "Safari"},
+            distinct_ids=["with_property"], team=self.team, properties={"$browser": "Safari"},
         )
-        self._signup_event(
-            distinct_id="with_property", properties={"$browser": "Safari"}
-        )
+        self._signup_event(distinct_id="with_property", properties={"$browser": "Safari"})
         self._pay_event(distinct_id="with_property", properties={"$browser": "Safari"})
         self._movie_event(distinct_id="with_property")
 
         # should not add a count
-        without_property = Person.objects.create(
-            distinct_ids=["without_property"], team=self.team
-        )
+        without_property = Person.objects.create(distinct_ids=["without_property"], team=self.team)
         self._signup_event(distinct_id="without_property")
-        self._pay_event(
-            distinct_id="without_property", properties={"$browser": "Safari"}
-        )
+        self._pay_event(distinct_id="without_property", properties={"$browser": "Safari"})
 
         # will add to first step
-        half_property = Person.objects.create(
-            distinct_ids=["half_property"], team=self.team
-        )
+        half_property = Person.objects.create(distinct_ids=["half_property"], team=self.team)
         self._signup_event(distinct_id="half_property")
         self._pay_event(distinct_id="half_property")
         self._movie_event(distinct_id="half_property")

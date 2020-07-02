@@ -15,38 +15,17 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Element",
             fields=[
-                (
-                    "id",
-                    models.AutoField(
-                        auto_created=True,
-                        primary_key=True,
-                        serialize=False,
-                        verbose_name="ID",
-                    ),
-                ),
+                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID",),),
                 ("el_text", models.CharField(blank=True, max_length=400, null=True)),
                 ("tag_name", models.CharField(blank=True, max_length=400, null=True)),
                 ("href", models.CharField(blank=True, max_length=400, null=True)),
                 ("attr_id", models.CharField(blank=True, max_length=400, null=True)),
                 ("nth_child", models.IntegerField()),
                 ("nth_of_type", models.IntegerField()),
-                (
-                    "attributes",
-                    django.contrib.postgres.fields.jsonb.JSONField(default=dict),
-                ),
+                ("attributes", django.contrib.postgres.fields.jsonb.JSONField(default=dict),),
                 ("order", models.IntegerField()),
-                (
-                    "event",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, to="posthog.Event"
-                    ),
-                ),
-                (
-                    "team",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, to="posthog.Team"
-                    ),
-                ),
+                ("event", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Event"),),
+                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Team"),),
             ],
         ),
     ]

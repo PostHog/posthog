@@ -47,17 +47,11 @@ class ElementViewSet(viewsets.ModelViewSet):
             .filter(filter.date_filter_Q)
         )
 
-        events = (
-            events.values("elements_hash")
-            .annotate(count=Count(1))
-            .order_by("-count")[0:100]
-        )
+        events = events.values("elements_hash").annotate(count=Count(1)).order_by("-count")[0:100]
 
         groups = ElementGroup.objects.filter(
             team=team, hash__in=[item["elements_hash"] for item in events]
-        ).prefetch_related(
-            Prefetch("element_set", queryset=Element.objects.order_by("order", "id"))
-        )
+        ).prefetch_related(Prefetch("element_set", queryset=Element.objects.order_by("order", "id")))
 
         return response.Response(
             [
@@ -66,11 +60,9 @@ class ElementViewSet(viewsets.ModelViewSet):
                     "hash": item["elements_hash"],
                     "elements": [
                         ElementSerializer(element).data
-                        for element in [
-                            group
-                            for group in groups
-                            if group.hash == item["elements_hash"]
-                        ][0].element_set.all()
+                        for element in [group for group in groups if group.hash == item["elements_hash"]][
+                            0
+                        ].element_set.all()
                     ],
                 }
                 for item in events

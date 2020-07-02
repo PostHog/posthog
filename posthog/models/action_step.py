@@ -9,9 +9,7 @@ class ActionStep(models.Model):
         (EXACT, EXACT),
         (CONTAINS, CONTAINS),
     ]
-    action: models.ForeignKey = models.ForeignKey(
-        "Action", related_name="steps", on_delete=models.CASCADE
-    )
+    action: models.ForeignKey = models.ForeignKey("Action", related_name="steps", on_delete=models.CASCADE)
     tag_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     text: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     href: models.CharField = models.CharField(max_length=400, null=True, blank=True)
