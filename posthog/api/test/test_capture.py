@@ -8,7 +8,7 @@ from urllib.parse import quote
 import base64
 import json
 import gzip
-import lzstring
+import lzstring  # type: ignore
 
 
 class TestCapture(BaseTest):
@@ -167,16 +167,14 @@ class TestCapture(BaseTest):
     def test_batch_gzip_param(self, patch_process_event):
         data = {
             "api_key": self.team.api_token,
-            "batch": [
-                {"type": "capture", "event": "user signed up", "distinct_id": "2"}
-            ],
+            "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
         }
 
         response = self.client.generic(
             "POST",
             "/batch/?compression=gzip",
             data=gzip.compress(json.dumps(data).encode()),
-            content_type="application/json"
+            content_type="application/json",
         )
 
         arguments = patch_process_event.call_args[1]
@@ -198,9 +196,7 @@ class TestCapture(BaseTest):
     def test_batch_lzstring(self, patch_process_event):
         data = {
             "api_key": self.team.api_token,
-            "batch": [
-                {"type": "capture", "event": "user signed up", "distinct_id": "2"}
-            ],
+            "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
         }
 
         response = self.client.generic(

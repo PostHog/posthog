@@ -8,7 +8,7 @@ from posthog.tasks.process_event import process_event
 from datetime import datetime
 from dateutil import parser
 from sentry_sdk import push_scope
-import lzstring
+import lzstring  # type: ignore
 import re
 import json
 import secrets
@@ -31,7 +31,9 @@ def _load_data(request) -> Optional[Union[Dict, List]]:
     with push_scope() as scope:
         scope.set_context("data", data)
 
-    compression = request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
+    compression = (
+        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
+    )
     compression = compression.lower()
 
     if compression == "gzip":
