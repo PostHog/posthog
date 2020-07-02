@@ -1,5 +1,13 @@
 # Changelog
 
+### 1.10.1 - Thursday 2 July 2020
+
+#### Bugfixes
+
+- Actually include the version bump when you push a release! 🐛
+- Add flutter docs and reorder flow (#1134)[https://github.com/PostHog/posthog/pull/1134]
+- Black all the things! (#1136)[https://github.com/PostHog/posthog/pull/1136]
+
 ### 1.10.0 - Wednesday 1 July 2020
 
 #### Toolbar
