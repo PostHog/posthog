@@ -230,6 +230,7 @@ def authorize_and_redirect(request):
     )
 
 def is_input_valid(inp_type, val):
+    # Uses inp_type instead of is_email for explicitness in function call
     if inp_type == "email":
         return len(val) > 2 and val.count('@') > 0
     return len(val) > 0
