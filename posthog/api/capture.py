@@ -31,18 +31,13 @@ def _load_data(request) -> Optional[Union[Dict, List]]:
     with push_scope() as scope:
         scope.set_context("data", data)
 
-    if (
-        request.GET.get("compression") == "gzip"
-        or request.POST.get("compression") == "gzip"
-        or request.headers.get("content-encoding", "").lower() == "gzip"
-    ):
+    compression = request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
+    compression = compression.lower()
+
+    if compression == "gzip":
         data = gzip.decompress(data)
 
-    if (
-        request.GET.get("compression") == "lz64"
-        or request.POST.get("compression") == "lz64"
-        or request.headers.get("content-encoding", "").lower() == "lz64"
-    ):
+    if compression == "lz64":
         if isinstance(data, str):
             data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
         else:
