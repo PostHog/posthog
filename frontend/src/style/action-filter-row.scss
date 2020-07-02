@@ -1,0 +1,11 @@
+.action-filter-row {
+    .action-filter-row-handle {
+        color: $gray-400;
+        font-size: 20px;
+        
+        &:hover {
+            cursor: pointer;
+            color: $gray-900;
+        }
+    }
+}

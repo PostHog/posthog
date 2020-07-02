@@ -44,7 +44,8 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector })
               layouts={layouts}
               rowHeight={39}
               onLayoutChange={() => {}}
-              draggableHandle=".mt-2"
+              draggableHandle=".action-filter-row-handle"
+              maxRows={localFilters.length}
               isResizable={false}
               onDragStop={updateFilterRowIndex}
               // We disable this because we would have to add a lot of CSS changes

@@ -7,7 +7,7 @@ import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { Tooltip } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { userLogic } from 'scenes/userLogic'
-import { DownOutlined } from '@ant-design/icons'
+import { DownOutlined, DragOutlined } from '@ant-design/icons'
 
 const determineFilterLabel = (visible, filter) => {
     if (visible) return 'Hide Filters'
@@ -53,7 +53,8 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
         value = entity.id || filter.id
     }
     return (
-        <div className="mt-2">
+        <div className="action-filter-row mt-2">
+            <DragOutlined className="action-filter-row-handle mr-2"/>
             <button
                 data-attr={'trend-element-subject-' + index}
                 ref={node}
