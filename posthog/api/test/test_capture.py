@@ -31,18 +31,8 @@ class TestCapture(BaseTest):
                 "distinct_id": 2,
                 "token": self.team.api_token,
                 "$elements": [
-                    {
-                        "tag_name": "a",
-                        "nth_child": 1,
-                        "nth_of_type": 2,
-                        "attr__class": "btn btn-sm",
-                    },
-                    {
-                        "tag_name": "div",
-                        "nth_child": 1,
-                        "nth_of_type": 2,
-                        "$el_text": "💻",
-                    },
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
                 ],
             },
         }
@@ -54,9 +44,7 @@ class TestCapture(BaseTest):
                     content_type="application/json",
                     HTTP_ORIGIN="https://localhost",
                 )
-        self.assertEqual(
-            response.get("access-control-allow-origin"), "https://localhost"
-        )
+        self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         arguments = patch_process_event.call_args[1]
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
@@ -79,20 +67,8 @@ class TestCapture(BaseTest):
             data={
                 "data": json.dumps(
                     [
-                        {
-                            "event": "beep",
-                            "properties": {
-                                "distinct_id": "eeee",
-                                "token": self.team.api_token,
-                            },
-                        },
-                        {
-                            "event": "boop",
-                            "properties": {
-                                "distinct_id": "aaaa",
-                                "token": self.team.api_token,
-                            },
-                        },
+                        {"event": "beep", "properties": {"distinct_id": "eeee", "token": self.team.api_token,},},
+                        {"event": "boop", "properties": {"distinct_id": "aaaa", "token": self.team.api_token,},},
                     ]
                 ),
                 "api_key": self.team.api_token,
@@ -113,10 +89,7 @@ class TestCapture(BaseTest):
         )
 
         self.assertEqual(
-            patch_process_event.call_args[1]["data"]["properties"]["$elements"][0][
-                "$el_text"
-            ],
-            "💻 Writing code",
+            patch_process_event.call_args[1]["data"]["properties"]["$elements"][0]["$el_text"], "💻 Writing code",
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
@@ -133,11 +106,7 @@ class TestCapture(BaseTest):
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
     def test_ignore_empty_request(self, patch_process_event):
-        response = self.client.get(
-            "/e/?data=",
-            content_type="application/json",
-            HTTP_ORIGIN="https://localhost",
-        )
+        response = self.client.get("/e/?data=", content_type="application/json", HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.content, b"1")
         self.assertEqual(patch_process_event.call_count, 0)
 
@@ -146,9 +115,7 @@ class TestCapture(BaseTest):
     def test_batch(self, patch_process_event):
         data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
         response = self.client.post(
-            "/batch/",
-            data={"api_key": self.team.api_token, "batch": [data]},
-            content_type="application/json",
+            "/batch/", data={"api_key": self.team.api_token, "batch": [data]}, content_type="application/json",
         )
         arguments = patch_process_event.call_args[1]
         arguments.pop("now")  # can't compare fakedate
@@ -169,9 +136,7 @@ class TestCapture(BaseTest):
     def test_batch_gzip(self, patch_process_event):
         data = {
             "api_key": self.team.api_token,
-            "batch": [
-                {"type": "capture", "event": "user signed up", "distinct_id": "2"}
-            ],
+            "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
         }
 
         response = self.client.generic(
@@ -201,13 +166,7 @@ class TestCapture(BaseTest):
             "/batch/",
             data={
                 "api_key": "this-token-doesnt-exist",
-                "batch": [
-                    {
-                        "type": "capture",
-                        "event": "user signed up",
-                        "distinct_id": "whatever",
-                    },
-                ],
+                "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "whatever",},],
             },
             content_type="application/json",
         )
@@ -221,31 +180,19 @@ class TestCapture(BaseTest):
     def test_batch_token_not_set(self):
         response = self.client.post(
             "/batch/",
-            data={
-                "batch": [
-                    {
-                        "type": "capture",
-                        "event": "user signed up",
-                        "distinct_id": "whatever",
-                    },
-                ]
-            },
+            data={"batch": [{"type": "capture", "event": "user signed up", "distinct_id": "whatever",},]},
             content_type="application/json",
         )
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
-            response.json()["message"],
-            "No api_key set. You can find your API key in the /setup page in posthog",
+            response.json()["message"], "No api_key set. You can find your API key in the /setup page in posthog",
         )
 
     def test_batch_distinct_id_not_set(self):
         response = self.client.post(
             "/batch/",
-            data={
-                "api_key": self.team.api_token,
-                "batch": [{"type": "capture", "event": "user signed up",},],
-            },
+            data={"api_key": self.team.api_token, "batch": [{"type": "capture", "event": "user signed up",},],},
             content_type="application/json",
         )
 
@@ -278,12 +225,7 @@ class TestCapture(BaseTest):
         arguments.pop("data")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
-            {
-                "distinct_id": "3",
-                "ip": "127.0.0.1",
-                "site_url": "http://testserver",
-                "team_id": self.team.pk,
-            },
+            {"distinct_id": "3", "ip": "127.0.0.1", "site_url": "http://testserver", "team_id": self.team.pk,},
         )
 
     @patch("posthog.models.team.TEAM_CACHE", {})
@@ -292,9 +234,7 @@ class TestCapture(BaseTest):
         self.client.post(
             "/track/",
             data={
-                "data": self._dict_to_b64(
-                    {"event": "$pageview", "properties": {"distinct_id": "eeee",},}
-                ),
+                "data": self._dict_to_b64({"event": "$pageview", "properties": {"distinct_id": "eeee",},}),
                 "api_key": self.team.api_token,  # main difference in this test
             },
         )
@@ -307,17 +247,12 @@ class TestCapture(BaseTest):
         base64 = "eyJldmVudCI6IiRwYWdldmlldyIsInByb3BlcnRpZXMiOnsiZGlzdGluY3RfaWQiOiJlZWVlZWVlZ8+lZWVlZWUifX0="
         dict = self._dict_from_b64(base64)
         self.assertDictEqual(
-            dict,
-            {"event": "$pageview", "properties": {"distinct_id": "eeeeeeegϥeeeee",},},
+            dict, {"event": "$pageview", "properties": {"distinct_id": "eeeeeeegϥeeeee",},},
         )
 
         # POST with "+" in the base64
         self.client.post(
-            "/track/",
-            data={
-                "data": base64,
-                "api_key": self.team.api_token,  # main difference in this test
-            },
+            "/track/", data={"data": base64, "api_key": self.team.api_token,},  # main difference in this test
         )
         arguments = patch_process_event.call_args[1]
         self.assertEqual(arguments["team_id"], self.team.pk)
@@ -326,10 +261,7 @@ class TestCapture(BaseTest):
         # POST with " " in the base64 instead of the "+"
         self.client.post(
             "/track/",
-            data={
-                "data": base64.replace("+", " "),
-                "api_key": self.team.api_token,  # main difference in this test
-            },
+            data={"data": base64.replace("+", " "), "api_key": self.team.api_token,},  # main difference in this test
         )
         arguments = patch_process_event.call_args[1]
         self.assertEqual(arguments["team_id"], self.team.pk)
@@ -349,8 +281,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?_=%s&data=%s"
-            % (int(tomorrow_sent_at.timestamp()), quote(self._dict_to_json(data))),
+            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._dict_to_json(data))),
             content_type="application/json",
             HTTP_ORIGIN="https://localhost",
         )
@@ -378,11 +309,7 @@ class TestCapture(BaseTest):
             data={
                 "sent_at": tomorrow_sent_at.isoformat(),
                 "data": self._dict_to_b64(
-                    {
-                        "event": "$pageview",
-                        "timestamp": tomorrow.isoformat(),
-                        "properties": {"distinct_id": "eeee",},
-                    }
+                    {"event": "$pageview", "timestamp": tomorrow.isoformat(), "properties": {"distinct_id": "eeee",},}
                 ),
                 "api_key": self.team.api_token,  # main difference in this test
             },

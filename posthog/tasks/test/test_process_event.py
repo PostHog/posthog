@@ -37,18 +37,8 @@ class ProcessEvent(BaseTest):
                         "distinct_id": 2,
                         "token": self.team.api_token,
                         "$elements": [
-                            {
-                                "tag_name": "a",
-                                "nth_child": 1,
-                                "nth_of_type": 2,
-                                "attr__class": "btn btn-sm",
-                            },
-                            {
-                                "tag_name": "div",
-                                "nth_child": 1,
-                                "nth_of_type": 2,
-                                "$el_text": "💻",
-                            },
+                            {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                            {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
                         ],
                     },
                 },
@@ -60,11 +50,7 @@ class ProcessEvent(BaseTest):
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
         event = Event.objects.get()
         self.assertEqual(event.event, "$autocapture")
-        elements = (
-            ElementGroup.objects.get(hash=event.elements_hash)
-            .element_set.all()
-            .order_by("order")
-        )
+        elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by("order")
         self.assertEqual(elements[0].tag_name, "a")
         self.assertEqual(elements[0].attr_class, ["btn", "btn-sm"])
         self.assertEqual(elements[1].order, 1)
@@ -79,13 +65,7 @@ class ProcessEvent(BaseTest):
             "asdfasdfasdf",
             "",
             "",
-            {
-                "event": "$pageview",
-                "properties": {
-                    "distinct_id": "asdfasdfasdf",
-                    "token": self.team.api_token,
-                },
-            },
+            {"event": "$pageview", "properties": {"distinct_id": "asdfasdfasdf", "token": self.team.api_token,},},
             self.team.pk,
             now().isoformat(),
             now().isoformat(),
@@ -111,10 +91,7 @@ class ProcessEvent(BaseTest):
             {
                 "event": "$pageview",
                 "timestamp": tomorrow.isoformat(),
-                "properties": {
-                    "distinct_id": "asdfasdfasdf",
-                    "token": self.team.api_token,
-                },
+                "properties": {"distinct_id": "asdfasdfasdf", "token": self.team.api_token,},
             },
             self.team.pk,
             right_now.isoformat(),
@@ -149,10 +126,7 @@ class ProcessEvent(BaseTest):
             {
                 "event": "$pageview",
                 "timestamp": tomorrow.isoformat(),
-                "properties": {
-                    "distinct_id": "asdfasdfasdf",
-                    "token": self.team.api_token,
-                },
+                "properties": {"distinct_id": "asdfasdfasdf", "token": self.team.api_token,},
             },
             self.team.pk,
             right_now.isoformat(),
@@ -182,10 +156,7 @@ class ProcessEvent(BaseTest):
             {
                 "event": "$pageview",
                 "timestamp": tomorrow.isoformat(),
-                "properties": {
-                    "distinct_id": "asdfasdfasdf",
-                    "token": self.team.api_token,
-                },
+                "properties": {"distinct_id": "asdfasdfasdf", "token": self.team.api_token,},
             },
             self.team.pk,
             right_now.isoformat(),
@@ -206,13 +177,7 @@ class ProcessEvent(BaseTest):
             "asdfasdfasdf",
             "11.12.13.14",
             "",
-            {
-                "event": "$pageview",
-                "properties": {
-                    "distinct_id": "asdfasdfasdf",
-                    "token": self.team.api_token,
-                },
-            },
+            {"event": "$pageview", "properties": {"distinct_id": "asdfasdfasdf", "token": self.team.api_token,},},
             self.team.pk,
             now().isoformat(),
             now().isoformat(),
@@ -232,13 +197,7 @@ class ProcessEvent(BaseTest):
             "asdfasdfasdf",
             "11.12.13.14",
             "",
-            {
-                "event": "$pageview",
-                "properties": {
-                    "distinct_id": "asdfasdfasdf",
-                    "token": self.team.api_token,
-                },
-            },
+            {"event": "$pageview", "properties": {"distinct_id": "asdfasdfasdf", "token": self.team.api_token,},},
             self.team.pk,
             now().isoformat(),
             now().isoformat(),
@@ -268,9 +227,7 @@ class ProcessEvent(BaseTest):
         )
 
         self.assertEqual(Event.objects.count(), 1)
-        self.assertEqual(
-            Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"]
-        )
+        self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
 
     def test_alias_reverse(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=["old_distinct_id"])
@@ -293,9 +250,7 @@ class ProcessEvent(BaseTest):
         )
 
         self.assertEqual(Event.objects.count(), 1)
-        self.assertEqual(
-            Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"]
-        )
+        self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
 
     def test_alias_twice(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=["old_distinct_id"])
@@ -338,8 +293,7 @@ class ProcessEvent(BaseTest):
 
         self.assertEqual(Event.objects.count(), 2)
         self.assertEqual(
-            Person.objects.get().distinct_ids,
-            ["old_distinct_id", "new_distinct_id", "old_distinct_id_2"],
+            Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id", "old_distinct_id_2"],
         )
 
     def test_alias_before_person(self) -> None:
@@ -360,19 +314,13 @@ class ProcessEvent(BaseTest):
             now().isoformat(),
         )
 
-        person1 = Person.objects.get(
-            team=self.team, persondistinctid__distinct_id="old_distinct_id"
-        )
-        person2 = Person.objects.get(
-            team=self.team, persondistinctid__distinct_id="new_distinct_id"
-        )
+        person1 = Person.objects.get(team=self.team, persondistinctid__distinct_id="old_distinct_id")
+        person2 = Person.objects.get(team=self.team, persondistinctid__distinct_id="new_distinct_id")
 
         self.assertEqual(person1, person2)
 
         self.assertEqual(Event.objects.count(), 1)
-        self.assertEqual(
-            Person.objects.get().distinct_ids, ["new_distinct_id", "old_distinct_id"]
-        )
+        self.assertEqual(Person.objects.get().distinct_ids, ["new_distinct_id", "old_distinct_id"])
 
     def test_alias_both_existing(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=["old_distinct_id"])
@@ -396,9 +344,7 @@ class ProcessEvent(BaseTest):
         )
 
         self.assertEqual(Event.objects.count(), 1)
-        self.assertEqual(
-            Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"]
-        )
+        self.assertEqual(Person.objects.get().distinct_ids, ["old_distinct_id", "new_distinct_id"])
 
     def test_offset_timestamp(self) -> None:
         with freeze_time("2020-01-01T12:00:05.200Z"):
@@ -413,9 +359,7 @@ class ProcessEvent(BaseTest):
             )  # sent at makes no difference for offset
 
         event = Event.objects.get()
-        self.assertEqual(
-            event.timestamp.isoformat(), "2020-01-01T12:00:05.050000+00:00"
-        )
+        self.assertEqual(event.timestamp.isoformat(), "2020-01-01T12:00:05.050000+00:00")
 
     def test_offset_timestamp_no_sent_at(self) -> None:
         with freeze_time("2020-01-01T12:00:05.200Z"):
@@ -430,9 +374,7 @@ class ProcessEvent(BaseTest):
             )  # no sent at makes no difference for offset
 
         event = Event.objects.get()
-        self.assertEqual(
-            event.timestamp.isoformat(), "2020-01-01T12:00:05.050000+00:00"
-        )
+        self.assertEqual(event.timestamp.isoformat(), "2020-01-01T12:00:05.050000+00:00")
 
     def test_alias_merge_properties(self) -> None:
         Person.objects.create(
@@ -469,12 +411,7 @@ class ProcessEvent(BaseTest):
         person = Person.objects.get()
         self.assertEqual(person.distinct_ids, ["old_distinct_id", "new_distinct_id"])
         self.assertEqual(
-            person.properties,
-            {
-                "key_on_both": "new value both",
-                "key_on_new": "new value",
-                "key_on_old": "old value",
-            },
+            person.properties, {"key_on_both": "new value both", "key_on_new": "new value", "key_on_old": "old value",},
         )
 
     def test_long_htext(self) -> None:
@@ -537,9 +474,7 @@ class TestIdentify(TransactionTestCase):
         )
 
         self.assertEqual(Event.objects.count(), 1)
-        self.assertEqual(
-            Person.objects.get().distinct_ids, ["anonymous_id", "new_distinct_id"]
-        )
+        self.assertEqual(Person.objects.get().distinct_ids, ["anonymous_id", "new_distinct_id"])
 
         # check no errors as this call can happen multiple times
         process_event(
@@ -567,9 +502,7 @@ class TestIdentify(TransactionTestCase):
     def test_distinct_with_anonymous_id_which_was_already_created(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=["anonymous_id"])
         Person.objects.create(
-            team=self.team,
-            distinct_ids=["new_distinct_id"],
-            properties={"email": "someone@gmail.com"},
+            team=self.team, distinct_ids=["new_distinct_id"], properties={"email": "someone@gmail.com"},
         )
 
         process_event(
@@ -594,15 +527,11 @@ class TestIdentify(TransactionTestCase):
         self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id"])
         self.assertEqual(person.properties["email"], "someone@gmail.com")
 
-    def test_distinct_with_multiple_anonymous_ids_which_were_already_created(
-        self,
-    ) -> None:
+    def test_distinct_with_multiple_anonymous_ids_which_were_already_created(self,) -> None:
         # logging in the first time
         Person.objects.create(team=self.team, distinct_ids=["anonymous_id"])
         Person.objects.create(
-            team=self.team,
-            distinct_ids=["new_distinct_id"],
-            properties={"email": "someone@gmail.com"},
+            team=self.team, distinct_ids=["new_distinct_id"], properties={"email": "someone@gmail.com"},
         )
 
         process_event(
@@ -649,16 +578,12 @@ class TestIdentify(TransactionTestCase):
         )
 
         person = Person.objects.get()
-        self.assertEqual(
-            person.distinct_ids, ["anonymous_id", "new_distinct_id", "anonymous_id_2"]
-        )
+        self.assertEqual(person.distinct_ids, ["anonymous_id", "new_distinct_id", "anonymous_id_2"])
         self.assertEqual(person.properties["email"], "someone@gmail.com")
 
     def test_distinct_team_leakage(self) -> None:
         team2 = Team.objects.create()
-        Person.objects.create(
-            team=team2, distinct_ids=["2"], properties={"email": "team2@gmail.com"}
-        )
+        Person.objects.create(team=team2, distinct_ids=["2"], properties={"email": "team2@gmail.com"})
         Person.objects.create(team=self.team, distinct_ids=["1", "2"])
 
         try:
@@ -668,11 +593,7 @@ class TestIdentify(TransactionTestCase):
                 "",
                 {
                     "event": "$identify",
-                    "properties": {
-                        "$anon_distinct_id": "1",
-                        "token": self.team.api_token,
-                        "distinct_id": "2",
-                    },
+                    "properties": {"$anon_distinct_id": "1", "token": self.team.api_token, "distinct_id": "2",},
                 },
                 self.team.pk,
                 now().isoformat(),

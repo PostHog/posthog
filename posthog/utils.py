@@ -60,9 +60,7 @@ def relative_date_parse(input: str) -> datetime.datetime:
     return date.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def request_to_date_query(
-    filters: Dict[str, Any], exact: Optional[bool]
-) -> Dict[str, datetime.datetime]:
+def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dict[str, datetime.datetime]:
     if filters.get("date_from"):
         date_from = relative_date_parse(filters["date_from"])
         if filters["date_from"] == "all":
@@ -80,15 +78,11 @@ def request_to_date_query(
         resp["timestamp__gte"] = date_from.replace(tzinfo=pytz.UTC)
     if date_to:
         days = 1 if not exact else 0
-        resp["timestamp__lte"] = (date_to + relativedelta(days=days)).replace(
-            tzinfo=pytz.UTC
-        )
+        resp["timestamp__lte"] = (date_to + relativedelta(days=days)).replace(tzinfo=pytz.UTC)
     return resp
 
 
-def render_template(
-    template_name: str, request: HttpRequest, context=None
-) -> HttpResponse:
+def render_template(template_name: str, request: HttpRequest, context=None) -> HttpResponse:
     from posthog.models import Team
 
     if context is None:
@@ -119,13 +113,9 @@ def render_template(
 
 
 def attach_social_auth(context):
-    if os.environ.get("SOCIAL_AUTH_GITHUB_KEY") and os.environ.get(
-        "SOCIAL_AUTH_GITHUB_SECRET"
-    ):
+    if os.environ.get("SOCIAL_AUTH_GITHUB_KEY") and os.environ.get("SOCIAL_AUTH_GITHUB_SECRET"):
         context.update({"github_auth": True})
-    if os.environ.get("SOCIAL_AUTH_GITLAB_KEY") and os.environ.get(
-        "SOCIAL_AUTH_GITLAB_SECRET"
-    ):
+    if os.environ.get("SOCIAL_AUTH_GITLAB_KEY") and os.environ.get("SOCIAL_AUTH_GITLAB_SECRET"):
         context.update({"gitlab_auth": True})
 
 
@@ -135,9 +125,7 @@ def friendly_time(seconds: float):
     return "{hours}{minutes}{seconds}".format(
         hours="{h} hours ".format(h=int(hours)) if hours > 0 else "",
         minutes="{m} minutes ".format(m=int(minutes)) if minutes > 0 else "",
-        seconds="{s} seconds".format(s=int(seconds))
-        if seconds > 0 or (minutes == 0 and hours == 0)
-        else "",
+        seconds="{s} seconds".format(s=int(seconds)) if seconds > 0 or (minutes == 0 and hours == 0) else "",
     ).strip()
 
 
@@ -216,8 +204,7 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
         # This happens when someone is trying to create actions from the editor on their own website
         if (
             request.headers.get("Origin")
-            and urlsplit(request.headers["Origin"]).netloc
-            not in urlsplit(request.build_absolute_uri("/")).netloc
+            and urlsplit(request.headers["Origin"]).netloc not in urlsplit(request.build_absolute_uri("/")).netloc
         ):
             if not request.GET.get("temporary_token"):
                 raise AuthenticationFailed(
@@ -228,9 +215,7 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
                 )
         if request.GET.get("temporary_token"):
             user_model = apps.get_model(app_label="posthog", model_name="User")
-            user = user_model.objects.filter(
-                temporary_token=request.GET.get("temporary_token")
-            )
+            user = user_model.objects.filter(temporary_token=request.GET.get("temporary_token"))
             if not user.exists():
                 raise AuthenticationFailed(detail="User doesnt exist")
             return (user.first(), None)
