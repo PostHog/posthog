@@ -69,15 +69,21 @@ def signup_to_team_view(request, token):
         password = request.POST["password"]
         first_name = request.POST.get("name")
         email_opt_in = request.POST.get("emailOptIn") == "on"
-
-        if User.objects.filter(email=email).exists():
+        valid_inputs = (
+            is_input_valid("name", first_name) and
+            is_input_valid("email", email) and
+            is_input_valid("password", password)
+        )
+        email_exists = User.objects.filter(email=email).exists()
+        if email_exists or not valid_inputs:
             return render_template(
                 "signup_to_team.html",
                 request=request,
                 context={
                     "email": email,
                     "name": first_name,
-                    "error": True,
+                    "error": email_exists,
+                    "invalid_input": not valid_inputs,
                     "team": team,
                     "signup_token": token,
                 },
@@ -112,12 +118,30 @@ def setup_admin(request):
         email = request.POST["email"]
         password = request.POST["password"]
         company_name = request.POST.get("company_name")
+        name = request.POST.get("name")
         email_opt_in = request.POST.get("emailOptIn") == "on"
         is_first_user = not User.objects.exists()
+        valid_inputs = (
+            is_input_valid("name", name) and
+            is_input_valid("email", email) and
+            is_input_valid("password", password) and
+            is_input_valid("company", company_name)
+        )
+        if not valid_inputs:
+            return render_template(
+                "setup_admin.html",
+                request=request,
+                context={
+                    "email": email,
+                    "name": name,
+                    "invalid_input": True,
+                    "company": company_name
+                },
+            )
         user = User.objects.create_user(
             email=email,
             password=password,
-            first_name=request.POST.get("name"),
+            first_name=name,
             email_opt_in=email_opt_in,
         )
         Team.objects.create_with_data(users=[user], name=company_name)
@@ -204,6 +228,11 @@ def authorize_and_redirect(request):
         request=request,
         context={"domain": urlparse(url).hostname, "redirect_url": url,},
     )
+
+def is_input_valid(inp_type, val):
+    if inp_type == "email":
+        return len(val) > 2 and val.count('@') > 0
+    return len(val) > 0
 
 
 urlpatterns = [
