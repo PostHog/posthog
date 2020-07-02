@@ -30,9 +30,9 @@ function PropertyPaneContents({
                     labelInValue
                     value={
                         type === 'cohort'
-                            ? { propkey: '' }
+                            ? { value: '' }
                             : {
-                                  propkey,
+                                  value: propkey,
                                   label:
                                       keyMapping[type === 'element' ? 'element' : 'event'][propkey]?.label || propkey,
                               }
@@ -158,9 +158,9 @@ function CohortPaneContents({ onComplete, setThisFilter, propkey, displayOperato
                 placeholder="Cohort name"
                 value={
                     displayOperatorAndValue
-                        ? { propkey: '' }
+                        ? { value: '' }
                         : {
-                              propkey,
+                              value: propkey,
                               label:
                                   cohorts?.find(cohort => cohort.id === parseInt(propkey?.substring(1)))?.name ||
                                   propkey,
