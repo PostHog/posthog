@@ -43,7 +43,10 @@ def _load_data(request) -> Optional[Union[Dict, List]]:
         or request.POST.get("compression") == "lz64"
         or request.headers.get("content-encoding", "").lower() == "lz64"
     ):
-        data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
+        if isinstance(data, str):
+            data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
+        else:
+            data = lzstring.LZString().decompressFromBase64(data.decode().replace(" ", "+"))
 
     #  Is it plain json?
     try:

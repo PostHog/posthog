@@ -8,6 +8,7 @@ from urllib.parse import quote
 import base64
 import json
 import gzip
+import lzstring
 
 
 class TestCapture(BaseTest):
@@ -133,7 +134,7 @@ class TestCapture(BaseTest):
 
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
-    def test_batch_gzip(self, patch_process_event):
+    def test_batch_gzip_header(self, patch_process_event):
         data = {
             "api_key": self.team.api_token,
             "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
@@ -145,6 +146,69 @@ class TestCapture(BaseTest):
             data=gzip.compress(json.dumps(data).encode()),
             content_type="application/json",
             HTTP_CONTENT_ENCODING="gzip",
+        )
+
+        arguments = patch_process_event.call_args[1]
+        arguments.pop("now")  # can't compare fakedate
+        arguments.pop("sent_at")  # can't compare fakedate
+        self.assertDictEqual(
+            arguments,
+            {
+                "distinct_id": "2",
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "data": data["batch"][0],
+                "team_id": self.team.pk,
+            },
+        )
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.tasks.process_event.process_event.delay")
+    def test_batch_gzip_param(self, patch_process_event):
+        data = {
+            "api_key": self.team.api_token,
+            "batch": [
+                {"type": "capture", "event": "user signed up", "distinct_id": "2"}
+            ],
+        }
+
+        response = self.client.generic(
+            "POST",
+            "/batch/?compression=gzip",
+            data=gzip.compress(json.dumps(data).encode()),
+            content_type="application/json"
+        )
+
+        arguments = patch_process_event.call_args[1]
+        arguments.pop("now")  # can't compare fakedate
+        arguments.pop("sent_at")  # can't compare fakedate
+        self.assertDictEqual(
+            arguments,
+            {
+                "distinct_id": "2",
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "data": data["batch"][0],
+                "team_id": self.team.pk,
+            },
+        )
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.tasks.process_event.process_event.delay")
+    def test_batch_lzstring(self, patch_process_event):
+        data = {
+            "api_key": self.team.api_token,
+            "batch": [
+                {"type": "capture", "event": "user signed up", "distinct_id": "2"}
+            ],
+        }
+
+        response = self.client.generic(
+            "POST",
+            "/batch/",
+            data=lzstring.LZString().compressToBase64(json.dumps(data)).encode(),
+            content_type="application/json",
+            HTTP_CONTENT_ENCODING="lz64",
         )
 
         arguments = patch_process_event.call_args[1]
