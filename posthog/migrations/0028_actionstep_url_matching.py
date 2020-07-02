@@ -6,13 +6,17 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0027_move_elements_to_group'),
+        ("posthog", "0027_move_elements_to_group"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='actionstep',
-            name='url_matching',
-            field=models.CharField(choices=[('exact', 'exact'), ('contains', 'contains')], default='contains', max_length=400),
+            model_name="actionstep",
+            name="url_matching",
+            field=models.CharField(
+                choices=[("exact", "exact"), ("contains", "contains")],
+                default="contains",
+                max_length=400,
+            ),
         ),
     ]

@@ -1203,7 +1203,7 @@ class TestTrends(TransactionBaseTest):
             event_response = self.client.get(
                 "/api/action/trends/?date_from=-14d&breakdown=%s&breakdown_type=person&events=%s"
                 % (
-                    'name',
+                    "name",
                     jdumps(
                         [
                             {
@@ -1218,23 +1218,20 @@ class TestTrends(TransactionBaseTest):
             ).json()
             action_response = self.client.get(
                 "/api/action/trends/?date_from=-14d&breakdown=%s&breakdown_type=person&actions=%s"
-                % (
-                    'name',
-                    jdumps([{"id": action.pk, "type": "actions", "order": 0}]),
-                )
+                % ("name", jdumps([{"id": action.pk, "type": "actions", "order": 0}]),)
             ).json()
 
         self.assertEqual(event_response[0]["count"], 3)
-        self.assertEqual(event_response[0]["breakdown_value"], 'person2')
+        self.assertEqual(event_response[0]["breakdown_value"], "person2")
 
         self.assertEqual(event_response[1]["count"], 1)
-        self.assertEqual(event_response[1]["breakdown_value"], 'person1')
+        self.assertEqual(event_response[1]["breakdown_value"], "person1")
 
         self.assertEqual(event_response[2]["count"], 3)
-        self.assertEqual(event_response[2]["breakdown_value"], 'person3')
+        self.assertEqual(event_response[2]["breakdown_value"], "person3")
 
         self.assertEqual(event_response[3]["count"], 0)
-        self.assertEqual(event_response[3]["breakdown_value"], 'person4')
+        self.assertEqual(event_response[3]["breakdown_value"], "person4")
 
         self.assertTrue(self._compare_entity_response(event_response, action_response,))
 
@@ -1246,12 +1243,13 @@ class TestTrends(TransactionBaseTest):
                 "type": "events",
                 "entityId": "watched movie",
                 "breakdown_type": "person",
-                "breakdown_value": 'person3',
-                "breakdown": 'name',
+                "breakdown_value": "person3",
+                "breakdown": "name",
             },
         ).json()
         self.assertEqual(len(people["results"][0]["people"]), 1)
-        self.assertEqual(people["results"][0]["people"][0]["name"], 'person3')
+        self.assertEqual(people["results"][0]["people"][0]["name"], "person3")
+
 
 class TestRetention(TransactionBaseTest):
     def test_retention(self):

@@ -6,13 +6,13 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0053_dashboard_item_layouts'),
+        ("posthog", "0053_dashboard_item_layouts"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='dashboarditem',
-            name='color',
+            model_name="dashboarditem",
+            name="color",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
     ]

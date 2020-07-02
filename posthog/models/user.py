@@ -66,8 +66,8 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractUser):
-    DEFAULT = 'default'
-    TOOLBAR = 'toolbar'
+    DEFAULT = "default"
+    TOOLBAR = "toolbar"
     TOOLBAR_CHOICES = [
         (DEFAULT, DEFAULT),
         (TOOLBAR, TOOLBAR),

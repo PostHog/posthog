@@ -86,7 +86,7 @@ def signup_to_team_view(request, token):
             email=email,
             password=password,
             first_name=first_name,
-            email_opt_in=email_opt_in
+            email_opt_in=email_opt_in,
         )
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         team.users.add(user)
@@ -181,7 +181,7 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
             },
         )
         return HttpResponse(processed, status=401)
-    
+
     team.users.add(user)
     team.save()
     posthoganalytics.capture(

@@ -52,4 +52,3 @@ class ElementGroup(models.Model):
     hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
 
     objects = ElementGroupManager()
-

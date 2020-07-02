@@ -7,13 +7,18 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0012_team_app_url'),
+        ("posthog", "0012_team_app_url"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='element',
-            name='attr_class',
-            field=django.contrib.postgres.fields.ArrayField(base_field=models.CharField(blank=True, max_length=200), blank=True, null=True, size=None),
+            model_name="element",
+            name="attr_class",
+            field=django.contrib.postgres.fields.ArrayField(
+                base_field=models.CharField(blank=True, max_length=200),
+                blank=True,
+                null=True,
+                size=None,
+            ),
         ),
     ]

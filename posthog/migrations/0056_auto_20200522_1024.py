@@ -7,18 +7,20 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0055_user_anonymize_data'),
+        ("posthog", "0055_user_anonymize_data"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='action',
-            name='is_calculating',
+            model_name="action",
+            name="is_calculating",
             field=models.BooleanField(default=False),
         ),
         migrations.AddField(
-            model_name='actionstep',
-            name='properties',
-            field=django.contrib.postgres.fields.jsonb.JSONField(blank=True, default=list, null=True),
+            model_name="actionstep",
+            name="properties",
+            field=django.contrib.postgres.fields.jsonb.JSONField(
+                blank=True, default=list, null=True
+            ),
         ),
     ]

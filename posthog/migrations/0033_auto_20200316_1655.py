@@ -6,17 +6,19 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0032_team_multiple_app_urls'),
+        ("posthog", "0032_team_multiple_app_urls"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='elementgroup',
-            name='hash',
+            model_name="elementgroup",
+            name="hash",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
         migrations.AddConstraint(
-            model_name='elementgroup',
-            constraint=models.UniqueConstraint(fields=('team', 'hash'), name='unique hash for each team'),
+            model_name="elementgroup",
+            constraint=models.UniqueConstraint(
+                fields=("team", "hash"), name="unique hash for each team"
+            ),
         ),
     ]

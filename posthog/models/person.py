@@ -15,7 +15,9 @@ class PersonManager(models.Manager):
 
     @staticmethod
     def distinct_ids_exist(team_id: int, distinct_ids: List[str]) -> bool:
-        return PersonDistinctId.objects.filter(team_id=team_id, distinct_id__in=distinct_ids).exists()
+        return PersonDistinctId.objects.filter(
+            team_id=team_id, distinct_id__in=distinct_ids
+        ).exists()
 
 
 class Person(models.Model):

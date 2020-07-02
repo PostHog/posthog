@@ -13,6 +13,8 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="user",
             name="toolbar_mode",
-            field=models.CharField(blank=True, default="default", max_length=200, null=True),
+            field=models.CharField(
+                blank=True, default="default", max_length=200, null=True
+            ),
         ),
     ]

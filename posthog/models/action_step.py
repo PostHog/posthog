@@ -1,6 +1,7 @@
 from django.db import models, connection, transaction
 from django.contrib.postgres.fields import JSONField
 
+
 class ActionStep(models.Model):
     EXACT = "exact"
     CONTAINS = "contains"

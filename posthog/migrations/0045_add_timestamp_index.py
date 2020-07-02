@@ -6,12 +6,14 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0044_auto_20200413_1936'),
+        ("posthog", "0044_auto_20200413_1936"),
     ]
 
     operations = [
         migrations.AddIndex(
-            model_name='event',
-            index=models.Index(fields=['timestamp'], name='posthog_eve_timesta_b00cec_idx'),
+            model_name="event",
+            index=models.Index(
+                fields=["timestamp"], name="posthog_eve_timesta_b00cec_idx"
+            ),
         ),
     ]
