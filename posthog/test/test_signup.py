@@ -25,7 +25,6 @@ class TestSignup(TestCase):
                 follow=True,
             )
         self.assertRedirects(response, "/")
-
         user = User.objects.get()
         self.assertEqual(user.first_name, "Jane")
         self.assertEqual(user.email, "jane@acme.com")
@@ -90,12 +89,10 @@ class TestSignup(TestCase):
             invalid_password_req = {**default_req_args}
             invalid_password_req["password"] = ""
             invalid_password_res = self.client.post("/setup_admin", invalid_password_req, follow=True)
-
-        ERROR_MSG = "Please make sure no fields are empty and that the email entered is valid."
-        self.assertContains(invalid_company_res, ERROR_MSG)
-        self.assertContains(invalid_name_res, ERROR_MSG)
-        self.assertContains(invalid_email_res, ERROR_MSG)
-        self.assertContains(invalid_password_res, ERROR_MSG)
+        self.assertTrue("invalid_input" in invalid_company_res.context)
+        self.assertTrue("invalid_input" in invalid_name_res.context)
+        self.assertTrue("invalid_input" in invalid_email_res.context)
+        self.assertTrue("invalid_input" in invalid_password_res.context)
     
     def test_signup_to_team_invalid(self):
         default_req_args = {
@@ -130,10 +127,9 @@ class TestSignup(TestCase):
                 invalid_password_req,
                 follow=True,
             )
-        ERROR_MSG = "Please make sure no fields are empty and that the email entered is valid."
-        self.assertContains(invalid_name_res, ERROR_MSG)
-        self.assertContains(invalid_email_res, ERROR_MSG)
-        self.assertContains(invalid_password_res, ERROR_MSG)
+        self.assertTrue("invalid_input" in invalid_name_res.context)
+        self.assertTrue("invalid_input" in invalid_email_res.context)
+        self.assertTrue("invalid_input" in invalid_password_res.context)
 
 class TestSocialSignup(TestCase):
     def setUp(self):
