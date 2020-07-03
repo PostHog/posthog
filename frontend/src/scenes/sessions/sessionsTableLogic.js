@@ -7,7 +7,7 @@ export const sessionsTableLogic = kea({
     loaders: ({ actions }) => ({
         sessions: {
             __default: [],
-            loadSessions: async selectedDate => {
+            loadSessions: async (selectedDate) => {
                 const response = await api.get(
                     'api/event/sessions' + (selectedDate ? '/?date_from=' + selectedDate.toISOString() : '')
                 )
@@ -18,11 +18,11 @@ export const sessionsTableLogic = kea({
         },
     }),
     actions: () => ({
-        setOffset: offset => ({ offset }),
+        setOffset: (offset) => ({ offset }),
         fetchNextSessions: true,
-        appendNewSessions: sessions => ({ sessions }),
-        dateChanged: date => ({ date }),
-        setDate: date => ({ date }),
+        appendNewSessions: (sessions) => ({ sessions }),
+        dateChanged: (date) => ({ date }),
+        setDate: (date) => ({ date }),
     }),
     reducers: () => ({
         sessions: {

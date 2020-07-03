@@ -48,7 +48,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
         name = null
         value = null
     } else {
-        entity = entities[filter.type].filter(action => action.id === filter.id)[0] || {}
+        entity = entities[filter.type].filter((action) => action.id === filter.id)[0] || {}
         name = entity.name || filter.name
         value = entity.id || filter.id
     }
@@ -90,7 +90,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                         pageKey={`${index}-${value}-filter`}
                         properties={eventProperties}
                         propertyFilters={filter.properties}
-                        onChange={properties => updateFilterProperty({ properties, index })}
+                        onChange={(properties) => updateFilterProperty({ properties, index })}
                         style={{ marginBottom: 0 }}
                     />
                 </div>
@@ -98,7 +98,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
             {dropDownCondition() && (
                 <ActionFilterDropdown
                     logic={logic}
-                    onClickOutside={e => {
+                    onClickOutside={(e) => {
                         if (node.current.contains(e.target)) {
                             return
                         }
@@ -114,7 +114,7 @@ function MathSelector(props) {
     let items = ['Total', 'DAU']
     return (
         <Dropdown
-            title={items[items.map(i => i.toLowerCase()).indexOf(props.math)] || 'Total'}
+            title={items[items.map((i) => i.toLowerCase()).indexOf(props.math)] || 'Total'}
             buttonClassName="btn btn-sm btn-light"
             style={{ marginLeft: 16 }}
             data-attr={'math-selector-' + props.index}

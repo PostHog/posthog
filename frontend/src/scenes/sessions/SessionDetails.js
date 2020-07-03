@@ -47,14 +47,14 @@ export function SessionDetails({ events }) {
     return (
         <Table
             columns={columns}
-            rowKey={event => event.id}
+            rowKey={(event) => event.id}
             dataSource={events}
             pagination={{ pageSize: 50, hideOnSinglePage: true }}
             expandable={{
                 expandedRowRender: function renderExpand(event) {
                     return <EventDetails event={event} />
                 },
-                rowExpandable: event => event,
+                rowExpandable: (event) => event,
                 expandRowByClick: true,
             }}
         ></Table>

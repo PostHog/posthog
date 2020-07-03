@@ -28,26 +28,26 @@ export const userLogic = kea({
     selectors: ({ selectors }) => ({
         eventProperties: [
             () => [selectors.user],
-            user => user.team.event_properties.map(property => ({ value: property, label: property })),
+            (user) => user.team.event_properties.map((property) => ({ value: property, label: property })),
         ],
-        eventNames: [() => [selectors.user], user => user.team.event_names],
+        eventNames: [() => [selectors.user], (user) => user.team.event_names],
         customEventNames: [
             () => [selectors.user],
-            user => {
+            (user) => {
                 const eventNames = user.team.event_names
                 const regex = new RegExp('^[^$].*')
-                const filtered = eventNames.filter(event => event.match(regex))
+                const filtered = eventNames.filter((event) => event.match(regex))
                 return filtered
             },
         ],
         eventNamesGrouped: [
             () => [selectors.user],
-            user => {
+            (user) => {
                 let data = [
                     { label: 'Custom events', options: [] },
                     { label: 'PostHog events', options: [] },
                 ]
-                user.team.event_names.forEach(name => {
+                user.team.event_names.forEach((name) => {
                     let format = { label: name, value: name }
                     if (posthogEvents.indexOf(name) > -1) return data[1].options.push(format)
                     data[0].options.push(format)

@@ -12,7 +12,7 @@ export const toolbarButtonLogic = kea({
         hideActionsInfo: true,
         showStats: true,
         hideStats: true,
-        setExtensionPercentage: percentage => ({ percentage }),
+        setExtensionPercentage: (percentage) => ({ percentage }),
         saveDragPosition: (x, y) => ({ x, y }),
         saveHeatmapPosition: (x, y) => ({ x, y }),
         saveActionsPosition: (x, y) => ({ x, y }),
@@ -20,8 +20,8 @@ export const toolbarButtonLogic = kea({
     }),
 
     windowValues: () => ({
-        windowHeight: window => window.innerHeight,
-        windowWidth: window => Math.min(window.innerWidth, window.document.body.clientWidth),
+        windowHeight: (window) => window.innerHeight,
+        windowWidth: (window) => Math.min(window.innerWidth, window.document.body.clientWidth),
     }),
 
     reducers: () => ({
@@ -85,7 +85,7 @@ export const toolbarButtonLogic = kea({
 
     selectors: {
         dragPosition: [
-            s => [s.lastDragPosition, s.windowWidth, s.windowHeight],
+            (s) => [s.lastDragPosition, s.windowWidth, s.windowHeight],
             (lastDragPosition, windowWidth, windowHeight) => {
                 const widthPadding = 35
                 const heightPadding = 30
@@ -104,7 +104,7 @@ export const toolbarButtonLogic = kea({
             },
         ],
         toolbarListVerticalPadding: [
-            s => [s.dragPosition, s.windowHeight],
+            (s) => [s.dragPosition, s.windowHeight],
             ({ y }, windowHeight) => {
                 if (y < 90) {
                     return -60 + 90 - y
@@ -114,41 +114,44 @@ export const toolbarButtonLogic = kea({
                 return -60
             },
         ],
-        dockButtonOnTop: [s => [s.dragPosition, s.windowHeight], ({ y }, windowHeight) => y > windowHeight - 100],
-        side: [s => [s.dragPosition, s.windowWidth], ({ x }, windowWidth) => (x < windowWidth / 2 ? 'left' : 'right')],
+        dockButtonOnTop: [(s) => [s.dragPosition, s.windowHeight], ({ y }, windowHeight) => y > windowHeight - 100],
+        side: [
+            (s) => [s.dragPosition, s.windowWidth],
+            ({ x }, windowWidth) => (x < windowWidth / 2 ? 'left' : 'right'),
+        ],
         closeDistance: [
-            s => [s.dragPosition, s.windowWidth],
+            (s) => [s.dragPosition, s.windowWidth],
             ({ x, y }, windowWidth) => 58 + (x > windowWidth - 40 || y < 80 ? -28 : 0) + (y < 40 ? -6 : 0),
         ],
         closeRotation: [
-            s => [s.dragPosition, s.windowWidth],
+            (s) => [s.dragPosition, s.windowWidth],
             ({ x, y }, windowWidth) => -54 + (x > windowWidth - 40 || y < 80 ? 10 : 0) + (y < 40 ? 10 : 0),
         ],
         inspectExtensionPercentage: [
-            s => [elementsLogic.selectors.inspectEnabled, s.extensionPercentage],
+            (s) => [elementsLogic.selectors.inspectEnabled, s.extensionPercentage],
             (inspectEnabled, extensionPercentage) =>
                 inspectEnabled ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
         heatmapExtensionPercentage: [
-            s => [heatmapLogic.selectors.heatmapEnabled, s.extensionPercentage],
+            (s) => [heatmapLogic.selectors.heatmapEnabled, s.extensionPercentage],
             (heatmapEnabled, extensionPercentage) =>
                 heatmapEnabled ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
         heatmapWindowVisible: [
-            s => [s.heatmapInfoVisible, heatmapLogic.selectors.heatmapEnabled],
+            (s) => [s.heatmapInfoVisible, heatmapLogic.selectors.heatmapEnabled],
             (heatmapInfoVisible, heatmapEnabled) => heatmapInfoVisible && heatmapEnabled,
         ],
         actionsExtensionPercentage: [
-            s => [actionsTabLogic.selectors.buttonActionsVisible, s.extensionPercentage],
+            (s) => [actionsTabLogic.selectors.buttonActionsVisible, s.extensionPercentage],
             (buttonActionsVisible, extensionPercentage) =>
                 buttonActionsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
         actionsWindowVisible: [
-            s => [s.actionsInfoVisible, actionsTabLogic.selectors.buttonActionsVisible],
+            (s) => [s.actionsInfoVisible, actionsTabLogic.selectors.buttonActionsVisible],
             (actionsInfoVisible, buttonActionsVisible) => actionsInfoVisible && buttonActionsVisible,
         ],
         statsExtensionPercentage: [
-            s => [s.statsVisible, s.extensionPercentage],
+            (s) => [s.statsVisible, s.extensionPercentage],
             (statsVisible, extensionPercentage) =>
                 statsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],

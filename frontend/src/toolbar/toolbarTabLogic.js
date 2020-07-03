@@ -3,7 +3,7 @@ import { dockLogic } from '~/toolbar/dockLogic'
 
 export const toolbarTabLogic = kea({
     actions: () => ({
-        setTab: tab => ({ tab }),
+        setTab: (tab) => ({ tab }),
     }),
     reducers: () => ({
         tab: [

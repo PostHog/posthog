@@ -114,7 +114,7 @@ const content = {
                     multi-deployments later)
                 </p>
                 <Row>
-                    {platformTypes.map(type => (
+                    {platformTypes.map((type) => (
                         <Button
                             type="primary"
                             data-attr={'select-platform-' + type}
@@ -155,7 +155,7 @@ const content = {
                         style={{ width: '100%' }}
                         bordered
                         dataSource={Object.keys(frameworks)}
-                        renderItem={item => (
+                        renderItem={(item) => (
                             <List.Item
                                 className="selectable-item"
                                 data-attr={'select-framework-' + item}

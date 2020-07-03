@@ -96,7 +96,7 @@ function _Cohorts() {
                 size="small"
                 columns={columns}
                 loading={!cohorts && cohortsLoading}
-                rowKey={cohort => cohort.id}
+                rowKey={(cohort) => cohort.id}
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
                 dataSource={cohorts}
             />

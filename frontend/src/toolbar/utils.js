@@ -15,7 +15,7 @@ const simmer = new Simmer(window, { depth: 8 })
 export function getSafeText(el) {
     if (!el.childNodes || !el.childNodes.length) return
     let elText = ''
-    el.childNodes.forEach(child => {
+    el.childNodes.forEach((child) => {
         if (child.nodeType !== 3 || !child.textContent) return
         elText += child.textContent
             .trim()
@@ -33,7 +33,7 @@ export function elementToQuery(element) {
     return (
         simmer(element)
             // Turn tags into lower cases
-            .replace(/(^[A-Z]+| [A-Z]+)/g, d => d.toLowerCase())
+            .replace(/(^[A-Z]+| [A-Z]+)/g, (d) => d.toLowerCase())
     )
 }
 
@@ -63,8 +63,8 @@ export function elementToSelector(element) {
     }
     if (element.attr_class) {
         selector += element.attr_class
-            .filter(a => a)
-            .map(a => `.${cssEscape(a)}`)
+            .filter((a) => a)
+            .map((a) => `.${cssEscape(a)}`)
             .join('')
     }
     if (element.href) {
@@ -137,10 +137,10 @@ export function getAllClickTargets() {
     const elements = document.querySelectorAll(CLICK_TARGET_SELECTOR)
 
     let allElements = [...document.querySelectorAll('*')]
-    const clickTags = CLICK_TARGET_SELECTOR.split(',').map(c => c.trim())
+    const clickTags = CLICK_TARGET_SELECTOR.split(',').map((c) => c.trim())
 
     // loop through all elements and getComputedStyle
-    const pointerElements = allElements.filter(el => {
+    const pointerElements = allElements.filter((el) => {
         if (clickTags.indexOf(el.tagName.toLowerCase()) >= 0) {
             return false
         }
@@ -148,7 +148,7 @@ export function getAllClickTargets() {
         return compStyles.getPropertyValue('cursor') === 'pointer'
     })
 
-    const selectedElements = [...elements, ...pointerElements].map(e => trimElement(e, true))
+    const selectedElements = [...elements, ...pointerElements].map((e) => trimElement(e, true))
     const uniqueElements = Array.from(new Set(selectedElements))
 
     return uniqueElements
@@ -168,15 +168,8 @@ export function stepMatchesHref(step, href) {
 }
 
 function matchRuleShort(str, rule) {
-    const escapeRegex = str => str.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
-    return new RegExp(
-        '^' +
-            rule
-                .split('%')
-                .map(escapeRegex)
-                .join('.*') +
-            '$'
-    ).test(str)
+    const escapeRegex = (str) => str.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
+    return new RegExp('^' + rule.split('%').map(escapeRegex).join('.*') + '$').test(str)
 }
 
 export function isParentOf(element, possibleParent) {
@@ -222,12 +215,12 @@ export function getElementForStep(step) {
     if (hasText) {
         const textToSearch = step.text.toString().trim()
         elements = [...elements].filter(
-            e =>
+            (e) =>
                 TAGS_TO_IGNORE.indexOf(e.tagName.toLowerCase()) === -1 &&
                 e.innerText?.trim() === textToSearch &&
                 (e.matches(CLICK_TARGET_SELECTOR) || hasCursorPointer(e))
         )
-        elements = elements.filter(e => !elements.find(e2 => isParentOf(e2, e)))
+        elements = elements.filter((e) => !elements.find((e2) => isParentOf(e2, e)))
     }
 
     if (elements.length === 1) {

@@ -17,14 +17,14 @@ function newAction(element) {
 
 export const actionsTabLogic = kea({
     actions: {
-        setForm: form => ({ form }),
-        selectAction: id => ({ id }),
+        setForm: (form) => ({ form }),
+        selectAction: (id) => ({ id }),
         newAction: (element = null) => ({ element }),
-        inspectForElementWithIndex: index => ({ index }),
+        inspectForElementWithIndex: (index) => ({ index }),
         inspectElementSelected: (element, index) => ({ element, index }),
-        setEditingFields: editingFields => ({ editingFields }),
+        setEditingFields: (editingFields) => ({ editingFields }),
         incrementCounter: true,
-        saveAction: formValues => ({ formValues }),
+        saveAction: (formValues) => ({ formValues }),
         deleteAction: true,
         showButtonActions: true,
         hideButtonActions: true,
@@ -63,29 +63,29 @@ export const actionsTabLogic = kea({
         counter: [
             0,
             {
-                incrementCounter: state => state + 1,
+                incrementCounter: (state) => state + 1,
             },
         ],
     },
 
     selectors: {
         selectedAction: [
-            s => [s.selectedActionId, s.newActionForElement, actionsLogic.selectors.allActions],
+            (s) => [s.selectedActionId, s.newActionForElement, actionsLogic.selectors.allActions],
             (selectedActionId, newActionForElement, allActions) => {
                 if (selectedActionId === 'new') {
                     return newAction(newActionForElement)
                 }
-                return allActions.find(a => a.id === selectedActionId)
+                return allActions.find((a) => a.id === selectedActionId)
             },
         ],
         initialValuesForForm: [
-            s => [s.selectedAction],
-            selectedAction =>
+            (s) => [s.selectedAction],
+            (selectedAction) =>
                 selectedAction ? { ...selectedAction, steps: selectedAction.steps.map(actionStepToAntdForm) } : {},
         ],
         selectedEditedAction: [
             // `editingFields` don't update on values.form.setFields(fields), so reloading by tagging a few other selectors
-            s => [s.selectedAction, s.initialValuesForForm, s.form, s.editingFields, s.inspectingElement, s.counter],
+            (s) => [s.selectedAction, s.initialValuesForForm, s.form, s.editingFields, s.inspectingElement, s.counter],
             (selectedAction, initialValuesForForm, form) => {
                 return selectedAction ? { ...initialValuesForForm, ...(form?.getFieldValue() || {}) } : null
             },

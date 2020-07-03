@@ -11,11 +11,11 @@ import { Spin } from 'antd'
 import { hot } from 'react-hot-loader/root'
 
 let actionLogic = kea({
-    key: props => props.id || 'new',
+    key: (props) => props.id || 'new',
     actions: () => ({
-        checkIsFinished: action => ({ action }),
-        setPollTimeout: pollTimeout => ({ pollTimeout }),
-        setIsComplete: isComplete => ({ isComplete }),
+        checkIsFinished: (action) => ({ action }),
+        setPollTimeout: (pollTimeout) => ({ pollTimeout }),
+        setIsComplete: (isComplete) => ({ isComplete }),
     }),
     reducers: () => ({
         pollTimeout: [
@@ -81,7 +81,7 @@ function _Action({ id }) {
                 apiURL=""
                 actionId={id}
                 user={user}
-                onSave={action => {
+                onSave={(action) => {
                     if (!id) {
                         push(`/action/${action.id}`)
                     }

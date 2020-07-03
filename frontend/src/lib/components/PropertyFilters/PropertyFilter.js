@@ -102,7 +102,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                             setFilter(index, key, new_value, new_operator.value, type)
                         }}
                     >
-                        {Object.keys(operatorMap).map(operator => (
+                        {Object.keys(operatorMap).map((operator) => (
                             <Select.Option key={operator} value={operator}>
                                 {operatorMap[operator || 'exact']}
                             </Select.Option>
@@ -118,7 +118,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                         propertyKey={key}
                         operator={operator}
                         value={value}
-                        onSet={value => {
+                        onSet={(value) => {
                             onComplete()
                             setFilter(index, key, value, operator, type)
                         }}

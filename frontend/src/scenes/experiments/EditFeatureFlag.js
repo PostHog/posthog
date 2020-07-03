@@ -6,8 +6,8 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 const editLogic = kea({
     actions: () => ({
-        setRolloutPercentage: rollout_percentage => ({ rollout_percentage }),
-        setFilters: filters => ({ filters }),
+        setRolloutPercentage: (rollout_percentage) => ({ rollout_percentage }),
+        setFilters: (filters) => ({ filters }),
     }),
     reducers: ({ props }) => ({
         filters: [
@@ -60,7 +60,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
             layout="vertical"
             form={form}
             initialValues={featureFlag}
-            onFinish={values => {
+            onFinish={(values) => {
                 const updatedFlag = { ...featureFlag, ...values, rollout_percentage, filters }
                 if (isNew) {
                     createFeatureFlag(updatedFlag)
@@ -78,7 +78,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
             >
                 <Input
                     autoFocus={isNew}
-                    onChange={e => form.setFieldsValue({ key: slugify(e.target.value) })}
+                    onChange={(e) => form.setFieldsValue({ key: slugify(e.target.value) })}
                     data-attr="feature-flag-name"
                 />
             </Form.Item>
@@ -95,7 +95,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
                 <PropertyFilters
                     pageKey="feature-flag"
                     propertyFilters={filters?.properties}
-                    onChange={properties => setFilters({ properties })}
+                    onChange={(properties) => setFilters({ properties })}
                     endpoint="person"
                 />
             </Form.Item>
@@ -103,16 +103,16 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
             <Form.Item label="Roll out feature to percentage of users">
                 <Switch
                     checked={!!rollout_percentage}
-                    onChange={checked => (checked ? setRolloutPercentage(30) : setRolloutPercentage(null))}
+                    onChange={(checked) => (checked ? setRolloutPercentage(30) : setRolloutPercentage(null))}
                     data-attr="feature-flag-switch"
                 />
                 {rollout_percentage !== null && (
                     <Slider
                         tooltipPlacement="bottom"
-                        tipFormatter={value => value + '%'}
+                        tipFormatter={(value) => value + '%'}
                         tooltipVisible={true}
                         value={rollout_percentage}
-                        onChange={value => {
+                        onChange={(value) => {
                             console.log(value)
                             setRolloutPercentage(value)
                         }}

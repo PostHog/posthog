@@ -36,14 +36,14 @@ export function DashboardHeader({ logic }) {
                     <div className="dashboard-select">
                         <Select
                             value={dashboard?.id || null}
-                            onChange={id =>
+                            onChange={(id) =>
                                 id === 'new' ? addNewDashboard() : router.actions.push(`/dashboard/${id}`)
                             }
                             bordered={false}
                             dropdownMatchSelectWidth={false}
                         >
                             {!dashboard ? <Select.Option value={null}>Not Found</Select.Option> : null}
-                            {dashboards.map(dash => (
+                            {dashboards.map((dash) => (
                                 <Select.Option key={dash.id} value={parseInt(dash.id)}>
                                     {dash.name || <span style={{ color: 'var(--gray)' }}>Untitled</span>}
                                 </Select.Option>
