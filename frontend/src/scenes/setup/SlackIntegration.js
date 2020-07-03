@@ -6,15 +6,15 @@ import { Input, Button } from 'antd'
 
 const logic = kea({
     actions: () => ({
-        setEditedWebhook: webhook => ({ webhook }),
+        setEditedWebhook: (webhook) => ({ webhook }),
         saveWebhook: true,
         testAndSaveWebhook: true,
-        setError: error => ({ error }),
+        setError: (error) => ({ error }),
     }),
 
     reducers: ({ actions }) => ({
         editedWebhook: [
-            state => userLogic.selectors.user(state)?.team?.slack_incoming_webhook,
+            (state) => userLogic.selectors.user(state)?.team?.slack_incoming_webhook,
             {
                 [actions.setEditedWebhook]: (_, { webhook }) => webhook,
             },
@@ -91,7 +91,7 @@ export function SlackIntegration() {
                 <Input
                     value={editedWebhook}
                     size="large"
-                    onChange={e => setEditedWebhook(e.target.value)}
+                    onChange={(e) => setEditedWebhook(e.target.value)}
                     style={{ width: 500 }}
                     type="url"
                 />
@@ -99,7 +99,7 @@ export function SlackIntegration() {
 
             <Button
                 type="primary"
-                onClick={e => {
+                onClick={(e) => {
                     e.preventDefault()
                     testAndSaveWebhook()
                 }}

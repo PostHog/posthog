@@ -8,8 +8,8 @@ import { useValues, useActions } from 'kea'
 import { router } from 'kea-router'
 import _ from 'lodash'
 
-const isSubmitDisabled = cohorts => {
-    if (cohorts && cohorts.groups) return !cohorts.groups.some(group => !_.isEmpty(group))
+const isSubmitDisabled = (cohorts) => {
+    if (cohorts && cohorts.groups) return !cohorts.groups.some((group) => !_.isEmpty(group))
     return true
 }
 
@@ -46,7 +46,7 @@ export function Cohort({ onChange }) {
             >
                 <form
                     className="card-body"
-                    onSubmit={e => {
+                    onSubmit={(e) => {
                         e.preventDefault()
                         saveCohort(cohort)
                     }}
@@ -58,7 +58,7 @@ export function Cohort({ onChange }) {
                         autoFocus
                         placeholder="Cohort name..."
                         value={cohort.name}
-                        onChange={e => setCohort({ ...cohort, name: e.target.value })}
+                        onChange={(e) => setCohort({ ...cohort, name: e.target.value })}
                     />
                     {cohort.groups
                         .map((group, index) => (
@@ -71,7 +71,7 @@ export function Cohort({ onChange }) {
                                     cohort.groups.splice(index, 1)
                                     setCohort({ ...cohort })
                                 }}
-                                onChange={group => {
+                                onChange={(group) => {
                                     cohort.groups[index] = group
                                     setCohort({ ...cohort })
                                 }}

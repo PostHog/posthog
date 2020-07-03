@@ -6,7 +6,7 @@ export function Link({ to, preventClick = false, ...props }) {
         <a
             href={to || '#'}
             {...props}
-            onClick={event => {
+            onClick={(event) => {
                 if (!props.target) {
                     event.preventDefault()
                     event.stopPropagation()

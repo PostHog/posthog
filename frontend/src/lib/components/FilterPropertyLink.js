@@ -12,8 +12,8 @@ export function FilterPropertyLink({ property, value, filters, onClick }) {
         : parseProperties(filters.properties)
 
     // In case the property we're linking to is already in the filter, remove it, otherwise add it
-    const properties = cleanedProperties.find(p => p.key === property && p.value === value && !p.operator)
-        ? cleanedProperties.filter(p => p.key !== property || p.value !== value || p.operator)
+    const properties = cleanedProperties.find((p) => p.key === property && p.value === value && !p.operator)
+        ? cleanedProperties.filter((p) => p.key !== property || p.value !== value || p.operator)
         : [...cleanedProperties, { key: property, value: value }]
 
     const { url } = combineUrl(window.location.pathname, {

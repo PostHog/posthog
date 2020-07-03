@@ -79,7 +79,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
 
     if (activeScene === 'dashboards') {
         const dashboardId = parseInt(location.pathname.split('/dashboard/')[1])
-        const dashboard = dashboardId && dashboards.find(d => d.id === dashboardId)
+        const dashboard = dashboardId && dashboards.find((d) => d.id === dashboardId)
         if (dashboard && dashboard.pinned) {
             activeScene = `dashboard-${dashboardId}`
         }
@@ -96,7 +96,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                 collapsedWidth="0"
                 className="bg-dark"
                 collapsed={sidebarCollapsed}
-                onCollapse={sidebarCollapsed => {
+                onCollapse={(sidebarCollapsed) => {
                     setSidebarCollapsed(sidebarCollapsed)
                     triggerResizeAfterADelay()
                 }}

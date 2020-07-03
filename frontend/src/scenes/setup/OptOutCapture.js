@@ -19,7 +19,7 @@ export function OptOutCapture() {
             <br />
             <br />
             <Switch
-                onChange={checked => {
+                onChange={(checked) => {
                     api.update('api/user', {
                         user: {
                             anonymize_data: checked,

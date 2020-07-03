@@ -43,7 +43,7 @@ export function People({ id }) {
                                 ))}
                         </tr>
                         {peopleSorted &&
-                            peopleSorted.map(person => (
+                            peopleSorted.map((person) => (
                                 <tr key={person.id}>
                                     <td className="text-overflow">
                                         <Link to={`/person_by_id/${person.id}`}>{person.name}</Link>

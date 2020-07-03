@@ -6,20 +6,20 @@ import api from 'lib/api'
 import { router } from 'kea-router'
 
 export const cohortLogic = kea({
-    key: props => props.id || 'new',
+    key: (props) => props.id || 'new',
     actions: () => ({
-        saveCohort: cohort => ({ cohort }),
-        setCohort: cohort => ({ cohort }),
-        checkIsFinished: cohort => ({ cohort }),
-        setToastId: toastId => ({ toastId }),
-        setPollTimeout: pollTimeout => ({ pollTimeout }),
+        saveCohort: (cohort) => ({ cohort }),
+        setCohort: (cohort) => ({ cohort }),
+        checkIsFinished: (cohort) => ({ cohort }),
+        setToastId: (toastId) => ({ toastId }),
+        setPollTimeout: (pollTimeout) => ({ pollTimeout }),
     }),
 
     loaders: () => ({
         personProperties: {
             loadPersonProperties: async () => {
                 const properties = await api.get('api/person/properties')
-                return properties.map(property => ({
+                return properties.map((property) => ({
                     label: property.name,
                     value: property.name,
                 }))
@@ -64,7 +64,7 @@ export const cohortLogic = kea({
     }),
 
     sharedListeners: ({ actions, values, props }) => ({
-        pollIsFinished: cohort => {
+        pollIsFinished: (cohort) => {
             if (cohort.is_calculating) {
                 if (!values.toastId)
                     actions.setToastId(

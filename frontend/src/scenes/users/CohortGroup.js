@@ -74,7 +74,7 @@ export function CohortGroup({ onChange, onRemove, group, index }) {
                                 endpoint="person"
                                 pageKey={'cohort_' + index}
                                 className=" "
-                                onChange={properties =>
+                                onChange={(properties) =>
                                     onChange(
                                         !_.isEmpty(properties)
                                             ? {
@@ -94,18 +94,18 @@ export function CohortGroup({ onChange, onRemove, group, index }) {
                                     showSearch
                                     placeholder="Select action..."
                                     style={{ width: '100%' }}
-                                    onChange={value => onChange({ action_id: value })}
+                                    onChange={(value) => onChange({ action_id: value })}
                                     filterOption={(input, option) =>
                                         option.children &&
                                         option.children.toLowerCase().indexOf(input.toLowerCase()) >= 0
                                     }
                                     value={group.action_id}
                                 >
-                                    {actionsGrouped.map(typeGroup => {
+                                    {actionsGrouped.map((typeGroup) => {
                                         if (typeGroup['options'].length > 0) {
                                             return (
                                                 <Select.OptGroup key={typeGroup['label']} label={typeGroup['label']}>
-                                                    {typeGroup['options'].map(item => (
+                                                    {typeGroup['options'].map((item) => (
                                                         <Select.Option key={item.value} value={item.value}>
                                                             {item.label}
                                                         </Select.Option>

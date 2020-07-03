@@ -8,13 +8,9 @@ describe('Auth', () => {
         cy.get('[data-attr=user-options-dropdown]').trigger('mouseover')
         cy.get('[data-attr=user-options-logout]').click()
 
-        cy.get('#inputEmail')
-            .type('fake@posthog.com')
-            .should('have.value', 'fake@posthog.com')
+        cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
 
-        cy.get('#inputPassword')
-            .type('password')
-            .should('have.value', 'password')
+        cy.get('#inputPassword').type('password').should('have.value', 'password')
 
         cy.get('.btn').click()
     })
@@ -23,13 +19,9 @@ describe('Auth', () => {
         cy.get('[data-attr=user-options-dropdown]').trigger('mouseover')
         cy.get('[data-attr=user-options-logout]').click()
 
-        cy.get('#inputEmail')
-            .type('fake@posthog.com')
-            .should('have.value', 'fake@posthog.com')
+        cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
 
-        cy.get('#inputPassword')
-            .type('wrong password')
-            .should('have.value', 'wrong password')
+        cy.get('#inputPassword').type('wrong password').should('have.value', 'wrong password')
 
         cy.get('.btn').click()
 
@@ -40,7 +32,7 @@ describe('Auth', () => {
         cy.get('[data-attr=menu-item-setup]').click()
         cy.get('[data-attr=copy-invite-to-clipboard-input]')
             .invoke('val')
-            .then(link => {
+            .then((link) => {
                 cy.get('[data-attr=user-options-dropdown]').trigger('mouseover')
                 cy.get('[data-attr=user-options-logout]').click()
                 cy.visit(link)
@@ -49,9 +41,7 @@ describe('Auth', () => {
 
                 cy.get('#inputEmail').type(Cypress._.random(0, 1e6) + '@posthog.com')
 
-                cy.get('#inputPassword')
-                    .type('password')
-                    .should('have.value', 'password')
+                cy.get('#inputPassword').type('password').should('have.value', 'password')
 
                 cy.get('.btn').click()
 
@@ -63,7 +53,7 @@ describe('Auth', () => {
         cy.get('[data-attr=menu-item-setup]').click()
         cy.get('[data-attr=copy-invite-to-clipboard-input]')
             .invoke('val')
-            .then(link => {
+            .then((link) => {
                 cy.get('[data-attr=user-options-dropdown]').trigger('mouseover')
                 cy.get('[data-attr=user-options-logout]').click()
                 cy.visit(link)
@@ -72,9 +62,7 @@ describe('Auth', () => {
 
                 cy.get('#inputEmail').type(Cypress._.random(0, 1e6) + '@posthog.com')
 
-                cy.get('#inputPassword')
-                    .type('password')
-                    .should('have.value', 'password')
+                cy.get('#inputPassword').type('password').should('have.value', 'password')
 
                 cy.get('[data-attr=updates-checkbox').check()
 

@@ -10,7 +10,7 @@ export function IPCapture() {
     return (
         <div>
             <Switch
-                onChange={checked => {
+                onChange={(checked) => {
                     userUpdateRequest({ team: { anonymize_ips: checked } })
                 }}
                 defaultChecked={user.team.anonymize_ips}

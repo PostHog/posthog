@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 
 const actionContains = (action, event) => {
-    return action.steps.filter(step => step.event == event).length > 0
+    return action.steps.filter((step) => step.event == event).length > 0
 }
 
 export const actionsModel = kea({
@@ -18,13 +18,13 @@ export const actionsModel = kea({
     selectors: ({ selectors }) => ({
         actionsGrouped: [
             () => [selectors.actions],
-            actions => {
+            (actions) => {
                 let data = [
                     { label: 'Autocapture', options: [] },
                     { label: 'Event', options: [] },
                     { label: 'Pageview', options: [] },
                 ]
-                actions.forEach(action => {
+                actions.forEach((action) => {
                     let format = { label: action.name, value: action.id }
                     if (actionContains(action, '$autocapture')) data[0].options.push(format)
                     if (actionContains(action, '$pageview')) data[2].options.push(format)

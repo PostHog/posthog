@@ -37,7 +37,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
         <div className={isEditor ? '' : 'card'} style={{ marginTop: isEditor ? 8 : '' }}>
             <form
                 className={isEditor ? '' : 'card-body'}
-                onSubmit={e => {
+                onSubmit={(e) => {
                     e.preventDefault()
                     if (isEditor && showNewActionButton) setCreateNew(true)
                     saveAction()
@@ -48,7 +48,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                     className="form-control"
                     placeholder="For example: user signed up"
                     value={action.name}
-                    onChange={e => {
+                    onChange={(e) => {
                         setAction({ ...action, name: e.target.value })
                         setEdited(e.target.value ? true : false)
                     }}
@@ -86,13 +86,13 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                             simmer={simmer}
                             isOnlyStep={action.steps.length === 1}
                             onDelete={() => {
-                                setAction({ ...action, steps: action.steps.filter(s => s.id != step.id) })
+                                setAction({ ...action, steps: action.steps.filter((s) => s.id != step.id) })
                                 setEdited(true)
                             }}
-                            onChange={newStep => {
+                            onChange={(newStep) => {
                                 setAction({
                                     ...action,
-                                    steps: action.steps.map(s =>
+                                    steps: action.steps.map((s) =>
                                         (step.id && s.id == step.id) || (step.isNew && s.isNew === step.isNew)
                                             ? {
                                                   id: step.id,
@@ -113,7 +113,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                         <label className={slackEnabled ? '' : 'disabled'} style={{ marginRight: 5 }}>
                             <input
                                 type="checkbox"
-                                onChange={e => {
+                                onChange={(e) => {
                                     setAction({ ...action, post_to_slack: e.target.checked })
                                     setEdited(true)
                                 }}

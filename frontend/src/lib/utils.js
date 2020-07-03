@@ -6,19 +6,19 @@ import { Spin } from 'antd'
 import moment from 'moment'
 
 export function uuid() {
-    return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
+    return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c) =>
         (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16)
     )
 }
 
-export let toParams = obj => {
-    let handleVal = val => {
+export let toParams = (obj) => {
+    let handleVal = (val) => {
         if (val._isAMomentObject) return encodeURIComponent(val.format('YYYY-MM-DD'))
         val = typeof val === 'object' ? JSON.stringify(val) : val
         return encodeURIComponent(val)
     }
     return Object.entries(obj)
-        .filter(item => item[1])
+        .filter((item) => item[1])
         .map(([key, val]) => `${key}=${handleVal(val)}`)
         .join('&')
 }
@@ -35,7 +35,7 @@ export let fromParams = () =>
         : {}
 
 export let colors = ['success', 'secondary', 'warning', 'primary', 'danger', 'info', 'dark', 'light']
-export let percentage = division =>
+export let percentage = (division) =>
     division
         ? division.toLocaleString(undefined, {
               style: 'percent',
@@ -64,7 +64,7 @@ export const SceneLoading = () => (
     </div>
 )
 
-export let CloseButton = props => {
+export let CloseButton = (props) => {
     return (
         <span {...props} className={'close cursor-pointer ' + props.className} style={{ ...props.style }}>
             <span aria-hidden="true">&times;</span>
@@ -94,7 +94,7 @@ export const deleteWithUndo = ({ undo = false, ...props }) => {
                         "<strong>{props.object.name || 'Untitled'}</strong>" deleted.{' '}
                         <a
                             href="#"
-                            onClick={e => {
+                            onClick={(e) => {
                                 e.preventDefault()
                                 deleteWithUndo({ undo: true, ...props })
                             }}
@@ -111,12 +111,12 @@ export const deleteWithUndo = ({ undo = false, ...props }) => {
     })
 }
 
-export const DeleteWithUndo = props => {
+export const DeleteWithUndo = (props) => {
     const { className, style, children } = props
     return (
         <a
             href="#"
-            onClick={e => {
+            onClick={(e) => {
                 e.preventDefault()
                 deleteWithUndo(props)
             }}
@@ -138,28 +138,28 @@ DeleteWithUndo.propTypes = {
 }
 
 export let selectStyle = {
-    control: base => ({
+    control: (base) => ({
         ...base,
         height: 31,
         minHeight: 31,
     }),
-    indicatorsContainer: base => ({
+    indicatorsContainer: (base) => ({
         ...base,
         height: 31,
     }),
-    input: base => ({
+    input: (base) => ({
         ...base,
         paddingBottom: 0,
         paddingTop: 0,
         margin: 0,
         opacity: 1,
     }),
-    valueContainer: base => ({
+    valueContainer: (base) => ({
         ...base,
         padding: '0 8px',
         marginTop: -2,
     }),
-    option: base => ({
+    option: (base) => ({
         ...base,
         padding: '2px 15px',
     }),
@@ -167,10 +167,10 @@ export let selectStyle = {
 
 export let debounce = (func, wait, immediate) => {
     var timeout
-    return function() {
+    return function () {
         var context = this,
             args = arguments
-        var later = function() {
+        var later = function () {
             timeout = null
             if (!immediate) func.apply(context, args)
         }
@@ -181,7 +181,7 @@ export let debounce = (func, wait, immediate) => {
     }
 }
 
-export const capitalizeFirstLetter = string => {
+export const capitalizeFirstLetter = (string) => {
     return string.charAt(0).toUpperCase() + string.slice(1)
 }
 
@@ -201,7 +201,7 @@ export function isOperatorFlag(operator) {
     return ['is_set', 'is_not_set'].includes(operator)
 }
 
-export const formatProperty = property => {
+export const formatProperty = (property) => {
     return property.key + ` ${operatorMap[property.operator || 'exact'].split(' ')[0]} ` + property.value
 }
 
@@ -223,7 +223,7 @@ export const idToKey = (array, keyField = 'id') => {
     return object
 }
 
-export const delay = ms => new Promise(resolve => window.setTimeout(resolve, ms))
+export const delay = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms))
 
 // Trigger a window.reisize event a few times 0...2 sec after the menu was collapsed/expanded
 // We need this so the dashboard resizes itself properly, as the available div width will still
@@ -293,10 +293,7 @@ export function humanFriendlyDiff(from, to) {
 export function humanFriendlyDetailedTime(date, withSeconds = false) {
     let formatString = 'MMMM Do YYYY h:mm'
     const today = moment().startOf('day')
-    const yesterday = today
-        .clone()
-        .subtract(1, 'days')
-        .startOf('day')
+    const yesterday = today.clone().subtract(1, 'days').startOf('day')
     if (moment(date).isSame(today, 'd')) {
         formatString = '[Today] h:mm'
     } else if (moment(date).isSame(yesterday, 'd')) {
@@ -313,7 +310,7 @@ export function stripHTTP(url) {
     return url
 }
 
-export const eventToName = event => {
+export const eventToName = (event) => {
     if (event.event !== '$autocapture') return event.event
     let name = ''
     if (event.properties.$event_type === 'click') name += 'clicked '

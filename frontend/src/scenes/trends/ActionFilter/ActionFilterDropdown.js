@@ -12,7 +12,7 @@ export function ActionFilterDropdown({ onClickOutside, logic }) {
     const { eventNamesGrouped } = useValues(userLogic)
     const { actionsGrouped } = useValues(actionsModel)
 
-    const deselect = e => {
+    const deselect = (e) => {
         if (dropdownRef.current.contains(e.target)) {
             return
         }
@@ -58,11 +58,11 @@ export function ActionPanelContainer({ entityType, panelIndex, options, logic })
 
     const dropDownOnSelect = (value, name) =>
         updateFilter({ type: entityType, value: value, name, index: selectedFilter.index })
-    const dropDownOnHover = value => entities[entityType].filter(a => a.id === value)[0]
+    const dropDownOnHover = (value) => entities[entityType].filter((a) => a.id === value)[0]
 
     const redirect = () => {
         if (selectedFilter && selectedFilter.type === EntityTypes.ACTIONS && entityType === EntityTypes.ACTIONS) {
-            const action = entities[selectedFilter.type].filter(a => a.id === selectedFilter.filter.id)[0]
+            const action = entities[selectedFilter.type].filter((a) => a.id === selectedFilter.filter.id)[0]
             return (
                 <a href={'/action/' + selectedFilter.filter.id} target="_blank" rel="noopener noreferrer">
                     Edit "{action.name}" <i className="fi flaticon-export" />
