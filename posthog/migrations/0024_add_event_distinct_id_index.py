@@ -6,12 +6,12 @@ from django.db import migrations
 class Migration(migrations.Migration):
     atomic = False
     dependencies = [
-        ('posthog', '0023_team_opt_out_capture'),
+        ("posthog", "0023_team_opt_out_capture"),
     ]
 
     operations = [
         migrations.RunSQL(
-            'CREATE INDEX CONCURRENTLY idx_distinct_id ON posthog_event(distinct_id);',
+            "CREATE INDEX CONCURRENTLY idx_distinct_id ON posthog_event(distinct_id);",
             reverse_sql='DROP INDEX "idx_distinct_id";',
         ),
     ]

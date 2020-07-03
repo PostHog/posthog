@@ -8,18 +8,18 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0024_add_event_distinct_id_index'),
+        ("posthog", "0024_add_event_distinct_id_index"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='Cohort',
+            name="Cohort",
             fields=[
-                ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(blank=True, max_length=400, null=True)),
-                ('deleted', models.BooleanField(default=False)),
-                ('groups', django.contrib.postgres.fields.jsonb.JSONField(default=list)),
-                ('team', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='posthog.Team')),
+                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID",),),
+                ("name", models.CharField(blank=True, max_length=400, null=True)),
+                ("deleted", models.BooleanField(default=False)),
+                ("groups", django.contrib.postgres.fields.jsonb.JSONField(default=list),),
+                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.Team"),),
             ],
         ),
     ]

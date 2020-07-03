@@ -9,10 +9,10 @@ const POLL_TIMEOUT = 5000
 const formatEvents = (events, newEvents, apiUrl) => {
     let eventsFormatted = []
     if (!apiUrl) {
-        eventsFormatted = [...events.map(event => ({ event }))]
+        eventsFormatted = [...events.map((event) => ({ event }))]
     } else {
         eventsFormatted = [
-            ...events.map(item => ({
+            ...events.map((item) => ({
                 event: { ...item.event, actionName: item.action.name, actionId: item.action.id },
             })),
         ]
@@ -36,31 +36,31 @@ const formatEvents = (events, newEvents, apiUrl) => {
 export const eventsTableLogic = kea({
     // Set a unique key based on the fixed filters.
     // This way if we move back/forward between /events and /person/ID, the logic is reloaded.
-    key: props =>
+    key: (props) =>
         (props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all') +
         '-' +
         (props.apiUrl || 'events') +
         (props.live ? '-live' : ''),
 
     actions: () => ({
-        setProperties: properties => ({ properties }),
+        setProperties: (properties) => ({ properties }),
         fetchEvents: (nextParams = null) => ({ nextParams }),
         fetchEventsSuccess: (events, hasNext = false, isNext = false) => ({ events, hasNext, isNext }),
         fetchNextEvents: true,
         flipSort: true,
         pollEvents: true,
-        pollEventsSuccess: events => ({ events }),
-        prependNewEvents: events => ({ events }),
-        setSelectedEvent: selectedEvent => ({ selectedEvent }),
-        setPollTimeout: pollTimeout => ({ pollTimeout }),
+        pollEventsSuccess: (events) => ({ events }),
+        prependNewEvents: (events) => ({ events }),
+        setSelectedEvent: (selectedEvent) => ({ selectedEvent }),
+        setPollTimeout: (pollTimeout) => ({ pollTimeout }),
         setDelayedLoading: true,
-        setEventFilter: event => ({ event }),
+        setEventFilter: (event) => ({ event }),
     }),
 
     reducers: () => ({
         // save the pathname that was used when this logic was mounted
         // we use it to NOT update the filters when the user moves away from this path, yet the scene is still active
-        initialPathname: [state => router.selectors.location(state).pathname, { noop: a => a }],
+        initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
         properties: [
             [],
             {
@@ -104,7 +104,7 @@ export const eventsTableLogic = kea({
                 fetchEventsSuccess: (_, { hasNext }) => hasNext,
             },
         ],
-        orderBy: ['-timestamp', { flipSort: state => (state === 'timestamp' ? '-timestamp' : 'timestamp') }],
+        orderBy: ['-timestamp', { flipSort: (state) => (state === 'timestamp' ? '-timestamp' : 'timestamp') }],
         selectedEvent: [
             null,
             {
@@ -124,7 +124,7 @@ export const eventsTableLogic = kea({
                 pollEventsSuccess: () => ({}),
                 prependNewEvents: (_, { events }) => {
                     const highlightEvents = {}
-                    events.forEach(event => {
+                    events.forEach((event) => {
                         highlightEvents[event.id] = true
                     })
                     return highlightEvents
@@ -142,7 +142,7 @@ export const eventsTableLogic = kea({
     selectors: ({ selectors, props }) => ({
         propertiesForUrl: [
             () => [selectors.properties],
-            properties => {
+            (properties) => {
                 if (Object.keys(properties).length > 0) {
                     return { properties }
                 } else {

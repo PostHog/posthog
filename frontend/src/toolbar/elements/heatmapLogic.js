@@ -65,10 +65,10 @@ export const heatmapLogic = kea({
 
     selectors: {
         elements: [
-            selectors => [selectors.events],
-            events => {
+            (selectors) => [selectors.events],
+            (events) => {
                 const elements = events
-                    .map(event => {
+                    .map((event) => {
                         let combinedSelector
                         for (let i = 0; i < event.elements.length; i++) {
                             const selector = elementToSelector(event.elements[i])
@@ -98,14 +98,14 @@ export const heatmapLogic = kea({
                             // TODO: what if multiple elements will continue to match until the end?
                         }
                     })
-                    .filter(e => e)
+                    .filter((e) => e)
 
                 return elements
             },
         ],
         countedElements: [
-            selectors => [selectors.elements],
-            elements => {
+            (selectors) => [selectors.elements],
+            (elements) => {
                 const elementCounter = new Map()
                 const elementSelector = new Map()
                 elements.forEach(({ element, selector, count }) => {
@@ -132,15 +132,15 @@ export const heatmapLogic = kea({
                 return countedElements.map((e, i) => ({ ...e, position: i + 1 }))
             },
         ],
-        elementCount: [selectors => [selectors.countedElements], countedElements => countedElements.length],
+        elementCount: [(selectors) => [selectors.countedElements], (countedElements) => countedElements.length],
         clickCount: [
-            selectors => [selectors.countedElements],
-            countedElements => (countedElements ? countedElements.map(e => e.count).reduce((a, b) => a + b, 0) : 0),
+            (selectors) => [selectors.countedElements],
+            (countedElements) => (countedElements ? countedElements.map((e) => e.count).reduce((a, b) => a + b, 0) : 0),
         ],
         highestClickCount: [
-            selectors => [selectors.countedElements],
-            countedElements =>
-                countedElements ? countedElements.map(e => e.count).reduce((a, b) => (b > a ? b : a), 0) : 0,
+            (selectors) => [selectors.countedElements],
+            (countedElements) =>
+                countedElements ? countedElements.map((e) => e.count).reduce((a, b) => (b > a ? b : a), 0) : 0,
         ],
     },
 

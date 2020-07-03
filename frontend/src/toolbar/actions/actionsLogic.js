@@ -31,10 +31,10 @@ export const actionsLogic = kea({
                     return results.results
                 },
                 updateAction: ({ action }) => {
-                    return values.allActions.filter(r => r.id !== action.id).concat([action])
+                    return values.allActions.filter((r) => r.id !== action.id).concat([action])
                 },
                 deleteAction: ({ id }) => {
-                    return values.allActions.filter(r => r.id !== id)
+                    return values.allActions.filter((r) => r.id !== id)
                 },
             },
         ],
@@ -42,23 +42,23 @@ export const actionsLogic = kea({
 
     selectors: {
         sortedActions: [
-            s => [s.allActions],
-            allActions => [...allActions].sort((a, b) => (a.name || 'Untitled').localeCompare(b.name || 'Untitled')),
+            (s) => [s.allActions],
+            (allActions) => [...allActions].sort((a, b) => (a.name || 'Untitled').localeCompare(b.name || 'Untitled')),
         ],
         actionsForCurrentUrl: [
-            s => [s.sortedActions, currentPageLogic.selectors.href],
+            (s) => [s.sortedActions, currentPageLogic.selectors.href],
             (sortedActions, href) => {
                 if (sortedActions.length === 0) {
                     return []
                 }
 
                 const actionsWithSteps = sortedActions
-                    .filter(a => a.steps && a.steps.length > 0 && a.steps.find(s => s.event === '$autocapture'))
-                    .filter(a => a.steps.find(step => stepMatchesHref(step, href)))
+                    .filter((a) => a.steps && a.steps.length > 0 && a.steps.find((s) => s.event === '$autocapture'))
+                    .filter((a) => a.steps.find((step) => stepMatchesHref(step, href)))
 
                 return actionsWithSteps
             },
         ],
-        actionCount: [s => [s.actionsForCurrentUrl], actionsForCurrentUrl => actionsForCurrentUrl.length],
+        actionCount: [(s) => [s.actionsForCurrentUrl], (actionsForCurrentUrl) => actionsForCurrentUrl.length],
     },
 })

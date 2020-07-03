@@ -22,7 +22,7 @@ function _People() {
             document.querySelector('section.ant-layout > .content').parentNode.scrollTo({ top: 0, behavior: 'smooth' })
         api.get(
             url ? url : `api/person/?${search ? 'search=' + search : ''}${cohortId ? '&cohort=' + cohortId : ''}`
-        ).then(data => {
+        ).then((data) => {
             setPeople(data.results)
             setLoading(false)
             setPagination({ next: data.next, previous: data.previous })
@@ -34,7 +34,7 @@ function _People() {
     }, [cohortId])
 
     const exampleEmail =
-        (people && people.map(person => person.properties.email).filter(d => d)[0]) || 'example@gmail.com'
+        (people && people.map((person) => person.properties.email).filter((d) => d)[0]) || 'example@gmail.com'
 
     return (
         <div>
@@ -53,8 +53,8 @@ function _People() {
                 name="search"
                 autoFocus
                 value={search}
-                onChange={e => setSearch(e.target.value)}
-                onKeyDown={e => e.keyCode === 13 && fetchPeople({ search })}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => e.keyCode === 13 && fetchPeople({ search })}
                 placeholder={people && 'Try ' + exampleEmail + ' or has:email'}
                 style={{ maxWidth: 400 }}
             />

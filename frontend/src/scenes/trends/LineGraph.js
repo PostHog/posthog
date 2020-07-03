@@ -114,7 +114,7 @@ export class LineGraph extends Component {
                               footerSpacing: 0,
                               titleSpacing: 0,
                               callbacks: {
-                                  label: function(tooltipItem, data) {
+                                  label: function (tooltipItem, data) {
                                       let entityData = data.datasets[tooltipItem.datasetIndex]
                                       if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1))
                                           return null
@@ -126,7 +126,7 @@ export class LineGraph extends Component {
                                       ) {
                                           label += ` (${entityData.action.properties
                                               .map(
-                                                  property =>
+                                                  (property) =>
                                                       operatorMap[property.operator || 'exact'].split(' ')[0] +
                                                       ' ' +
                                                       property.value

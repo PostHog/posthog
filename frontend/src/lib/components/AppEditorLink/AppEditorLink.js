@@ -17,7 +17,7 @@ export function AppEditorLink({ actionId, style, className, children }) {
                 href={appEditorUrl(actionId, appUrls && appUrls[0])}
                 style={style}
                 className={className}
-                onClick={e => {
+                onClick={(e) => {
                     e.preventDefault()
                     setModalOpen(true)
                 }}

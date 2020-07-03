@@ -23,11 +23,11 @@ export function applyDockBodyStyles(htmlStyle, bodyStyle, zoom, padding, deferTr
 
 let listener
 export function attachDockScrollListener(zoom, padding) {
-    listener = function() {
+    listener = function () {
         const bodyElements = [...document.body.getElementsByTagName('*')]
         bodyElements
-            .filter(x => getComputedStyle(x, null).getPropertyValue('position') === 'fixed')
-            .forEach(e => {
+            .filter((x) => getComputedStyle(x, null).getPropertyValue('position') === 'fixed')
+            .forEach((e) => {
                 const h = (window.pageYOffset + (window.pageYOffset > padding ? -padding : 0)) / zoom
                 e.style.marginTop = `${h}px`
                 e.setAttribute('data-posthog-fix-fixed', 'yes')
@@ -35,8 +35,8 @@ export function attachDockScrollListener(zoom, padding) {
 
         const tweakedElements = [...document.querySelectorAll('[data-posthog-fix-fixed=yes]')]
         tweakedElements
-            .filter(x => getComputedStyle(x, null).getPropertyValue('position') !== 'fixed')
-            .forEach(e => {
+            .filter((x) => getComputedStyle(x, null).getPropertyValue('position') !== 'fixed')
+            .forEach((e) => {
                 e.style.marginTop = 0
             })
     }

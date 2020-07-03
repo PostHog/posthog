@@ -19,9 +19,9 @@ class Api {
         if (url.indexOf('http') !== 0) {
             url = '/' + url + (url.indexOf('?') == -1 && url[url.length - 1] != '/' ? '/' : '')
         }
-        return fetch(url).then(response => {
+        return fetch(url).then((response) => {
             if (!response.ok) {
-                return response.json().then(data => {
+                return response.json().then((data) => {
                     throw { status: response.status, ...data }
                 })
             }
@@ -39,9 +39,9 @@ class Api {
                 'X-CSRFToken': getCookie('csrftoken'),
             },
             body: JSON.stringify(data),
-        }).then(response => {
+        }).then((response) => {
             if (!response.ok) {
-                return response.json().then(data => {
+                return response.json().then((data) => {
                     if (Array.isArray(data)) {
                         throw data
                     }
@@ -62,9 +62,9 @@ class Api {
                 'X-CSRFToken': getCookie('csrftoken'),
             },
             body: JSON.stringify(data),
-        }).then(response => {
+        }).then((response) => {
             if (!response.ok) {
-                return response.json().then(data => {
+                return response.json().then((data) => {
                     if (Array.isArray(data)) {
                         throw data
                     }
@@ -84,9 +84,9 @@ class Api {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRFToken': getCookie('csrftoken'),
             },
-        }).then(response => {
+        }).then((response) => {
             if (!response.ok) {
-                return response.json().then(data => {
+                return response.json().then((data) => {
                     throw { status: response.status, ...data }
                 })
             }

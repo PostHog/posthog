@@ -6,13 +6,19 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0036_remove_current_url_index'),
+        ("posthog", "0036_remove_current_url_index"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='actionstep',
-            name='url_matching',
-            field=models.CharField(blank=True, choices=[('exact', 'exact'), ('contains', 'contains')], default='contains', max_length=400, null=True),
+            model_name="actionstep",
+            name="url_matching",
+            field=models.CharField(
+                blank=True,
+                choices=[("exact", "exact"), ("contains", "contains")],
+                default="contains",
+                max_length=400,
+                null=True,
+            ),
         ),
     ]

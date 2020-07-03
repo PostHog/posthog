@@ -27,6 +27,11 @@
     opacity: 1;
     transition: opacity ease 0.5s;
 
+    .toolbar-block {
+        max-height: 80vh;
+        overflow: auto;
+    }
+
     .toolbar-info-window-title {
         height: 42px;
         line-height: 26px;

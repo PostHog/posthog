@@ -48,9 +48,7 @@ def _load_data(request) -> Optional[Union[Dict, List]]:
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
-    if (
-        len(timestamp) > 11
-    ):  # assuming milliseconds / update "11" to "12" if year > 5138 (set a reminder!)
+    if len(timestamp) > 11:  # assuming milliseconds / update "11" to "12" if year > 5138 (set a reminder!)
         timestamp_number = float(timestamp) / 1000
     else:
         timestamp_number = int(timestamp)
@@ -63,9 +61,7 @@ def _get_sent_at(data, request) -> Optional[datetime]:
         sent_at = request.GET["_"]
     elif isinstance(data, dict) and data.get("sent_at"):  # posthog-android, posthog-ios
         sent_at = data["sent_at"]
-    elif request.POST.get(
-        "sent_at"
-    ):  # when urlencoded body and not JSON (in some test)
+    elif request.POST.get("sent_at"):  # when urlencoded body and not JSON (in some test)
         sent_at = request.POST["sent_at"]
     else:
         return None
@@ -84,9 +80,7 @@ def _get_token(data, request) -> Optional[str]:
     if data.get("$token"):
         return data["$token"]  # JS identify call
     if data.get("api_key"):
-        return data[
-            "api_key"
-        ]  # server-side libraries like posthog-python and posthog-ruby
+        return data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
     if data.get("properties") and data["properties"].get("token"):
         return data["properties"]["token"]  # JS capture call
     return None
@@ -155,12 +149,7 @@ def get_event(request):
             return cors_response(
                 request,
                 JsonResponse(
-                    {
-                        "code": "validation",
-                        "message": "You need to set a distinct_id.",
-                        "item": event,
-                    },
-                    status=400,
+                    {"code": "validation", "message": "You need to set a distinct_id.", "item": event,}, status=400,
                 ),
             )
         process_event.delay(

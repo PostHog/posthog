@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 
 export const funnelLogic = kea({
-    key: props => props.id || 'new',
+    key: (props) => props.id || 'new',
 
     actions: () => ({
         setFunnel: (funnel, update) => ({ funnel, update }),
@@ -16,10 +16,10 @@ export const funnelLogic = kea({
                 loadFunnel: async (id = props.id) => {
                     return await api.get('api/funnel/' + id + '/?exclude_count=1')
                 },
-                updateFunnel: async funnel => {
+                updateFunnel: async (funnel) => {
                     return await api.update('api/funnel/' + funnel.id, funnel)
                 },
-                createFunnel: async funnel => {
+                createFunnel: async (funnel) => {
                     return await api.create('api/funnel', funnel)
                 },
             },
@@ -30,7 +30,7 @@ export const funnelLogic = kea({
             },
         },
         people: {
-            loadPeople: async steps => {
+            loadPeople: async (steps) => {
                 return (await api.get('api/person/?id=' + steps[0].people.join(','))).results
             },
         },
@@ -51,7 +51,7 @@ export const funnelLogic = kea({
             () => [selectors.stepsWithCount, selectors.people],
             (steps, people) => {
                 if (!people) return null
-                const score = person => {
+                const score = (person) => {
                     return steps.reduce((val, step) => (step.people.indexOf(person.id) > -1 ? val + 1 : val), 0)
                 }
                 return people.sort((a, b) => score(b) - score(a))
@@ -59,7 +59,7 @@ export const funnelLogic = kea({
         ],
         isStepsEmpty: [
             () => [selectors.funnel],
-            funnel => {
+            (funnel) => {
                 return funnel && [...(funnel.filters.actions || []), ...(funnel.filters.events || [])].length === 0
             },
         ],

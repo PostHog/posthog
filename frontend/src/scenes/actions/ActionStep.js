@@ -4,10 +4,10 @@ import { AppEditorLink } from '../../lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 
-let getSafeText = el => {
+let getSafeText = (el) => {
     if (!el.childNodes || !el.childNodes.length) return
     let elText = ''
-    el.childNodes.forEach(child => {
+    el.childNodes.forEach((child) => {
         if (child.nodeType !== 3 || !child.textContent) return
         elText += child.textContent
             .trim()
@@ -22,7 +22,7 @@ export class ActionStep extends Component {
         super(props)
         this.state = {
             step: props.step,
-            selection: Object.keys(props.step).filter(key => key != 'id' && key != 'isNew' && props.step[key]),
+            selection: Object.keys(props.step).filter((key) => key != 'id' && key != 'isNew' && props.step[key]),
             inspecting: false,
         }
         this.AutocaptureFields = this.AutocaptureFields.bind(this)
@@ -42,12 +42,12 @@ export class ActionStep extends Component {
         this.box.style.opacity = '0.5'
         this.box.style.zIndex = '9999999999'
     }
-    onMouseOver = event => {
+    onMouseOver = (event) => {
         let el = event.currentTarget
         this.drawBox(el)
         let query = this.props.simmer(el)
         // Turn tags into lower cases
-        query = query.replace(/(^[A-Z]+| [A-Z]+)/g, d => d.toLowerCase())
+        query = query.replace(/(^[A-Z]+| [A-Z]+)/g, (d) => d.toLowerCase())
         let tagName = el.tagName.toLowerCase()
 
         let selection = ['selector']
@@ -72,13 +72,13 @@ export class ActionStep extends Component {
             () => this.sendStep(step)
         )
     }
-    onKeyDown = event => {
+    onKeyDown = (event) => {
         // stop selecting if esc key was pressed
         if (event.keyCode == 27) this.stop()
     }
     start() {
         this.setState({ inspecting: true })
-        document.querySelectorAll('a, button, input, select, textarea, label').forEach(element => {
+        document.querySelectorAll('a, button, input, select, textarea, label').forEach((element) => {
             element.addEventListener('mouseover', this.onMouseOver, {
                 capture: true,
             })
@@ -93,19 +93,19 @@ export class ActionStep extends Component {
         this.setState({ inspecting: false })
         this.box.style.display = 'none'
         document.body.style.boxShadow = 'none'
-        document.querySelectorAll('a, button, input, select, textarea, label').forEach(element => {
+        document.querySelectorAll('a, button, input, select, textarea, label').forEach((element) => {
             element.removeEventListener('mouseover', this.onMouseOver, {
                 capture: true,
             })
         })
         document.removeEventListener('keydown', this.onKeyDown)
     }
-    sendStep = step => {
+    sendStep = (step) => {
         step.selection = this.state.selection
         this.props.onChange(step)
     }
-    Option = props => {
-        let onChange = e => {
+    Option = (props) => {
+        let onChange = (e) => {
             this.props.step[props.item] = e.target.value
 
             if (e.target.value && this.state.selection.indexOf(props.item) === -1) {
@@ -115,7 +115,7 @@ export class ActionStep extends Component {
             } else if (!e.target.value && this.state.selection.indexOf(props.item) > -1) {
                 this.setState(
                     {
-                        selection: this.state.selection.filter(i => i !== props.item),
+                        selection: this.state.selection.filter((i) => i !== props.item),
                     },
                     () => this.sendStep(this.props.step)
                 )
@@ -142,12 +142,12 @@ export class ActionStep extends Component {
                         name="selection"
                         checked={this.state.selection.indexOf(props.item) > -1}
                         value={props.item}
-                        onChange={e => {
+                        onChange={(e) => {
                             let { selection } = this.state
                             if (e.target.checked) {
                                 selection.push(props.item)
                             } else {
-                                selection = selection.filter(i => i !== props.item)
+                                selection = selection.filter((i) => i !== props.item)
                             }
                             this.setState({ selection }, () => this.sendStep(this.props.step))
                         }}
@@ -178,7 +178,7 @@ export class ActionStep extends Component {
                             this.setState(
                                 {
                                     selection: Object.keys(step).filter(
-                                        key => key != 'id' && key != 'isNew' && step[key]
+                                        (key) => key != 'id' && key != 'isNew' && step[key]
                                     ),
                                 },
                                 () => this.sendStep({ ...step, event: '$autocapture' })
@@ -345,7 +345,7 @@ export class ActionStep extends Component {
                                 <EventName
                                     value={step.event}
                                     isActionStep={true}
-                                    onChange={value =>
+                                    onChange={(value) =>
                                         this.sendStep({
                                             ...step,
                                             event: value,
@@ -372,7 +372,7 @@ export class ActionStep extends Component {
                             <PropertyFilters
                                 propertyFilters={step.properties}
                                 pageKey={'action-edit'}
-                                onChange={properties => {
+                                onChange={(properties) => {
                                     this.sendStep({
                                         ...this.props.step, // Not sure why, but the normal 'step' variable does not work here
                                         properties,

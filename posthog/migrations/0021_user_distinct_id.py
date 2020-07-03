@@ -3,27 +3,28 @@
 from django.db import migrations, models
 import secrets
 
+
 def forwards_func(apps, schema_editor):
-    User = apps.get_model('posthog', 'User')
+    User = apps.get_model("posthog", "User")
     users = User.objects.all()
     for user in users:
         user.distinct_id = secrets.token_urlsafe(32)
         user.save()
 
+
 def reverse_func(apps, schema_editor):
     pass
+
 
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0020_auto_20200210_0212'),
+        ("posthog", "0020_auto_20200210_0212"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='user',
-            name='distinct_id',
-            field=models.CharField(blank=True, max_length=200, null=True),
+            model_name="user", name="distinct_id", field=models.CharField(blank=True, max_length=200, null=True),
         ),
-        migrations.RunPython(forwards_func, reverse_func)
+        migrations.RunPython(forwards_func, reverse_func),
     ]

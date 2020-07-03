@@ -19,7 +19,7 @@ const saveToDashboardModalLogic = kea({
                 placeholder: 'Please enter a name',
                 value: '',
                 error: 'You must enter name',
-                success: name => dashboardsModel.actions.addDashboard({ name }),
+                success: (name) => dashboardsModel.actions.addDashboard({ name }),
             })
         },
 
@@ -51,7 +51,7 @@ export function SaveToDashboardModal({
     const [visible, setVisible] = useState(true)
     const [newItem, setNewItem] = useState(type === 'FunnelViz' || !fromItem)
     const fromDashboardName =
-        (fromDashboard ? dashboards.find(d => d.id === parseInt(fromDashboard)) : null)?.name || 'Untitled'
+        (fromDashboard ? dashboards.find((d) => d.id === parseInt(fromDashboard)) : null)?.name || 'Untitled'
 
     async function save(event) {
         event.preventDefault()
@@ -81,7 +81,7 @@ export function SaveToDashboardModal({
             <form onSubmit={save}>
                 {fromItem && type !== 'FunnelViz' ? (
                     <Radio.Group
-                        onChange={e => setNewItem(e.target.value === 'true')}
+                        onChange={(e) => setNewItem(e.target.value === 'true')}
                         value={`${newItem}`}
                         style={{ display: 'block', marginBottom: newItem ? 30 : 0 }}
                     >
@@ -123,7 +123,7 @@ export function SaveToDashboardModal({
                             placeholder="Users who did x"
                             autoFocus={!name}
                             value={name}
-                            onChange={e => setName(e.target.value)}
+                            onChange={(e) => setName(e.target.value)}
                         />
 
                         <br />
@@ -132,10 +132,10 @@ export function SaveToDashboardModal({
                         <label>Dashboard</label>
                         <Select
                             value={dashboardId}
-                            onChange={id => (id === 'new' ? addNewDashboard() : setDashboardId(id))}
+                            onChange={(id) => (id === 'new' ? addNewDashboard() : setDashboardId(id))}
                             style={{ width: '100%' }}
                         >
-                            {dashboards.map(dashboard => (
+                            {dashboards.map((dashboard) => (
                                 <Select.Option key={dashboard.id} value={dashboard.id}>
                                     {dashboard.name}
                                 </Select.Option>

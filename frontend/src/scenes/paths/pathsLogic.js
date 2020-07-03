@@ -24,9 +24,9 @@ export const pathOptionsToProperty = {
 }
 
 function checkRoot(nodeToVerify, paths, start) {
-    let tempSource = paths.find(node => node.target === nodeToVerify.source)
+    let tempSource = paths.find((node) => node.target === nodeToVerify.source)
     while (tempSource !== undefined && !(tempSource.source.includes('1_') && tempSource.source.includes(start))) {
-        tempSource = paths.find(node => node.target === tempSource.source)
+        tempSource = paths.find((node) => node.target === tempSource.source)
     }
     return tempSource
 }
@@ -42,7 +42,7 @@ export const pathsLogic = kea({
                 const params = toParams({ ...values.filter, properties: values.properties })
                 let paths = await api.get(`api/paths${params ? `/?${params}` : ''}`)
                 if (values.filter.start) {
-                    paths = paths.filter(checkingNode => {
+                    paths = paths.filter((checkingNode) => {
                         return (
                             checkingNode.source.includes(values.filter.start) ||
                             checkRoot(checkingNode, paths, values.filter.start)
@@ -51,8 +51,8 @@ export const pathsLogic = kea({
                 }
                 const response = {
                     nodes: [
-                        ...paths.map(path => ({ name: path.source, id: path.source_id })),
-                        ...paths.map(path => ({ name: path.target, id: path.target_id })),
+                        ...paths.map((path) => ({ name: path.source, id: path.source_id })),
+                        ...paths.map((path) => ({ name: path.target, id: path.target_id })),
                     ],
                     links: paths,
                 }
@@ -62,7 +62,7 @@ export const pathsLogic = kea({
         },
     }),
     reducers: () => ({
-        initialPathname: [state => router.selectors.location(state).pathname, { noop: a => a }],
+        initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
         filter: [
             {
                 type: '$pageview',
@@ -79,8 +79,8 @@ export const pathsLogic = kea({
         ],
     }),
     actions: () => ({
-        setProperties: properties => ({ properties }),
-        setFilter: filter => filter,
+        setProperties: (properties) => ({ properties }),
+        setFilter: (filter) => filter,
     }),
     listeners: ({ actions, values }) => ({
         setProperties: () => {
