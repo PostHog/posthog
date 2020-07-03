@@ -66,57 +66,74 @@ class TestSignup(TestCase):
         self.assertRedirects(response, "/")
     
     def test_setup_admin_invalid(self):
+        default_req_args = {
+                    "company_name": "ACME Inc.",
+                    "name": "Jane",
+                    "email": "jane@acme.com",
+                    "password": "hunter2",
+                    "emailOptIn": "on",
+        }
         with self.settings(TEST=False):
-            invalid_comp_res = self.client.post(
-                "/setup_admin",
-                {"company_name": "","name": "Jane","email": "jane@acme.com","password": "hunter2","emailOptIn": "on"},
-                follow=True,
-            )
-            invalid_name_res = self.client.post(
-                "/setup_admin",
-                {"company_name": "ACME Inc.","name": "","email": "jane@acme.com","password": "hunter2","emailOptIn": "on"},
-                follow=True,
-            )
-            invalid_email_res = self.client.post(
-                "/setup_admin",
-                {"company_name": "ACME Inc.","name": "Jane","email": "janeacme","password": "hunter2","emailOptIn": "on"},
-                follow=True,
-            )
-            invalid_pass_res = self.client.post(
-                "/setup_admin",
-                {"company_name": "ACME Inc.","name": "Jane","email": "jane@acme.com","password": "","emailOptIn": "on",},
-                follow=True,
-            )
+            # Check invalid company name with all other fields valid
+            invalid_company_req = {**default_req_args}
+            invalid_company_req["company_name"] = ""
+            invalid_company_res = self.client.post("/setup_admin", invalid_company_req, follow=True)
+            # Check invalid name with all other fields valid
+            invalid_name_req = {**default_req_args}
+            invalid_name_req["name"] = ""
+            invalid_name_res = self.client.post("/setup_admin", invalid_name_req, follow=True)
+            # Check invalid email with all other fields valid
+            invalid_email_req = {**default_req_args}
+            invalid_email_req["email"] = "janeacme"
+            invalid_email_res = self.client.post("/setup_admin", invalid_email_req, follow=True)
+            # Check invalid password with all other fields valid
+            invalid_password_req = {**default_req_args}
+            invalid_password_req["password"] = ""
+            invalid_password_res = self.client.post("/setup_admin", invalid_password_req, follow=True)
+
         ERROR_MSG = "Please make sure no fields are empty and that the email entered is valid."
-        self.assertContains(invalid_comp_res, ERROR_MSG)
+        self.assertContains(invalid_company_res, ERROR_MSG)
         self.assertContains(invalid_name_res, ERROR_MSG)
         self.assertContains(invalid_email_res, ERROR_MSG)
-        self.assertContains(invalid_pass_res, ERROR_MSG)
+        self.assertContains(invalid_password_res, ERROR_MSG)
     
     def test_signup_to_team_invalid(self):
+        default_req_args = {
+                    "name": "Jane",
+                    "email": "jane@acme.com",
+                    "password": "hunter2",
+                    "emailOptIn": "on",
+        }
         team = Team.objects.create_with_data(
-            name="test", users=[User.objects.create_user(email="adminuser@posthog.com")]
+            name="test", 
+            users=[User.objects.create_user(email="adminuser@posthog.com")]
         )
         with self.settings(TEST=False):
+            invalid_name_req = {**default_req_args}
+            invalid_name_req["name"] = ""
             invalid_name_res = self.client.post(
                 "/signup/{}".format(team.signup_token),
-                {"name": "", "email": "jane@acme.com", "password": "hunter2", "emailOptIn": "",},
+                invalid_name_req,
                 follow=True,
             )
+            invalid_email_req = {**default_req_args}
+            invalid_email_req["email"] = "janeacme"
             invalid_email_res = self.client.post(
                 "/signup/{}".format(team.signup_token),
-                {"name": "Jane", "email": "janeacme", "password": "hunter2", "emailOptIn": "",},
+                invalid_email_req,
                 follow=True,
             )
-            invalid_pass_res = self.client.post(
+            invalid_password_req = {**default_req_args}
+            invalid_password_req["password"] = ""
+            invalid_password_res = self.client.post(
                 "/signup/{}".format(team.signup_token),
-                {"name": "Jane", "email": "jane@acme.com", "password": "", "emailOptIn": "",},
+                invalid_password_req,
                 follow=True,
             )
         ERROR_MSG = "Please make sure no fields are empty and that the email entered is valid."
         self.assertContains(invalid_name_res, ERROR_MSG)
         self.assertContains(invalid_email_res, ERROR_MSG)
-        self.assertContains(invalid_pass_res, ERROR_MSG)
+        self.assertContains(invalid_password_res, ERROR_MSG)
 
 class TestSocialSignup(TestCase):
     def setUp(self):
