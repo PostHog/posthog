@@ -8,6 +8,7 @@ from posthog.tasks.process_event import process_event
 from datetime import datetime
 from dateutil import parser
 from sentry_sdk import push_scope
+import lzstring  # type: ignore
 import re
 import json
 import secrets
@@ -19,9 +20,6 @@ def _load_data(request) -> Optional[Union[Dict, List]]:
     if request.method == "POST":
         if request.content_type == "application/json":
             data = request.body
-
-            if request.headers.get("content-encoding", "").lower() == "gzip":
-                data = gzip.decompress(data)
         else:
             data = request.POST.get("data")
     else:
@@ -32,6 +30,20 @@ def _load_data(request) -> Optional[Union[Dict, List]]:
     # add the data in sentry's scope in case there's an exception
     with push_scope() as scope:
         scope.set_context("data", data)
+
+    compression = (
+        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
+    )
+    compression = compression.lower()
+
+    if compression == "gzip":
+        data = gzip.decompress(data)
+
+    if compression == "lz64":
+        if isinstance(data, str):
+            data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
+        else:
+            data = lzstring.LZString().decompressFromBase64(data.decode().replace(" ", "+"))
 
     #  Is it plain json?
     try:
