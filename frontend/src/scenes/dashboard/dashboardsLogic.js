@@ -11,7 +11,7 @@ export const dashboardsLogic = kea({
     selectors: () => ({
         dashboards: [
             () => [dashboardsModel.selectors.dashboards],
-            dashboards => dashboards.filter(d => !d.deleted).sort((a, b) => a.name.localeCompare(b.name)),
+            (dashboards) => dashboards.filter((d) => !d.deleted).sort((a, b) => a.name.localeCompare(b.name)),
         ],
     }),
 
@@ -22,7 +22,7 @@ export const dashboardsLogic = kea({
                 placeholder: 'Please enter a name',
                 value: '',
                 error: 'You must enter name',
-                success: name => dashboardsModel.actions.addDashboard({ name }),
+                success: (name) => dashboardsModel.actions.addDashboard({ name }),
             })
         },
 

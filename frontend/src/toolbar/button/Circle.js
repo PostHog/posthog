@@ -34,7 +34,7 @@ export function Circle({
     let usedRotation = (useCoords ? Math.atan2(y, x) * (180 / Math.PI) : rotation) - accumulatedRotation
     usedRotation = usedRotation + rotationFixer(usedRotation)
 
-    const clonedChildren = React.Children.toArray(children).map(child =>
+    const clonedChildren = React.Children.toArray(children).map((child) =>
         React.cloneElement(child, {
             accumulatedRotation: usedRotation + accumulatedRotation,
         })

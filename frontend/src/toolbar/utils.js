@@ -1,12 +1,21 @@
 import Simmer from 'simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
 
+const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
+
+// This trims the "hovered" DOM node down. For example:
+// - div > div > div > svg > path  <--- ignore the path, just inpsect the full image/svg
+// - div > div > button > span     <--- we probably care about the button, not the span
+// - div > div > a > span          <--- same with links
+const DOM_TRIM_DOWN_SELECTOR = 'a, svg, button'
+const TAGS_TO_IGNORE = ['html', 'body', 'meta', 'head', 'script', 'link', 'style']
+
 const simmer = new Simmer(window, { depth: 8 })
 
 export function getSafeText(el) {
     if (!el.childNodes || !el.childNodes.length) return
     let elText = ''
-    el.childNodes.forEach(child => {
+    el.childNodes.forEach((child) => {
         if (child.nodeType !== 3 || !child.textContent) return
         elText += child.textContent
             .trim()
@@ -24,7 +33,7 @@ export function elementToQuery(element) {
     return (
         simmer(element)
             // Turn tags into lower cases
-            .replace(/(^[A-Z]+| [A-Z]+)/g, d => d.toLowerCase())
+            .replace(/(^[A-Z]+| [A-Z]+)/g, (d) => d.toLowerCase())
     )
 }
 
@@ -54,8 +63,8 @@ export function elementToSelector(element) {
     }
     if (element.attr_class) {
         selector += element.attr_class
-            .filter(a => a)
-            .map(a => `.${cssEscape(a)}`)
+            .filter((a) => a)
+            .map((a) => `.${cssEscape(a)}`)
             .join('')
     }
     if (element.href) {
@@ -74,13 +83,9 @@ export function getShadowRoot() {
     return window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot
 }
 
-const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
-
-// This trims the "hovered" DOM node down. For example:
-// - div > div > div > svg > path  <--- ignore the path, just inpsect the full image/svg
-// - div > div > button > span     <--- we probably care about the button, not the span
-// - div > div > a > span          <--- same with links
-const DOM_TRIM_DOWN_SELECTOR = 'a, svg, button'
+export function hasCursorPointer(element) {
+    return window.getComputedStyle(element)?.getPropertyValue('cursor') === 'pointer'
+}
 
 export function trimElement(element, selectingClickTargets = false) {
     if (!element) {
@@ -132,10 +137,10 @@ export function getAllClickTargets() {
     const elements = document.querySelectorAll(CLICK_TARGET_SELECTOR)
 
     let allElements = [...document.querySelectorAll('*')]
-    const clickTags = CLICK_TARGET_SELECTOR.split(',').map(c => c.trim())
+    const clickTags = CLICK_TARGET_SELECTOR.split(',').map((c) => c.trim())
 
     // loop through all elements and getComputedStyle
-    const pointerElements = allElements.filter(el => {
+    const pointerElements = allElements.filter((el) => {
         if (clickTags.indexOf(el.tagName.toLowerCase()) >= 0) {
             return false
         }
@@ -143,7 +148,7 @@ export function getAllClickTargets() {
         return compStyles.getPropertyValue('cursor') === 'pointer'
     })
 
-    const selectedElements = [...elements, ...pointerElements].map(e => trimElement(e, true))
+    const selectedElements = [...elements, ...pointerElements].map((e) => trimElement(e, true))
     const uniqueElements = Array.from(new Set(selectedElements))
 
     return uniqueElements
@@ -163,15 +168,20 @@ export function stepMatchesHref(step, href) {
 }
 
 function matchRuleShort(str, rule) {
-    const escapeRegex = str => str.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
-    return new RegExp(
-        '^' +
-            rule
-                .split('%')
-                .map(escapeRegex)
-                .join('.*') +
-            '$'
-    ).test(str)
+    const escapeRegex = (str) => str.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
+    return new RegExp('^' + rule.split('%').map(escapeRegex).join('.*') + '$').test(str)
+}
+
+export function isParentOf(element, possibleParent) {
+    let loopElement = element
+    while (loopElement) {
+        if (loopElement !== element && loopElement === possibleParent) {
+            return true
+        }
+        loopElement = loopElement.parentElement
+    }
+
+    return false
 }
 
 export function getElementForStep(step) {
@@ -183,28 +193,42 @@ export function getElementForStep(step) {
     if (step.selector && (step.selector_selected || typeof step.selector_selected === 'undefined')) {
         selector = step.selector
     }
+
     if (step.href && (step.href_selected || typeof step.href_selected === 'undefined')) {
         selector += `[href="${cssEscape(step.href)}"]`
     }
-    if (step.text && (step.text_selected || typeof step.text_selected === 'undefined')) {
-        // TODO
-        // selector += `:nth-of-type(${parseInt(element.nth_of_type)})`
-    }
 
-    if (!selector) {
+    const hasText = step.text && step.text.trim() && (step.text_selected || typeof step.text_selected === 'undefined')
+
+    if (!selector && !hasText) {
         return null
     }
 
+    let elements
     try {
-        const elements = document.querySelectorAll(selector)
-        if (elements.length === 1) {
-            return elements[0]
-        }
-        // TODO: what if multiple match?
+        elements = document.querySelectorAll(selector || '*')
     } catch (e) {
         console.error('Can not use selector:', selector)
         throw e
     }
+
+    if (hasText) {
+        const textToSearch = step.text.toString().trim()
+        elements = [...elements].filter(
+            (e) =>
+                TAGS_TO_IGNORE.indexOf(e.tagName.toLowerCase()) === -1 &&
+                e.innerText?.trim() === textToSearch &&
+                (e.matches(CLICK_TARGET_SELECTOR) || hasCursorPointer(e))
+        )
+        elements = elements.filter((e) => !elements.find((e2) => isParentOf(e2, e)))
+    }
+
+    if (elements.length === 1) {
+        return elements[0]
+    }
+
+    // TODO: what if multiple match?
+
     return null
 }
 

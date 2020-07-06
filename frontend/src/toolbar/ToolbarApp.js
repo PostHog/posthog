@@ -20,9 +20,9 @@ export function ToolbarApp(props) {
         }
 
         if (window.__PHGTLB_STYLES__) {
-            window.__PHGTLB_STYLES__.forEach(element => addStyleElementToShadowRoot(element))
+            window.__PHGTLB_STYLES__.forEach((element) => addStyleElementToShadowRoot(element))
         }
-        window.__PHGTLB_ADD_STYLES__ = element => addStyleElementToShadowRoot(element)
+        window.__PHGTLB_ADD_STYLES__ = (element) => addStyleElementToShadowRoot(element)
     })
 
     return (

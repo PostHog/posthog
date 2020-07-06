@@ -42,6 +42,7 @@ def get_decide(request: HttpRequest):
         "config": {"enable_collect_everything": True},
         "editorParams": {},
         "isAuthenticated": False,
+        "supportedCompression": ["gzip", "lz64"],
     }
 
     if request.user.is_authenticated:
@@ -59,8 +60,8 @@ def get_decide(request: HttpRequest):
             response["isAuthenticated"] = True
             editor_params = {}
 
-            if request.user.toolbar_mode == 'toolbar':
-                editor_params['toolbarVersion'] = 'toolbar'
+            if request.user.toolbar_mode == "toolbar":
+                editor_params["toolbarVersion"] = "toolbar"
 
             if settings.DEBUG:
                 editor_params["jsURL"] = "http://localhost:8234/"

@@ -63,7 +63,7 @@ function _Trends() {
                                 style={{
                                     overflow: 'visible',
                                 }}
-                                onChange={key => setActiveView(key)}
+                                onChange={(key) => setActiveView(key)}
                                 animated={false}
                             >
                                 <TabPane tab={'Actions & Events'} key={ViewType.FILTERS}>
@@ -114,10 +114,16 @@ function _Trends() {
                                             ></InfoCircleOutlined>
                                         </Tooltip>
                                     </h4>
-                                    <ShownAsFilter filters={filters} onChange={shown_as => setFilters({ shown_as })} />
+                                    <ShownAsFilter
+                                        filters={filters}
+                                        onChange={(shown_as) => setFilters({ shown_as })}
+                                    />
                                 </TabPane>
                                 <TabPane tab="Sessions" key={ViewType.SESSIONS} data-attr="trends-sessions-tab">
-                                    <SessionFilter value={filters.session} onChange={v => setFilters({ session: v })} />
+                                    <SessionFilter
+                                        value={filters.session}
+                                        onChange={(v) => setFilters({ session: v })}
+                                    />
                                     <hr />
                                     <h4 className="secondary">Filters</h4>
                                     <PropertyFilters pageKey="trends-sessions" style={{ marginBottom: 0 }} />
@@ -154,7 +160,7 @@ function _Trends() {
                                     dateTo={filters.date_to}
                                 />
                                 <Checkbox
-                                    onChange={e => {
+                                    onChange={(e) => {
                                         setFilters({ compare: e.target.checked })
                                     }}
                                     checked={filters.compare}

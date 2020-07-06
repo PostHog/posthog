@@ -90,9 +90,7 @@ class Selector(object):
 
 
 class EventManager(models.QuerySet):
-    def _element_subquery(
-        self, selector: Selector
-    ) -> Tuple[Dict[str, Subquery], Dict[str, Union[F, bool]]]:
+    def _element_subquery(self, selector: Selector) -> Tuple[Dict[str, Subquery], Dict[str, Union[F, bool]]]:
         filter: Dict[str, Union[F, bool]] = {}
         subqueries = {}
         for index, tag in enumerate(selector.parts):
@@ -107,14 +105,10 @@ class EventManager(models.QuerySet):
             if index > 0:
                 # If direct descendant, the next element has to have order +1
                 if tag.direct_descendant:
-                    filter["match_{}".format(index)] = (
-                        F("match_{}".format(index - 1)) + 1
-                    )
+                    filter["match_{}".format(index)] = F("match_{}".format(index - 1)) + 1
                 else:
                     # If not, it can have any order as long as it's bigger than current element
-                    filter["match_{}__gt".format(index)] = F(
-                        "match_{}".format(index - 1)
-                    )
+                    filter["match_{}__gt".format(index)] = F("match_{}".format(index - 1))
         return (subqueries, filter)
 
     def filter_by_element(self, filters: Dict, team_id: int):
@@ -141,11 +135,7 @@ class EventManager(models.QuerySet):
             return subquery
         url_exact = action_step.url_matching == ActionStep.EXACT
         return subquery.extra(
-            where=[
-                "properties ->> '$current_url' {} %s".format(
-                    "=" if url_exact else "LIKE"
-                )
-            ],
+            where=["properties ->> '$current_url' {} %s".format("=" if url_exact else "LIKE")],
             params=[action_step.url if url_exact else "%{}%".format(action_step.url)],
         )
 
@@ -157,9 +147,7 @@ class EventManager(models.QuerySet):
     def add_person_id(self, team_id: int):
         return self.annotate(
             person_id=Subquery(
-                PersonDistinctId.objects.filter(
-                    team_id=team_id, distinct_id=OuterRef("distinct_id")
-                )
+                PersonDistinctId.objects.filter(team_id=team_id, distinct_id=OuterRef("distinct_id"))
                 .order_by()
                 .values("person_id")[:1]
             )
@@ -176,14 +164,10 @@ class EventManager(models.QuerySet):
             subquery = (
                 Event.objects.add_person_id(team_id=action.team_id)
                 .filter(
-                    Filter(data={"properties": step.properties}).properties_to_Q(
-                        team_id=action.team_id
-                    ),
+                    Filter(data={"properties": step.properties}).properties_to_Q(team_id=action.team_id),
                     pk=OuterRef("id"),
                     **self.filter_by_event(step),
-                    **self.filter_by_element(
-                        model_to_dict(step), team_id=action.team_id
-                    )
+                    **self.filter_by_element(model_to_dict(step), team_id=action.team_id)
                 )
                 .only("id")
             )
@@ -202,30 +186,19 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def filter_by_event_with_people(
-        self, event, team_id, order_by="-id"
-    ) -> models.QuerySet:
-        events = (
-            self.filter(team_id=team_id)
-            .filter(event=event)
-            .add_person_id(team_id=team_id)
-        )
+    def filter_by_event_with_people(self, event, team_id, order_by="-id") -> models.QuerySet:
+        events = self.filter(team_id=team_id).filter(event=event).add_person_id(team_id=team_id)
         if order_by:
             events = events.order_by(order_by)
         return events
 
     def query_retention(self, filters, team, event="$pageview") -> models.QuerySet:
         filtered_events = (
-            Event.objects.filter(filters.date_filter_Q)
-            .filter(team=team)
-            .add_person_id(team.pk)
-            .filter(event=event)
+            Event.objects.filter(filters.date_filter_Q).filter(team=team).add_person_id(team.pk).filter(event=event)
         )
 
         first_date = (
-            filtered_events.annotate(first_date=TruncDay("timestamp"))
-            .values("first_date", "person_id")
-            .distinct()
+            filtered_events.annotate(first_date=TruncDay("timestamp")).values("first_date", "person_id").distinct()
         )
 
         events_query, events_query_params = filtered_events.query.sql_with_params()
@@ -244,15 +217,12 @@ class EventManager(models.QuerySet):
         """
 
         full_query = full_query.format(
-            events_query=events_query,
-            first_date_query=first_date_query,
-            event_date_query=TruncDay("timestamp"),
+            events_query=events_query, first_date_query=first_date_query, event_date_query=TruncDay("timestamp"),
         )
 
         with connection.cursor() as cursor:
             cursor.execute(
-                full_query,
-                (filters.date_from,) + events_query_params + first_date_params,
+                full_query, (filters.date_from,) + events_query_params + first_date_params,
             )
             data = namedtuplefetchall(cursor)
 
@@ -274,9 +244,7 @@ class EventManager(models.QuerySet):
             should_post_to_slack = False
             relations = []
             for action in event.actions:
-                relations.append(
-                    action.events.through(action_id=action.pk, event_id=event.pk)
-                )
+                relations.append(action.events.through(action_id=action.pk, event_id=event.pk))
                 if action.post_to_slack:
                     should_post_to_slack = True
 
@@ -315,9 +283,7 @@ class Event(models.Model):
 
     @property
     def person(self):
-        return Person.objects.get(
-            team_id=self.team_id, persondistinctid__distinct_id=self.distinct_id
-        )
+        return Person.objects.get(team_id=self.team_id, persondistinctid__distinct_id=self.distinct_id)
 
     # This (ab)uses query_db_by_action to find which actions match this event
     # We can't use filter_by_action here, as we use this function when we create an event so
@@ -325,20 +291,16 @@ class Event(models.Model):
     # We use query caching to reduce the time spent on generating redundant queries
     @property
     def actions(self) -> List:
-        last_updated_action_ts = Action.objects.filter(team_id=self.team_id).aggregate(
-            models.Max("updated_at")
-        )["updated_at__max"]
+        last_updated_action_ts = Action.objects.filter(team_id=self.team_id).aggregate(models.Max("updated_at"))[
+            "updated_at__max"
+        ]
 
         actions = (
             Action.objects.filter(
-                team_id=self.team_id,
-                steps__event=self.event,  # filter by event name to narrow down
-                deleted=False,
+                team_id=self.team_id, steps__event=self.event, deleted=False,  # filter by event name to narrow down
             )
             .distinct("id")
-            .prefetch_related(
-                Prefetch("steps", queryset=ActionStep.objects.order_by("id"))
-            )
+            .prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
         )
         if not self._can_use_cached_query(last_updated_action_ts):
             TEAM_ACTION_QUERY_CACHE[self.team_id], _ = actions.query.sql_with_params()
@@ -386,11 +348,7 @@ class Event(models.Model):
                 events = namedtuplefetchall(cursor)
 
         event = [event for event in events][0]
-        filtered_actions = [
-            action
-            for action in actions
-            if getattr(event, "action_{}".format(action.pk))
-        ]
+        filtered_actions = [action for action in actions if getattr(event, "action_{}".format(action.pk))]
         return filtered_actions
 
     objects: EventManager = EventManager.as_manager()  # type: ignore
@@ -398,12 +356,8 @@ class Event(models.Model):
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     distinct_id: models.CharField = models.CharField(max_length=200)
     properties: JSONField = JSONField(default=dict)
-    timestamp: models.DateTimeField = models.DateTimeField(
-        default=timezone.now, blank=True
-    )
-    elements_hash: models.CharField = models.CharField(
-        max_length=200, null=True, blank=True
-    )
+    timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
+    elements_hash: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     # DEPRECATED: elements are stored against element groups now
     elements: JSONField = JSONField(default=list, null=True, blank=True)

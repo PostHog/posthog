@@ -13,13 +13,13 @@ export const elementsLogic = kea({
         enableInspect: true,
         disableInspect: true,
 
-        selectElement: element => ({ element }),
-        createAction: element => ({ element }),
+        selectElement: (element) => ({ element }),
+        createAction: (element) => ({ element }),
 
         updateRects: true,
-        setHoverElement: element => ({ element }),
-        setHighlightElement: element => ({ element }),
-        setSelectedElement: element => ({ element }),
+        setHoverElement: (element) => ({ element }),
+        setHighlightElement: (element) => ({ element }),
+        setSelectedElement: (element) => ({ element }),
     },
 
     reducers: () => ({
@@ -33,7 +33,7 @@ export const elementsLogic = kea({
         rectUpdateCounter: [
             0,
             {
-                updateRects: state => state + 1,
+                updateRects: (state) => state + 1,
             },
         ],
         hoverElement: {
@@ -69,7 +69,7 @@ export const elementsLogic = kea({
 
     selectors: {
         inspectEnabled: [
-            s => [
+            (s) => [
                 dockLogic.selectors.mode,
                 s.inspectEnabledRaw,
                 toolbarTabLogic.selectors.tab,
@@ -92,16 +92,19 @@ export const elementsLogic = kea({
         ],
 
         heatmapElements: [
-            s => [heatmapLogic.selectors.countedElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
-            countedElements => countedElements.map(e => ({ ...e, rect: e.element.getBoundingClientRect() })),
+            (s) => [heatmapLogic.selectors.countedElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
+            (countedElements) => countedElements.map((e) => ({ ...e, rect: e.element.getBoundingClientRect() })),
         ],
 
-        allInspectElements: [s => [s.inspectEnabled], inspectEnabled => (inspectEnabled ? getAllClickTargets() : [])],
+        allInspectElements: [
+            (s) => [s.inspectEnabled],
+            (inspectEnabled) => (inspectEnabled ? getAllClickTargets() : []),
+        ],
 
         inspectElements: [
-            s => [s.allInspectElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
-            allInspectElements =>
-                allInspectElements.map(element => ({ element, rect: element.getBoundingClientRect() })),
+            (s) => [s.allInspectElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
+            (allInspectElements) =>
+                allInspectElements.map((element) => ({ element, rect: element.getBoundingClientRect() })),
         ],
 
         displayActionElements: [
@@ -114,7 +117,7 @@ export const elementsLogic = kea({
         ],
 
         allActionElements: [
-            s => [s.displayActionElements, actionsTabLogic.selectors.selectedEditedAction],
+            (s) => [s.displayActionElements, actionsTabLogic.selectors.selectedEditedAction],
             (displayActionElements, selectedEditedAction) => {
                 if (displayActionElements && selectedEditedAction?.steps) {
                     return selectedEditedAction.steps
@@ -122,36 +125,36 @@ export const elementsLogic = kea({
                             element: getElementForStep(step),
                             index,
                         }))
-                        .filter(e => e.element)
+                        .filter((e) => e.element)
                 }
                 return []
             },
         ],
 
         actionElements: [
-            s => [s.allActionElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
-            allActionElements =>
-                allActionElements.map(element =>
+            (s) => [s.allActionElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
+            (allActionElements) =>
+                allActionElements.map((element) =>
                     element.element ? { ...element, rect: element.element.getBoundingClientRect() } : element
                 ),
         ],
 
         elementMap: [
-            s => [s.heatmapElements, s.inspectElements, s.actionElements, s.actionsListElements],
+            (s) => [s.heatmapElements, s.inspectElements, s.actionElements, s.actionsListElements],
             (heatmapElements, inspectElements, actionElements, actionsListElements) => {
                 const elementMap = new Map()
 
-                inspectElements.forEach(e => {
+                inspectElements.forEach((e) => {
                     elementMap.set(e.element, e)
                 })
-                heatmapElements.forEach(e => {
+                heatmapElements.forEach((e) => {
                     if (elementMap.get(e.element)) {
                         elementMap.set(e.element, { ...elementMap.get(e.element), ...e })
                     } else {
                         elementMap.set(e.element, e)
                     }
                 })
-                ;[...actionElements, ...actionsListElements].forEach(e => {
+                ;[...actionElements, ...actionsListElements].forEach((e) => {
                     if (elementMap.get(e.element)) {
                         elementMap.set(e.element, { ...elementMap.get(e.element), ...e })
                     } else {
@@ -163,13 +166,13 @@ export const elementsLogic = kea({
         ],
 
         actionsForElementMap: [
-            s => [actionsLogic.selectors.actionsForCurrentUrl, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
-            actionsForCurrentUrl => {
+            (s) => [actionsLogic.selectors.actionsForCurrentUrl, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
+            (actionsForCurrentUrl) => {
                 const actionsForElementMap = new Map()
                 actionsForCurrentUrl.forEach((action, index) => {
                     action.steps
-                        .filter(step => step.event === '$autocapture')
-                        .forEach(step => {
+                        .filter((step) => step.event === '$autocapture')
+                        .forEach((step) => {
                             const element = getElementForStep(step)
                             if (element) {
                                 const rect = element.getBoundingClientRect()
@@ -186,15 +189,18 @@ export const elementsLogic = kea({
             },
         ],
 
-        elementsWithActions: [s => [s.actionsForElementMap], actionsForElementMap => [...actionsForElementMap.keys()]],
+        elementsWithActions: [
+            (s) => [s.actionsForElementMap],
+            (actionsForElementMap) => [...actionsForElementMap.keys()],
+        ],
 
         actionsListElements: [
-            s => [s.actionsForElementMap],
-            actionsForElementMap => [...actionsForElementMap.values()].map(a => a[0]),
+            (s) => [s.actionsForElementMap],
+            (actionsForElementMap) => [...actionsForElementMap.values()].map((a) => a[0]),
         ],
 
         elementsToDisplayRaw: [
-            s => [
+            (s) => [
                 s.displayActionElements,
                 s.actionElements,
                 s.inspectElements,
@@ -216,14 +222,14 @@ export const elementsLogic = kea({
         ],
 
         elementsToDisplay: [
-            s => [s.elementsToDisplayRaw],
-            elementsToDisplayRaw => {
+            (s) => [s.elementsToDisplayRaw],
+            (elementsToDisplayRaw) => {
                 return elementsToDisplayRaw.filter(({ rect }) => rect.width !== 0 || rect.height !== 0)
             },
         ],
 
         labelsToDisplay: [
-            s => [
+            (s) => [
                 s.displayActionElements,
                 s.actionElements,
                 s.actionsListElements,
@@ -241,13 +247,13 @@ export const elementsLogic = kea({
         ],
 
         actionLabelsToDisplay: [
-            s => [s.elementsWithActions, s.inspectEnabled, s.displayActionElements],
+            (s) => [s.elementsWithActions, s.inspectEnabled, s.displayActionElements],
             (elementsWithActions, inspectEnabled, displayActionElements) =>
                 inspectEnabled && !displayActionElements ? elementsWithActions : [],
         ],
 
         selectedElementMeta: [
-            s => [s.selectedElement, s.elementMap, s.actionsForElementMap],
+            (s) => [s.selectedElement, s.elementMap, s.actionsForElementMap],
             (selectedElement, elementMap, actionsForElementMap) => {
                 const meta = elementMap.get(selectedElement)
                 const actions = actionsForElementMap.get(selectedElement)
@@ -262,7 +268,7 @@ export const elementsLogic = kea({
         ],
 
         hoverElementMeta: [
-            s => [s.hoverElement, s.elementMap, s.actionsForElementMap],
+            (s) => [s.hoverElement, s.elementMap, s.actionsForElementMap],
             (hoverElement, elementMap, actionsForElementMap) => {
                 const meta = elementMap.get(hoverElement)
                 const actions = actionsForElementMap.get(hoverElement)
@@ -277,7 +283,7 @@ export const elementsLogic = kea({
         ],
 
         highlightElementMeta: [
-            s => [s.highlightElement, s.elementMap, s.actionsForElementMap],
+            (s) => [s.highlightElement, s.elementMap, s.actionsForElementMap],
             (highlightElement, elementMap, actionsForElementMap) => {
                 const meta = elementMap.get(highlightElement)
                 const actions = actionsForElementMap.get(highlightElement)
@@ -300,7 +306,7 @@ export const elementsLogic = kea({
                 actions.updateRects()
                 cache.clickDelayTimeout = window.setTimeout(actions.addClick, 100)
             }
-            cache.onKeyDown = e => {
+            cache.onKeyDown = (e) => {
                 if (e.keyCode !== 27) {
                     return
                 }

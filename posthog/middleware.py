@@ -13,9 +13,7 @@ class AllowIP(object):
         self.ip_blocks = settings.ALLOWED_IP_BLOCKS
 
         if getattr(settings, "TRUSTED_PROXIES", False):
-            self.trusted_proxies = [
-                item.strip() for item in getattr(settings, "TRUSTED_PROXIES").split(",")
-            ]
+            self.trusted_proxies = [item.strip() for item in getattr(settings, "TRUSTED_PROXIES").split(",")]
         self.get_response = get_response
 
     def get_forwarded_for(self, request: HttpRequest):
@@ -53,10 +51,7 @@ class AllowIP(object):
         ]:
             return response
         ip = self.extract_client_ip(request)
-        if ip and any(
-            ip_address(ip) in ip_network(block, strict=False)
-            for block in self.ip_blocks
-        ):
+        if ip and any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
             return response
         return HttpResponse(
             "Your IP is not allowed. Check your ALLOWED_IP_BLOCKS settings. If you are behind a proxy, you need to set TRUSTED_PROXIES. See https://posthog.com/docs/deployment/running-behind-proxy"
@@ -65,9 +60,7 @@ class AllowIP(object):
 
 class SameSiteSessionMiddleware(SessionMiddleware):
     def process_response(self, request, response):
-        response = super(SameSiteSessionMiddleware, self).process_response(
-            request, response
-        )
+        response = super(SameSiteSessionMiddleware, self).process_response(request, response)
 
         if settings.SESSION_COOKIE_NAME in response.cookies:
             response.cookies[settings.SESSION_COOKIE_NAME]["samesite"] = "None"

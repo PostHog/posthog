@@ -20,8 +20,8 @@ export function FunnelViz({ funnel: funnelParam, dashboardItemId, filters: filte
         let graph = new FunnelGraph({
             container: '.funnel-graph',
             data: {
-                labels: funnel.steps.map(step => `${step.name} (${step.count})`),
-                values: funnel.steps.map(step => step.count),
+                labels: funnel.steps.map((step) => `${step.name} (${step.count})`),
+                values: funnel.steps.map((step) => step.count),
                 colors: ['#66b0ff', 'var(--blue)'],
             },
             displayPercent: true,

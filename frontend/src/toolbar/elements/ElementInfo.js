@@ -57,7 +57,7 @@ export function ElementInfo() {
                 {activeMeta.actions.length === 0 ? (
                     <p>No actions include this element</p>
                 ) : (
-                    <ActionsListView actions={activeMeta.actions.map(a => a.action)} />
+                    <ActionsListView actions={activeMeta.actions.map((a) => a.action)} />
                 )}
 
                 <Button size="small" onClick={() => createAction(element)}>

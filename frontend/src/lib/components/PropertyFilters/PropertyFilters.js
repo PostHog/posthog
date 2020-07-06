@@ -13,7 +13,7 @@ const FilterRow = React.memo(function FilterRow({ item, index, filters, logic, p
     let [open, setOpen] = useState(false)
     const { key, value, operator, type } = item
 
-    let handleVisibleChange = visible => {
+    let handleVisibleChange = (visible) => {
         if (!visible && Object.keys(item).length >= 0 && !item[Object.keys(item)[0]]) {
             remove(index)
         }

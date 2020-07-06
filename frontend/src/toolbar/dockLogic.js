@@ -41,8 +41,9 @@ export const dockLogic = kea({
     }),
 
     windowValues: {
-        windowWidth: window => window.innerWidth,
-        windowHeight: window => window.innerHeight,
+        windowWidth: (window) => window.innerWidth,
+        windowHeight: (window) => window.innerHeight,
+        windowScroll: (window) => window.scrollY,
     },
 
     reducers: () => ({
@@ -67,7 +68,7 @@ export const dockLogic = kea({
                 dockAnimated: () => 'fading-in',
                 dockFaded: () => 'complete',
 
-                button: state => (state === 'disabled' ? 'disabled' : 'fading-out'),
+                button: (state) => (state === 'disabled' ? 'disabled' : 'fading-out'),
                 buttonAnimated: () => 'disabled',
                 buttonFaded: () => 'disabled',
             },
@@ -79,11 +80,11 @@ export const dockLogic = kea({
                 buttonAnimated: () => 'fading-in',
                 buttonFaded: () => 'complete',
 
-                dock: state => (state === 'disabled' ? 'disabled' : 'fading-out'),
+                dock: (state) => (state === 'disabled' ? 'disabled' : 'fading-out'),
                 dockAnimated: () => 'disabled',
                 dockFaded: () => 'disabled',
 
-                hideButton: state => (state === 'disabled' ? 'disabled' : 'fading-out'),
+                hideButton: (state) => (state === 'disabled' ? 'disabled' : 'fading-out'),
                 hideButtonAnimated: () => 'disabled',
             },
         ],
@@ -92,12 +93,12 @@ export const dockLogic = kea({
     selectors: ({ selectors }) => ({
         isAnimating: [
             () => [selectors.dockStatus, selectors.buttonStatus],
-            (dockStatus, buttonStatus) => !![dockStatus, buttonStatus].find(s => s === 'animating'),
+            (dockStatus, buttonStatus) => !![dockStatus, buttonStatus].find((s) => s === 'animating'),
         ],
         sidebarWidth: [() => [], () => 300],
         padding: [
             () => [selectors.windowWidth],
-            windowWidth => (windowWidth > 1200 ? Math.min(30 + (windowWidth - 1200) * 0.3, 60) : 30),
+            (windowWidth) => (windowWidth > 1200 ? Math.min(30 + (windowWidth - 1200) * 0.3, 60) : 30),
         ],
         bodyWidth: [
             () => [selectors.windowWidth, selectors.sidebarWidth, selectors.padding],
@@ -107,6 +108,8 @@ export const dockLogic = kea({
 
         domZoom: [() => [selectors.zoom, selectors.mode], (zoom, mode) => (mode === 'dock' ? zoom : 1)],
         domPadding: [() => [selectors.padding, selectors.mode], (padding, mode) => (mode === 'dock' ? padding : 0)],
+
+        dockTopMargin: [(s) => [s.windowScroll], (windowScroll) => windowScroll],
     }),
 
     events: ({ cache, actions, values }) => ({

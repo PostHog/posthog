@@ -14,9 +14,9 @@ const defaultValue = 'https://'
 
 const appUrlsLogic = kea({
     actions: () => ({
-        addUrl: value => ({ value }),
-        addUrlAndGo: value => ({ value }),
-        removeUrl: index => ({ index }),
+        addUrl: (value) => ({ value }),
+        addUrlAndGo: (value) => ({ value }),
+        removeUrl: (index) => ({ index }),
         updateUrl: (index, value) => ({ index, value }),
     }),
 
@@ -32,14 +32,14 @@ const appUrlsLogic = kea({
                 if (data[0]?.count === 0) return []
                 let domainsSeen = []
                 return data
-                    .filter(item => {
+                    .filter((item) => {
                         let domain = new URL(item.breakdown_value).hostname
                         if (domainsSeen.indexOf(domain) > -1) return
-                        if (values.appUrls.filter(url => url.indexOf(domain) > -1).length > 0) return
+                        if (values.appUrls.filter((url) => url.indexOf(domain) > -1).length > 0) return
                         domainsSeen.push(domain)
                         return true
                     })
-                    .map(item => item.breakdown_value)
+                    .map((item) => item.breakdown_value)
                     .slice(0, 20)
             },
         },
@@ -50,7 +50,7 @@ const appUrlsLogic = kea({
     }),
 
     defaults: () => ({
-        appUrls: state => userLogic.selectors.user(state).team.app_urls || [defaultValue],
+        appUrls: (state) => userLogic.selectors.user(state).team.app_urls || [defaultValue],
     }),
 
     allURLs: ({ selectors }) => ({
@@ -78,7 +78,7 @@ const appUrlsLogic = kea({
         suggestions: [
             [],
             {
-                [actions.addUrl]: (state, { value }) => [...state].filter(item => value !== item),
+                [actions.addUrl]: (state, { value }) => [...state].filter((item) => value !== item),
             },
         ],
     }),
@@ -116,7 +116,7 @@ export function EditAppUrls({ actionId, allowNavigation }) {
                         actionId={actionId}
                         allowNavigation={allowNavigation}
                         url={url}
-                        saveUrl={value => updateUrl(index, value)}
+                        saveUrl={(value) => updateUrl(index, value)}
                         deleteUrl={() => removeUrl(index)}
                     />
                 ))}
@@ -124,13 +124,13 @@ export function EditAppUrls({ actionId, allowNavigation }) {
                 {!suggestions ||
                     (suggestions.length > 0 && <List.Item>Suggestions: {suggestionsLoading && <Spin />} </List.Item>)}
                 {suggestions &&
-                    suggestions.slice(0, loadMore ? suggestions.length : 5).map(url => (
+                    suggestions.slice(0, loadMore ? suggestions.length : 5).map((url) => (
                         <List.Item
                             key={url}
                             onClick={() => (allowNavigation ? addUrlAndGo(url) : addUrl(url))}
                             style={{ cursor: 'pointer', justifyContent: 'space-between' }}
                         >
-                            <a href={url} onClick={e => e.preventDefault()} data-attr="app-url-suggestion">
+                            <a href={url} onClick={(e) => e.preventDefault()} data-attr="app-url-suggestion">
                                 {url}
                             </a>
                             <PlusOutlined style={{ color: 'var(--success)' }} />

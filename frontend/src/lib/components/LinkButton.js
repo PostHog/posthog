@@ -7,7 +7,7 @@ export function LinkButton({ to, ...props }) {
         <Button
             href={to}
             {...props}
-            onClick={event => {
+            onClick={(event) => {
                 if (!props.target) {
                     event.preventDefault()
                     event.stopPropagation()

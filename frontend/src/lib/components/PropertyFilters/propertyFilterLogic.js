@@ -19,22 +19,22 @@ export function parseProperties(input) {
 }
 
 export const propertyFilterLogic = kea({
-    key: props => props.pageKey,
+    key: (props) => props.pageKey,
 
     actions: () => ({
         loadEventProperties: true,
-        setProperties: properties => ({ properties }),
-        update: filters => ({ filters }),
+        setProperties: (properties) => ({ properties }),
+        update: (filters) => ({ filters }),
         setFilter: (index, key, value, operator, type) => ({ index, key, value, operator, type }),
-        setFilters: filters => ({ filters }),
+        setFilters: (filters) => ({ filters }),
         newFilter: true,
-        remove: index => ({ index }),
+        remove: (index) => ({ index }),
     }),
 
     loaders: () => ({
         personProperties: {
             loadPersonProperties: async () => {
-                return (await api.get('api/person/properties')).map(property => ({
+                return (await api.get('api/person/properties')).map((property) => ({
                     label: property.name,
                     value: property.name,
                 }))
@@ -58,7 +58,7 @@ export const propertyFilterLogic = kea({
                     return newFilters
                 },
                 [actions.setFilters]: (_, { filters }) => filters,
-                [actions.newFilter]: state => {
+                [actions.newFilter]: (state) => {
                     return [...state, {}]
                 },
                 [actions.remove]: (state, { index }) => {
@@ -80,7 +80,7 @@ export const propertyFilterLogic = kea({
         [actions.setFilter]: ({ value }) => value && actions.update(),
         [actions.remove]: () => actions.update(),
         [actions.update]: () => {
-            const cleanedFilters = [...values.filters].filter(property => property.key)
+            const cleanedFilters = [...values.filters].filter((property) => property.key)
 
             // If the last item has a key, we need to add a new empty filter so the button appears
             if (values.filters[values.filters.length - 1].key) actions.newFilter()

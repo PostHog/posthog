@@ -7373,10 +7373,10 @@ postcss@^7.0.14, postcss@^7.0.16, postcss@^7.0.23, postcss@^7.0.26, postcss@^7.0
     source-map "^0.6.1"
     supports-color "^6.1.0"
 
-posthog-js@1.2.2-beta.0:
-  version "1.2.2-beta.0"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.2.2-beta.0.tgz#7eea51ed15f78ea53f89bf8b4338605ceb6a20a0"
-  integrity sha512-fYTg6VlimiNMV65IgWRST/x+4csIVrthos2ye2cNGCsmvxxiOR0OvqSKETdNHhcS1B1JwbqNbTkV4m3IZSoKvg==
+posthog-js@1.2.4:
+  version "1.2.4"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.2.4.tgz#ff6589fa2a192d3e6f10ec0c326b144a91e8f5d0"
+  integrity sha512-wpZ/conZxzJzArpLLQEQ0pk0MWjueL3S5ikPBd9IwsNbFTb1cO6kCRag/BckdWg3k4kE6zTr4F5hGbD5C8BpXg==
 
 prelude-ls@~1.1.2:
   version "1.1.2"
@@ -7400,10 +7400,10 @@ prettier-linter-helpers@^1.0.0:
   dependencies:
     fast-diff "^1.1.2"
 
-prettier@1.19.1:
-  version "1.19.1"
-  resolved "https://registry.yarnpkg.com/prettier/-/prettier-1.19.1.tgz#f7d7f5ff8a9cd872a7be4ca142095956a60797cb"
-  integrity sha512-s7PoyDv/II1ObgQunCbB9PdLmUcBZcnWOcxDh7O0N/UwDEsHyqkW+Qh28jW+mVuCdx7gLB0BotYI1Y6uI9iyew==
+prettier@^2.0.5:
+  version "2.0.5"
+  resolved "https://registry.yarnpkg.com/prettier/-/prettier-2.0.5.tgz#d6d56282455243f2f92cc1716692c08aa31522d4"
+  integrity sha512-7PtVymN48hGcO4fGjybyBSIWDsLU4H4XlvOHfq91pz9kkGlonzwTfYkaIEwiRg/dAJF9YlbsduBAgtYLi+8cFg==
 
 pretty-bytes@5.3.0:
   version "5.3.0"

@@ -86,17 +86,17 @@ class _App extends Component {
             this.state.actions = [{ id: props.actionId }]
             this.state.openActionId = props.actionId
         } else {
-            if (this.state.actions.filter(action => action.id === false).length == 0)
+            if (this.state.actions.filter((action) => action.id === false).length == 0)
                 this.state.actions.push({ id: false })
         }
     }
     onActionSave = (action, isNew, createNew) => {
         let { actions, openActionId } = this.state
         if (isNew) {
-            actions = actions.map(a => (!a.id ? action : a))
+            actions = actions.map((a) => (!a.id ? action : a))
             openActionId = action.id
         } else {
-            actions = actions.map(a => (a.id == action.id ? action : a))
+            actions = actions.map((a) => (a.id == action.id ? action : a))
         }
         if (createNew) {
             actions.push({ id: false })
@@ -129,7 +129,7 @@ class _App extends Component {
                                         {!action.id && 'New Action'}
                                         {action.id && (
                                             <a
-                                                onClick={e => {
+                                                onClick={(e) => {
                                                     e.preventDefault()
                                                     this.setState({
                                                         openActionId: false,
@@ -156,7 +156,7 @@ class _App extends Component {
                                 <div className="action">
                                     {action.id ? action.name : 'New Action'}
                                     <a
-                                        onClick={e => {
+                                        onClick={(e) => {
                                             e.preventDefault()
                                             this.setState({
                                                 openActionId: action.id,
@@ -189,7 +189,7 @@ class _App extends Component {
 
 const App = hot(_App)
 
-window.ph_load_editor = function(editorParams) {
+window.ph_load_editor = function (editorParams) {
     let container = document.createElement('div')
     document.body.appendChild(container)
 

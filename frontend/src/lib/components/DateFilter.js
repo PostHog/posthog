@@ -94,13 +94,13 @@ export function DateFilter({ dateFrom, dateTo, onChange, style }) {
             onClick={onClick}
             listHeight={440}
             dropdownMatchSelectWidth={false}
-            dropdownRender={menu => {
+            dropdownRender={(menu) => {
                 if (dateRangeOpen) {
                     return (
                         <DatePickerDropdown
                             onClick={dropdownOnClick}
-                            onDateFromChange={date => setRangeDateFrom(date)}
-                            onDateToChange={date => setRangeDateTo(date)}
+                            onDateFromChange={(date) => setRangeDateFrom(date)}
+                            onDateToChange={(date) => setRangeDateTo(date)}
                             onApplyClick={onApplyClick}
                             onClickOutside={onClickOutside}
                             rangeDateFrom={rangeDateFrom}
@@ -137,7 +137,7 @@ function DatePickerDropdown(props) {
     const dropdownRef = useRef()
     let [calendarOpen, setCalendarOpen] = useState(false)
 
-    let onClickOutside = event => {
+    let onClickOutside = (event) => {
         if (!dropdownRef.current.contains(event.target) && !calendarOpen) {
             props.onClickOutside()
         }
@@ -169,7 +169,7 @@ function DatePickerDropdown(props) {
                 <br />
                 <DatePicker
                     popupStyle={{ zIndex: 999999 }}
-                    onOpenChange={open => {
+                    onOpenChange={(open) => {
                         setCalendarOpen(open)
                     }}
                     defaultValue={
@@ -187,7 +187,7 @@ function DatePickerDropdown(props) {
                 <br />
                 <DatePicker
                     popupStyle={{ zIndex: 999999 }}
-                    onOpenChange={open => setCalendarOpen(open)}
+                    onOpenChange={(open) => setCalendarOpen(open)}
                     defaultValue={
                         props.rangeDateTo
                             ? moment.isMoment(props.rangeDateTo)

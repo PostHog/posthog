@@ -15,9 +15,9 @@ export const toolbarLogic = kea({
     }),
 
     selectors: ({ selectors }) => ({
-        apiURL: [() => [selectors.rawApiURL], apiURL => `${apiURL}${apiURL.endsWith('/') ? '' : '/'}`],
-        jsURL: [() => [selectors.rawJsURL], jsURL => `${jsURL}${jsURL.endsWith('/') ? '' : '/'}`],
-        isAuthenticated: [() => [selectors.temporaryToken], temporaryToken => !!temporaryToken],
+        apiURL: [() => [selectors.rawApiURL], (apiURL) => `${apiURL}${apiURL.endsWith('/') ? '' : '/'}`],
+        jsURL: [() => [selectors.rawJsURL], (jsURL) => `${jsURL}${jsURL.endsWith('/') ? '' : '/'}`],
+        isAuthenticated: [() => [selectors.temporaryToken], (temporaryToken) => !!temporaryToken],
     }),
 
     listeners: ({ values }) => ({

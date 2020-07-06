@@ -1,4 +1,3 @@
-
 .background {
     background-color: hsla(210, 6%, 95%, 1);
 }
@@ -11,7 +10,7 @@
 }
 
 .clickable:hover {
-    background-color:gainsboro;
+    background-color: gainsboro;
 }
 
 .prompt-text {
@@ -24,14 +23,13 @@
     padding: 10px;
     padding-left: 20px;
     padding-right: 20px;
-    border:1px solid gray;
+    border: 1px solid gray;
     border-radius: 2px;
     cursor: pointer;
-
 }
 
 .platform-item:hover {
-    background-color:gainsboro;
+    background-color: gainsboro;
 }
 
 .selectable-item:hover {

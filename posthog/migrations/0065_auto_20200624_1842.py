@@ -12,8 +12,6 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddIndex(
             model_name="action",
-            index=models.Index(
-                fields=["team_id", "-updated_at"], name="posthog_act_team_id_8c04de_idx"
-            ),
+            index=models.Index(fields=["team_id", "-updated_at"], name="posthog_act_team_id_8c04de_idx"),
         ),
     ]

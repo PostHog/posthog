@@ -15,21 +15,24 @@ import {
     JSInstructions,
     APIInstructions,
     ElixirInstructions,
+    FlutterInstructions,
 } from './FrameworkInstructions'
 import { userLogic } from 'scenes/userLogic'
 import { useInterval } from 'lib/hooks/useInterval'
 import { CardContainer } from './CardContainer'
 
 const PLATFORM_TYPE = 'PLATFORM_TYPE'
+const AUTOCAPTURE = 'AUTOCAPTURE'
 const FRAMEWORK = 'FRAMEWORK'
 const INSTRUCTIONS = 'INSTRUCTIONS'
 const VERIFICATION = 'VERIFICATION'
 
 const states = {
     0: PLATFORM_TYPE,
-    1: FRAMEWORK,
-    2: INSTRUCTIONS,
-    3: VERIFICATION,
+    1: AUTOCAPTURE,
+    2: FRAMEWORK,
+    3: INSTRUCTIONS,
+    4: VERIFICATION,
 }
 
 const WEB = 'Web'
@@ -83,6 +86,7 @@ const mobileFrameworks = {
     ANDROID: 'Android',
     IOS: 'iOS',
     REACT_NATIVE: 'React Native',
+    FLUTTER: 'Flutter',
 }
 
 const mobileFrameworksSnippet = {
@@ -95,19 +99,22 @@ const mobileFrameworksSnippet = {
     REACT_NATIVE: function createRNInstructions({ user }) {
         return <RNInstructions user={user}></RNInstructions>
     },
+    FLUTTER: function createFlutterInstructions({ user }) {
+        return <FlutterInstructions user={user}></FlutterInstructions>
+    },
 }
 
 const content = {
     PLATFORM_TYPE: function CreatePlatformPanel(props) {
         return (
-            <CardContainer index={0} totalSteps={4}>
+            <CardContainer index={0}>
                 <h1>Welcome to Posthog</h1>
                 <p className="prompt-text">
                     Let's get you up and running with Posthog! What type of platform is your app? (You can connect to
                     multi-deployments later)
                 </p>
                 <Row>
-                    {platformTypes.map(type => (
+                    {platformTypes.map((type) => (
                         <Button
                             type="primary"
                             data-attr={'select-platform-' + type}
@@ -120,6 +127,16 @@ const content = {
                     ))}
                 </Row>
             </CardContainer>
+        )
+    },
+    AUTOCAPTURE: function CreateAutocapturePanel({ user, onSubmit, reverse, onCustomContinue }) {
+        return (
+            <AutocapturePanel
+                user={user}
+                onSubmit={onSubmit}
+                reverse={reverse}
+                onCustomContinue={onCustomContinue}
+            ></AutocapturePanel>
         )
     },
     FRAMEWORK: function CreateFrameworkPanel({ platformType, reverse, onSubmit, onApiContinue }) {
@@ -138,7 +155,7 @@ const content = {
                         style={{ width: '100%' }}
                         bordered
                         dataSource={Object.keys(frameworks)}
-                        renderItem={item => (
+                        renderItem={(item) => (
                             <List.Item
                                 className="selectable-item"
                                 data-attr={'select-framework-' + item}
@@ -179,25 +196,43 @@ export default function OnboardingWizard({ user }) {
     const [index, setIndex] = useState(0)
     const [platformType, setPlatformType] = useState(null)
     const [framework, setFramework] = useState(null)
+    const [path, setPath] = useState([])
 
     function onSubmit(payload) {
-        if (index == 0) {
+        setPath([...path, index])
+        if (index === 0) {
             const { type } = payload
             setPlatformType(type)
-        } else if (index == 1) {
+            if (type === MOBILE) {
+                setIndex(index + 2)
+                return
+            }
+        } else if (index === 1) {
+            setIndex(4)
+            return
+        } else if (index === 2) {
             const { framework } = payload
             setFramework(framework)
         }
-        setIndex((index + 1) % 4)
+        setIndex((index + 1) % 5)
     }
 
     function reverse() {
-        setIndex(index - 1)
+        let copyPath = [...path]
+        const prev = copyPath.pop()
+        setIndex(prev)
+        setPath(copyPath)
     }
 
     function onApiContinue() {
+        setPath([...path, index])
         setFramework(API)
         setIndex(index + 1)
+    }
+
+    function onCustomContinue() {
+        setPath([...path, index])
+        setIndex(2)
     }
 
     return (
@@ -205,7 +240,15 @@ export default function OnboardingWizard({ user }) {
             className="background"
             style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center' }}
         >
-            {content[states[index]]({ onSubmit, platformType, user, reverse, framework, onApiContinue })}
+            {content[states[index]]({
+                onCustomContinue,
+                onSubmit,
+                platformType,
+                user,
+                reverse,
+                framework,
+                onApiContinue,
+            })}
         </div>
     )
 }
@@ -261,8 +304,37 @@ function VerificationPanel({ reverse }) {
     )
 }
 
+function AutocapturePanel({ user, onSubmit, reverse, onCustomContinue }) {
+    return (
+        <CardContainer index={1} totalSteps={3} nextButton={true} onSubmit={onSubmit} onBack={reverse}>
+            <Row style={{ marginLeft: -5 }} justify="space-between" align="middle">
+                <h2 style={{ color: 'black', marginLeft: 8 }}>{'Autocapture'}</h2>
+                <b
+                    style={{ marginLeft: 5, color: '#007bff', marginBottom: 10, marginRight: 0 }}
+                    onClick={onCustomContinue}
+                    className="clickable"
+                >
+                    {'I also want to capture Custom Events'}
+                </b>
+            </Row>
+            <p className="prompt-text">
+                {
+                    "Since you're running a web application, we suggest using our header snippet. This snippet will automatically capture page views, page leaves, and interactions with specific elements (<a>, <button>, <input>, <textarea>, <form>) "
+                }
+            </p>
+            <p className="prompt-text">
+                {'Just insert this snippet into your website where you configure <head> or <meta> tags. '}
+            </p>
+            <JSSnippet user={user}></JSSnippet>
+            <h2>Send an Event</h2>
+            <p className="prompt-text">
+                {"Once you've inserted the snippet, click on a button or form on your website to send an event!"}
+            </p>
+        </CardContainer>
+    )
+}
+
 function InstructionsPanel({ user, onSubmit, reverse, platformType, framework }) {
-    const [selected, setSelected] = useState(0)
     if (framework === API) {
         return (
             <CardContainer index={2} totalSteps={4} nextButton={true} onSubmit={onSubmit} onBack={reverse}>
@@ -294,42 +366,12 @@ function InstructionsPanel({ user, onSubmit, reverse, platformType, framework })
         <CardContainer index={2} totalSteps={4} nextButton={true} onSubmit={onSubmit} onBack={reverse}>
             {platformType === WEB ? (
                 <Row style={{ marginLeft: -5 }} justify="space-between" align="middle">
-                    <h2 style={{ color: 'black', marginLeft: 8 }} onClick={() => setSelected(0)}>
-                        {selected === 0 ? 'Autocapture' : 'Custom Capture'}
-                    </h2>
-                    <b
-                        style={{ marginLeft: 5, color: '#007bff', marginBottom: 10, marginRight: 0 }}
-                        className="clickable"
-                        onClick={() => setSelected((selected + 1) % 2)}
-                    >
-                        {selected === 0
-                            ? 'I also want to capture Custom Events'
-                            : 'I want to automatically capture events'}
-                    </b>
+                    <h2 style={{ color: 'black', marginLeft: 8 }}>{'Custom Capture'}</h2>
                 </Row>
             ) : (
                 <h2>Setup</h2>
             )}
-            {platformType === WEB && selected === 0 && (
-                <>
-                    <p className="prompt-text">
-                        {
-                            "Since you're running a web application, we suggest using our header snippet. This snippet will automatically capture page views, page leaves, and interactions with specific elements (<a>, <button>, <input>, <textarea>, <form>) "
-                        }
-                    </p>
-                    <p className="prompt-text">
-                        {'Just insert this snippet into your website where you configure <head> or <meta> tags. '}
-                    </p>
-                    <JSSnippet user={user}></JSSnippet>
-                    <h2>Send an Event</h2>
-                    <p className="prompt-text">
-                        {
-                            "Once you've inserted the snippet, click on a button or form on your website to send an event!"
-                        }
-                    </p>
-                </>
-            )}
-            {platformType === WEB && selected == 1 && (
+            {platformType === WEB && (
                 <>
                     <p className="prompt-text">
                         {

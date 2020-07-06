@@ -1,5 +1,73 @@
 # Changelog
 
+### 1.10.1 - Thursday 2 July 2020
+
+#### Bugfixes
+
+- Actually include the version bump when you push a release! 🐛
+- Add flutter docs and reorder flow [#1134](https://github.com/PostHog/posthog/pull/1134)
+- Black all the things! [#1136](https://github.com/PostHog/posthog/pull/1136)
+
+### 1.10.0 - Wednesday 1 July 2020
+
+#### Toolbar
+
+- It's like inspect element, but for user data.
+
+![inspect](https://posthog.com/images/3ce1232ef29d0d59b4ac2779d8e97cf8/inspect.gif)
+
+- Easily see the ranking of which parts of the page your users are interacting with the most:
+
+![heatmap](https://posthog.com/images/782d9d2142c331403efdbec7ebd56145/heatmap.gif)
+
+- We learned a ton about our product and website within minutes of trying this out.
+
+![toolbar dance](https://posthog.com/images/55fe4bbc5e8fbc428fe4f1830f3d280c/dance.gif)
+
+#### Feature flags
+
+- Feature flags let you roll out changes to users with a certain property, or to a percentage of users, or some combo of the two.
+
+![feature flags](https://posthog.com/static/2824e49b2d3200ba4260a1bb83edb6ad/db910/feature-flags.png)
+
+#### Other exciting, enthralling and invigorating features
+
+- Flutter Integration. You asked for it and now [it's here](https://posthog.com/docs/integrations/flutter-integration)!
+- Retention page. PostHog already had stickiness, but now there is a table that demonstrates perhaps more clearly how your users are coming back (or not!)
+
+![retention view](https://posthog.com/static/c72806fa990efb5ea9bcf852c9ba9ffe/dc333/retention-view.png)
+
+- Better onboarding. We've had a go at redoing how our set up flow works, and will be tracking if it helps more people get through PostHog's own funnel!
+- Platform.sh deployment. A very simple, new and trendy way to get up and running!
+- Porter development. Join the cool kids and do  web development in the cloud. Thank you so much to [porter-dev](https://github.com/porter-dev) for creating this PR.
+- Event name filtering. By popular demand, you can now filter the events table by the event name. Happy debugging your implementations!
+
+![filter by event name](https://user-images.githubusercontent.com/1727427/84702990-c7f59f00-af57-11ea-8455-92fb89d9c9ae.png)
+
+#### Bug fixes and performance improvements
+
+* We are now more privacy friendly - you can [discard IP address data](https://github.com/PostHog/posthog/pull/1081)
+* Added the offer of a [free pairing session](https://github.com/PostHog/posthog/pull/1028) to the contributing guide - ask us!!
+* We fixed a bug with [the start times for the session view](https://github.com/PostHog/posthog/pull/1077)
+* We [improved the ./bin/test command](https://github.com/PostHog/posthog/pull/1074)
+* We now let you [break down users by their properties](https://github.com/PostHog/posthog/pull/1070) (it wasn't working before!)
+* We [sped up the people page](https://github.com/PostHog/posthog/pull/1056) - pro tip: don't load stuff you don't need!
+* We [disabled batching in the snippet](https://github.com/PostHog/posthog/pull/1049), since this helps prevent data loss
+* Fixed a weird bug with [moving from sessions to trends](https://github.com/PostHog/posthog/pull/1039)
+* Fixed [person properties being selected](https://github.com/PostHog/posthog/pull/1040), which was causing some issues with the stats.
+* We now [automatically select hourly](https://github.com/PostHog/posthog/pull/1057) if you're looking at data from just today or yesterday - it was weird otherwise!
+* We turned [today into the last 24 hours](https://github.com/PostHog/posthog/pull/1054) - you can now think of yourself as Jack Bauer
+* The people modal now [has pagination](https://github.com/PostHog/posthog/pull/1042)
+* We [now copy array.js.map](https://github.com/PostHog/posthog/pull/1047) as well as everything else to better debug errors
+* We now [show a warning for old browsers](https://github.com/PostHog/posthog/pull/1046), and feel bad for those in big enterprises that must use them!
+* [Black now added](https://github.com/PostHog/posthog/pull/1043) to post commit hooks, so we don't get crazy all-file reformatting
+* Fixed an issue with [force refreshes for cache](https://github.com/PostHog/posthog/pull/1035) in certain places
+* We [fixed a failing test problem](https://github.com/PostHog/posthog/pull/1036) with team_id
+* Improved [person properties and pagination](https://github.com/PostHog/posthog/pull/976)
+* Solved [a Sentry error](https://github.com/PostHog/posthog/pull/1029) with overly long text
+* We [cleaned the configs for release-drafter](https://github.com/PostHog/posthog/pull/1088)
+
+
 ### 1.9.0 - Thursday 18 June 2020
 
 - [Sessions view](https://github.com/PostHog/posthog/pull/926)
