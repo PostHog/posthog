@@ -42,10 +42,10 @@ export function AnnotationMarker({
                                 <Row justify="space-between" align="middle">
                                     <div>
                                         <b style={{ marginRight: 5 }}>
-                                            {(data.created_by &&
-                                                (data.created_by.first_name || data.created_by.email)) ||
-                                                name ||
-                                                email}
+                                            {data.created_by === 'local'
+                                                ? name || email
+                                                : data.created_by &&
+                                                  (data.created_by.first_name || data.created_by.email)}
                                         </b>
                                         <i style={{ color: 'gray' }}>{humanFriendlyDetailedTime(data.created_at)}</i>
                                     </div>
