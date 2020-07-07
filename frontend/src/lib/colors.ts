@@ -24,7 +24,7 @@ export const darkWhites = [
 
 const hueDiff = -10
 
-export const colorsForBackground = (hue, saturation = 63, lightness = 40) => [
+export const colorsForBackground = (hue: number, saturation = 63, lightness = 40) => [
     `hsl(${hue + hueDiff}, ${saturation - 20}%, ${lightness + 40}%)`,
     `hsl(${hue + hueDiff}, ${saturation + 40}%, ${lightness + 20}%)`,
     `hsl(${hue + hueDiff}, ${saturation + 40}%, ${lightness - 20}%)`,
@@ -63,7 +63,7 @@ export const dashboardColorHSL = {
     black: [0, 0, 0],
 }
 
-export const cssHSL = (h, s, l) =>
+export const cssHSL = (h: number, s: number, l: number) =>
     `hsl(${h % 360}, ${Math.max(0, Math.min(100, s))}%, ${Math.max(0, Math.min(100, l))}%)`
 
 export const dashboardColors = {}
@@ -71,7 +71,7 @@ Object.entries(dashboardColorHSL).forEach(([key, [h, s, l]]) => {
     dashboardColors[key] = cssHSL(h, s, l)
 })
 
-export const getChartColors = (backgroundColor) => {
+export const getChartColors = (backgroundColor: string) => {
     if (backgroundColor === 'black') {
         const colors = []
         for (let i = 0; i < 20; i++) {
@@ -87,5 +87,11 @@ export const getChartColors = (backgroundColor) => {
         return lightColors.map((color) => getColorVar(color))
     }
 
-    return dashboardColorHSL[backgroundColor] ? colorsForBackground(...dashboardColorHSL[backgroundColor]) : darkWhites
+    const colors = dashboardColorHSL[backgroundColor]
+
+    if (!colors) {
+        return darkWhites
+    }
+
+    return colorsForBackground(colors[0], colors[1], colors[2])
 }
