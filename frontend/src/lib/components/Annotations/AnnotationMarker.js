@@ -68,7 +68,7 @@ export function AnnotationMarker({
                                 rows={4}
                                 value={textInput}
                                 onChange={e => setTextInput(e.target.value)}
-                            ></TextArea>
+                            />
                         )}
                         {textAreaVisible ? (
                             <Row justify="end">
