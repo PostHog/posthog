@@ -55,16 +55,18 @@ export function LineGraph({
     }, [datasets, type])
 
     useEffect(() => {
-        const leftExtent = myLineChart.current.scales['x-axis-0'].left
-        const rightExtent = myLineChart.current.scales['x-axis-0'].right
-        const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
-        const delta = rightExtent - leftExtent
-        const interval = delta / (ticks - 1)
-        const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
-        setLeftExtent(leftExtent)
-        setInterval(interval)
-        setTopExtent(topExtent)
-    }, [myLineChart.current, size])
+        if (!type || type === 'line') {
+            const leftExtent = myLineChart.current.scales['x-axis-0'].left
+            const rightExtent = myLineChart.current.scales['x-axis-0'].right
+            const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
+            const delta = rightExtent - leftExtent
+            const interval = delta / (ticks - 1)
+            const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
+            setLeftExtent(leftExtent)
+            setInterval(interval)
+            setTopExtent(topExtent)
+        }
+    }, [myLineChart.current, size, type])
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
@@ -298,7 +300,8 @@ export function LineGraph({
                                 style={{ marginBottom: 12 }}
                                 rows={4}
                                 onChange={e => setTextInput(e.target.value)}
-                            ></TextArea>
+                                autoFocus
+                            />
                             <Row justify="end">
                                 <Button style={{ marginRight: 10 }} onClick={() => setFocused(false)}>
                                     Cancel
@@ -307,12 +310,14 @@ export function LineGraph({
                                     type="primary"
                                     onClick={() => {
                                         setFocused(false)
-                                        dashboardItemId
-                                            ? createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
-                                            : createAnnotation(textInput, datasets[0].days[holdLabelIndex]),
+                                        if (dashboardItemId)
+                                            createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
+                                        else {
+                                            createAnnotation(textInput, datasets[0].days[holdLabelIndex])
                                             toast(
                                                 'This annotation will be saved if the graph is made into a dashboard item!'
                                             )
+                                        }
                                     }}
                                 >
                                     Add
@@ -323,7 +328,7 @@ export function LineGraph({
                     left={(focused ? holdLeft : left) - 12.5}
                     top={myLineChart.current.scales['x-axis-0'].top + 12}
                     label={'Add Annotation'}
-                ></AnnotationMarker>
+                />
             )}
             {(!type || type === 'line') && (
                 <Annotations

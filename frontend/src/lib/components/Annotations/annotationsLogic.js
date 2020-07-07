@@ -67,7 +67,7 @@ export const annotationsLogic = kea({
                         created_by: 'local',
                     },
                 ],
-                clearAnnotationsToCreate: () => ({}),
+                clearAnnotationsToCreate: () => [],
                 deleteAnnotation: (state, { id }) => {
                     if (id < 0) {
                         let newState = [...state]
