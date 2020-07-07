@@ -18,7 +18,9 @@ class TestDashboard(BaseTest):
 
         # delete
         self.client.patch(
-            "/api/dashboard/1/", data={"deleted": "true"}, content_type="application/json",
+            "/api/dashboard/{}/".format(Dashboard.objects.all()[0].pk),
+            data={"deleted": "true"},
+            content_type="application/json",
         )
         response = self.client.get("/api/dashboard/").json()
         self.assertEqual(len(response["results"]), 0)
