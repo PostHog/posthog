@@ -89,7 +89,7 @@ export const annotationsLogic = kea({
             },
         ],
     }),
-    listeners: ({ actions, values, props }) => ({
+    listeners: ({ actions, props }) => ({
         createAnnotationNow: async ({ content, date_marker, created_at }) => {
             await api.create('api/annotation', {
                 content,
@@ -117,5 +117,5 @@ function getNextKey(arr) {
     if (arr.length === 0) return -1
     const result = arr.reduce((prev, curr) => (prev.id < curr.id ? prev : curr))
     if (result.id >= 0) return -1
-    else return minObj.id - 1
+    else return result.id - 1
 }
