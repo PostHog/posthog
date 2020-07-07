@@ -53,7 +53,7 @@ export const dashboardsModel = kea({
             }),
             delayedDeleteDashboard: (state, { id }) => {
                 // this gives us time to leave the /dashboard/:deleted_id page
-                const { [id]: _discard, ...rest } = state
+                const { [id]: _discard, ...rest } = state // eslint-disable-line
                 return rest
             },
             pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),

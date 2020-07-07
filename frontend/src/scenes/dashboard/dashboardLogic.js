@@ -227,7 +227,7 @@ export const dashboardLogic = kea({
                 items: values.items.map((item) => {
                     const layouts = {}
                     Object.entries(item.layouts).forEach(([key, layout]) => {
-                        const { i, ...rest } = layout
+                        const { i, ...rest } = layout // eslint-disable-line
                         layouts[key] = rest
                     })
                     return { id: item.id, layouts }
@@ -250,7 +250,7 @@ export const dashboardLogic = kea({
                 layouts[size] = { w, h }
             })
 
-            const { id: _discard, ...rest } = item
+            const { id: _discard, ...rest } = item // eslint-disable-line
             const newItem = dashboardId ? { ...rest, dashboard: dashboardId, layouts } : { ...rest, layouts }
             const addedItem = await api.create('api/dashboard_item', newItem)
 

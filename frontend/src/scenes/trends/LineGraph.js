@@ -45,7 +45,7 @@ export class LineGraph extends Component {
         const axisColor = this.props.color === 'white' ? '#999' : 'rgba(255,255,255,0.6)'
 
         if (typeof this.myLineChart !== 'undefined') this.myLineChart.destroy()
-        const _this = this
+        const _this = this // eslint-disable-line
         // if chart is line graph, make duplicate lines and overlay to show dotted lines
         datasets =
             !this.props.type || this.props.type === 'line'
