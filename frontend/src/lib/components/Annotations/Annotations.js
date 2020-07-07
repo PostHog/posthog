@@ -3,8 +3,6 @@ import moment from 'moment'
 import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
-import { humanFriendlyDetailedTime } from '~/lib/utils'
-import _ from 'lodash'
 
 export const Annotations = React.memo(function Annotations({
     dates,
