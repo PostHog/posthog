@@ -41,7 +41,7 @@ describe('Auth', () => {
 
                 cy.get('#inputEmail').type(Cypress._.random(0, 1e6) + '@posthog.com')
 
-                cy.get('#inputPassword').type('password').should('have.value', 'password')
+                cy.get('#inputPassword').type('Test1234').should('have.value', 'Test1234')
 
                 cy.get('.btn').click()
 
@@ -62,7 +62,7 @@ describe('Auth', () => {
 
                 cy.get('#inputEmail').type(Cypress._.random(0, 1e6) + '@posthog.com')
 
-                cy.get('#inputPassword').type('password').should('have.value', 'password')
+                cy.get('#inputPassword').type('Test1234').should('have.value', 'Test1234')
 
                 cy.get('[data-attr=updates-checkbox').check()
 
