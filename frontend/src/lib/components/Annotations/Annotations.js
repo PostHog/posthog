@@ -4,6 +4,7 @@ import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
 import _ from 'lodash'
+import { determineDifferenceType } from '~/lib/utils'
 
 export const Annotations = React.memo(function Annotations({
     dates,
@@ -51,14 +52,3 @@ export const Annotations = React.memo(function Annotations({
     })
     return markers
 })
-
-function determineDifferenceType(firstDate, secondDate) {
-    const first = moment(firstDate)
-    const second = moment(secondDate)
-    if (first.diff(second, 'years') !== 0) return 'year'
-    else if (first.diff(second, 'months') !== 0) return 'month'
-    else if (first.diff(second, 'weeks') !== 0) return 'week'
-    else if (first.diff(second, 'days') !== 0) return 'day'
-    else if (first.diff(second, 'hours') !== 0) return 'hour'
-    else return 'minute'
-}

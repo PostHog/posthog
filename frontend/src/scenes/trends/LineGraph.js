@@ -150,7 +150,7 @@ export function LineGraph({
                               footerSpacing: 0,
                               titleSpacing: 0,
                               callbacks: {
-                                  label: function (tooltipItem, data) {
+                                  label: function(tooltipItem, data) {
                                       let entityData = data.datasets[tooltipItem.datasetIndex]
                                       if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1))
                                           return null
@@ -162,7 +162,7 @@ export function LineGraph({
                                       ) {
                                           label += ` (${entityData.action.properties
                                               .map(
-                                                  (property) =>
+                                                  property =>
                                                       operatorMap[property.operator || 'exact'].split(' ')[0] +
                                                       ' ' +
                                                       property.value
@@ -188,7 +188,7 @@ export function LineGraph({
                                   const delta = rightExtent - leftExtent
                                   const interval = delta / (ticks - 1)
                                   if (evt.offsetX < leftExtent - interval / 2) return
-                                  const index = map(
+                                  const index = mapRange(
                                       evt.offsetX,
                                       leftExtent - interval / 2,
                                       rightExtent + interval / 2,
@@ -331,7 +331,7 @@ export function LineGraph({
     )
 }
 
-const map = (value, x1, y1, x2, y2) => Math.floor(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
+const mapRange = (value, x1, y1, x2, y2) => Math.floor(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
 
 LineGraph.propTypes = {
     datasets: PropTypes.arrayOf(PropTypes.shape({ label: PropTypes.string, count: PropTypes.number })).isRequired,

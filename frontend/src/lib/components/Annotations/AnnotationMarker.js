@@ -4,13 +4,13 @@ import React, { useState } from 'react'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { Button, Popover, Row, Input } from 'antd'
-const { TextArea } = Input
 import { humanFriendlyDetailedTime } from '~/lib/utils'
-import { DeleteOutlined } from '@ant-design/icons'
+import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import _ from 'lodash'
-import { PlusOutlined } from '@ant-design/icons'
 
-export const AnnotationMarker = React.memo(function AnnotationMarker({
+const { TextArea } = Input
+
+export function AnnotationMarker({
     label,
     annotations,
     left,
@@ -130,4 +130,4 @@ export const AnnotationMarker = React.memo(function AnnotationMarker({
             </div>
         </Popover>
     )
-})
+}
