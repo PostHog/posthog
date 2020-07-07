@@ -35,7 +35,7 @@ export function LineGraph({
     const [labelIndex, setLabelIndex] = useState(null)
     const [holdLabelIndex, setHoldLabelIndex] = useState(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState(null)
-    const { createAnnotation, createAnnotationNow } = useActions(
+    const { createAnnotation, createAnnotationNow, updateDiffType } = useActions(
         annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
     )
     const [textInput, setTextInput] = useState('')
@@ -47,6 +47,12 @@ export function LineGraph({
     useEffect(() => {
         buildChart()
     }, [datasets, color])
+
+    useEffect(() => {
+        if (!type || type === 'line') {
+            updateDiffType(datasets[0].days)
+        }
+    }, [datasets, type])
 
     useEffect(() => {
         const leftExtent = myLineChart.current.scales['x-axis-0'].left
@@ -275,7 +281,7 @@ export function LineGraph({
                     }
                 }}
             />
-            {(enabled || focused) && left >= 0 && (
+            {(!type || type === 'line') && (enabled || focused) && left >= 0 && (
                 <AnnotationMarker
                     onClick={() => {
                         setFocused(true)
@@ -319,14 +325,16 @@ export function LineGraph({
                     label={'Add Annotation'}
                 ></AnnotationMarker>
             )}
-            <Annotations
-                labeledDays={datasets[0].labels}
-                dates={datasets[0].days}
-                leftExtent={leftExtent}
-                interval={interval}
-                topExtent={topExtent}
-                dashboardItemId={dashboardItemId}
-            ></Annotations>
+            {(!type || type === 'line') && (
+                <Annotations
+                    labeledDays={datasets[0].labels}
+                    dates={datasets[0].days}
+                    leftExtent={leftExtent}
+                    interval={interval}
+                    topExtent={topExtent}
+                    dashboardItemId={dashboardItemId}
+                />
+            )}
         </div>
     )
 }

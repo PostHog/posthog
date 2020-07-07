@@ -4,6 +4,7 @@ import { toParams } from 'lib/utils'
 import moment from 'moment'
 import _ from 'lodash'
 import { deleteWithUndo } from 'lib/utils'
+import { determineDifferenceType } from '~/lib/utils'
 
 export const annotationsLogic = kea({
     key: props => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
@@ -20,6 +21,8 @@ export const annotationsLogic = kea({
         }),
         deleteAnnotation: id => ({ id }),
         clearAnnotationsToCreate: true,
+        updateDiffType: dates => ({ dates }),
+        setDiffType: type => ({ type }),
     }),
     loaders: ({ props }) => ({
         annotations: {
@@ -76,6 +79,12 @@ export const annotationsLogic = kea({
                 },
             },
         ],
+        diffType: [
+            'day',
+            {
+                setDiffType: (_, { type }) => type,
+            },
+        ],
     }),
     selectors: ({ selectors }) => ({
         annotationsList: [
@@ -92,6 +101,15 @@ export const annotationsLogic = kea({
                     })),
                 ]
                 return result
+            },
+        ],
+        groupedAnnotations: [
+            () => [selectors.annotationsList, selectors.diffType],
+            (annotationsList, diffType) => {
+                const groupedResults = _.groupBy(annotationsList, annote =>
+                    moment(annote['date_marker']).startOf(diffType)
+                )
+                return groupedResults
             },
         ],
     }),
@@ -112,6 +130,9 @@ export const annotationsLogic = kea({
                     object: { name: 'Annotation', id },
                     callback: () => actions.loadAnnotations({}),
                 })
+        },
+        updateDiffType: ({ dates }) => {
+            actions.setDiffType(determineDifferenceType(dates[0], dates[1]))
         },
     }),
     events: ({ actions, props }) => ({
