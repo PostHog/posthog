@@ -1,6 +1,6 @@
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
-import { Dropdown, Menu, Tooltip, Spin } from 'antd'
+import { Dropdown, Menu, Tooltip, Spin, Alert } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
@@ -244,12 +244,14 @@ export function DashboardItem({
                 </div>
                 <div className="dashboard-item-content">
                     {Element ? (
-                        <Element
-                            dashboardItemId={item.id}
-                            filters={filters}
-                            color={color}
-                            theme={color === 'white' ? 'light' : 'dark'}
-                        />
+                        <Alert.ErrorBoundary message="Error rendering graph!">
+                            <Element
+                                dashboardItemId={item.id}
+                                filters={filters}
+                                color={color}
+                                theme={color === 'white' ? 'light' : 'dark'}
+                            />
+                        </Alert.ErrorBoundary>
                     ) : (
                         <Loading />
                     )}
