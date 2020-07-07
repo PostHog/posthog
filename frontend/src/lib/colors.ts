@@ -12,7 +12,7 @@ const lightColors = [
     'cyan',
     'gray-dark',
 ]
-const getColorVar = (variable) => getComputedStyle(document.body).getPropertyValue('--' + variable)
+const getColorVar = (variable) : string => getComputedStyle(document.body).getPropertyValue('--' + variable)
 
 export const darkWhites = [
     'rgba(255,255,255,0.6)',
@@ -24,27 +24,29 @@ export const darkWhites = [
 
 const hueDiff = -10
 
-export const colorsForBackground = (hue: number, saturation = 63, lightness = 40) => [
-    `hsl(${hue + hueDiff}, ${saturation - 20}%, ${lightness + 40}%)`,
-    `hsl(${hue + hueDiff}, ${saturation + 40}%, ${lightness + 20}%)`,
-    `hsl(${hue + hueDiff}, ${saturation + 40}%, ${lightness - 20}%)`,
-    `hsl(${hue - hueDiff}, ${saturation}%, ${lightness + 20}%)`,
-    `hsl(${hue - hueDiff}, ${saturation}%, ${lightness - 20}%)`,
-    `hsl(${hue - hueDiff}, ${saturation + 40}%, ${lightness + 20}%)`,
-    `hsl(${hue - hueDiff}, ${saturation + 40}%, ${lightness - 20}%)`,
-    `hsl(${hue - hueDiff * 6}, ${saturation}%, ${lightness}%)`,
-    `hsl(${hue - hueDiff * 6}, ${saturation}%, ${lightness - 20}%)`,
-    `hsl(${hue - hueDiff * 6}, ${saturation + 40}%, ${lightness + 40}%)`,
-    `hsl(${hue + hueDiff * 6}, ${saturation}%, ${lightness}%)`,
-    `hsl(${hue + hueDiff * 6}, ${saturation}%, ${lightness - 20}%)`,
-    `hsl(${hue + hueDiff * 6}, ${saturation + 40}%, ${lightness + 40}%)`,
-    `hsl(${hue - hueDiff * 9}, ${saturation}%, ${lightness}%)`,
-    `hsl(${hue - hueDiff * 9}, ${saturation}%, ${lightness - 20}%)`,
-    `hsl(${hue - hueDiff * 9}, ${saturation + 40}%, ${lightness + 40}%)`,
-    `hsl(${hue + hueDiff * 9}, ${saturation}%, ${lightness}%)`,
-    `hsl(${hue + hueDiff * 9}, ${saturation}%, ${lightness - 20}%)`,
-    `hsl(${hue + hueDiff * 9}, ${saturation + 40}%, ${lightness + 40}%)`,
-]
+export function colorsForBackground (hue: number, saturation = 63, lightness = 40) : string[] {
+    return [
+        `hsl(${hue + hueDiff}, ${saturation - 20}%, ${lightness + 40}%)`,
+        `hsl(${hue + hueDiff}, ${saturation + 40}%, ${lightness + 20}%)`,
+        `hsl(${hue + hueDiff}, ${saturation + 40}%, ${lightness - 20}%)`,
+        `hsl(${hue - hueDiff}, ${saturation}%, ${lightness + 20}%)`,
+        `hsl(${hue - hueDiff}, ${saturation}%, ${lightness - 20}%)`,
+        `hsl(${hue - hueDiff}, ${saturation + 40}%, ${lightness + 20}%)`,
+        `hsl(${hue - hueDiff}, ${saturation + 40}%, ${lightness - 20}%)`,
+        `hsl(${hue - hueDiff * 6}, ${saturation}%, ${lightness}%)`,
+        `hsl(${hue - hueDiff * 6}, ${saturation}%, ${lightness - 20}%)`,
+        `hsl(${hue - hueDiff * 6}, ${saturation + 40}%, ${lightness + 40}%)`,
+        `hsl(${hue + hueDiff * 6}, ${saturation}%, ${lightness}%)`,
+        `hsl(${hue + hueDiff * 6}, ${saturation}%, ${lightness - 20}%)`,
+        `hsl(${hue + hueDiff * 6}, ${saturation + 40}%, ${lightness + 40}%)`,
+        `hsl(${hue - hueDiff * 9}, ${saturation}%, ${lightness}%)`,
+        `hsl(${hue - hueDiff * 9}, ${saturation}%, ${lightness - 20}%)`,
+        `hsl(${hue - hueDiff * 9}, ${saturation + 40}%, ${lightness + 40}%)`,
+        `hsl(${hue + hueDiff * 9}, ${saturation}%, ${lightness}%)`,
+        `hsl(${hue + hueDiff * 9}, ${saturation}%, ${lightness - 20}%)`,
+        `hsl(${hue + hueDiff * 9}, ${saturation + 40}%, ${lightness + 40}%)`,
+    ]
+}
 
 export const dashboardColorNames = {
     white: 'White',
@@ -63,7 +65,7 @@ export const dashboardColorHSL = {
     black: [0, 0, 0],
 }
 
-export const cssHSL = (h: number, s: number, l: number) =>
+export const cssHSL = (h: number, s: number, l: number) : string =>
     `hsl(${h % 360}, ${Math.max(0, Math.min(100, s))}%, ${Math.max(0, Math.min(100, l))}%)`
 
 export const dashboardColors = {}
@@ -71,7 +73,7 @@ Object.entries(dashboardColorHSL).forEach(([key, [h, s, l]]) => {
     dashboardColors[key] = cssHSL(h, s, l)
 })
 
-export const getChartColors = (backgroundColor: string) => {
+export function getChartColors (backgroundColor: string) : string[] {
     if (backgroundColor === 'black') {
         const colors = []
         for (let i = 0; i < 20; i++) {
