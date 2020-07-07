@@ -5,7 +5,8 @@
       "lib/*": ["./src/lib/*"],
       "scenes/*": ["./src/scenes/*"],
       "~/*": ["./*"]
-    }
+    },
+    "jsx": "react"
   },
   "include": ["frontend/**/*"],
   "exclude": ["node_modules/**/*", "staticfiles/**/*", "frontend/dist/**/*"]
