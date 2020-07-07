@@ -8,11 +8,13 @@ import _ from 'lodash'
 
 export const Annotations = React.memo(function Annotations({
     dates,
-    labeledDays,
     leftExtent,
     interval,
     topExtent,
     dashboardItemId,
+    onClick,
+    color,
+    accessoryColor,
 }) {
     const { diffType, groupedAnnotations } = useValues(
         annotationsLogic({
@@ -43,6 +45,9 @@ export const Annotations = React.memo(function Annotations({
                             : createAnnotation(input, dates[index])
                     }}
                     onDelete={id => deleteAnnotation(id)}
+                    onClick={onClick}
+                    color={color}
+                    accessoryColor={accessoryColor}
                 ></AnnotationMarker>
             )
         }

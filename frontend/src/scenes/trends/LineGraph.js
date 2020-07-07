@@ -238,7 +238,7 @@ export function LineGraph({
                                   },
                               ],
                           },
-                          events: ['mousemove', 'click'],
+                          //   events: ['mousemove', 'click'],
                           onClick: (_, [point]) => {
                               if (point && onClick) {
                                   const dataset = datasets[point._datasetIndex]
@@ -299,11 +299,18 @@ export function LineGraph({
                                 maxLength={300}
                                 style={{ marginBottom: 12 }}
                                 rows={4}
+                                value={textInput}
                                 onChange={e => setTextInput(e.target.value)}
                                 autoFocus
                             />
                             <Row justify="end">
-                                <Button style={{ marginRight: 10 }} onClick={() => setFocused(false)}>
+                                <Button
+                                    style={{ marginRight: 10 }}
+                                    onClick={() => {
+                                        setFocused(false)
+                                        setTextInput('')
+                                    }}
+                                >
                                     Cancel
                                 </Button>
                                 <Button
@@ -328,6 +335,8 @@ export function LineGraph({
                     left={(focused ? holdLeft : left) - 12.5}
                     top={myLineChart.current.scales['x-axis-0'].top + 12}
                     label={'Add Annotation'}
+                    color={color === 'white' ? null : 'white'}
+                    accessoryColor={color === 'white' ? null : 'black'}
                 />
             )}
             {(!type || type === 'line') && (
@@ -338,6 +347,9 @@ export function LineGraph({
                     interval={interval}
                     topExtent={topExtent}
                     dashboardItemId={dashboardItemId}
+                    onClick={() => setFocused(false)}
+                    color={color === 'white' ? null : 'white'}
+                    accessoryColor={color === 'white' ? null : 'black'}
                 />
             )}
         </div>
