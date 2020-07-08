@@ -6,13 +6,11 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0054_dashboard_item_color'),
+        ("posthog", "0054_dashboard_item_color"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='user',
-            name='anonymize_data',
-            field=models.BooleanField(blank=True, default=False, null=True),
+            model_name="user", name="anonymize_data", field=models.BooleanField(blank=True, default=False, null=True),
         ),
     ]

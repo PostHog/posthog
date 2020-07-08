@@ -16,14 +16,9 @@ import secrets
 
 class PublicTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: request.Request):
-        if (
-            request.GET.get("share_token")
-            and request.parser_context
-            and request.parser_context.get("kwargs")
-        ):
+        if request.GET.get("share_token") and request.parser_context and request.parser_context.get("kwargs"):
             dashboard = Dashboard.objects.filter(
-                share_token=request.GET.get("share_token"),
-                pk=request.parser_context["kwargs"].get("pk"),
+                share_token=request.GET.get("share_token"), pk=request.parser_context["kwargs"].get("pk"),
             )
             if not dashboard.exists():
                 raise AuthenticationFailed(detail="Dashboard doesn't exist")
@@ -36,16 +31,7 @@ class DashboardSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dashboard
-        fields = [
-            "id",
-            "name",
-            "pinned",
-            "items",
-            "created_at",
-            "created_by",
-            "is_shared",
-            "share_token",
-        ]
+        fields = ["id", "name", "pinned", "items", "created_at", "created_by", "is_shared", "share_token", "deleted"]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
@@ -56,11 +42,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         if request.data.get("items"):
             for item in request.data["items"]:
                 DashboardItem.objects.create(
-                    **{
-                        key: value
-                        for key, value in item.items()
-                        if key not in ("id", "deleted", "dashboard", "team")
-                    },
+                    **{key: value for key, value in item.items() if key not in ("id", "deleted", "dashboard", "team")},
                     dashboard=dashboard,
                     team=team,
                 )
@@ -77,7 +59,7 @@ class DashboardSerializer(serializers.ModelSerializer):
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
             return None
-        items = dashboard.items.all()
+        items = dashboard.items.filter(deleted=False).order_by("order").all()
         return DashboardItemSerializer(items, many=True).data
 
 
@@ -97,33 +79,24 @@ class DashboardsViewSet(viewsets.ModelViewSet):
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
         queryset = queryset.prefetch_related(
-            Prefetch(
-                "items",
-                queryset=DashboardItem.objects.filter(deleted=False).order_by("order"),
-            )
+            Prefetch("items", queryset=DashboardItem.objects.filter(deleted=False).order_by("order"),)
         )
 
         if self.request.user.is_anonymous:
             if self.request.GET.get("share_token"):
                 return queryset.filter(share_token=self.request.GET["share_token"])
             else:
-                raise AuthenticationFailed(
-                    detail="You're not logged in or forgot to add a share_token."
-                )
+                raise AuthenticationFailed(detail="You're not logged in or forgot to add a share_token.")
 
         return queryset.filter(team=self.request.user.team_set.get())
 
-    def retrieve(
-        self, request: request.Request, *args: Any, **kwargs: Any
-    ) -> response.Response:
+    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         pk = kwargs["pk"]
         queryset = self.get_queryset()
         dashboard = get_object_or_404(queryset, pk=pk)
         dashboard.last_accessed_at = now()
         dashboard.save()
-        serializer = DashboardSerializer(
-            dashboard, context={"view": self, "request": request}
-        )
+        serializer = DashboardSerializer(dashboard, context={"view": self, "request": request})
         return response.Response(serializer.data)
 
 
@@ -150,14 +123,10 @@ class DashboardItemSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
         request = self.context["request"]
         team = request.user.team_set.get()
-        validated_data.pop(
-            "last_refresh", None
-        )  # last_refresh sometimes gets sent if dashboard_item is duplicated
+        validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if validated_data["dashboard"].team == team:
-            dashboard_item = DashboardItem.objects.create(
-                team=team, last_refresh=datetime.now(), **validated_data
-            )
+            dashboard_item = DashboardItem.objects.create(team=team, last_refresh=datetime.now(), **validated_data)
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
@@ -166,9 +135,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         if not dashboard_item.filters:
             return None
         filter = Filter(data=dashboard_item.filters)
-        cache_key = generate_cache_key(
-            filter.toJSON() + "_" + str(dashboard_item.team_id)
-        )
+        cache_key = generate_cache_key(filter.toJSON() + "_" + str(dashboard_item.team_id))
         result = cache.get(cache_key)
         if not result:
             return None
@@ -190,9 +157,7 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
         team = request.user.team_set.get()
 
         for data in request.data["items"]:
-            self.queryset.filter(team=team, pk=data["id"]).update(
-                layouts=data["layouts"]
-            )
+            self.queryset.filter(team=team, pk=data["id"]).update(layouts=data["layouts"])
 
         serializer = self.get_serializer(self.queryset.filter(team=team), many=True)
         return response.Response(serializer.data)
@@ -201,7 +166,5 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
 def shared_dashboard(request: HttpRequest, share_token: str):
     dashboard = get_object_or_404(Dashboard, is_shared=True, share_token=share_token)
     return render_template(
-        "shared_dashboard.html",
-        request=request,
-        context={"dashboard": dashboard, "team_name": dashboard.team.name},
+        "shared_dashboard.html", request=request, context={"dashboard": dashboard, "team_name": dashboard.team.name},
     )

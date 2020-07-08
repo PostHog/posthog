@@ -38,9 +38,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "feature flag created",
             {
                 "rollout_percentage": feature_flag.rollout_percentage,
-                "has_filters": True
-                if feature_flag.filters and feature_flag.filters.get("properties")
-                else False,
+                "has_filters": True if feature_flag.filters and feature_flag.filters.get("properties") else False,
             },
         )
         return feature_flag
@@ -60,6 +58,4 @@ class FeatureFlagViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
-        return queryset.filter(team=self.request.user.team_set.get()).order_by(
-            "-created_at"
-        )
+        return queryset.filter(team=self.request.user.team_set.get()).order_by("-created_at")

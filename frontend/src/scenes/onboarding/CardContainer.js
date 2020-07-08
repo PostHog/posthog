@@ -12,7 +12,9 @@ export function CardContainer(props) {
                         {props.index !== 0 && (
                             <ArrowLeftOutlined className="clickable" onClick={() => props.onBack()}></ArrowLeftOutlined>
                         )}
-                        {`Step ${props.index + 1} of ${props.totalSteps}`}
+                        {`Step ${props.index + 1} ${props.totalSteps ? 'of' : ''} ${
+                            props.totalSteps ? props.totalSteps : ''
+                        }`}
                     </Row>
                 }
                 className="card"

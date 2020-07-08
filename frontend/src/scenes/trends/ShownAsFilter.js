@@ -9,7 +9,7 @@ export function ShownAsFilter({ filters, onChange }) {
                     <Select
                         defaultValue={filters.shown_as}
                         value={filters.shown_as || 'Volume'}
-                        onChange={value => onChange(value)}
+                        onChange={(value) => onChange(value)}
                         style={{ width: 200 }}
                         disabled={filters.breakdown}
                         data-attr="shownas-filter"

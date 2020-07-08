@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 
 export const featureFlagLogic = kea({
-    key: props => props.id || 'new',
+    key: (props) => props.id || 'new',
 
     actions: () => ({
         setFunnel: (funnel, update) => ({ funnel, update }),
@@ -16,7 +16,7 @@ export const featureFlagLogic = kea({
                 loadFeatureFlags: async () => {
                     return (await api.get('api/feature_flag/')).results
                 },
-                updateFeatureFlag: async featureFlag => {
+                updateFeatureFlag: async (featureFlag) => {
                     try {
                         return await api.update('api/feature_flag/' + featureFlag.id, featureFlag)
                     } catch (err) {
@@ -28,7 +28,7 @@ export const featureFlagLogic = kea({
                         }
                     }
                 },
-                createFeatureFlag: async featureFlag => {
+                createFeatureFlag: async (featureFlag) => {
                     let create
                     try {
                         create = await api.create('api/feature_flag/', featureFlag)
@@ -49,9 +49,9 @@ export const featureFlagLogic = kea({
         featureFlags: {
             updateFeatureFlag: (state, featureFlag) => {
                 if (!featureFlag) return null
-                return [...state].map(flag => (flag.id === featureFlag.id ? featureFlag : flag))
+                return [...state].map((flag) => (flag.id === featureFlag.id ? featureFlag : flag))
             },
-            updateFeatureFlagSuccess: state => state,
+            updateFeatureFlagSuccess: (state) => state,
             createFeatureFlagSuccess: (state, { featureFlags }) => {
                 if (!featureFlags) return state
                 return [featureFlags, ...state]

@@ -1,4 +1,3 @@
-
 from django.apps import apps
 from django.test import TestCase
 from django.db.migrations.executor import MigrationExecutor
@@ -7,7 +6,6 @@ from typing import Optional
 
 
 class TestMigrations(TestCase):
-
     @property
     def app(self) -> str:
         app_config = apps.get_containing_app_config(type(self).__module__)
@@ -29,7 +27,7 @@ class TestMigrations(TestCase):
         migrate_from = [(self.app, self.migrate_from)]
         migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)
-        old_apps = executor.loader.project_state(migrate_from).apps # type: ignore
+        old_apps = executor.loader.project_state(migrate_from).apps  # type: ignore
 
         # Reverse to the original migration
         executor.migrate(migrate_from)
@@ -47,41 +45,51 @@ class TestMigrations(TestCase):
 
 class TagsTestCase(TestMigrations):
 
-    migrate_from = '0038_migrate_actions_to_precalculate_events'
-    migrate_to = '0039_populate_event_ip_property'
+    migrate_from = "0038_migrate_actions_to_precalculate_events"
+    migrate_to = "0039_populate_event_ip_property"
 
     def setUpBeforeMigration(self, apps):
         max_event_count = 1000000
         max_batch_size = 10000
         default_event_count = 100
         default_batch_size = 10
-        Event = apps.get_model('posthog', 'Event')
-        Team = apps.get_model('posthog', 'Team')
+        Event = apps.get_model("posthog", "Event")
+        Team = apps.get_model("posthog", "Team")
         team = Team.objects.create()
-        
-        Event.objects.bulk_create([
-            Event(team=team, event='$autocapture', ip="127.0.0.1")
-                for i in range(default_event_count)], default_batch_size)
 
-        Event.objects.bulk_create([
-            Event(team=team, event='$prefilled_properties', distinct_id="2", 
-            ip="192.2.2.1", properties={"$os": "MacOS"}) 
-                for i in range(default_event_count)], default_batch_size)
+        Event.objects.bulk_create(
+            [Event(team=team, event="$autocapture", ip="127.0.0.1") for i in range(default_event_count)],
+            default_batch_size,
+        )
 
-        null_ip_event = Event.objects.create(team=team, event='$null_ip')
+        Event.objects.bulk_create(
+            [
+                Event(
+                    team=team,
+                    event="$prefilled_properties",
+                    distinct_id="2",
+                    ip="192.2.2.1",
+                    properties={"$os": "MacOS"},
+                )
+                for i in range(default_event_count)
+            ],
+            default_batch_size,
+        )
+
+        null_ip_event = Event.objects.create(team=team, event="$null_ip")
 
     def test_ip_migrated(self):
-        Event = apps.get_model('posthog', 'Event')
+        Event = apps.get_model("posthog", "Event")
 
-        events = Event.objects.all() 
+        events = Event.objects.all()
         for e in events:
-            if e.event == '$prefilled_properties':     
+            if e.event == "$prefilled_properties":
                 self.assertEqual(e.properties.get("$ip"), "192.2.2.1")
                 self.assertEqual(e.properties.get("$ip"), "192.2.2.1")
                 self.assertEqual(e.properties.get("$os"), "MacOS")
 
-            if e.event == '$autocapture':     
+            if e.event == "$autocapture":
                 self.assertEqual(e.properties.get("$ip"), "127.0.0.1")
                 self.assertEqual(e.properties.get("$ip"), "127.0.0.1")
-            if e.event == '$null_ip':
+            if e.event == "$null_ip":
                 self.assertEqual(e.properties.get("$ip"), None)

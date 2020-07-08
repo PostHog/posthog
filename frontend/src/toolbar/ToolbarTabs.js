@@ -3,12 +3,12 @@ import { useActions, useValues } from 'kea'
 import { Tabs } from 'antd'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 
-export function ToolbarTabs({ type }) {
+export function ToolbarTabs() {
     const { tab } = useValues(toolbarTabLogic)
     const { setTab } = useActions(toolbarTabLogic)
 
     return (
-        <div className={type === 'float' ? 'toolbar-block no-padding' : ''}>
+        <div>
             <Tabs onChange={setTab} activeKey={tab}>
                 <Tabs.TabPane tab="Stats" key="stats" />
                 <Tabs.TabPane tab="Actions" key="actions" />

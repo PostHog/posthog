@@ -97,7 +97,7 @@ export function DashboardItem({
     const viewText = typeMap[item.type].viewText
     const link = typeMap[item.type].link(item)
     const color = item.color || 'white'
-    const otherDashboards = dashboards.filter(d => d.id !== dashboardId)
+    const otherDashboards = dashboards.filter((d) => d.id !== dashboardId)
 
     const longPressProps = useLongPress(enableWobblyDragging, {
         ms: 500,
@@ -200,7 +200,7 @@ export function DashboardItem({
                                         </Menu.SubMenu>
                                         {otherDashboards.length > 0 ? (
                                             <Menu.SubMenu key="copy" icon={<CopyOutlined />} title="Copy to...">
-                                                {otherDashboards.map(dashboard => (
+                                                {otherDashboards.map((dashboard) => (
                                                     <Menu.Item
                                                         key={dashboard.id}
                                                         onClick={() => duplicateDashboardItem(item.id, dashboard.id)}
@@ -216,7 +216,7 @@ export function DashboardItem({
                                                 icon={<DeliveredProcedureOutlined />}
                                                 title="Move to..."
                                             >
-                                                {otherDashboards.map(dashboard => (
+                                                {otherDashboards.map((dashboard) => (
                                                     <Menu.Item
                                                         key={dashboard.id}
                                                         onClick={() =>

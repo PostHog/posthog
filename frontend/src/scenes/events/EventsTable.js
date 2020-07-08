@@ -63,7 +63,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
                         Filter by event
                         <EventName
                             value={eventFilter}
-                            onChange={value => {
+                            onChange={(value) => {
                                 confirm()
                                 setEventFilter(value)
                             }}
@@ -149,8 +149,8 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
                     ),
                 }}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowKey={row => (row.event ? row.event.id + '-' + row.event.actionId : row.date_break)}
-                rowClassName={row => {
+                rowKey={(row) => (row.event ? row.event.id + '-' + row.event.actionId : row.date_break)}
+                rowClassName={(row) => {
                     if (row.event) return 'event-row'
                     if (row.date_break) return 'event-day-separator'
                     if (row.new_events) return 'event-row-new'
@@ -162,7 +162,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
                     rowExpandable: ({ event }) => event,
                     expandRowByClick: true,
                 }}
-                onRow={row => ({
+                onRow={(row) => ({
                     onClick: () => {
                         if (row.new_events) prependNewEvents(newEvents)
                     },

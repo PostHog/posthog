@@ -10,7 +10,7 @@ export function ChartFilter(props) {
             filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && (
             <Tooltip
                 key="1"
-                getPopupContainer={trigger => trigger.parentElement}
+                getPopupContainer={(trigger) => trigger.parentElement}
                 placement="right"
                 title="Click on a point to see users related to the datapoint"
             >

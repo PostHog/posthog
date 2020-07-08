@@ -42,7 +42,7 @@ function _FeatureFlags() {
                     <Switch
                         onClick={(_, e) => e.stopPropagation()}
                         checked={featureFlag.active}
-                        onChange={active => updateFeatureFlag({ ...featureFlag, active })}
+                        onChange={(active) => updateFeatureFlag({ ...featureFlag, active })}
                     />
                 )
             },
@@ -64,7 +64,7 @@ function _FeatureFlags() {
                 dataSource={featureFlags}
                 columns={columns}
                 loading={!featureFlags && featureFlagsLoading}
-                onRow={featureFlag => ({
+                onRow={(featureFlag) => ({
                     onClick: () => setOpenFeatureFlag(featureFlag),
                 })}
                 size="small"

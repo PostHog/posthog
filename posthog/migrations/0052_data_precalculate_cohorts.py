@@ -5,6 +5,7 @@ from django.db import migrations
 
 def migrate_calculate_cohorts(apps, schema_editor):
     from posthog.models import Cohort
+
     for cohort in Cohort.objects.all():
         cohort.calculate_people()
         if cohort.team.users.count() == 1:
@@ -19,9 +20,7 @@ def backwards(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0051_precalculate_cohorts'),
+        ("posthog", "0051_precalculate_cohorts"),
     ]
 
-    operations = [
-        migrations.RunPython(migrate_calculate_cohorts, backwards)
-    ]
+    operations = [migrations.RunPython(migrate_calculate_cohorts, backwards)]

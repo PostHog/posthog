@@ -2,7 +2,7 @@ import { kea } from 'kea'
 
 export const currentPageLogic = kea({
     actions: () => ({
-        setHref: href => ({ href }),
+        setHref: (href) => ({ href }),
     }),
 
     reducers: () => ({

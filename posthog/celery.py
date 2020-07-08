@@ -34,17 +34,12 @@ redis_instance = redis.from_url(settings.REDIS_URL, db=0)
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
     # Heartbeat every 10sec to make sure the worker is alive
+    sender.add_periodic_task(10.0, redis_heartbeat.s(), name="10 sec heartbeat", priority=0)
     sender.add_periodic_task(
-        10.0, redis_heartbeat.s(), name="10 sec heartbeat", priority=0
-    )
-    sender.add_periodic_task(
-        crontab(day_of_week="mon,fri"),  # check twice a week
-        update_event_partitions.s(),
+        crontab(day_of_week="mon,fri"), update_event_partitions.s(),  # check twice a week
     )
     sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
-    sender.add_periodic_task(
-        10 * 60, check_cached_items.s(), name="check dashboard items"
-    )
+    sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
 
 
 @app.task

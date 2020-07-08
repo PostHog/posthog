@@ -9,12 +9,12 @@ export function RetentionTable({ logic }) {
         {
             title: 'Cohort',
             key: 'cohort',
-            render: row => row.date,
+            render: (row) => row.date,
         },
         {
             title: 'Users',
             key: 'users',
-            render: row => row.values[0],
+            render: (row) => row.values[0],
         },
     ]
 
@@ -23,7 +23,7 @@ export function RetentionTable({ logic }) {
             columns.push({
                 title: retention.data[dayIndex].label,
                 key: `day::${dayIndex}`,
-                render: row => {
+                render: (row) => {
                     if (dayIndex >= row.values.length) {
                         return ''
                     }

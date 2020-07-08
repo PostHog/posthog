@@ -6,13 +6,11 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0059_dashboarditem_refreshing'),
+        ("posthog", "0059_dashboarditem_refreshing"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='element',
-            name='href',
-            field=models.CharField(blank=True, max_length=2048, null=True),
+            model_name="element", name="href", field=models.CharField(blank=True, max_length=2048, null=True),
         ),
     ]

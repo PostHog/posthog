@@ -9,7 +9,7 @@ import { InfoWindow } from '~/toolbar/elements/InfoWindow'
 import { HeatmapElement } from '~/toolbar/elements/HeatmapElement'
 import { HeatmapLabel } from '~/toolbar/elements/HeatmapLabel'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { getBoxColors } from '~/toolbar/elements/utils'
+import { getBoxColors } from '~/toolbar/utils'
 
 export function Elements() {
     const { domZoom, domPadding, mode } = useValues(dockLogic)
@@ -86,7 +86,7 @@ export function Elements() {
 
                 {heatmapElements.map(({ rect, count, element }, index) => {
                     return (
-                        <React.Fragment key={index}>
+                        <React.Fragment key={`heatmap-${index}`}>
                             <HeatmapElement
                                 rect={rect}
                                 domPadding={domPadding}
@@ -132,7 +132,7 @@ export function Elements() {
                     }
                     return (
                         <HeatmapLabel
-                            key={index}
+                            key={`action-label-${index}`}
                             rect={actions[0].rect}
                             domPadding={domPadding}
                             domZoom={domZoom}
@@ -157,10 +157,10 @@ export function Elements() {
                     )
                 })}
 
-                {labelsToDisplay.map(({ element, rect, index }) => {
+                {labelsToDisplay.map(({ element, rect, index }, loopIndex) => {
                     return (
                         <HeatmapLabel
-                            key={index}
+                            key={`label-${loopIndex}`}
                             rect={rect}
                             domPadding={domPadding}
                             domZoom={domZoom}

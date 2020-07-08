@@ -13,7 +13,7 @@ export function InspectElement() {
     const { mode } = useValues(dockLogic)
 
     return (
-        <div className="toolbar-block">
+        <div>
             <div>
                 <Button
                     type={inspectEnabled ? 'primary' : 'secondary'}

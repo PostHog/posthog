@@ -96,14 +96,14 @@ export const sceneLogic = kea({
 
         for (const [paths, redirect] of Object.entries(redirects)) {
             for (const path of paths.split('|')) {
-                mapping[path] = params =>
+                mapping[path] = (params) =>
                     router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
 
         for (const [paths, scene] of Object.entries(routes)) {
             for (const path of paths.split('|')) {
-                mapping[path] = params => actions.loadScene(scene, params)
+                mapping[path] = (params) => actions.loadScene(scene, params)
             }
         }
         mapping['/*'] = () => actions.loadScene('404', {})

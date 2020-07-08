@@ -7,13 +7,13 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0052_data_precalculate_cohorts'),
+        ("posthog", "0052_data_precalculate_cohorts"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='dashboarditem',
-            name='layouts',
+            model_name="dashboarditem",
+            name="layouts",
             field=django.contrib.postgres.fields.jsonb.JSONField(default=dict),
         ),
     ]
