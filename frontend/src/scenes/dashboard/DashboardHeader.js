@@ -87,9 +87,9 @@ export function DashboardHeader({ logic }) {
                                 </Button>
                             </Tooltip>
 
-                            <Tooltip title={'Click here or long press on a panel to rearrange the dashboard.'}>
+                            <Tooltip title={'Click here to lock re-arranging the dashboard.'}>
                                 <Button
-                                    className="button-box-when-small enable-dragging-button"
+                                    className="button-box enable-dragging-button"
                                     type={draggingEnabled === 'off' ? 'primary' : ''}
                                     onClick={draggingEnabled === 'off' ? enableDragging : disableDragging}
                                 >
