@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-var-requires */
 /* global require, module, process, __dirname */
 const path = require('path')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
@@ -25,7 +26,7 @@ function createEntry(entry) {
         entry: {
             [entry]:
                 entry === 'main'
-                    ? './frontend/src/index.js'
+                    ? './frontend/src/index.tsx'
                     : entry === 'toolbar'
                     ? './frontend/src/toolbar/index.js'
                     : entry === 'editor'
@@ -49,6 +50,7 @@ function createEntry(entry) {
                     : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234/static/`,
         },
         resolve: {
+            extensions: ['.js', '.ts', '.tsx'],
             alias: {
                 '~': path.resolve(__dirname, 'frontend', 'src'),
                 lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),
@@ -63,7 +65,7 @@ function createEntry(entry) {
         module: {
             rules: [
                 {
-                    test: /\.js$/,
+                    test: /\.[jt]sx?$/,
                     exclude: /(node_modules)/,
                     use: {
                         loader: 'babel-loader',

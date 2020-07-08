@@ -57,9 +57,9 @@ function cleanFilters(filters) {
 
 function filterClientSideParams(filters) {
     const {
-        people_day: _skip_this_one,
-        people_action: _skip_this_too,
-        stickiness_days: __and_this,
+        people_day: _skip_this_one, // eslint-disable-line
+        people_action: _skip_this_too, // eslint-disable-line
+        stickiness_days: __and_this, // eslint-disable-line
         ...newFilters
     } = filters
 
