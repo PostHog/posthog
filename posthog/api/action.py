@@ -300,7 +300,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         return Response({"results": [people], "next": next_url, "previous": current_url[1:]})
 
 
-def calculate_trends(filter: Filter, params: dict, team_id: int, actions: QuerySet) -> List[Dict[str, Any]]:
+def calculate_trends(filter: Filter, team_id: int, actions: QuerySet) -> List[Dict[str, Any]]:
     entities_list = []
     actions = actions.filter(deleted=False)
 
