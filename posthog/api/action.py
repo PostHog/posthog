@@ -106,20 +106,13 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
 def get_actions(queryset: QuerySet, params: dict, team_id: int) -> QuerySet:
     if params.get(TREND_FILTER_TYPE_ACTIONS):
         queryset = queryset.filter(
-            pk__in=[
-                action.id
-                for action in Filter(
-                    {"actions": json.loads(params.get("actions", "[]"))}
-                ).actions
-            ]
+            pk__in=[action.id for action in Filter({"actions": json.loads(params.get("actions", "[]"))}).actions]
         )
 
     if params.get("include_count"):
         queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
 
-    queryset = queryset.prefetch_related(
-        Prefetch("steps", queryset=ActionStep.objects.order_by("id"))
-    )
+    queryset = queryset.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
     return queryset.filter(team_id=team_id).order_by("-id")
 
 
@@ -136,34 +129,22 @@ class ActionViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
-        return get_actions(
-            queryset, self.request.GET.dict(), self.request.user.team_set.get().pk
-        )
+        return get_actions(queryset, self.request.GET.dict(), self.request.user.team_set.get().pk)
 
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         action, created = Action.objects.get_or_create(
             name=request.data["name"],
             team=request.user.team_set.get(),
             deleted=False,
-            defaults={
-                "post_to_slack": request.data.get("post_to_slack", False),
-                "created_by": request.user,
-            },
+            defaults={"post_to_slack": request.data.get("post_to_slack", False), "created_by": request.user,},
         )
         if not created:
-            return Response(
-                data={"detail": "action-exists", "id": action.pk}, status=400
-            )
+            return Response(data={"detail": "action-exists", "id": action.pk}, status=400)
 
         if request.data.get("steps"):
             for step in request.data["steps"]:
                 ActionStep.objects.create(
-                    action=action,
-                    **{
-                        key: value
-                        for key, value in step.items()
-                        if key not in ("isNew", "selection")
-                    }
+                    action=action, **{key: value for key, value in step.items() if key not in ("isNew", "selection")}
                 )
         calculate_action.delay(action_id=action.pk)
         return Response(ActionSerializer(action, context={"request": request}).data)
@@ -187,11 +168,7 @@ class ActionViewSet(viewsets.ModelViewSet):
                 else:
                     ActionStep.objects.create(
                         action=action,
-                        **{
-                            key: value
-                            for key, value in step.items()
-                            if key not in ("isNew", "selection")
-                        }
+                        **{key: value for key, value in step.items() if key not in ("isNew", "selection")}
                     )
 
         serializer = ActionSerializer(action, context={"request": request})
@@ -204,9 +181,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         actions = self.get_queryset()
         actions_list: List[Dict[Any, Any]] = ActionSerializer(actions, many=True, context={"request": request}).data  # type: ignore
         if request.GET.get("include_count", False):
-            actions_list.sort(
-                key=lambda action: action.get("count", action["id"]), reverse=True
-            )
+            actions_list.sort(key=lambda action: action.get("count", action["id"]), reverse=True)
         return Response({"results": actions_list})
 
     @action(methods=["GET"], detail=False)
@@ -224,16 +199,12 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         dashboard_id = request.GET.get("from_dashboard", None)
         if dashboard_id:
-            DashboardItem.objects.filter(pk=dashboard_id).update(
-                last_refresh=datetime.datetime.now()
-            )
+            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.datetime.now())
 
         return result
 
     @action(methods=["GET"], detail=False)
-    def retention(
-        self, request: request.Request, *args: Any, **kwargs: Any
-    ) -> Response:
+    def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.team_set.get()
         properties = request.GET.get("properties")
         filter = Filter(data={"properties": json.loads(properties)})
@@ -253,23 +224,17 @@ class ActionViewSet(viewsets.ModelViewSet):
                 stickiness_days = int(request.GET["stickiness_days"])
                 events = (
                     events.values("person_id")
-                    .annotate(
-                        day_count=Count(functions.TruncDay("timestamp"), distinct=True)
-                    )
+                    .annotate(day_count=Count(functions.TruncDay("timestamp"), distinct=True))
                     .filter(day_count=stickiness_days)
                 )
             else:
                 events = events.values("person_id").distinct()
 
-            if (
-                request.GET.get("breakdown_type") == "cohort"
-                and request.GET.get("breakdown_value") != "all"
-            ):
+            if request.GET.get("breakdown_type") == "cohort" and request.GET.get("breakdown_value") != "all":
                 events = events.filter(
                     Exists(
                         CohortPeople.objects.filter(
-                            cohort_id=int(request.GET["breakdown_value"]),
-                            person_id=OuterRef("person_id"),
+                            cohort_id=int(request.GET["breakdown_value"]), person_id=OuterRef("person_id"),
                         ).only("id")
                     )
                 )
@@ -279,44 +244,33 @@ class ActionViewSet(viewsets.ModelViewSet):
                         Person.objects.filter(
                             **{
                                 "id": OuterRef("person_id"),
-                                "properties__{}".format(
-                                    request.GET["breakdown"]
-                                ): request.GET["breakdown_value"],
+                                "properties__{}".format(request.GET["breakdown"]): request.GET["breakdown_value"],
                             }
                         ).only("id")
                     )
                 )
 
-            people = Person.objects.filter(
-                team=team,
-                id__in=[p["person_id"] for p in events[offset : offset + 100]],
-            )
+            people = Person.objects.filter(team=team, id__in=[p["person_id"] for p in events[offset : offset + 100]],)
 
-            people = people.prefetch_related(
-                Prefetch("persondistinctid_set", to_attr="distinct_ids_cache")
-            )
+            people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
             return serialize_people(people=people, request=request)
 
         filtered_events: QuerySet = QuerySet()
         if request.GET.get("session"):
             filtered_events = (
-                Event.objects.filter(team=team)
-                .filter(filter_events(team.pk, filter))
-                .add_person_id(team.pk)
+                Event.objects.filter(team=team).filter(filter_events(team.pk, filter)).add_person_id(team.pk)
             )
         else:
             if len(filter.entities) >= 1:
                 entity = filter.entities[0]
             else:
-                entity = Entity(
-                    {"id": request.GET["entityId"], "type": request.GET["type"]}
-                )
+                entity = Entity({"id": request.GET["entityId"], "type": request.GET["type"]})
 
             if entity.type == TREND_FILTER_TYPE_EVENTS:
-                filtered_events = process_entity_for_events(
-                    entity, team_id=team.pk, order_by=None
-                ).filter(filter_events(team.pk, filter, entity))
+                filtered_events = process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(
+                    filter_events(team.pk, filter, entity)
+                )
             elif entity.type == TREND_FILTER_TYPE_ACTIONS:
                 actions = super().get_queryset()
                 actions = actions.filter(deleted=False)
@@ -324,9 +278,9 @@ class ActionViewSet(viewsets.ModelViewSet):
                     action = actions.get(pk=entity.id)
                 except Action.DoesNotExist:
                     return Response([])
-                filtered_events = process_entity_for_events(
-                    entity, team_id=team.pk, order_by=None
-                ).filter(filter_events(team.pk, filter, entity))
+                filtered_events = process_entity_for_events(entity, team_id=team.pk, order_by=None).filter(
+                    filter_events(team.pk, filter, entity)
+                )
 
         people = _calculate_people(events=filtered_events, offset=offset)
 
@@ -335,26 +289,18 @@ class ActionViewSet(viewsets.ModelViewSet):
         if people["count"] > 99 and next_url:
             if "offset" in next_url:
                 next_url = next_url[1:]
-                next_url = next_url.replace(
-                    "offset=" + str(offset), "offset=" + str(offset + 100)
-                )
+                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
             else:
                 next_url = request.build_absolute_uri(
-                    "{}{}offset={}".format(
-                        next_url, "&" if "?" in next_url else "?", offset + 100
-                    )
+                    "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
                 )
         else:
             next_url = None
 
-        return Response(
-            {"results": [people], "next": next_url, "previous": current_url[1:]}
-        )
+        return Response({"results": [people], "next": next_url, "previous": current_url[1:]})
 
 
-def calculate_trends(
-    filter: Filter, params: dict, team_id: int, actions: QuerySet
-) -> List[Dict[str, Any]]:
+def calculate_trends(filter: Filter, params: dict, team_id: int, actions: QuerySet) -> List[Dict[str, Any]]:
     compare = params.get("compare")
     entities_list = []
     actions = actions.filter(deleted=False)
@@ -362,14 +308,7 @@ def calculate_trends(
     if len(filter.entities) == 0:
         # If no filters, automatically grab all actions and show those instead
         filter.entities = [
-            Entity(
-                {
-                    "id": action.id,
-                    "name": action.name,
-                    "type": TREND_FILTER_TYPE_ACTIONS,
-                }
-            )
-            for action in actions
+            Entity({"id": action.id, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS,}) for action in actions
         ]
 
     if not filter.date_from:
@@ -393,13 +332,9 @@ def calculate_trends(
                 entity.name = db_action.name
             except IndexError:
                 continue
-        trend_entity = serialize_entity(
-            entity=entity, filter=filter, params=params, team_id=team_id
-        )
+        trend_entity = serialize_entity(entity=entity, filter=filter, params=params, team_id=team_id)
         if compare and compared_filter:
-            trend_entity = convert_to_comparison(
-                trend_entity, filter, "{} - {}".format(entity.name, "current")
-            )
+            trend_entity = convert_to_comparison(trend_entity, filter, "{} - {}".format(entity.name, "current"))
             entities_list.extend(trend_entity)
 
             compared_trend_entity = serialize_entity(
@@ -407,9 +342,7 @@ def calculate_trends(
             )
 
             compared_trend_entity = convert_to_comparison(
-                compared_trend_entity,
-                compared_filter,
-                "{} - {}".format(entity.name, "previous"),
+                compared_trend_entity, compared_filter, "{} - {}".format(entity.name, "previous"),
             )
             entities_list.extend(compared_trend_entity)
         else:
@@ -428,10 +361,7 @@ def calculate_retention(filter: Filter, team: Team, total_days=11):
     result = {
         "data": [
             {
-                "values": [
-                    by_dates.get((first_day, day), 0)
-                    for day in range(total_days - first_day)
-                ],
+                "values": [by_dates.get((first_day, day), 0) for day in range(total_days - first_day)],
                 "label": "Day {}".format(first_day),
                 "date": (date_from + timedelta(days=first_day)).strftime(labels_format),
             }
@@ -442,19 +372,14 @@ def calculate_retention(filter: Filter, team: Team, total_days=11):
     return result
 
 
-def build_dataframe(
-    aggregates: QuerySet, interval: str, breakdown: Optional[str] = None
-) -> pd.DataFrame:
+def build_dataframe(aggregates: QuerySet, interval: str, breakdown: Optional[str] = None) -> pd.DataFrame:
     if breakdown == "cohorts":
         cohort_keys = [key for key in aggregates[0].keys() if key.startswith("cohort_")]
         # Convert queryset with day, count, cohort_88, cohort_99, ... to multiple rows, for example:
         # 2020-01-01..., 1, cohort_88
         # 2020-01-01..., 3, cohort_99
         dataframe = pd.melt(
-            pd.DataFrame(aggregates),
-            id_vars=[interval, "count"],
-            value_vars=cohort_keys,
-            var_name="breakdown",
+            pd.DataFrame(aggregates), id_vars=[interval, "count"], value_vars=cohort_keys, var_name="breakdown",
         ).rename(columns={interval: "date"})
         # Filter out false values
         dataframe = dataframe[dataframe["value"] == True]
@@ -463,22 +388,14 @@ def build_dataframe(
     else:
         dataframe = pd.DataFrame(
             [
-                {
-                    "date": a[interval],
-                    "count": a["count"],
-                    "breakdown": a[breakdown] if breakdown else "Total",
-                }
+                {"date": a[interval], "count": a["count"], "breakdown": a[breakdown] if breakdown else "Total",}
                 for a in aggregates
             ]
         )
     if interval == "week":
-        dataframe["date"] = dataframe["date"].apply(
-            lambda x: x - pd.offsets.Week(weekday=6)
-        )
+        dataframe["date"] = dataframe["date"].apply(lambda x: x - pd.offsets.Week(weekday=6))
     elif interval == "month":
-        dataframe["date"] = dataframe["date"].apply(
-            lambda x: x - pd.offsets.MonthEnd(n=1)
-        )
+        dataframe["date"] = dataframe["date"].apply(lambda x: x - pd.offsets.MonthEnd(n=1))
     return dataframe
 
 
@@ -512,17 +429,11 @@ def group_events_to_date(
             )
             df_dates = pd.DataFrame(filtered.groupby("date").mean(), index=time_index)
             df_dates = df_dates.fillna(0)
-            response[value] = {
-                key: value[0] if len(value) > 0 else 0
-                for key, value in df_dates.iterrows()
-            }
+            response[value] = {key: value[0] if len(value) > 0 else 0 for key, value in df_dates.iterrows()}
     else:
         dataframe = pd.DataFrame([], index=time_index)
         dataframe = dataframe.fillna(0)
-        response["total"] = {
-            key: value[0] if len(value) > 0 else 0
-            for key, value in dataframe.iterrows()
-        }
+        response["total"] = {key: value[0] if len(value) > 0 else 0 for key, value in dataframe.iterrows()}
     return response
 
 
@@ -541,31 +452,21 @@ def get_interval_annotation(key: str) -> Dict[str, Any]:
     return {key: func}
 
 
-def add_cohort_annotations(
-    team_id: int, breakdown: List[Union[int, str]]
-) -> Dict[str, Union[Value, Exists]]:
-    cohorts = Cohort.objects.filter(
-        team_id=team_id, pk__in=[b for b in breakdown if b != "all"]
-    )
+def add_cohort_annotations(team_id: int, breakdown: List[Union[int, str]]) -> Dict[str, Union[Value, Exists]]:
+    cohorts = Cohort.objects.filter(team_id=team_id, pk__in=[b for b in breakdown if b != "all"])
     annotations: Dict[str, Union[Value, Exists]] = {}
     for cohort in cohorts:
         annotations["cohort_{}".format(cohort.pk)] = Exists(
-            CohortPeople.objects.filter(
-                cohort=cohort.pk, person_id=OuterRef("person_id")
-            ).only("id")
+            CohortPeople.objects.filter(cohort=cohort.pk, person_id=OuterRef("person_id")).only("id")
         )
     if "all" in breakdown:
         annotations["cohort_all"] = Value(True, output_field=BooleanField())
     return annotations
 
 
-def add_person_properties_annotations(
-    team_id: int, breakdown: str
-) -> Dict[str, Subquery]:
+def add_person_properties_annotations(team_id: int, breakdown: str) -> Dict[str, Subquery]:
     person_properties = Subquery(
-        Person.objects.filter(team_id=team_id, id=OuterRef("person_id")).values(
-            "properties__{}".format(breakdown)
-        )
+        Person.objects.filter(team_id=team_id, id=OuterRef("person_id")).values("properties__{}".format(breakdown))
     )
     annotations = {}
     annotations["properties__{}".format(breakdown)] = person_properties
@@ -586,26 +487,17 @@ def aggregate_by_interval(
     if breakdown:
         breakdown_type = params.get("breakdown_type")
         if breakdown_type == "cohort":
-            cohort_annotations = add_cohort_annotations(
-                team_id, json.loads(params.get("breakdown", "[]"))
-            )
+            cohort_annotations = add_cohort_annotations(team_id, json.loads(params.get("breakdown", "[]")))
             values.extend(cohort_annotations.keys())
             filtered_events = filtered_events.annotate(**cohort_annotations)
             breakdown = "cohorts"
         elif breakdown_type == "person":
-            person_annotations = add_person_properties_annotations(
-                team_id, params.get("breakdown", "")
-            )
+            person_annotations = add_person_properties_annotations(team_id, params.get("breakdown", ""))
             filtered_events = filtered_events.annotate(**person_annotations)
             values.append(breakdown)
         else:
             values.append(breakdown)
-    aggregates = (
-        filtered_events.annotate(**interval_annotation)
-        .values(*values)
-        .annotate(count=Count(1))
-        .order_by()
-    )
+    aggregates = filtered_events.annotate(**interval_annotation).values(*values).annotate(count=Count(1)).order_by()
 
     if breakdown:
         aggregates = aggregates.order_by("-count")
@@ -635,9 +527,7 @@ def execute_custom_sql(query, params):
     return cursor.fetchall()
 
 
-def stickiness(
-    filtered_events: QuerySet, entity: Entity, filter: Filter, team_id: int
-) -> Dict[str, Any]:
+def stickiness(filtered_events: QuerySet, entity: Entity, filter: Filter, team_id: int) -> Dict[str, Any]:
     if not filter.date_to or not filter.date_from:
         raise ValueError("_stickiness needs date_to and date_from set")
     range_days = (filter.date_to - filter.date_from).days + 2
@@ -650,9 +540,7 @@ def stickiness(
     )
 
     events_sql, events_sql_params = events.query.sql_with_params()
-    aggregated_query = "select count(v.person_id), v.day_count from ({}) as v group by v.day_count".format(
-        events_sql
-    )
+    aggregated_query = "select count(v.person_id), v.day_count from ({}) as v group by v.day_count".format(events_sql)
     aggregated_counts = execute_custom_sql(aggregated_query, events_sql_params)
 
     response: Dict[int, int] = {}
@@ -675,14 +563,11 @@ def stickiness(
     }
 
 
-def breakdown_label(
-    entity: Entity, value: Union[str, int]
-) -> Dict[str, Optional[Union[str, int]]]:
+def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optional[Union[str, int]]]:
     ret_dict: Dict[str, Optional[Union[str, int]]] = {}
     if not value or not isinstance(value, str) or "cohort_" not in value:
         ret_dict["label"] = "{} - {}".format(
-            entity.name,
-            value if value and value != "None" and value != "nan" else "Other",
+            entity.name, value if value and value != "None" and value != "nan" else "Other",
         )
         ret_dict["breakdown_value"] = value if value and not pd.isna(value) else None
     else:
@@ -696,9 +581,7 @@ def breakdown_label(
     return ret_dict
 
 
-def serialize_entity(
-    entity: Entity, filter: Filter, params: dict, team_id: int
-) -> List[Dict[str, Any]]:
+def serialize_entity(entity: Entity, filter: Filter, params: dict, team_id: int) -> List[Dict[str, Any]]:
     interval = params.get("interval")
     if interval is None:
         interval = "day"
@@ -713,9 +596,7 @@ def serialize_entity(
     }
     response = []
     events = process_entity_for_events(
-        entity=entity,
-        team_id=team_id,
-        order_by=None if params.get("shown_as") == "Stickiness" else "-timestamp",
+        entity=entity, team_id=team_id, order_by=None if params.get("shown_as") == "Stickiness" else "-timestamp",
     )
     events = events.filter(filter_events(team_id, filter, entity))
     if params.get("shown_as", "Volume") == "Volume":
@@ -726,36 +607,26 @@ def serialize_entity(
             filter=filter,
             interval=interval,
             params=params,
-            breakdown="properties__{}".format(params.get("breakdown"))
-            if params.get("breakdown")
-            else None,
+            breakdown="properties__{}".format(params.get("breakdown")) if params.get("breakdown") else None,
         )
         for value, item in items.items():
             new_dict = copy.deepcopy(serialized)
             if value != "Total":
                 new_dict.update(breakdown_label(entity, value))
-            new_dict.update(
-                append_data(dates_filled=list(item.items()), interval=interval)
-            )
+            new_dict.update(append_data(dates_filled=list(item.items()), interval=interval))
             if filter.display == TRENDS_CUMULATIVE:
                 new_dict["data"] = np.cumsum(new_dict["data"])
             response.append(new_dict)
     elif params.get("shown_as") == TRENDS_STICKINESS:
         new_dict = copy.deepcopy(serialized)
-        new_dict.update(
-            stickiness(
-                filtered_events=events, entity=entity, filter=filter, team_id=team_id
-            )
-        )
+        new_dict.update(stickiness(filtered_events=events, entity=entity, filter=filter, team_id=team_id))
         response.append(new_dict)
 
     return response
 
 
 def serialize_people(people: QuerySet, request: request.Request) -> Dict:
-    people_dict = [
-        PersonSerializer(person, context={"request": request}).data for person in people
-    ]
+    people_dict = [PersonSerializer(person, context={"request": request}).data for person in people]
     return {"people": people_dict, "count": len(people_dict)}
 
 
@@ -766,9 +637,7 @@ def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> Q
             events = events.order_by(order_by)
         return events
     elif entity.type == TREND_FILTER_TYPE_EVENTS:
-        return Event.objects.filter_by_event_with_people(
-            event=entity.id, team_id=team_id, order_by=order_by
-        )
+        return Event.objects.filter_by_event_with_people(event=entity.id, team_id=team_id, order_by=order_by)
     return QuerySet()
 
 
@@ -785,9 +654,7 @@ def filter_events(team_id: int, filter: Filter, entity: Optional[Entity] = None)
         elif filter.interval == "week":
             relativity = relativedelta(weeks=1)
         elif filter.interval == "month":
-            relativity = (
-                relativedelta(months=1) - relativity
-            )  # go to last day of month instead of first of next
+            relativity = relativedelta(months=1) - relativity  # go to last day of month instead of first of next
         filters &= Q(timestamp__lte=filter.date_to + relativity)
     if filter.properties:
         filters &= filter.properties_to_Q(team_id=team_id)
@@ -804,9 +671,7 @@ def determine_compared_filter(filter):
     return compared_filter
 
 
-def convert_to_comparison(
-    trend_entity: List[Dict[str, Any]], filter: Filter, label: str
-) -> List[Dict[str, Any]]:
+def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter: Filter, label: str) -> List[Dict[str, Any]]:
     for entity in trend_entity:
         days = [i for i in range(len(entity["days"]))]
         labels = [
@@ -814,12 +679,6 @@ def convert_to_comparison(
             for i in range(len(entity["labels"]))
         ]
         entity.update(
-            {
-                "labels": labels,
-                "days": days,
-                "label": label,
-                "dates": entity["days"],
-                "compare": True,
-            }
+            {"labels": labels, "days": days, "label": label, "dates": entity["days"], "compare": True,}
         )
     return trend_entity

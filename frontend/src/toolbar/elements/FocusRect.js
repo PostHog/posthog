@@ -43,7 +43,7 @@ export function FocusRect({ rect }) {
 
     return (
         <>
-            {rects.map(rect => (
+            {rects.map((rect) => (
                 <div
                     key={rect.id}
                     style={{

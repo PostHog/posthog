@@ -22,6 +22,7 @@ django-loginas==0.3.8
 django-redis==4.12.1
 djangorestframework==3.11.0
 djangorestframework-csv==2.1.0
+future==0.18.2
 gunicorn==20.0.4
 idna==2.8
 importlib-metadata==1.6.0
@@ -29,6 +30,7 @@ inflection==0.3.1
 itypes==1.1.0
 Jinja2==2.11.1
 kombu==4.6.8
+lzstring==1.0.4
 MarkupSafe==1.1.1
 monotonic==1.5
 numpy==1.18.1

@@ -15,7 +15,7 @@ export function UrlRow({ actionId, url, saveUrl, deleteUrl, allowNavigation }) {
                 <form
                     key="form"
                     style={{ display: 'flex', width: '100%' }}
-                    onSubmit={e => {
+                    onSubmit={(e) => {
                         e.preventDefault()
                         if (editedValue === defaultUrl) {
                             deleteUrl()
@@ -28,7 +28,7 @@ export function UrlRow({ actionId, url, saveUrl, deleteUrl, allowNavigation }) {
                 >
                     <Input
                         value={editedValue}
-                        onChange={e => setEditedValue(e.target.value)}
+                        onChange={(e) => setEditedValue(e.target.value)}
                         autoFocus
                         required
                         style={{ flex: '1' }}
@@ -58,7 +58,7 @@ export function UrlRow({ actionId, url, saveUrl, deleteUrl, allowNavigation }) {
                 <div key="add-new">
                     <a
                         href="#"
-                        onClick={e => {
+                        onClick={(e) => {
                             e.preventDefault()
                             setIsEditing(true)
                         }}
@@ -69,8 +69,10 @@ export function UrlRow({ actionId, url, saveUrl, deleteUrl, allowNavigation }) {
             ) : (
                 <div key="list" style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                     <a
-                    data-attr="app-url-item"
-                    href={appEditorUrl(actionId, editedValue)} onClick={e => !allowNavigation && e.preventDefault()}>
+                        data-attr="app-url-item"
+                        href={appEditorUrl(actionId, editedValue)}
+                        onClick={(e) => !allowNavigation && e.preventDefault()}
+                    >
                         {editedValue}
                     </a>
                     <span style={{ float: 'right' }}>

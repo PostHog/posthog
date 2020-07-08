@@ -79,7 +79,7 @@ function _Paths() {
 
     function renderPaths() {
         const elements = document.querySelectorAll('.paths svg')
-        elements.forEach(node => node.parentNode.removeChild(node))
+        elements.forEach((node) => node.parentNode.removeChild(node))
 
         if (!paths || paths.nodes.length === 0) {
             return
@@ -94,26 +94,26 @@ function _Paths() {
             .style('width', width)
             .style('height', height)
         let sankey = new Sankey.sankey()
-            .nodeId(d => d.name)
+            .nodeId((d) => d.name)
             .nodeAlign(Sankey.sankeyLeft)
             .nodeSort(null)
             .nodeWidth(15)
             .size([width, height])
 
         const { nodes, links } = sankey({
-            nodes: paths.nodes.map(d => Object.assign({}, d)),
-            links: paths.links.map(d => Object.assign({}, d)),
+            nodes: paths.nodes.map((d) => Object.assign({}, d)),
+            links: paths.links.map((d) => Object.assign({}, d)),
         })
 
         svg.append('g')
             .selectAll('rect')
             .data(nodes)
             .join('rect')
-            .attr('x', d => d.x0 + 1)
-            .attr('y', d => d.y0)
-            .attr('height', d => d.y1 - d.y0)
-            .attr('width', d => d.x1 - d.x0 - 2)
-            .attr('fill', d => {
+            .attr('x', (d) => d.x0 + 1)
+            .attr('y', (d) => d.y0)
+            .attr('height', (d) => d.y1 - d.y0)
+            .attr('width', (d) => d.x1 - d.x0 - 2)
+            .attr('fill', (d) => {
                 let c
                 for (const link of d.sourceLinks) {
                     if (c === undefined) c = link.color
@@ -128,7 +128,7 @@ function _Paths() {
             })
             .attr('opacity', 0.5)
             .append('title')
-            .text(d => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
+            .text((d) => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
 
         const dropOffGradient = svg
             .append('defs')
@@ -136,15 +136,9 @@ function _Paths() {
             .attr('id', 'dropoff-gradient')
             .attr('gradientTransform', 'rotate(90)')
 
-        dropOffGradient
-            .append('stop')
-            .attr('offset', '0%')
-            .attr('stop-color', 'rgba(220,53,69,0.7)')
+        dropOffGradient.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(220,53,69,0.7)')
 
-        dropOffGradient
-            .append('stop')
-            .attr('offset', '100%')
-            .attr('stop-color', '#ffffff')
+        dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', '#ffffff')
 
         const link = svg
             .append('g')
@@ -158,13 +152,13 @@ function _Paths() {
 
         link.append('path')
             .attr('d', Sankey.sankeyLinkHorizontal())
-            .attr('stroke-width', d => {
+            .attr('stroke-width', (d) => {
                 return Math.max(1, d.width)
             })
 
         link.append('g')
             .append('path')
-            .attr('d', data => {
+            .attr('d', (data) => {
                 if (data.source.layer == 0) return
                 let height =
                     data.source.y1 -
@@ -174,7 +168,7 @@ function _Paths() {
             })
             .attr('fill', 'url(#dropoff-gradient)')
             .attr('stroke-width', 0)
-            .attr('transform', data => {
+            .attr('transform', (data) => {
                 return (
                     'translate(' +
                     Math.round(data.source.x1) +
@@ -184,12 +178,12 @@ function _Paths() {
                 )
             })
             .append('tspan')
-            .text(d => {
+            .text((d) => {
                 return d.value - d.source.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
             })
 
         link.append('title').text(
-            d => `${stripHTTP(d.source.name)} → ${stripHTTP(d.target.name)}\n${d.value.toLocaleString()}`
+            (d) => `${stripHTTP(d.source.name)} → ${stripHTTP(d.target.name)}\n${d.value.toLocaleString()}`
         )
 
         var textSelection = svg
@@ -198,17 +192,17 @@ function _Paths() {
             .selectAll('text')
             .data(nodes)
             .join('text')
-            .attr('x', d => (d.x0 < width / 2 ? d.x1 + 6 : d.x0 - 6))
-            .attr('y', d => (d.y1 + d.y0) / 2)
+            .attr('x', (d) => (d.x0 < width / 2 ? d.x1 + 6 : d.x0 - 6))
+            .attr('y', (d) => (d.y1 + d.y0) / 2)
             .attr('dy', '0.35em')
-            .attr('text-anchor', d => (d.x0 < width / 2 ? 'start' : 'end'))
-            .attr('display', d => (d.value > 0 ? 'inherit' : 'none'))
-            .text(d =>
+            .attr('text-anchor', (d) => (d.x0 < width / 2 ? 'start' : 'end'))
+            .attr('display', (d) => (d.value > 0 ? 'inherit' : 'none'))
+            .text((d) =>
                 d.name.length > 35
                     ? stripHTTP(d.name).substring(0, 6) + '...' + stripHTTP(d.name).slice(-15)
                     : stripHTTP(d.name)
             )
-            .on('click', async node => {
+            .on('click', async (node) => {
                 if (filter.type == AUTOCAPTURE) {
                     setModalVisible(true)
                     setEventelements(null)
@@ -221,9 +215,9 @@ function _Paths() {
         textSelection
             .append('tspan')
             .attr('fill-opacity', 0.7)
-            .text(d => ` ${d.value.toLocaleString()}`)
+            .text((d) => ` ${d.value.toLocaleString()}`)
 
-        textSelection.append('title').text(d => stripHTTP(d.name))
+        textSelection.append('title').text((d) => stripHTTP(d.name))
 
         return textSelection.node()
     }
@@ -243,7 +237,7 @@ function _Paths() {
                                     bordered={false}
                                     defaultValue={PAGEVIEW}
                                     dropdownMatchSelectWidth={false}
-                                    onChange={value => setFilter({ type: value, start: null })}
+                                    onChange={(value) => setFilter({ type: value, start: null })}
                                     style={{ paddingTop: 2 }}
                                 >
                                     {Object.entries(pathOptionsToLabels).map(([value, name], index) => {
@@ -262,11 +256,11 @@ function _Paths() {
                                     endpoint={filter.type === AUTOCAPTURE && 'api/paths/elements'}
                                     outerOptions={
                                         filter.type === CUSTOM_EVENT &&
-                                        customEventNames.map(name => ({
+                                        customEventNames.map((name) => ({
                                             name,
                                         }))
                                     }
-                                    onSet={value => setFilter({ start: value })}
+                                    onSet={(value) => setFilter({ start: value })}
                                     propertyKey={pathOptionsToProperty[filter.type]}
                                     type="event"
                                     style={{ width: 200, paddingTop: 2 }}

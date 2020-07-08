@@ -12,13 +12,13 @@ export class ChangePassword extends Component {
         }
     }
 
-    handleChange = event => {
+    handleChange = (event) => {
         this.setState({
             [event.target.name]: event.target.value,
         })
     }
 
-    save = async event => {
+    save = async (event) => {
         event.preventDefault()
         try {
             await api.update('api/user/change_password', {

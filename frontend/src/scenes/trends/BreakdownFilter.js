@@ -64,7 +64,7 @@ function CohortFilter({ breakdown, onChange }) {
             placeholder={'Break down by'}
             optionLabelProp="label"
             value={breakdown ? breakdown : undefined}
-            onChange={value => {
+            onChange={(value) => {
                 onChange(value.length > 0 ? value : null, 'cohort')
             }}
             filterOption={(input, option) =>
@@ -116,7 +116,7 @@ export function BreakdownFilter({ filters, onChange }) {
     let label = breakdown
     if (breakdown_type === 'cohort' && breakdown) {
         label = cohorts
-            ? breakdown.map(cohort_id => cohorts.filter(c => c.id == cohort_id)[0]?.name || cohort_id).join(', ')
+            ? breakdown.map((cohort_id) => cohorts.filter((c) => c.id == cohort_id)[0]?.name || cohort_id).join(', ')
             : ''
     }
 

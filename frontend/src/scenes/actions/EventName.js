@@ -20,7 +20,7 @@ export function EventName({ value, onChange, isActionStep }) {
                 value={value}
                 data-attr="event-name-box"
             >
-                {eventNamesGrouped.map(typeGroup => {
+                {eventNamesGrouped.map((typeGroup) => {
                     if (typeGroup.options.length > 0) {
                         return (
                             <Select.OptGroup key={typeGroup.label} label={typeGroup.label}>

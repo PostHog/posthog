@@ -7,11 +7,11 @@ import { toast } from 'react-toastify'
 
 export const dashboardsModel = kea({
     actions: () => ({
-        delayedDeleteDashboard: id => ({ id }),
-        setLastVisitedDashboardId: id => ({ id }),
+        delayedDeleteDashboard: (id) => ({ id }),
+        setLastVisitedDashboardId: (id) => ({ id }),
         // this is moved out of dashboardLogic, so that you can click "undo" on a item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
-        updateDashboardItem: item => ({ item }),
+        updateDashboardItem: (item) => ({ item }),
     }),
     loaders: () => ({
         rawDashboards: [
@@ -30,8 +30,8 @@ export const dashboardsModel = kea({
             renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),
             deleteDashboard: async ({ id }) => await api.update(`api/dashboard/${id}`, { deleted: true }),
             restoreDashboard: async ({ id }) => await api.update(`api/dashboard/${id}`, { deleted: false }),
-            pinDashboard: async id => await api.update(`api/dashboard/${id}`, { pinned: true }),
-            unpinDashboard: async id => await api.update(`api/dashboard/${id}`, { pinned: false }),
+            pinDashboard: async (id) => await api.update(`api/dashboard/${id}`, { pinned: true }),
+            unpinDashboard: async (id) => await api.update(`api/dashboard/${id}`, { pinned: false }),
         },
     }),
 
@@ -70,13 +70,13 @@ export const dashboardsModel = kea({
     selectors: ({ selectors }) => ({
         dashboards: [
             () => [selectors.rawDashboards],
-            rawDashboards => {
+            (rawDashboards) => {
                 const list = Object.values(rawDashboards).sort((a, b) => a.name.localeCompare(b.name))
-                return [...list.filter(d => d.pinned), ...list.filter(d => !d.pinned)]
+                return [...list.filter((d) => d.pinned), ...list.filter((d) => !d.pinned)]
             },
         ],
-        dashboardsLoading: [() => [selectors.rawDashboardsLoading], rawDashboardsLoading => rawDashboardsLoading],
-        pinnedDashboards: [() => [selectors.dashboards], dashboards => dashboards.filter(d => d.pinned)],
+        dashboardsLoading: [() => [selectors.rawDashboardsLoading], (rawDashboardsLoading) => rawDashboardsLoading],
+        pinnedDashboards: [() => [selectors.dashboards], (dashboards) => dashboards.filter((d) => d.pinned)],
     }),
 
     events: ({ actions }) => ({
@@ -101,7 +101,7 @@ export const dashboardsModel = kea({
                     Dashboard "{dashboard.name}" deleted!{' '}
                     <a
                         href="#"
-                        onClick={e => {
+                        onClick={(e) => {
                             e.preventDefault()
                             actions.restoreDashboard({ id: dashboard.id, redirect: values.redirect })
                             toast.dismiss(toastId)
@@ -114,7 +114,7 @@ export const dashboardsModel = kea({
 
             const { id } = dashboard
             const nextDashboard = [...values.pinnedDashboards, ...values.dashboards].find(
-                d => d.id !== id && !d.deleted
+                (d) => d.id !== id && !d.deleted
             )
 
             if (values.redirect) {

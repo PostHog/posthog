@@ -12,7 +12,7 @@ import { Modal, Input, Form } from 'antd'
 // actions:
 // - prompt({ title, placeholder, value, error, success, failure })
 export const prompt = kea({
-    key: props => props.key,
+    key: (props) => props.key,
 
     actions: () => ({
         prompt: ({ title, placeholder, value, error, success, failure }) => ({
@@ -62,7 +62,7 @@ export const prompt = kea({
 // Adapted for ant.design v4 and added cancellation support
 function Prompt({ value, visible, afterClose, close, title, modalProps, rules, placeholder }) {
     const [form] = Form.useForm()
-    const onFinish = values => {
+    const onFinish = (values) => {
         close(values.field)
     }
 

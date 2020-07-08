@@ -12,7 +12,7 @@ initKea()
 
 window.simmer = new Simmer(window, { depth: 8 })
 
-window.ph_load_editor = function(editorParams) {
+window.ph_load_editor = function (editorParams) {
     let container = document.createElement('div')
     document.body.appendChild(container)
 

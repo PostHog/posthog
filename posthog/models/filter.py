@@ -27,19 +27,11 @@ class Filter(PropertyMixin):
     display: Optional[str] = None
     selector: Optional[str] = None
 
-    def __init__(
-        self,
-        data: Optional[Dict[str, Any]] = None,
-        request: Optional[HttpRequest] = None,
-    ) -> None:
+    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None,) -> None:
         if request:
             data = {
                 **request.GET.dict(),
-                **(
-                    {"properties": json.loads(request.GET["properties"])}
-                    if request.GET.get("properties")
-                    else {}
-                ),
+                **({"properties": json.loads(request.GET["properties"])} if request.GET.get("properties") else {}),
                 "actions": json.loads(request.GET.get("actions", "[]")),
                 "events": json.loads(request.GET.get("events", "[]")),
             }
@@ -55,21 +47,13 @@ class Filter(PropertyMixin):
 
         if data.get("actions"):
             self.entities.extend(
-                [
-                    Entity({**entity, "type": TREND_FILTER_TYPE_ACTIONS})
-                    for entity in data.get("actions", [])
-                ]
+                [Entity({**entity, "type": TREND_FILTER_TYPE_ACTIONS}) for entity in data.get("actions", [])]
             )
         if data.get("events"):
             self.entities.extend(
-                [
-                    Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS})
-                    for entity in data.get("events", [])
-                ]
+                [Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in data.get("events", [])]
             )
-        self.entities = sorted(
-            self.entities, key=lambda entity: entity.order if entity.order else -1
-        )
+        self.entities = sorted(self.entities, key=lambda entity: entity.order if entity.order else -1)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -82,19 +66,11 @@ class Filter(PropertyMixin):
 
     @property
     def actions(self) -> List[Entity]:
-        return [
-            entity
-            for entity in self.entities
-            if entity.type == TREND_FILTER_TYPE_ACTIONS
-        ]
+        return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_ACTIONS]
 
     @property
     def events(self) -> List[Entity]:
-        return [
-            entity
-            for entity in self.entities
-            if entity.type == TREND_FILTER_TYPE_EVENTS
-        ]
+        return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_EVENTS]
 
     @property
     def date_from(self) -> Optional[datetime.datetime]:
@@ -102,9 +78,7 @@ class Filter(PropertyMixin):
             if self._date_from == "all":
                 return None
             return relative_date_parse(self._date_from)
-        return timezone.now().replace(
-            hour=0, minute=0, second=0, microsecond=0
-        ) - relativedelta(days=7)
+        return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
 
     @property
     def date_to(self) -> Optional[datetime.datetime]:
@@ -116,15 +90,11 @@ class Filter(PropertyMixin):
     def date_filter_Q(self) -> Q:
         date_from = self.date_from
         if not date_from:
-            date_from = timezone.now().replace(
-                hour=0, minute=0, second=0, microsecond=0
-            ) - relativedelta(days=7)
+            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
         filter = Q(timestamp__gte=date_from)
         if self.date_to:
             filter &= Q(timestamp__lte=self.date_to)
         return filter
 
     def toJSON(self):
-        return json.dumps(
-            self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4
-        )
+        return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)

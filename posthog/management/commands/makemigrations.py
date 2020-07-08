@@ -13,9 +13,9 @@ class Command(MakeMigrationsCommand):
         apps = sorted(loader.migrated_apps)
         graph = loader.graph
 
-        with open('latest_migrations.manifest', 'w') as f:
+        with open("latest_migrations.manifest", "w") as f:
             for app_name in apps:
                 leaf_nodes = graph.leaf_nodes(app_name)
                 if len(leaf_nodes) != 1:
-                    raise Exception('App {} has multiple leaf migrations!'.format(app_name))  
-                f.write('{}: {}\n'.format(app_name, leaf_nodes[0][1]))
+                    raise Exception("App {} has multiple leaf migrations!".format(app_name))
+                f.write("{}: {}\n".format(app_name, leaf_nodes[0][1]))

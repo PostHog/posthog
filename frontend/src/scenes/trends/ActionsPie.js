@@ -20,8 +20,8 @@ export function ActionsPie({ dashboardItemId, filters: filtersParam, color }) {
 
         setData([
             {
-                labels: data.map(item => item.label),
-                data: data.map(item => item.data && item.data.reduce((prev, d) => prev + d, 0)),
+                labels: data.map((item) => item.label),
+                data: data.map((item) => item.data && item.data.reduce((prev, d) => prev + d, 0)),
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,
                 hoverBorderColor: colorList,

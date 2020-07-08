@@ -109,7 +109,7 @@ function createEntry(entry) {
                                 implementation: require('sass'),
                             },
                         },
-                    ].filter(a => a),
+                    ].filter((a) => a),
                 },
                 {
                     // Now we apply rule for images

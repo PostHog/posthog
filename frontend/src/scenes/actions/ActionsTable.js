@@ -34,7 +34,7 @@ export function ActionsTable() {
             render: function RenderType(_, action) {
                 return (
                     <span>
-                        {action.steps.map(step => (
+                        {action.steps.map((step) => (
                             <div key={step.id}>
                                 {(() => {
                                     switch (step.event) {
@@ -97,7 +97,7 @@ export function ActionsTable() {
                 size="small"
                 columns={columns}
                 loading={actionsLoading}
-                rowKey={action => action.id}
+                rowKey={(action) => action.id}
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
                 dataSource={actions}
             />

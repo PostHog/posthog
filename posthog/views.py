@@ -22,8 +22,8 @@ def stats(request):
     worker_heartbeat = int(time.time()) - int(last_heartbeat) if last_heartbeat else None
 
     if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
-        stats_response['worker_heartbeat'] = worker_heartbeat
+        stats_response["worker_heartbeat"] = worker_heartbeat
     else:
-        stats_response['worker_heartbeat'] = 'offline'
+        stats_response["worker_heartbeat"] = "offline"
 
     return HttpResponse(json.dumps(stats_response), content_type="application/json")

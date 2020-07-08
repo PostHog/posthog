@@ -37,18 +37,14 @@ def login_view(request):
     if request.method == "POST":
         email = request.POST["email"]
         password = request.POST["password"]
-        user = cast(
-            Optional[User], authenticate(request, email=email, password=password)
-        )
+        user = cast(Optional[User], authenticate(request, email=email, password=password))
         if user is not None:
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
             if user.distinct_id:
                 posthoganalytics.capture(user.distinct_id, "user logged in")
             return redirect("/")
         else:
-            return render_template(
-                "login.html", request=request, context={"email": email, "error": True}
-            )
+            return render_template("login.html", request=request, context={"email": email, "error": True})
     return render_template("login.html", request)
 
 
@@ -74,31 +70,18 @@ def signup_to_team_view(request, token):
             return render_template(
                 "signup_to_team.html",
                 request=request,
-                context={
-                    "email": email,
-                    "name": first_name,
-                    "error": True,
-                    "team": team,
-                    "signup_token": token,
-                },
+                context={"email": email, "name": first_name, "error": True, "team": team, "signup_token": token,},
             )
         user = User.objects.create_user(
-            email=email,
-            password=password,
-            first_name=first_name,
-            email_opt_in=email_opt_in
+            email=email, password=password, first_name=first_name, email_opt_in=email_opt_in,
         )
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         team.users.add(user)
         team.save()
-        posthoganalytics.capture(
-            user.distinct_id, "user signed up", properties={"is_first_user": False}
-        )
+        posthoganalytics.capture(user.distinct_id, "user signed up", properties={"is_first_user": False})
         posthoganalytics.identify(user.distinct_id, {"email_opt_in": user.email_opt_in})
         return redirect("/")
-    return render_template(
-        "signup_to_team.html", request, context={"team": team, "signup_token": token}
-    )
+    return render_template("signup_to_team.html", request, context={"team": team, "signup_token": token})
 
 
 def setup_admin(request):
@@ -115,25 +98,15 @@ def setup_admin(request):
         email_opt_in = request.POST.get("emailOptIn") == "on"
         is_first_user = not User.objects.exists()
         user = User.objects.create_user(
-            email=email,
-            password=password,
-            first_name=request.POST.get("name"),
-            email_opt_in=email_opt_in,
+            email=email, password=password, first_name=request.POST.get("name"), email_opt_in=email_opt_in,
         )
         Team.objects.create_with_data(users=[user], name=company_name)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         posthoganalytics.capture(
-            user.distinct_id,
-            "user signed up",
-            properties={"is_first_user": is_first_user},
+            user.distinct_id, "user signed up", properties={"is_first_user": is_first_user},
         )
         posthoganalytics.identify(
-            user.distinct_id,
-            properties={
-                "email": user.email,
-                "company_name": company_name,
-                "name": user.first_name,
-            },
+            user.distinct_id, properties={"email": user.email, "company_name": company_name, "name": user.first_name,},
         )
         return redirect("/")
 
@@ -152,10 +125,7 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
         )
         return HttpResponse(processed, status=401)
 
-    fields = dict(
-        (name, kwargs.get(name, details.get(name)))
-        for name in backend.setting("USER_FIELDS", ["email"])
-    )
+    fields = dict((name, kwargs.get(name, details.get(name))) for name in backend.setting("USER_FIELDS", ["email"]))
 
     if not fields:
         return
@@ -181,12 +151,10 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
             },
         )
         return HttpResponse(processed, status=401)
-    
+
     team.users.add(user)
     team.save()
-    posthoganalytics.capture(
-        user.distinct_id, "user signed up", properties={"is_first_user": False}
-    )
+    posthoganalytics.capture(user.distinct_id, "user signed up", properties={"is_first_user": False})
 
     return {"is_new": True, "user": user}
 
@@ -233,10 +201,7 @@ urlpatterns = [
 
 if not settings.EMAIL_HOST:
     urlpatterns.append(
-        path(
-            "accounts/password_reset/",
-            TemplateView.as_view(template_name="registration/password_no_smtp.html"),
-        )
+        path("accounts/password_reset/", TemplateView.as_view(template_name="registration/password_no_smtp.html"),)
     )
 
 urlpatterns = urlpatterns + [

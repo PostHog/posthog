@@ -27,12 +27,8 @@ def user(request):
 
         if "team" in data:
             team.app_urls = data["team"].get("app_urls", team.app_urls)
-            team.opt_out_capture = data["team"].get(
-                "opt_out_capture", team.opt_out_capture
-            )
-            team.slack_incoming_webhook = data["team"].get(
-                "slack_incoming_webhook", team.slack_incoming_webhook
-            )
+            team.opt_out_capture = data["team"].get("opt_out_capture", team.opt_out_capture)
+            team.slack_incoming_webhook = data["team"].get("slack_incoming_webhook", team.slack_incoming_webhook)
             team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
             team.completed_snippet_onboarding = data["team"].get(
                 "completed_snippet_onboarding", team.completed_snippet_onboarding
@@ -40,23 +36,15 @@ def user(request):
             team.save()
 
         if "user" in data:
-            request.user.email_opt_in = data["user"].get(
-                "email_opt_in", request.user.email_opt_in
-            )
-            request.user.anonymize_data = data["user"].get(
-                "anonymize_data", request.user.anonymize_data
-            )
-            request.user.toolbar_mode = data["user"].get(
-                "toolbar_mode", request.user.toolbar_mode
-            )
+            request.user.email_opt_in = data["user"].get("email_opt_in", request.user.email_opt_in)
+            request.user.anonymize_data = data["user"].get("anonymize_data", request.user.anonymize_data)
+            request.user.toolbar_mode = data["user"].get("toolbar_mode", request.user.toolbar_mode)
             posthoganalytics.identify(
                 request.user.distinct_id,
                 {
                     "email_opt_in": request.user.email_opt_in,
                     "anonymize_data": request.user.anonymize_data,
-                    "email": request.user.email
-                    if not request.user.anonymize_data
-                    else None,
+                    "email": request.user.email if not request.user.anonymize_data else None,
                     "is_signed_up": True,
                 },
             )
@@ -84,9 +72,7 @@ def user(request):
                 "completed_snippet_onboarding": team.completed_snippet_onboarding,
             },
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
-            "posthog_version": settings.VERSION
-            if hasattr(settings, "VERSION")
-            else None,
+            "posthog_version": settings.VERSION if hasattr(settings, "VERSION") else None,
         }
     )
 

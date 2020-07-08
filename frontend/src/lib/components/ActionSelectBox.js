@@ -4,7 +4,7 @@ import PropTypes from 'prop-types'
 import { ActionSelectTab } from './ActionSelectTab'
 import { Select } from 'antd'
 
-const determineActiveTab = props => {
+const determineActiveTab = (props) => {
     if (props.selected) {
         return props.selected
     } else {
@@ -15,7 +15,7 @@ const determineActiveTab = props => {
 function ActionSelectTabs(props) {
     let [activeTab, setActiveTab] = useState(determineActiveTab(props))
     let [labels] = useState(
-        Array.isArray(props.children) ? props.children.map(child => child.props.title) : [props.children.props.title]
+        Array.isArray(props.children) ? props.children.map((child) => child.props.title) : [props.children.props.title]
     )
     return (
         <div className="select-box" style={{ padding: 0 }}>
@@ -27,7 +27,7 @@ function ActionSelectTabs(props) {
                 ></ActionSelectTab>
             )}
             {Array.isArray(props.children)
-                ? props.children.map(child => {
+                ? props.children.map((child) => {
                       if (child.props.title !== activeTab) return undefined
                       return child
                   })
@@ -57,7 +57,7 @@ function ActionSelectPanel({ title, redirect, onHover, onSelect, active, options
                 getPopupContainer={() => document.getElementById('action-select-popup')}
                 showSearch
                 defaultOpen
-                onChange={option => {
+                onChange={(option) => {
                     onSelect(option.value, option.label.props.children)
                 }}
                 style={{ width: '100%' }}
@@ -67,14 +67,14 @@ function ActionSelectPanel({ title, redirect, onHover, onSelect, active, options
                 value={{ value: determineValue(active) }}
                 listHeight={300}
             >
-                {options.map(typeGroup => {
+                {options.map((typeGroup) => {
                     if (typeGroup['options'].length > 0) {
                         return (
                             <Select.OptGroup key={typeGroup['label']} label={typeGroup['label']}>
-                                {typeGroup['options'].map(item => (
+                                {typeGroup['options'].map((item) => (
                                     <Select.Option key={item.value} value={item.value}>
                                         <div
-                                            onMouseOver={e => {
+                                            onMouseOver={(e) => {
                                                 setInfoOpen(true)
                                                 setInfoBoundingRect(e.target.getBoundingClientRect())
                                                 setInfoActionId(item.value)

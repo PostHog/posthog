@@ -29,7 +29,7 @@ export function ActionsTable({ dashboardItemId = null, filters: filtersParam }) 
                     },
                     { title: filters.session ? 'Value' : 'Count', dataIndex: 'count' },
                 ]}
-                rowKey={item => item.label}
+                rowKey={(item) => item.label}
                 pagination={{ pageSize: 9999, hideOnSinglePage: true }}
                 dataSource={data}
                 data-attr="trend-table-graph"

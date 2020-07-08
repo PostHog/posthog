@@ -35,7 +35,7 @@ export function PropertiesTable({ properties }) {
             <Table
                 columns={columns}
                 showHeader={false}
-                rowKey={item => item[0]}
+                rowKey={(item) => item[0]}
                 size="small"
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 dataSource={Object.entries(properties)}

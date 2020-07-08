@@ -6,12 +6,9 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0039_populate_event_ip_property'),
+        ("posthog", "0039_populate_event_ip_property"),
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name='event',
-            name='ip',
-        ),
+        migrations.RemoveField(model_name="event", name="ip",),
     ]

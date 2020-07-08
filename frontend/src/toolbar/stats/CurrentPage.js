@@ -36,7 +36,7 @@ export function CurrentPage() {
     const [showIcon, setShowIcon] = useState(true)
 
     return (
-        <div className="toolbar-block current-page">
+        <div className="current-page">
             <Comment
                 avatar={
                     showIcon ? (
