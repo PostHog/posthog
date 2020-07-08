@@ -12,19 +12,13 @@ module.exports = {
             version: 'detect',
         },
     },
-    extends: [
-        'plugin:@typescript-eslint/recommended',
-        'eslint:recommended',
-        'plugin:react/recommended',
-        'prettier/@typescript-eslint',
-    ],
+    extends: ['plugin:@typescript-eslint/recommended', 'plugin:react/recommended', 'prettier/@typescript-eslint'],
     globals: {
         Atomics: 'readonly',
         SharedArrayBuffer: 'readonly',
     },
-    parser: 'babel-eslint',
+    parser: '@typescript-eslint/parser',
     parserOptions: {
-        project: './tsconfig.json',
         ecmaFeatures: {
             jsx: true,
         },
@@ -45,7 +39,12 @@ module.exports = {
             // enable the rule specifically for TypeScript files
             files: ['*.ts', '*.tsx'],
             rules: {
-                '@typescript-eslint/explicit-function-return-type': ['error'],
+                '@typescript-eslint/explicit-function-return-type': [
+                    'error',
+                    {
+                        allowExpressions: true,
+                    },
+                ],
                 '@typescript-eslint/explicit-module-boundary-types': ['error'],
             },
         },

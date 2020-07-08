@@ -4,9 +4,10 @@
     "paths": {
       "lib/*": ["./src/lib/*"],
       "scenes/*": ["./src/scenes/*"],
-      "~/*": ["./*"]
+      "~/*": ["./src/*"]
     },
-    "jsx": "react"
+    "jsx": "react",
+    "strict": true
   },
   "include": ["frontend/**/*"],
   "exclude": ["node_modules/**/*", "staticfiles/**/*", "frontend/dist/**/*"]
