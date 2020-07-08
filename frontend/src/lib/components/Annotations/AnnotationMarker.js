@@ -1,12 +1,14 @@
 import './AnnotationMarker.scss'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { Button, Popover, Row, Input } from 'antd'
 import { humanFriendlyDetailedTime } from '~/lib/utils'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import _ from 'lodash'
+import { annotationsLogic } from './annotationsLogic'
+import moment from 'moment'
 
 const { TextArea } = Input
 
@@ -23,15 +25,40 @@ export function AnnotationMarker({
     size = 25,
     color,
     accessoryColor,
+    dashboardItemId,
+    currentDateMarker,
+    onClose,
 }) {
+    const [localVisibilityControl, setVisibilityControl] = useState(true)
+    const [focused, setFocused] = useState(false)
     const [textInput, setTextInput] = useState('')
     const [textAreaVisible, setTextAreaVisible] = useState(false)
     const {
         user: { id, name, email },
     } = useValues(userLogic)
 
+    const { diffType, groupedAnnotations } = useValues(
+        annotationsLogic({
+            pageKey: dashboardItemId ? dashboardItemId : null,
+        })
+    )
+
     const _color = color || '#1890ff'
     const _accessoryColor = accessoryColor || 'white'
+
+    useEffect(() => {
+        if (visible !== null && visible !== undefined) {
+            setVisibilityControl(false)
+        }
+    }, [])
+
+    if (
+        Object.keys(groupedAnnotations)
+            .map((key) => moment(key))
+            .some((marker) => marker.isSame(moment(currentDateMarker).startOf(diffType))) &&
+        !visible
+    )
+        return null
 
     return (
         <Popover
@@ -78,6 +105,9 @@ export function AnnotationMarker({
                         )}
                         {textAreaVisible ? (
                             <Row justify="end">
+                                <Button style={{ marginRight: 10 }} onClick={() => setTextAreaVisible(false)}>
+                                    Cancel
+                                </Button>
                                 <Button
                                     type="primary"
                                     onClick={() => {
@@ -91,6 +121,15 @@ export function AnnotationMarker({
                             </Row>
                         ) : (
                             <Row justify="end">
+                                <Button
+                                    style={{ marginRight: 10 }}
+                                    onClick={() => {
+                                        setFocused(false)
+                                        onClose?.()
+                                    }}
+                                >
+                                    Close
+                                </Button>
                                 <Button
                                     type="primary"
                                     onClick={() => {
@@ -109,7 +148,7 @@ export function AnnotationMarker({
                     {label}
                 </Row>
             }
-            {...{ ...(visible !== null && visible !== undefined && { visible }) }}
+            visible={localVisibilityControl ? focused : visible}
         >
             <div
                 style={{
@@ -124,9 +163,13 @@ export function AnnotationMarker({
                     backgroundColor: _color,
                     borderRadius: 5,
                     cursor: 'pointer',
+                    border: content ? '1px solid white' : null,
                 }}
                 type="primary"
-                onClick={onClick}
+                onClick={() => {
+                    onClick?.()
+                    localVisibilityControl && setFocused(true)
+                }}
             >
                 {annotations ? (
                     <span style={{ color: _accessoryColor, fontSize: 12 }}>{annotations.length}</span>

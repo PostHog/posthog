@@ -13,6 +13,7 @@ export const Annotations = function Annotations({
     onClick,
     color,
     accessoryColor,
+    onClose,
 }) {
     const { diffType, groupedAnnotations } = useValues(
         annotationsLogic({
@@ -44,6 +45,7 @@ export const Annotations = function Annotations({
                     }}
                     onDelete={(id) => deleteAnnotation(id)}
                     onClick={onClick}
+                    onClose={onClose}
                     color={color}
                     accessoryColor={accessoryColor}
                 ></AnnotationMarker>

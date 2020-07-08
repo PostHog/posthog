@@ -10,6 +10,7 @@ import { Button, Row, Input } from 'antd'
 const { TextArea } = Input
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
+import moment from 'moment'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -32,6 +33,7 @@ export function LineGraph({
     const [holdLeft, setHoldLeft] = useState(0)
     const [enabled, setEnabled] = useState(false)
     const [focused, setFocused] = useState(false)
+    const [annotationsFocused, setAnnotationsFocused] = useState(false)
     const [labelIndex, setLabelIndex] = useState(null)
     const [holdLabelIndex, setHoldLabelIndex] = useState(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState(null)
@@ -57,7 +59,8 @@ export function LineGraph({
     // annotation related effects
     useEffect(() => {
         if (annotationsCondition && !annotationsLoading && myLineChart.current) {
-            myLineChart.current.options.scales.xAxes[0].ticks.padding = enabled || annotationsList.length > 0 ? 35 : 0
+            myLineChart.current.options.scales.xAxes[0].ticks.padding =
+                enabled || annotationsList.length > 0 || focused ? 35 : 0
             myLineChart.current.update()
             const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
             setTopExtent(topExtent)
@@ -206,23 +209,6 @@ export function LineGraph({
                                       if (point.length) evt.target.style.cursor = 'pointer'
                                       else evt.target.style.cursor = 'default'
                                   }
-                                  const leftExtent = myLineChart.current.scales['x-axis-0'].left
-                                  const rightExtent = myLineChart.current.scales['x-axis-0'].right
-                                  const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
-                                  const delta = rightExtent - leftExtent
-                                  const interval = delta / (ticks - 1)
-                                  if (evt.offsetX < leftExtent - interval / 2) return
-                                  const index = mapRange(
-                                      evt.offsetX,
-                                      leftExtent - interval / 2,
-                                      rightExtent + interval / 2,
-                                      0,
-                                      ticks
-                                  )
-                                  if (index >= 0 && index < ticks) {
-                                      setLeft(index * interval + leftExtent)
-                                      setLabelIndex(index)
-                                  }
                               },
                           },
                           scales: {
@@ -236,7 +222,7 @@ export function LineGraph({
                                           min: 0,
                                           fontColor: axisLabelColor,
                                           precision: 0,
-                                          padding: 35,
+                                          padding: annotationsLoading ? 0 : 35,
                                       },
                                   },
                               ],
@@ -288,7 +274,29 @@ export function LineGraph({
     }
 
     return (
-        <div className="graph-container" data-attr={dataAttr} onMouseLeave={() => setEnabled(false)}>
+        <div
+            className="graph-container"
+            data-attr={dataAttr}
+            onMouseMove={(e) => {
+                if (annotationsCondition && myLineChart.current) {
+                    var rect = e.currentTarget.getBoundingClientRect(),
+                        offsetX = e.clientX - rect.left
+
+                    const leftExtent = myLineChart.current.scales['x-axis-0'].left
+                    const rightExtent = myLineChart.current.scales['x-axis-0'].right
+                    const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
+                    const delta = rightExtent - leftExtent
+                    const interval = delta / (ticks - 1)
+                    if (offsetX < leftExtent - interval / 2) return
+                    const index = mapRange(offsetX, leftExtent - interval / 2, rightExtent + interval / 2, 0, ticks)
+                    if (index >= 0 && index < ticks) {
+                        setLeft(index * interval + leftExtent)
+                        setLabelIndex(index)
+                    }
+                }
+            }}
+            onMouseLeave={() => setEnabled(false)}
+        >
             <canvas
                 ref={chartRef}
                 onMouseOver={() => {
@@ -298,18 +306,39 @@ export function LineGraph({
                     }
                 }}
             />
-            {annotationsCondition && (enabled || focused) && left >= 0 && (
+            {annotationsCondition && (
+                <Annotations
+                    labeledDays={datasets[0].labels}
+                    dates={datasets[0].days}
+                    leftExtent={leftExtent}
+                    interval={interval}
+                    topExtent={topExtent}
+                    dashboardItemId={dashboardItemId}
+                    onClick={() => {
+                        setFocused(false)
+                        setAnnotationsFocused(true)
+                    }}
+                    onClose={() => {
+                        setAnnotationsFocused(false)
+                    }}
+                    color={color === 'white' ? null : 'white'}
+                    accessoryColor={color === 'white' ? null : 'black'}
+                />
+            )}
+            {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
                 <AnnotationMarker
+                    dashboardItemId={dashboardItemId}
+                    currentDateMarker={datasets[0].days[labelIndex]}
                     onClick={() => {
                         setFocused(true)
                         setHoldLeft(left)
                         setHoldLabelIndex(labelIndex)
-                        setSelectedDayLabel(datasets[0].labels[labelIndex])
+                        setSelectedDayLabel(datasets[0].days[labelIndex])
                     }}
                     visible={focused}
                     content={
                         <div>
-                            <span style={{ marginBottom: 12 }}>{selectedDayLabel}</span>
+                            <span style={{ marginBottom: 12 }}>{moment(selectedDayLabel).format('MMMM Do YYYY')}</span>
                             <TextArea
                                 maxLength={300}
                                 style={{ marginBottom: 12 }}
@@ -350,19 +379,6 @@ export function LineGraph({
                     left={(focused ? holdLeft : left) - 12.5}
                     top={topExtent}
                     label={'Add Annotation'}
-                    color={color === 'white' ? null : 'white'}
-                    accessoryColor={color === 'white' ? null : 'black'}
-                />
-            )}
-            {annotationsCondition && (
-                <Annotations
-                    labeledDays={datasets[0].labels}
-                    dates={datasets[0].days}
-                    leftExtent={leftExtent}
-                    interval={interval}
-                    topExtent={topExtent}
-                    dashboardItemId={dashboardItemId}
-                    onClick={() => setFocused(false)}
                     color={color === 'white' ? null : 'white'}
                     accessoryColor={color === 'white' ? null : 'black'}
                 />
