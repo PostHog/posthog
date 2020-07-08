@@ -20,7 +20,10 @@
                 <label for="inputEmail">Email address</label>
             </div>
             <div class='field'>
-                <input type="password" name='password' id="inputPassword" placeholder="" required>
+                <small id="passwordHelpBlock" class="form-text text-muted">
+                    Your password must be 8-20 characters long and must contain an uppercase letter and a number.
+                </small>
+                <input pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}$" type="password" name='password' id="inputPassword" placeholder="" required>
                 <label for="inputPassword">Password</label>
             </div>
             <p>
