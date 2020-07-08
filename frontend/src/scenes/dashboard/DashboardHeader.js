@@ -81,7 +81,9 @@ export function DashboardHeader({ logic }) {
                                     data-attr="dashboard-share-button"
                                 >
                                     <ShareAltOutlined />
-                                    {dashboard.is_shared ? 'Shared' : 'Share dashboard'}
+                                    <span className="hide-when-small">
+                                        {dashboard.is_shared ? 'Shared' : 'Share dashboard'}
+                                    </span>
                                 </Button>
                             </Tooltip>
 
