@@ -46,7 +46,7 @@ export function ToolbarButton() {
         showStats,
         hideStats,
     } = useActions(toolbarButtonLogic)
-    const { buttonActionsVisible } = useValues(actionsTabLogic)
+    const { buttonActionsVisible, showActionsTooltip } = useValues(actionsTabLogic)
     const { hideButtonActions, showButtonActions } = useActions(actionsTabLogic)
     const { actionCount, allActionsLoading } = useValues(actionsLogic)
 
@@ -307,7 +307,16 @@ export function ToolbarButton() {
                                     actionsExtensionPercentage
                                 }
                                 y={0}
-                                content={<div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>}
+                                content={
+                                    <Tooltip
+                                        visible={showActionsTooltip}
+                                        title="Click for details"
+                                        placement={side === 'left' ? 'right' : 'left'}
+                                        getPopupContainer={getShadowRoot}
+                                    >
+                                        <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>
+                                    </Tooltip>
+                                }
                                 zIndex={4}
                                 onClick={actionsInfoVisible ? hideActionsInfo : showActionsInfo}
                                 style={{

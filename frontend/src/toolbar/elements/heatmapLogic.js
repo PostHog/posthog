@@ -168,11 +168,13 @@ export const heatmapLogic = kea({
         },
         enableHeatmap: () => {
             actions.getEvents({ $current_url: currentPageLogic.values.href })
-            actions.setShowHeatmapTooltip(true)
         },
         disableHeatmap: () => {
             actions.resetEvents()
             actions.setShowHeatmapTooltip(false)
+        },
+        getEventsSuccess: () => {
+            actions.setShowHeatmapTooltip(true)
         },
         setShowHeatmapTooltip: async ({ showHeatmapTooltip }, breakpoint) => {
             if (showHeatmapTooltip) {
