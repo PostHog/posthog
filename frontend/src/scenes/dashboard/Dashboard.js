@@ -29,7 +29,7 @@ function _Dashboard({ id, share_token }) {
                     <HedgehogOverlay type="sad" />
                 </>
             ) : items && items.length > 0 ? (
-                <DashboardItems logic={logic} inSharedMode={share_token} />
+                <DashboardItems logic={logic} inSharedMode={!!share_token} />
             ) : itemsLoading ? (
                 <SceneLoading />
             ) : user.has_events ? (
