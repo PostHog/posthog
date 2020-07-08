@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import Chart from 'chart.js'
 import PropTypes from 'prop-types'
 import { operatorMap } from '~/lib/utils'
@@ -38,6 +38,10 @@ export function LineGraph({
     const { createAnnotation, createAnnotationNow, updateDiffType } = useActions(
         annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
     )
+
+    const { annotationsList, annotationsLoading } = useValues(
+        annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
+    )
     const [textInput, setTextInput] = useState('')
     const [leftExtent, setLeftExtent] = useState(0)
     const [interval, setInterval] = useState(0)
@@ -47,6 +51,16 @@ export function LineGraph({
     useEffect(() => {
         buildChart()
     }, [datasets, color])
+
+    useEffect(() => {
+        if (annotationsLoading) return
+        if (myLineChart.current) {
+            myLineChart.current.options.scales.xAxes[0].ticks.padding = enabled || annotationsList.length > 0 ? 35 : 0
+            myLineChart.current.update()
+            const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
+            setTopExtent(topExtent)
+        }
+    }, [enabled, annotationsLoading])
 
     useEffect(() => {
         if (!type || type === 'line') {
@@ -238,7 +252,6 @@ export function LineGraph({
                                   },
                               ],
                           },
-                          //   events: ['mousemove', 'click'],
                           onClick: (_, [point]) => {
                               if (point && onClick) {
                                   const dataset = datasets[point._datasetIndex]
@@ -324,6 +337,7 @@ export function LineGraph({
                                                 'This annotation will be saved if the graph is made into a dashboard item!'
                                             )
                                         }
+                                        setTextInput('')
                                     }}
                                 >
                                     Add
@@ -332,7 +346,7 @@ export function LineGraph({
                         </div>
                     }
                     left={(focused ? holdLeft : left) - 12.5}
-                    top={myLineChart.current.scales['x-axis-0'].top + 12}
+                    top={topExtent}
                     label={'Add Annotation'}
                     color={color === 'white' ? null : 'white'}
                     accessoryColor={color === 'white' ? null : 'black'}
