@@ -1,6 +1,6 @@
 import './AnnotationMarker.scss'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { Button, Popover, Row, Input, Checkbox } from 'antd'
@@ -29,6 +29,7 @@ export function AnnotationMarker({
     currentDateMarker,
     onClose,
 }) {
+    const popupRef = useRef()
     const [localVisibilityControl, setVisibilityControl] = useState(true)
     const [focused, setFocused] = useState(false)
     const [textInput, setTextInput] = useState('')
@@ -53,6 +54,20 @@ export function AnnotationMarker({
         }
     }, [])
 
+    const deselect = (e) => {
+        if (popupRef.current && popupRef.current.contains(e.target)) {
+            return
+        }
+        localVisibilityControl && setFocused(false)
+    }
+
+    useEffect(() => {
+        document.addEventListener('mousedown', deselect)
+        return () => {
+            document.removeEventListener('mousedown', deselect)
+        }
+    }, [])
+
     if (
         Object.keys(groupedAnnotations)
             .map((key) => moment(key))
@@ -69,7 +84,7 @@ export function AnnotationMarker({
                 content ? (
                     content
                 ) : (
-                    <div style={{ minWidth: 300 }}>
+                    <div ref={popupRef} style={{ minWidth: 300 }}>
                         {_.orderBy(annotations, ['created_at'], ['asc']).map((data) => (
                             <div
                                 key={data.id}
