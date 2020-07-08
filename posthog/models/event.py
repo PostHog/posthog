@@ -217,8 +217,7 @@ class EventManager(models.QuerySet):
     def query_retention(self, filters, team, event="$pageview") -> models.QuerySet:
         filtered_events = (
             Event.objects.filter(filters.date_filter_Q)
-            .filter(team=team)
-            .add_person_id(team.pk)
+            .filter(filters.properties_to_Q(team_id=team.pk))
             .filter(event=event)
         )
 
