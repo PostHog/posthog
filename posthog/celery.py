@@ -10,6 +10,7 @@ from typing import Optional
 from datetime import datetime
 from dateutil import parser
 
+
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 
@@ -41,6 +42,11 @@ def setup_periodic_tasks(sender, **kwargs):
     )
     sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
     sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
+    if settings.ASYNC_EVENT_ACTION_MAPPING:
+        sender.add_periodic_task(60,
+                                 calculate_event_action_mappings.s(),
+                                 name="calculate event action mappings",
+                                 expires=240)
 
 
 @app.task
@@ -54,6 +60,13 @@ def update_event_partitions():
         cursor.execute(
             "DO $$ BEGIN IF (SELECT exists(select * from pg_proc where proname = 'update_partitions')) THEN PERFORM update_partitions(); END IF; END $$"
         )
+
+
+@app.task
+def calculate_event_action_mappings():
+    from posthog.tasks.calculate_action import calculate_all_actions
+
+    calculate_all_actions()
 
 
 @app.task

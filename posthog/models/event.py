@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models, transaction
 from django.db.models import (
     Exists,
@@ -244,17 +245,21 @@ class EventManager(models.QuerySet):
                     ).hash
             event = super().create(*args, **kwargs)
 
-            should_post_to_slack = False
-            relations = []
-            for action in event.actions:
-                relations.append(action.events.through(action_id=action.pk, event_id=event.pk))
-                if action.post_to_slack:
-                    should_post_to_slack = True
+            # Matching actions to events can get very expensive to do as events are streaming in
+            # In a few cases we have had it OOM Postgres with the query it is running
+            # Short term solution is to have this be configurable to be run in batch
+            if not settings.ASYNC_EVENT_ACTION_MAPPING:
+                should_post_to_slack = False
+                relations = []
+                for action in event.actions:
+                    relations.append(action.events.through(action_id=action.pk, event_id=event.pk))
+                    if action.post_to_slack:
+                        should_post_to_slack = True
 
-            Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
-            team = kwargs.get("team", event.team)
-            if should_post_to_slack and team and team.slack_incoming_webhook:
-                post_event_to_slack.delay(event.pk, site_url)
+                Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
+                team = kwargs.get("team", event.team)
+                if should_post_to_slack and team and team.slack_incoming_webhook:
+                    post_event_to_slack.delay(event.pk, site_url)
 
             return event
 
