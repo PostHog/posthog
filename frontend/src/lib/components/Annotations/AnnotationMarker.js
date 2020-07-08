@@ -4,13 +4,13 @@ import React, { useState } from 'react'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { Button, Popover, Row, Input } from 'antd'
-const { TextArea } = Input
 import { humanFriendlyDetailedTime } from '~/lib/utils'
-import { DeleteOutlined } from '@ant-design/icons'
+import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import _ from 'lodash'
-import { PlusOutlined } from '@ant-design/icons'
 
-export const AnnotationMarker = React.memo(function AnnotationMarker({
+const { TextArea } = Input
+
+export function AnnotationMarker({
     label,
     annotations,
     left,
@@ -21,12 +21,17 @@ export const AnnotationMarker = React.memo(function AnnotationMarker({
     visible,
     content,
     size = 25,
+    color,
+    accessoryColor,
 }) {
     const [textInput, setTextInput] = useState('')
     const [textAreaVisible, setTextAreaVisible] = useState(false)
     const {
         user: { id, name, email },
     } = useValues(userLogic)
+
+    const _color = color || '#1890ff'
+    const _accessoryColor = accessoryColor || 'white'
 
     return (
         <Popover
@@ -37,19 +42,19 @@ export const AnnotationMarker = React.memo(function AnnotationMarker({
                     content
                 ) : (
                     <div style={{ minWidth: 300 }}>
-                        {_.orderBy(annotations, ['created_at'], ['asc']).map(data => (
+                        {_.orderBy(annotations, ['created_at'], ['asc']).map((data) => (
                             <div key={data.id} style={{ marginBottom: 25 }}>
                                 <Row justify="space-between" align="middle">
                                     <div>
                                         <b style={{ marginRight: 5 }}>
-                                            {(data.created_by &&
-                                                (data.created_by.first_name || data.created_by.email)) ||
-                                                name ||
-                                                email}
+                                            {data.created_by === 'local'
+                                                ? name || email
+                                                : data.created_by &&
+                                                  (data.created_by.first_name || data.created_by.email)}
                                         </b>
                                         <i style={{ color: 'gray' }}>{humanFriendlyDetailedTime(data.created_at)}</i>
                                     </div>
-                                    {(!data.created_by || data.created_by.id === id) && (
+                                    {(!data.created_by || data.created_by.id === id || data.created_by === 'local') && (
                                         <DeleteOutlined
                                             className="clickable"
                                             onClick={() => {
@@ -67,8 +72,9 @@ export const AnnotationMarker = React.memo(function AnnotationMarker({
                                 style={{ marginBottom: 12 }}
                                 rows={4}
                                 value={textInput}
-                                onChange={e => setTextInput(e.target.value)}
-                            ></TextArea>
+                                onChange={(e) => setTextInput(e.target.value)}
+                                autoFocus
+                            />
                         )}
                         {textAreaVisible ? (
                             <Row justify="end">
@@ -115,7 +121,7 @@ export const AnnotationMarker = React.memo(function AnnotationMarker({
                     display: 'flex',
                     justifyContent: 'center',
                     alignItems: 'center',
-                    backgroundColor: '#1890ff',
+                    backgroundColor: _color,
                     borderRadius: 5,
                     cursor: 'pointer',
                 }}
@@ -123,11 +129,11 @@ export const AnnotationMarker = React.memo(function AnnotationMarker({
                 onClick={onClick}
             >
                 {annotations ? (
-                    <span style={{ color: 'white', fontSize: 12 }}>{annotations.length}</span>
+                    <span style={{ color: _accessoryColor, fontSize: 12 }}>{annotations.length}</span>
                 ) : (
-                    <PlusOutlined style={{ color: 'white' }}></PlusOutlined>
+                    <PlusOutlined style={{ color: _accessoryColor }}></PlusOutlined>
                 )}
             </div>
         </Popover>
     )
-})
+}

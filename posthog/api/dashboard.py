@@ -11,7 +11,7 @@ class DashboardSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dashboard
-        fields = ["id", "name", "pinned", "items", "created_at", "created_by"]
+        fields = ["id", "name", "pinned", "items", "created_at", "created_by", "deleted",]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]

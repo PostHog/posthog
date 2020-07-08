@@ -60,7 +60,7 @@ export function EditFeatureFlag({ featureFlag, logic, isNew }) {
             layout="vertical"
             form={form}
             initialValues={featureFlag}
-            onFinish={values => {
+            onFinish={(values) => {
                 const updatedFlag = { ...featureFlag, ...values, rollout_percentage, filters }
                 if (isNew) {
                     createFeatureFlag(updatedFlag)

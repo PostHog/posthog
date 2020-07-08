@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import Chart from 'chart.js'
 import PropTypes from 'prop-types'
 import { operatorMap } from '~/lib/utils'
@@ -35,7 +35,11 @@ export function LineGraph({
     const [labelIndex, setLabelIndex] = useState(null)
     const [holdLabelIndex, setHoldLabelIndex] = useState(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState(null)
-    const { createAnnotation, createAnnotationNow } = useActions(
+    const { createAnnotation, createAnnotationNow, updateDiffType } = useActions(
+        annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
+    )
+
+    const { annotationsList, annotationsLoading } = useValues(
         annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
     )
     const [textInput, setTextInput] = useState('')
@@ -44,21 +48,45 @@ export function LineGraph({
     const [topExtent, setTopExtent] = useState(0)
     const size = useWindowSize()
 
+    const annotationsCondition = (!type || type === 'line') && datasets.length > 0 && !datasets[0].compare
+
     useEffect(() => {
         buildChart()
     }, [datasets, color])
 
+    // annotation related effects
     useEffect(() => {
-        const leftExtent = myLineChart.current.scales['x-axis-0'].left
-        const rightExtent = myLineChart.current.scales['x-axis-0'].right
-        const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
-        const delta = rightExtent - leftExtent
-        const interval = delta / (ticks - 1)
-        const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
-        setLeftExtent(leftExtent)
-        setInterval(interval)
-        setTopExtent(topExtent)
-    }, [myLineChart.current, size])
+        if (annotationsCondition) {
+            if (annotationsLoading) return
+            if (myLineChart.current) {
+                myLineChart.current.options.scales.xAxes[0].ticks.padding =
+                    enabled || annotationsList.length > 0 ? 35 : 0
+                myLineChart.current.update()
+                const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
+                setTopExtent(topExtent)
+            }
+        }
+    }, [enabled, annotationsLoading])
+
+    useEffect(() => {
+        if (annotationsCondition) {
+            updateDiffType(datasets[0].days)
+        }
+    }, [datasets, type])
+
+    useEffect(() => {
+        if (annotationsCondition) {
+            const leftExtent = myLineChart.current.scales['x-axis-0'].left
+            const rightExtent = myLineChart.current.scales['x-axis-0'].right
+            const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
+            const delta = rightExtent - leftExtent
+            const interval = delta / (ticks - 1)
+            const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
+            setLeftExtent(leftExtent)
+            setInterval(interval)
+            setTopExtent(topExtent)
+        }
+    }, [myLineChart.current, size, type])
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
@@ -188,7 +216,7 @@ export function LineGraph({
                                   const delta = rightExtent - leftExtent
                                   const interval = delta / (ticks - 1)
                                   if (evt.offsetX < leftExtent - interval / 2) return
-                                  const index = map(
+                                  const index = mapRange(
                                       evt.offsetX,
                                       leftExtent - interval / 2,
                                       rightExtent + interval / 2,
@@ -230,7 +258,6 @@ export function LineGraph({
                                   },
                               ],
                           },
-                          events: ['mousemove', 'click'],
                           onClick: (_, [point]) => {
                               if (point && onClick) {
                                   const dataset = datasets[point._datasetIndex]
@@ -275,7 +302,7 @@ export function LineGraph({
                     }
                 }}
             />
-            {(enabled || focused) && left >= 0 && (
+            {annotationsCondition && (enabled || focused) && left >= 0 && (
                 <AnnotationMarker
                     onClick={() => {
                         setFocused(true)
@@ -291,22 +318,32 @@ export function LineGraph({
                                 maxLength={300}
                                 style={{ marginBottom: 12 }}
                                 rows={4}
-                                onChange={e => setTextInput(e.target.value)}
-                            ></TextArea>
+                                value={textInput}
+                                onChange={(e) => setTextInput(e.target.value)}
+                            />
                             <Row justify="end">
-                                <Button style={{ marginRight: 10 }} onClick={() => setFocused(false)}>
+                                <Button
+                                    style={{ marginRight: 10 }}
+                                    onClick={() => {
+                                        setFocused(false)
+                                        setTextInput('')
+                                    }}
+                                >
                                     Cancel
                                 </Button>
                                 <Button
                                     type="primary"
                                     onClick={() => {
                                         setFocused(false)
-                                        dashboardItemId
-                                            ? createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
-                                            : createAnnotation(textInput, datasets[0].days[holdLabelIndex]),
+                                        if (dashboardItemId)
+                                            createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
+                                        else {
+                                            createAnnotation(textInput, datasets[0].days[holdLabelIndex])
                                             toast(
                                                 'This annotation will be saved if the graph is made into a dashboard item!'
                                             )
+                                        }
+                                        setTextInput('')
                                     }}
                                 >
                                     Add
@@ -315,23 +352,30 @@ export function LineGraph({
                         </div>
                     }
                     left={(focused ? holdLeft : left) - 12.5}
-                    top={myLineChart.current.scales['x-axis-0'].top + 12}
+                    top={topExtent}
                     label={'Add Annotation'}
-                ></AnnotationMarker>
+                    color={color === 'white' ? null : 'white'}
+                    accessoryColor={color === 'white' ? null : 'black'}
+                />
             )}
-            <Annotations
-                labeledDays={datasets[0].labels}
-                dates={datasets[0].days}
-                leftExtent={leftExtent}
-                interval={interval}
-                topExtent={topExtent}
-                dashboardItemId={dashboardItemId}
-            ></Annotations>
+            {annotationsCondition && (
+                <Annotations
+                    labeledDays={datasets[0].labels}
+                    dates={datasets[0].days}
+                    leftExtent={leftExtent}
+                    interval={interval}
+                    topExtent={topExtent}
+                    dashboardItemId={dashboardItemId}
+                    onClick={() => setFocused(false)}
+                    color={color === 'white' ? null : 'white'}
+                    accessoryColor={color === 'white' ? null : 'black'}
+                />
+            )}
         </div>
     )
 }
 
-const map = (value, x1, y1, x2, y2) => Math.floor(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
+const mapRange = (value, x1, y1, x2, y2) => Math.floor(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
 
 LineGraph.propTypes = {
     datasets: PropTypes.arrayOf(PropTypes.shape({ label: PropTypes.string, count: PropTypes.number })).isRequired,
