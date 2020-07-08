@@ -56,23 +56,19 @@ export function LineGraph({
 
     // annotation related effects
     useEffect(() => {
-        if (annotationsCondition) {
-            if (annotationsLoading) return
-            if (myLineChart.current) {
-                myLineChart.current.options.scales.xAxes[0].ticks.padding =
-                    enabled || annotationsList.length > 0 ? 35 : 0
-                myLineChart.current.update()
-                const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
-                setTopExtent(topExtent)
-            }
+        if (annotationsCondition && !annotationsLoading && myLineChart.current) {
+            myLineChart.current.options.scales.xAxes[0].ticks.padding = enabled || annotationsList.length > 0 ? 35 : 0
+            myLineChart.current.update()
+            const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
+            setTopExtent(topExtent)
         }
-    }, [enabled, annotationsLoading])
+    }, [enabled, annotationsLoading, annotationsCondition])
 
     useEffect(() => {
         if (annotationsCondition) {
             updateDiffType(datasets[0].days)
         }
-    }, [datasets, type])
+    }, [datasets, type, annotationsCondition])
 
     useEffect(() => {
         if (annotationsCondition) {
@@ -86,7 +82,7 @@ export function LineGraph({
             setInterval(interval)
             setTopExtent(topExtent)
         }
-    }, [myLineChart.current, size, type])
+    }, [myLineChart.current, size, type, annotationsCondition])
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')

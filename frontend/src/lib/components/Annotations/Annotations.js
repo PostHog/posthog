@@ -4,7 +4,7 @@ import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
 
-export const Annotations = React.memo(function Annotations({
+export const Annotations = function Annotations({
     dates,
     leftExtent,
     interval,
@@ -37,12 +37,12 @@ export const Annotations = React.memo(function Annotations({
                     left={index * interval + leftExtent - 12.5}
                     top={topExtent}
                     annotations={annotations}
-                    onCreate={input => {
+                    onCreate={(input) => {
                         dashboardItemId
                             ? createAnnotationNow(input, dates[index])
                             : createAnnotation(input, dates[index])
                     }}
-                    onDelete={id => deleteAnnotation(id)}
+                    onDelete={(id) => deleteAnnotation(id)}
                     onClick={onClick}
                     color={color}
                     accessoryColor={accessoryColor}
@@ -51,4 +51,4 @@ export const Annotations = React.memo(function Annotations({
         }
     })
     return markers
-})
+}

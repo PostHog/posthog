@@ -7,7 +7,7 @@ import { deleteWithUndo } from 'lib/utils'
 import { determineDifferenceType } from '~/lib/utils'
 
 export const annotationsLogic = kea({
-    key: props => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
+    key: (props) => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
     actions: () => ({
         createAnnotation: (content, date_marker) => ({
             content,
@@ -19,10 +19,10 @@ export const annotationsLogic = kea({
             date_marker,
             created_at: moment(),
         }),
-        deleteAnnotation: id => ({ id }),
+        deleteAnnotation: (id) => ({ id }),
         clearAnnotationsToCreate: true,
-        updateDiffType: dates => ({ dates }),
-        setDiffType: type => ({ type }),
+        updateDiffType: (dates) => ({ dates }),
+        setDiffType: (type) => ({ type }),
     }),
     loaders: ({ props }) => ({
         annotations: {
@@ -46,9 +46,7 @@ export const annotationsLogic = kea({
             ],
             deleteAnnotation: (state, { id }) => {
                 if (id >= 0) {
-                    let newState = [...state]
-                    _.remove(newState, { id })
-                    return newState
+                    return state.filter((a) => a.id !== id)
                 } else {
                     return state
                 }
@@ -70,9 +68,7 @@ export const annotationsLogic = kea({
                 clearAnnotationsToCreate: () => [],
                 deleteAnnotation: (state, { id }) => {
                     if (id < 0) {
-                        let newState = [...state]
-                        _.remove(newState, { id })
-                        return newState
+                        return state.filter((a) => a.id !== id)
                     } else {
                         return state
                     }
@@ -91,11 +87,11 @@ export const annotationsLogic = kea({
             () => [selectors.annotationsToCreate, selectors.annotations],
             (annotationsToCreate, annotations) => {
                 const result = [
-                    ...annotationsToCreate.map(val => ({
+                    ...annotationsToCreate.map((val) => ({
                         ...val,
                         id: parseInt(val.id),
                     })),
-                    ...annotations.map(val => ({
+                    ...annotations.map((val) => ({
                         ...val,
                         id: parseInt(val.id),
                     })),
@@ -106,7 +102,7 @@ export const annotationsLogic = kea({
         groupedAnnotations: [
             () => [selectors.annotationsList, selectors.diffType],
             (annotationsList, diffType) => {
-                const groupedResults = _.groupBy(annotationsList, annote =>
+                const groupedResults = _.groupBy(annotationsList, (annote) =>
                     moment(annote['date_marker']).startOf(diffType)
                 )
                 return groupedResults
