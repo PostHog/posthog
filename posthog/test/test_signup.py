@@ -25,7 +25,6 @@ class TestSignup(TestCase):
                 follow=True,
             )
         self.assertRedirects(response, "/")
-
         user = User.objects.get()
         self.assertEqual(user.first_name, "Jane")
         self.assertEqual(user.email, "jane@acme.com")
@@ -64,7 +63,73 @@ class TestSignup(TestCase):
                 follow=True,
             )
         self.assertRedirects(response, "/")
-
+    
+    def test_setup_admin_invalid(self):
+        default_req_args = {
+                    "company_name": "ACME Inc.",
+                    "name": "Jane",
+                    "email": "jane@acme.com",
+                    "password": "hunter2",
+                    "emailOptIn": "on",
+        }
+        with self.settings(TEST=False):
+            # Check invalid company name with all other fields valid
+            invalid_company_req = {**default_req_args}
+            invalid_company_req["company_name"] = ""
+            invalid_company_res = self.client.post("/setup_admin", invalid_company_req, follow=True)
+            # Check invalid name with all other fields valid
+            invalid_name_req = {**default_req_args}
+            invalid_name_req["name"] = ""
+            invalid_name_res = self.client.post("/setup_admin", invalid_name_req, follow=True)
+            # Check invalid email with all other fields valid
+            invalid_email_req = {**default_req_args}
+            invalid_email_req["email"] = "janeacme"
+            invalid_email_res = self.client.post("/setup_admin", invalid_email_req, follow=True)
+            # Check invalid password with all other fields valid
+            invalid_password_req = {**default_req_args}
+            invalid_password_req["password"] = ""
+            invalid_password_res = self.client.post("/setup_admin", invalid_password_req, follow=True)
+        self.assertTrue("invalid_input" in invalid_company_res.context)
+        self.assertTrue("invalid_input" in invalid_name_res.context)
+        self.assertTrue("invalid_input" in invalid_email_res.context)
+        self.assertTrue("invalid_input" in invalid_password_res.context)
+    
+    def test_signup_to_team_invalid(self):
+        default_req_args = {
+                    "name": "Jane",
+                    "email": "jane@acme.com",
+                    "password": "hunter2",
+                    "emailOptIn": "on",
+        }
+        team = Team.objects.create_with_data(
+            name="test", 
+            users=[User.objects.create_user(email="adminuser@posthog.com")]
+        )
+        with self.settings(TEST=False):
+            invalid_name_req = {**default_req_args}
+            invalid_name_req["name"] = ""
+            invalid_name_res = self.client.post(
+                "/signup/{}".format(team.signup_token),
+                invalid_name_req,
+                follow=True,
+            )
+            invalid_email_req = {**default_req_args}
+            invalid_email_req["email"] = "janeacme"
+            invalid_email_res = self.client.post(
+                "/signup/{}".format(team.signup_token),
+                invalid_email_req,
+                follow=True,
+            )
+            invalid_password_req = {**default_req_args}
+            invalid_password_req["password"] = ""
+            invalid_password_res = self.client.post(
+                "/signup/{}".format(team.signup_token),
+                invalid_password_req,
+                follow=True,
+            )
+        self.assertTrue("invalid_input" in invalid_name_res.context)
+        self.assertTrue("invalid_input" in invalid_email_res.context)
+        self.assertTrue("invalid_input" in invalid_password_res.context)
 
 class TestSocialSignup(TestCase):
     def setUp(self):
