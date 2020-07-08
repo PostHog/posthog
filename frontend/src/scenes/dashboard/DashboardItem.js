@@ -126,7 +126,7 @@ export function DashboardItem({
             data-attr={'dashboard-item-' + index}
         >
             <div className={`dashboard-item-container ${className}`}>
-                <div className="dashboard-item-header">
+                <div className="dashboard-item-header" style={{ cursor: inSharedMode ? 'auto' : 'move' }}>
                     <div className="dashboard-item-title">
                         {inSharedMode ? (
                             item.name
