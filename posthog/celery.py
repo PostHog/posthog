@@ -43,10 +43,9 @@ def setup_periodic_tasks(sender, **kwargs):
     sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
     sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
     if settings.ASYNC_EVENT_ACTION_MAPPING:
-        sender.add_periodic_task(60,
-                                 calculate_event_action_mappings.s(),
-                                 name="calculate event action mappings",
-                                 expires=240)
+        sender.add_periodic_task(
+            60, calculate_event_action_mappings.s(), name="calculate event action mappings", expires=240
+        )
 
 
 @app.task

@@ -16,6 +16,6 @@ def calculate_action(action_id: int) -> None:
 
 
 def calculate_all_actions() -> None:
-    actions = Action.objects.filter(deleted=False).only('pk')
+    actions = Action.objects.filter(deleted=False).only("pk")
     for action in actions:
         calculate_action(action.pk)
