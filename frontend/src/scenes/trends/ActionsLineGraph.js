@@ -8,7 +8,8 @@ import { router } from 'kea-router'
 export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filters: filtersParam }) {
     const { filters, results, resultsLoading } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
     const { loadResults, loadPeople } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
-    const { people_action, people_day, ...otherFilters } = filters
+
+    const { people_action, people_day, ...otherFilters } = filters // eslint-disable-line
     const [{ fromItem }] = useState(router.values.hashParams)
 
     useEffect(() => {

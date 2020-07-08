@@ -168,7 +168,7 @@ export let selectStyle = {
 export let debounce = (func, wait, immediate) => {
     var timeout
     return function () {
-        var context = this,
+        var context = this, // eslint-disable-line
             args = arguments
         var later = function () {
             timeout = null
