@@ -261,7 +261,7 @@ export const dashboardLogic = kea({
                 dashboardsModel.actions.updateDashboardItem(deletedItem)
 
                 const toastId = toast(
-                    <div>
+                    <div data-attr="success-toast">
                         Panel moved to{' '}
                         <Link to={`/dashboard/${dashboard.id}`} onClick={() => toast.dismiss(toastId)}>
                             {dashboard.name || 'Untitled'}
@@ -286,7 +286,7 @@ export const dashboardLogic = kea({
             } else if (!move && dashboardId) {
                 // copy
                 const toastId = toast(
-                    <div>
+                    <div data-attr="success-toast">
                         Panel copied to{' '}
                         <Link to={`/dashboard/${dashboard.id}`} onClick={() => toast.dismiss(toastId)}>
                             {dashboard.name || 'Untitled'}
@@ -295,7 +295,7 @@ export const dashboardLogic = kea({
                 )
             } else {
                 actions.duplicateDashboardItemSuccess(addedItem)
-                toast(<div>Panel duplicated!</div>)
+                toast(<div data-attr="success-toast">Panel duplicated!</div>)
             }
         },
 
