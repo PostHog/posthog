@@ -3,7 +3,7 @@ import './AnnotationMarker.scss'
 import React, { useState, useEffect } from 'react'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-import { Button, Popover, Row, Input } from 'antd'
+import { Button, Popover, Row, Input, Checkbox } from 'antd'
 import { humanFriendlyDetailedTime } from '~/lib/utils'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import _ from 'lodash'
@@ -32,6 +32,7 @@ export function AnnotationMarker({
     const [localVisibilityControl, setVisibilityControl] = useState(true)
     const [focused, setFocused] = useState(false)
     const [textInput, setTextInput] = useState('')
+    const [applyAll, setApplyAll] = useState(false)
     const [textAreaVisible, setTextAreaVisible] = useState(false)
     const {
         user: { id, name, email },
@@ -70,7 +71,10 @@ export function AnnotationMarker({
                 ) : (
                     <div style={{ minWidth: 300 }}>
                         {_.orderBy(annotations, ['created_at'], ['asc']).map((data) => (
-                            <div key={data.id} style={{ marginBottom: 25 }}>
+                            <div
+                                key={data.id}
+                                style={{ marginBottom: 25, backgroundColor: data.apply_all ? 'green' : 'white' }}
+                            >
                                 <Row justify="space-between" align="middle">
                                     <div>
                                         <b style={{ marginRight: 5 }}>
@@ -103,6 +107,15 @@ export function AnnotationMarker({
                                 autoFocus
                             />
                         )}
+                        {textAreaVisible && (
+                            <Checkbox
+                                onChange={(e) => {
+                                    setApplyAll(e.target.checked)
+                                }}
+                            >
+                                Create for all charts
+                            </Checkbox>
+                        )}
                         {textAreaVisible ? (
                             <Row justify="end">
                                 <Button style={{ marginRight: 10 }} onClick={() => setTextAreaVisible(false)}>
@@ -111,7 +124,7 @@ export function AnnotationMarker({
                                 <Button
                                     type="primary"
                                     onClick={() => {
-                                        onCreate(textInput)
+                                        onCreate(textInput, applyAll)
                                         setTextInput('')
                                         setTextAreaVisible(false)
                                     }}

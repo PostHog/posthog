@@ -6,7 +6,7 @@ import { operatorMap } from '~/lib/utils'
 import _ from 'lodash'
 import { getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { Button, Row, Input } from 'antd'
+import { Button, Row, Input, Checkbox } from 'antd'
 const { TextArea } = Input
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
@@ -45,6 +45,7 @@ export function LineGraph({
         annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
     )
     const [textInput, setTextInput] = useState('')
+    const [applyAll, setApplyAll] = useState(false)
     const [leftExtent, setLeftExtent] = useState(0)
     const [interval, setInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
@@ -346,6 +347,13 @@ export function LineGraph({
                                 value={textInput}
                                 onChange={(e) => setTextInput(e.target.value)}
                             />
+                            <Checkbox
+                                onChange={(e) => {
+                                    setApplyAll(e.target.checked)
+                                }}
+                            >
+                                Create for all charts
+                            </Checkbox>
                             <Row justify="end">
                                 <Button
                                     style={{ marginRight: 10 }}
@@ -361,9 +369,9 @@ export function LineGraph({
                                     onClick={() => {
                                         setFocused(false)
                                         if (dashboardItemId)
-                                            createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
+                                            createAnnotationNow(textInput, datasets[0].days[holdLabelIndex], applyAll)
                                         else {
-                                            createAnnotation(textInput, datasets[0].days[holdLabelIndex])
+                                            createAnnotation(textInput, datasets[0].days[holdLabelIndex], applyAll)
                                             toast(
                                                 'This annotation will be saved if the graph is made into a dashboard item!'
                                             )

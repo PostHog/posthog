@@ -38,10 +38,10 @@ export const Annotations = function Annotations({
                     left={index * interval + leftExtent - 12.5}
                     top={topExtent}
                     annotations={annotations}
-                    onCreate={(input) => {
+                    onCreate={(input, applyAll) => {
                         dashboardItemId
-                            ? createAnnotationNow(input, dates[index])
-                            : createAnnotation(input, dates[index])
+                            ? createAnnotationNow(input, dates[index], applyAll)
+                            : createAnnotation(input, dates[index], applyAll)
                     }}
                     onDelete={(id) => {
                         deleteAnnotation(id)
