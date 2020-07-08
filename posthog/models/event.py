@@ -99,7 +99,7 @@ class EventManager(models.QuerySet):
                 .values("order")
                 .order_by("order")
                 # If there's two of the same element, for the second one we need to shift one
-                [tag.unique_order : tag.unique_order + 1]
+                [tag.unique_order: tag.unique_order + 1]
             )
             filter["match_{}__isnull".format(index)] = False
             if index > 0:
@@ -307,6 +307,8 @@ class Event(models.Model):
             if len(actions) == 0:
                 return []
             events: models.QuerySet[Any] = Event.objects.filter(pk=self.pk)
+
+            # This is the problem. appending actions piecemeal
             for action in actions:
                 events = events.annotate(
                     **{
@@ -361,3 +363,109 @@ class Event(models.Model):
 
     # DEPRECATED: elements are stored against element groups now
     elements: JSONField = JSONField(default=list, null=True, blank=True)
+
+
+class AutoCaptureAction:
+    event = '$autocapture'
+
+    def __init__(self, tag_name, text, selector):
+        self.tag_name = tag_name
+        self.text = text
+        self.selector = selector
+
+    def match(self, event: Event) -> bool:
+        return False
+
+
+class EventAction:
+    event_matching_properties = []  # list of event properties patterns to match
+
+    class EventProperty:
+        def __init__(self, prop):
+            self.key = prop['key']
+            self.value = prop['value']
+            self.type = prop['type']  # from what I can tell this is usually 'event'
+
+    def __init__(self, event_name, properties):
+        self.event = event_name
+        for prop in properties:
+            event_property = self.EventProperty(prop)
+            self.event_matching_properties.append(event_property)
+
+    def match(self, event: Event) -> bool:
+        if event.event == self.event:
+            if len(self.event_matching_properties) == 0:
+                return True
+            for prop in self.event_matching_properties:
+                if event.properties[prop.key] != prop.value:
+                    return False
+            return True
+        return False
+
+
+class PageviewAction:
+    event = '$pageview'
+    pageview_matching_properties = []
+
+    class PageviewProperty:
+        def __init__(self, prop):
+            self.key = prop['key']
+            self.value = prop['value']
+            self.type = prop['type']  # from what I can tell this is usually 'event'
+
+    def __init__(self, url_matching, url, properties):
+        self.url_matching = url_matching
+        self.url = url
+        for prop in properties:
+            pageview_property = self.PageviewProperty(prop)
+            self.pageview_matching_properties.append(pageview_property)
+
+    def match(self, event: Event) -> bool:
+        if self.url in event.properties['$pathname']:
+            if len(self.pageview_matching_properties) == 0:
+                return True
+            for prop in self.pageview_matching_properties:
+                if event.properties[prop.key] != prop.value:
+                    return False
+            return True
+        return False
+
+class ActionEventMatcher:
+    # List of PageviewActions for event matching
+    pageview_actions = []
+    # List of AutoCaptureActions for event matching
+    autocapture_actions = []
+    # List of EventActions for event matching
+    event_actions = []
+
+    def __init__(self, team_id):
+        self.actions = Action.objects.filter(team_id=team_id)\
+            .prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
+        for action in self.actions:
+            for pattern in action.steps:
+                if pattern.event == '$autocapture':
+                    autocapture_action = AutoCaptureAction(pattern.tag_name, pattern.text, pattern.selector)
+                    self.autocapture_actions.append(autocapture_action)
+                elif pattern.event == '$pageview':
+                    pageview_action = PageviewAction(pattern.url_matching, pattern.url)
+                    self.pageview_actions.append(pageview_action)
+                else:
+                    event_action = EventAction(pattern.event, pattern.properties)
+                    self.event_actions.append(event_action)
+
+    def match(self, event: Event):
+        matches = []
+        if event.event == '$autocapture':
+            for autocapture_action in self.autocapture_actions:
+                if autocapture_action.match(event):
+                    matches.append(autocapture_action)
+        elif event.event == '$pageview':
+            for pageview_action in self.pageview_actions:
+                if pageview_action.match(event):
+                    matches.append(pageview_action)
+        else:
+            # assuming that the event is an EventAction
+            for event_action in self.event_actions:
+                if event_action.match(event):
+                    matches.append(event_action)
+        return matches
