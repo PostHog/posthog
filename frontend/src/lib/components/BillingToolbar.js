@@ -9,8 +9,8 @@ const BillingToolbar = (props) => {
             {billingUrl && (
                 <div className="card">
                     <div className="card-body">
-                        <WarningOutlined className="text-danger" /> Hey! You're about to reach your usage limit for the
-                        Free Plan.{' '}
+                        <WarningOutlined className="text-danger" /> Hey! You have reached your usage limit for the Free
+                        Plan.{' '}
                         <a href={billingUrl} className="text-primary">
                             <b>Upgrade now</b>
                         </a>{' '}
