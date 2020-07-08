@@ -11,7 +11,15 @@ class DashboardSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dashboard
-        fields = ["id", "name", "pinned", "items", "created_at", "created_by", "deleted",]
+        fields = [
+            "id",
+            "name",
+            "pinned",
+            "items",
+            "created_at",
+            "created_by",
+            "deleted",
+        ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
@@ -69,6 +77,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team = request.user.team_set.get()
         if validated_data["dashboard"].team == team:
+            validated_data.pop("last_refresh", None)
             dashboard_item = DashboardItem.objects.create(team=team, last_refresh=datetime.now(), **validated_data)
             return dashboard_item
         else:
