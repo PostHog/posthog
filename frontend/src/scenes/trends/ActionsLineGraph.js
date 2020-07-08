@@ -8,7 +8,7 @@ export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filt
     const { filters, results, resultsLoading } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
     const { loadResults, loadPeople } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
 
-    const { people_action, people_day, ...otherFilters } = filters
+    const { people_action, people_day, ...otherFilters } = filters // eslint-disable-line
 
     useEffect(() => {
         loadResults()

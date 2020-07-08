@@ -5,7 +5,7 @@ import { Provider } from 'react-redux'
 import { getContext } from 'kea'
 
 import App from './scenes/App'
-import { initKea } from '~/initKea'
+import { initKea } from './initKea'
 
 initKea()
 
