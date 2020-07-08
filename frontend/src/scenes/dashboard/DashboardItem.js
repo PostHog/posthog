@@ -160,18 +160,32 @@ export function DashboardItem({
                             placement="bottomRight"
                             trigger="click"
                             overlay={
-                                <Menu>
-                                    <Menu.Item icon={<Icon />} onClick={() => router.actions.push(link)}>
+                                <Menu data-attr={'dashboard-item-' + index + '-dropdown-menu'}>
+                                    <Menu.Item
+                                        data-attr={'dashboard-item-' + index + '-dropdown-view'}
+                                        icon={<Icon />}
+                                        onClick={() => router.actions.push(link)}
+                                    >
                                         {viewText}
                                     </Menu.Item>
-                                    <Menu.Item icon={<EditOutlined />} onClick={() => renameDashboardItem(item.id)}>
+                                    <Menu.Item
+                                        data-attr={'dashboard-item-' + index + '-dropdown-rename'}
+                                        icon={<EditOutlined />}
+                                        onClick={() => renameDashboardItem(item.id)}
+                                    >
                                         Rename
                                     </Menu.Item>
-                                    <Menu.SubMenu key="colors" icon={<BgColorsOutlined />} title="Set Color">
-                                        {Object.entries(dashboardColorNames).map(([className, color]) => (
+                                    <Menu.SubMenu
+                                        data-attr={'dashboard-item-' + index + '-dropdown-color'}
+                                        key="colors"
+                                        icon={<BgColorsOutlined />}
+                                        title="Set Color"
+                                    >
+                                        {Object.entries(dashboardColorNames).map(([className, color], colorIndex) => (
                                             <Menu.Item
                                                 key={className}
                                                 onClick={() => updateItemColor(item.id, className)}
+                                                data-attr={'dashboard-item-' + index + '-dropdown-color-' + colorIndex}
                                             >
                                                 <span
                                                     style={{
@@ -236,7 +250,10 @@ export function DashboardItem({
                                 </Menu>
                             }
                         >
-                            <span style={{ cursor: 'pointer', marginTop: -3 }}>
+                            <span
+                                data-attr={'dashboard-item-' + index + '-dropdown'}
+                                style={{ cursor: 'pointer', marginTop: -3 }}
+                            >
                                 <EllipsisOutlined />
                             </span>
                         </Dropdown>

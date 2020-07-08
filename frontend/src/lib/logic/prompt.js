@@ -78,7 +78,7 @@ function Prompt({ value, visible, afterClose, close, title, modalProps, rules, p
         >
             <Form form={form} name="field" initialValues={{ field: value }} onFinish={onFinish}>
                 <Form.Item name="field" rules={rules}>
-                    <Input placeholder={placeholder} autoFocus />
+                    <Input placeholder={placeholder} autoFocus data-attr={'modal-prompt'} />
                 </Form.Item>
             </Form>
         </Modal>
