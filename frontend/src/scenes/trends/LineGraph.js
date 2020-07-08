@@ -48,28 +48,34 @@ export function LineGraph({
     const [topExtent, setTopExtent] = useState(0)
     const size = useWindowSize()
 
+    const annotationsCondition = (!type || type === 'line') && datasets.length > 0
+
     useEffect(() => {
         buildChart()
     }, [datasets, color])
 
+    // annotation related effects
     useEffect(() => {
-        if (annotationsLoading) return
-        if (myLineChart.current) {
-            myLineChart.current.options.scales.xAxes[0].ticks.padding = enabled || annotationsList.length > 0 ? 35 : 0
-            myLineChart.current.update()
-            const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
-            setTopExtent(topExtent)
+        if (annotationsCondition) {
+            if (annotationsLoading) return
+            if (myLineChart.current) {
+                myLineChart.current.options.scales.xAxes[0].ticks.padding =
+                    enabled || annotationsList.length > 0 ? 35 : 0
+                myLineChart.current.update()
+                const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
+                setTopExtent(topExtent)
+            }
         }
     }, [enabled, annotationsLoading])
 
     useEffect(() => {
-        if (!type || type === 'line') {
+        if (annotationsCondition) {
             updateDiffType(datasets[0].days)
         }
     }, [datasets, type])
 
     useEffect(() => {
-        if (!type || type === 'line') {
+        if (annotationsCondition) {
             const leftExtent = myLineChart.current.scales['x-axis-0'].left
             const rightExtent = myLineChart.current.scales['x-axis-0'].right
             const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
@@ -296,7 +302,7 @@ export function LineGraph({
                     }
                 }}
             />
-            {(!type || type === 'line') && (enabled || focused) && left >= 0 && (
+            {annotationsCondition && (enabled || focused) && left >= 0 && (
                 <AnnotationMarker
                     onClick={() => {
                         setFocused(true)
@@ -352,7 +358,7 @@ export function LineGraph({
                     accessoryColor={color === 'white' ? null : 'black'}
                 />
             )}
-            {(!type || type === 'line') && (
+            {annotationsCondition && (
                 <Annotations
                     labeledDays={datasets[0].labels}
                     dates={datasets[0].days}

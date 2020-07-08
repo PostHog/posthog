@@ -42,7 +42,7 @@ export function AnnotationMarker({
                     content
                 ) : (
                     <div style={{ minWidth: 300 }}>
-                        {_.orderBy(annotations, ['created_at'], ['asc']).map(data => (
+                        {_.orderBy(annotations, ['created_at'], ['asc']).map((data) => (
                             <div key={data.id} style={{ marginBottom: 25 }}>
                                 <Row justify="space-between" align="middle">
                                     <div>
@@ -54,7 +54,7 @@ export function AnnotationMarker({
                                         </b>
                                         <i style={{ color: 'gray' }}>{humanFriendlyDetailedTime(data.created_at)}</i>
                                     </div>
-                                    {(!data.created_by || data.created_by.id === id) && (
+                                    {(!data.created_by || data.created_by.id === id || data.created_by === 'local') && (
                                         <DeleteOutlined
                                             className="clickable"
                                             onClick={() => {
@@ -72,7 +72,7 @@ export function AnnotationMarker({
                                 style={{ marginBottom: 12 }}
                                 rows={4}
                                 value={textInput}
-                                onChange={e => setTextInput(e.target.value)}
+                                onChange={(e) => setTextInput(e.target.value)}
                                 autoFocus
                             />
                         )}
