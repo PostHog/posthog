@@ -1078,7 +1078,6 @@ class TestRetention(TransactionBaseTest):
             self.pluck(result["data"], "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
         )
         self.assertEqual(result["data"][0]["date"], "Wed. 10 June")
-        print(self.pluck(result["data"], "values"))
         self.assertEqual(
             self.pluck(result["data"], "values"),
             [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1]],
