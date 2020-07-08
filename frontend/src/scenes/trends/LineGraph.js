@@ -48,7 +48,7 @@ export function LineGraph({
     const [topExtent, setTopExtent] = useState(0)
     const size = useWindowSize()
 
-    const annotationsCondition = (!type || type === 'line') && datasets.length > 0
+    const annotationsCondition = (!type || type === 'line') && datasets.length > 0 && !datasets[0].compare
 
     useEffect(() => {
         buildChart()
