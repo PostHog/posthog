@@ -15,7 +15,7 @@ class Action(models.Model):
 
     def calculate_events_for_period(self, start=None, end=None):
         if start is None:
-            start = datetime.date(1990, 1, 1, 0, 0, 0, 0, pytz.UTC)
+            start = datetime.date(1990, 1, 1)
         if end is None:
             end = datetime.datetime.utcnow() + datetime.timedelta(days=1)
 
