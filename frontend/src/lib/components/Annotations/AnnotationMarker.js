@@ -263,7 +263,8 @@ export function AnnotationMarker({
                     display: 'flex',
                     justifyContent: 'center',
                     alignItems: 'center',
-                    backgroundColor: dynamic || hovered ? _color : graphColor || 'white',
+                    backgroundColor:
+                        dynamic || hovered || elementId === currentDateMarker ? _color : graphColor || 'white',
                     borderRadius: 5,
                     cursor: 'pointer',
                     border: dynamic ? null : '1px solid ' + _color,
@@ -280,7 +281,7 @@ export function AnnotationMarker({
                 {annotations ? (
                     <span
                         style={{
-                            color: hovered ? _accessoryColor : _color,
+                            color: hovered || elementId === currentDateMarker ? _accessoryColor : _color,
 
                             fontSize: 12,
                         }}
