@@ -33,6 +33,9 @@ app.conf.broker_pool_limit = 0
 redis_instance = redis.from_url(settings.REDIS_URL, db=0)
 
 
+ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 30
+
+
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
     # Heartbeat every 10sec to make sure the worker is alive
@@ -44,7 +47,10 @@ def setup_periodic_tasks(sender, **kwargs):
     sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
     if settings.ASYNC_EVENT_ACTION_MAPPING:
         sender.add_periodic_task(
-            60, calculate_event_action_mappings.s(), name="calculate event action mappings", expires=240
+            (60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
+            calculate_event_action_mappings.s(),
+            name="calculate event action mappings",
+            expires=(60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
         )
 
 
