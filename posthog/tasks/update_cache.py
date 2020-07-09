@@ -28,7 +28,7 @@ def update_cache_item(key: str, cache_type: str, payload: dict) -> None:
         result = _calculate_funnel(payload["funnel_id"], int(payload["team_id"]))
 
     if result:
-        cache.set(key, {"result": result, "details": payload, "type": cache_type}, 900)
+        cache.set(key, {"result": result, "details": payload, "type": cache_type}, 25 * 60)
 
 
 def update_cached_items() -> None:
