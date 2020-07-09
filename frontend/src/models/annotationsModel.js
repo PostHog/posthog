@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
+import { toParams, deleteWithUndo } from 'lib/utils'
 import moment from 'moment'
 import { getNextKey } from 'lib/components/Annotations/utils'
 
@@ -12,6 +12,7 @@ export const annotationsModel = kea({
             created_at: moment(),
             apply_all,
         }),
+        deleteGlobalAnnotation: (id) => ({ id }),
     }),
     loaders: () => ({
         globalAnnotations: {
@@ -33,6 +34,22 @@ export const annotationsModel = kea({
                 ...state,
                 { id: getNextKey(state), content, date_marker, created_at, created_by: 'local', apply_all },
             ],
+            deleteGlobalAnnotation: (state, { id }) => {
+                if (id >= 0) {
+                    return state.filter((a) => a.id !== id)
+                } else {
+                    return state
+                }
+            },
+        },
+    }),
+    listeners: () => ({
+        deleteGlobalAnnotation: async ({ id }) => {
+            id >= 0 &&
+                deleteWithUndo({
+                    endpoint: 'annotation',
+                    object: { name: 'Annotation', id },
+                })
         },
     }),
     events: ({ actions }) => ({

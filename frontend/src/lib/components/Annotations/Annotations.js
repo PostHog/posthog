@@ -23,7 +23,7 @@ export const Annotations = function Annotations({
         })
     )
 
-    const { createAnnotation, createAnnotationNow, deleteAnnotation } = useActions(
+    const { createAnnotation, createAnnotationNow, deleteAnnotation, deleteGlobalAnnotation } = useActions(
         annotationsLogic({
             pageKey: dashboardItemId ? dashboardItemId : null,
         })
@@ -46,8 +46,9 @@ export const Annotations = function Annotations({
                             ? createAnnotationNow(input, dates[index], applyAll)
                             : createAnnotation(input, dates[index], applyAll)
                     }}
-                    onDelete={(id) => {
-                        deleteAnnotation(id)
+                    onDelete={(data) => {
+                        if (data.apply_all) deleteGlobalAnnotation(data.id)
+                        else deleteAnnotation(data.id)
                         onClose?.()
                     }}
                     onClick={onClick}

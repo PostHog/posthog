@@ -194,7 +194,7 @@ export function AnnotationMarker({
                                         <DeleteOutlined
                                             className="clickable"
                                             onClick={() => {
-                                                onDelete(data.id)
+                                                onDelete(data)
                                             }}
                                         ></DeleteOutlined>
                                     )}

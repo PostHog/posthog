@@ -9,7 +9,7 @@ import { getNextKey } from './utils'
 export const annotationsLogic = kea({
     key: (props) => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
     connect: {
-        actions: [annotationsModel, ['loadGlobalAnnotations']],
+        actions: [annotationsModel, ['loadGlobalAnnotations', 'deleteGlobalAnnotation']],
         values: [annotationsModel, ['globalAnnotations']],
     },
     actions: () => ({
