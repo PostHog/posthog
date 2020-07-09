@@ -49,8 +49,8 @@ class DashboardSerializer(serializers.ModelSerializer):
 
         return dashboard
 
-    def update(
-        self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any  # type: ignore
+    def update(  # type: ignore
+        self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any
     ) -> Dashboard:
         if validated_data.get("is_shared") and not instance.share_token:
             instance.share_token = secrets.token_urlsafe(22)
