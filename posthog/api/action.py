@@ -206,9 +206,9 @@ class ActionViewSet(viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.team_set.get()
-        filter = Filter(request=request)
+        properties = request.GET.get("properties", "{}")
+        filter = Filter(data={"properties": json.loads(properties)})
         filter._date_from = "-11d"
-
         result = calculate_retention(filter, team)
         return Response(result)
 
