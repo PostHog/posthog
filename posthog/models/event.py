@@ -149,10 +149,10 @@ class EventManager(models.QuerySet):
         if not start and not end:
             return {}
         if not start:
-            return {"timestamp__lte": end}
+            return {"created_at__lte": end}
         if not end:
-            return {"timestamp__gte": start}
-        return {"timestamp__gte": start, "timestamp__lte": end}
+            return {"created_at__gte": start}
+        return {"created_at__gte": start, "created_at__lte": end}
 
     def add_person_id(self, team_id: int):
         return self.annotate(
@@ -369,6 +369,7 @@ class Event(models.Model):
         filtered_actions = [action for action in actions if getattr(event, "action_{}".format(action.pk))]
         return filtered_actions
 
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     objects: EventManager = EventManager.as_manager()  # type: ignore
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
