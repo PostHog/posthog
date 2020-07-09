@@ -3,6 +3,7 @@ import pytz
 
 from django.db import models, connection, transaction
 from django.core.exceptions import EmptyResultSet
+from django.utils import timezone
 from .user import User
 from sentry_sdk import capture_exception
 
@@ -15,9 +16,9 @@ class Action(models.Model):
 
     def calculate_events_for_period(self, start=None, end=None):
         if start is None:
-            start = datetime.date(1990, 1, 1)
+            start = datetime.date(1990, 1, 1).replace(tzinfo=pytz.UTC)
         if end is None:
-            end = datetime.datetime.utcnow() + datetime.timedelta(days=1)
+            end = timezone.now() + datetime.timedelta(days=1)
 
         self.is_calculating = True
         self.save()
@@ -58,7 +59,7 @@ class Action(models.Model):
                 capture_exception()
 
         self.is_calculating = False
-        self.last_calculated = datetime.datetime.utcnow()
+        self.last_calculated = timezone.now()
         self.save()
 
     def calculate_events(self, from_highwater_mark=False):
@@ -90,7 +91,7 @@ class Action(models.Model):
                 capture_exception()
 
         self.is_calculating = False
-        self.last_calculated = datetime.datetime.utcnow()
+        self.last_calculated = timezone.now()
         self.save()
 
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
@@ -102,7 +103,7 @@ class Action(models.Model):
     post_to_slack: models.BooleanField = models.BooleanField(default=False)
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    last_calculated: models.DateTimeField = models.DateTimeField(default=datetime.datetime.utcnow, blank=True)
+    last_calculated: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
 
     def __str__(self):
         return self.name
