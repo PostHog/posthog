@@ -150,6 +150,14 @@ export function AnnotationMarker({
                             value={textInput}
                             onChange={(e) => setTextInput(e.target.value)}
                         />
+                        <Checkbox
+                            onChange={(e) => {
+                                onChecked?.(e)
+                                setApplyAll(e.target.checked)
+                            }}
+                        >
+                            Create for all charts
+                        </Checkbox>
                         <Row justify="end">
                             <Button
                                 style={{ marginRight: 10 }}
@@ -214,7 +222,7 @@ export function AnnotationMarker({
                         {textAreaVisible && (
                             <Checkbox
                                 onChange={(e) => {
-                                    onChecked?.()
+                                    onChecked?.(e)
                                     setApplyAll(e.target.checked)
                                 }}
                             >
