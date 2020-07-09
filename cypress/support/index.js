@@ -11,7 +11,7 @@ beforeEach(() => {
 
             cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
 
-            cy.get('#inputPassword').type('password').should('have.value', 'password')
+            cy.get('#inputPassword').type('Test1234').should('have.value', 'Test1234')
 
             cy.get('.btn').click()
 
@@ -20,7 +20,7 @@ beforeEach(() => {
         } else if (url.includes('login')) {
             cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
 
-            cy.get('#inputPassword').type('password').should('have.value', 'password')
+            cy.get('#inputPassword').type('Test1234').should('have.value', 'Test1234')
 
             cy.get('.btn').click()
         }
