@@ -11,6 +11,7 @@ const { TextArea } = Input
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import moment from 'moment'
+import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -51,6 +52,8 @@ export function LineGraph({
     const size = useWindowSize()
 
     const annotationsCondition = (!type || type === 'line') && datasets.length > 0 && !datasets[0].compare
+
+    useEscapeKey(() => setFocused(false), [focused])
 
     useEffect(() => {
         buildChart()

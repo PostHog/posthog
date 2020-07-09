@@ -9,6 +9,7 @@ import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import _ from 'lodash'
 import { annotationsLogic } from './annotationsLogic'
 import moment from 'moment'
+import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 
 const { TextArea } = Input
 
@@ -44,6 +45,15 @@ export function AnnotationMarker({
         })
     )
 
+    function closePopup() {
+        if (localVisibilityControl) {
+            setFocused(false)
+            onClose?.()
+        }
+    }
+
+    useEscapeKey(closePopup, [focused])
+
     const _color = color || '#1890ff'
     const _accessoryColor = accessoryColor || 'white'
 
@@ -57,10 +67,7 @@ export function AnnotationMarker({
         if (popupRef.current && popupRef.current.contains(e.target)) {
             return
         }
-        if (localVisibilityControl) {
-            setFocused(false)
-            onClose?.()
-        }
+        closePopup
     }
 
     useEffect(() => {
