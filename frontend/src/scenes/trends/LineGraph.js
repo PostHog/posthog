@@ -38,7 +38,7 @@ export class LineGraph extends Component {
 
     buildChart = () => {
         const myChartRef = this.chartRef.current.getContext('2d')
-        let { datasets, labels } = this.props
+        let { datasets, labels, isStacked } = this.props
 
         const axisLabelColor = this.props.color === 'white' ? '#333' : 'rgba(255,255,255,0.8)'
         const axisLineColor = this.props.color === 'white' ? '#ddd' : 'rgba(255,255,255,0.2)'
@@ -173,6 +173,7 @@ export class LineGraph extends Component {
                                           fontColor: axisLabelColor,
                                           precision: 0,
                                       },
+                                      stacked: isStacked,
                                   },
                               ],
                           },
@@ -223,4 +224,5 @@ LineGraph.propTypes = {
     options: PropTypes.object,
     type: PropTypes.string,
     onClick: PropTypes.func,
+    isStacked: PropTypes.bool,
 }
