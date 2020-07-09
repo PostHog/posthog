@@ -4,6 +4,7 @@ import moment from 'moment'
 import _ from 'lodash'
 import { determineDifferenceType, deleteWithUndo, toParams } from '~/lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
+import { getNextKey } from './utils'
 
 export const annotationsLogic = kea({
     key: (props) => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
@@ -128,7 +129,7 @@ export const annotationsLogic = kea({
                 dashboard_item: props.pageKey,
                 apply_all,
             })
-            actions.loadAnnotations({})
+            // actions.loadAnnotations({})
         },
         deleteAnnotation: async ({ id }) => {
             id >= 0 &&
@@ -146,10 +147,3 @@ export const annotationsLogic = kea({
         afterMount: () => props.pageKey && actions.loadAnnotations({}),
     }),
 })
-
-function getNextKey(arr) {
-    if (arr.length === 0) return -1
-    const result = arr.reduce((prev, curr) => (prev.id < curr.id ? prev : curr))
-    if (result.id >= 0) return -1
-    else return result.id - 1
-}

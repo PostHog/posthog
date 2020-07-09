@@ -3,9 +3,9 @@ import './AnnotationMarker.scss'
 import React, { useState, useEffect, useRef } from 'react'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-import { Button, Popover, Row, Input, Checkbox } from 'antd'
+import { Button, Popover, Row, Input, Checkbox, Tooltip } from 'antd'
 import { humanFriendlyDetailedTime } from '~/lib/utils'
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
+import { DeleteOutlined, PlusOutlined, GlobalOutlined } from '@ant-design/icons'
 import _ from 'lodash'
 import { annotationsLogic } from './annotationsLogic'
 import moment from 'moment'
@@ -172,10 +172,7 @@ export function AnnotationMarker({
                 ) : (
                     <div ref={popupRef} style={{ minWidth: 300 }}>
                         {_.orderBy(annotations, ['created_at'], ['asc']).map((data) => (
-                            <div
-                                key={data.id}
-                                style={{ marginBottom: 25, backgroundColor: data.apply_all ? 'green' : 'white' }}
-                            >
+                            <div key={data.id} style={{ marginBottom: 25, backgroundColor: 'white' }}>
                                 <Row justify="space-between" align="middle">
                                     <div>
                                         <b style={{ marginRight: 5 }}>
@@ -184,7 +181,14 @@ export function AnnotationMarker({
                                                 : data.created_by &&
                                                   (data.created_by.first_name || data.created_by.email)}
                                         </b>
-                                        <i style={{ color: 'gray' }}>{humanFriendlyDetailedTime(data.created_at)}</i>
+                                        <i style={{ color: 'gray', marginRight: 6 }}>
+                                            {humanFriendlyDetailedTime(data.created_at)}
+                                        </i>
+                                        {data.apply_all && (
+                                            <Tooltip title="This note is shown on all charts">
+                                                <GlobalOutlined></GlobalOutlined>
+                                            </Tooltip>
+                                        )}
                                     </div>
                                     {(!data.created_by || data.created_by.id === id || data.created_by === 'local') && (
                                         <DeleteOutlined
