@@ -9,10 +9,23 @@ import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import _ from 'lodash'
 import { annotationsLogic } from './annotationsLogic'
 import moment from 'moment'
+import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 
 const { TextArea } = Input
 
+function coordinateContains(e, element) {
+    if (
+        e.clientX >= element.x &&
+        e.clientX <= element.x + element.width &&
+        e.clientY >= element.y &&
+        e.clientY <= element.y + element.height
+    )
+        return true
+    else return false
+}
+
 export function AnnotationMarker({
+    elementId,
     label,
     annotations,
     left,
@@ -20,21 +33,24 @@ export function AnnotationMarker({
     onCreate,
     onDelete,
     onClick,
-    visible,
-    content,
     size = 25,
     color,
     accessoryColor,
     dashboardItemId,
     currentDateMarker,
     onClose,
+    dynamic,
+    onCreateAnnotation,
+    graphColor,
+    index,
+    onChecked,
 }) {
-    const popupRef = useRef()
-    const [localVisibilityControl, setVisibilityControl] = useState(true)
+    const draggingRef = useRef()
     const [focused, setFocused] = useState(false)
     const [textInput, setTextInput] = useState('')
     const [applyAll, setApplyAll] = useState(false)
     const [textAreaVisible, setTextAreaVisible] = useState(false)
+    const [hovered, setHovered] = useState(false)
     const {
         user: { id, name, email },
     } = useValues(userLogic)
@@ -45,20 +61,49 @@ export function AnnotationMarker({
         })
     )
 
+    function closePopup() {
+        setFocused(false)
+        onClose?.()
+    }
+
+    useEscapeKey(closePopup, [focused])
+
     const _color = color || '#1890ff'
     const _accessoryColor = accessoryColor || 'white'
 
-    useEffect(() => {
-        if (visible !== null && visible !== undefined) {
-            setVisibilityControl(false)
-        }
-    }, [])
-
     const deselect = (e) => {
-        if (popupRef.current && popupRef.current.contains(e.target)) {
+        if (
+            document.getElementById('popup') &&
+            coordinateContains(e, document.getElementById('popup').getBoundingClientRect())
+        ) {
+            draggingRef.current = {
+                x: e.clientX,
+                y: e.clientY,
+            }
+            return
+        } else if (
+            document.getElementById('popup-marker') &&
+            coordinateContains(e, document.getElementById('popup-marker').getBoundingClientRect())
+        ) {
+            draggingRef.current = {
+                x: e.clientX,
+                y: e.clientY,
+            }
             return
         }
-        localVisibilityControl && setFocused(false)
+        closePopup()
+    }
+
+    const onMouseMove = () => {
+        if (draggingRef.current) {
+            const { x, y } = draggingRef.current
+            const distance = Math.round(Math.sqrt(Math.pow(y - event.clientY, 2) + Math.pow(x - event.clientX, 2)))
+            if (distance > 30) closePopup()
+        }
+    }
+
+    function onMouseUp() {
+        draggingRef.current = false
     }
 
     useEffect(() => {
@@ -68,11 +113,25 @@ export function AnnotationMarker({
         }
     }, [])
 
+    useEffect(() => {
+        document.addEventListener('mouseup', onMouseUp)
+        return () => {
+            document.removeEventListener('mouseup', onMouseUp)
+        }
+    }, [])
+
+    useEffect(() => {
+        document.addEventListener('mousemove', onMouseMove)
+        return () => {
+            document.removeEventListener('mousemove', onMouseMove)
+        }
+    }, [])
+
     if (
+        dynamic &&
         Object.keys(groupedAnnotations)
             .map((key) => moment(key))
-            .some((marker) => marker.isSame(moment(currentDateMarker).startOf(diffType))) &&
-        !visible
+            .some((marker) => marker.isSame(moment(currentDateMarker).startOf(diffType)))
     )
         return null
 
@@ -81,10 +140,40 @@ export function AnnotationMarker({
             trigger="click"
             defaultVisible={false}
             content={
-                content ? (
-                    content
+                dynamic ? (
+                    <div id="popup-marker">
+                        <span style={{ marginBottom: 12 }}>{moment(currentDateMarker).format('MMMM Do YYYY')}</span>
+                        <TextArea
+                            maxLength={300}
+                            style={{ marginBottom: 12 }}
+                            rows={4}
+                            value={textInput}
+                            onChange={(e) => setTextInput(e.target.value)}
+                        />
+                        <Row justify="end">
+                            <Button
+                                style={{ marginRight: 10 }}
+                                onClick={() => {
+                                    closePopup()
+                                    setTextInput('')
+                                }}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type="primary"
+                                onClick={() => {
+                                    closePopup()
+                                    onCreateAnnotation?.(textInput)
+                                    setTextInput('')
+                                }}
+                            >
+                                Add
+                            </Button>
+                        </Row>
+                    </div>
                 ) : (
-                    <div ref={popupRef} style={{ minWidth: 300 }}>
+                    <div id="popup" style={{ minWidth: 300 }}>
                         {_.orderBy(annotations, ['created_at'], ['asc']).map((data) => (
                             <div
                                 key={data.id}
@@ -125,6 +214,7 @@ export function AnnotationMarker({
                         {textAreaVisible && (
                             <Checkbox
                                 onChange={(e) => {
+                                    onChecked?.()
                                     setApplyAll(e.target.checked)
                                 }}
                             >
@@ -176,7 +266,7 @@ export function AnnotationMarker({
                     {label}
                 </Row>
             }
-            visible={localVisibilityControl ? focused : visible}
+            visible={focused}
         >
             <div
                 style={{
@@ -188,19 +278,31 @@ export function AnnotationMarker({
                     display: 'flex',
                     justifyContent: 'center',
                     alignItems: 'center',
-                    backgroundColor: _color,
+                    backgroundColor:
+                        dynamic || hovered || elementId === currentDateMarker ? _color : graphColor || 'white',
                     borderRadius: 5,
                     cursor: 'pointer',
-                    border: content ? '1px solid white' : null,
+                    border: dynamic ? null : '1px solid ' + _color,
+                    zIndex: hovered || elementId === currentDateMarker ? 999 : index,
                 }}
                 type="primary"
                 onClick={() => {
                     onClick?.()
-                    localVisibilityControl && setFocused(true)
+                    setFocused(true)
                 }}
+                onMouseOver={() => setHovered(true)}
+                onMouseLeave={() => setHovered(false)}
             >
                 {annotations ? (
-                    <span style={{ color: _accessoryColor, fontSize: 12 }}>{annotations.length}</span>
+                    <span
+                        style={{
+                            color: hovered || elementId === currentDateMarker ? _accessoryColor : _color,
+
+                            fontSize: 12,
+                        }}
+                    >
+                        {annotations.length}
+                    </span>
                 ) : (
                     <PlusOutlined style={{ color: _accessoryColor }}></PlusOutlined>
                 )}

@@ -6,15 +6,14 @@ import { operatorMap } from '~/lib/utils'
 import _ from 'lodash'
 import { getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { Button, Row, Input, Checkbox } from 'antd'
-const { TextArea } = Input
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
-import moment from 'moment'
+import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
 Chart.defaults.global.legend.display = false
+Chart.defaults.global.animation.duration = 400
 //--Chart Style Options--//
 
 export function LineGraph({
@@ -44,7 +43,6 @@ export function LineGraph({
     const { annotationsList, annotationsLoading } = useValues(
         annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
     )
-    const [textInput, setTextInput] = useState('')
     const [applyAll, setApplyAll] = useState(false)
     const [leftExtent, setLeftExtent] = useState(0)
     const [interval, setInterval] = useState(0)
@@ -53,40 +51,49 @@ export function LineGraph({
 
     const annotationsCondition = (!type || type === 'line') && datasets.length > 0 && !datasets[0].compare
 
+    useEscapeKey(() => setFocused(false), [focused])
+
     useEffect(() => {
         buildChart()
     }, [datasets, color])
 
     // annotation related effects
+
+    // update boundaries and axis padding when user hovers with mouse or annotations load
     useEffect(() => {
-        if (annotationsCondition && !annotationsLoading && myLineChart.current) {
+        if (annotationsCondition && myLineChart.current) {
             myLineChart.current.options.scales.xAxes[0].ticks.padding =
                 enabled || annotationsList.length > 0 || focused ? 35 : 0
             myLineChart.current.update()
-            const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
-            setTopExtent(topExtent)
+            calculateBoundaries()
         }
     }, [enabled, annotationsLoading, annotationsCondition])
 
+    // recalculate diff if interval type selection changes
     useEffect(() => {
         if (annotationsCondition) {
             updateDiffType(datasets[0].days)
         }
     }, [datasets, type, annotationsCondition])
 
+    // update only boundaries when window size changes or chart type changes
     useEffect(() => {
         if (annotationsCondition) {
-            const leftExtent = myLineChart.current.scales['x-axis-0'].left
-            const rightExtent = myLineChart.current.scales['x-axis-0'].right
-            const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
-            const delta = rightExtent - leftExtent
-            const interval = delta / (ticks - 1)
-            const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
-            setLeftExtent(leftExtent)
-            setInterval(interval)
-            setTopExtent(topExtent)
+            calculateBoundaries()
         }
     }, [myLineChart.current, size, type, annotationsCondition])
+
+    function calculateBoundaries() {
+        const leftExtent = myLineChart.current.scales['x-axis-0'].left
+        const rightExtent = myLineChart.current.scales['x-axis-0'].right
+        const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
+        const delta = rightExtent - leftExtent
+        const interval = delta / (ticks - 1)
+        const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
+        setLeftExtent(leftExtent)
+        setInterval(interval)
+        setTopExtent(topExtent)
+    }
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
@@ -279,6 +286,7 @@ export function LineGraph({
             className="graph-container"
             data-attr={dataAttr}
             onMouseMove={(e) => {
+                setEnabled(true)
                 if (annotationsCondition && myLineChart.current) {
                     var rect = e.currentTarget.getBoundingClientRect(),
                         offsetX = e.clientX - rect.left
@@ -315,6 +323,7 @@ export function LineGraph({
                     interval={interval}
                     topExtent={topExtent}
                     dashboardItemId={dashboardItemId}
+                    currentDateMarker={focused ? selectedDayLabel : datasets[0].days[labelIndex]}
                     onClick={() => {
                         setFocused(false)
                         setAnnotationsFocused(true)
@@ -329,65 +338,31 @@ export function LineGraph({
             {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
                 <AnnotationMarker
                     dashboardItemId={dashboardItemId}
-                    currentDateMarker={datasets[0].days[labelIndex]}
+                    currentDateMarker={focused ? selectedDayLabel : datasets[0].days[labelIndex]}
                     onClick={() => {
                         setFocused(true)
                         setHoldLeft(left)
                         setHoldLabelIndex(labelIndex)
                         setSelectedDayLabel(datasets[0].days[labelIndex])
                     }}
-                    visible={focused}
-                    content={
-                        <div>
-                            <span style={{ marginBottom: 12 }}>{moment(selectedDayLabel).format('MMMM Do YYYY')}</span>
-                            <TextArea
-                                maxLength={300}
-                                style={{ marginBottom: 12 }}
-                                rows={4}
-                                value={textInput}
-                                onChange={(e) => setTextInput(e.target.value)}
-                            />
-                            <Checkbox
-                                onChange={(e) => {
-                                    setApplyAll(e.target.checked)
-                                }}
-                            >
-                                Create for all charts
-                            </Checkbox>
-                            <Row justify="end">
-                                <Button
-                                    style={{ marginRight: 10 }}
-                                    onClick={() => {
-                                        setFocused(false)
-                                        setTextInput('')
-                                    }}
-                                >
-                                    Cancel
-                                </Button>
-                                <Button
-                                    type="primary"
-                                    onClick={() => {
-                                        setFocused(false)
-                                        if (dashboardItemId)
-                                            createAnnotationNow(textInput, datasets[0].days[holdLabelIndex], applyAll)
-                                        else {
-                                            createAnnotation(textInput, datasets[0].days[holdLabelIndex], applyAll)
-                                            toast(
-                                                'This annotation will be saved if the graph is made into a dashboard item!'
-                                            )
-                                        }
-                                        setTextInput('')
-                                    }}
-                                >
-                                    Add
-                                </Button>
-                            </Row>
-                        </div>
-                    }
+                    onCreateAnnotation={(textInput) => {
+                        if (dashboardItemId) createAnnotationNow(textInput, datasets[0].days[holdLabelIndex], applyAll)
+                        else {
+                            createAnnotation(textInput, datasets[0].days[holdLabelIndex], applyAll)
+                            toast('This annotation will be saved if the graph is made into a dashboard item!')
+                        }
+                    }}
+                    onChecked={(e) => {
+                        setApplyAll(e.target.checked)
+                    }}
+                    onCancelAnnotation={() => [setFocused(false)]}
+                    onClose={() => setFocused(false)}
+                    dynamic={true}
                     left={(focused ? holdLeft : left) - 12.5}
                     top={topExtent}
                     label={'Add Annotation'}
                     color={color === 'white' ? null : 'white'}
+                    graphColor={color}
                     accessoryColor={color === 'white' ? null : 'black'}
                 />
             )}

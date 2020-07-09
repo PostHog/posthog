@@ -14,6 +14,8 @@ export const Annotations = function Annotations({
     color,
     accessoryColor,
     onClose,
+    graphColor,
+    currentDateMarker,
 }) {
     const { diffType, groupedAnnotations } = useValues(
         annotationsLogic({
@@ -33,6 +35,7 @@ export const Annotations = function Annotations({
         if (annotations) {
             markers.push(
                 <AnnotationMarker
+                    elementId={dates[index]}
                     label={moment(dates[index]).format('MMMM Do YYYY')}
                     key={index}
                     left={index * interval + leftExtent - 12.5}
@@ -50,7 +53,10 @@ export const Annotations = function Annotations({
                     onClick={onClick}
                     onClose={onClose}
                     color={color}
+                    graphColor={graphColor}
                     accessoryColor={accessoryColor}
+                    currentDateMarker={currentDateMarker}
+                    index={index}
                 ></AnnotationMarker>
             )
         }
