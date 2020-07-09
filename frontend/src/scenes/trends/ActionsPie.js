@@ -8,7 +8,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 export function ActionsPie({ dashboardItemId, filters: filtersParam, color, cachedResults }) {
     const [data, setData] = useState(null)
     const [total, setTotal] = useState(0)
-    let logic = trendsLogic({ dashboardItemId, filters: filtersParam, cachedResults })
+    const logic = trendsLogic({ dashboardItemId, filters: filtersParam, cachedResults })
     const { filters, results, resultsLoading } = useValues(logic)
     const { loadResults } = useActions(logic)
 

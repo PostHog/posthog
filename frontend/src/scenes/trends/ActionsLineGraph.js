@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filters: filtersParam, cachedResults }) {
-    let logic = trendsLogic({ dashboardItemId, filters: filtersParam, cachedResults })
+    const logic = trendsLogic({ dashboardItemId, filters: filtersParam, cachedResults })
     const { filters, results, resultsLoading } = useValues(logic)
     const { loadResults, loadPeople } = useActions(logic)
 
