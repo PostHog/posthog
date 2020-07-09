@@ -22,6 +22,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_CUMULATIVE,
+    TRENDS_CUMULATIVE_STACKED,
     TRENDS_STICKINESS,
 )
 from posthog.tasks.calculate_action import calculate_action
@@ -614,7 +615,7 @@ def serialize_entity(entity: Entity, filter: Filter, params: dict, team_id: int)
             if value != "Total":
                 new_dict.update(breakdown_label(entity, value))
             new_dict.update(append_data(dates_filled=list(item.items()), interval=interval))
-            if filter.display == TRENDS_CUMULATIVE:
+            if filter.display == TRENDS_CUMULATIVE or filter.display == TRENDS_CUMULATIVE_STACKED:
                 new_dict["data"] = np.cumsum(new_dict["data"])
             response.append(new_dict)
     elif params.get("shown_as") == TRENDS_STICKINESS:
