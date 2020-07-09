@@ -25,6 +25,7 @@ function coordinateContains(e, element) {
 }
 
 export function AnnotationMarker({
+    elementId,
     label,
     annotations,
     left,
@@ -40,11 +41,14 @@ export function AnnotationMarker({
     onClose,
     dynamic,
     onCreateAnnotation,
+    graphColor,
+    index,
 }) {
     const draggingRef = useRef()
     const [focused, setFocused] = useState(false)
     const [textInput, setTextInput] = useState('')
     const [textAreaVisible, setTextAreaVisible] = useState(false)
+    const [hovered, setHovered] = useState(false)
     const {
         user: { id, name, email },
     } = useValues(userLogic)
@@ -259,19 +263,30 @@ export function AnnotationMarker({
                     display: 'flex',
                     justifyContent: 'center',
                     alignItems: 'center',
-                    backgroundColor: _color,
+                    backgroundColor: dynamic || hovered ? _color : graphColor || 'white',
                     borderRadius: 5,
                     cursor: 'pointer',
-                    border: dynamic ? '1px solid white' : null,
+                    border: dynamic ? null : '1px solid ' + _color,
+                    zIndex: hovered || elementId === currentDateMarker ? 999 : index,
                 }}
                 type="primary"
                 onClick={() => {
                     onClick?.()
                     setFocused(true)
                 }}
+                onMouseOver={() => setHovered(true)}
+                onMouseLeave={() => setHovered(false)}
             >
                 {annotations ? (
-                    <span style={{ color: _accessoryColor, fontSize: 12 }}>{annotations.length}</span>
+                    <span
+                        style={{
+                            color: hovered ? _accessoryColor : _color,
+
+                            fontSize: 12,
+                        }}
+                    >
+                        {annotations.length}
+                    </span>
                 ) : (
                     <PlusOutlined style={{ color: _accessoryColor }}></PlusOutlined>
                 )}

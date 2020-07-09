@@ -322,6 +322,7 @@ export function LineGraph({
                     interval={interval}
                     topExtent={topExtent}
                     dashboardItemId={dashboardItemId}
+                    currentDateMarker={focused ? selectedDayLabel : datasets[0].days[labelIndex]}
                     onClick={() => {
                         setFocused(false)
                         setAnnotationsFocused(true)
@@ -357,6 +358,7 @@ export function LineGraph({
                     top={topExtent}
                     label={'Add Annotation'}
                     color={color === 'white' ? null : 'white'}
+                    graphColor={color}
                     accessoryColor={color === 'white' ? null : 'black'}
                 />
             )}
