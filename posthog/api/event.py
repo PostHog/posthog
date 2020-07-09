@@ -212,9 +212,11 @@ class EventViewSet(viewsets.ModelViewSet):
             if event.pk in ids_seen:
                 continue
             ids_seen.append(event.pk)
-            for action in event.action_set.filter(deleted=False):
-                event.action = action
-                matches.append(event)
+            for action in event.action_set.all():
+                # do not use .filter(), because it causes N+1 query problem. Filter just in memory
+                if not action.deleted:
+                    event.action = action
+                    matches.append(event)
         prefetched_events = self._prefetch_events(matches)
         return response.Response(
             {"next": len(events) > 100, "results": [self._serialize_actions(event) for event in prefetched_events],}
