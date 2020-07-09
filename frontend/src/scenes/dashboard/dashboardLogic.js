@@ -73,11 +73,14 @@ export const dashboardLogic = kea({
                 return { ...state, items: state.items.map((item) => ({ ...item, layouts: itemLayouts[item.id] })) }
             },
             [dashboardsModel.actions.updateDashboardItem]: (state, { item }) => {
-                return state.map((i) => (i.id === item.id ? item : i))
+                return { ...state, items: state.items.map((i) => (i.id === item.id ? item : i)) }
             },
-            updateItemColor: (state, { id, color }) => state.map((i) => (i.id === id ? { ...i, color } : i)),
-            duplicateDashboardItemSuccess: (state, { item }) =>
-                item.dashboard === parseInt(props.id) ? [...state, item] : state,
+            updateItemColor: (state, { id, color }) => {
+                return { ...state, items: state.items.map((i) => (i.id === id ? { ...i, color } : i)) }
+            },
+            duplicateDashboardItemSuccess: (state, { item }) => {
+                return { ...state, items: item.dashboard === parseInt(props.id) ? [...state.items, item] : state.items }
+            },
         },
         draggingEnabled: [
             () => (isAndroidOrIOS() ? 'off' : 'on'),
