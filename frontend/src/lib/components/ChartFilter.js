@@ -1,7 +1,13 @@
 import React from 'react'
 import { Select, Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, STICKINESS } from '~/lib/constants'
+import {
+    ACTIONS_LINE_GRAPH_LINEAR,
+    ACTIONS_LINE_GRAPH_CUMULATIVE,
+    ACTIONS_LINE_GRAPH_STACKED,
+    ACTIONS_LINE_GRAPH_CUMULATIVE_STACKED,
+    STICKINESS,
+} from '~/lib/constants'
 export function ChartFilter(props) {
     let { filters, displayMap, onChange } = props
     return [
@@ -39,6 +45,18 @@ export function ChartFilter(props) {
                     disabled={filters.session || filters.shown_as === STICKINESS}
                 >
                     Cumulative
+                </Select.Option>
+                <Select.Option
+                    value={ACTIONS_LINE_GRAPH_STACKED}
+                    disabled={filters.session && filters.session === 'dist'}
+                >
+                    Stacked
+                </Select.Option>
+                <Select.Option
+                    value={ACTIONS_LINE_GRAPH_CUMULATIVE_STACKED}
+                    disabled={filters.session || filters.shown_as === STICKINESS}
+                >
+                    Cumulative Stacked
                 </Select.Option>
             </Select.OptGroup>
             <Select.Option value="ActionsTable">Table</Select.Option>
