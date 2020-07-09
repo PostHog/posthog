@@ -16,7 +16,8 @@ describe('Dashboards', () => {
         cy.get('[data-attr=share-dashboard-switch]').click()
         cy.get('[data-attr=share-dashboard-link]')
             .invoke('val')
-            .then(link => {
+            .then((link) => {
+                cy.wait(500)
                 cy.visit(link)
             })
     })
