@@ -7711,10 +7711,10 @@ postcss@^7.0.14, postcss@^7.0.16, postcss@^7.0.23, postcss@^7.0.26, postcss@^7.0
     source-map "^0.6.1"
     supports-color "^6.1.0"
 
-posthog-js@1.2.4:
-  version "1.2.4"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.2.4.tgz#ff6589fa2a192d3e6f10ec0c326b144a91e8f5d0"
-  integrity sha512-wpZ/conZxzJzArpLLQEQ0pk0MWjueL3S5ikPBd9IwsNbFTb1cO6kCRag/BckdWg3k4kE6zTr4F5hGbD5C8BpXg==
+posthog-js@1.3.0:
+  version "1.3.0"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.3.0.tgz#18470d68a3a2e007ce72f7050593f2c179ca03d0"
+  integrity sha512-BWKxLvwPV1qwhtz+8halRZeh8DBPE+DsN38hAWUOBS+7KgueM0NbgmS0KCf6YjGYSwrE2jYBdJFGHXSNB0CVhg==
 
 prelude-ls@^1.2.1:
   version "1.2.1"
