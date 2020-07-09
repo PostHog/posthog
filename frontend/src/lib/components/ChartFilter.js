@@ -13,7 +13,9 @@ export function ChartFilter(props) {
     return [
         (!filters.display ||
             filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-            filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && (
+            filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
+            filters.display === ACTIONS_LINE_GRAPH_STACKED ||
+            filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE_STACKED) && (
             <Tooltip
                 key="1"
                 getPopupContainer={(trigger) => trigger.parentElement}
