@@ -88,7 +88,7 @@ export function LineGraph({
         const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
         const delta = rightExtent - leftExtent
         const interval = delta / (ticks - 1)
-        const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
+        const topExtent = myLineChart.current.scales['x-axis-0'].top + 8
         setLeftExtent(leftExtent)
         setInterval(interval)
         setTopExtent(topExtent)
