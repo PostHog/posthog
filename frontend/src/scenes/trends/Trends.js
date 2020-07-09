@@ -22,8 +22,12 @@ import { InfoCircleOutlined } from '@ant-design/icons'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
+    ACTIONS_LINE_GRAPH_STACKED,
+    ACTIONS_LINE_GRAPH_CUMULATIVE_STACKED,
     LINEAR_CHART_LABEL,
     CUMULATIVE_CHART_LABEL,
+    STACKED_CHART_LABEL,
+    CUMULATIVE_STACKED_CHART_LABEL,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
 
@@ -32,6 +36,8 @@ const { TabPane } = Tabs
 const displayMap = {
     [`${ACTIONS_LINE_GRAPH_LINEAR}`]: LINEAR_CHART_LABEL,
     [`${ACTIONS_LINE_GRAPH_CUMULATIVE}`]: CUMULATIVE_CHART_LABEL,
+    [`${ACTIONS_LINE_GRAPH_STACKED}`]: STACKED_CHART_LABEL,
+    [`${ACTIONS_LINE_GRAPH_CUMULATIVE_STACKED}`]: CUMULATIVE_STACKED_CHART_LABEL,
     ActionsTable: 'Table',
     ActionsPie: 'Pie',
 }
@@ -169,7 +175,11 @@ function _Trends() {
                                     {resultsLoading && <Loading />}
                                     {(!filters.display ||
                                         filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && <ActionsLineGraph />}
+                                        filters.display === ACTIONS_LINE_GRAPH_STACKED ||
+                                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
+                                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE_STACKED) && (
+                                        <ActionsLineGraph />
+                                    )}
                                     {filters.display === 'ActionsTable' && <ActionsTable filters={filters} />}
                                     {filters.display === 'ActionsPie' && <ActionsPie filters={filters} />}
                                 </div>
