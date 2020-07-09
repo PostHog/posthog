@@ -1,10 +1,10 @@
-import { kea } from 'kea'
+import { kea } from './typedKea'
 import api from '../lib/api'
 import { posthogEvents } from 'lib/utils'
 import { userLogicType } from './userLogic.type'
 import { UserType } from '~/types'
 
-export const userLogic: userLogicType<UserType> = kea({
+export const userLogic = kea<userLogicType<UserType>>({
     actions: () => ({
         loadUser: true,
         setUser: (user: UserType | null, updateKey?: string) => ({ user: { ...user } as UserType, updateKey }), // make and use a copy of user to patch some legacy issues
@@ -17,23 +17,17 @@ export const userLogic: userLogicType<UserType> = kea({
         user: [
             null as UserType | null,
             {
-                setUser: (
-                    _: any,
-                    payload: ReturnType<userLogicType<UserType>['actions']['setUser']>['payload']
-                ): UserType => payload.user,
-                userUpdateSuccess: (
-                    _: any,
-                    payload: ReturnType<userLogicType<UserType>['actions']['userUpdateSuccess']>['payload']
-                ): UserType => payload.user,
+                setUser: (state, payload): UserType => payload.user,
+                userUpdateSuccess: (state, payload): UserType => payload.user,
             },
         ],
     },
 
-    events: ({ actions }: userLogicType<UserType>) => ({
+    events: ({ actions }) => ({
         afterMount: actions.loadUser,
     }),
 
-    selectors: ({ selectors, values }: userLogicType<UserType>) => ({
+    selectors: ({ selectors, values }) => ({
         eventProperties: [
             () => [selectors.user],
             (user: typeof values.user) =>
@@ -68,14 +62,14 @@ export const userLogic: userLogicType<UserType> = kea({
         ],
     }),
 
-    listeners: ({ actions }: userLogicType<UserType>) => ({
-        loadUser: async (): Promise<void> => {
+    listeners: ({ actions }) => ({
+        loadUser: async () => {
             try {
                 const user: UserType = await api.get('api/user')
                 actions.setUser(user)
 
-                const Sentry = window['Sentry']
-                const PostHog = window['posthog']
+                const Sentry = (window as any).Sentry
+                const PostHog = (window as any).posthog
 
                 if (user && user.id) {
                     Sentry?.setUser({
@@ -94,10 +88,7 @@ export const userLogic: userLogicType<UserType> = kea({
                 actions.setUser(null)
             }
         },
-        userUpdateRequest: async ({
-            update,
-            updateKey,
-        }: ReturnType<userLogicType<UserType>['actions']['userUpdateRequest']>['payload']): Promise<void> => {
+        userUpdateRequest: async ({ update, updateKey }) => {
             try {
                 const user = await api.update('api/user', update)
                 actions.userUpdateSuccess(user, updateKey)
@@ -107,4 +98,3 @@ export const userLogic: userLogicType<UserType> = kea({
         },
     }),
 })
-
