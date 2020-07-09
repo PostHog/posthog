@@ -46,8 +46,8 @@ export function ActionsPie({ dashboardItemId, filters: filtersParam, color }) {
             <div
                 style={{
                     position: 'absolute',
-                    width: '90%',
-                    height: '90%',
+                    width: '100%',
+                    height: '80%',
                 }}
             >
                 <h1
@@ -56,7 +56,7 @@ export function ActionsPie({ dashboardItemId, filters: filtersParam, color }) {
                         margin: '0 auto',
                         left: '50%',
                         top: '100%',
-                        fontSize: '2rem',
+                        fontSize: '1.5rem',
                         pointerEvents: 'none',
                     }}
                 >
