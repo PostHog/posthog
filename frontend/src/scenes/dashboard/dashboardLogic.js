@@ -92,12 +92,13 @@ export const dashboardLogic = kea({
         ],
     }),
 
-    selectors: ({ props, selectors, values }) => ({
+    selectors: ({ props, selectors }) => ({
         items: [() => [selectors.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [() => [selectors.allItemsLoading], (allItemsLoading) => allItemsLoading],
         dashboard: [
             () => [selectors.allItems, dashboardsModel.selectors.dashboards],
-            (dashboards) => (values.allItems ? values.allItems : dashboards.find((d) => d.id === props.id) || null),
+            (dashboards) =>
+                selectors.allItems ? selectors.allItems : dashboards.find((d) => d.id === props.id) || null,
         ],
         breakpoints: [() => [], () => ({ lg: 1600, sm: 940, xs: 480, xxs: 0 })],
         cols: [() => [], () => ({ lg: 24, sm: 12, xs: 6, xxs: 2 })],
