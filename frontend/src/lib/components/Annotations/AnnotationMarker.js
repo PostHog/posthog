@@ -45,6 +45,7 @@ export function AnnotationMarker({
     index,
     onChecked,
 }) {
+    const popupRef = useRef()
     const draggingRef = useRef()
     const [focused, setFocused] = useState(false)
     const [textInput, setTextInput] = useState('')
@@ -72,19 +73,7 @@ export function AnnotationMarker({
     const _accessoryColor = accessoryColor || 'white'
 
     const deselect = (e) => {
-        if (
-            document.getElementById('popup') &&
-            coordinateContains(e, document.getElementById('popup').getBoundingClientRect())
-        ) {
-            draggingRef.current = {
-                x: e.clientX,
-                y: e.clientY,
-            }
-            return
-        } else if (
-            document.getElementById('popup-marker') &&
-            coordinateContains(e, document.getElementById('popup-marker').getBoundingClientRect())
-        ) {
+        if (popupRef.current && coordinateContains(e, popupRef.current.getBoundingClientRect())) {
             draggingRef.current = {
                 x: e.clientX,
                 y: e.clientY,
@@ -141,7 +130,7 @@ export function AnnotationMarker({
             defaultVisible={false}
             content={
                 dynamic ? (
-                    <div id="popup-marker">
+                    <div ref={popupRef}>
                         <span style={{ marginBottom: 12 }}>{moment(currentDateMarker).format('MMMM Do YYYY')}</span>
                         <TextArea
                             maxLength={300}
@@ -181,7 +170,7 @@ export function AnnotationMarker({
                         </Row>
                     </div>
                 ) : (
-                    <div id="popup" style={{ minWidth: 300 }}>
+                    <div ref={popupRef} style={{ minWidth: 300 }}>
                         {_.orderBy(annotations, ['created_at'], ['asc']).map((data) => (
                             <div
                                 key={data.id}
