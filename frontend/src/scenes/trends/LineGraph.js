@@ -6,11 +6,8 @@ import { operatorMap } from '~/lib/utils'
 import _ from 'lodash'
 import { getChartColors } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { Button, Row, Input } from 'antd'
-const { TextArea } = Input
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
-import moment from 'moment'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 
 //--Chart Style Options--//
@@ -46,7 +43,6 @@ export function LineGraph({
     const { annotationsList, annotationsLoading } = useValues(
         annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
     )
-    const [textInput, setTextInput] = useState('')
     const [leftExtent, setLeftExtent] = useState(0)
     const [interval, setInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
@@ -340,54 +336,23 @@ export function LineGraph({
             {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
                 <AnnotationMarker
                     dashboardItemId={dashboardItemId}
-                    currentDateMarker={datasets[0].days[labelIndex]}
+                    currentDateMarker={focused ? selectedDayLabel : datasets[0].days[labelIndex]}
                     onClick={() => {
                         setFocused(true)
                         setHoldLeft(left)
                         setHoldLabelIndex(labelIndex)
                         setSelectedDayLabel(datasets[0].days[labelIndex])
                     }}
-                    visible={focused}
-                    content={
-                        <div>
-                            <span style={{ marginBottom: 12 }}>{moment(selectedDayLabel).format('MMMM Do YYYY')}</span>
-                            <TextArea
-                                maxLength={300}
-                                style={{ marginBottom: 12 }}
-                                rows={4}
-                                value={textInput}
-                                onChange={(e) => setTextInput(e.target.value)}
-                            />
-                            <Row justify="end">
-                                <Button
-                                    style={{ marginRight: 10 }}
-                                    onClick={() => {
-                                        setFocused(false)
-                                        setTextInput('')
-                                    }}
-                                >
-                                    Cancel
-                                </Button>
-                                <Button
-                                    type="primary"
-                                    onClick={() => {
-                                        setFocused(false)
-                                        if (dashboardItemId)
-                                            createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
-                                        else {
-                                            createAnnotation(textInput, datasets[0].days[holdLabelIndex])
-                                            toast(
-                                                'This annotation will be saved if the graph is made into a dashboard item!'
-                                            )
-                                        }
-                                        setTextInput('')
-                                    }}
-                                >
-                                    Add
-                                </Button>
-                            </Row>
-                        </div>
-                    }
+                    onCreateAnnotation={(textInput) => {
+                        if (dashboardItemId) createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
+                        else {
+                            createAnnotation(textInput, datasets[0].days[holdLabelIndex])
+                            toast('This annotation will be saved if the graph is made into a dashboard item!')
+                        }
+                    }}
+                    onCancelAnnotation={() => [setFocused(false)]}
+                    onClose={() => setFocused(false)}
+                    dynamic={true}
                     left={(focused ? holdLeft : left) - 12.5}
                     top={topExtent}
                     label={'Add Annotation'}
