@@ -16,7 +16,7 @@ class Action(models.Model):
 
     def calculate_events_for_period(self, start=None, end=None):
         if start is None:
-            start = datetime.date(1990, 1, 1).replace(tzinfo=pytz.UTC)
+            start = datetime.date(1990, 1, 1)
         if end is None:
             end = timezone.now() + datetime.timedelta(days=1)
 
