@@ -36,14 +36,13 @@ export function LineGraph({
     const [labelIndex, setLabelIndex] = useState(null)
     const [holdLabelIndex, setHoldLabelIndex] = useState(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState(null)
-    const { createAnnotation, createAnnotationNow, updateDiffType } = useActions(
+    const { createAnnotation, createAnnotationNow, updateDiffType, createGlobalAnnotation } = useActions(
         annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
     )
 
     const { annotationsList, annotationsLoading } = useValues(
         annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
     )
-    const [applyAll, setApplyAll] = useState(false)
     const [leftExtent, setLeftExtent] = useState(0)
     const [interval, setInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
@@ -347,15 +346,14 @@ export function LineGraph({
                         setHoldLabelIndex(labelIndex)
                         setSelectedDayLabel(datasets[0].days[labelIndex])
                     }}
-                    onCreateAnnotation={(textInput) => {
-                        if (dashboardItemId) createAnnotationNow(textInput, datasets[0].days[holdLabelIndex], applyAll)
+                    onCreateAnnotation={(textInput, applyAll) => {
+                        if (applyAll)
+                            createGlobalAnnotation(textInput, datasets[0].days[holdLabelIndex], dashboardItemId)
+                        else if (dashboardItemId) createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
                         else {
-                            createAnnotation(textInput, datasets[0].days[holdLabelIndex], applyAll)
+                            createAnnotation(textInput, datasets[0].days[holdLabelIndex])
                             toast('This annotation will be saved if the graph is made into a dashboard item!')
                         }
-                    }}
-                    onChecked={(e) => {
-                        setApplyAll(e.target.checked)
                     }}
                     onCancelAnnotation={() => [setFocused(false)]}
                     onClose={() => setFocused(false)}

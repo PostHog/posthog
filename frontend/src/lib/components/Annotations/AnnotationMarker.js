@@ -43,7 +43,6 @@ export function AnnotationMarker({
     onCreateAnnotation,
     graphColor,
     index,
-    onChecked,
 }) {
     const popupRef = useRef()
     const draggingRef = useRef()
@@ -141,7 +140,6 @@ export function AnnotationMarker({
                         />
                         <Checkbox
                             onChange={(e) => {
-                                onChecked?.(e)
                                 setApplyAll(e.target.checked)
                             }}
                         >
@@ -161,7 +159,7 @@ export function AnnotationMarker({
                                 type="primary"
                                 onClick={() => {
                                     closePopup()
-                                    onCreateAnnotation?.(textInput)
+                                    onCreateAnnotation?.(textInput, applyAll)
                                     setTextInput('')
                                 }}
                             >
@@ -215,7 +213,6 @@ export function AnnotationMarker({
                         {textAreaVisible && (
                             <Checkbox
                                 onChange={(e) => {
-                                    onChecked?.(e)
                                     setApplyAll(e.target.checked)
                                 }}
                             >

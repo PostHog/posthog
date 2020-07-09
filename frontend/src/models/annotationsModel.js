@@ -6,11 +6,11 @@ import { getNextKey } from 'lib/components/Annotations/utils'
 
 export const annotationsModel = kea({
     actions: () => ({
-        createGlobalAnnotation: (content, date_marker, apply_all = false) => ({
+        createGlobalAnnotation: (content, date_marker, dashboard_item) => ({
             content,
             date_marker,
             created_at: moment(),
-            apply_all,
+            dashboard_item,
         }),
         deleteGlobalAnnotation: (id) => ({ id }),
     }),
@@ -30,25 +30,32 @@ export const annotationsModel = kea({
     }),
     reducers: () => ({
         globalAnnotations: {
-            createGlobalAnnotation: (state, { content, date_marker, created_at, apply_all }) => [
+            createGlobalAnnotation: (state, { content, date_marker, created_at }) => [
                 ...state,
-                { id: getNextKey(state), content, date_marker, created_at, created_by: 'local', apply_all },
+                { id: getNextKey(state), content, date_marker, created_at, created_by: 'local', apply_all: true },
             ],
             deleteGlobalAnnotation: (state, { id }) => {
-                if (id >= 0) {
-                    return state.filter((a) => a.id !== id)
-                } else {
-                    return state
-                }
+                return state.filter((a) => a.id !== id)
             },
         },
     }),
-    listeners: () => ({
+    listeners: ({ actions }) => ({
+        createGlobalAnnotation: async ({ dashboard_item, content, date_marker, created_at }) => {
+            await api.create('api/annotation', {
+                content,
+                date_marker: moment(date_marker),
+                created_at,
+                dashboard_item,
+                apply_all: true,
+            })
+            actions.loadGlobalAnnotations()
+        },
         deleteGlobalAnnotation: async ({ id }) => {
             id >= 0 &&
                 deleteWithUndo({
                     endpoint: 'annotation',
                     object: { name: 'Annotation', id },
+                    callback: () => actions.loadGlobalAnnotations({}),
                 })
         },
     }),
