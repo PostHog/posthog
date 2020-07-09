@@ -288,7 +288,13 @@ export function LineGraph({
                 setEnabled(true)
                 if (annotationsCondition && myLineChart.current) {
                     var rect = e.currentTarget.getBoundingClientRect(),
-                        offsetX = e.clientX - rect.left
+                        offsetX = e.clientX - rect.left,
+                        offsetY = e.clientY - rect.top
+                    if (offsetY < topExtent - 30 && !focused && !annotationsFocused) {
+                        setEnabled(false)
+                        setLeft(-1)
+                        return
+                    }
 
                     const leftExtent = myLineChart.current.scales['x-axis-0'].left
                     const rightExtent = myLineChart.current.scales['x-axis-0'].right
@@ -297,7 +303,7 @@ export function LineGraph({
                     const interval = delta / (ticks - 1)
                     if (offsetX < leftExtent - interval / 2) return
                     const index = mapRange(offsetX, leftExtent - interval / 2, rightExtent + interval / 2, 0, ticks)
-                    if (index >= 0 && index < ticks) {
+                    if (index >= 0 && index < ticks && offsetY >= topExtent - 30) {
                         setLeft(index * interval + leftExtent)
                         setLabelIndex(index)
                     }
@@ -305,15 +311,7 @@ export function LineGraph({
             }}
             onMouseLeave={() => setEnabled(false)}
         >
-            <canvas
-                ref={chartRef}
-                onMouseOver={() => {
-                    if (!focused) {
-                        setEnabled(true)
-                        setLeft(-1)
-                    }
-                }}
-            />
+            <canvas ref={chartRef} />
             {annotationsCondition && (
                 <Annotations
                     labeledDays={datasets[0].labels}
