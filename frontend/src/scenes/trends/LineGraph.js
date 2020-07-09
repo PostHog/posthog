@@ -13,7 +13,7 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
 Chart.defaults.global.legend.display = false
-Chart.defaults.global.animation.duration = 400
+Chart.defaults.global.animation.duration = 0
 //--Chart Style Options--//
 
 export function LineGraph({
