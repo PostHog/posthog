@@ -8,15 +8,20 @@ import { getContext } from 'kea'
 import { initKea } from '~/initKea'
 import { Dashboard } from './Dashboard'
 
+import PostHogLogo from './../../../public/posthog-logo.svg'
+
 initKea()
 
 let dashboard = window.__SHARED_DASHBOARD__
 ReactDOM.render(
     <Provider store={getContext().store}>
         <div style={{ background: 'var(--gray-background)', minHeight: '100vh', top: 0, padding: '2rem' }}>
-            <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                <a href="https://posthog.com" target="_blank" rel="noopener noreferrer">
+                    <img src={PostHogLogo} style={{ height: '2rem', marginTop: 4 }} />
+                </a>
                 <h1 style={{ display: 'inline-block' }}>{dashboard.name}</h1>
-                <h1 style={{ float: 'right' }}>{dashboard.team_name}</h1>
+                <span style={{ marginTop: 15 }}>{dashboard.team_name}</span>
             </div>
             <Dashboard id={dashboard.id} share_token={dashboard.share_token} />
 
