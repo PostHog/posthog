@@ -42,7 +42,7 @@ export const annotationsLogic = kea({
         annotations: {
             createAnnotationNow: (state, { content, date_marker, created_at }) => [
                 ...state,
-                { id: getNextKey(state), content, date_marker, created_at },
+                { id: getNextKey(state), content, date_marker, created_at, created_by: 'local' },
             ],
             deleteAnnotation: (state, { id }) => {
                 if (id >= 0) {

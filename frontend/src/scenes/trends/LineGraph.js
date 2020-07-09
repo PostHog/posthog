@@ -16,6 +16,7 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
 Chart.defaults.global.legend.display = false
+Chart.defaults.global.animation.duration = 400
 //--Chart Style Options--//
 
 export function LineGraph({
@@ -60,35 +61,42 @@ export function LineGraph({
     }, [datasets, color])
 
     // annotation related effects
+
+    // update boundaries and axis padding when user hovers with mouse or annotations load
     useEffect(() => {
-        if (annotationsCondition && !annotationsLoading && myLineChart.current) {
+        if (annotationsCondition && myLineChart.current) {
             myLineChart.current.options.scales.xAxes[0].ticks.padding =
                 enabled || annotationsList.length > 0 || focused ? 35 : 0
             myLineChart.current.update()
-            const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
-            setTopExtent(topExtent)
+            calculateBoundaries()
         }
     }, [enabled, annotationsLoading, annotationsCondition])
 
+    // recalculate diff if interval type selection changes
     useEffect(() => {
         if (annotationsCondition) {
             updateDiffType(datasets[0].days)
         }
     }, [datasets, type, annotationsCondition])
 
+    // update only boundaries when window size changes or chart type changes
     useEffect(() => {
         if (annotationsCondition) {
-            const leftExtent = myLineChart.current.scales['x-axis-0'].left
-            const rightExtent = myLineChart.current.scales['x-axis-0'].right
-            const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
-            const delta = rightExtent - leftExtent
-            const interval = delta / (ticks - 1)
-            const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
-            setLeftExtent(leftExtent)
-            setInterval(interval)
-            setTopExtent(topExtent)
+            calculateBoundaries()
         }
     }, [myLineChart.current, size, type, annotationsCondition])
+
+    function calculateBoundaries() {
+        const leftExtent = myLineChart.current.scales['x-axis-0'].left
+        const rightExtent = myLineChart.current.scales['x-axis-0'].right
+        const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
+        const delta = rightExtent - leftExtent
+        const interval = delta / (ticks - 1)
+        const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
+        setLeftExtent(leftExtent)
+        setInterval(interval)
+        setTopExtent(topExtent)
+    }
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
@@ -281,6 +289,7 @@ export function LineGraph({
             className="graph-container"
             data-attr={dataAttr}
             onMouseMove={(e) => {
+                setEnabled(true)
                 if (annotationsCondition && myLineChart.current) {
                     var rect = e.currentTarget.getBoundingClientRect(),
                         offsetX = e.clientX - rect.left
