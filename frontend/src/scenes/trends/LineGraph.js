@@ -13,7 +13,7 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
 Chart.defaults.global.legend.display = false
-Chart.defaults.global.animation.duration = 400
+Chart.defaults.global.animation.duration = 0
 //--Chart Style Options--//
 
 export function LineGraph({
@@ -88,7 +88,7 @@ export function LineGraph({
         const ticks = myLineChart.current.scales['x-axis-0'].ticks.length
         const delta = rightExtent - leftExtent
         const interval = delta / (ticks - 1)
-        const topExtent = myLineChart.current.scales['x-axis-0'].top + 12
+        const topExtent = myLineChart.current.scales['x-axis-0'].top + 8
         setLeftExtent(leftExtent)
         setInterval(interval)
         setTopExtent(topExtent)
@@ -288,7 +288,13 @@ export function LineGraph({
                 setEnabled(true)
                 if (annotationsCondition && myLineChart.current) {
                     var rect = e.currentTarget.getBoundingClientRect(),
-                        offsetX = e.clientX - rect.left
+                        offsetX = e.clientX - rect.left,
+                        offsetY = e.clientY - rect.top
+                    if (offsetY < topExtent - 30 && !focused && !annotationsFocused) {
+                        setEnabled(false)
+                        setLeft(-1)
+                        return
+                    }
 
                     const leftExtent = myLineChart.current.scales['x-axis-0'].left
                     const rightExtent = myLineChart.current.scales['x-axis-0'].right
@@ -297,7 +303,7 @@ export function LineGraph({
                     const interval = delta / (ticks - 1)
                     if (offsetX < leftExtent - interval / 2) return
                     const index = mapRange(offsetX, leftExtent - interval / 2, rightExtent + interval / 2, 0, ticks)
-                    if (index >= 0 && index < ticks) {
+                    if (index >= 0 && index < ticks && offsetY >= topExtent - 30) {
                         setLeft(index * interval + leftExtent)
                         setLabelIndex(index)
                     }
@@ -305,15 +311,7 @@ export function LineGraph({
             }}
             onMouseLeave={() => setEnabled(false)}
         >
-            <canvas
-                ref={chartRef}
-                onMouseOver={() => {
-                    if (!focused) {
-                        setEnabled(true)
-                        setLeft(-1)
-                    }
-                }}
-            />
+            <canvas ref={chartRef} />
             {annotationsCondition && (
                 <Annotations
                     labeledDays={datasets[0].labels}
