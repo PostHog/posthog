@@ -145,6 +145,15 @@ class EventManager(models.QuerySet):
             return {}
         return {"event": action_step.event}
 
+    def filter_by_period(self, start, end):
+        if not start and not end:
+            return {}
+        if not start:
+            return {"timestamp__lte": end}
+        if not end:
+            return {"timestamp__gte": start}
+        return {"timestamp__gte": start, "timestamp__lte": end}
+
     def add_person_id(self, team_id: int):
         return self.annotate(
             person_id=Subquery(
@@ -154,7 +163,7 @@ class EventManager(models.QuerySet):
             )
         )
 
-    def query_db_by_action(self, action, order_by="-timestamp") -> models.QuerySet:
+    def query_db_by_action(self, action, order_by="-timestamp", start=None, end=None) -> models.QuerySet:
         events = self
         any_step = Q()
         steps = action.steps.all()
@@ -168,7 +177,8 @@ class EventManager(models.QuerySet):
                     Filter(data={"properties": step.properties}).properties_to_Q(team_id=action.team_id),
                     pk=OuterRef("id"),
                     **self.filter_by_event(step),
-                    **self.filter_by_element(model_to_dict(step), team_id=action.team_id)
+                    **self.filter_by_element(model_to_dict(step), team_id=action.team_id),
+                    **self.filter_by_period(start, end)
                 )
                 .only("id")
             )

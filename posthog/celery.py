@@ -33,7 +33,7 @@ app.conf.broker_pool_limit = 0
 redis_instance = redis.from_url(settings.REDIS_URL, db=0)
 
 
-ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 30
+ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 0.5
 
 
 @app.on_after_configure.connect
@@ -69,9 +69,9 @@ def update_event_partitions():
 
 @app.task
 def calculate_event_action_mappings():
-    from posthog.tasks.calculate_action import calculate_all_actions
+    from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 
-    calculate_all_actions()
+    calculate_actions_from_last_calculation()
 
 
 @app.task
