@@ -322,7 +322,7 @@ export function LineGraph({
                     interval={interval}
                     topExtent={topExtent}
                     dashboardItemId={dashboardItemId}
-                    currentDateMarker={focused ? selectedDayLabel : datasets[0].days[labelIndex]}
+                    currentDateMarker={focused ? selectedDayLabel : enabled ? datasets[0].days[labelIndex] : null}
                     onClick={() => {
                         setFocused(false)
                         setAnnotationsFocused(true)
