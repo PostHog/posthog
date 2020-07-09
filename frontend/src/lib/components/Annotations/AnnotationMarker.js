@@ -67,7 +67,7 @@ export function AnnotationMarker({
         if (popupRef.current && popupRef.current.contains(e.target)) {
             return
         }
-        closePopup
+        closePopup()
     }
 
     useEffect(() => {
