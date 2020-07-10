@@ -33,11 +33,11 @@ def cached_function(cache_type: str, expiry=30):
                 cache_key = generate_cache_key("funnel_{}_{}".format(pk, team.pk))
                 payload = {"funnel_id": pk, "team_id": team.pk}
 
-            # return result if cached
-            cached_result = cache.get(cache_key)
-            if cached_result:
-                update_cache_item_task.delay(cache_key, cache_type, payload)
-                return cached_result["result"]
+            if not refresh:
+                # return result if cached
+                cached_result = cache.get(cache_key)
+                if cached_result:
+                    return cached_result["result"]
 
             # call wrapped function
             result = f(*args, **kw)
