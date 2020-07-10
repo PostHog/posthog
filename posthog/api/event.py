@@ -211,7 +211,7 @@ class EventViewSet(viewsets.ModelViewSet):
         for event in events:
             if event.pk in ids_seen:
                 continue
-            ids_seen.append(event.pkm)
+            ids_seen.append(event.pk)
             for action in event.action_set.all():
                 event.action = action
                 matches.append(event)
