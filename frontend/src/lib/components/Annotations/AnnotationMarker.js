@@ -10,6 +10,7 @@ import _ from 'lodash'
 import { annotationsLogic } from './annotationsLogic'
 import moment from 'moment'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
+import { dashboardColors } from 'lib/colors'
 
 const { TextArea } = Input
 
@@ -45,7 +46,6 @@ export function AnnotationMarker({
     index,
 }) {
     const popupRef = useRef()
-    const draggingRef = useRef()
     const [focused, setFocused] = useState(false)
     const [textInput, setTextInput] = useState('')
     const [applyAll, setApplyAll] = useState(false)
@@ -73,45 +73,15 @@ export function AnnotationMarker({
 
     const deselect = (e) => {
         if (popupRef.current && coordinateContains(e, popupRef.current.getBoundingClientRect())) {
-            draggingRef.current = {
-                x: e.clientX,
-                y: e.clientY,
-            }
             return
         }
         closePopup()
-    }
-
-    const onMouseMove = () => {
-        if (draggingRef.current) {
-            const { x, y } = draggingRef.current
-            const distance = Math.round(Math.sqrt(Math.pow(y - event.clientY, 2) + Math.pow(x - event.clientX, 2)))
-            if (distance > 30) closePopup()
-        }
-    }
-
-    function onMouseUp() {
-        draggingRef.current = false
     }
 
     useEffect(() => {
         document.addEventListener('mousedown', deselect)
         return () => {
             document.removeEventListener('mousedown', deselect)
-        }
-    }, [])
-
-    useEffect(() => {
-        document.addEventListener('mouseup', onMouseUp)
-        return () => {
-            document.removeEventListener('mouseup', onMouseUp)
-        }
-    }, [])
-
-    useEffect(() => {
-        document.addEventListener('mousemove', onMouseMove)
-        return () => {
-            document.removeEventListener('mousemove', onMouseMove)
         }
     }, [])
 
@@ -170,7 +140,7 @@ export function AnnotationMarker({
                 ) : (
                     <div ref={popupRef} style={{ minWidth: 300 }}>
                         {_.orderBy(annotations, ['created_at'], ['asc']).map((data) => (
-                            <div key={data.id} style={{ marginBottom: 25, backgroundColor: 'white' }}>
+                            <div key={data.id} style={{ marginBottom: 25 }}>
                                 <Row justify="space-between" align="middle">
                                     <div>
                                         <b style={{ marginRight: 5 }}>
@@ -252,7 +222,7 @@ export function AnnotationMarker({
                                         setTextAreaVisible(true)
                                     }}
                                 >
-                                    Add Annotation
+                                    Add Note
                                 </Button>
                             </Row>
                         )}
@@ -277,11 +247,15 @@ export function AnnotationMarker({
                     justifyContent: 'center',
                     alignItems: 'center',
                     backgroundColor:
-                        dynamic || hovered || elementId === currentDateMarker ? _color : graphColor || 'white',
+                        focused || dynamic || hovered || elementId === currentDateMarker
+                            ? _color
+                            : dashboardColors[graphColor] || 'white',
                     borderRadius: 5,
                     cursor: 'pointer',
                     border: dynamic ? null : '1px solid ' + _color,
-                    zIndex: hovered || elementId === currentDateMarker ? 999 : index,
+                    zIndex: dynamic || hovered || elementId === currentDateMarker ? 999 : index,
+
+                    boxShadow: dynamic ? '0 0 5px 4px rgba(0, 0, 0, 0.2)' : null,
                 }}
                 type="primary"
                 onClick={() => {
@@ -294,7 +268,7 @@ export function AnnotationMarker({
                 {annotations ? (
                     <span
                         style={{
-                            color: hovered || elementId === currentDateMarker ? _accessoryColor : _color,
+                            color: focused || hovered || elementId === currentDateMarker ? _accessoryColor : _color,
 
                             fontSize: 12,
                         }}

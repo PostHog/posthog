@@ -47,7 +47,7 @@ export function ActionsPie({ dashboardItemId, filters: filtersParam, color }) {
                 style={{
                     position: 'absolute',
                     width: '100%',
-                    height: '100%',
+                    height: '80%',
                 }}
             >
                 <h1
@@ -55,13 +55,12 @@ export function ActionsPie({ dashboardItemId, filters: filtersParam, color }) {
                         position: 'absolute',
                         margin: '0 auto',
                         left: '50%',
-                        top: '50%',
-                        fontSize: '3rem',
-                        zIndex: 2,
+                        top: '100%',
+                        fontSize: '1.5rem',
                         pointerEvents: 'none',
                     }}
                 >
-                    <div style={{ marginLeft: '-50%', marginTop: -35 }}>{total}</div>
+                    <div style={{ marginLeft: '-50%', marginTop: 5 }}>Total: {total}</div>
                 </h1>
                 <LineGraph
                     data-attr="trend-pie-graph"

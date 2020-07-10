@@ -53,9 +53,9 @@ export const Annotations = function Annotations({
                         else createAnnotation(input, dates[index])
                     }}
                     onDelete={(data) => {
+                        annotations.length === 1 && onClose?.()
                         if (data.apply_all) deleteGlobalAnnotation(data.id)
                         else deleteAnnotation(data.id)
-                        onClose?.()
                     }}
                     onClick={onClick}
                     onClose={onClose}

@@ -19,6 +19,7 @@ import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
 import { Dock } from '~/toolbar/button/icons/Dock'
+import { Tooltip } from 'antd'
 
 export function ToolbarButton() {
     const {
@@ -45,7 +46,7 @@ export function ToolbarButton() {
         showStats,
         hideStats,
     } = useActions(toolbarButtonLogic)
-    const { buttonActionsVisible } = useValues(actionsTabLogic)
+    const { buttonActionsVisible, showActionsTooltip } = useValues(actionsTabLogic)
     const { hideButtonActions, showButtonActions } = useActions(actionsTabLogic)
     const { actionCount, allActionsLoading } = useValues(actionsLogic)
 
@@ -53,7 +54,7 @@ export function ToolbarButton() {
     const { inspectEnabled, selectedElement } = useValues(elementsLogic)
 
     const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
-    const { heatmapEnabled, heatmapLoading, elementCount } = useValues(heatmapLogic)
+    const { heatmapEnabled, heatmapLoading, elementCount, showHeatmapTooltip } = useValues(heatmapLogic)
 
     const { dock, hideButton } = useActions(dockLogic)
 
@@ -244,7 +245,14 @@ export function ToolbarButton() {
                                 }
                                 y={0}
                                 content={
-                                    <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
+                                    <Tooltip
+                                        visible={showHeatmapTooltip}
+                                        title="Click for details"
+                                        placement={side === 'left' ? 'right' : 'left'}
+                                        getPopupContainer={getShadowRoot}
+                                    >
+                                        <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
+                                    </Tooltip>
                                 }
                                 zIndex={4}
                                 onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
@@ -299,7 +307,16 @@ export function ToolbarButton() {
                                     actionsExtensionPercentage
                                 }
                                 y={0}
-                                content={<div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>}
+                                content={
+                                    <Tooltip
+                                        visible={showActionsTooltip}
+                                        title="Click for details"
+                                        placement={side === 'left' ? 'right' : 'left'}
+                                        getPopupContainer={getShadowRoot}
+                                    >
+                                        <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>
+                                    </Tooltip>
+                                }
                                 zIndex={4}
                                 onClick={actionsInfoVisible ? hideActionsInfo : showActionsInfo}
                                 style={{

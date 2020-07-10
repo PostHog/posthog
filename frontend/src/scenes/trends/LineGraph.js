@@ -61,12 +61,11 @@ export function LineGraph({
     // update boundaries and axis padding when user hovers with mouse or annotations load
     useEffect(() => {
         if (annotationsCondition && myLineChart.current) {
-            myLineChart.current.options.scales.xAxes[0].ticks.padding =
-                enabled || annotationsList.length > 0 || focused ? 35 : 0
+            myLineChart.current.options.scales.xAxes[0].ticks.padding = annotationsList.length > 0 || focused ? 35 : 0
             myLineChart.current.update()
             calculateBoundaries()
         }
-    }, [enabled, annotationsLoading, annotationsCondition])
+    }, [annotationsLoading, annotationsCondition, annotationsList])
 
     // recalculate diff if interval type selection changes
     useEffect(() => {
@@ -229,7 +228,7 @@ export function LineGraph({
                                           min: 0,
                                           fontColor: axisLabelColor,
                                           precision: 0,
-                                          padding: annotationsLoading ? 0 : 35,
+                                          padding: annotationsLoading || annotationsList.length === 0 ? 0 : 35,
                                       },
                                   },
                               ],
@@ -330,6 +329,7 @@ export function LineGraph({
                     onClose={() => {
                         setAnnotationsFocused(false)
                     }}
+                    graphColor={color}
                     color={color === 'white' ? null : 'white'}
                     accessoryColor={color === 'white' ? null : 'black'}
                 />
@@ -358,7 +358,7 @@ export function LineGraph({
                     dynamic={true}
                     left={(focused ? holdLeft : left) - 12.5}
                     top={topExtent}
-                    label={'Add Annotation'}
+                    label={'Add Note'}
                     color={color === 'white' ? null : 'white'}
                     graphColor={color}
                     accessoryColor={color === 'white' ? null : 'black'}
