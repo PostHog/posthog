@@ -28,6 +28,7 @@ from .entity import Entity
 from .utils import namedtuplefetchall
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from datetime import timedelta
 
 
 class Funnel(models.Model):
@@ -173,10 +174,25 @@ class Funnel(models.Model):
             people = namedtuplefetchall(cursor)
         steps = []
 
+        average_time = {}
+        for index, funnel_step in enumerate(filter.entities, start=0):
+            if index != 0:
+                average_time[index] = {"total_time": timedelta(0), "total_people": 0}
+
         person_score: Dict = defaultdict(int)
         for index, funnel_step in enumerate(filter.entities):
             relevant_people = []
             for person in people:
+                if (
+                    index > 0
+                    and getattr(person, "step_{}".format(index))
+                    and getattr(person, "step_{}".format(index - 1))
+                ):
+                    average_time[index]["total_time"] += getattr(person, "step_{}".format(index)) - getattr(
+                        person, "step_{}".format(index - 1)
+                    )
+                    average_time[index]["total_people"] += 1
+
                 if getattr(person, "step_{}".format(index)):
                     person_score[person.id] += 1
                     relevant_people.append(person.id)
@@ -187,4 +203,10 @@ class Funnel(models.Model):
                 steps[index]["people"] = sorted(steps[index]["people"], key=lambda p: person_score[p], reverse=True)[
                     0:100
                 ]
+
+        for index in average_time.keys():
+            steps[index - 1]["average_time"] = (
+                average_time[index]["total_time"].total_seconds() / average_time[index]["total_people"]
+            )
+
         return steps
