@@ -126,7 +126,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
         if validated_data["dashboard"].team == team:
-            dashboard_item = DashboardItem.objects.create(team=team, last_refresh=datetime.now(), **validated_data)
+            dashboard_item = DashboardItem.objects.create(team=team, last_refresh=now(), **validated_data)
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
