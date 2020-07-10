@@ -27,12 +27,13 @@ export function ToolbarSettings() {
                 }}
             >
                 Try the new PostHog Toolbar?
-                {saved && (
-                    <span className="text-success" style={{ marginLeft: 10 }}>
-                        Preference saved. You might need to restart your browser for the change to take effect.
-                    </span>
-                )}
             </label>
+            {saved && (
+                <p className="text-success" style={{ marginTop: 10 }}>
+                    Preference saved.
+                    {user.toolbar_mode === 'toolbar' && <> Please click the "Launch Toolbar" link in the sidebar!</>}
+                </p>
+            )}
             <p>
                 The toolbar gives you access to heatmaps, stats and allows you to create actions, without ever leaving
                 your own website or app! Make sure you're using the snippet or the latest posthog-js.

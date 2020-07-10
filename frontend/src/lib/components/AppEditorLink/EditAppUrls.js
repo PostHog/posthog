@@ -102,7 +102,7 @@ const appUrlsLogic = kea({
     }),
 })
 
-export function EditAppUrls({ actionId, allowNavigation }) {
+export function EditAppUrls({ actionId = null, allowNavigation = false }) {
     const { appUrls, suggestions, suggestionsLoading } = useValues(appUrlsLogic({ actionId }))
     const { addUrl, addUrlAndGo, removeUrl, updateUrl } = useActions(appUrlsLogic({ actionId }))
     const [loadMore, setLoadMore] = useState()
