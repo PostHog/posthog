@@ -46,7 +46,6 @@ export function AnnotationMarker({
     index,
 }) {
     const popupRef = useRef()
-    const draggingRef = useRef()
     const [focused, setFocused] = useState(false)
     const [textInput, setTextInput] = useState('')
     const [textAreaVisible, setTextAreaVisible] = useState(false)
@@ -73,45 +72,15 @@ export function AnnotationMarker({
 
     const deselect = (e) => {
         if (popupRef.current && coordinateContains(e, popupRef.current.getBoundingClientRect())) {
-            draggingRef.current = {
-                x: e.clientX,
-                y: e.clientY,
-            }
             return
         }
         closePopup()
-    }
-
-    const onMouseMove = () => {
-        if (draggingRef.current) {
-            const { x, y } = draggingRef.current
-            const distance = Math.round(Math.sqrt(Math.pow(y - event.clientY, 2) + Math.pow(x - event.clientX, 2)))
-            if (distance > 30) closePopup()
-        }
-    }
-
-    function onMouseUp() {
-        draggingRef.current = false
     }
 
     useEffect(() => {
         document.addEventListener('mousedown', deselect)
         return () => {
             document.removeEventListener('mousedown', deselect)
-        }
-    }, [])
-
-    useEffect(() => {
-        document.addEventListener('mouseup', onMouseUp)
-        return () => {
-            document.removeEventListener('mouseup', onMouseUp)
-        }
-    }, [])
-
-    useEffect(() => {
-        document.addEventListener('mousemove', onMouseMove)
-        return () => {
-            document.removeEventListener('mousemove', onMouseMove)
         }
     }, [])
 
