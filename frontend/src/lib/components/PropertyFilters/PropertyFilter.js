@@ -24,7 +24,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     onChange={(_, new_key) =>
                         setFilter(
                             index,
-                            new_key.value.replace(/event_|person_|element_/gi, ''),
+                            new_key.value.replace(/^(event_|person_|element_)/gi, ''),
                             undefined,
                             operator,
                             new_key.type

@@ -1,6 +1,7 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { Table } from 'antd'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 export function RetentionTable({ logic }) {
     const { retention, retentionLoading } = useValues(logic)
@@ -34,16 +35,19 @@ export function RetentionTable({ logic }) {
     }
 
     return (
-        <Table
-            data-attr="retention-table"
-            size="small"
-            className="retention-table"
-            pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-            rowClassName="cursor-pointer"
-            dataSource={retention.data}
-            columns={columns}
-            loading={retentionLoading}
-        />
+        <>
+            <PropertyFilters pageKey="RetentionTable" />
+            <Table
+                data-attr="retention-table"
+                size="small"
+                className="retention-table"
+                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                rowClassName="cursor-pointer"
+                dataSource={retention.data}
+                columns={columns}
+                loading={retentionLoading}
+            />
+        </>
     )
 }
 
