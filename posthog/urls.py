@@ -6,7 +6,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.contrib.auth import authenticate, login, views as auth_views, decorators
 from django.conf import settings
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.template.loader import render_to_string
 from urllib.parse import urlparse
 
@@ -18,6 +18,7 @@ from posthog.demo import demo, delete_demo_data
 import json
 import posthoganalytics
 import os
+
 
 from rest_framework import permissions
 
@@ -192,6 +193,7 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
     return {"is_new": True, "user": user}
 
 
+@csrf_protect
 def logout(request):
     return auth_views.logout_then_login(request)
 
