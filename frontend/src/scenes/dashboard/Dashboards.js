@@ -19,7 +19,7 @@ function _Dashboards() {
     return (
         <div>
             <div style={{ marginBottom: 20 }}>
-                <Button onClick={addNewDashboard} style={{ float: 'right' }}>
+                <Button data-attr={'new-dashboard'} onClick={addNewDashboard} style={{ float: 'right' }}>
                     <PlusOutlined style={{ verticalAlign: 'baseline' }} />
                     New Dashboard
                 </Button>

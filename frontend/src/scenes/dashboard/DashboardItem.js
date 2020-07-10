@@ -160,18 +160,32 @@ export function DashboardItem({
                             placement="bottomRight"
                             trigger="click"
                             overlay={
-                                <Menu>
-                                    <Menu.Item icon={<Icon />} onClick={() => router.actions.push(link)}>
+                                <Menu data-attr={'dashboard-item-' + index + '-dropdown-menu'}>
+                                    <Menu.Item
+                                        data-attr={'dashboard-item-' + index + '-dropdown-view'}
+                                        icon={<Icon />}
+                                        onClick={() => router.actions.push(link)}
+                                    >
                                         {viewText}
                                     </Menu.Item>
-                                    <Menu.Item icon={<EditOutlined />} onClick={() => renameDashboardItem(item.id)}>
+                                    <Menu.Item
+                                        data-attr={'dashboard-item-' + index + '-dropdown-rename'}
+                                        icon={<EditOutlined />}
+                                        onClick={() => renameDashboardItem(item.id)}
+                                    >
                                         Rename
                                     </Menu.Item>
-                                    <Menu.SubMenu key="colors" icon={<BgColorsOutlined />} title="Set Color">
-                                        {Object.entries(dashboardColorNames).map(([className, color]) => (
+                                    <Menu.SubMenu
+                                        data-attr={'dashboard-item-' + index + '-dropdown-color'}
+                                        key="colors"
+                                        icon={<BgColorsOutlined />}
+                                        title="Set Color"
+                                    >
+                                        {Object.entries(dashboardColorNames).map(([className, color], colorIndex) => (
                                             <Menu.Item
                                                 key={className}
                                                 onClick={() => updateItemColor(item.id, className)}
+                                                data-attr={'dashboard-item-' + index + '-dropdown-color-' + colorIndex}
                                             >
                                                 <span
                                                     style={{
@@ -190,9 +204,17 @@ export function DashboardItem({
                                         ))}
                                     </Menu.SubMenu>
                                     {otherDashboards.length > 0 ? (
-                                        <Menu.SubMenu key="copy" icon={<CopyOutlined />} title="Copy to...">
-                                            {otherDashboards.map((dashboard) => (
+                                        <Menu.SubMenu
+                                            data-attr={'dashboard-item-' + index + '-dropdown-copy'}
+                                            key="copy"
+                                            icon={<CopyOutlined />}
+                                            title="Copy to..."
+                                        >
+                                            {otherDashboards.map((dashboard, copyIndex) => (
                                                 <Menu.Item
+                                                    data-attr={
+                                                        'dashboard-item-' + index + '-dropdown-copy-' + copyIndex
+                                                    }
                                                     key={dashboard.id}
                                                     onClick={() => duplicateDashboardItem(item.id, dashboard.id)}
                                                 >
@@ -203,12 +225,16 @@ export function DashboardItem({
                                     ) : null}
                                     {otherDashboards.length > 0 ? (
                                         <Menu.SubMenu
+                                            data-attr={'dashboard-item-' + index + '-dropdown-move'}
                                             key="move"
                                             icon={<DeliveredProcedureOutlined />}
                                             title="Move to..."
                                         >
-                                            {otherDashboards.map((dashboard) => (
+                                            {otherDashboards.map((dashboard, moveIndex) => (
                                                 <Menu.Item
+                                                    data-attr={
+                                                        'dashboard-item-' + index + '-dropdown-move-' + moveIndex
+                                                    }
                                                     key={dashboard.id}
                                                     onClick={() => duplicateDashboardItem(item.id, dashboard.id, true)}
                                                 >
@@ -217,10 +243,15 @@ export function DashboardItem({
                                             ))}
                                         </Menu.SubMenu>
                                     ) : null}
-                                    <Menu.Item icon={<BlockOutlined />} onClick={() => duplicateDashboardItem(item.id)}>
+                                    <Menu.Item
+                                        data-attr={'dashboard-item-' + index + '-dropdown-duplicate'}
+                                        icon={<BlockOutlined />}
+                                        onClick={() => duplicateDashboardItem(item.id)}
+                                    >
                                         Duplicate
                                     </Menu.Item>
                                     <Menu.Item
+                                        data-attr={'dashboard-item-' + index + '-dropdown-delete'}
                                         icon={<DeleteOutlined />}
                                         onClick={() =>
                                             deleteWithUndo({
@@ -236,7 +267,10 @@ export function DashboardItem({
                                 </Menu>
                             }
                         >
-                            <span style={{ cursor: 'pointer', marginTop: -3 }}>
+                            <span
+                                data-attr={'dashboard-item-' + index + '-dropdown'}
+                                style={{ cursor: 'pointer', marginTop: -3 }}
+                            >
                                 <EllipsisOutlined />
                             </span>
                         </Dropdown>
