@@ -47,8 +47,8 @@ export const Annotations = function Annotations({
                             : createAnnotation(input, dates[index])
                     }}
                     onDelete={(id) => {
+                        annotations.length === 1 && onClose?.()
                         deleteAnnotation(id)
-                        onClose?.()
                     }}
                     onClick={onClick}
                     onClose={onClose}

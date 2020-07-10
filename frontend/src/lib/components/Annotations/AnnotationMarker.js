@@ -228,7 +228,7 @@ export function AnnotationMarker({
                                         setTextAreaVisible(true)
                                     }}
                                 >
-                                    Add Annotation
+                                    Add Note
                                 </Button>
                             </Row>
                         )}
@@ -259,7 +259,9 @@ export function AnnotationMarker({
                     borderRadius: 5,
                     cursor: 'pointer',
                     border: dynamic ? null : '1px solid ' + _color,
-                    zIndex: hovered || elementId === currentDateMarker ? 999 : index,
+                    zIndex: dynamic || hovered || elementId === currentDateMarker ? 999 : index,
+
+                    boxShadow: dynamic ? '0 0 5px 4px rgba(0, 0, 0, 0.2)' : null,
                 }}
                 type="primary"
                 onClick={() => {
