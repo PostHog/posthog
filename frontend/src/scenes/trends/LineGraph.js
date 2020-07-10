@@ -228,7 +228,7 @@ export function LineGraph({
                                           min: 0,
                                           fontColor: axisLabelColor,
                                           precision: 0,
-                                          padding: annotationsLoading ? 0 : 35,
+                                          padding: annotationsLoading || annotationsList.length === 0 ? 0 : 35,
                                       },
                                   },
                               ],
