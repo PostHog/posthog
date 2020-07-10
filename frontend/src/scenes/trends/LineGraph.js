@@ -329,6 +329,7 @@ export function LineGraph({
                     onClose={() => {
                         setAnnotationsFocused(false)
                     }}
+                    graphColor={color}
                     color={color === 'white' ? null : 'white'}
                     accessoryColor={color === 'white' ? null : 'black'}
                 />

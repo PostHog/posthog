@@ -10,6 +10,7 @@ import _ from 'lodash'
 import { annotationsLogic } from './annotationsLogic'
 import moment from 'moment'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
+import { dashboardColors } from 'lib/colors'
 
 const { TextArea } = Input
 
@@ -255,7 +256,7 @@ export function AnnotationMarker({
                     backgroundColor:
                         focused || dynamic || hovered || elementId === currentDateMarker
                             ? _color
-                            : graphColor || 'white',
+                            : dashboardColors[graphColor] || 'white',
                     borderRadius: 5,
                     cursor: 'pointer',
                     border: dynamic ? null : '1px solid ' + _color,
