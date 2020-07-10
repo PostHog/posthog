@@ -112,7 +112,19 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     mode="inline"
                 >
                     <Logo />
-
+                    {user.toolbar_mode === 'toolbar' ? (
+                        <Menu.Item
+                            key="toolbar"
+                            style={{ ...itemStyle, background: 'hsla(210, 10%, 12%, 1)' }}
+                            onClick={() => setToolbarModalOpen(true)}
+                            data-attr="menu-item-toolbar"
+                        >
+                            <HogIcon
+                                style={{ width: '1.4em', marginLeft: '-0.2em', marginRight: 'calc(10px - 0.2em)' }}
+                            />
+                            <span className="sidebar-label">Launch Toolbar!</span>
+                        </Menu.Item>
+                    ) : null}
                     {pinnedDashboards.map((dashboard, index) => (
                         <Menu.Item
                             key={`dashboard-${dashboard.id}`}
@@ -232,19 +244,6 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <PlusOutlined />
                         <span className="sidebar-label">{'Invite your team'}</span>
                     </Menu.Item>
-                    {user.toolbar_mode === 'toolbar' ? (
-                        <Menu.Item
-                            key="toolbar"
-                            style={{ ...itemStyle, background: 'hsla(210, 10%, 12%, 1)' }}
-                            onClick={() => setToolbarModalOpen(true)}
-                            data-attr="menu-item-toolbar"
-                        >
-                            <HogIcon
-                                style={{ width: '1.4em', marginLeft: '-0.2em', marginRight: 'calc(10px - 0.2em)' }}
-                            />
-                            <span className="sidebar-label">Launch Toolbar!</span>
-                        </Menu.Item>
-                    ) : null}
                 </Menu>
 
                 <Modal visible={toolbarModalOpen} footer={null} onCancel={() => setToolbarModalOpen(false)}>
