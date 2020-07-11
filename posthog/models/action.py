@@ -1,5 +1,4 @@
 import datetime
-import pytz
 
 from django.db import models, connection, transaction
 from django.core.exceptions import EmptyResultSet
@@ -59,10 +58,11 @@ class Action(models.Model):
                 capture_exception()
 
         self.is_calculating = False
-        self.last_calculated = timezone.now()
+        self.last_calculated_at = timezone.now()
         self.save()
 
     def calculate_events(self, from_highwater_mark=False):
+        calculations_started = timezone.now()
         self.is_calculating = True
         self.save()
         from .event import Event
@@ -91,7 +91,7 @@ class Action(models.Model):
                 capture_exception()
 
         self.is_calculating = False
-        self.last_calculated = timezone.now()
+        self.last_calculated_at = calculations_started
         self.save()
 
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
@@ -103,7 +103,7 @@ class Action(models.Model):
     post_to_slack: models.BooleanField = models.BooleanField(default=False)
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    last_calculated: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
+    last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
 
     def __str__(self):
         return self.name
