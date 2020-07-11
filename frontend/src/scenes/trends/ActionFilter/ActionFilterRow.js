@@ -53,8 +53,8 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
         value = entity.id || filter.id
     }
     return (
-        <div className="action-filter-row mt-2">
-            <DragOutlined className="action-filter-row-handle mr-2"/>
+        <div className="action-filter-row pb-1">
+            <DragOutlined className="action-filter-row-handle mr-2 pt-2"/>
             <button
                 data-attr={'trend-element-subject-' + index}
                 ref={node}

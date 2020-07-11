@@ -1,11 +1,23 @@
 .action-filter-row {
+    &:hover {
+        background-color: #eee;
+    }
     .action-filter-row-handle {
-        color: $gray-400;
-        font-size: 20px;
+        color: $gray-500;
+        font-size: 18px;
+        position: relative;
+        top: 4px;
+        left: 4px;
         
         &:hover {
             cursor: pointer;
             color: $gray-900;
         }
+    }
+}
+
+.react-draggable-dragging {
+    .action-filter-row {
+        background-color: #eee;
     }
 }

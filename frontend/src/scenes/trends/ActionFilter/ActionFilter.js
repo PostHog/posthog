@@ -10,8 +10,8 @@ const ReactGridLayout = WidthProvider(GridLayout)
 export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector }) {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
-    const { localFilters } = useValues(logic)
-    const { addFilter, setLocalFilters } = useActions(logic)
+    const { localFilters, layouts } = useValues(logic)
+    const { addFilter, orderFilters, setLocalFilters } = useActions(logic)
 
     // No way around this. Somehow the ordering of the logic calling each other causes stale "localFilters"
     // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
@@ -19,9 +19,8 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector })
         setLocalFilters(filters)
     }, [filters])
 
-    const layouts = localFilters.map((filter, index) => ({ i: index.toString(), x: 1, y: index, w: 1, h: 1, isDraggable:true}))
     const renderLocalFilters = () => localFilters.map((filter, index) => (
-        <div key={index.toString()}>
+        <div key={filter.id.toString()}>
           <ActionFilterRow
               logic={logic}
               filter={filter}
@@ -32,8 +31,12 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector })
         </div>
       ));
 
-    const updateFilterRowIndex = (_layout, _oldItem, newItem) => {
-
+    const updateFilterPositions = (layout, _oldItem, _newItem) => {
+      const filterPositions = layout.reduce((positions, filter) => { 
+        positions[filter.i] = filter.y 
+        return positions
+      }, {})
+      orderFilters(filterPositions)
     }
 
     return (
@@ -42,12 +45,13 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector })
             <ReactGridLayout
               cols={1}
               layouts={layouts}
+              margin={[0, 10]}
               rowHeight={39}
               onLayoutChange={() => {}}
               draggableHandle=".action-filter-row-handle"
               maxRows={localFilters.length}
               isResizable={false}
-              onDragStop={updateFilterRowIndex}
+              onDragStop={updateFilterPositions}
               // We disable this because we would have to add a lot of CSS changes
               // to let ReactGridLayout properly render the Dropdown and Popups
               // inside the ActionFilterRow

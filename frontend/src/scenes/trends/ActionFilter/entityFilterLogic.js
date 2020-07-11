@@ -16,7 +16,7 @@ function toLocalFilters(filters) {
 function toFilters(localFilters) {
     const filters = localFilters.map((filter, index) => ({
         ...filter,
-        order: index,
+        order: 'order' in filter ? filter.order : index,
     }))
 
     return {
@@ -24,6 +24,17 @@ function toFilters(localFilters) {
         [EntityTypes.EVENTS]: filters.filter(filter => filter.type === EntityTypes.EVENTS),
         [EntityTypes.NEW_ENTITY]: filters.filter(filter => filter.type === EntityTypes.NEW_ENTITY),
     }
+}
+
+function toLayouts(localFilters) {
+    return localFilters.map((filter) => ({ i: filter.id.toString(), x: 1, y: filter.order, w: 1, h: 1, isDraggable:true}))
+}
+
+function orderFilters(filters, filterPositions) {
+    return filters
+            .map((filter) => ({ ...filter, order: filterPositions[filter.id] }))
+            .sort((a, b) => a.order - b.order)
+            .map((filter, order) => ({ ...filter, order }))
 }
 
 // required props:
@@ -49,6 +60,7 @@ export const entityFilterLogic = kea({
         updateFilterProperty: filter => ({ properties: filter.properties, index: filter.index }),
         setFilters: filters => ({ filters }),
         setLocalFilters: filters => ({ filters }),
+        orderFilters: filterPositions => ({ filterPositions }),
     }),
 
     reducers: ({ props }) => ({
@@ -63,7 +75,7 @@ export const entityFilterLogic = kea({
             {
                 setLocalFilters: (_, { filters }) => toLocalFilters(filters),
             },
-        ],
+        ]
     }),
 
     selectors: ({ selectors }) => ({
@@ -77,6 +89,7 @@ export const entityFilterLogic = kea({
             },
         ],
         filters: [() => [selectors.localFilters], localFilters => toFilters(localFilters)],
+        layouts: [() => [selectors.localFilters], localFilters => toLayouts(localFilters)]
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -102,6 +115,9 @@ export const entityFilterLogic = kea({
                 ...values.localFilters,
                 { id: null, type: EntityTypes.NEW_ENTITY, order: values.localFilters.length },
             ])
+        },
+        orderFilters: ({ filterPositions }) => {
+            actions.setFilters(orderFilters(values.localFilters, filterPositions))
         },
         setFilters: ({ filters }) => {
             props.setFilters(toFilters(filters))
