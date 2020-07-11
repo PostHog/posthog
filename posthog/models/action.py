@@ -71,6 +71,7 @@ class Action(models.Model):
             event_query, params = Event.objects.query_db_by_action(self).only("pk").query.sql_with_params()
         except EmptyResultSet:
             self.is_calculating = False
+            self.last_calculated_at = calculations_started
             self.save()
             self.events.all().delete()
             return
