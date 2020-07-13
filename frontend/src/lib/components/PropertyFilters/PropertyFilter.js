@@ -38,12 +38,12 @@ function PropertyPaneContents({
                               }
                     }
                     filterOption={(input, option) => option.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
-                    onChange={(_, new_key) =>
+                    onChange={(_, newKey) =>
                         setThisFilter(
-                            new_key.value.replace(/^(event_|person_|element_)/gi, ''),
+                            newKey.value.replace(/^(event_|person_|element_)/gi, ''),
                             undefined,
                             operator,
-                            new_key.type
+                            newKey.type
                         )
                     }
                     style={{ width: '100%' }}
@@ -104,17 +104,17 @@ function PropertyPaneContents({
                             label: operatorMap[operator || 'exact'],
                         }}
                         placeholder="Property key"
-                        onChange={(_, new_operator) => {
-                            let new_value = value
-                            if (isOperatorFlag(new_operator.value)) {
+                        onChange={(_, newOperator) => {
+                            let newValue = value
+                            if (isOperatorFlag(newOperator.value)) {
                                 // change value to induce reload
-                                new_value = new_operator.value
+                                newValue = newOperator.value
                                 onComplete()
                             } else {
                                 // clear value if switching from nonparametric (flag) to parametric
-                                if (isOperatorFlag(operator)) new_value = undefined
+                                if (isOperatorFlag(operator)) newValue = undefined
                             }
-                            setThisFilter(propkey, new_value, new_operator.value, type)
+                            setThisFilter(propkey, newValue, newOperator.value, type)
                         }}
                     >
                         {Object.keys(operatorMap).map((operator) => (
@@ -166,9 +166,9 @@ function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorA
                               label: cohorts?.find((cohort) => cohort.id === value)?.name || value,
                           }
                 }
-                onChange={(_, new_cohort) => {
+                onChange={(_, newFilter) => {
                     onComplete()
-                    setThisFilter('id', new_cohort.value, undefined, 'cohort')
+                    setThisFilter(newFilter.key, newFilter.value, undefined, newFilter.type)
                 }}
                 data-attr="cohort-filter-select"
             >
