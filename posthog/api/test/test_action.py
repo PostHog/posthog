@@ -1039,19 +1039,6 @@ class TestRetention(TransactionBaseTest):
             [[1, 1, 1, 0, 0, 1, 1], [2, 2, 1, 0, 1, 2], [2, 1, 0, 1, 2], [1, 0, 0, 1], [0, 0, 0], [1, 1], [2],],
         )
 
-        self.assertEqual(
-            self.pluck(result["data"], "values", "people"),
-            [
-                [[1], [1], [1], [], [], [1], [1]],
-                [[1, 2], [1, 2], [2], [], [1], [1, 2]],
-                [[1, 2], [2], [], [1], [1, 2]],
-                [[2], [], [], [2]],
-                [[], [], []],
-                [[1], [1]],
-                [[1, 2]],
-            ],
-        )
-
     def test_retention_with_properties(self):
         person1 = Person.objects.create(
             team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"}
@@ -1094,19 +1081,6 @@ class TestRetention(TransactionBaseTest):
         self.assertEqual(
             self.pluck(result["data"], "values", "count"),
             [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1]],
-        )
-
-        self.assertEqual(
-            self.pluck(result["data"], "values", "people"),
-            [
-                [[3], [3], [3], [], [], [3], [3]],
-                [[3], [3], [], [], [3], [3]],
-                [[3], [], [], [3], [3]],
-                [[], [], [], []],
-                [[], [], []],
-                [[3], [3]],
-                [[3]],
-            ],
         )
 
     def _create_pageviews(self, user_and_timestamps):
