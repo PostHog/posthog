@@ -25,6 +25,7 @@ export function LineGraph({
     onClick,
     ['data-attr']: dataAttr,
     dashboardItemId,
+    isStacked,
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
@@ -106,9 +107,8 @@ export function LineGraph({
         }
     }
 
-    buildChart = () => {
-        const myChartRef = this.chartRef.current.getContext('2d')
-        let { datasets, labels, isStacked } = this.props
+    function buildChart() {
+        const myChartRef = chartRef.current.getContext('2d')
 
         const axisLabelColor = color === 'white' ? '#333' : 'rgba(255,255,255,0.8)'
         const axisLineColor = color === 'white' ? '#ddd' : 'rgba(255,255,255,0.2)'
