@@ -63,8 +63,8 @@ def get_decide(request: HttpRequest):
             if request.user.toolbar_mode == "toolbar":
                 editor_params["toolbarVersion"] = "toolbar"
 
-            if settings.DEBUG:
-                editor_params["jsURL"] = "http://localhost:8234/"
+            if settings.JS_URL:
+                editor_params["jsURL"] = settings.JS_URL
 
             response["editorParams"] = editor_params
 

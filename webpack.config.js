@@ -4,6 +4,7 @@ const path = require('path')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
+const WebpackBar = require('webpackbar')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 
@@ -151,6 +152,8 @@ function createEntry(entry) {
             hot: true,
             host: webpackDevServerHost,
             port: 8234,
+            noInfo: true,
+            stats: 'minimal',
             public: process.env.IS_PORTER
                 ? `https://${process.env.PORTER_WEBPACK_HOST}`
                 : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234`,
@@ -162,12 +165,18 @@ function createEntry(entry) {
                 'Access-Control-Allow-Headers': '*',
             },
         },
-        plugins:
+        plugins: [
+            // common plugins for all entrypoints
+            new WebpackBar(),
+        ].concat(
             entry === 'main'
                 ? [
+                      // other bundles include the css in js via style-loader
                       new MiniCssExtractPlugin({
                           filename: '[name].css',
+                          ignoreOrder: true,
                       }),
+                      // we need these only once per build
                       new HtmlWebpackPlugin({
                           alwaysWriteToDisk: true,
                           title: 'PostHog',
@@ -182,6 +191,7 @@ function createEntry(entry) {
                       }),
                       new HtmlWebpackHarddiskPlugin(),
                   ]
-                : [],
+                : []
+        ),
     }
 }

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 
 import { Card, CloseButton, Loading } from 'lib/utils'
@@ -28,8 +28,14 @@ import {
     CUMULATIVE_CHART_LABEL,
     STACKED_CHART_LABEL,
     CUMULATIVE_STACKED_CHART_LABEL,
+    TABLE_LABEL,
+    PIE_CHART_LABEL,
+    ACTIONS_TABLE,
+    ACTIONS_PIE_CHART,
 } from 'lib/constants'
 import { hot } from 'react-hot-loader/root'
+import { annotationsLogic } from '~/lib/components/Annotations'
+import { router } from 'kea-router'
 
 const { TabPane } = Tabs
 
@@ -40,12 +46,17 @@ const displayMap = {
     [`${ACTIONS_LINE_GRAPH_CUMULATIVE_STACKED}`]: CUMULATIVE_STACKED_CHART_LABEL,
     ActionsTable: 'Table',
     ActionsPie: 'Pie',
+    [`${ACTIONS_TABLE}`]: TABLE_LABEL,
+    [`${ACTIONS_PIE_CHART}`]: PIE_CHART_LABEL,
 }
 
 export const Trends = hot(_Trends)
 function _Trends() {
     const { filters, resultsLoading, showingPeople, activeView } = useValues(trendsLogic({ dashboardItemId: null }))
     const { setFilters, setDisplay, setActiveView } = useActions(trendsLogic({ dashboardItemId: null }))
+    const [{ fromItem }] = useState(router.values.hashParams)
+    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
+    const { annotationsList } = useValues(annotationsLogic({ pageKey: fromItem }))
 
     return (
         <div className="actions-graph">
@@ -134,9 +145,17 @@ function _Trends() {
                         title={
                             <div className="float-right pt-1 pb-1">
                                 <IntervalFilter setFilters={setFilters} filters={filters} disabled={filters.session} />
-                                <ChartFilter displayMap={displayMap} filters={filters} onChange={setDisplay} />
+                                <ChartFilter
+                                    displayMap={displayMap}
+                                    filters={filters}
+                                    onChange={display => {
+                                        if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART)
+                                            clearAnnotationsToCreate()
+                                        setDisplay(display)
+                                    }}
+                                />
                                 <DateFilter
-                                    onChange={(date_from, date_to) =>
+                                    onChange={(date_from, date_to) => {
                                         setFilters({
                                             date_from: date_from,
                                             date_to: date_to && date_to,
@@ -144,7 +163,7 @@ function _Trends() {
                                                 ? { interval: 'hour' }
                                                 : {}),
                                         })
-                                    }
+                                    }}
                                     dateFrom={filters.date_from}
                                     dateTo={filters.date_to}
                                 />
@@ -160,6 +179,7 @@ function _Trends() {
                                 <SaveToDashboard
                                     filters={filters}
                                     type={filters.display || ACTIONS_LINE_GRAPH_LINEAR}
+                                    annotations={annotationsList}
                                 />
                             </div>
                         }
@@ -180,8 +200,8 @@ function _Trends() {
                                         filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE_STACKED) && (
                                         <ActionsLineGraph />
                                     )}
-                                    {filters.display === 'ActionsTable' && <ActionsTable filters={filters} />}
-                                    {filters.display === 'ActionsPie' && <ActionsPie filters={filters} />}
+                                    {filters.display === ACTIONS_TABLE && <ActionsTable filters={filters} />}
+                                    {filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={filters} />}
                                 </div>
                             )}
                         </div>

@@ -83,6 +83,7 @@ def redirect_to_site(request):
 
     team = request.user.team_set.get()
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
+    use_new_toolbar = request.user.toolbar_mode == "toolbar"
 
     if not app_url:
         return HttpResponse(status=404)
@@ -97,14 +98,20 @@ def redirect_to_site(request):
         "apiURL": request.build_absolute_uri("/"),
         "userIntent": request.GET.get("userIntent"),
     }
-    if settings.DEBUG:
-        params["jsURL"] = "http://localhost:8234/"
-    if request.user.toolbar_mode == "toolbar":
+
+    if settings.JS_URL:
+        params["jsURL"] = settings.JS_URL
+
+    if use_new_toolbar:
+        params["action"] = "ph_authorize"
         params["toolbarVersion"] = "toolbar"
 
     state = urllib.parse.quote(json.dumps(params))
 
-    return redirect("{}#state={}".format(app_url, state))
+    if use_new_toolbar:
+        return redirect("{}#__posthog={}".format(app_url, state))
+    else:
+        return redirect("{}#state={}".format(app_url, state))
 
 
 @require_http_methods(["PATCH"])
