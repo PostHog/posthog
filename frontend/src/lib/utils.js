@@ -86,7 +86,7 @@ export const deleteWithUndo = ({ undo = false, ...props }) => {
         ...props.object,
         deleted: !undo,
     }).then(() => {
-        props.callback()
+        props.callback?.()
         let response = (
             <div>
                 {!undo ? (
@@ -328,4 +328,15 @@ export const eventToName = (event) => {
         if (event.elements[0].text) name += ' with text "' + event.elements[0].text + '"'
     }
     return name
+}
+
+export function determineDifferenceType(firstDate, secondDate) {
+    const first = moment(firstDate)
+    const second = moment(secondDate)
+    if (first.diff(second, 'years') !== 0) return 'year'
+    else if (first.diff(second, 'months') !== 0) return 'month'
+    else if (first.diff(second, 'weeks') !== 0) return 'week'
+    else if (first.diff(second, 'days') !== 0) return 'day'
+    else if (first.diff(second, 'hours') !== 0) return 'hour'
+    else return 'minute'
 }

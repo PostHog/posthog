@@ -6,8 +6,9 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.contrib.auth import authenticate, login, views as auth_views, decorators
 from django.conf import settings
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.template.loader import render_to_string
+from django.template.exceptions import TemplateDoesNotExist
 from urllib.parse import urlparse
 
 from .api import router, capture, user, decide
@@ -18,6 +19,7 @@ from posthog.demo import demo, delete_demo_data
 import json
 import posthoganalytics
 import os
+
 
 from rest_framework import permissions
 
@@ -66,9 +68,9 @@ def signup_to_team_view(request, token):
         first_name = request.POST.get("name")
         email_opt_in = request.POST.get("emailOptIn") == "on"
         valid_inputs = (
-            is_input_valid("name", first_name) and
-            is_input_valid("email", email) and
-            is_input_valid("password", password)
+            is_input_valid("name", first_name)
+            and is_input_valid("email", email)
+            and is_input_valid("password", password)
         )
         email_exists = User.objects.filter(email=email).exists()
         if email_exists or not valid_inputs:
@@ -102,7 +104,10 @@ def setup_admin(request):
     if request.method == "GET":
         if request.user.is_authenticated:
             return redirect("/")
-        return render_template("setup_admin.html", request)
+        try:
+            return render_template("setup_admin.html", request)
+        except TemplateDoesNotExist:
+            return HttpResponse("Frontend not built yet. Please try again shortly or build manually using <code>./bin/start-frontend</code>")
     if request.method == "POST":
         email = request.POST["email"]
         password = request.POST["password"]
@@ -111,28 +116,18 @@ def setup_admin(request):
         email_opt_in = request.POST.get("emailOptIn") == "on"
         is_first_user = not User.objects.exists()
         valid_inputs = (
-            is_input_valid("name", name) and
-            is_input_valid("email", email) and
-            is_input_valid("password", password) and
-            is_input_valid("company", company_name)
+            is_input_valid("name", name)
+            and is_input_valid("email", email)
+            and is_input_valid("password", password)
+            and is_input_valid("company", company_name)
         )
         if not valid_inputs:
             return render_template(
                 "setup_admin.html",
                 request=request,
-                context={
-                    "email": email,
-                    "name": name,
-                    "invalid_input": True,
-                    "company": company_name
-                },
+                context={"email": email, "name": name, "invalid_input": True, "company": company_name},
             )
-        user = User.objects.create_user(
-            email=email,
-            password=password,
-            first_name=name,
-            email_opt_in=email_opt_in,
-        )
+        user = User.objects.create_user(email=email, password=password, first_name=name, email_opt_in=email_opt_in,)
         Team.objects.create_with_data(users=[user], name=company_name)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         posthoganalytics.capture(
@@ -192,6 +187,7 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
     return {"is_new": True, "user": user}
 
 
+@csrf_protect
 def logout(request):
     return auth_views.logout_then_login(request)
 
@@ -206,10 +202,11 @@ def authorize_and_redirect(request):
         context={"domain": urlparse(url).hostname, "redirect_url": url,},
     )
 
+
 def is_input_valid(inp_type, val):
     # Uses inp_type instead of is_email for explicitness in function call
     if inp_type == "email":
-        return len(val) > 2 and val.count('@') > 0
+        return len(val) > 2 and val.count("@") > 0
     return len(val) > 0
 
 

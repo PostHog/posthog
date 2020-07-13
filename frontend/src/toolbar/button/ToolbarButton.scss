@@ -39,15 +39,23 @@
         display: flex;
         width: 100%;
         align-items: center;
-        cursor: move;
 
-        > svg:first-child {
-            margin-right: 9px;
-            height: 18px;
-            width: auto;
-        }
-        .window-label {
+        .toolbar-info-window-draggable {
+            cursor: move;
             flex: 1;
+            display: flex;
+            width: 100%;
+            align-items: center;
+            cursor: move;
+            > svg:first-child {
+                margin-right: 9px;
+                height: 18px;
+                width: auto;
+            }
+
+            .window-label {
+                flex: 1;
+            }
         }
         .close-button {
             cursor: pointer;

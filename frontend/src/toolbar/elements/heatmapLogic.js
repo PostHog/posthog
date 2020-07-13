@@ -10,6 +10,7 @@ export const heatmapLogic = kea({
     actions: {
         enableHeatmap: true,
         disableHeatmap: true,
+        setShowHeatmapTooltip: (showHeatmapTooltip) => ({ showHeatmapTooltip }),
     },
 
     reducers: {
@@ -28,6 +29,12 @@ export const heatmapLogic = kea({
                 getEventsSuccess: () => false,
                 getEventsFailure: () => false,
                 resetEvents: () => false,
+            },
+        ],
+        showHeatmapTooltip: [
+            false,
+            {
+                setShowHeatmapTooltip: (_, { showHeatmapTooltip }) => showHeatmapTooltip,
             },
         ],
     },
@@ -164,6 +171,16 @@ export const heatmapLogic = kea({
         },
         disableHeatmap: () => {
             actions.resetEvents()
+            actions.setShowHeatmapTooltip(false)
+        },
+        getEventsSuccess: () => {
+            actions.setShowHeatmapTooltip(true)
+        },
+        setShowHeatmapTooltip: async ({ showHeatmapTooltip }, breakpoint) => {
+            if (showHeatmapTooltip) {
+                await breakpoint(1000)
+                actions.setShowHeatmapTooltip(false)
+            }
         },
     }),
 })

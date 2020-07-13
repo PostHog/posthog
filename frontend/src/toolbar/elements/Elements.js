@@ -21,8 +21,6 @@ export function Elements() {
         selectedElement,
         inspectEnabled,
         highlightElementMeta,
-        actionLabelsToDisplay,
-        actionsForElementMap,
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapLogic)
@@ -122,38 +120,6 @@ export function Elements() {
                                 {index + 1}
                             </HeatmapLabel>
                         </React.Fragment>
-                    )
-                })}
-
-                {actionLabelsToDisplay.map((element, index) => {
-                    const actions = actionsForElementMap.get(element)
-                    if (!actions || actions.length === 0) {
-                        return null
-                    }
-                    return (
-                        <HeatmapLabel
-                            key={`action-label-${index}`}
-                            rect={actions[0].rect}
-                            domPadding={domPadding}
-                            domZoom={domZoom}
-                            align="left"
-                            style={{
-                                zIndex: 5,
-                                opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
-                                transition: 'opacity 0.2s, transform 0.2s linear',
-                                transform: hoverElement === element ? 'scale(1.3)' : 'none',
-                                pointerEvents: 'all',
-                                cursor: 'pointer',
-                                color: 'hsla(141, 21%, 12%, 1)',
-                                background: 'hsl(147, 100%, 62%)',
-                                boxShadow: 'hsla(141, 100%, 32%, 1) 0px 1px 5px 1px',
-                            }}
-                            onClick={() => selectElement(element)}
-                            onMouseOver={() => setHoverElement(element)}
-                            onMouseOut={() => setHoverElement(null)}
-                        >
-                            {actions.length === 1 ? 'A' : 'A+'}
-                        </HeatmapLabel>
                     )
                 })}
 
