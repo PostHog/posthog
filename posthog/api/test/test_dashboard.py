@@ -92,8 +92,8 @@ class TestDashboard(TransactionBaseTest):
         response = self.client.get("/api/dashboard/").json()
         pk = Dashboard.objects.all()[0].pk
 
-        self.assertEqual(response["results"][0]["id"], int(pk))  # type: ignore
-        self.assertEqual(response["results"][0]["name"], "Default")  # type: ignore
+        self.assertEqual(response["results"][0]["id"], pk)
+        self.assertEqual(response["results"][0]["name"], "Default")
 
         # delete
         self.client.patch(

@@ -34,9 +34,13 @@ def update_cache_item(key: str, cache_type: str, payload: dict) -> None:
 def update_cached_items() -> None:
 
     tasks = []
-    items = DashboardItem.objects.filter(
-        Q(Q(dashboard__is_shared=True) | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7)))
-    ).exclude(refreshing=True)
+    items = (
+        DashboardItem.objects.filter(
+            Q(Q(dashboard__is_shared=True) | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7)))
+        )
+        .exclude(refreshing=True)
+        .exclude(deleted=True)
+    )
 
     for item in items.filter(filters__isnull=False).exclude(filters={}).distinct("filters"):
         filter = Filter(data=item.filters)
