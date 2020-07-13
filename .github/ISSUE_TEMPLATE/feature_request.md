@@ -23,4 +23,4 @@ assignees: ''
 
 
 
-#### *Thank* you for your feature request – we love each and every one!
+#### *Thank you* for your feature request – we love each and every one!
