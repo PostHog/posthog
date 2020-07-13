@@ -98,8 +98,9 @@ def redirect_to_site(request):
         "apiURL": request.build_absolute_uri("/"),
         "userIntent": request.GET.get("userIntent"),
     }
-    if settings.DEBUG:
-        params["jsURL"] = "http://localhost:8234/"
+
+    if settings.JS_URL:
+        params["jsURL"] = settings.JS_URL
 
     if use_new_toolbar:
         params["action"] = "ph_authorize"
