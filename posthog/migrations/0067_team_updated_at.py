@@ -6,13 +6,9 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0066_team_created_at'),
+        ("posthog", "0066_team_created_at"),
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='team',
-            name='updated_at',
-            field=models.DateTimeField(auto_now=True),
-        ),
+        migrations.AddField(model_name="team", name="updated_at", field=models.DateTimeField(auto_now=True),),
     ]

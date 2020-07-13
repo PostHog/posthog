@@ -67,7 +67,7 @@ function _Funnels() {
                 size="small"
                 columns={columns}
                 loading={!funnels && funnelsLoading}
-                rowKey={funnel => funnel.id}
+                rowKey={(funnel) => funnel.id}
                 pagination={{ pageSize: 100, hideOnSinglePage: true }}
                 dataSource={funnels}
             />

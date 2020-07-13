@@ -53,7 +53,7 @@ export function DashboardItems({ logic }) {
                 // Trigger the resize event for funnels, as they won't update their dimensions
                 // when their container is resized and must be recalculated.
                 // Skip this for other types as it slows down the interactions a bit.
-                const item = items.find(i => i.id === parseInt(newItem.i))
+                const item = items.find((i) => i.id === parseInt(newItem.i))
                 if (item?.type === 'FunnelViz') {
                     triggerResize()
                 }
@@ -69,7 +69,7 @@ export function DashboardItems({ logic }) {
                     isDragging.current = false
                 }, 250)
             }}
-            draggableCancel=".anticon,.ant-dropdown,table"
+            draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content"
         >
             {items.map((item, index) => (
                 <div key={item.id} className="dashboard-item-wrapper">

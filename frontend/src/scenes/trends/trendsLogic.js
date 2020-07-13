@@ -57,9 +57,9 @@ function cleanFilters(filters) {
 
 function filterClientSideParams(filters) {
     const {
-        people_day: _skip_this_one,
-        people_action: _skip_this_too,
-        stickiness_days: __and_this,
+        people_day: _skip_this_one, // eslint-disable-line
+        people_action: _skip_this_too, // eslint-disable-line
+        stickiness_days: __and_this, // eslint-disable-line
         ...newFilters
     } = filters
 
@@ -111,7 +111,7 @@ function parsePeopleParams(peopleParams, filters) {
 // - dashboardItemId
 // - filters
 export const trendsLogic = kea({
-    key: props => props.dashboardItemId || 'all_trends',
+    key: (props) => props.dashboardItemId || 'all_trends',
 
     connect: {
         values: [userLogic, ['eventNames'], actionsModel, ['actions']],
@@ -145,12 +145,12 @@ export const trendsLogic = kea({
 
     actions: () => ({
         setFilters: (filters, mergeFilters = true, fromUrl = false) => ({ filters, mergeFilters, fromUrl }),
-        setDisplay: display => ({ display }),
+        setDisplay: (display) => ({ display }),
 
         loadPeople: (action, label, day, breakdown_value) => ({ action, label, day, breakdown_value }),
         loadMorePeople: true,
-        setLoadingMorePeople: status => ({ status }),
-        setShowingPeople: isShowing => ({ isShowing }),
+        setLoadingMorePeople: (status) => ({ status }),
+        setShowingPeople: (isShowing) => ({ isShowing }),
         setPeople: (people, count, action, label, day, breakdown_value, next) => ({
             people,
             count,
@@ -160,13 +160,13 @@ export const trendsLogic = kea({
             breakdown_value,
             next,
         }),
-        setActiveView: type => ({ type }),
+        setActiveView: (type) => ({ type }),
         setCachedUrl: (type, url) => ({ type, url }),
     }),
 
     reducers: ({ actions, props }) => ({
         filters: [
-            props.dashboardItemId ? props.filters : state => cleanFilters(router.selectors.searchParams(state)),
+            props.dashboardItemId ? props.filters : (state) => cleanFilters(router.selectors.searchParams(state)),
             {
                 [actions.setFilters]: (state, { filters, mergeFilters }) => {
                     return cleanFilters({
@@ -200,13 +200,13 @@ export const trendsLogic = kea({
     }),
 
     selectors: ({ selectors }) => ({
-        activeView: [() => [selectors.filters], filters => (filters.session ? ViewType.SESSIONS : ViewType.FILTERS)],
+        activeView: [() => [selectors.filters], (filters) => (filters.session ? ViewType.SESSIONS : ViewType.FILTERS)],
         peopleAction: [
             () => [selectors.filters, selectors.actions],
             (filters, actions) =>
-                filters.people_action ? actions.find(a => a.id === parseInt(filters.people_action)) : null,
+                filters.people_action ? actions.find((a) => a.id === parseInt(filters.people_action)) : null,
         ],
-        peopleDay: [() => [selectors.filters], filters => filters.people_day],
+        peopleDay: [() => [selectors.filters], (filters) => filters.people_day],
     }),
 
     listeners: ({ actions, values }) => ({

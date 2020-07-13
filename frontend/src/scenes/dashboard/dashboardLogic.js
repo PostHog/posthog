@@ -11,22 +11,22 @@ import { isAndroidOrIOS, clearDOMTextSelection } from 'lib/utils'
 export const dashboardLogic = kea({
     connect: [dashboardsModel],
 
-    key: props => props.id,
+    key: (props) => props.id,
 
     actions: () => ({
         addNewDashboard: true,
         renameDashboard: true,
-        renameDashboardItem: id => ({ id }),
-        renameDashboardItemSuccess: item => ({ item }),
+        renameDashboardItem: (id) => ({ id }),
+        renameDashboardItemSuccess: (item) => ({ item }),
         duplicateDashboardItem: (id, dashboardId, move = false) => ({ id, dashboardId, move }),
-        duplicateDashboardItemSuccess: item => ({ item }),
-        updateLayouts: layouts => ({ layouts }),
+        duplicateDashboardItemSuccess: (item) => ({ item }),
+        updateLayouts: (layouts) => ({ layouts }),
         saveLayouts: true,
         updateItemColor: (id, color) => ({ id, color }),
         enableDragging: true,
         enableWobblyDragging: true,
         disableDragging: true,
-        refreshDashboardItem: id => ({ id }),
+        refreshDashboardItem: (id) => ({ id }),
     }),
 
     loaders: ({ props }) => ({
@@ -51,15 +51,15 @@ export const dashboardLogic = kea({
 
     reducers: ({ props }) => ({
         allItems: {
-            renameDashboardItemSuccess: (state, { item }) => state.map(i => (i.id === item.id ? item : i)),
+            renameDashboardItemSuccess: (state, { item }) => state.map((i) => (i.id === item.id ? item : i)),
             updateLayouts: (state, { layouts }) => {
                 let itemLayouts = {}
-                state.forEach(item => {
+                state.forEach((item) => {
                     itemLayouts[item.id] = {}
                 })
 
                 Object.entries(layouts).forEach(([col, layout]) => {
-                    layout.forEach(layoutItem => {
+                    layout.forEach((layoutItem) => {
                         if (!itemLayouts[layoutItem.i]) {
                             itemLayouts[layoutItem.i] = {}
                         }
@@ -67,12 +67,12 @@ export const dashboardLogic = kea({
                     })
                 })
 
-                return state.map(item => ({ ...item, layouts: itemLayouts[item.id] }))
+                return state.map((item) => ({ ...item, layouts: itemLayouts[item.id] }))
             },
             [dashboardsModel.actions.updateDashboardItem]: (state, { item }) => {
-                return state.map(i => (i.id === item.id ? item : i))
+                return state.map((i) => (i.id === item.id ? item : i))
             },
-            updateItemColor: (state, { id, color }) => state.map(i => (i.id === id ? { ...i, color } : i)),
+            updateItemColor: (state, { id, color }) => state.map((i) => (i.id === id ? { ...i, color } : i)),
             duplicateDashboardItemSuccess: (state, { item }) =>
                 item.dashboard === parseInt(props.id) ? [...state, item] : state,
         },
@@ -87,11 +87,11 @@ export const dashboardLogic = kea({
     }),
 
     selectors: ({ props, selectors }) => ({
-        items: [() => [selectors.allItems], allItems => allItems.filter(i => !i.deleted)],
-        itemsLoading: [() => [selectors.allItemsLoading], allItemsLoading => allItemsLoading],
+        items: [() => [selectors.allItems], (allItems) => allItems.filter((i) => !i.deleted)],
+        itemsLoading: [() => [selectors.allItemsLoading], (allItemsLoading) => allItemsLoading],
         dashboard: [
             () => [dashboardsModel.selectors.dashboards],
-            dashboards => dashboards.find(d => d.id === props.id) || null,
+            (dashboards) => dashboards.find((d) => d.id === props.id) || null,
         ],
         breakpoints: [() => [], () => ({ lg: 1600, sm: 940, xs: 480, xxs: 0 })],
         cols: [() => [], () => ({ lg: 24, sm: 12, xs: 6, xxs: 2 })],
@@ -99,10 +99,10 @@ export const dashboardLogic = kea({
             () => [selectors.items, selectors.cols],
             (items, cols) => {
                 const allLayouts = {}
-                Object.keys(cols).forEach(col => {
+                Object.keys(cols).forEach((col) => {
                     const layouts = items
-                        .filter(i => !i.deleted)
-                        .map(item => {
+                        .filter((i) => !i.deleted)
+                        .map((item) => {
                             const layout = item.layouts && item.layouts[col]
                             const { x, y, w, h } = layout || {}
                             const width = Math.min(w || 6, cols[col])
@@ -186,7 +186,7 @@ export const dashboardLogic = kea({
                 placeholder: 'Please enter a name',
                 value: '',
                 error: 'You must enter name',
-                success: name => dashboardsModel.actions.addDashboard({ name }),
+                success: (name) => dashboardsModel.actions.addDashboard({ name }),
             })
         },
 
@@ -200,7 +200,7 @@ export const dashboardLogic = kea({
                 placeholder: 'Please enter the new name',
                 value: values.dashboard.name,
                 error: 'You must enter name',
-                success: name => dashboardsModel.actions.renameDashboard({ id: values.dashboard.id, name }),
+                success: (name) => dashboardsModel.actions.renameDashboard({ id: values.dashboard.id, name }),
             })
         },
 
@@ -208,9 +208,9 @@ export const dashboardLogic = kea({
             prompt({ key: `rename-dashboard-item-${id}` }).actions.prompt({
                 title: 'Rename panel',
                 placeholder: 'Please enter the new name',
-                value: values.items.find(item => item.id === id)?.name,
+                value: values.items.find((item) => item.id === id)?.name,
                 error: 'You must enter name',
-                success: async name => {
+                success: async (name) => {
                     const item = await api.update(`api/dashboard_item/${id}`, { name })
                     actions.renameDashboardItemSuccess(item)
                 },
@@ -224,10 +224,10 @@ export const dashboardLogic = kea({
         saveLayouts: async (_, breakpoint) => {
             await breakpoint(300)
             await api.update(`api/dashboard_item/layouts`, {
-                items: values.items.map(item => {
+                items: values.items.map((item) => {
                     const layouts = {}
                     Object.entries(item.layouts).forEach(([key, layout]) => {
-                        const { i, ...rest } = layout
+                        const { i, ...rest } = layout // eslint-disable-line
                         layouts[key] = rest
                     })
                     return { id: item.id, layouts }
@@ -240,7 +240,7 @@ export const dashboardLogic = kea({
         },
 
         duplicateDashboardItem: async ({ id, dashboardId, move }) => {
-            const item = values.items.find(item => item.id === id)
+            const item = values.items.find((item) => item.id === id)
             if (!item) {
                 return
             }
@@ -250,7 +250,7 @@ export const dashboardLogic = kea({
                 layouts[size] = { w, h }
             })
 
-            const { id: _discard, ...rest } = item
+            const { id: _discard, ...rest } = item // eslint-disable-line
             const newItem = dashboardId ? { ...rest, dashboard: dashboardId, layouts } : { ...rest, layouts }
             const addedItem = await api.create('api/dashboard_item', newItem)
 
@@ -261,7 +261,7 @@ export const dashboardLogic = kea({
                 dashboardsModel.actions.updateDashboardItem(deletedItem)
 
                 const toastId = toast(
-                    <div>
+                    <div data-attr="success-toast">
                         Panel moved to{' '}
                         <Link to={`/dashboard/${dashboard.id}`} onClick={() => toast.dismiss(toastId)}>
                             {dashboard.name || 'Untitled'}
@@ -286,7 +286,7 @@ export const dashboardLogic = kea({
             } else if (!move && dashboardId) {
                 // copy
                 const toastId = toast(
-                    <div>
+                    <div data-attr="success-toast">
                         Panel copied to{' '}
                         <Link to={`/dashboard/${dashboard.id}`} onClick={() => toast.dismiss(toastId)}>
                             {dashboard.name || 'Untitled'}
@@ -295,7 +295,7 @@ export const dashboardLogic = kea({
                 )
             } else {
                 actions.duplicateDashboardItemSuccess(addedItem)
-                toast(<div>Panel duplicated!</div>)
+                toast(<div data-attr="success-toast">Panel duplicated!</div>)
             }
         },
 

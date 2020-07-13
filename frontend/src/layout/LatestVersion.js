@@ -14,7 +14,7 @@ export function LatestVersion() {
     const isApp = window.location.href.indexOf('app.posthog.com') > -1
 
     useEffect(() => {
-        api.get('https://update.posthog.com/versions').then(versions => {
+        api.get('https://update.posthog.com/versions').then((versions) => {
             setLatestVersion(versions[0]['version'])
         })
     }, [user.posthog_version])

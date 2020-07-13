@@ -1,6 +1,7 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { Table } from 'antd'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 export function RetentionTable({ logic }) {
     const { retention, retentionLoading } = useValues(logic)
@@ -9,12 +10,12 @@ export function RetentionTable({ logic }) {
         {
             title: 'Cohort',
             key: 'cohort',
-            render: row => row.date,
+            render: (row) => row.date,
         },
         {
             title: 'Users',
             key: 'users',
-            render: row => row.values[0],
+            render: (row) => row.values[0],
         },
     ]
 
@@ -23,7 +24,7 @@ export function RetentionTable({ logic }) {
             columns.push({
                 title: retention.data[dayIndex].label,
                 key: `day::${dayIndex}`,
-                render: row => {
+                render: (row) => {
                     if (dayIndex >= row.values.length) {
                         return ''
                     }
@@ -34,16 +35,19 @@ export function RetentionTable({ logic }) {
     }
 
     return (
-        <Table
-            data-attr="retention-table"
-            size="small"
-            className="retention-table"
-            pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-            rowClassName="cursor-pointer"
-            dataSource={retention.data}
-            columns={columns}
-            loading={retentionLoading}
-        />
+        <>
+            <PropertyFilters pageKey="RetentionTable" />
+            <Table
+                data-attr="retention-table"
+                size="small"
+                className="retention-table"
+                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                rowClassName="cursor-pointer"
+                dataSource={retention.data}
+                columns={columns}
+                loading={retentionLoading}
+            />
+        </>
     )
 }
 

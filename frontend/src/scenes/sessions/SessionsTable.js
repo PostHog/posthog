@@ -78,7 +78,7 @@ export function SessionsTable({ logic }) {
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
                 size="small"
-                rowKey={item => item.global_session_id}
+                rowKey={(item) => item.global_session_id}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 rowClassName="cursor-pointer"
                 dataSource={sessions}
