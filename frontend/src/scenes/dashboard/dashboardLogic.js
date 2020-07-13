@@ -54,7 +54,9 @@ export const dashboardLogic = kea({
 
     reducers: ({ props }) => ({
         allItems: {
-            renameDashboardItemSuccess: (state, { item }) => state.items.map((i) => (i.id === item.id ? item : i)),
+            renameDashboardItemSuccess: (state, { item }) => {
+                return { ...state, items: state.items.map((i) => (i.id === item.id ? item : i)) }
+            },
             updateLayouts: (state, { layouts }) => {
                 let itemLayouts = {}
                 state.items.forEach((item) => {
