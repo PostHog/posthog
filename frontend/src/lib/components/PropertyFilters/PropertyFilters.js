@@ -14,7 +14,7 @@ const FilterRow = React.memo(function FilterRow({ item, index, filters, cohorts,
     let [open, setOpen] = useState(false)
     const { key, value, operator, type } = item
 
-    let handleVisibleChange = visible => {
+    let handleVisibleChange = (visible) => {
         if (!visible && Object.keys(item).length >= 0 && !item[Object.keys(item)[0]]) {
             remove(index)
         }
@@ -35,7 +35,7 @@ const FilterRow = React.memo(function FilterRow({ item, index, filters, cohorts,
                     <Button type="primary" shape="round" style={{ maxWidth: '85%' }}>
                         <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {type === 'cohort'
-                                ? cohorts?.find(cohort => cohort.id === parseInt(key?.substring(1)))?.name || key
+                                ? cohorts?.find((cohort) => cohort.id === parseInt(key?.substring(1)))?.name || key
                                 : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
                                   (isOperatorFlag(operator)
                                       ? ` ${operatorMap[operator]}`
