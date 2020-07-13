@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 
 export const retentionTableLogic = kea({
-    loaders: props => ({
+    loaders: (props) => ({
         retention: {
             __default: {},
             loadRetention: async () => {
@@ -12,12 +12,18 @@ export const retentionTableLogic = kea({
                 return await api.get(`api/action/retention/?${urlParams}`)
             },
         },
+        people: {
+            loadPeople: async (people) => {
+                if (people.length === 0) return []
+                return (await api.get('api/person/?id=' + people.join(','))).results
+            },
+        },
     }),
     actions: () => ({
-        setProperties: properties => ({ properties }),
+        setProperties: (properties) => ({ properties }),
     }),
     reducers: () => ({
-        initialPathname: [state => router.selectors.location(state).pathname, { noop: a => a }],
+        initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
         properties: [
             [],
             {
@@ -28,7 +34,7 @@ export const retentionTableLogic = kea({
     selectors: ({ selectors }) => ({
         propertiesForUrl: [
             () => [selectors.properties],
-            properties => {
+            (properties) => {
                 if (Object.keys(properties).length > 0) {
                     return { properties }
                 } else {

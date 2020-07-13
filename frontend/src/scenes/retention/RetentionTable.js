@@ -1,10 +1,15 @@
-import React from 'react'
-import { useValues } from 'kea'
-import { Table } from 'antd'
+import React, { useState } from 'react'
+import { useValues, useActions } from 'kea'
+import { Table, Modal, Button, Spin } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { percentage } from 'lib/utils'
+import { Link } from 'lib/components/Link'
 
 export function RetentionTable({ logic }) {
-    const { retention, retentionLoading } = useValues(logic)
+    const { retention, retentionLoading, peopleLoading, people } = useValues(logic)
+    const { loadPeople } = useActions(logic)
+    const [modalVisible, setModalVisible] = useState(false)
+    const [selectedRow, selectRow] = useState(0)
 
     let columns = [
         {
@@ -34,6 +39,10 @@ export function RetentionTable({ logic }) {
         })
     }
 
+    function dismissModal() {
+        setModalVisible(false)
+    }
+
     return (
         <>
             <PropertyFilters pageKey="RetentionTable" />
@@ -46,7 +55,78 @@ export function RetentionTable({ logic }) {
                 dataSource={retention.data}
                 columns={columns}
                 loading={retentionLoading}
+                onRow={(data, rowIndex) => {
+                    return {
+                        onClick: () => {
+                            loadPeople(data.values[0].people)
+                            setModalVisible(true)
+                            selectRow(rowIndex)
+                        },
+                    }
+                }}
             />
+            {retention.data && (
+                <Modal
+                    visible={modalVisible}
+                    closable={false}
+                    onCancel={dismissModal}
+                    footer={<Button onClick={dismissModal}>Close</Button>}
+                    style={{ top: 20, minWidth: '90%', fontSize: 16 }}
+                    title={retention.data[selectedRow].date}
+                >
+                    {retention && !peopleLoading ? (
+                        <table className="table table-bordered table-fixed">
+                            <tbody>
+                                <tr>
+                                    <th />
+                                    {retention.data &&
+                                        retention.data
+                                            .slice(0, retention.data[selectedRow].values.length)
+                                            .map((data, index) => <th key={index}>{data.label}</th>)}
+                                </tr>
+                                <tr>
+                                    <td />
+                                    {retention.data &&
+                                        retention.data[selectedRow].values.map((data, index) => (
+                                            <td key={index}>
+                                                {data.count}&nbsp;{' '}
+                                                {data.count > 0 && (
+                                                    <span>
+                                                        (
+                                                        {percentage(
+                                                            data.count / retention.data[selectedRow].values[0]['count']
+                                                        )}
+                                                        )
+                                                    </span>
+                                                )}
+                                            </td>
+                                        ))}
+                                </tr>
+                                {people &&
+                                    people.map((person) => (
+                                        <tr key={person.id}>
+                                            <td className="text-overflow" style={{ minWidth: 200 }}>
+                                                <Link to={`/person_by_id/${person.id}`}>{person.name}</Link>
+                                            </td>
+                                            {retention.data[selectedRow].values.map((step, index) => (
+                                                <td
+                                                    key={index}
+                                                    className={
+                                                        step.people.indexOf(person.id) > -1
+                                                            ? 'retention-success'
+                                                            : 'retention-dropped'
+                                                    }
+                                                />
+                                            ))}
+                                        </tr>
+                                    ))}
+                            </tbody>
+                        </table>
+                    ) : (
+                        <Spin></Spin>
+                    )}
+                </Modal>
+            )}
         </>
     )
 }
