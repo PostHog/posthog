@@ -154,6 +154,8 @@ function CohortPaneContents({ onComplete, setThisFilter, propkey, displayOperato
         <>
             <Select
                 style={{ width: '100%' }}
+                showSearch
+                optionFilterProp="children"
                 labelInValue
                 placeholder="Cohort name"
                 value={
@@ -170,13 +172,14 @@ function CohortPaneContents({ onComplete, setThisFilter, propkey, displayOperato
                     onComplete()
                     setThisFilter(new_cohort.value, true, undefined, 'cohort')
                 }}
+                data-attr="cohort-filter-select"
             >
                 {cohorts.map((item, index) => (
                     <Select.Option
                         key={'cohort_' + item.id}
                         value={`#${item.id}`}
                         type="cohort"
-                        data-attr={'prop-filter-cohort-' + index}
+                        data-attr={'cohort-filter-' + index}
                     >
                         {item.name}
                     </Select.Option>
