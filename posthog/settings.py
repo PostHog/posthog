@@ -221,7 +221,7 @@ else:
 # Broker
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
-if TEST or DEBUG or (sys.argv[1] and sys.argv[1] == "collectstatic"):
+if TEST or DEBUG or (len(sys.argv) > 1 and sys.argv[1] == "collectstatic"):
     REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost/")
 else:
     REDIS_URL = os.environ.get("REDIS_URL", "")
