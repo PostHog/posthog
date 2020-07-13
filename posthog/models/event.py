@@ -240,7 +240,7 @@ class EventManager(models.QuerySet):
             results = unique.to_dict("records")
             for result in results:
                 test = df[(df["first_date"] == result["first_date"]) & (df["date"] == result["date"])]
-                result.update({"people": test.person_id.unique()[:100]})
+                result.update({"people": test.person_id.unique().tolist()[:100]})
 
         return results
 
