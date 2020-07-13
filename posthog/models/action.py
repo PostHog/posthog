@@ -13,7 +13,7 @@ class Action(models.Model):
             models.Index(fields=["team_id", "-updated_at"]),
         ]
 
-    def calculate_events_for_period(self, start=None, end=None):
+    def calculate_events(self, start=None, end=None):
         if start is None:
             start = datetime.date(1990, 1, 1)
         if end is None:
@@ -59,40 +59,6 @@ class Action(models.Model):
 
         self.is_calculating = False
         self.last_calculated_at = timezone.now()
-        self.save()
-
-    def calculate_events(self, from_highwater_mark=False):
-        calculations_started = timezone.now()
-        self.is_calculating = True
-        self.save()
-        from .event import Event
-
-        try:
-            event_query, params = Event.objects.query_db_by_action(self).only("pk").query.sql_with_params()
-        except EmptyResultSet:
-            self.is_calculating = False
-            self.last_calculated_at = calculations_started
-            self.save()
-            self.events.all().delete()
-            return
-
-        query = """DELETE FROM "posthog_action_events" WHERE "action_id" = {};""".format(self.pk)
-        query += """INSERT INTO "posthog_action_events" ("action_id", "event_id")
-                    {}
-                    ON CONFLICT DO NOTHING
-                 """.format(
-            event_query.replace("SELECT ", "SELECT {}, ".format(self.pk), 1)
-        )
-
-        cursor = connection.cursor()
-        with transaction.atomic():
-            try:
-                cursor.execute(query, params)
-            except:
-                capture_exception()
-
-        self.is_calculating = False
-        self.last_calculated_at = calculations_started
         self.save()
 
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)

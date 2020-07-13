@@ -20,5 +20,5 @@ def calculate_actions_from_last_calculation() -> None:
     actions = Action.objects.filter(deleted=False).only("pk")
     for action in actions:
         start_time = time.time()
-        action.calculate_events_for_period(start=action.last_calculated_at)
+        action.calculate_events(start=action.last_calculated_at)
         logger.info("Calculating action {} took {:.2f} seconds".format(action.pk, (time.time() - start_time)))
