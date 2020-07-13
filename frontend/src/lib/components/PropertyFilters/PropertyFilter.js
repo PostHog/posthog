@@ -147,7 +147,7 @@ function PropertyPaneContents({
     )
 }
 
-function CohortPaneContents({ onComplete, setThisFilter, propkey, displayOperatorAndValue }) {
+function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorAndValue }) {
     const { cohorts } = useValues(cohortsModel)
 
     return (
@@ -162,25 +162,18 @@ function CohortPaneContents({ onComplete, setThisFilter, propkey, displayOperato
                     displayOperatorAndValue
                         ? { value: '' }
                         : {
-                              value: propkey,
-                              label:
-                                  cohorts?.find((cohort) => cohort.id === parseInt(propkey?.substring(1)))?.name ||
-                                  propkey,
+                              value: value,
+                              label: cohorts?.find((cohort) => cohort.id === value)?.name || value,
                           }
                 }
                 onChange={(_, new_cohort) => {
                     onComplete()
-                    setThisFilter(new_cohort.value, true, undefined, 'cohort')
+                    setThisFilter('id', new_cohort.value, undefined, 'cohort')
                 }}
                 data-attr="cohort-filter-select"
             >
                 {cohorts.map((item, index) => (
-                    <Select.Option
-                        key={'cohort_' + item.id}
-                        value={`#${item.id}`}
-                        type="cohort"
-                        data-attr={'cohort-filter-' + index}
-                    >
+                    <Select.Option key="id" value={item.id} type="cohort" data-attr={'cohort-filter-' + index}>
                         {item.name}
                     </Select.Option>
                 ))}
@@ -223,7 +216,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                 <CohortPaneContents
                     onComplete={onComplete}
                     setThisFilter={setThisFilter}
-                    propkey={key}
+                    value={value}
                     displayOperatorAndValue={displayOperatorAndValue}
                 />
             </TabPane>
