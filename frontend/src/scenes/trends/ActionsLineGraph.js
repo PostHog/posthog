@@ -10,10 +10,9 @@ export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filt
     const { filters, results, resultsLoading } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
     const { loadResults, loadPeople } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
 
-    const { people_action, people_day, ...otherFilters } = filters
+    const { people_action, people_day, ...otherFilters } = filters // eslint-disable-line
     const isStacked =
         filters.display === ACTIONS_LINE_GRAPH_STACKED || filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE_STACKED
-    const { people_action, people_day, ...otherFilters } = filters // eslint-disable-line
     const [{ fromItem }] = useState(router.values.hashParams)
 
     useEffect(() => {
