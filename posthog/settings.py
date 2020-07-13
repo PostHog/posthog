@@ -56,6 +56,11 @@ TEST = "test" in sys.argv
 
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000")
 
+if DEBUG:
+    JS_URL = os.environ.get("JS_URL", "http://localhost:8234/")
+else:
+    JS_URL = os.environ.get("JS_URL", "")
+
 SECURE_SSL_REDIRECT = False
 
 if not DEBUG and not TEST:
