@@ -206,7 +206,9 @@ class Funnel(models.Model):
 
         for index in average_time.keys():
             steps[index - 1]["average_time"] = (
-                average_time[index]["total_time"].total_seconds() / average_time[index]["total_people"]
+                (average_time[index]["total_time"].total_seconds() / average_time[index]["total_people"])
+                if average_time[index]["total_people"] > 0
+                else 0
             )
 
         return steps
