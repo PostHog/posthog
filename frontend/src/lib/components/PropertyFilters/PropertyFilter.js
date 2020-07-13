@@ -40,7 +40,7 @@ function PropertyPaneContents({
                     filterOption={(input, option) => option.value?.toLowerCase().indexOf(input.toLowerCase()) >= 0}
                     onChange={(_, new_key) =>
                         setThisFilter(
-                            new_key.value.replace(/event_|person_|element_/gi, ''),
+                            new_key.value.replace(/^(event_|person_|element_)/gi, ''),
                             undefined,
                             operator,
                             new_key.type
@@ -117,7 +117,7 @@ function PropertyPaneContents({
                             setThisFilter(propkey, new_value, new_operator.value, type)
                         }}
                     >
-                        {Object.keys(operatorMap).map(operator => (
+                        {Object.keys(operatorMap).map((operator) => (
                             <Select.Option key={operator} value={operator}>
                                 {operatorMap[operator || 'exact']}
                             </Select.Option>
@@ -133,7 +133,7 @@ function PropertyPaneContents({
                         propertyKey={propkey}
                         operator={operator}
                         value={value}
-                        onSet={value => {
+                        onSet={(value) => {
                             onComplete()
                             setThisFilter(propkey, value, operator, type)
                         }}
