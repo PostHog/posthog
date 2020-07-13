@@ -15,7 +15,7 @@ export function RetentionTable({ logic }) {
         {
             title: 'Users',
             key: 'users',
-            render: (row) => row.values[0],
+            render: (row) => row.values[0]['count'],
         },
     ]
 
@@ -28,7 +28,7 @@ export function RetentionTable({ logic }) {
                     if (dayIndex >= row.values.length) {
                         return ''
                     }
-                    return renderPercentage(row.values[dayIndex], row.values[0])
+                    return renderPercentage(row.values[dayIndex]['count'], row.values[0]['count'])
                 },
             })
         })

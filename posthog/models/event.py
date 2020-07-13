@@ -35,6 +35,8 @@ import copy
 import datetime
 import re
 
+import pandas as pd
+
 attribute_regex = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 
 
@@ -211,12 +213,11 @@ class EventManager(models.QuerySet):
             SELECT
                 DATE_PART('days', first_date - %s) AS first_date,
                 DATE_PART('days', timestamp - first_date) AS date,
-                COUNT(DISTINCT "events"."person_id")
+                "events"."person_id"
             FROM ({events_query}) events
             LEFT JOIN ({first_date_query}) first_event_date
               ON (events.person_id = first_event_date.person_id)
             WHERE timestamp > first_date
-            GROUP BY date, first_date
         """
 
         full_query = full_query.format(
@@ -228,8 +229,20 @@ class EventManager(models.QuerySet):
                 full_query, (filters.date_from,) + events_query_params + first_date_params,
             )
             data = namedtuplefetchall(cursor)
+            df = pd.DataFrame(data)
+            unique = (
+                df.groupby(["date", "first_date"])["person_id"]
+                .nunique()
+                .to_frame()
+                .reset_index()
+                .rename(columns={"person_id": "count"})
+            )
+            results = unique.to_dict("records")
+            for result in results:
+                test = df[(df["first_date"] == result["first_date"]) & (df["date"] == result["date"])]
+                result.update({"people": test.person_id.unique()})
 
-        return data
+        return results
 
     def create(self, site_url: Optional[str] = None, *args: Any, **kwargs: Any):
         with transaction.atomic():
