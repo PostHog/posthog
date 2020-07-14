@@ -7,7 +7,7 @@ import { Link } from 'lib/components/Link'
 
 export function RetentionTable({ logic }) {
     const { retention, retentionLoading, peopleLoading, people } = useValues(logic)
-    const { loadPeople } = useActions(logic)
+    const { loadPeople, loadMore } = useActions(logic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
 
@@ -61,6 +61,8 @@ export function RetentionTable({ logic }) {
                             loadPeople(data.values[0].people)
                             setModalVisible(true)
                             selectRow(rowIndex)
+
+                            loadMore(rowIndex)
                         },
                     }
                 }}

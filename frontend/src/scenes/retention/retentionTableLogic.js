@@ -9,7 +9,8 @@ export const retentionTableLogic = kea({
             __default: {},
             loadRetention: async () => {
                 const urlParams = toParams({ properties: props.values.properties })
-                return await api.get(`api/action/retention/?${urlParams}`)
+                const result = await api.get(`api/action/retention/?${urlParams}`)
+                return result
             },
         },
         people: {
@@ -21,6 +22,7 @@ export const retentionTableLogic = kea({
     }),
     actions: () => ({
         setProperties: (properties) => ({ properties }),
+        loadMore: (selectedIndex) => ({ selectedIndex }),
     }),
     reducers: () => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
@@ -70,7 +72,10 @@ export const retentionTableLogic = kea({
             }
         },
     }),
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         setProperties: () => actions.loadRetention(),
+        loadMore: async ({ selectedIndex }) => {
+            await api.get(`api/person/references/${values.retention.data[selectedIndex].values[0].next}`)
+        },
     }),
 })

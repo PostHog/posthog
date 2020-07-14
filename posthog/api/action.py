@@ -356,16 +356,11 @@ def calculate_retention(filter: Filter, team: Team, total_days=11):
     labels_format = "%a. %-d %B"
     resultset = Event.objects.query_retention(filter, team)
 
-    by_dates = {
-        (int(row["first_date"]), int(row["date"])): {"count": row["count"], "people": row["people"]}
-        for row in resultset
-    }
-
     result = {
         "data": [
             {
                 "values": [
-                    by_dates.get((first_day, day), {"count": 0, "people": []}) for day in range(total_days - first_day)
+                    resultset.get((first_day, day), {"count": 0, "people": []}) for day in range(total_days - first_day)
                 ],
                 "label": "Day {}".format(first_day),
                 "date": (date_from + timedelta(days=first_day)).strftime(labels_format),

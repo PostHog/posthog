@@ -1,16 +1,10 @@
 import json
-import hashlib
 from posthog.models import Filter, DashboardItem
 from django.core.cache import cache
 import json
 from posthog.celery import update_cache_item
 from datetime import datetime
-
-
-def generate_cache_key(obj):
-    stringified = json.dumps(obj)
-    return hashlib.md5(stringified.encode("utf-8")).hexdigest()
-
+from .utils import generate_cache_key
 
 TRENDS_ENDPOINT = "Trends"
 FUNNEL_ENDPOINT = "Funnel"

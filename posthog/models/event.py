@@ -1,3 +1,4 @@
+from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import (
     Exists,
@@ -27,6 +28,8 @@ from .team import Team
 from .filter import Filter
 from .utils import namedtuplefetchall
 
+from posthog.utils import generate_cache_key
+
 from posthog.tasks.slack import post_event_to_slack
 from typing import Dict, Union, List, Optional, Any, Tuple
 
@@ -34,8 +37,8 @@ from collections import defaultdict
 import copy
 import datetime
 import re
-
-import pandas as pd
+import random
+import string
 
 attribute_regex = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 
@@ -194,7 +197,7 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def query_retention(self, filters, team, event="$pageview", people_offset=0) -> models.QuerySet:
+    def query_retention(self, filters, team, event="$pageview", people_offset=0) -> dict:
         filtered_events = (
             Event.objects.filter_by_event_with_people(event=event, team_id=team.id)
             .filter(filters.date_filter_Q)
@@ -212,11 +215,13 @@ class EventManager(models.QuerySet):
             SELECT
                 DATE_PART('days', first_date - %s) AS first_date,
                 DATE_PART('days', timestamp - first_date) AS date,
-                "events"."person_id"
+                COUNT(DISTINCT "events"."person_id"),
+                array_agg(DISTINCT "events"."person_id") as people
             FROM ({events_query}) events
             LEFT JOIN ({first_date_query}) first_event_date
               ON (events.person_id = first_event_date.person_id)
             WHERE timestamp > first_date
+            GROUP BY date, first_date
         """
 
         full_query = full_query.format(
@@ -229,36 +234,40 @@ class EventManager(models.QuerySet):
             )
             data = namedtuplefetchall(cursor)
 
-            df = pd.DataFrame(data)
-            unique = (
-                df.groupby(["date", "first_date"])["person_id"]
-                .nunique()
-                .to_frame()
-                .reset_index()
-                .rename(columns={"person_id": "count"})
+            scores = {}
+            for datum in data:
+                key = round(datum.first_date, 1)
+                if not scores.get(key, None):
+                    scores.update({key: {}})
+                for person in datum.people:
+                    if not scores[key].get(person, None):
+                        scores[key].update({person: 1})
+                    else:
+                        scores[key][person] += 1
+
+        by_dates = {}
+        for row in data:
+            people = sorted(row.people, key=lambda p: scores[round(row.first_date, 1)][int(p)], reverse=True)
+
+            random_key = "".join(
+                random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(10)
             )
-            results = unique.to_dict("records")
-            person_scores = {}
-            for result in results:
-                people = df[(df["first_date"] == result["first_date"]) & (df["date"] == result["date"])]
-                people_list = people.person_id.unique().tolist()
-                first_date_key = round(result["first_date"], 1)
-                if result["date"] == 0.0:
-                    for person in people_list:
-                        if not person_scores.get(first_date_key, None):
-                            person_scores.update({first_date_key: {}})
-                        if person_scores[first_date_key].get(person, None):
-                            person_scores[first_date_key][person] += 1
-                        else:
-                            person_scores[first_date_key].update({person: 1})
-                result.update({"people": people_list})
+            cache_key = generate_cache_key("{}{}{}".format(random_key, str(round(row.first_date, 0)), str(team.pk)))
+            cache.set(
+                cache_key, people, 600,
+            )
+            by_dates.update(
+                {
+                    (int(row.first_date), int(row.date)): {
+                        "count": row.count,
+                        "people": people[0:100],
+                        "offset": 100,
+                        "next": cache_key,
+                    }
+                }
+            )
 
-        for result in results:
-            result["people"] = sorted(
-                result["people"], key=lambda p: person_scores[round(result["first_date"], 1)][p], reverse=True
-            )[people_offset : people_offset + 100]
-
-        return results
+        return by_dates
 
     def create(self, site_url: Optional[str] = None, *args: Any, **kwargs: Any):
         with transaction.atomic():

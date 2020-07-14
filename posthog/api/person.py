@@ -9,6 +9,7 @@ from .event import EventSerializer
 from typing import Union
 from .base import CursorPagination as BaseCursorPagination
 import json
+from django.core.cache import cache
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -121,3 +122,11 @@ class PersonViewSet(viewsets.ModelViewSet):
         return response.Response(
             [{"name": convert_property_value(event[key]), "count": event["count"]} for event in people[:50]]
         )
+
+    @action(methods=["GET"], detail=False, url_path="references/(?P<reference_id>\d+)")
+    def references(self, request: request.Request, reference_id) -> response.Response:
+        cached_result = cache.get(reference_id)
+        if cached_result:
+            return response.Response(cached_result["result"])
+        else:
+            return response.Response([])
