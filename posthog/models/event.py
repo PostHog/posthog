@@ -369,7 +369,7 @@ class Event(models.Model):
         filtered_actions = [action for action in actions if getattr(event, "action_{}".format(action.pk))]
         return filtered_actions
 
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     objects: EventManager = EventManager.as_manager()  # type: ignore
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)

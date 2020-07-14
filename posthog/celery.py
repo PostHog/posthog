@@ -32,6 +32,9 @@ app.conf.broker_pool_limit = 0
 # Connect to our Redis instance to store the heartbeat
 redis_instance = redis.from_url(settings.REDIS_URL, db=0)
 
+# How frequently do we want to calculate action -> event relationships if async is enabled
+ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
+
 
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
@@ -43,13 +46,12 @@ def setup_periodic_tasks(sender, **kwargs):
     sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
     sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
 
-    action_event_mapping_interval_minutes = settings.ACTION_EVENT_MAPPING_INTERVAL_MINUTES
     if settings.ASYNC_EVENT_ACTION_MAPPING:
         sender.add_periodic_task(
-            (60 * action_event_mapping_interval_minutes),
+            (60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
             calculate_event_action_mappings.s(),
             name="calculate event action mappings",
-            expires=(60 * action_event_mapping_interval_minutes),
+            expires=(60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
         )
 
 
