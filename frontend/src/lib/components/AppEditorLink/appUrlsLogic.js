@@ -28,11 +28,19 @@ export const appUrlsLogic = kea({
                 let domainsSeen = []
                 return data
                     .filter((item) => {
-                        let domain = new URL(item.breakdown_value).hostname
-                        if (domainsSeen.indexOf(domain) > -1) return
-                        if (values.appUrls.filter((url) => url.indexOf(domain) > -1).length > 0) return
-                        domainsSeen.push(domain)
-                        return true
+                        try {
+                            let domain = new URL(item.breakdown_value).hostname
+                            if (domainsSeen.indexOf(domain) > -1) {
+                                return
+                            }
+                            if (values.appUrls.filter((url) => url.indexOf(domain) > -1).length > 0) {
+                                return
+                            }
+                            domainsSeen.push(domain)
+                            return true
+                        } catch (error) {
+                            return false
+                        }
                     })
                     .map((item) => item.breakdown_value)
                     .slice(0, 20)
