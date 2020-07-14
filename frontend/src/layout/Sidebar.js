@@ -29,7 +29,7 @@ import whiteLogo from './../../public/posthog-logo-white.svg'
 import { triggerResizeAfterADelay } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { HogIcon } from 'lib/icons/HogIcon'
-import { ToolbarModal } from '~/layout/ToolbarModal'
+import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -112,19 +112,17 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     mode="inline"
                 >
                     <Logo />
-                    {user.toolbar_mode === 'toolbar' ? (
-                        <Menu.Item
-                            key="toolbar"
-                            style={{ ...itemStyle, background: 'hsla(210, 10%, 12%, 1)' }}
-                            onClick={() => setToolbarModalOpen(true)}
-                            data-attr="menu-item-toolbar"
-                        >
-                            <HogIcon
-                                style={{ width: '1.4em', marginLeft: '-0.2em', marginRight: 'calc(10px - 0.2em)' }}
-                            />
-                            <span className="sidebar-label">Launch Toolbar!</span>
-                        </Menu.Item>
-                    ) : null}
+
+                    <Menu.Item
+                        key="toolbar"
+                        style={{ ...itemStyle, background: 'hsla(210, 10%, 12%, 1)' }}
+                        onClick={() => setToolbarModalOpen(true)}
+                        data-attr="menu-item-toolbar"
+                    >
+                        <HogIcon style={{ width: '1.4em', marginLeft: '-0.2em', marginRight: 'calc(10px - 0.2em)' }} />
+                        <span className="sidebar-label">Launch Toolbar!</span>
+                    </Menu.Item>
+
                     {pinnedDashboards.map((dashboard, index) => (
                         <Menu.Item
                             key={`dashboard-${dashboard.id}`}
@@ -246,7 +244,12 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     </Menu.Item>
                 </Menu>
 
-                <Modal visible={toolbarModalOpen} footer={null} onCancel={() => setToolbarModalOpen(false)}>
+                <Modal
+                    bodyStyle={{ padding: 0 }}
+                    visible={toolbarModalOpen}
+                    footer={null}
+                    onCancel={() => setToolbarModalOpen(false)}
+                >
                     <ToolbarModal />
                 </Modal>
 
