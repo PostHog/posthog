@@ -28,7 +28,7 @@ export function HogIcon({ withText = true, className, currentColor, style, ...pr
             height={props.height || (withText ? '39' : '34')}
             style={style}
             viewBox="0 0 58 34"
-            fill={currentColor ? "current-color" : "none"}
+            fill={currentColor ? 'current-color' : 'none'}
             xmlns="http://www.w3.org/2000/svg"
             className={className || 'anticon'}
         >
