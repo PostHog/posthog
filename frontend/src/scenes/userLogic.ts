@@ -27,16 +27,15 @@ export const userLogic = kea<userLogicType<UserType>>({
         afterMount: actions.loadUser,
     }),
 
-    selectors: ({ selectors, values }) => ({
+    selectors: ({ selectors }) => ({
         eventProperties: [
-            () => [selectors.user],
-            (user: typeof values.user) =>
-                user?.team.event_properties.map((property) => ({ value: property, label: property })),
+            (s) => [s.user],
+            (user) => user?.team.event_properties.map((property) => ({ value: property, label: property })) || [],
         ],
-        eventNames: [() => [selectors.user], (user: typeof values.user) => user?.team.event_names],
+        eventNames: [() => [selectors.user], (user) => user?.team.event_names],
         customEventNames: [
             () => [selectors.user],
-            (user: typeof values.user) => {
+            (user) => {
                 const eventNames = user?.team.event_names
                 const regex = new RegExp('^[^$].*')
                 const filtered = eventNames?.filter((event) => event.match(regex))
@@ -45,7 +44,7 @@ export const userLogic = kea<userLogicType<UserType>>({
         ],
         eventNamesGrouped: [
             () => [selectors.user],
-            (user: typeof values.user) => {
+            (user) => {
                 const data = [
                     { label: 'Custom events', options: [] as { label: string; value: string }[] },
                     { label: 'PostHog events', options: [] as { label: string; value: string }[] },
