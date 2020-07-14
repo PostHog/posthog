@@ -96,11 +96,15 @@ export function LineGraph({
 
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
+        let backgroundColor = (type === 'bar' || type === 'doughnut') && colorList[index]
+        // Alpha can be added to hex values to obtain a lighter set of colors
+        // 1A as suffix means the alpha is set to 10% or opacity is 0.1
+        if (isStacked) backgroundColor = `${backgroundColor}1A`
 
         return {
             borderColor: colorList[index],
-            backgroundColor: (type === 'bar' || type === 'doughnut') && colorList[index],
-            fill: false,
+            backgroundColor,
+            fill: isStacked,
             borderWidth: 1,
             pointHitRadius: 8,
             ...dataset,
