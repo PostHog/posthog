@@ -16,11 +16,11 @@ export interface Props {
 }
 
 export function HogIcon({ withText = true, className, currentColor, style, ...props }: Props): React.ReactNode {
-    const color1 = props.color || props.color1 || '#1D4AFF'
-    const color2 = props.color || props.color2 || '#F54E00'
-    const color3 = props.color || props.color3 || '#F9BD2B'
-    const faceColor = props.color || props.faceColor || 'black'
-    const eyeColor = props.color || props.eyeColor || 'white'
+    const color1 = props.color1 || props.color || '#1D4AFF'
+    const color2 = props.color2 || props.color || '#F54E00'
+    const color3 = props.color3 || props.color || '#F9BD2B'
+    const faceColor = props.faceColor || props.color || 'black'
+    const eyeColor = props.eyeColor || props.color || 'white'
 
     return (
         <svg
