@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models, transaction
 from django.db.models import (
     Exists,
@@ -144,6 +145,15 @@ class EventManager(models.QuerySet):
             return {}
         return {"event": action_step.event}
 
+    def filter_by_period(self, start, end):
+        if not start and not end:
+            return {}
+        if not start:
+            return {"created_at__lte": end}
+        if not end:
+            return {"created_at__gte": start}
+        return {"created_at__gte": start, "created_at__lte": end}
+
     def add_person_id(self, team_id: int):
         return self.annotate(
             person_id=Subquery(
@@ -153,7 +163,7 @@ class EventManager(models.QuerySet):
             )
         )
 
-    def query_db_by_action(self, action, order_by="-timestamp") -> models.QuerySet:
+    def query_db_by_action(self, action, order_by="-timestamp", start=None, end=None) -> models.QuerySet:
         events = self
         any_step = Q()
         steps = action.steps.all()
@@ -167,7 +177,8 @@ class EventManager(models.QuerySet):
                     Filter(data={"properties": step.properties}).properties_to_Q(team_id=action.team_id),
                     pk=OuterRef("id"),
                     **self.filter_by_event(step),
-                    **self.filter_by_element(model_to_dict(step), team_id=action.team_id)
+                    **self.filter_by_element(model_to_dict(step), team_id=action.team_id),
+                    **self.filter_by_period(start, end)
                 )
                 .only("id")
             )
@@ -244,17 +255,21 @@ class EventManager(models.QuerySet):
                     ).hash
             event = super().create(*args, **kwargs)
 
-            should_post_to_slack = False
-            relations = []
-            for action in event.actions:
-                relations.append(action.events.through(action_id=action.pk, event_id=event.pk))
-                if action.post_to_slack:
-                    should_post_to_slack = True
+            # Matching actions to events can get very expensive to do as events are streaming in
+            # In a few cases we have had it OOM Postgres with the query it is running
+            # Short term solution is to have this be configurable to be run in batch
+            if not settings.ASYNC_EVENT_ACTION_MAPPING:
+                should_post_to_slack = False
+                relations = []
+                for action in event.actions:
+                    relations.append(action.events.through(action_id=action.pk, event_id=event.pk))
+                    if action.post_to_slack:
+                        should_post_to_slack = True
 
-            Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
-            team = kwargs.get("team", event.team)
-            if should_post_to_slack and team and team.slack_incoming_webhook:
-                post_event_to_slack.delay(event.pk, site_url)
+                Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
+                team = kwargs.get("team", event.team)
+                if should_post_to_slack and team and team.slack_incoming_webhook:
+                    post_event_to_slack.delay(event.pk, site_url)
 
             return event
 
@@ -354,6 +369,7 @@ class Event(models.Model):
         filtered_actions = [action for action in actions if getattr(event, "action_{}".format(action.pk))]
         return filtered_actions
 
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     objects: EventManager = EventManager.as_manager()  # type: ignore
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)

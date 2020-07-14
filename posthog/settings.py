@@ -79,6 +79,11 @@ if get_bool_from_env("IS_BEHIND_PROXY", False):
     USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
+ASYNC_EVENT_ACTION_MAPPING = False
+
+if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
+    ASYNC_EVENT_ACTION_MAPPING = True
+
 # IP block settings
 ALLOWED_IP_BLOCKS = get_list(os.environ.get("ALLOWED_IP_BLOCKS", ""))
 TRUSTED_PROXIES = os.environ.get("TRUSTED_PROXIES", False)

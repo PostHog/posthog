@@ -1,5 +1,4 @@
 from django.db.models.expressions import Subquery
-from posthog.models import person
 from posthog.models import (
     Event,
     Team,
@@ -46,14 +45,10 @@ from datetime import timedelta
 import pandas as pd
 import datetime
 import json
-import pytz
 import copy
 import numpy as np
 from dateutil.relativedelta import relativedelta
-import dateutil
 from .person import PersonSerializer
-from urllib.parse import urlsplit
-from django.core.cache import cache
 from posthog.decorators import cached_function, TRENDS_ENDPOINT
 
 FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "M"}
