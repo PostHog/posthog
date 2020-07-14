@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict
 from django.db.models import Q
 from rest_framework import status
 from .base import BaseTest
