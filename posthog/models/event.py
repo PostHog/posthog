@@ -194,7 +194,7 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def query_retention(self, filters, team, event="$pageview") -> models.QuerySet:
+    def query_retention(self, filters, team, event="$pageview", people_offset=0) -> models.QuerySet:
         filtered_events = (
             Event.objects.add_person_id(team_id=team.id)
             .filter(filters.date_filter_Q)
@@ -229,6 +229,7 @@ class EventManager(models.QuerySet):
                 full_query, (filters.date_from,) + events_query_params + first_date_params,
             )
             data = namedtuplefetchall(cursor)
+
             df = pd.DataFrame(data)
             unique = (
                 df.groupby(["date", "first_date"])["person_id"]
@@ -238,9 +239,25 @@ class EventManager(models.QuerySet):
                 .rename(columns={"person_id": "count"})
             )
             results = unique.to_dict("records")
+            person_scores = {}
             for result in results:
-                test = df[(df["first_date"] == result["first_date"]) & (df["date"] == result["date"])]
-                result.update({"people": test.person_id.unique().tolist()[:100]})
+                people = df[(df["first_date"] == result["first_date"]) & (df["date"] == result["date"])]
+                people_list = people.person_id.unique().tolist()
+                first_date_key = round(result["first_date"], 1)
+                if result["date"] == 0.0:
+                    for person in people_list:
+                        if not person_scores.get(first_date_key, None):
+                            person_scores.update({first_date_key: {}})
+                        if person_scores[first_date_key].get(person, None):
+                            person_scores[first_date_key][person] += 1
+                        else:
+                            person_scores[first_date_key].update({person: 1})
+                result.update({"people": people_list})
+
+        for result in results:
+            result["people"] = sorted(
+                result["people"], key=lambda p: person_scores[round(result["first_date"], 1)][p], reverse=True
+            )[people_offset : people_offset + 100]
 
         return results
 
