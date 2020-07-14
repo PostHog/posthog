@@ -69,7 +69,7 @@ export function DashboardItems({ logic }) {
                     isDragging.current = false
                 }, 250)
             }}
-            draggableCancel=".anticon,.ant-dropdown,table"
+            draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content"
         >
             {items.map((item, index) => (
                 <div key={item.id} className="dashboard-item-wrapper">

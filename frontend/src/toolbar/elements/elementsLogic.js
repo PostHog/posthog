@@ -246,12 +246,6 @@ export const elementsLogic = kea({
             },
         ],
 
-        actionLabelsToDisplay: [
-            (s) => [s.elementsWithActions, s.inspectEnabled, s.displayActionElements],
-            (elementsWithActions, inspectEnabled, displayActionElements) =>
-                inspectEnabled && !displayActionElements ? elementsWithActions : [],
-        ],
-
         selectedElementMeta: [
             (s) => [s.selectedElement, s.elementMap, s.actionsForElementMap],
             (selectedElement, elementMap, actionsForElementMap) => {

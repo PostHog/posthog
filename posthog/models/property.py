@@ -82,6 +82,8 @@ class PropertyMixin:
         for property in [prop for prop in self.properties if prop.type == "event"]:
             filters &= property.property_to_Q()
 
+        # importing from .event and .cohort below to avoid importing from partially initialized modules
+
         element_properties = [prop for prop in self.properties if prop.type == "element"]
         if len(element_properties) > 0:
             from .event import Event
@@ -98,6 +100,19 @@ class PropertyMixin:
                 )
             )
 
+        cohort_properties = [prop for prop in self.properties if prop.type == "cohort"]
+        if len(cohort_properties) > 0:
+            from .cohort import CohortPeople
+
+            for item in cohort_properties:
+                if item.key == "id":
+                    filters &= Q(
+                        Exists(
+                            CohortPeople.objects.filter(
+                                cohort_id=int(item.value), person_id=OuterRef("person_id"),
+                            ).only("id")
+                        )
+                    )
         return filters
 
     def _parse_properties(self, properties: Optional[Any]) -> List[Property]:

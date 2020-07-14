@@ -28,6 +28,7 @@ export const actionsTabLogic = kea({
         deleteAction: true,
         showButtonActions: true,
         hideButtonActions: true,
+        setShowActionsTooltip: (showActionsTooltip) => ({ showActionsTooltip }),
     },
 
     reducers: {
@@ -64,6 +65,12 @@ export const actionsTabLogic = kea({
             0,
             {
                 incrementCounter: (state) => state + 1,
+            },
+        ],
+        showActionsTooltip: [
+            false,
+            {
+                setShowActionsTooltip: (_, { showActionsTooltip }) => showActionsTooltip,
             },
         ],
     },
@@ -164,6 +171,18 @@ export const actionsTabLogic = kea({
         },
         showButtonActions: () => {
             actionsLogic.actions.getActions()
+        },
+        hideButtonActions: () => {
+            actions.setShowActionsTooltip(false)
+        },
+        [actionsLogic.actions.getActionsSuccess]: () => {
+            actions.setShowActionsTooltip(true)
+        },
+        setShowActionsTooltip: async ({ showActionsTooltip }, breakpoint) => {
+            if (showActionsTooltip) {
+                await breakpoint(1000)
+                actions.setShowActionsTooltip(false)
+            }
         },
         [toolbarTabLogic.actions.setTab]: ({ tab }) => {
             if (tab === 'actions') {
