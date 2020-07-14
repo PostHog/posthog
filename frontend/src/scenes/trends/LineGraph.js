@@ -4,7 +4,7 @@ import Chart from 'chart.js'
 import PropTypes from 'prop-types'
 import { operatorMap } from '~/lib/utils'
 import _ from 'lodash'
-import { getChartColors } from 'lib/colors'
+import { getChartColors, setOpacityToHexColor } from 'lib/colors'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
@@ -97,9 +97,7 @@ export function LineGraph({
     function processDataset(dataset, index) {
         const colorList = getChartColors(color || 'white')
         let backgroundColor = (type === 'bar' || type === 'doughnut') && colorList[index]
-        // Alpha can be added to hex values to obtain a lighter set of colors
-        // 1A as suffix means the alpha is set to 10% or opacity is 0.1
-        if (isStacked) backgroundColor = `${backgroundColor}1A`
+        if (isStacked) backgroundColor = setOpacityToHexColor(colorList[index], 0.1)
 
         return {
             borderColor: colorList[index],
