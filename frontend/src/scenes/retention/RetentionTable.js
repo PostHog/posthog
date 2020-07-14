@@ -19,7 +19,7 @@ export function RetentionTable({ logic }) {
         },
     ]
 
-    if (!retentionLoading) {
+    if (!retentionLoading && retention.data) {
         retention.data[0].values.forEach((_, dayIndex) => {
             columns.push({
                 title: retention.data[dayIndex].label,
