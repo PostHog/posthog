@@ -3,12 +3,13 @@ import { PropertyFilter } from './PropertyFilter'
 import { Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
+import { cohortsModel } from '../../../models/cohortsModel'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { Popover, Row } from 'antd'
 import { CloseButton, operatorMap, isOperatorFlag } from 'lib/utils'
 import _ from 'lodash'
 
-const FilterRow = React.memo(function FilterRow({ item, index, filters, logic, pageKey }) {
+const FilterRow = React.memo(function FilterRow({ item, index, filters, cohorts, logic, pageKey }) {
     const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
     const { key, value, operator, type } = item
@@ -33,15 +34,17 @@ const FilterRow = React.memo(function FilterRow({ item, index, filters, logic, p
                 {key ? (
                     <Button type="primary" shape="round" style={{ maxWidth: '85%' }}>
                         <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key}{' '}
-                            {isOperatorFlag(operator)
-                                ? operatorMap[operator]
-                                : `${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${value || ''}`}
+                            {type === 'cohort'
+                                ? cohorts?.find((cohort) => cohort.id === value)?.name || value
+                                : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
+                                  (isOperatorFlag(operator)
+                                      ? ` ${operatorMap[operator]}`
+                                      : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${value || ''}`)}
                         </span>
                     </Button>
                 ) : (
                     <Button type="default" shape="round" data-attr={'new-prop-filter-' + pageKey}>
-                        {'New Filter'}
+                        Add filter
                     </Button>
                 )}
             </Popover>
@@ -61,6 +64,7 @@ const FilterRow = React.memo(function FilterRow({ item, index, filters, logic, p
 export function PropertyFilters({ endpoint, propertyFilters, onChange, pageKey }) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
+    const { cohorts } = useValues(cohortsModel)
 
     return (
         <div className="column" style={{ marginBottom: '15px' }}>
@@ -73,6 +77,7 @@ export function PropertyFilters({ endpoint, propertyFilters, onChange, pageKey }
                             item={item}
                             index={index}
                             filters={filters}
+                            cohorts={cohorts}
                             pageKey={pageKey}
                         />
                     )

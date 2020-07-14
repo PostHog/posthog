@@ -6,25 +6,27 @@ labels: bug
 
 ---
 
-**Describe the bug**
+### Bug description
 
 
 
-**To Reproduce**
+### How to reproduce
+
 1. 
 2. 
 3. 
 
-**Expected behavior**
+### Expected behavior
 
 
 
-**Screenshots**
+### Screenshots
 
 
 
-**Hosted or self hosted?:**
-- hosted/self-hosted
-- (if self-hosted) what version?
+### Environment
 
-**Additional context**
+- PostHog cloud or self-managed?
+- PostHog version/commit
+
+### Additional context

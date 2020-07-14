@@ -195,9 +195,13 @@ export const keyMapping = {
     },
 }
 
-export function PropertyKeyInfo({ value, type }) {
-    let data = keyMapping[type === 'element' ? type : 'event'][value]
+export function PropertyKeyInfo({ value, type = 'event' }) {
+    let data
+    if (type === 'cohort') return value.name
+    else data = keyMapping[type][value]
+
     if (!data) return value
+
     return (
         <Popover
             overlayStyle={{ maxWidth: 500 }}
