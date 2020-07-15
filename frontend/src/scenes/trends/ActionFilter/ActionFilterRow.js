@@ -11,12 +11,12 @@ import { DownOutlined } from '@ant-design/icons'
 
 const MATHS = {
     total: {
-        name: 'Total',
+        name: 'Total volume',
         description: (
             <>
                 Total event volume.
                 <br />
-                If a user performs an event 3 times on one day it counts as 3.
+                If a user performs an event 3 times on a given day, it counts as 3.
             </>
         ),
         onProperty: false,
@@ -27,7 +27,7 @@ const MATHS = {
             <>
                 Daily active users.
                 <br />
-                If a user performs an event 3 times on one day it counts only as 1.
+                If a user performs an event 3 times on a given day, it counts only as 1.
             </>
         ),
         onProperty: false,
@@ -80,7 +80,6 @@ const MATHS = {
 
 const determineFilterLabel = (visible, filter) => {
     if (visible) return 'Hide Filters'
-
     if (filter.properties && Object.keys(filter.properties).length > 0) {
         return (
             Object.keys(filter.properties).length + ' Filter' + (Object.keys(filter.properties).length === 1 ? '' : 's')
@@ -209,7 +208,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
 function MathSelector(props) {
     return (
         <Dropdown
-            title={MATHS[props.math]?.name || 'Total'}
+            title={MATHS[props.math || 'total']?.name}
             buttonClassName="btn btn-sm btn-light ml-2"
             data-attr={`math-selector-${props.index}`}
         >
@@ -232,7 +231,7 @@ function MathSelector(props) {
 function MathPropertySelector(props) {
     return (
         <Dropdown
-            title={props.mathProperty || <i>property</i>}
+            title={props.mathProperty || <span style={{ fontWeight: 500 }}>Select property</span>}
             buttonClassName="btn btn-sm btn-light ml-2"
             data-attr={`math-property-selector-${props.index}`}
         >
@@ -244,6 +243,8 @@ function MathPropertySelector(props) {
                         title={
                             <>
                                 Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>.
+                                Note that due to no type constraints on event properties, <code>{label}</code> may not
+                                be a number on all or even any events.
                             </>
                         }
                         key={`math-property-${value}-${props.index}`}
