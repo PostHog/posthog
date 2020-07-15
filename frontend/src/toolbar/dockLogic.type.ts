@@ -1,4 +1,4 @@
-// Auto-generated with kea-typegen v0.0.11. DO NOT EDIT!
+// Auto-generated with kea-typegen v0.0.12. DO NOT EDIT!
 
 export interface dockLogicType<ToolbarMode,  AnimationState> {
     actionCreators: {
@@ -168,12 +168,12 @@ export interface dockLogicType<ToolbarMode,  AnimationState> {
         dockTopMargin: any;
     };
     __selectorTypeHelp: {
-        isAnimating: (arg0: AnimationState, arg1: AnimationState) => boolean;
-        padding: (arg0: any) => number;
-        bodyWidth: (arg0: any, arg1: number, arg2: number) => number;
-        zoom: (arg0: number, arg1: any) => number;
-        domZoom: (arg0: number, arg1: ToolbarMode) => number;
-        domPadding: (arg0: number, arg1: ToolbarMode) => number;
-        dockTopMargin: (arg0: any) => any;
+        isAnimating: (arg1: AnimationState, arg2: AnimationState) => boolean;
+        padding: (arg1: any) => number;
+        bodyWidth: (arg1: any, arg2: number, arg3: number) => number;
+        zoom: (arg1: number, arg2: any) => number;
+        domZoom: (arg1: number, arg2: ToolbarMode) => number;
+        domPadding: (arg1: number, arg2: ToolbarMode) => number;
+        dockTopMargin: (arg1: any) => any;
     };
 }

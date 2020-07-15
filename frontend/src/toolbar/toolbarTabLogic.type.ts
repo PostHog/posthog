@@ -1,4 +1,4 @@
-// Auto-generated with kea-typegen v0.0.11. DO NOT EDIT!
+// Auto-generated with kea-typegen v0.0.12. DO NOT EDIT!
 
 export interface toolbarTabLogicType {
     actionCreators: {
