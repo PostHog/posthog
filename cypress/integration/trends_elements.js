@@ -16,7 +16,7 @@ describe('Trends actions & events', () => {
 
     it('DAU on 1 element', () => {
         cy.get('[data-attr=math-selector-0]').click()
-        cy.get('[data-attr=dau-option-0]').click()
+        cy.get('[data-attr=math-dau-0]').click()
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 

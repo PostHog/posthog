@@ -211,7 +211,7 @@ function MathSelector(props) {
         <Dropdown
             title={MATHS[props.math]?.name || 'Total'}
             buttonClassName="btn btn-sm btn-light ml-2"
-            data-attr={'math-selector-' + props.index}
+            data-attr={`math-selector-${props.index}`}
         >
             {Object.entries(MATHS).map(([key, value]) => (
                 <Tooltip placement="right" title={value.description} key={`math-${key}`}>
@@ -219,7 +219,7 @@ function MathSelector(props) {
                         href="#"
                         className="dropdown-item"
                         onClick={() => props.onMathSelect(props.index, key)}
-                        data-attr={`math-${key}`}
+                        data-attr={`math-${key}-${props.index}`}
                     >
                         {value.name}
                     </a>
@@ -234,7 +234,7 @@ function MathPropertySelector(props) {
         <Dropdown
             title={props.mathProperty || <i>property</i>}
             buttonClassName="btn btn-sm btn-light ml-2"
-            data-attr={'math-property-selector-' + props.index}
+            data-attr={`math-property-selector-${props.index}`}
         >
             {props.properties
                 .filter(({ value }) => value[0] !== '$' && value !== 'distinct_id')
@@ -246,13 +246,13 @@ function MathPropertySelector(props) {
                                 Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>.
                             </>
                         }
-                        key={`math-property-${value}`}
+                        key={`math-property-${value}-${props.index}`}
                     >
                         <a
                             href="#"
                             className="dropdown-item"
                             onClick={() => props.onMathPropertySelect(props.index, value)}
-                            data-attr={`math-property-${value}`}
+                            data-attr={`math-property-${value}-${props.index}`}
                         >
                             {label}
                         </a>
