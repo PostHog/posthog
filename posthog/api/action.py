@@ -31,6 +31,10 @@ from rest_framework.decorators import action
 from django.db.models import (
     Q,
     Count,
+    Sum,
+    Avg,
+    Min,
+    Max,
     Prefetch,
     functions,
     QuerySet,
@@ -38,7 +42,10 @@ from django.db.models import (
     Exists,
     Value,
     BooleanField,
+    FloatField,
 )
+from django.db.models.expressions import RawSQL
+from django.db.models.functions import Cast
 from django.db import connection
 from django.utils.timezone import now
 from typing import Any, List, Dict, Optional, Tuple, Union
@@ -518,6 +525,22 @@ def aggregate_by_interval(
 def process_math(query: QuerySet, entity: Entity):
     if entity.math == "dau":
         query = query.annotate(count=Count("person_id", distinct=True))
+    elif entity.math == "sum":
+        query = query.annotate(
+            count=Sum(Cast(RawSQL("properties->>%s", (entity.math_property,)), output_field=FloatField()))
+        )
+    elif entity.math == "avg":
+        query = query.annotate(
+            count=Avg(Cast(RawSQL("properties->>%s", (entity.math_property,)), output_field=FloatField()))
+        )
+    elif entity.math == "min":
+        query = query.annotate(
+            count=Min(Cast(RawSQL("properties->>%s", (entity.math_property,)), output_field=FloatField()))
+        )
+    elif entity.math == "max":
+        query = query.annotate(
+            count=Max(Cast(RawSQL("properties->>%s", (entity.math_property,)), output_field=FloatField()))
+        )
     return query
 
 
