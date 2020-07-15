@@ -17,10 +17,15 @@ export const retentionTableLogic = kea({
             __default: {},
             loadPeople: async (rowIndex) => {
                 const people = values.retention.data[rowIndex].values[0].people
+
                 if (people.length === 0) return []
+                let results = (await api.get('api/person/?id=' + people.join(','))).results
+                results.sort(function (a, b) {
+                    return people.indexOf(a.id) - people.indexOf(b.id)
+                })
                 return {
                     ...values.people,
-                    [`${rowIndex}`]: (await api.get('api/person/?id=' + people.join(','))).results,
+                    [`${rowIndex}`]: results,
                 }
             },
         },
@@ -126,6 +131,9 @@ export const retentionTableLogic = kea({
         loadMorePeople: async ({ selectedIndex, peopleIds }) => {
             if (peopleIds.length === 0) return []
             const peopleResult = (await api.get('api/person/?id=' + peopleIds.join(','))).results
+            peopleResult.sort(function (a, b) {
+                return peopleIds.indexOf(a.id) - peopleIds.indexOf(b.id)
+            })
             actions.updatePeople(selectedIndex, peopleResult)
         },
     }),

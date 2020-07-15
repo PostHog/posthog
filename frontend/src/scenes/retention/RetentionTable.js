@@ -42,7 +42,6 @@ export function RetentionTable({ logic }) {
     function dismissModal() {
         setModalVisible(false)
     }
-
     return (
         <>
             <PropertyFilters pageKey="RetentionTable" />
@@ -110,16 +109,18 @@ export function RetentionTable({ logic }) {
                                                 <td className="text-overflow" style={{ minWidth: 200 }}>
                                                     <Link to={`/person_by_id/${person.id}`}>{person.name}</Link>
                                                 </td>
-                                                {retention.data[selectedRow].values.map((step, index) => (
-                                                    <td
-                                                        key={index}
-                                                        className={
-                                                            step.people.indexOf(person.id) > -1
-                                                                ? 'retention-success'
-                                                                : 'retention-dropped'
-                                                        }
-                                                    />
-                                                ))}
+                                                {retention.data[selectedRow].values.map((step, index) => {
+                                                    return (
+                                                        <td
+                                                            key={index}
+                                                            className={
+                                                                step.people.indexOf(person.id) > -1
+                                                                    ? 'retention-success'
+                                                                    : 'retention-dropped'
+                                                            }
+                                                        />
+                                                    )
+                                                })}
                                             </tr>
                                         ))}
                                 </tbody>
