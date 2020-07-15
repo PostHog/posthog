@@ -6049,10 +6049,10 @@ kea-router@^0.4.0:
   dependencies:
     url-pattern "^1.0.3"
 
-kea-typegen@^0.0.10:
-  version "0.0.10"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.0.10.tgz#2e3c2430fca5e203de664599c0e7213ce6081adf"
-  integrity sha512-tUj4durdQjb8Oshyqx7BbayCncSXRPptNVhnavaWIWSKc3KIBuYczEn/ZI/EbcbbglKxKM8ar0AIneGg6s7/1Q==
+kea-typegen@^0.0.12:
+  version "0.0.12"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.0.12.tgz#53ff69ce8c4fdc8841da8df91ba90ed19ddbd4d2"
+  integrity sha512-bohPxr8GnSN/rykai9sPh8n5axK/DZYMzTkslwYQO2Y6qmr8JroleycG8z5QtPNuZvlEv7fWEUdswkck4Jmg1g==
   dependencies:
     yargs "^15.4.0"
 

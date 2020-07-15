@@ -7,7 +7,7 @@
       "~/*": ["./src/*"]
     },
     "jsx": "react",
-    "strict": true
+    "strict": false
   },
   "include": ["frontend/**/*"],
   "exclude": ["node_modules/**/*", "staticfiles/**/*", "frontend/dist/**/*"]
