@@ -245,7 +245,7 @@ class EventManager(models.QuerySet):
             )
             data = namedtuplefetchall(cursor)
 
-            scores = {}
+            scores: dict = {}
             for datum in data:
                 key = round(datum.first_date, 1)
                 if not scores.get(key, None):

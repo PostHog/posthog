@@ -131,13 +131,13 @@ class PersonViewSet(viewsets.ModelViewSet):
         if not reference_id or not offset:
             return response.Response({})
 
-        offset = int(offset)
+        offset_value = int(offset)
         cached_result = cache.get(reference_id)
         if cached_result:
             return response.Response(
                 {
-                    "result": cached_result[offset : offset + 100],
-                    "offset": offset + 100 if len(cached_result) > offset + 100 else None,
+                    "result": cached_result[offset_value : offset_value + 100],
+                    "offset": offset_value + 100 if len(cached_result) > offset_value + 100 else None,
                 }
             )
         else:
