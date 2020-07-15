@@ -1,4 +1,4 @@
-// Auto-generated with kea-typegen v0.0.7. DO NOT EDIT!
+// Auto-generated with kea-typegen v0.0.10. DO NOT EDIT!
 
 export interface userLogicType<UserType> {
     actionCreators: {
