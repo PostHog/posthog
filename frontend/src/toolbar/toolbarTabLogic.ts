@@ -1,9 +1,10 @@
-import { kea } from 'kea'
+import { kea } from '../scenes/typedKea'
 import { dockLogic } from '~/toolbar/dockLogic'
+import { toolbarTabLogicType } from '~/toolbar/toolbarTabLogic.type'
 
-export const toolbarTabLogic = kea({
+export const toolbarTabLogic = kea<toolbarTabLogicType>({
     actions: () => ({
-        setTab: (tab) => ({ tab }),
+        setTab: (tab: string) => ({ tab }),
     }),
     reducers: () => ({
         tab: [
