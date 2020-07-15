@@ -2,20 +2,12 @@ from collections import defaultdict
 import re
 
 from django.db import models
-from django.contrib.postgres.fields import JSONField, ArrayField
+from django.contrib.postgres.fields import JSONField
 from django.db import connection
 from django.db.models import (
-    Exists,
     Min,
-    OuterRef,
-    Q,
-    Subquery,
-    F,
-    signals,
-    Prefetch,
     IntegerField,
     Value,
-    QuerySet,
 )
 from typing import List, Dict, Any, Optional
 
@@ -174,7 +166,7 @@ class Funnel(models.Model):
             people = namedtuplefetchall(cursor)
         steps = []
 
-        average_time = {}
+        average_time: Dict[int, Dict[str, Any]] = {}
         for index, funnel_step in enumerate(filter.entities, start=0):
             if index != 0:
                 average_time[index] = {"total_time": timedelta(0), "total_people": 0}
