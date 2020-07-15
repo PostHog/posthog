@@ -243,8 +243,8 @@ function MathPropertySelector(props) {
                         title={
                             <>
                                 Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>.
-                                Note that due to no type constraints on event properties, <code>{label}</code> may not
-                                be a number on all or even any applicable events.
+                                Note that only events where <code>{label}</code> is set and a number will be taken into
+                                account.
                             </>
                         }
                         key={`math-property-${value}-${props.index}`}
