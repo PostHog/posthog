@@ -4,25 +4,34 @@ import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 
 export const retentionTableLogic = kea({
-    loaders: (props) => ({
+    loaders: ({ values }) => ({
         retention: {
             __default: {},
             loadRetention: async () => {
-                const urlParams = toParams({ properties: props.values.properties })
+                const urlParams = toParams({ properties: values.properties })
                 const result = await api.get(`api/action/retention/?${urlParams}`)
                 return result
             },
         },
         people: {
-            loadPeople: async (people) => {
+            __default: {},
+            loadPeople: async (rowIndex) => {
+                const people = values.retention.data[rowIndex].values[0].people
                 if (people.length === 0) return []
-                return (await api.get('api/person/?id=' + people.join(','))).results
+                return {
+                    ...values.people,
+                    [`${rowIndex}`]: (await api.get('api/person/?id=' + people.join(','))).results,
+                }
             },
         },
     }),
     actions: () => ({
         setProperties: (properties) => ({ properties }),
         loadMore: (selectedIndex) => ({ selectedIndex }),
+        loadMorePeople: (selectedIndex, peopleIds) => ({ selectedIndex, peopleIds }),
+        updatePeople: (selectedIndex, people) => ({ selectedIndex, people }),
+        updateRetention: (retention) => ({ retention }),
+        updateLoadingMore: (status) => ({ status }),
     }),
     reducers: () => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
@@ -30,6 +39,21 @@ export const retentionTableLogic = kea({
             [],
             {
                 setProperties: (_, { properties }) => properties,
+            },
+        ],
+        people: {
+            updatePeople: (state, { selectedIndex, people }) => ({
+                ...state,
+                [`${selectedIndex}`]: [...state[selectedIndex], ...people],
+            }),
+        },
+        retention: {
+            updateRetention: (_, { retention }) => retention,
+        },
+        loadingMore: [
+            false,
+            {
+                updateLoadingMore: (state, { status }) => status,
             },
         ],
     }),
@@ -75,7 +99,34 @@ export const retentionTableLogic = kea({
     listeners: ({ actions, values }) => ({
         setProperties: () => actions.loadRetention(),
         loadMore: async ({ selectedIndex }) => {
-            await api.get(`api/person/references/${values.retention.data[selectedIndex].values[0].next}`)
+            actions.updateLoadingMore(true)
+            let peopleToAdd = []
+            for (const [index, { next, offset }] of values.retention.data[selectedIndex].values.entries()) {
+                if (next) {
+                    const params = toParams({ id: next, offset })
+                    const referenceResults = await api.get(`api/person/references/?${params}`)
+                    let retentionCopy = { ...values.retention }
+                    if (referenceResults.offset) {
+                        retentionCopy.data[selectedIndex].values[index].offset = referenceResults.offset
+                    } else {
+                        retentionCopy.data[selectedIndex].values[index].next = null
+                    }
+                    retentionCopy.data[selectedIndex].values[index].people = [
+                        ...retentionCopy.data[selectedIndex].values[index].people,
+                        ...referenceResults.result,
+                    ]
+                    actions.updateRetention(retentionCopy)
+                    if (index === 0) peopleToAdd = referenceResults.result
+                }
+            }
+
+            actions.loadMorePeople(selectedIndex, peopleToAdd)
+            actions.updateLoadingMore(false)
+        },
+        loadMorePeople: async ({ selectedIndex, peopleIds }) => {
+            if (peopleIds.length === 0) return []
+            const peopleResult = (await api.get('api/person/?id=' + peopleIds.join(','))).results
+            actions.updatePeople(selectedIndex, peopleResult)
         },
     }),
 })

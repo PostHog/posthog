@@ -6,7 +6,7 @@ import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 
 export function RetentionTable({ logic }) {
-    const { retention, retentionLoading, peopleLoading, people } = useValues(logic)
+    const { retention, retentionLoading, peopleLoading, people, loadingMore } = useValues(logic)
     const { loadPeople, loadMore } = useActions(logic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
@@ -55,14 +55,12 @@ export function RetentionTable({ logic }) {
                 dataSource={retention.data}
                 columns={columns}
                 loading={retentionLoading}
-                onRow={(data, rowIndex) => {
+                onRow={(_, rowIndex) => {
                     return {
                         onClick: () => {
-                            loadPeople(data.values[0].people)
+                            !people[rowIndex] && loadPeople(rowIndex)
                             setModalVisible(true)
                             selectRow(rowIndex)
-
-                            loadMore(rowIndex)
                         },
                     }
                 }}
@@ -77,53 +75,68 @@ export function RetentionTable({ logic }) {
                     title={retention.data[selectedRow].date}
                 >
                     {retention && !peopleLoading ? (
-                        <table className="table table-bordered table-fixed">
-                            <tbody>
-                                <tr>
-                                    <th />
-                                    {retention.data &&
-                                        retention.data
-                                            .slice(0, retention.data[selectedRow].values.length)
-                                            .map((data, index) => <th key={index}>{data.label}</th>)}
-                                </tr>
-                                <tr>
-                                    <td />
-                                    {retention.data &&
-                                        retention.data[selectedRow].values.map((data, index) => (
-                                            <td key={index}>
-                                                {data.count}&nbsp;{' '}
-                                                {data.count > 0 && (
-                                                    <span>
-                                                        (
-                                                        {percentage(
-                                                            data.count / retention.data[selectedRow].values[0]['count']
-                                                        )}
-                                                        )
-                                                    </span>
-                                                )}
-                                            </td>
-                                        ))}
-                                </tr>
-                                {people &&
-                                    people.map((person) => (
-                                        <tr key={person.id}>
-                                            <td className="text-overflow" style={{ minWidth: 200 }}>
-                                                <Link to={`/person_by_id/${person.id}`}>{person.name}</Link>
-                                            </td>
-                                            {retention.data[selectedRow].values.map((step, index) => (
-                                                <td
-                                                    key={index}
-                                                    className={
-                                                        step.people.indexOf(person.id) > -1
-                                                            ? 'retention-success'
-                                                            : 'retention-dropped'
-                                                    }
-                                                />
+                        <div>
+                            <table className="table table-bordered table-fixed">
+                                <tbody>
+                                    <tr>
+                                        <th />
+                                        {retention.data &&
+                                            retention.data
+                                                .slice(0, retention.data[selectedRow].values.length)
+                                                .map((data, index) => <th key={index}>{data.label}</th>)}
+                                    </tr>
+                                    <tr>
+                                        <td />
+                                        {retention.data &&
+                                            retention.data[selectedRow].values.map((data, index) => (
+                                                <td key={index}>
+                                                    {data.count}&nbsp;{' '}
+                                                    {data.count > 0 && (
+                                                        <span>
+                                                            (
+                                                            {percentage(
+                                                                data.count /
+                                                                    retention.data[selectedRow].values[0]['count']
+                                                            )}
+                                                            )
+                                                        </span>
+                                                    )}
+                                                </td>
                                             ))}
-                                        </tr>
-                                    ))}
-                            </tbody>
-                        </table>
+                                    </tr>
+                                    {people[selectedRow] &&
+                                        people[selectedRow].map((person) => (
+                                            <tr key={person.id}>
+                                                <td className="text-overflow" style={{ minWidth: 200 }}>
+                                                    <Link to={`/person_by_id/${person.id}`}>{person.name}</Link>
+                                                </td>
+                                                {retention.data[selectedRow].values.map((step, index) => (
+                                                    <td
+                                                        key={index}
+                                                        className={
+                                                            step.people.indexOf(person.id) > -1
+                                                                ? 'retention-success'
+                                                                : 'retention-dropped'
+                                                        }
+                                                    />
+                                                ))}
+                                            </tr>
+                                        ))}
+                                </tbody>
+                            </table>
+                            <div
+                                style={{
+                                    margin: '1rem',
+                                    textAlign: 'center',
+                                }}
+                            >
+                                {retention.data[selectedRow].values.some((element) => element.next) && (
+                                    <Button type="primary" onClick={() => loadMore(selectedRow)}>
+                                        {loadingMore ? <Spin /> : 'Load more people'}
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
                     ) : (
                         <Spin></Spin>
                     )}

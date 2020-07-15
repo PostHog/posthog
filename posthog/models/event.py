@@ -197,7 +197,7 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def query_retention(self, filters, team, event="$pageview", people_offset=0) -> dict:
+    def query_retention(self, filters, team, event="$pageview") -> dict:
         filtered_events = (
             Event.objects.filter_by_event_with_people(event=event, team_id=team.id)
             .filter(filters.date_filter_Q)
@@ -262,7 +262,7 @@ class EventManager(models.QuerySet):
                         "count": row.count,
                         "people": people[0:100],
                         "offset": 100,
-                        "next": cache_key,
+                        "next": cache_key if len(people) > 100 else None,
                     }
                 }
             )

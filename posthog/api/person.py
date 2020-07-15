@@ -123,10 +123,22 @@ class PersonViewSet(viewsets.ModelViewSet):
             [{"name": convert_property_value(event[key]), "count": event["count"]} for event in people[:50]]
         )
 
-    @action(methods=["GET"], detail=False, url_path="references/(?P<reference_id>\d+)")
-    def references(self, request: request.Request, reference_id) -> response.Response:
+    @action(methods=["GET"], detail=False)
+    def references(self, request: request.Request) -> response.Response:
+        reference_id = request.GET.get("id", None)
+        offset = request.GET.get("offset", None)
+
+        if not reference_id or not offset:
+            return response.Response({})
+
+        offset = int(offset)
         cached_result = cache.get(reference_id)
         if cached_result:
-            return response.Response(cached_result["result"])
+            return response.Response(
+                {
+                    "result": cached_result[offset : offset + 100],
+                    "offset": offset + 100 if len(cached_result) > offset + 100 else None,
+                }
+            )
         else:
-            return response.Response([])
+            return response.Response({})
