@@ -203,7 +203,12 @@ class ActionViewSet(viewsets.ModelViewSet):
         team = request.user.team_set.get()
         properties = request.GET.get("properties", "{}")
         filter = Filter(data={"properties": json.loads(properties)})
-        filter._date_from = "-11d"
+
+        if not request.GET.get("date_from", None):
+            filter._date_from = "-11d"
+        else:
+            filter._date_from = request.GET.get("date_from")
+
         result = calculate_retention(filter, team)
         return Response(result)
 

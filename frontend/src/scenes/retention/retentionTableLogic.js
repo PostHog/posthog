@@ -2,33 +2,42 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
+import moment from 'moment'
 
 export const retentionTableLogic = kea({
-    loaders: props => ({
+    loaders: (props) => ({
         retention: {
             __default: {},
-            loadRetention: async () => {
-                const urlParams = toParams({ properties: props.values.properties })
+            loadRetention: async (selectedDate) => {
+                let params = { properties: props.values.properties }
+                if (selectedDate) params['date_from'] = selectedDate.toISOString()
+                const urlParams = toParams(params)
                 return await api.get(`api/action/retention/?${urlParams}`)
             },
         },
     }),
     actions: () => ({
-        setProperties: properties => ({ properties }),
+        setProperties: (properties) => ({ properties }),
+        dateChanged: (date) => ({ date }),
+        setDate: (date) => ({ date }),
     }),
     reducers: () => ({
-        initialPathname: [state => router.selectors.location(state).pathname, { noop: a => a }],
+        initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
         properties: [
             [],
             {
                 setProperties: (_, { properties }) => properties,
             },
         ],
+        selectedDate: [
+            moment().subtract(11, 'days').startOf('day'),
+            { dateChanged: (_, { date }) => date, setDate: (_, { date }) => date },
+        ],
     }),
     selectors: ({ selectors }) => ({
         propertiesForUrl: [
             () => [selectors.properties],
-            properties => {
+            (properties) => {
                 if (Object.keys(properties).length > 0) {
                     return { properties }
                 } else {
@@ -66,5 +75,8 @@ export const retentionTableLogic = kea({
     }),
     listeners: ({ actions }) => ({
         setProperties: () => actions.loadRetention(),
+        dateChanged: ({ date }) => {
+            actions.loadRetention(date)
+        },
     }),
 })

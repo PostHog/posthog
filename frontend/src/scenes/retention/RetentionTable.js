@@ -1,10 +1,12 @@
 import React from 'react'
-import { useValues } from 'kea'
+import { useValues, useActions } from 'kea'
 import { Table } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { DatePicker } from 'antd'
 
 export function RetentionTable({ logic }) {
-    const { retention, retentionLoading } = useValues(logic)
+    const { retention, retentionLoading, selectedDate } = useValues(logic)
+    const { dateChanged } = useActions(logic)
 
     let columns = [
         {
@@ -36,6 +38,7 @@ export function RetentionTable({ logic }) {
 
     return (
         <>
+            <DatePicker className="mb-2" value={selectedDate} onChange={dateChanged} allowClear={false}></DatePicker>
             <PropertyFilters pageKey="RetentionTable" />
             <Table
                 data-attr="retention-table"
@@ -52,7 +55,7 @@ export function RetentionTable({ logic }) {
 }
 
 const renderPercentage = (value, total) => {
-    const percentage = total > 0 ? (100.0 * value) / total : 100
+    const percentage = total > 0 ? (100.0 * value) / total : 0
     const backgroundColor = `hsl(212, 63%, ${30 + (100 - percentage) * 0.65}%)`
     const color = percentage >= 65 ? 'hsl(0, 0%, 80%)' : undefined
     return (
