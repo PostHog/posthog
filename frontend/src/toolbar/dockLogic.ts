@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea } from '../scenes/typedKea'
 import {
     attachDockScrollListener,
     removeDockScrollListener,
@@ -6,10 +6,14 @@ import {
     updateDockToolbarVariables,
 } from '~/toolbar/dockUtils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { dockLogicType } from '~/toolbar/dockLogic.type'
+
+type ToolbarMode = 'button' | 'dock' | ''
+type AnimationState = 'animating' | 'fading-in' | 'complete' | 'disabled' | 'fading-out'
 
 // props:
 // - shadowRef: shadowRoot ref
-export const dockLogic = kea({
+export const dockLogic = kea<dockLogicType<ToolbarMode, AnimationState>>({
     props: {
         shadowRef: 'required',
         padding: 'optional',
@@ -32,7 +36,7 @@ export const dockLogic = kea({
         dockAnimated: true,
         dockFaded: true,
         hideButtonAnimated: true,
-        setMode: (mode, update = false) => ({
+        setMode: (mode: ToolbarMode, update: boolean = false) => ({
             mode,
             update,
             windowWidth: window.innerWidth,
@@ -48,13 +52,13 @@ export const dockLogic = kea({
 
     reducers: () => ({
         mode: [
-            '',
+            '' as ToolbarMode,
             {
                 setMode: (_, { mode }) => mode,
             },
         ],
         lastMode: [
-            '',
+            '' as ToolbarMode,
             { persist: true },
             {
                 button: () => 'button',
@@ -62,7 +66,7 @@ export const dockLogic = kea({
             },
         ],
         dockStatus: [
-            'disabled',
+            'disabled' as AnimationState,
             {
                 dock: () => 'animating',
                 dockAnimated: () => 'fading-in',
@@ -74,7 +78,7 @@ export const dockLogic = kea({
             },
         ],
         buttonStatus: [
-            'disabled',
+            'disabled' as AnimationState,
             {
                 button: () => 'animating',
                 buttonAnimated: () => 'fading-in',
