@@ -244,7 +244,7 @@ function MathPropertySelector(props) {
                             <>
                                 Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>.
                                 Note that due to no type constraints on event properties, <code>{label}</code> may not
-                                be a number on all or even any events.
+                                be a number on all or even any applicable events.
                             </>
                         }
                         key={`math-property-${value}-${props.index}`}
