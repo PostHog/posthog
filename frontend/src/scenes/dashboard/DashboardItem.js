@@ -87,6 +87,7 @@ export function DashboardItem({
     dashboards,
     enableWobblyDragging,
     index,
+    layout,
     onRefresh,
 }) {
     const [initialLoaded, setInitialLoaded] = useState(false)
@@ -120,7 +121,7 @@ export function DashboardItem({
     return (
         <div
             key={item.id}
-            className={`dashboard-item ${item.color || 'white'}`}
+            className={`dashboard-item ${item.color || 'white'} di-width-${layout?.w || 0} di-height-${layout?.h || 0}`}
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
         >

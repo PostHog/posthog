@@ -10,6 +10,7 @@ from typing import Optional
 from datetime import datetime
 from dateutil import parser
 
+
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 
@@ -31,6 +32,9 @@ app.conf.broker_pool_limit = 0
 # Connect to our Redis instance to store the heartbeat
 redis_instance = redis.from_url(settings.REDIS_URL, db=0)
 
+# How frequently do we want to calculate action -> event relationships if async is enabled
+ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
+
 
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
@@ -41,6 +45,14 @@ def setup_periodic_tasks(sender, **kwargs):
     )
     sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
     sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
+
+    if settings.ASYNC_EVENT_ACTION_MAPPING:
+        sender.add_periodic_task(
+            (60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
+            calculate_event_action_mappings.s(),
+            name="calculate event action mappings",
+            expires=(60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
+        )
 
 
 @app.task
@@ -54,6 +66,13 @@ def update_event_partitions():
         cursor.execute(
             "DO $$ BEGIN IF (SELECT exists(select * from pg_proc where proname = 'update_partitions')) THEN PERFORM update_partitions(); END IF; END $$"
         )
+
+
+@app.task
+def calculate_event_action_mappings():
+    from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
+
+    calculate_actions_from_last_calculation()
 
 
 @app.task
