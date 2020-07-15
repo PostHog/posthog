@@ -527,11 +527,13 @@ def process_math(query: QuerySet, entity: Entity):
     if entity.math == "dau":
         query = query.annotate(count=Count("person_id", distinct=True))
     elif entity.math in math_to_aggregate_function:
-        function = math_to_aggregate_function[entity.math]
         query = query.annotate(
-            count=function(
+            count=math_to_aggregate_function[entity.math](
                 Cast(RawSQL('"posthog_event"."properties"->>%s', (entity.math_property,)), output_field=FloatField())
             )
+        )
+        query = query.extra(
+            where=['jsonb_typeof("posthog_event"."properties"->%s) = \'number\''], params=[entity.math_property]
         )
     return query
 

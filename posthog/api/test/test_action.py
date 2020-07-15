@@ -614,6 +614,28 @@ class TestTrends(TransactionBaseTest):
         self.assertEqual(action_response[0]["data"][-1], 8)
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
+    def test_avg_filtering_non_number_resiliency(self):
+        sign_up_action, person = self._create_events()
+        Person.objects.create(team=self.team, distinct_ids=["someone_else"])
+        Event.objects.create(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 2})
+        Event.objects.create(
+            team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": "x"}
+        )
+        Event.objects.create(
+            team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": None}
+        )
+        Event.objects.create(team=self.team, event="sign up", distinct_id="someone_else", properties={"some_number": 8})
+        action_response = self.client.get(
+            "/api/action/trends/",
+            data={"actions": jdumps([{"id": sign_up_action.id, "math": "avg", "math_property": "some_number"}]),},
+        ).json()
+        event_response = self.client.get(
+            "/api/action/trends/",
+            data={"events": jdumps([{"id": "sign up", "math": "avg", "math_property": "some_number"}]),},
+        ).json()
+        self.assertEqual(action_response[0]["data"][-1], 5)
+        self.assertTrue(self._compare_entity_response(action_response, event_response))
+
     def test_people_endpoint(self):
         sign_up_action, person = self._create_events()
         person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
