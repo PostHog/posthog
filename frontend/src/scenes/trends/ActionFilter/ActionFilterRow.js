@@ -156,6 +156,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
             {!hideMathSelector && <MathSelector math={math} index={index} onMathSelect={onMathSelect} />}
             {!hideMathSelector && MATHS[math]?.onProperty && (
                 <MathPropertySelector
+                    name={name}
                     math={math}
                     mathProperty={mathProperty}
                     index={index}
@@ -231,7 +232,7 @@ function MathSelector(props) {
 function MathPropertySelector(props) {
     return (
         <Dropdown
-            title={props.mathProperty || <span style={{ fontWeight: 500 }}>Select property</span>}
+            title={props.mathProperty || 'Select property'}
             buttonClassName="btn btn-sm btn-light ml-2"
             data-attr={`math-property-selector-${props.index}`}
         >
@@ -243,8 +244,8 @@ function MathPropertySelector(props) {
                         title={
                             <>
                                 Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>.
-                                Note that only events where <code>{label}</code> is set and a number will be taken into
-                                account.
+                                Note that only {props.name} occurences where <code>{label}</code> is set and a number
+                                will be taken into account.
                             </>
                         }
                         key={`math-property-${value}-${props.index}`}
