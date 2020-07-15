@@ -9,6 +9,75 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { userLogic } from 'scenes/userLogic'
 import { DownOutlined } from '@ant-design/icons'
 
+const MATHS = {
+    total: {
+        name: 'Total',
+        description: (
+            <>
+                Total event volume.
+                <br />
+                If a user performs an event 3 times on one day it counts as 3.
+            </>
+        ),
+        onProperty: false,
+    },
+    dau: {
+        name: 'DAU',
+        description: (
+            <>
+                Daily active users.
+                <br />
+                If a user performs an event 3 times on one day it counts only as 1.
+            </>
+        ),
+        onProperty: false,
+    },
+    sum: {
+        name: 'Sum',
+        description: (
+            <>
+                Event property sum.
+                <br />
+                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 42.
+            </>
+        ),
+        onProperty: true,
+    },
+    avg: {
+        name: 'Average',
+        description: (
+            <>
+                Event property average.
+                <br />
+                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 14.
+            </>
+        ),
+        onProperty: true,
+    },
+    min: {
+        name: 'Minimum',
+        description: (
+            <>
+                Event property minimum.
+                <br />
+                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 10.
+            </>
+        ),
+        onProperty: true,
+    },
+    max: {
+        name: 'Maximum',
+        description: (
+            <>
+                Event property maximum.
+                <br />
+                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 20.
+            </>
+        ),
+        onProperty: true,
+    },
+}
+
 const determineFilterLabel = (visible, filter) => {
     if (visible) return 'Hide Filters'
 
@@ -29,11 +98,29 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
 
     let entity, name, value
     let math = filter.math
+    let mathProperty = filter.math_property
+
     const onClose = () => {
         removeLocalFilter({ value: filter.id, type: filter.type, index })
     }
     const onMathSelect = (_, math) => {
-        updateFilterMath({ math, value: filter.id, type: filter.type, index: index })
+        updateFilterMath({
+            math,
+            math_property: MATHS[math]?.onProperty ? filter.math_property : undefined,
+            onProperty: MATHS[math]?.onProperty,
+            value: filter.id,
+            type: filter.type,
+            index: index,
+        })
+    }
+    const onMathPropertySelect = (_, mathProperty) => {
+        updateFilterMath({
+            math: filter.math,
+            math_property: mathProperty,
+            value: filter.id,
+            type: filter.type,
+            index: index,
+        })
     }
 
     const dropDownCondition = () =>
@@ -68,15 +155,24 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                 <DownOutlined style={{ marginLeft: '3px', color: 'rgba(0, 0, 0, 0.25)' }} />
             </button>
             {!hideMathSelector && <MathSelector math={math} index={index} onMathSelect={onMathSelect} />}
+            {!hideMathSelector && MATHS[math]?.onProperty && (
+                <MathPropertySelector
+                    math={math}
+                    mathProperty={mathProperty}
+                    index={index}
+                    onMathPropertySelect={onMathPropertySelect}
+                    properties={eventProperties}
+                />
+            )}
             <div
-                className="btn btn-sm btn-light"
+                className="btn btn-sm btn-light ml-2"
                 onClick={() => setEntityFilterVisible(!entityFilterVisible)}
                 data-attr={'show-prop-filter-' + index}
-                style={{ marginLeft: 10, marginRight: 10 }}
             >
                 {determineFilterLabel(entityFilterVisible, filter)}
             </div>
             <CloseButton
+                className="ml-2"
                 onClick={onClose}
                 style={{
                     float: 'none',
@@ -85,7 +181,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                 }}
             />
             {entityFilterVisible && (
-                <div className="ml-4">
+                <div className="ml-3">
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         properties={eventProperties}
@@ -111,36 +207,57 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
 }
 
 function MathSelector(props) {
-    let items = ['Total', 'DAU']
     return (
         <Dropdown
-            title={items[items.map((i) => i.toLowerCase()).indexOf(props.math)] || 'Total'}
-            buttonClassName="btn btn-sm btn-light"
-            style={{ marginLeft: 16 }}
+            title={MATHS[props.math]?.name || 'Total'}
+            buttonClassName="btn btn-sm btn-light ml-2"
             data-attr={'math-selector-' + props.index}
         >
-            <Tooltip
-                placement="right"
-                title="Total shows total event volume. If a user performs an event 3 times on one day it counts as 3."
-            >
-                <a href="#" className="dropdown-item" onClick={() => props.onMathSelect(props.index, 'total')}>
-                    Total
-                </a>
-            </Tooltip>
+            {Object.entries(MATHS).map(([key, value]) => (
+                <Tooltip placement="right" title={value.description} key={`math-${key}`}>
+                    <a
+                        href="#"
+                        className="dropdown-item"
+                        onClick={() => props.onMathSelect(props.index, key)}
+                        data-attr={`math-${key}`}
+                    >
+                        {value.name}
+                    </a>
+                </Tooltip>
+            ))}
+        </Dropdown>
+    )
+}
 
-            <Tooltip
-                placement="right"
-                title="Daily Active Users. Selecting DAU will mean a user performing an event 3 times on one day counts as 1."
-            >
-                <a
-                    href="#"
-                    className="dropdown-item"
-                    onClick={() => props.onMathSelect(props.index, 'dau')}
-                    data-attr={'dau-option-' + props.index}
-                >
-                    DAU
-                </a>
-            </Tooltip>
+function MathPropertySelector(props) {
+    return (
+        <Dropdown
+            title={props.mathProperty || <i>property</i>}
+            buttonClassName="btn btn-sm btn-light ml-2"
+            data-attr={'math-property-selector-' + props.index}
+        >
+            {props.properties
+                .filter(({ value }) => value[0] !== '$' && value !== 'distinct_id')
+                .map(({ value, label }) => (
+                    <Tooltip
+                        placement="right"
+                        title={
+                            <>
+                                Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>.
+                            </>
+                        }
+                        key={`math-property-${value}`}
+                    >
+                        <a
+                            href="#"
+                            className="dropdown-item"
+                            onClick={() => props.onMathPropertySelect(props.index, value)}
+                            data-attr={`math-property-${value}`}
+                        >
+                            {label}
+                        </a>
+                    </Tooltip>
+                ))}
         </Dropdown>
     )
 }
