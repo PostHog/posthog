@@ -523,23 +523,15 @@ def aggregate_by_interval(
 
 
 def process_math(query: QuerySet, entity: Entity):
+    math_to_aggregate_function = {"sum": Sum, "avg": Avg, "min": Min, "max": Max}
     if entity.math == "dau":
         query = query.annotate(count=Count("person_id", distinct=True))
-    elif entity.math == "sum":
+    elif entity.math in math_to_aggregate_function:
+        function = math_to_aggregate_function[entity.math]
         query = query.annotate(
-            count=Sum(Cast(RawSQL("properties->>%s", (entity.math_property,)), output_field=FloatField()))
-        )
-    elif entity.math == "avg":
-        query = query.annotate(
-            count=Avg(Cast(RawSQL("properties->>%s", (entity.math_property,)), output_field=FloatField()))
-        )
-    elif entity.math == "min":
-        query = query.annotate(
-            count=Min(Cast(RawSQL("properties->>%s", (entity.math_property,)), output_field=FloatField()))
-        )
-    elif entity.math == "max":
-        query = query.annotate(
-            count=Max(Cast(RawSQL("properties->>%s", (entity.math_property,)), output_field=FloatField()))
+            count=function(
+                Cast(RawSQL('"posthog_event"."properties"->>%s', (entity.math_property,)), output_field=FloatField())
+            )
         )
     return query
 
