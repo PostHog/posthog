@@ -20,6 +20,13 @@ describe('Trends actions & events', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
+    it('Show property select dynamically', () => {
+        cy.get('[data-attr=math-property-selector-0]').should('not.exist')
+        cy.get('[data-attr=math-selector-0]').click()
+        cy.get('[data-attr=math-avg-0]').click()
+        cy.get('[data-attr=math-property-selector-0]').should('exist')
+    })
+
     it('Apply specific filter on default pageview event', () => {
         cy.get('[data-attr=show-prop-filter-0]').click()
         cy.get('[data-attr=new-prop-filter-0-\\$pageview-filter]').click()
