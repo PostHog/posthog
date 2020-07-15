@@ -2,11 +2,12 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { Table } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { DatePicker } from 'antd'
+import { DatePicker, Select } from 'antd'
+import { dateOptions } from './retentionTableLogic'
 
 export function RetentionTable({ logic }) {
-    const { retention, retentionLoading, selectedDate } = useValues(logic)
-    const { dateChanged } = useActions(logic)
+    const { retention, retentionLoading, selectedDate, period } = useValues(logic)
+    const { dateChanged, setPeriod } = useActions(logic)
 
     let columns = [
         {
@@ -40,6 +41,13 @@ export function RetentionTable({ logic }) {
         <>
             <DatePicker className="mb-2" value={selectedDate} onChange={dateChanged} allowClear={false}></DatePicker>
             <PropertyFilters pageKey="RetentionTable" />
+            <Select value={dateOptions[period]} onChange={(value) => setPeriod(value)} dropdownMatchSelectWidth={true}>
+                {Object.entries(dateOptions).map(([key, value]) => (
+                    <Select.Option key={key} value={key}>
+                        {value}
+                    </Select.Option>
+                ))}
+            </Select>
             <Table
                 data-attr="retention-table"
                 size="small"

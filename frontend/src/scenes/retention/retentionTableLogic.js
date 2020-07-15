@@ -4,13 +4,21 @@ import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 import moment from 'moment'
 
+export const dateOptions = {
+    h: 'Hour',
+    d: 'Day',
+    w: 'Week',
+    m: 'Month',
+}
+
 export const retentionTableLogic = kea({
-    loaders: (props) => ({
+    loaders: ({ values }) => ({
         retention: {
             __default: {},
-            loadRetention: async (selectedDate) => {
-                let params = { properties: props.values.properties }
-                if (selectedDate) params['date_from'] = selectedDate.toISOString()
+            loadRetention: async () => {
+                let params = { properties: values.properties }
+                if (values.selectedDate) params['date_from'] = values.selectedDate.toISOString()
+                if (values.period) params['period'] = dateOptions[values.period]
                 const urlParams = toParams(params)
                 return await api.get(`api/action/retention/?${urlParams}`)
             },
@@ -19,7 +27,7 @@ export const retentionTableLogic = kea({
     actions: () => ({
         setProperties: (properties) => ({ properties }),
         dateChanged: (date) => ({ date }),
-        setDate: (date) => ({ date }),
+        setPeriod: (period) => ({ period }),
     }),
     reducers: () => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
@@ -29,10 +37,8 @@ export const retentionTableLogic = kea({
                 setProperties: (_, { properties }) => properties,
             },
         ],
-        selectedDate: [
-            moment().subtract(11, 'days').startOf('day'),
-            { dateChanged: (_, { date }) => date, setDate: (_, { date }) => date },
-        ],
+        selectedDate: [moment().subtract(11, 'days').startOf('day'), { dateChanged: (_, { date }) => date }],
+        period: ['d', { setPeriod: (_, { period }) => period }],
     }),
     selectors: ({ selectors }) => ({
         propertiesForUrl: [
@@ -75,8 +81,11 @@ export const retentionTableLogic = kea({
     }),
     listeners: ({ actions }) => ({
         setProperties: () => actions.loadRetention(),
-        dateChanged: ({ date }) => {
-            actions.loadRetention(date)
+        dateChanged: () => {
+            actions.loadRetention()
+        },
+        setPeriod: () => {
+            actions.loadRetention()
         },
     }),
 })
