@@ -205,7 +205,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
             animated={false}
             style={{ minWidth: displayOperatorAndValue ? 700 : 350 }}
         >
-            <TabPane tab="Property" key="property" style={{ display: 'flex' }}>
+            <TabPane tab="Property" key="property">
                 <PropertyPaneContents
                     onComplete={onComplete}
                     setThisFilter={setThisFilter}
@@ -218,7 +218,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
                     displayOperatorAndValue={displayOperatorAndValue}
                 />
             </TabPane>
-            <TabPane tab="Cohort" key="cohort" style={{ display: 'flex' }}>
+            <TabPane tab="Cohort" key="cohort">
                 <CohortPaneContents
                     onComplete={onComplete}
                     setThisFilter={setThisFilter}
