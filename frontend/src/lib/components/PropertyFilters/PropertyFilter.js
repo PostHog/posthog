@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, useState } from 'react'
 import { Select, Tabs } from 'antd'
 import { operatorMap, isOperatorFlag } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
@@ -168,12 +168,17 @@ function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorA
                 }
                 onChange={(_, newFilter) => {
                     onComplete()
-                    setThisFilter(newFilter.key, newFilter.value, undefined, newFilter.type)
+                    setThisFilter('id', newFilter.value, undefined, newFilter.type)
                 }}
                 data-attr="cohort-filter-select"
             >
                 {cohorts.map((item, index) => (
-                    <Select.Option key="id" value={item.id} type="cohort" data-attr={'cohort-filter-' + index}>
+                    <Select.Option
+                        key={'cohort-filter-' + index}
+                        value={item.id}
+                        type="cohort"
+                        data-attr={'cohort-filter-' + index}
+                    >
                         {item.name}
                     </Select.Option>
                 ))}
@@ -186,6 +191,7 @@ export function PropertyFilter({ index, onComplete, logic }) {
     const { eventProperties, personProperties, filters } = useValues(logic)
     const { setFilter } = useActions(logic)
     let { key, value, operator, type } = filters[index]
+    const [activeKey, setActiveKey] = useState(type === 'cohort' ? 'cohort' : 'property')
 
     const setThisFilter = useCallback((key, value, operator, type) => setFilter(index, key, value, operator, type), [
         index,
@@ -196,10 +202,16 @@ export function PropertyFilter({ index, onComplete, logic }) {
     return (
         <Tabs
             defaultActiveKey={type === 'cohort' ? 'cohort' : 'property'}
+            onChange={setActiveKey}
             tabPosition="top"
+            animated={false}
             style={{ minWidth: displayOperatorAndValue ? 700 : 350 }}
         >
-            <TabPane tab="Property" key="property" style={{ display: 'flex' }}>
+            <TabPane
+                tab="Property"
+                key="property"
+                style={{ display: 'flex', marginLeft: activeKey === 'cohort' ? '-100%' : 0 }}
+            >
                 <PropertyPaneContents
                     onComplete={onComplete}
                     setThisFilter={setThisFilter}
