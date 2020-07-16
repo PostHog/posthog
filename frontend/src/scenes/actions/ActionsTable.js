@@ -41,7 +41,14 @@ export function ActionsTable() {
                                         case '$autocapture':
                                             return 'Autocapture'
                                         case '$pageview':
-                                            return 'URL matches ' + step.url
+                                            switch (step.url_matching) {
+                                                case 'regex':
+                                                    return 'Page view URL regex matches'
+                                                case 'exact':
+                                                    return 'Page view URL exactly matches'
+                                                default:
+                                                    return 'Page view URL contains'
+                                            }
                                         default:
                                             return 'Event: ' + step.event
                                     }

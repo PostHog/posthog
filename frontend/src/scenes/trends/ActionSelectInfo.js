@@ -53,7 +53,12 @@ export class ActionSelectInfo extends Component {
                                         )}
                                         {step.url && (
                                             <li>
-                                                URL {step.url_matching == 'contains' ? 'contains' : 'matches'}{' '}
+                                                URL{' '}
+                                                {step.url_matching === 'regex'
+                                                    ? 'regex matches'
+                                                    : step.url_matching === 'exact'
+                                                    ? 'exactly matches'
+                                                    : 'contains'}{' '}
                                                 <pre>{step.url}</pre>
                                             </li>
                                         )}
