@@ -23,7 +23,7 @@ const determineFilterLabel = (visible, filter) => {
 export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
     const node = useRef()
     const { selectedFilter, entities } = useValues(logic)
-    const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty } = useActions(logic)
+    const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty, setLayoutHeight } = useActions(logic)
     const { eventProperties } = useValues(userLogic)
     const [entityFilterVisible, setEntityFilterVisible] = useState(false)
 
@@ -36,12 +36,23 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
         updateFilterMath({ math, value: filter.id, type: filter.type, index: index })
     }
 
+    const onPropertyChange = (properties, index) => {
+        updateFilterProperty({ properties, index })
+        setLayoutHeight(filter.id, entityFilterVisible, properties.length || 0)
+    }
+
     const dropDownCondition = () =>
         selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index
 
     const onClick = () => {
         if (selectedFilter && selectedFilter.type === filter.type && selectedFilter.index === index) selectFilter(null)
         else selectFilter({ filter, type: filter.type, index })
+    }
+
+    const toggleEntityFilter = (entityFilterVisible) => {
+        setEntityFilterVisible(!entityFilterVisible)
+        const propertiesLength = filter.properties && filter.properties.length || 0
+        setLayoutHeight(filter.id, !entityFilterVisible, propertiesLength)
     }
 
     if (filter.type === EntityTypes.NEW_ENTITY) {
@@ -71,7 +82,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
             {!hideMathSelector && <MathSelector math={math} index={index} onMathSelect={onMathSelect} />}
             <div
                 className="btn btn-sm btn-light"
-                onClick={() => setEntityFilterVisible(!entityFilterVisible)}
+                onClick={() => toggleEntityFilter(entityFilterVisible)}
                 data-attr={'show-prop-filter-' + index}
                 style={{ marginLeft: 10, marginRight: 10 }}
             >
@@ -91,7 +102,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                         pageKey={`${index}-${value}-filter`}
                         properties={eventProperties}
                         propertyFilters={filter.properties}
-                        onChange={properties => updateFilterProperty({ properties, index })}
+                        onChange={properties => onPropertyChange(properties, index)}
                         style={{ marginBottom: 0 }}
                     />
                 </div>

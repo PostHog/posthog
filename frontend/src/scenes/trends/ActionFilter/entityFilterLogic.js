@@ -26,8 +26,30 @@ function toFilters(localFilters) {
     }
 }
 
-function toLayouts(localFilters) {
-    return localFilters.map((filter) => ({ i: filter.id.toString(), x: 1, y: filter.order, w: 1, h: 1, isDraggable:true}))
+function getHeight(id, heights) {
+    const LAYOUT_HEIGHT_CLOSED = 1
+    if(heights && heights[id]) {
+        return heights[id]
+    }
+    return LAYOUT_HEIGHT_CLOSED
+}
+
+function toLayouts(localFilters, heights) {
+    return localFilters.map((filter) => ({ 
+        i: filter.id.toString(),
+        x: 1,
+        y: filter.order,
+        w: 1,
+        h: getHeight(filter.id, heights),
+        isDraggable:true
+    }))
+}
+
+function toHeights(layouts) {
+    return layouts.reduce((heights, layout) => ({
+        ...heights,
+        [layout.id]: layout.h
+    }), {})
 }
 
 function orderFilters(filters, filterPositions) {
@@ -59,6 +81,8 @@ export const entityFilterLogic = kea({
         addFilter: true,
         updateFilterProperty: filter => ({ properties: filter.properties, index: filter.index }),
         setFilters: filters => ({ filters }),
+        setLayoutHeight: (id, isOpen, properties) => ({ id, isOpen, properties }),
+        setLayouts: (filters, heights) => ({ filters, heights }),
         setLocalFilters: filters => ({ filters }),
         orderFilters: filterPositions => ({ filterPositions }),
     }),
@@ -75,6 +99,12 @@ export const entityFilterLogic = kea({
             {
                 setLocalFilters: (_, { filters }) => toLocalFilters(filters),
             },
+        ],
+        layouts: [
+            toLayouts(toLocalFilters(props.filters)),
+            {
+                setLayouts: (_, { filters, heights }) => toLayouts(filters, heights),
+            }
         ]
     }),
 
@@ -89,7 +119,6 @@ export const entityFilterLogic = kea({
             },
         ],
         filters: [() => [selectors.localFilters], localFilters => toFilters(localFilters)],
-        layouts: [() => [selectors.localFilters], localFilters => toLayouts(localFilters)]
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -121,6 +150,15 @@ export const entityFilterLogic = kea({
         },
         setFilters: ({ filters }) => {
             props.setFilters(toFilters(filters))
+            actions.setLayouts(filters, toHeights(values.layouts))
         },
+        setLayoutHeight: ({ id, isOpen, properties }) => {
+            const LAYOUT_HEIGHT_CLOSED = 1
+            const LAYOUT_HEIGHT_OPEN = 2
+            const heights = {
+                [id]: isOpen ? LAYOUT_HEIGHT_OPEN + properties : LAYOUT_HEIGHT_CLOSED
+            }
+            actions.setLayouts(values.localFilters, heights)
+        }
     }),
 })

@@ -20,7 +20,7 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector })
     }, [filters])
 
     const renderLocalFilters = () => localFilters.map((filter, index) => (
-        <div key={filter.id.toString()}>
+        <div key={filter.id.toString()} data-grid={layouts.find(layout => layout.i === filter.id)}>
           <ActionFilterRow
               logic={logic}
               filter={filter}
@@ -44,13 +44,13 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector })
           {localFilters &&
             <ReactGridLayout
               cols={1}
-              layouts={layouts}
+              layout={layouts}
               margin={[0, 10]}
               rowHeight={39}
               onLayoutChange={() => {}}
               draggableHandle=".action-filter-row-handle"
               maxRows={localFilters.length}
-              isResizable={false}
+              isResizable={true}
               onDragStop={updateFilterPositions}
               // We disable this because we would have to add a lot of CSS changes
               // to let ReactGridLayout properly render the Dropdown and Popups
