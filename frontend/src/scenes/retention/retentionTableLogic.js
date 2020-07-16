@@ -32,13 +32,17 @@ export const retentionTableLogic = kea({
     }),
     selectors: ({ selectors }) => ({
         propertiesForUrl: [
-            () => [selectors.properties],
-            (properties) => {
+            () => [selectors.properties, selectors.selectedDate],
+            (properties, selectedDate) => {
+                let result = {}
                 if (Object.keys(properties).length > 0) {
-                    return { properties }
-                } else {
-                    return ''
+                    result['properties'] = properties
                 }
+                if (selectedDate) {
+                    result['date_from'] = selectedDate.format('YYYY-MM-DD')
+                }
+
+                return result
             },
         ],
     }),
@@ -47,6 +51,9 @@ export const retentionTableLogic = kea({
     }),
     actionToUrl: ({ values }) => ({
         setProperties: () => {
+            return [router.values.location.pathname, values.propertiesForUrl]
+        },
+        dateChanged: () => {
             return [router.values.location.pathname, values.propertiesForUrl]
         },
     }),
@@ -66,6 +73,9 @@ export const retentionTableLogic = kea({
 
             if (!objectsEqual(searchParams.properties || {}, values.properties)) {
                 actions.setProperties(searchParams.properties || {})
+            }
+            if (!objectsEqual(searchParams.date_from || {}, values.selectedDate.format('YYYY-MM-DD'))) {
+                searchParams.date_from && actions.dateChanged(moment(searchParams.date_from))
             }
         },
     }),
