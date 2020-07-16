@@ -43,9 +43,9 @@ export function ActionsTable() {
                                         case '$pageview':
                                             switch (step.url_matching) {
                                                 case 'regex':
-                                                    return 'Page view URL regex matches'
+                                                    return 'Page view URL matches regex'
                                                 case 'exact':
-                                                    return 'Page view URL exactly matches'
+                                                    return 'Page view URL matches exactly'
                                                 default:
                                                     return 'Page view URL contains'
                                             }

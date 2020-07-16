@@ -303,14 +303,14 @@ export class ActionStep extends Component {
                     type="button"
                     className={'btn btn-sm ' + (step.url_matching == 'regex' ? 'btn-secondary' : 'btn-light')}
                 >
-                    regex matches
+                    matches regex
                 </button>
                 <button
                     onClick={() => this.sendStep({ ...step, url_matching: 'exact' })}
                     type="button"
                     className={'btn btn-sm ' + (step.url_matching == 'exact' ? 'btn-secondary' : 'btn-light')}
                 >
-                    exactly matches
+                    matches exactly
                 </button>
             </div>
         )

@@ -190,7 +190,7 @@ export const operatorMap = {
     is_not: "≠ doesn't equal",
     icontains: '∋ contains',
     not_icontains: "∌ doesn't contain",
-    regex: '~ regex matches',
+    regex: '∼ matches regex',
     gt: '> greater than',
     lt: '< lower than',
     is_set: '✓ is set',
