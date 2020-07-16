@@ -189,10 +189,11 @@ export function LineGraph({
                                           return null
                                       var label = entityData.chartLabel || entityData.label || ''
                                       if (entityData.action) {
-                                          let math = entityData.action.math
-                                          if (math === 'total')
-                                              label += ` (${math.charAt(0).toUpperCase() + math.slice(1)}) `
-                                          else label += ` (${math.toUpperCase()}) `
+                                          console.log(entityData.action)
+                                          let math = 'Total'
+                                          if (entityData.action.math === 'dau')
+                                              label += ` (${entityData.action.math.toUpperCase()}) `
+                                          else label += ` (${math}) `
                                       }
                                       if (
                                           entityData.action &&
