@@ -25,6 +25,10 @@
 
 .toolbar-info-windows {
     position: fixed;
+
+    .circle-label {
+        font-weight: 500;
+    }
     width: 300px;
     left: 0;
     top: 0;
