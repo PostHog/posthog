@@ -49,7 +49,7 @@ class Property:
             return Q(**{"properties__{}__isnull".format(self.key): False})
         if self.operator == "is_not_set":
             return Q(**{"properties__{}__isnull".format(self.key): True})
-        if self.operator.startswith("not_"):
+        if isinstance(self.operator, str) and self.operator.startswith("not_"):
             return Q(
                 ~Q(**{"properties__{}__{}".format(self.key, self.operator[4:]): value})
                 | ~Q(properties__has_key=self.key)
