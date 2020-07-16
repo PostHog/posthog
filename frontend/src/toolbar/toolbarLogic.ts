@@ -1,17 +1,18 @@
-import { kea } from 'kea'
+import { kea } from '~/scenes/typedKea'
+import { toolbarLogicType } from '~/toolbar/toolbarLogic.type'
 
 // input: props = all editorProps
-export const toolbarLogic = kea({
+export const toolbarLogic = kea<toolbarLogicType>({
     actions: () => ({
         authenticate: true,
     }),
 
     reducers: ({ props }) => ({
-        rawApiURL: [props.apiURL],
-        rawJsURL: [props.jsURL || props.apiURL],
-        temporaryToken: [props.temporaryToken || null],
-        actionId: [props.actionId || null],
-        userIntent: [props.userIntent || null],
+        rawApiURL: [props.apiURL as string],
+        rawJsURL: [(props.jsURL || props.apiURL) as string],
+        temporaryToken: [(props.temporaryToken || null) as string | null],
+        actionId: [(props.actionId ? parseInt(props.actionId) : null) as number | null],
+        userIntent: [(props.userIntent || null) as string | null],
     }),
 
     selectors: ({ selectors }) => ({

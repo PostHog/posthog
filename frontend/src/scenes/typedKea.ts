@@ -10,6 +10,8 @@ type BlankLogic = {
     selectors?: any
     listeners?: any
     values?: any
+    props?: any
+    _isKea?: true
     __selectorTypeHelp?: any
 }
 
@@ -24,6 +26,7 @@ type ReducerDefinitions<LogicType extends BlankLogic> = {
         | [ReturnType<LogicType['reducers'][K]>, any, any, ReducerActions<LogicType, ReturnType<LogicType['reducers'][K]>>]
         | [ReturnType<LogicType['reducers'][K]>, any, ReducerActions<LogicType, ReturnType<LogicType['reducers'][K]>>]
         | [ReturnType<LogicType['reducers'][K]>, ReducerActions<LogicType, ReturnType<LogicType['reducers'][K]>>]
+        | [ReturnType<LogicType['reducers'][K]>]
         | ReducerActions<LogicType, ReturnType<LogicType['reducers'][K]>>
 }
 type Selector = (state?: any, props?: any) => any
@@ -67,6 +70,7 @@ type ListenerDefinitions<LogicType extends BlankLogic> = {
 }
 type LogicInput<LogicType> = {
     path?: any
+    connect?: any
     constants?: any
     actions?: (logic: LogicType) => any | any
     reducers?: ReducerDefinitions<LogicType> | ((logic: LogicType) => ReducerDefinitions<LogicType>)
@@ -74,6 +78,10 @@ type LogicInput<LogicType> = {
     selectors?: SelectorDefinitions<LogicType> | ((logic: LogicType) => SelectorDefinitions<LogicType>)
     listeners?: ListenerDefinitions<LogicType> | ((logic: LogicType) => ListenerDefinitions<LogicType>)
     loaders?: any
+
+    urlToAction?: any
+    actionToUrl?: any
+    windowValues?: any
 }
 
 export function kea<LogicType>(input: LogicInput<LogicType>): LogicType {
