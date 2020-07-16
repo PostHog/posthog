@@ -4,13 +4,6 @@ import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 import moment from 'moment'
 
-export const dateOptions = {
-    h: 'Hour',
-    d: 'Day',
-    w: 'Week',
-    m: 'Month',
-}
-
 export const retentionTableLogic = kea({
     loaders: ({ values }) => ({
         retention: {
@@ -18,7 +11,6 @@ export const retentionTableLogic = kea({
             loadRetention: async () => {
                 let params = { properties: values.properties }
                 if (values.selectedDate) params['date_from'] = values.selectedDate.toISOString()
-                if (values.period) params['period'] = dateOptions[values.period]
                 const urlParams = toParams(params)
                 return await api.get(`api/action/retention/?${urlParams}`)
             },
@@ -27,7 +19,6 @@ export const retentionTableLogic = kea({
     actions: () => ({
         setProperties: (properties) => ({ properties }),
         dateChanged: (date) => ({ date }),
-        setPeriod: (period) => ({ period }),
     }),
     reducers: () => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
@@ -38,7 +29,6 @@ export const retentionTableLogic = kea({
             },
         ],
         selectedDate: [moment().subtract(11, 'days').startOf('day'), { dateChanged: (_, { date }) => date }],
-        period: ['d', { setPeriod: (_, { period }) => period }],
     }),
     selectors: ({ selectors }) => ({
         propertiesForUrl: [
@@ -82,9 +72,6 @@ export const retentionTableLogic = kea({
     listeners: ({ actions }) => ({
         setProperties: () => actions.loadRetention(),
         dateChanged: () => {
-            actions.loadRetention()
-        },
-        setPeriod: () => {
             actions.loadRetention()
         },
     }),
