@@ -119,7 +119,6 @@ export function Circle({
                                 marginTop: -width / 2,
                                 borderRadius: width / 2,
                                 background: 'white',
-                                boxShadow: '0 0 13px 4px rgba(0, 0, 0, 0.3)',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
@@ -160,7 +159,7 @@ export function Circle({
                                     whiteSpace: 'nowrap',
                                     color: 'white',
                                     textShadow:
-                                        'rgb(0, 0, 0) 0px 0px 2px, rgba(0,0,0,1) 0 0 2px, rgba(0,0,0,1) 0 0 10px, rgba(255,255,255,0.8) 0 0 40px, rgba(0,0,0,0.8) 0 0 20px',
+                                        'black 0px 0px 1px, black 0px 0px 2px, rgba(0, 0, 0, 0.25) 0px 0.3px 0.7px, rgba(0, 0, 0, 0.18) 0px 0.8px 1.6px, rgba(0, 0, 0, 0.15) 0px 1.5px 3px, rgba(0, 0, 0, 0.125) 0px 2.7px 5.4px, rgba(0, 0, 0, 0.1) 0px 5px 10px, rgba(0, 0, 0, 0.07) 0px 12px 24px',
                                     pointerEvents: 'none',
                                     zIndex,
                                     ...labelStyle,
