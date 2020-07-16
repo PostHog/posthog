@@ -4,7 +4,7 @@ import api from './../lib/api'
 import { Button } from 'antd'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { userLogic } from 'scenes/userLogic'
-import { CheckOutlined, WarningOutlined } from '@ant-design/icons'
+import { CheckOutlined, BulbOutlined } from '@ant-design/icons'
 
 export function LatestVersion() {
     const { user } = useValues(userLogic)
@@ -47,13 +47,13 @@ export function LatestVersion() {
                                 <Button
                                     type="link"
                                     onClick={() => setChangelogOpen(true)}
-                                    style={{ color: 'var(--red)' }}
+                                    style={{ color: 'hsla(42, 90%, 37%, 1)' }}
                                 >
                                     <span className="hide-when-small">
-                                        <WarningOutlined /> New version available
+                                        <BulbOutlined /> New version available
                                     </span>
                                     <span className="show-when-small">
-                                        <WarningOutlined /> Upgrade!
+                                        <BulbOutlined /> Upgrade!
                                     </span>
                                 </Button>
                             )}
