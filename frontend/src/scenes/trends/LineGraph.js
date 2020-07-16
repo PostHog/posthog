@@ -188,6 +188,12 @@ export function LineGraph({
                                       if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1))
                                           return null
                                       var label = entityData.chartLabel || entityData.label || ''
+                                      if (entityData.action) {
+                                          let math = 'Total'
+                                          if (entityData.action.math === 'dau')
+                                              label += ` (${entityData.action.math.toUpperCase()}) `
+                                          else label += ` (${math}) `
+                                      }
                                       if (
                                           entityData.action &&
                                           entityData.action.properties &&
