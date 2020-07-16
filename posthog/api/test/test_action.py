@@ -1066,13 +1066,15 @@ class TestRetention(TransactionBaseTest):
             ]
         )
 
-        result = calculate_retention(Filter(data={"date_from": self._date(0, hour=0)}), self.team, total_days=7)
+        result = calculate_retention(
+            Filter(data={"date_from": self._date(0, hour=0)}), self.team, total_time=7, period="Day"
+        )
 
         self.assertEqual(len(result["data"]), 7)
         self.assertEqual(
             self.pluck(result["data"], "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
         )
-        self.assertEqual(result["data"][0]["date"], "Wed. 10 June")
+        self.assertEqual(result["data"][0]["date"], "Wed. 10 June ")
 
         self.assertEqual(
             self.pluck(result["data"], "values"),
@@ -1110,17 +1112,51 @@ class TestRetention(TransactionBaseTest):
                 }
             ),
             self.team,
-            total_days=7,
+            total_time=7,
+            period="Day",
         )
 
         self.assertEqual(len(result["data"]), 7)
         self.assertEqual(
             self.pluck(result["data"], "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
         )
-        self.assertEqual(result["data"][0]["date"], "Wed. 10 June")
+        self.assertEqual(result["data"][0]["date"], "Wed. 10 June ")
         self.assertEqual(
             self.pluck(result["data"], "values"),
             [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1]],
+        )
+
+    def test_retention_period(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"}
+        )
+        Person.objects.create(team=self.team, distinct_ids=["person2"], properties={"email": "person2@test.com"})
+
+        self._create_pageviews(
+            [
+                ("person1", self._date(0)),
+                ("person1", self._date(1)),
+                ("person1", self._date(2, month=1)),
+                ("person1", self._date(10, month=1)),
+                ("person1", self._date(15)),
+                ("person1", self._date(18)),
+                ("alias1", self._date(5, 9)),
+                ("person1", self._date(6)),
+                ("person2", self._date(1)),
+                ("person2", self._date(2)),
+                ("person2", self._date(3)),
+                ("person2", self._date(6)),
+                ("person2", self._date(13)),
+            ]
+        )
+
+        result = calculate_retention(
+            Filter(data={"date_from": self._date(0, hour=0)}), self.team, total_time=7, period="Week"
+        )
+
+        self.assertEqual(
+            self.pluck(result["data"], "values"),
+            [[2, 2, 0, 1, 0, 1, 0], [2, 0, 1, 0, 1, 0], [0, 0, 0, 0, 0], [1, 0, 1, 0], [0, 0, 0], [1, 0], [0]],
         )
 
     def _create_pageviews(self, user_and_timestamps):
@@ -1129,8 +1165,8 @@ class TestRetention(TransactionBaseTest):
                 team=self.team, event="$pageview", distinct_id=distinct_id, timestamp=timestamp,
             )
 
-    def _date(self, day, hour=5):
-        return datetime(2020, 6, 10 + day, hour).isoformat()
+    def _date(self, day, hour=5, month=0):
+        return datetime(2020, 6 + month, 10 + day, hour).isoformat()
 
     def pluck(self, list_of_dicts, key):
         return [d[key] for d in list_of_dicts]
