@@ -158,8 +158,6 @@ export function Circle({
                                         : {}),
                                     whiteSpace: 'nowrap',
                                     color: 'white',
-                                    textShadow:
-                                        'black 0px 0px 1px, black 0px 0px 2px, rgba(0, 0, 0, 0.25) 0px 0.3px 0.7px, rgba(0, 0, 0, 0.18) 0px 0.8px 1.6px, rgba(0, 0, 0, 0.15) 0px 1.5px 3px, rgba(0, 0, 0, 0.125) 0px 2.7px 5.4px, rgba(0, 0, 0, 0.1) 0px 5px 10px, rgba(0, 0, 0, 0.07) 0px 12px 24px',
                                     pointerEvents: 'none',
                                     zIndex,
                                     ...labelStyle,
