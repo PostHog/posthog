@@ -4,11 +4,14 @@ import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 
 export const retentionTableLogic = kea({
-    loaders: (props) => ({
+    loaders: ({ values }) => ({
         retention: {
             __default: {},
             loadRetention: async () => {
-                const urlParams = toParams({ properties: props.values.properties })
+                let params = {}
+                params['properties'] = values.properties
+                if (values.startEntity) params['start_entity'] = values.startEntity.name
+                const urlParams = toParams(params)
                 return await api.get(`api/action/retention/?${urlParams}`)
             },
         },
@@ -50,7 +53,7 @@ export const retentionTableLogic = kea({
                     return r.concat(filters[k])
                 }, [])
 
-                return result[0] || null
+                return result[0] || { name: '$pageview' }
             },
         ],
     }),
@@ -83,5 +86,6 @@ export const retentionTableLogic = kea({
     }),
     listeners: ({ actions }) => ({
         setProperties: () => actions.loadRetention(),
+        setFilters: () => actions.loadRetention(),
     }),
 })
