@@ -216,8 +216,6 @@ class EventManager(models.QuerySet):
                 return TruncHour(subject)
             elif period == "Week":
                 return TruncWeek(subject)
-            elif period == "Month":
-                return TruncWeek(subject)
             else:
                 return TruncDay(subject)
 
@@ -229,8 +227,8 @@ class EventManager(models.QuerySet):
 
         full_query = """
             SELECT
-                DATE_PART('{period}s', first_date - %s) {calculation} AS first_date,
-                DATE_PART('{period}s', timestamp - first_date) {calculation} AS date,
+                FLOOR(DATE_PART('{period}s', first_date - %s) {calculation}) AS first_date,
+                FLOOR(DATE_PART('{period}s', timestamp - first_date) {calculation}) AS date,
                 COUNT(DISTINCT "events"."person_id")
             FROM ({events_query}) events
             LEFT JOIN ({first_date_query}) first_event_date
