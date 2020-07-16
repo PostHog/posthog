@@ -1,12 +1,13 @@
 // /api/event/?event=$autocapture&properties[pathname]=/docs/introduction/what-is-kea
 
-import { kea } from 'kea'
+import { kea } from '~/scenes/typedKea'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { elementToActionStep, elementToSelector } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { heatmapLogicType } from './heatmapLogic.type'
 
-export const heatmapLogic = kea({
+export const heatmapLogic = kea<heatmapLogicType>({
     actions: {
         enableHeatmap: true,
         disableHeatmap: true,

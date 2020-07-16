@@ -1,4 +1,4 @@
-// Auto-generated with kea-typegen v0.0.12. DO NOT EDIT!
+// Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface userLogicType<UserType> {
     actionCreators: {
@@ -49,6 +49,10 @@ export interface userLogicType<UserType> {
             payload: { updateKey: string; error: string; };
         });
     };
+    cache: Record<string, any>;
+    path: ["frontend", "src", "scenes", "userLogic"];
+    pathString: "frontend.src.scenes.userLogic";
+    props: Record<string, any>;
     reducer: (state: any, action: () => any, fullState: any) => {
         user: UserType | null;
     };
@@ -72,6 +76,7 @@ export interface userLogicType<UserType> {
         customEventNames: string[];
         eventNamesGrouped: { label: string; options: { label: string; value: string; }[]; }[];
     };
+    _isKea: true;
     __selectorTypeHelp: {
         eventProperties: (arg1: UserType) => { value: string; label: string; }[];
         eventNames: (arg1: UserType) => string[];

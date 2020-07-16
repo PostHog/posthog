@@ -1,4 +1,4 @@
-// Auto-generated with kea-typegen v0.0.12. DO NOT EDIT!
+// Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface dockLogicType<ToolbarMode,  AnimationState> {
     actionCreators: {
@@ -121,6 +121,10 @@ export interface dockLogicType<ToolbarMode,  AnimationState> {
             payload: { mode: ToolbarMode; update: boolean; windowWidth: number; windowHeight: number; };
         });
     };
+    cache: Record<string, any>;
+    path: ["frontend", "src", "toolbar", "dockLogic"];
+    pathString: "frontend.src.toolbar.dockLogic";
+    props: Record<string, any>;
     reducer: (state: any, action: () => any, fullState: any) => {
         mode: ToolbarMode;
         lastMode: ToolbarMode;
@@ -167,6 +171,7 @@ export interface dockLogicType<ToolbarMode,  AnimationState> {
         domPadding: number;
         dockTopMargin: any;
     };
+    _isKea: true;
     __selectorTypeHelp: {
         isAnimating: (arg1: AnimationState, arg2: AnimationState) => boolean;
         padding: (arg1: any) => number;

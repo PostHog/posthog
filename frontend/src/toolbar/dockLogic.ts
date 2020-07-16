@@ -7,9 +7,7 @@ import {
 } from '~/toolbar/dockUtils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { dockLogicType } from '~/toolbar/dockLogic.type'
-
-type ToolbarMode = 'button' | 'dock' | ''
-type AnimationState = 'animating' | 'fading-in' | 'complete' | 'disabled' | 'fading-out'
+import { AnimationState, ToolbarMode } from '~/toolbar/types'
 
 // props:
 // - shadowRef: shadowRoot ref

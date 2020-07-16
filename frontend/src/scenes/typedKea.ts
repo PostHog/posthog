@@ -15,6 +15,8 @@ type BlankLogic = {
     __selectorTypeHelp?: any
 }
 
+type ActionDefinitions<LogicType extends BlankLogic> = Record<string, any | (() => any)>
+
 type ReducerActions<LogicType extends BlankLogic, ReducerType> = {
     [K in keyof LogicType['actions']]?: (
         state: ReducerType,
@@ -72,7 +74,7 @@ type LogicInput<LogicType> = {
     path?: any
     connect?: any
     constants?: any
-    actions?: (logic: LogicType) => any | any
+    actions?: ActionDefinitions<LogicType> | ((logic: LogicType) => ActionDefinitions<LogicType>)
     reducers?: ReducerDefinitions<LogicType> | ((logic: LogicType) => ReducerDefinitions<LogicType>)
     events?: (logic: LogicType) => any | any
     selectors?: SelectorDefinitions<LogicType> | ((logic: LogicType) => SelectorDefinitions<LogicType>)

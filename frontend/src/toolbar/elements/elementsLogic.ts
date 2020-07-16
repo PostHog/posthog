@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea } from '~/scenes/typedKea'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
@@ -7,8 +7,10 @@ import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+import { elementsLogicType } from '~/toolbar/elements/elementsLogic.type'
+import { ToolbarMode } from '~/toolbar/types'
 
-export const elementsLogic = kea({
+export const elementsLogic = kea<elementsLogicType<ToolbarMode>>({
     actions: {
         enableInspect: true,
         disableInspect: true,
@@ -304,7 +306,7 @@ export const elementsLogic = kea({
             cache.onScrollResize = () => {
                 window.clearTimeout(cache.clickDelayTimeout)
                 actions.updateRects()
-                cache.clickDelayTimeout = window.setTimeout(actions.addClick, 100)
+                cache.clickDelayTimeout = window.setTimeout(actions.updateRects, 100)
             }
             cache.onKeyDown = (e) => {
                 if (e.keyCode !== 27) {

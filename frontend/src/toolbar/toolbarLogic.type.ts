@@ -1,4 +1,4 @@
-// Auto-generated with kea-typegen v0.0.12. DO NOT EDIT!
+// Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface toolbarLogicType {
     actionCreators: {
@@ -17,6 +17,10 @@ export interface toolbarLogicType {
             };
         });
     };
+    cache: Record<string, any>;
+    path: ["frontend", "src", "toolbar", "toolbarLogic"];
+    pathString: "frontend.src.toolbar.toolbarLogic";
+    props: Record<string, any>;
     reducer: (state: any, action: () => any, fullState: any) => {
         rawApiURL: string;
         rawJsURL: string;
@@ -58,6 +62,7 @@ export interface toolbarLogicType {
         jsURL: string;
         isAuthenticated: boolean;
     };
+    _isKea: true;
     __selectorTypeHelp: {
         apiURL: (arg1: string) => string;
         jsURL: (arg1: string) => string;

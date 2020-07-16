@@ -1,4 +1,4 @@
-// Auto-generated with kea-typegen v0.0.12. DO NOT EDIT!
+// Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface toolbarTabLogicType {
     actionCreators: {
@@ -13,6 +13,10 @@ export interface toolbarTabLogicType {
             payload: { tab: string; };
         });
     };
+    cache: Record<string, any>;
+    path: ["frontend", "src", "toolbar", "toolbarTabLogic"];
+    pathString: "frontend.src.toolbar.toolbarTabLogic";
+    props: Record<string, any>;
     reducer: (state: any, action: () => any, fullState: any) => {
         tab: string;
     };
@@ -28,4 +32,5 @@ export interface toolbarTabLogicType {
     values: {
         tab: string;
     };
+    _isKea: true;
 }
