@@ -1,10 +1,26 @@
-import React from 'react'
-import { useValues } from 'kea'
+import React, { useRef, useState } from 'react'
+import { useValues, useActions } from 'kea'
 import { Table } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { DownOutlined } from '@ant-design/icons'
+import { entityFilterLogic } from 'scenes/trends/ActionFilter/entityFilterLogic'
+import { ActionFilterDropdown } from 'scenes/trends/ActionFilter/ActionFilterDropdown'
 
 export function RetentionTable({ logic }) {
-    const { retention, retentionLoading } = useValues(logic)
+    const node = useRef()
+    const [open, setOpen] = useState(false)
+    const { retention, retentionLoading, startEntity, filters } = useValues(logic)
+    const { setFilters } = useActions(logic)
+
+    const entityLogic = entityFilterLogic({
+        setFilters: (filters) => {
+            setFilters(filters)
+            setOpen(false)
+        },
+        filters: filters,
+        typeKey: 'retention-table',
+        singleMode: true,
+    })
 
     let columns = [
         {
@@ -37,6 +53,31 @@ export function RetentionTable({ logic }) {
     return (
         <>
             <PropertyFilters pageKey="RetentionTable" />
+            <div>
+                <button
+                    ref={node}
+                    className="filter-action btn btn-sm btn-light"
+                    type="button"
+                    onClick={() => setOpen(!open)}
+                    style={{
+                        fontWeight: 500,
+                    }}
+                >
+                    {startEntity?.name || 'Select action'}
+                    <DownOutlined style={{ marginLeft: '3px', color: 'rgba(0, 0, 0, 0.25)' }} />
+                </button>
+                {open && (
+                    <ActionFilterDropdown
+                        logic={entityLogic}
+                        onClickOutside={(e) => {
+                            if (node.current.contains(e.target)) {
+                                return
+                            }
+                            setOpen(false)
+                        }}
+                    />
+                )}
+            </div>
             <Table
                 data-attr="retention-table"
                 size="small"

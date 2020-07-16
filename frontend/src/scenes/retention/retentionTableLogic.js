@@ -15,6 +15,7 @@ export const retentionTableLogic = kea({
     }),
     actions: () => ({
         setProperties: (properties) => ({ properties }),
+        setFilters: (filters) => ({ filters }),
     }),
     reducers: () => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
@@ -22,6 +23,12 @@ export const retentionTableLogic = kea({
             [],
             {
                 setProperties: (_, { properties }) => properties,
+            },
+        ],
+        filters: [
+            {},
+            {
+                setFilters: (_, { filters }) => filters,
             },
         ],
     }),
@@ -34,6 +41,16 @@ export const retentionTableLogic = kea({
                 } else {
                     return ''
                 }
+            },
+        ],
+        startEntity: [
+            () => [selectors.filters],
+            (filters) => {
+                const result = Object.keys(filters).reduce(function (r, k) {
+                    return r.concat(filters[k])
+                }, [])
+
+                return result[0] || null
             },
         ],
     }),
