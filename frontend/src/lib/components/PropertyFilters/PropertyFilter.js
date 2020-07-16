@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, useState } from 'react'
 import { Select, Tabs } from 'antd'
 import { operatorMap, isOperatorFlag } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
@@ -190,6 +190,7 @@ function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorA
 export function PropertyFilter({ index, onComplete, logic }) {
     const { eventProperties, personProperties, filters } = useValues(logic)
     const { setFilter } = useActions(logic)
+    const [activeKey, setActiveKey] = useState(type === 'cohort' ? 'cohort' : 'property')
     let { key, value, operator, type } = filters[index]
 
     const setThisFilter = useCallback((key, value, operator, type) => setFilter(index, key, value, operator, type), [
@@ -201,11 +202,16 @@ export function PropertyFilter({ index, onComplete, logic }) {
     return (
         <Tabs
             defaultActiveKey={type === 'cohort' ? 'cohort' : 'property'}
+            onChange={setActiveKey}
             tabPosition="top"
             animated={false}
             style={{ minWidth: displayOperatorAndValue ? 700 : 350 }}
         >
-            <TabPane tab="Property" key="property" style={{ display: 'flex' }}>
+            <TabPane
+                tab="Property"
+                key="property"
+                style={{ display: 'flex', marginLeft: activeKey === 'cohort' ? '-100%' : 0 }}
+            >
                 <PropertyPaneContents
                     onComplete={onComplete}
                     setThisFilter={setThisFilter}
