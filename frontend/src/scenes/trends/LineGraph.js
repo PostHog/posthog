@@ -189,7 +189,6 @@ export function LineGraph({
                                           return null
                                       var label = entityData.chartLabel || entityData.label || ''
                                       if (entityData.action) {
-                                          console.log(entityData.action)
                                           let math = 'Total'
                                           if (entityData.action.math === 'dau')
                                               label += ` (${entityData.action.math.toUpperCase()}) `
