@@ -8,6 +8,7 @@ from django.contrib.auth import authenticate, login, views as auth_views, decora
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.template.loader import render_to_string
+from django.template.exceptions import TemplateDoesNotExist
 from urllib.parse import urlparse
 
 from .api import router, capture, user, decide
@@ -103,7 +104,10 @@ def setup_admin(request):
     if request.method == "GET":
         if request.user.is_authenticated:
             return redirect("/")
-        return render_template("setup_admin.html", request)
+        try:
+            return render_template("setup_admin.html", request)
+        except TemplateDoesNotExist:
+            return HttpResponse("Frontend not built yet. Please try again shortly or build manually using <code>./bin/start-frontend</code>")
     if request.method == "POST":
         email = request.POST["email"]
         password = request.POST["password"]

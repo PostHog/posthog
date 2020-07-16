@@ -56,6 +56,11 @@ TEST = "test" in sys.argv
 
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000")
 
+if DEBUG:
+    JS_URL = os.environ.get("JS_URL", "http://localhost:8234/")
+else:
+    JS_URL = os.environ.get("JS_URL", "")
+
 SECURE_SSL_REDIRECT = False
 
 if not DEBUG and not TEST:
@@ -73,6 +78,11 @@ if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
 if get_bool_from_env("IS_BEHIND_PROXY", False):
     USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+ASYNC_EVENT_ACTION_MAPPING = False
+
+if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
+    ASYNC_EVENT_ACTION_MAPPING = True
 
 # IP block settings
 ALLOWED_IP_BLOCKS = get_list(os.environ.get("ALLOWED_IP_BLOCKS", ""))
@@ -221,7 +231,7 @@ else:
 # Broker
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
-if TEST or DEBUG or (sys.argv[1] and sys.argv[1] == "collectstatic"):
+if TEST or DEBUG or (len(sys.argv) > 1 and sys.argv[1] == "collectstatic"):
     REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost/")
 else:
     REDIS_URL = os.environ.get("REDIS_URL", "")
