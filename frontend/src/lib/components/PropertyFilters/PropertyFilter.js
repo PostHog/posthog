@@ -190,8 +190,8 @@ function CohortPaneContents({ onComplete, setThisFilter, value, displayOperatorA
 export function PropertyFilter({ index, onComplete, logic }) {
     const { eventProperties, personProperties, filters } = useValues(logic)
     const { setFilter } = useActions(logic)
-    const [activeKey, setActiveKey] = useState(type === 'cohort' ? 'cohort' : 'property')
     let { key, value, operator, type } = filters[index]
+    const [activeKey, setActiveKey] = useState(type === 'cohort' ? 'cohort' : 'property')
 
     const setThisFilter = useCallback((key, value, operator, type) => setFilter(index, key, value, operator, type), [
         index,
