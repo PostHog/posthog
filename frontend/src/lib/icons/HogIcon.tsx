@@ -12,7 +12,7 @@ export interface Props {
     height?: number
     className?: string
     currentColor?: boolean
-    style?: Record<string, any>
+    style?: CSSStyleDeclaration
 }
 
 export function HogIcon({ withText = true, className, currentColor, style, ...props }: Props): React.ReactNode {
@@ -21,7 +21,6 @@ export function HogIcon({ withText = true, className, currentColor, style, ...pr
     const color3 = props.color3 || props.color || '#F9BD2B'
     const faceColor = props.faceColor || props.color || 'black'
     const eyeColor = props.eyeColor || props.color || 'white'
-
     return (
         <svg
             width={props.width || (withText ? '196' : '58')}

@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 
 export const retentionTableLogic = kea({
-    loaders: (props) => ({
+    loaders: () => ({
         retention: {
             __default: {},
             loadRetention: async () => {
