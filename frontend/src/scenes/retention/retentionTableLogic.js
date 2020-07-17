@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 
 export const retentionTableLogic = kea({
-    loaders: () => ({
+    loaders: ({ values }) => ({
         retention: {
             __default: {},
             loadRetention: async () => {
@@ -32,6 +32,10 @@ export const retentionTableLogic = kea({
     }),
     actions: () => ({
         setProperties: (properties) => ({ properties }),
+        loadMore: (selectedIndex) => ({ selectedIndex }),
+        loadMorePeople: (selectedIndex, peopleIds) => ({ selectedIndex, peopleIds }),
+        updatePeople: (selectedIndex, people) => ({ selectedIndex, people }),
+        updateRetention: (retention) => ({ retention }),
     }),
     reducers: () => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
