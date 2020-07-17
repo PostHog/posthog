@@ -28,6 +28,8 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import whiteLogo from './../../public/posthog-logo-white.svg'
 import { triggerResizeAfterADelay } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
+import { HogIcon } from 'lib/icons/HogIcon'
+import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -62,6 +64,7 @@ const submenuOverride = {
 
 export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
     const [inviteModalOpen, setInviteModalOpen] = useState(false)
+    const [toolbarModalOpen, setToolbarModalOpen] = useState(false)
     const collapseSidebar = () => {
         if (!sidebarCollapsed && window.innerWidth <= 991) {
             setSidebarCollapsed(true)
@@ -109,6 +112,16 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     mode="inline"
                 >
                     <Logo />
+
+                    <Menu.Item
+                        key="toolbar"
+                        style={{ ...itemStyle, background: 'hsla(210, 10%, 12%, 1)' }}
+                        onClick={() => setToolbarModalOpen(true)}
+                        data-attr="menu-item-toolbar"
+                    >
+                        <HogIcon style={{ width: '1.4em', marginLeft: '-0.2em', marginRight: 'calc(10px - 0.2em)' }} />
+                        <span className="sidebar-label">Launch Toolbar!</span>
+                    </Menu.Item>
 
                     {pinnedDashboards.map((dashboard, index) => (
                         <Menu.Item
@@ -230,6 +243,15 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <span className="sidebar-label">{'Invite your team'}</span>
                     </Menu.Item>
                 </Menu>
+
+                <Modal
+                    bodyStyle={{ padding: 0 }}
+                    visible={toolbarModalOpen}
+                    footer={null}
+                    onCancel={() => setToolbarModalOpen(false)}
+                >
+                    <ToolbarModal />
+                </Modal>
 
                 <Modal visible={inviteModalOpen} footer={null} onCancel={() => setInviteModalOpen(false)}>
                     <InviteTeam user={user} />

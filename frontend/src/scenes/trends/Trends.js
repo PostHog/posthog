@@ -140,7 +140,7 @@ function _Trends() {
                                 <ChartFilter
                                     displayMap={displayMap}
                                     filters={filters}
-                                    onChange={display => {
+                                    onChange={(display) => {
                                         if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART)
                                             clearAnnotationsToCreate()
                                         setDisplay(display)
