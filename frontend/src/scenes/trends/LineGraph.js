@@ -14,6 +14,7 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
 Chart.defaults.global.legend.display = false
 Chart.defaults.global.animation.duration = 0
+Chart.defaults.global.elements.line.cubicInterpolationMode = 'monotone'
 //--Chart Style Options--//
 
 export function LineGraph({
@@ -166,7 +167,6 @@ export function LineGraph({
                           maintainAspectRatio: false,
                           scaleShowHorizontalLines: false,
                           tooltips: {
-                              yAlign: 'bottom',
                               enabled: true,
                               intersect: false,
                               mode: 'nearest',
