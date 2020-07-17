@@ -127,7 +127,7 @@ export const retentionTableLogic = kea({
             actions.loadMorePeople(selectedIndex, peopleToAdd)
         },
         loadMorePeople: async ({ selectedIndex, peopleIds }) => {
-            if (peopleIds.length === 0) return []
+            if (peopleIds.length === 0) actions.updatePeople(selectedIndex, [])
             const peopleResult = (await api.get('api/person/?id=' + peopleIds.join(','))).results
             peopleResult.sort(function (a, b) {
                 return peopleIds.indexOf(a.id) - peopleIds.indexOf(b.id)
