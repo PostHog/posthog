@@ -378,8 +378,9 @@ class EventViewSet(viewsets.ModelViewSet):
         )
 
         result: List = []
+        interval = request.GET.get("interval", None)
         if session_type == "avg":
-            result = self._session_avg(all_sessions, sessions_sql_params, date_filter)
+            result = self._session_avg(all_sessions, sessions_sql_params, date_filter, interval)
         elif session_type == "dist":
             result = self._session_dist(all_sessions, sessions_sql_params)
         else:
@@ -443,16 +444,33 @@ class EventViewSet(viewsets.ModelViewSet):
         return result
 
     def _session_avg(
-        self, base_query: str, params: Tuple[Any, ...], date_filter: Dict[str, datetime]
+        self, base_query: str, params: Tuple[Any, ...], date_filter: Dict[str, datetime], interval: Optional[str]
     ) -> List[Dict[str, Any]]:
-        average_length_time = "SELECT date_trunc('day', timestamp) as start_time,\
+        def _determineInterval(interval):
+            if interval == "minute":
+                return (
+                    "minute",
+                    "min",
+                )
+            elif interval == "hour":
+                return "hour", "H"
+            elif interval == "week":
+                return "week", "W"
+            elif interval == "month":
+                return "month", "M"
+            else:
+                return "day", "D"
+
+        interval, interval_freq = _determineInterval(interval)
+
+        average_length_time = "SELECT date_trunc('{interval}', timestamp) as start_time,\
                         AVG(length) AS average_session_length_per_day,\
                         SUM(length) AS total_session_length_per_day, \
                         COUNT(1) as num_sessions_per_day\
                         FROM (SELECT global_session_id, EXTRACT('EPOCH' FROM (MAX(timestamp) - MIN(timestamp)))\
                             AS length,\
                             MIN(timestamp) as timestamp FROM ({}) as count GROUP BY 1) as agg group by 1 order by start_time".format(
-            base_query
+            base_query, interval=interval
         )
 
         cursor = connection.cursor()
@@ -460,7 +478,7 @@ class EventViewSet(viewsets.ModelViewSet):
         time_series_avg = cursor.fetchall()
         time_series_avg_friendly = []
         date_range = pd.date_range(
-            date_filter["timestamp__gte"].date(), date_filter["timestamp__lte"].date(), freq="D",
+            date_filter["timestamp__gte"].date(), date_filter["timestamp__lte"].date(), freq=interval_freq,
         )
         time_series_avg_friendly = [
             (day, round(time_series_avg[index][1] if index < len(time_series_avg) else 0),)

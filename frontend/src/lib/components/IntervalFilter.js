@@ -1,5 +1,5 @@
 import React from 'react'
-import { disableMinuteFor, disableHourFor } from '../../scenes/trends/trendsLogic'
+import { disableMinuteFor, disableHourFor } from 'scenes/trends/trendsLogic'
 import { Select } from 'antd'
 
 let intervalMapping = {
