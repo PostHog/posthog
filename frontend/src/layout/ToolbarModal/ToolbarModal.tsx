@@ -9,7 +9,6 @@ import { ToolbarSettings } from 'scenes/setup/ToolbarSettings'
 export function ToolbarModal(): React.ReactNode {
     const { user } = useValues(userLogic)
     const toolbarEnabled = user?.toolbar_mode === 'toolbar'
-    const appUrls = user?.team?.app_urls || []
 
     return (
         <div className="toolbar-modal">
