@@ -23,7 +23,8 @@ export function ToolbarModal(): React.ReactNode {
                     <HogIcon className="hog-icon" />
                     <h2>Toolbar – Permitted Domains/URLs</h2>
                     <p>
-                        Make sure you're using the snippet or the latest <code>posthog-js</code> version.<br />
+                        Make sure you're using the snippet or the latest <code>posthog-js</code> version.
+                        <br />
                         Clicking URL launches it with the Toolbar.
                     </p>
                     <EditAppUrls allowNavigation={true} />
