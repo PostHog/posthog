@@ -207,7 +207,7 @@ class EventManager(models.QuerySet):
 
     def query_retention(self, filters, team, start_entity: Optional[Entity] = None) -> models.QuerySet:
 
-        events = QuerySet()
+        events: QuerySet = QuerySet()
         entity = Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}) if not start_entity else start_entity
         if entity.type == TREND_FILTER_TYPE_EVENTS:
             events = Event.objects.filter_by_event_with_people(event=entity.id, team_id=team.id)
