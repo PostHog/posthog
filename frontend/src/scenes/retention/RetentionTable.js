@@ -80,7 +80,7 @@ export function RetentionTable({ logic }) {
                     {retention && !peopleLoading ? (
                         <div>
                             {retention?.data[selectedRow]?.values[0]?.count === 0 ? (
-                                <span>No users during this period</span>
+                                <span>No users during this period.</span>
                             ) : (
                                 <div>
                                     <table className="table table-bordered table-fixed">
@@ -143,7 +143,7 @@ export function RetentionTable({ logic }) {
                                     >
                                         {retention.data[selectedRow].values.some((element) => element.next) && (
                                             <Button type="primary" onClick={() => loadMore(selectedRow)}>
-                                                {loadingMore ? <Spin /> : 'Load more people'}
+                                                {loadingMore ? <Spin /> : 'Load More People'}
                                             </Button>
                                         )}
                                     </div>
