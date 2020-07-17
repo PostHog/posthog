@@ -10,7 +10,7 @@ export const retentionTableLogic = kea({
             loadRetention: async () => {
                 let params = {}
                 params['properties'] = values.properties
-                if (values.startEntity) params['start_entity'] = values.startEntity.name
+                if (values.startEntity) params['start_entity'] = values.startEntity
                 const urlParams = toParams(params)
                 return await api.get(`api/action/retention/?${urlParams}`)
             },
@@ -53,7 +53,7 @@ export const retentionTableLogic = kea({
                     return r.concat(filters[k])
                 }, [])
 
-                return result[0] || { name: '$pageview' }
+                return result[0] || { id: '$pageview', type: 'events', name: '$pageview' }
             },
         ],
     }),
