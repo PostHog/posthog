@@ -204,7 +204,7 @@ class EventViewSet(viewsets.ModelViewSet):
         events = (
             self.get_queryset()
             .filter(action__deleted=False, action__isnull=False)
-            .prefetch_related(Prefetch("action_set", queryset=Action.objects.order_by("id")))[0:101]
+            .prefetch_related(Prefetch("action_set", queryset=Action.objects.filter(deleted=False).order_by("id")))[0:101]
         )
         matches = []
         ids_seen: List[int] = []
@@ -212,7 +212,7 @@ class EventViewSet(viewsets.ModelViewSet):
             if event.pk in ids_seen:
                 continue
             ids_seen.append(event.pk)
-            for action in event.action_set.filter(deleted=False):
+            for action in event.action_set.all():
                 event.action = action
                 matches.append(event)
         prefetched_events = self._prefetch_events(matches)
