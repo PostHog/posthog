@@ -12,7 +12,7 @@ export function EditAppUrls({ actionId = null, allowNavigation = false }) {
 
     return (
         <div>
-            <List bordered>
+            <List bordered style={{ marginTop: '1rem' }}>
                 {appUrls.map((url, index) => (
                     <UrlRow
                         key={`${index},${url}`}
@@ -23,9 +23,13 @@ export function EditAppUrls({ actionId = null, allowNavigation = false }) {
                         deleteUrl={() => removeUrl(index)}
                     />
                 ))}
-                {appUrls.length === 0 && <List.Item>No url set yet.</List.Item>}
-                {!suggestions ||
-                    (suggestions.length > 0 && <List.Item>Suggestions: {suggestionsLoading && <Spin />} </List.Item>)}
+                {appUrls.length === 0 && (
+                    <List.Item>
+                        No URLs added yet.
+                        {!suggestions ||
+                            (suggestions.length > 0 && <> Suggestions: {suggestionsLoading && <Spin />}</>)}
+                    </List.Item>
+                )}
                 {suggestions &&
                     suggestions.slice(0, loadMore ? suggestions.length : 5).map((url) => (
                         <List.Item
@@ -57,7 +61,7 @@ export function EditAppUrls({ actionId = null, allowNavigation = false }) {
                 onClick={() => addUrl()}
                 style={{ padding: '5px 0', margin: '5px 0', textDecoration: 'none' }}
             >
-                + Add Another URL
+                + Add URL
             </Button>
         </div>
     )

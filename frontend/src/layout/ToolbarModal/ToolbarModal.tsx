@@ -16,22 +16,17 @@ export function ToolbarModal(): React.ReactNode {
             {!toolbarEnabled ? (
                 <>
                     <HogIcon className="hog-icon" color="#aaaaaa" eyeColor="#ffffff" />
-                    <h2>Toolbar Beta - Opt In</h2>
+                    <h2>Toolbar – Beta Opt-In</h2>
                     <ToolbarSettings />
                 </>
             ) : (
                 <>
                     <HogIcon className="hog-icon" />
-                    {appUrls.length === 0 ? (
-                        <h2>Please add your site!</h2>
-                    ) : (
-                        <>
-                            <h2>Select your site from the list:</h2>
-                            <p>
-                                Make sure it's using the latest JS snippet or <code>posthog-js</code> version!
-                            </p>
-                        </>
-                    )}
+                    <h2>Toolbar – Permitted Domains/URLs</h2>
+                    <p>
+                        Make sure you're using the snippet or the latest <code>posthog-js</code> version.<br />
+                        Clicking URL launches it with the Toolbar.
+                    </p>
                     <EditAppUrls allowNavigation={true} />
                     <a
                         className="toolbar-help"
