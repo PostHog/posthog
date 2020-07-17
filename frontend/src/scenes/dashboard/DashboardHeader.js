@@ -29,7 +29,7 @@ export function DashboardHeader({ logic }) {
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [fullScreen, setFullScreen] = useState(false)
-    const [visible, setVisible] = useState(false)
+    const [isAddItemModalVisible, setIsAddItemModalVisible] = useState(false)
 
     return (
         <div className={`dashboard-header${fullScreen ? ' full-screen' : ''}`}>
@@ -59,9 +59,9 @@ export function DashboardHeader({ logic }) {
                     </div>
                     {dashboard ? (
                         <div className="dashboard-meta">
-                            <Button type={'primary'} onClick={() => setVisible(true)}>
+                            <Button type="primary" onClick={() => setIsAddItemModalVisible(true)}>
                                 <PlusOutlined />
-                                <span className="hide-when-small">{'Add Item'}</span>
+                                <span className="hide-when-small">Add Item</span>
                             </Button>
                             {!fullScreen ? (
                                 <Tooltip title={dashboard.pinned ? 'Pinned into sidebar' : 'Pin into sidebar'}>
@@ -78,7 +78,7 @@ export function DashboardHeader({ logic }) {
                                 </Tooltip>
                             ) : null}
 
-                            <Tooltip title={'Click here or long press on a panel to rearrange the dashboard.'}>
+                            <Tooltip title="Click here or long press on a panel to rearrange the dashboard.">
                                 <Button
                                     className="button-box-when-small enable-dragging-button"
                                     type={draggingEnabled === 'off' ? 'primary' : ''}
@@ -132,17 +132,17 @@ export function DashboardHeader({ logic }) {
                 </>
             )}
             <Modal
-                visible={visible}
+                visible={isAddItemModalVisible}
                 style={{ cursor: 'pointer' }}
                 onCancel={() => {
-                    setVisible(false)
+                    setIsAddItemModalVisible(false)
                 }}
                 title="Create dashboard item"
                 footer={[
                     <Button
                         key="cancel-button"
                         onClick={() => {
-                            setVisible(false)
+                            setIsAddItemModalVisible(false)
                         }}
                     >
                         Cancel
