@@ -36,7 +36,6 @@ export const retentionTableLogic = kea({
         loadMorePeople: (selectedIndex, peopleIds) => ({ selectedIndex, peopleIds }),
         updatePeople: (selectedIndex, people) => ({ selectedIndex, people }),
         updateRetention: (retention) => ({ retention }),
-        updateLoadingMore: (status) => ({ status }),
     }),
     reducers: () => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
@@ -58,7 +57,8 @@ export const retentionTableLogic = kea({
         loadingMore: [
             false,
             {
-                updateLoadingMore: (state, { status }) => status,
+                loadMore: () => true,
+                updatePeople: () => false,
             },
         ],
     }),
@@ -104,7 +104,6 @@ export const retentionTableLogic = kea({
     listeners: ({ actions, values }) => ({
         setProperties: () => actions.loadRetention(),
         loadMore: async ({ selectedIndex }) => {
-            actions.updateLoadingMore(true)
             let peopleToAdd = []
             for (const [index, { next, offset }] of values.retention.data[selectedIndex].values.entries()) {
                 if (next) {
@@ -126,7 +125,6 @@ export const retentionTableLogic = kea({
             }
 
             actions.loadMorePeople(selectedIndex, peopleToAdd)
-            actions.updateLoadingMore(false)
         },
         loadMorePeople: async ({ selectedIndex, peopleIds }) => {
             if (peopleIds.length === 0) return []
