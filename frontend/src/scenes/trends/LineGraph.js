@@ -167,7 +167,6 @@ export function LineGraph({
                           maintainAspectRatio: false,
                           scaleShowHorizontalLines: false,
                           tooltips: {
-                              yAlign: 'bottom',
                               enabled: true,
                               intersect: false,
                               mode: 'nearest',
