@@ -152,7 +152,12 @@ export function DashboardHeader({ logic }) {
                 {
                     <Row gutter={2} justify="space-between">
                         <Col xs={11}>
-                            <Card title="Trend Graph" onClick={() => router.actions.push('/trends')} size="small">
+                            <Card
+                                title="Trend Graph"
+                                onClick={() => router.actions.push('/trends')}
+                                size="small"
+                                style={{ marginBottom: 0 }}
+                            >
                                 <div style={{ textAlign: 'center', fontSize: 60 }}>
                                     <RiseOutlined />
                                 </div>
@@ -165,6 +170,7 @@ export function DashboardHeader({ logic }) {
                                     router.actions.push('/funnel')
                                 }}
                                 size="small"
+                                style={{ marginBottom: 0 }}
                             >
                                 <div style={{ textAlign: 'center', fontSize: 60 }} data-attr="new-action-pageview">
                                     <FunnelPlotOutlined />
