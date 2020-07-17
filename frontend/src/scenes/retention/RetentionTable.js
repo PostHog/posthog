@@ -80,7 +80,7 @@ export function RetentionTable({ logic }) {
                     {retention && !peopleLoading ? (
                         <div>
                             {retention?.data[selectedRow]?.values[0]?.count === 0 ? (
-                                <span>No Users during this period</span>
+                                <span>No users during this period</span>
                             ) : (
                                 <div>
                                     <table className="table table-bordered table-fixed">
