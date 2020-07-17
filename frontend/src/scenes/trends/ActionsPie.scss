@@ -1,0 +1,131 @@
+.actions-pie-component {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+
+    .pie-chart {
+        position: relative;
+        width: 100%;
+        height: calc(100% - 100px);
+        transition: height 0.5s;
+    }
+    h1 {
+        position: absolute;
+        bottom: 0;
+        width: 100%;
+        font-size: 56px;
+        transition: font-size 0.5s;
+        margin: 0;
+        text-align: center;
+        line-height: 1.3em;
+    }
+    @media (max-width: 700px) {
+        .pie-chart {
+            height: calc(100% - 60px);
+        }
+        h1 {
+            font-size: 48px;
+        }
+    }
+    @media (max-width: 500px) {
+        .pie-chart {
+            height: calc(100% - 50px);
+        }
+        h1 {
+            font-size: 32px;
+        }
+    }
+}
+
+.dashboard-item.di-width-1,
+.dashboard-item.di-width-2 {
+    .actions-pie-component {
+        .pie-chart {
+            height: calc(100% - 20px);
+        }
+
+        h1 {
+            font-size: 16px;
+            .label {
+                display: none;
+            }
+        }
+    }
+}
+
+.dashboard-item.di-width-3,
+.dashboard-item.di-width-4 {
+    .actions-pie-component {
+        .pie-chart {
+            height: calc(100% - 30px);
+        }
+
+        h1 {
+            font-size: 24px;
+            .label {
+                display: none;
+            }
+        }
+    }
+}
+
+.dashboard-item.di-width-5,
+.dashboard-item.di-width-6 {
+    .actions-pie-component {
+        .pie-chart {
+            height: calc(100% - 40px);
+        }
+
+        h1 {
+            font-size: 36px;
+        }
+    }
+}
+.dashboard-item.di-width-7,
+.dashboard-item.di-width-8,
+.dashboard-item.di-width-9,
+.dashboard-item.di-width-10 {
+    .actions-pie-component {
+        .pie-chart {
+            height: calc(100% - 70px);
+        }
+
+        h1 {
+            font-size: 48px;
+        }
+    }
+}
+.dashboard-item.di-width-11,
+.dashboard-item.di-width-12,
+.dashboard-item.di-width-13,
+.dashboard-item.di-width-14,
+.dashboard-item.di-width-15,
+.dashboard-item.di-width-16 {
+    .actions-pie-component {
+        .pie-chart {
+            height: calc(100% - 100px);
+        }
+
+        h1 {
+            font-size: 64px;
+        }
+    }
+}
+.dashboard-item.di-width-17,
+.dashboard-item.di-width-18,
+.dashboard-item.di-width-19,
+.dashboard-item.di-width-20,
+.dashboard-item.di-width-21,
+.dashboard-item.di-width-22,
+.dashboard-item.di-width-23,
+.dashboard-item.di-width-24 {
+    .actions-pie-component {
+        .pie-chart {
+            height: calc(100% - 130px);
+        }
+
+        h1 {
+            font-size: 96px;
+        }
+    }
+}

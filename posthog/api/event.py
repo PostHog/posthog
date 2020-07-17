@@ -204,7 +204,7 @@ class EventViewSet(viewsets.ModelViewSet):
         events = (
             self.get_queryset()
             .filter(action__deleted=False, action__isnull=False)
-            .prefetch_related(Prefetch("action_set", queryset=Action.objects.order_by("id")))[0:101]
+            .prefetch_related(Prefetch("action_set", queryset=Action.objects.filter(deleted=False).order_by("id")))[0:101]
         )
         matches = []
         ids_seen: List[int] = []
@@ -212,7 +212,7 @@ class EventViewSet(viewsets.ModelViewSet):
             if event.pk in ids_seen:
                 continue
             ids_seen.append(event.pk)
-            for action in event.action_set.filter(deleted=False):
+            for action in event.action_set.all():
                 event.action = action
                 matches.append(event)
         prefetched_events = self._prefetch_events(matches)
@@ -335,9 +335,6 @@ class EventViewSet(viewsets.ModelViewSet):
         request: request.Request,
     ) -> List[Dict[str, Any]]:
 
-        if not events:
-            return []
-
         # format date filter for session view
         _date_gte = Q()
         if session_type is None:
@@ -347,9 +344,8 @@ class EventViewSet(viewsets.ModelViewSet):
                     timestamp__lte=date_filter["timestamp__gte"] + relativedelta(days=1),
                 )
             else:
-                dt = events.order_by("-timestamp").values("timestamp")[0]["timestamp"]
-                if dt:
-                    dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+                dt = datetime.now()
+                dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
                 _date_gte = Q(timestamp__gte=dt, timestamp__lte=dt + relativedelta(days=1))
 
         sessions = (

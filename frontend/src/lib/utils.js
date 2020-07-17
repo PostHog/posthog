@@ -275,14 +275,16 @@ export function slugify(text) {
 
 export function humanFriendlyDuration(d) {
     d = Number(d)
-    var h = Math.floor(d / 3600)
+    var days = Math.floor(d / 86400)
+    var h = Math.floor((d % 86400) / 3600)
     var m = Math.floor((d % 3600) / 60)
     var s = Math.floor((d % 3600) % 60)
 
+    var dayDisplay = days > 0 ? days + 'd ' : ''
     var hDisplay = h > 0 ? h + (h == 1 ? 'hr ' : 'hrs ') : ''
     var mDisplay = m > 0 ? m + (m == 1 ? 'min ' : 'mins ') : ''
     var sDisplay = s > 0 ? s + 's' : hDisplay || mDisplay ? '' : '0s'
-    return hDisplay + mDisplay + sDisplay
+    return days > 0 ? dayDisplay + hDisplay : hDisplay + mDisplay + sDisplay
 }
 
 export function humanFriendlyDiff(from, to) {
