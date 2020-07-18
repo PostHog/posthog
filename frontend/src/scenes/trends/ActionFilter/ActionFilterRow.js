@@ -23,7 +23,9 @@ const determineFilterLabel = (visible, filter) => {
 export function ActionFilterRow({ logic, filter, index, hideMathSelector, dragging }) {
     const node = useRef()
     const { selectedFilter, entities } = useValues(logic)
-    const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty, setLayoutHeight } = useActions(logic)
+    const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty, setLayoutHeight } = useActions(
+        logic
+    )
     const { eventProperties } = useValues(userLogic)
     const [entityFilterVisible, setEntityFilterVisible] = useState(false)
 
@@ -56,9 +58,9 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, draggi
         else selectFilter({ filter, type: filter.type, index })
     }
 
-    const toggleEntityFilter = (entityFilterVisible) => {
+    const toggleEntityFilter = entityFilterVisible => {
         setEntityFilterVisible(!entityFilterVisible)
-        const propertiesLength = filter.properties && filter.properties.length || 0
+        const propertiesLength = (filter.properties && filter.properties.length) || 0
         setLayoutHeight(filter.id, !entityFilterVisible, propertiesLength)
     }
 
@@ -66,13 +68,13 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, draggi
         name = null
         value = null
     } else {
-        entity = entities[filter.type].filter((action) => action.id === filter.id)[0] || {}
+        entity = entities[filter.type].filter(action => action.id === filter.id)[0] || {}
         name = entity.name || filter.name
         value = entity.id || filter.id
     }
     return (
         <div className="action-filter-row pb-1">
-            <DragOutlined className="action-filter-row-handle mr-2 pt-2"/>
+            <DragOutlined className="action-filter-row-handle mr-2 pt-2" />
             <button
                 data-attr={'trend-element-subject-' + index}
                 ref={node}
@@ -117,7 +119,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, draggi
             {dropDownCondition() && (
                 <ActionFilterDropdown
                     logic={logic}
-                    onClickOutside={(e) => {
+                    onClickOutside={e => {
                         if (node.current.contains(e.target)) {
                             return
                         }
@@ -133,7 +135,7 @@ function MathSelector(props) {
     let items = ['Total', 'DAU']
     return (
         <Dropdown
-            title={items[items.map((i) => i.toLowerCase()).indexOf(props.math)] || 'Total'}
+            title={items[items.map(i => i.toLowerCase()).indexOf(props.math)] || 'Total'}
             buttonClassName="btn btn-sm btn-light"
             style={{ marginLeft: 16 }}
             data-attr={'math-selector-' + props.index}
