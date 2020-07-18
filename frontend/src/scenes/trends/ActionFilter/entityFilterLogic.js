@@ -20,9 +20,9 @@ function toFilters(localFilters) {
     }))
 
     return {
-        [EntityTypes.ACTIONS]: filters.filter(filter => filter.type === EntityTypes.ACTIONS),
-        [EntityTypes.EVENTS]: filters.filter(filter => filter.type === EntityTypes.EVENTS),
-        [EntityTypes.NEW_ENTITY]: filters.filter(filter => filter.type === EntityTypes.NEW_ENTITY),
+        [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
+        [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
+        [EntityTypes.NEW_ENTITY]: filters.filter((filter) => filter.type === EntityTypes.NEW_ENTITY),
     }
 }
 
@@ -64,20 +64,20 @@ function orderFilters(filters, filterPositions) {
 // - setFilters
 // - typeKey
 export const entityFilterLogic = kea({
-    key: props => props.typeKey,
+    key: (props) => props.typeKey,
     connect: {
         values: [userLogic, ['eventNames'], actionsModel, ['actions']],
     },
     actions: () => ({
-        selectFilter: filter => ({ filter }),
-        updateFilterMath: filter => ({
+        selectFilter: (filter) => ({ filter }),
+        updateFilterMath: (filter) => ({
             type: filter.type,
             value: filter.value,
             math: filter.math,
             index: filter.index,
         }),
-        updateFilter: filter => ({ type: filter.type, index: filter.index, value: filter.value, name: filter.name }),
-        removeLocalFilter: filter => ({ value: filter.value, type: filter.type, index: filter.index }),
+        updateFilter: (filter) => ({ type: filter.type, index: filter.index, value: filter.value, name: filter.name }),
+        removeLocalFilter: (filter) => ({ value: filter.value, type: filter.type, index: filter.index }),
         addFilter: true,
         updateFilterProperty: filter => ({ properties: filter.properties, index: filter.index }),
         setFilters: filters => ({ filters }),
@@ -114,11 +114,11 @@ export const entityFilterLogic = kea({
             (events, actions) => {
                 return {
                     [EntityTypes.ACTIONS]: actions,
-                    [EntityTypes.EVENTS]: events.map(event => ({ id: event, name: event })),
+                    [EntityTypes.EVENTS]: events.map((event) => ({ id: event, name: event })),
                 }
             },
         ],
-        filters: [() => [selectors.localFilters], localFilters => toFilters(localFilters)],
+        filters: [() => [selectors.localFilters], (localFilters) => toFilters(localFilters)],
     }),
 
     listeners: ({ actions, values, props }) => ({

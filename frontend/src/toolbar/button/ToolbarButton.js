@@ -19,6 +19,7 @@ import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
 import { Dock } from '~/toolbar/button/icons/Dock'
+import { Tooltip } from 'antd'
 
 export function ToolbarButton() {
     const {
@@ -45,7 +46,7 @@ export function ToolbarButton() {
         showStats,
         hideStats,
     } = useActions(toolbarButtonLogic)
-    const { buttonActionsVisible } = useValues(actionsTabLogic)
+    const { buttonActionsVisible, showActionsTooltip } = useValues(actionsTabLogic)
     const { hideButtonActions, showButtonActions } = useActions(actionsTabLogic)
     const { actionCount, allActionsLoading } = useValues(actionsLogic)
 
@@ -53,7 +54,7 @@ export function ToolbarButton() {
     const { inspectEnabled, selectedElement } = useValues(elementsLogic)
 
     const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
-    const { heatmapEnabled, heatmapLoading, elementCount } = useValues(heatmapLogic)
+    const { heatmapEnabled, heatmapLoading, elementCount, showHeatmapTooltip } = useValues(heatmapLogic)
 
     const { dock, hideButton } = useActions(dockLogic)
 
@@ -62,7 +63,7 @@ export function ToolbarButton() {
 
     const globalMouseMove = useRef(null)
     useEffect(() => {
-        globalMouseMove.current = function(e) {
+        globalMouseMove.current = function (e) {
             const buttonDiv = getShadowRoot()?.getElementById('button-toolbar')
             if (buttonDiv) {
                 const rect = buttonDiv.getBoundingClientRect()
@@ -92,7 +93,7 @@ export function ToolbarButton() {
 
     // using useLongPress for short presses (clicks) since it detects if the element was dragged (no click) or not (click)
     const clickEvents = useLongPress(
-        clicked => {
+        (clicked) => {
             if (clicked) {
                 if (isAuthenticated) {
                     setExtensionPercentage(extensionPercentage === 1 ? 0 : 1)
@@ -121,7 +122,7 @@ export function ToolbarButton() {
             content={<HogLogo style={{ width: 45, cursor: 'pointer' }} />}
             label={
                 isAuthenticated ? null : (
-                    <div style={{ lineHeight: '22px', paddingTop: 5 }}>
+                    <div style={{ lineHeight: '22px', paddingTop: 15 }}>
                         Click here to
                         <br />
                         authenticate
@@ -174,7 +175,7 @@ export function ToolbarButton() {
                         x={side === 'left' ? 80 : -80}
                         y={toolbarListVerticalPadding + n++ * 60}
                         extensionPercentage={inspectExtensionPercentage}
-                        rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
+                        rotationFixer={(r) => (side === 'right' && r < 0 ? 360 : 0)}
                         label="Inspect"
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{
@@ -213,7 +214,7 @@ export function ToolbarButton() {
                         x={side === 'left' ? 80 : -80}
                         y={toolbarListVerticalPadding + n++ * 60}
                         extensionPercentage={heatmapExtensionPercentage}
-                        rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
+                        rotationFixer={(r) => (side === 'right' && r < 0 ? 360 : 0)}
                         label={heatmapEnabled && !heatmapLoading ? null : 'Heatmap'}
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{
@@ -244,7 +245,14 @@ export function ToolbarButton() {
                                 }
                                 y={0}
                                 content={
-                                    <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
+                                    <Tooltip
+                                        visible={showHeatmapTooltip}
+                                        title="Click for details"
+                                        placement={side === 'left' ? 'right' : 'left'}
+                                        getPopupContainer={getShadowRoot}
+                                    >
+                                        <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
+                                    </Tooltip>
                                 }
                                 zIndex={4}
                                 onClick={heatmapInfoVisible ? hideHeatmapInfo : showHeatmapInfo}
@@ -268,7 +276,7 @@ export function ToolbarButton() {
                         x={side === 'left' ? 80 : -80}
                         y={toolbarListVerticalPadding + n++ * 60}
                         extensionPercentage={actionsExtensionPercentage}
-                        rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
+                        rotationFixer={(r) => (side === 'right' && r < 0 ? 360 : 0)}
                         label={buttonActionsVisible && (!allActionsLoading || actionCount > 0) ? null : 'Actions'}
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{
@@ -299,7 +307,16 @@ export function ToolbarButton() {
                                     actionsExtensionPercentage
                                 }
                                 y={0}
-                                content={<div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>}
+                                content={
+                                    <Tooltip
+                                        visible={showActionsTooltip}
+                                        title="Click for details"
+                                        placement={side === 'left' ? 'right' : 'left'}
+                                        getPopupContainer={getShadowRoot}
+                                    >
+                                        <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>
+                                    </Tooltip>
+                                }
                                 zIndex={4}
                                 onClick={actionsInfoVisible ? hideActionsInfo : showActionsInfo}
                                 style={{
@@ -322,7 +339,7 @@ export function ToolbarButton() {
                         x={side === 'left' ? 80 : -80}
                         y={toolbarListVerticalPadding + n++ * 60}
                         extensionPercentage={statsExtensionPercentage}
-                        rotationFixer={r => (side === 'right' && r < 0 ? 360 : 0)}
+                        rotationFixer={(r) => (side === 'right' && r < 0 ? 360 : 0)}
                         label="Stats"
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{

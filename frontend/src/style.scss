@@ -22,6 +22,11 @@ $body-color: #37352f;
 
 :root {
     --gray-background: hsla(210, 6%, 95%, 1);
+
+    // make antd sidebar just a tad bit darker
+    .bg-dark {
+        background-color: hsla(210, 10%, 19%, 1) !important;
+    }
 }
 
 // bootstrap components

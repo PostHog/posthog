@@ -1,8 +1,8 @@
 {
-  "name": "PostHog - Product analytics",
+  "name": "PostHog - Product Analytics",
   "website": "https://www.posthog.com",
   "repository": "https://github.com/posthog/posthog",
-  "logo": "https://posthog.com/wp-content/uploads/2020/02/Group-10.png",
+  "logo": "https://posthog.com/images/98771d009c04ff64fc4ba3b31cc46fe8/posthog-icon-color.svg",
   "environments": {
     "review": {
       "scripts": {

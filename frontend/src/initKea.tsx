@@ -6,7 +6,7 @@ import { windowValuesPlugin } from 'kea-window-values'
 import { toast } from 'react-toastify'
 import React from 'react'
 
-export const initKea = () =>
+export function initKea(): void {
     resetContext({
         plugins: [
             localStoragePlugin,
@@ -21,8 +21,9 @@ export const initKea = () =>
                             <p className="error-message">"{error.message}"</p>
                         </div>
                     )
-                    window.Sentry ? window.Sentry.captureException(error) : console.error(error)
+                    window['Sentry'] ? window['Sentry'].captureException(error) : console.error(error)
                 },
             }),
         ],
     })
+}

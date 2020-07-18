@@ -4,12 +4,12 @@ import { uuid } from 'lib/utils'
 import { toast } from 'react-toastify'
 
 export const actionEditLogic = kea({
-    key: props => props.id || 'new',
+    key: (props) => props.id || 'new',
     actions: () => ({
         saveAction: true,
-        setAction: action => ({ action }),
-        setCreateNew: createNew => ({ createNew }),
-        actionAlreadyExists: actionId => ({ actionId }),
+        setAction: (action) => ({ action }),
+        setCreateNew: (createNew) => ({ createNew }),
+        actionAlreadyExists: (actionId) => ({ actionId }),
     }),
 
     loaders: ({ props }) => ({
@@ -45,14 +45,14 @@ export const actionEditLogic = kea({
     listeners: ({ values, props, actions }) => ({
         saveAction: async () => {
             let action = { ...values.action }
-            action.steps = action.steps.map(step => {
+            action.steps = action.steps.map((step) => {
                 let localStep = { ...step }
                 if (localStep.event == '$pageview') localStep.selection = ['url', 'url_matching', 'properties']
                 if (localStep.event != '$pageview' && localStep.event != '$autocapture')
                     localStep.selection = ['properties']
                 if (!localStep.selection) return localStep
                 let data = {}
-                Object.keys(localStep).map(key => {
+                Object.keys(localStep).map((key) => {
                     data[key] =
                         key == 'id' || key == 'event' || localStep.selection.indexOf(key) > -1 ? localStep[key] : null
                 })

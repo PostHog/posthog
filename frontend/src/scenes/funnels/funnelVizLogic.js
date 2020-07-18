@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 
 export const funnelVizLogic = kea({
-    key: props => props.dashboardItemId || 'some_funnel',
+    key: (props) => props.dashboardItemId || 'some_funnel',
     loaders: ({ props }) => ({
         results: {
             loadResults: async (refresh = false) => {

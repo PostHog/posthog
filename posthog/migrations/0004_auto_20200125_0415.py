@@ -7,13 +7,13 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0003_person_is_user'),
+        ("posthog", "0003_person_is_user"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='event',
-            name='elements',
+            model_name="event",
+            name="elements",
             field=django.contrib.postgres.fields.jsonb.JSONField(blank=True, default=list, null=True),
         ),
     ]

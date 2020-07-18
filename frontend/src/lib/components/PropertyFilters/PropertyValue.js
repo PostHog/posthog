@@ -20,20 +20,21 @@ export function PropertyValue({
     const [options, setOptions] = useState({})
 
     function loadPropertyValues(value) {
+        if (type === 'cohort') return
         let key = propertyKey.split('__')[0]
         setOptions({ [propertyKey]: { ...options[propertyKey], status: 'loading' }, ...options })
         setOptionsCache({ ...optionsCache, [value]: 'loading' })
         if (outerOptions) {
             setOptions({
-                [propertyKey]: { values: [...new Set([...outerOptions.map(option => option)])], status: true },
+                [propertyKey]: { values: [...new Set([...outerOptions.map((option) => option)])], status: true },
                 ...options,
             })
             setOptionsCache({ ...optionsCache, [value]: true })
         } else {
             api.get(endpoint || 'api/' + type + '/values/?key=' + key + (value ? '&value=' + value : '')).then(
-                propValues => {
+                (propValues) => {
                     setOptions({
-                        [propertyKey]: { values: [...new Set([...propValues.map(option => option)])], status: true },
+                        [propertyKey]: { values: [...new Set([...propValues.map((option) => option)])], status: true },
                         ...options,
                     })
                     setOptionsCache({ ...optionsCache, [value]: true })
@@ -48,7 +49,7 @@ export function PropertyValue({
 
     let displayOptions
     displayOptions = ((options[propertyKey] && options[propertyKey].values) || []).filter(
-        option => input === '' || (option && option.name?.toLowerCase().indexOf(input.toLowerCase()) > -1)
+        (option) => input === '' || (option && option.name?.toLowerCase().indexOf(input.toLowerCase()) > -1)
     )
 
     return (
@@ -59,7 +60,7 @@ export function PropertyValue({
             onChange={(_, payload) => onSet((payload && payload.value) || null)}
             value={value || placeholder}
             loading={optionsCache[input] === 'loading'}
-            onSearch={input => {
+            onSearch={(input) => {
                 setInput(input)
                 if (!optionsCache[input] && !isOperatorFlag(operator)) loadPropertyValues(input)
             }}

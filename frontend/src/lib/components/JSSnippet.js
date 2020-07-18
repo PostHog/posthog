@@ -2,11 +2,11 @@ import React from 'react'
 import { toast } from 'react-toastify'
 import { CopyOutlined } from '@ant-design/icons'
 
-export let JSSnippet = props => {
+export let JSSnippet = (props) => {
     let url = window.location.origin
     const copyRef = React.createRef()
 
-    const copyToClipboard = str => {
+    const copyToClipboard = (str) => {
         const el = document.createElement('textarea') // Create a <textarea> element
         el.value = str // Set its value to the string that you want copied
         el.setAttribute('readonly', '') // Make it readonly to be tamper-proof

@@ -1,8 +1,10 @@
+/* eslint-disable @typescript-eslint/no-var-requires */
 /* global require, module, process, __dirname */
 const path = require('path')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
+const WebpackBar = require('webpackbar')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 
@@ -19,7 +21,7 @@ function createEntry(entry) {
         entry: {
             [entry]:
                 entry === 'main'
-                    ? './frontend/src/index.js'
+                    ? './frontend/src/index.tsx'
                     : entry === 'toolbar'
                     ? './frontend/src/toolbar/index.js'
                     : entry === 'editor'
@@ -41,6 +43,7 @@ function createEntry(entry) {
                     : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234/static/`,
         },
         resolve: {
+            extensions: ['.js', '.ts', '.tsx'],
             alias: {
                 '~': path.resolve(__dirname, 'frontend', 'src'),
                 lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),
@@ -55,7 +58,7 @@ function createEntry(entry) {
         module: {
             rules: [
                 {
-                    test: /\.js$/,
+                    test: /\.[jt]sx?$/,
                     exclude: /(node_modules)/,
                     use: {
                         loader: 'babel-loader',
@@ -109,7 +112,7 @@ function createEntry(entry) {
                                 implementation: require('sass'),
                             },
                         },
-                    ].filter(a => a),
+                    ].filter((a) => a),
                 },
                 {
                     // Now we apply rule for images
@@ -149,6 +152,8 @@ function createEntry(entry) {
             hot: true,
             host: webpackDevServerHost,
             port: 8234,
+            noInfo: true,
+            stats: 'minimal',
             public: process.env.IS_PORTER
                 ? `https://${process.env.PORTER_WEBPACK_HOST}`
                 : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234`,
@@ -160,12 +165,18 @@ function createEntry(entry) {
                 'Access-Control-Allow-Headers': '*',
             },
         },
-        plugins:
+        plugins: [
+            // common plugins for all entrypoints
+            new WebpackBar(),
+        ].concat(
             entry === 'main'
                 ? [
+                      // other bundles include the css in js via style-loader
                       new MiniCssExtractPlugin({
                           filename: '[name].css',
+                          ignoreOrder: true,
                       }),
+                      // we need these only once per build
                       new HtmlWebpackPlugin({
                           alwaysWriteToDisk: true,
                           title: 'PostHog',
@@ -180,6 +191,7 @@ function createEntry(entry) {
                       }),
                       new HtmlWebpackHarddiskPlugin(),
                   ]
-                : [],
+                : []
+        ),
     }
 }

@@ -1,6 +1,6 @@
 import './DashboardItems.scss'
 
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Responsive, WidthProvider } from '@mariusandra/react-grid-layout'
 
@@ -13,12 +13,13 @@ const noop = () => {}
 
 export function DashboardItems({ logic }) {
     const { dashboards } = useValues(dashboardsModel)
-    const { dashboard, items, layouts, breakpoints, cols, draggingEnabled } = useValues(logic)
+    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, draggingEnabled } = useValues(logic)
     const {
         loadDashboardItems,
         renameDashboardItem,
         refreshDashboardItem,
         updateLayouts,
+        updateContainerWidth,
         updateItemColor,
         duplicateDashboardItem,
         enableWobblyDragging,
@@ -26,6 +27,7 @@ export function DashboardItems({ logic }) {
 
     // make sure the dashboard takes up the right size
     useEffect(() => triggerResizeAfterADelay(), [])
+    const [resizingItem, setResizingItem] = useState(null)
 
     // can not click links when dragging and 250ms after
     const isDragging = useRef(false)
@@ -46,19 +48,29 @@ export function DashboardItems({ logic }) {
                 updateLayouts(layouts)
                 triggerResize()
             }}
+            onWidthChange={(containerWidth, _, cols) => {
+                updateContainerWidth(containerWidth, cols)
+            }}
             breakpoints={breakpoints}
             resizeHandles={['s', 'e', 'se']}
             cols={cols}
             onResize={(layout, oldItem, newItem) => {
+                if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
+                    setResizingItem(newItem)
+                }
+
                 // Trigger the resize event for funnels, as they won't update their dimensions
                 // when their container is resized and must be recalculated.
                 // Skip this for other types as it slows down the interactions a bit.
-                const item = items.find(i => i.id === parseInt(newItem.i))
+                const item = items.find((i) => i.id === parseInt(newItem.i))
                 if (item?.type === 'FunnelViz') {
                     triggerResize()
                 }
             }}
-            onResizeStop={triggerResizeAfterADelay}
+            onResizeStop={() => {
+                setResizingItem(null)
+                triggerResizeAfterADelay()
+            }}
             onDrag={() => {
                 isDragging.current = true
                 window.clearTimeout(dragEndTimeout.current)
@@ -69,7 +81,7 @@ export function DashboardItems({ logic }) {
                     isDragging.current = false
                 }, 250)
             }}
-            draggableCancel=".anticon,.ant-dropdown,table"
+            draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content"
         >
             {items.map((item, index) => (
                 <div key={item.id} className="dashboard-item-wrapper">
@@ -77,6 +89,9 @@ export function DashboardItems({ logic }) {
                         key={item.id}
                         dashboardId={dashboard.id}
                         item={item}
+                        layout={
+                            resizingItem?.i?.toString() === item.id.toString() ? resizingItem : layoutForItem[item.id]
+                        }
                         loadDashboardItems={loadDashboardItems}
                         renameDashboardItem={renameDashboardItem}
                         duplicateDashboardItem={duplicateDashboardItem}
