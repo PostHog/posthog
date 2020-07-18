@@ -20,6 +20,7 @@ import {
     ExperimentOutlined,
     ClockCircleOutlined,
     RetweetOutlined,
+    TeamOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -219,6 +220,11 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <SettingOutlined />
                         <span className="sidebar-label">{'Setup'}</span>
                         <Link to={'/setup'} onClick={collapseSidebar} />
+                    </Menu.Item>
+                    <Menu.Item key="team" style={itemStyle} data-attr="menu-item-team">
+                        <TeamOutlined />
+                        <span className="sidebar-label">{'Team'}</span>
+                        <Link to={'/team'} onClick={collapseSidebar} />
                     </Menu.Item>
                     <Menu.Item
                         key="invite"
