@@ -133,5 +133,5 @@ class TestTeamUser(BaseTest):
 
         response = self.client.delete(f"/api/team/user/{user.distinct_id}/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        response_data: Dict = response.json()
+        response_data = response.json()
         self.assertEqual(response_data, {"detail": "Authentication credentials were not provided."})
