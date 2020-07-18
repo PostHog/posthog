@@ -1,15 +1,17 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Card, Loading } from 'lib/utils'
-import { Table, Modal } from 'antd'
+import { InviteTeam } from 'lib/components/InviteTeam'
+import { Table, Modal, Button, Row } from 'antd'
 import { useValues, useActions } from 'kea'
 import { teamLogic } from './teamLogic'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 
-function Team() {
+function Team({ user }) {
     const logic = teamLogic()
     const { users, usersLoading } = useValues(logic)
     const { deleteUser } = useActions(logic)
     const { confirm } = Modal
+    const [inviteModalOpen, setInviteModalOpen] = useState(false)
 
     const ActionsComponent = (_text, record) => {
         const handleClick = () => {
@@ -58,24 +60,36 @@ function Team() {
     ]
 
     return (
-        <div>
-            <h1 className="page-header">Team</h1>
-            <p>This is the list of all the users with access to PostHog for your team.</p>
-            <Card>
-                {usersLoading && (
-                    <div className="loading-overlay mt-5">
-                        <div />
-                        <Loading />
-                        <br />
-                    </div>
-                )}
-                {!usersLoading && (
-                    <div className="card-body">
-                        <Table dataSource={users.results} columns={columns} rowKey="distinct_id" />
-                    </div>
-                )}
-            </Card>
-        </div>
+        <>
+            <div>
+                <h1 className="page-header">Team</h1>
+                <p style={{ maxWidth: 600 }}>
+                    <i>This is the list of all the users with access to PostHog for your team.</i>
+                </p>
+                <Row style={{ marginBottom: 32 }}>
+                    <Button type="primary" onClick={() => setInviteModalOpen(true)}>
+                        + Invite new user
+                    </Button>
+                </Row>
+                <Card>
+                    {usersLoading && (
+                        <div className="loading-overlay mt-5">
+                            <div />
+                            <Loading />
+                            <br />
+                        </div>
+                    )}
+                    {!usersLoading && (
+                        <div className="card-body">
+                            <Table dataSource={users.results} columns={columns} rowKey="distinct_id" />
+                        </div>
+                    )}
+                </Card>
+            </div>
+            <Modal visible={inviteModalOpen} footer={null} onCancel={() => setInviteModalOpen(false)}>
+                <InviteTeam user={user} />
+            </Modal>
+        </>
     )
 }
 
