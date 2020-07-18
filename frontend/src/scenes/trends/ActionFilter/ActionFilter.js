@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import GridLayout, { WidthProvider } from '@mariusandra/react-grid-layout'
 import { entityFilterLogic } from './entityFilterLogic'
@@ -12,6 +12,10 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector })
 
     const { localFilters, layouts } = useValues(logic)
     const { addFilter, orderFilters, setLocalFilters } = useActions(logic)
+    // This is to be able to collapse a row when it is being dragged due to a bug
+    // with reac-grid-layout that doesn't seems to work when a row is open
+    const [draggedRow, setDraggedRow] = useState(null)
+
 
     // No way around this. Somehow the ordering of the logic calling each other causes stale "localFilters"
     // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
@@ -20,23 +24,30 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector })
     }, [filters])
 
     const renderLocalFilters = () => localFilters.map((filter, index) => (
-        <div key={filter.id.toString()} data-grid={layouts.find(layout => layout.i === filter.id)}>
-          <ActionFilterRow
-              logic={logic}
-              filter={filter}
-              index={index}
-              key={index}
-              hideMathSelector={hideMathSelector}
-          />
-        </div>
-      ));
-
+      <div key={filter.id.toString()} data-grid={layouts.find(layout => layout.i === filter.id)}>
+        <ActionFilterRow
+            logic={logic}
+            filter={filter}
+            index={index}
+            key={index}
+            hideMathSelector={hideMathSelector}
+            dragging={draggedRow === filter.id}
+        />
+      </div>
+    ));
+    // eslint-disable-next-line no-unused-vars
     const updateFilterPositions = (layout, _oldItem, _newItem) => {
+      setDraggedRow(null)
       const filterPositions = layout.reduce((positions, filter) => { 
         positions[filter.i] = filter.y 
         return positions
       }, {})
       orderFilters(filterPositions)
+    }
+
+    // eslint-disable-next-line no-unused-vars
+    const collapseFilter = (_layout, _oldItem, newItem) => {
+      setDraggedRow(Number(newItem.i))
     }
 
     return (
@@ -51,6 +62,7 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector })
               draggableHandle=".action-filter-row-handle"
               maxRows={localFilters.length}
               isResizable={true}
+              onDragStart={collapseFilter}
               onDragStop={updateFilterPositions}
               // We disable this because we would have to add a lot of CSS changes
               // to let ReactGridLayout properly render the Dropdown and Popups

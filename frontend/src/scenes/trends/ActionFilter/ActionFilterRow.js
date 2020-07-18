@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useRef, useState, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { EntityTypes } from '../trendsLogic'
 import { CloseButton } from '~/lib/utils'
@@ -20,12 +20,19 @@ const determineFilterLabel = (visible, filter) => {
     return 'Add Filters'
 }
 
-export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
+export function ActionFilterRow({ logic, filter, index, hideMathSelector, dragging }) {
     const node = useRef()
     const { selectedFilter, entities } = useValues(logic)
     const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty, setLayoutHeight } = useActions(logic)
     const { eventProperties } = useValues(userLogic)
     const [entityFilterVisible, setEntityFilterVisible] = useState(false)
+
+    useEffect(() => {
+        if (dragging) {
+            setEntityFilterVisible(!dragging)
+            setLayoutHeight(filter.id, !dragging, 0)
+        }
+    }, [dragging])
 
     let entity, name, value
     let math = filter.math
