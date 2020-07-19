@@ -10,12 +10,13 @@ import { ToastContainer, Slide } from 'react-toastify'
 import { Sidebar } from '~/layout/Sidebar'
 import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
-const OnboardingWizard = lazy(() => import('~/scenes/onboarding/onboardingWizard'))
 
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
+
+const OnboardingWizard = lazy(() => import('~/scenes/onboarding/onboardingWizard'))
 
 const darkerScenes = {
     dashboard: true,
@@ -37,7 +38,7 @@ const urlBackgroundMap = {
     '/paths': 'https://posthog.s3.eu-west-2.amazonaws.com/paths.png',
 }
 
-function App() {
+function App(): React.ReactNode {
     const { user } = useValues(userLogic)
     const { scene, params, loadedScenes } = useValues(sceneLogic)
     const { location } = useValues(router)
