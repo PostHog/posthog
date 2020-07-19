@@ -1,4 +1,4 @@
-import { kea } from '~/scenes/typedKea'
+import { kea } from 'kea'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'

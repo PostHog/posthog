@@ -1,6 +1,6 @@
 // /api/event/?event=$autocapture&properties[pathname]=/docs/introduction/what-is-kea
 
-import { kea } from '~/scenes/typedKea'
+import { kea } from 'kea'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { elementToActionStep, elementToSelector } from '~/toolbar/utils'

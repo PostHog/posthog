@@ -1,4 +1,4 @@
-import { kea } from '../scenes/typedKea'
+import { kea } from 'kea'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarTabLogicType } from '~/toolbar/toolbarTabLogic.type'
 

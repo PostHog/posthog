@@ -1,4 +1,4 @@
-import { kea } from './typedKea'
+import { kea } from 'kea'
 import api from '../lib/api'
 import { posthogEvents } from 'lib/utils'
 import { userLogicType } from './userLogic.type'

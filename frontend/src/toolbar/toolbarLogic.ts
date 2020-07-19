@@ -1,4 +1,4 @@
-import { kea } from '~/scenes/typedKea'
+import { kea } from 'kea'
 import { toolbarLogicType } from '~/toolbar/toolbarLogic.type'
 
 // input: props = all editorProps
@@ -28,3 +28,4 @@ export const toolbarLogic = kea<toolbarLogicType>({
         },
     }),
 })
+
