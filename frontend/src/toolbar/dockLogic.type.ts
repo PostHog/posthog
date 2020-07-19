@@ -4,122 +4,122 @@ export interface dockLogicType<ToolbarMode,  AnimationState> {
     key: any;
     actionCreators: {
         button: () => ({
-            type: "button (frontend.src.toolbar.dockLogic)";
+            type: "button (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         dock: () => ({
-            type: "dock (frontend.src.toolbar.dockLogic)";
+            type: "dock (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         hideButton: () => ({
-            type: "hide button (frontend.src.toolbar.dockLogic)";
+            type: "hide button (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         update: () => ({
-            type: "update (frontend.src.toolbar.dockLogic)";
+            type: "update (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         buttonAnimated: () => ({
-            type: "button animated (frontend.src.toolbar.dockLogic)";
+            type: "button animated (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         buttonFaded: () => ({
-            type: "button faded (frontend.src.toolbar.dockLogic)";
+            type: "button faded (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         dockAnimated: () => ({
-            type: "dock animated (frontend.src.toolbar.dockLogic)";
+            type: "dock animated (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         dockFaded: () => ({
-            type: "dock faded (frontend.src.toolbar.dockLogic)";
+            type: "dock faded (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         hideButtonAnimated: () => ({
-            type: "hide button animated (frontend.src.toolbar.dockLogic)";
+            type: "hide button animated (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         setMode: (mode: ToolbarMode, update?: boolean) => ({
-            type: "set mode (frontend.src.toolbar.dockLogic)";
+            type: "set mode (toolbar.dockLogic)";
             payload: { mode: ToolbarMode; update: boolean; windowWidth: number; windowHeight: number; };
         });
     };
     actionKeys: any;
     actions: {
         button: () => ({
-            type: "button (frontend.src.toolbar.dockLogic)";
+            type: "button (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         dock: () => ({
-            type: "dock (frontend.src.toolbar.dockLogic)";
+            type: "dock (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         hideButton: () => ({
-            type: "hide button (frontend.src.toolbar.dockLogic)";
+            type: "hide button (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         update: () => ({
-            type: "update (frontend.src.toolbar.dockLogic)";
+            type: "update (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         buttonAnimated: () => ({
-            type: "button animated (frontend.src.toolbar.dockLogic)";
+            type: "button animated (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         buttonFaded: () => ({
-            type: "button faded (frontend.src.toolbar.dockLogic)";
+            type: "button faded (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         dockAnimated: () => ({
-            type: "dock animated (frontend.src.toolbar.dockLogic)";
+            type: "dock animated (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         dockFaded: () => ({
-            type: "dock faded (frontend.src.toolbar.dockLogic)";
+            type: "dock faded (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         hideButtonAnimated: () => ({
-            type: "hide button animated (frontend.src.toolbar.dockLogic)";
+            type: "hide button animated (toolbar.dockLogic)";
             payload: {
                 value: boolean;
             };
         });
         setMode: (mode: ToolbarMode, update?: boolean) => ({
-            type: "set mode (frontend.src.toolbar.dockLogic)";
+            type: "set mode (toolbar.dockLogic)";
             payload: { mode: ToolbarMode; update: boolean; windowWidth: number; windowHeight: number; };
         });
     };
@@ -128,8 +128,8 @@ export interface dockLogicType<ToolbarMode,  AnimationState> {
     constants: any;
     defaults: any;
     events: any;
-    path: ["frontend", "src", "toolbar", "dockLogic"];
-    pathString: "frontend.src.toolbar.dockLogic";
+    path: ["toolbar", "dockLogic"];
+    pathString: "toolbar.dockLogic";
     propTypes: any;
     props: Record<string, any>;
     reducer: (state: any, action: () => any, fullState: any) => {

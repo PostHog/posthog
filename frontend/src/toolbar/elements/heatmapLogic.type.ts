@@ -4,45 +4,45 @@ export interface heatmapLogicType {
     key: any;
     actionCreators: {
         enableHeatmap: () => ({
-            type: "enable heatmap (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "enable heatmap (toolbar.elements.heatmapLogic)";
             payload: {
                 value: boolean;
             };
         });
         disableHeatmap: () => ({
-            type: "disable heatmap (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "disable heatmap (toolbar.elements.heatmapLogic)";
             payload: {
                 value: boolean;
             };
         });
         resetEvents: () => ({
-            type: "reset events (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "reset events (toolbar.elements.heatmapLogic)";
             payload: any;
         });
         resetEventsSuccess: (events: undefined[]) => ({
-            type: "reset events success (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "reset events success (toolbar.elements.heatmapLogic)";
             payload: {
                 events: undefined[];
             };
         });
         resetEventsFailure: (error: string) => ({
-            type: "reset events failure (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "reset events failure (toolbar.elements.heatmapLogic)";
             payload: {
                 error: string;
             };
         });
         getEvents: ({ $current_url }: any) => ({
-            type: "get events (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "get events (toolbar.elements.heatmapLogic)";
             payload: any;
         });
         getEventsSuccess: (events: undefined[]) => ({
-            type: "get events success (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "get events success (toolbar.elements.heatmapLogic)";
             payload: {
                 events: undefined[];
             };
         });
         getEventsFailure: (error: string) => ({
-            type: "get events failure (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "get events failure (toolbar.elements.heatmapLogic)";
             payload: {
                 error: string;
             };
@@ -51,45 +51,45 @@ export interface heatmapLogicType {
     actionKeys: any;
     actions: {
         enableHeatmap: () => ({
-            type: "enable heatmap (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "enable heatmap (toolbar.elements.heatmapLogic)";
             payload: {
                 value: boolean;
             };
         });
         disableHeatmap: () => ({
-            type: "disable heatmap (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "disable heatmap (toolbar.elements.heatmapLogic)";
             payload: {
                 value: boolean;
             };
         });
         resetEvents: () => ({
-            type: "reset events (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "reset events (toolbar.elements.heatmapLogic)";
             payload: any;
         });
         resetEventsSuccess: (events: undefined[]) => ({
-            type: "reset events success (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "reset events success (toolbar.elements.heatmapLogic)";
             payload: {
                 events: undefined[];
             };
         });
         resetEventsFailure: (error: string) => ({
-            type: "reset events failure (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "reset events failure (toolbar.elements.heatmapLogic)";
             payload: {
                 error: string;
             };
         });
         getEvents: ({ $current_url }: any) => ({
-            type: "get events (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "get events (toolbar.elements.heatmapLogic)";
             payload: any;
         });
         getEventsSuccess: (events: undefined[]) => ({
-            type: "get events success (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "get events success (toolbar.elements.heatmapLogic)";
             payload: {
                 events: undefined[];
             };
         });
         getEventsFailure: (error: string) => ({
-            type: "get events failure (frontend.src.toolbar.elements.heatmapLogic)";
+            type: "get events failure (toolbar.elements.heatmapLogic)";
             payload: {
                 error: string;
             };
@@ -100,8 +100,8 @@ export interface heatmapLogicType {
     constants: any;
     defaults: any;
     events: any;
-    path: ["frontend", "src", "toolbar", "elements", "heatmapLogic"];
-    pathString: "frontend.src.toolbar.elements.heatmapLogic";
+    path: ["toolbar", "elements", "heatmapLogic"];
+    pathString: "toolbar.elements.heatmapLogic";
     propTypes: any;
     props: Record<string, any>;
     reducer: (state: any, action: () => any, fullState: any) => {

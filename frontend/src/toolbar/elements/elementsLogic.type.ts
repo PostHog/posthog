@@ -4,82 +4,82 @@ export interface elementsLogicType<ToolbarMode> {
     key: any;
     actionCreators: {
         enableInspect: () => ({
-            type: "enable inspect (frontend.src.toolbar.elements.elementsLogic)";
+            type: "enable inspect (toolbar.elements.elementsLogic)";
             payload: {
                 value: boolean;
             };
         });
         disableInspect: () => ({
-            type: "disable inspect (frontend.src.toolbar.elements.elementsLogic)";
+            type: "disable inspect (toolbar.elements.elementsLogic)";
             payload: {
                 value: boolean;
             };
         });
         selectElement: (element: any) => ({
-            type: "select element (frontend.src.toolbar.elements.elementsLogic)";
+            type: "select element (toolbar.elements.elementsLogic)";
             payload: { element: any; };
         });
         createAction: (element: any) => ({
-            type: "create action (frontend.src.toolbar.elements.elementsLogic)";
+            type: "create action (toolbar.elements.elementsLogic)";
             payload: { element: any; };
         });
         updateRects: () => ({
-            type: "update rects (frontend.src.toolbar.elements.elementsLogic)";
+            type: "update rects (toolbar.elements.elementsLogic)";
             payload: {
                 value: boolean;
             };
         });
         setHoverElement: (element: any) => ({
-            type: "set hover element (frontend.src.toolbar.elements.elementsLogic)";
+            type: "set hover element (toolbar.elements.elementsLogic)";
             payload: { element: any; };
         });
         setHighlightElement: (element: any) => ({
-            type: "set highlight element (frontend.src.toolbar.elements.elementsLogic)";
+            type: "set highlight element (toolbar.elements.elementsLogic)";
             payload: { element: any; };
         });
         setSelectedElement: (element: any) => ({
-            type: "set selected element (frontend.src.toolbar.elements.elementsLogic)";
+            type: "set selected element (toolbar.elements.elementsLogic)";
             payload: { element: any; };
         });
     };
     actionKeys: any;
     actions: {
         enableInspect: () => ({
-            type: "enable inspect (frontend.src.toolbar.elements.elementsLogic)";
+            type: "enable inspect (toolbar.elements.elementsLogic)";
             payload: {
                 value: boolean;
             };
         });
         disableInspect: () => ({
-            type: "disable inspect (frontend.src.toolbar.elements.elementsLogic)";
+            type: "disable inspect (toolbar.elements.elementsLogic)";
             payload: {
                 value: boolean;
             };
         });
         selectElement: (element: any) => ({
-            type: "select element (frontend.src.toolbar.elements.elementsLogic)";
+            type: "select element (toolbar.elements.elementsLogic)";
             payload: { element: any; };
         });
         createAction: (element: any) => ({
-            type: "create action (frontend.src.toolbar.elements.elementsLogic)";
+            type: "create action (toolbar.elements.elementsLogic)";
             payload: { element: any; };
         });
         updateRects: () => ({
-            type: "update rects (frontend.src.toolbar.elements.elementsLogic)";
+            type: "update rects (toolbar.elements.elementsLogic)";
             payload: {
                 value: boolean;
             };
         });
         setHoverElement: (element: any) => ({
-            type: "set hover element (frontend.src.toolbar.elements.elementsLogic)";
+            type: "set hover element (toolbar.elements.elementsLogic)";
             payload: { element: any; };
         });
         setHighlightElement: (element: any) => ({
-            type: "set highlight element (frontend.src.toolbar.elements.elementsLogic)";
+            type: "set highlight element (toolbar.elements.elementsLogic)";
             payload: { element: any; };
         });
         setSelectedElement: (element: any) => ({
-            type: "set selected element (frontend.src.toolbar.elements.elementsLogic)";
+            type: "set selected element (toolbar.elements.elementsLogic)";
             payload: { element: any; };
         });
     };
@@ -88,8 +88,8 @@ export interface elementsLogicType<ToolbarMode> {
     constants: any;
     defaults: any;
     events: any;
-    path: ["frontend", "src", "toolbar", "elements", "elementsLogic"];
-    pathString: "frontend.src.toolbar.elements.elementsLogic";
+    path: ["toolbar", "elements", "elementsLogic"];
+    pathString: "toolbar.elements.elementsLogic";
     propTypes: any;
     props: Record<string, any>;
     reducer: (state: any, action: () => any, fullState: any) => {

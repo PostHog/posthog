@@ -4,14 +4,14 @@ export interface toolbarTabLogicType {
     key: any;
     actionCreators: {
         setTab: (tab: string) => ({
-            type: "set tab (frontend.src.toolbar.toolbarTabLogic)";
+            type: "set tab (toolbar.toolbarTabLogic)";
             payload: { tab: string; };
         });
     };
     actionKeys: any;
     actions: {
         setTab: (tab: string) => ({
-            type: "set tab (frontend.src.toolbar.toolbarTabLogic)";
+            type: "set tab (toolbar.toolbarTabLogic)";
             payload: { tab: string; };
         });
     };
@@ -20,8 +20,8 @@ export interface toolbarTabLogicType {
     constants: any;
     defaults: any;
     events: any;
-    path: ["frontend", "src", "toolbar", "toolbarTabLogic"];
-    pathString: "frontend.src.toolbar.toolbarTabLogic";
+    path: ["toolbar", "toolbarTabLogic"];
+    pathString: "toolbar.toolbarTabLogic";
     propTypes: any;
     props: Record<string, any>;
     reducer: (state: any, action: () => any, fullState: any) => {

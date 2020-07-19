@@ -4,50 +4,50 @@ export interface userLogicType<UserType> {
     key: any;
     actionCreators: {
         loadUser: () => ({
-            type: "load user (frontend.src.scenes.userLogic)";
+            type: "load user (scenes.userLogic)";
             payload: {
                 value: boolean;
             };
         });
         setUser: (user: UserType | null, updateKey?: string) => ({
-            type: "set user (frontend.src.scenes.userLogic)";
+            type: "set user (scenes.userLogic)";
             payload: { user: UserType; updateKey: string; };
         });
         userUpdateRequest: (update: Partial<UserType>, updateKey?: string) => ({
-            type: "user update request (frontend.src.scenes.userLogic)";
+            type: "user update request (scenes.userLogic)";
             payload: { update: Partial<UserType>; updateKey: string; };
         });
         userUpdateSuccess: (user: UserType, updateKey?: string) => ({
-            type: "user update success (frontend.src.scenes.userLogic)";
+            type: "user update success (scenes.userLogic)";
             payload: { user: UserType; updateKey: string; };
         });
         userUpdateFailure: (error: string, updateKey?: string) => ({
-            type: "user update failure (frontend.src.scenes.userLogic)";
+            type: "user update failure (scenes.userLogic)";
             payload: { updateKey: string; error: string; };
         });
     };
     actionKeys: any;
     actions: {
         loadUser: () => ({
-            type: "load user (frontend.src.scenes.userLogic)";
+            type: "load user (scenes.userLogic)";
             payload: {
                 value: boolean;
             };
         });
         setUser: (user: UserType | null, updateKey?: string) => ({
-            type: "set user (frontend.src.scenes.userLogic)";
+            type: "set user (scenes.userLogic)";
             payload: { user: UserType; updateKey: string; };
         });
         userUpdateRequest: (update: Partial<UserType>, updateKey?: string) => ({
-            type: "user update request (frontend.src.scenes.userLogic)";
+            type: "user update request (scenes.userLogic)";
             payload: { update: Partial<UserType>; updateKey: string; };
         });
         userUpdateSuccess: (user: UserType, updateKey?: string) => ({
-            type: "user update success (frontend.src.scenes.userLogic)";
+            type: "user update success (scenes.userLogic)";
             payload: { user: UserType; updateKey: string; };
         });
         userUpdateFailure: (error: string, updateKey?: string) => ({
-            type: "user update failure (frontend.src.scenes.userLogic)";
+            type: "user update failure (scenes.userLogic)";
             payload: { updateKey: string; error: string; };
         });
     };
@@ -56,8 +56,8 @@ export interface userLogicType<UserType> {
     constants: any;
     defaults: any;
     events: any;
-    path: ["frontend", "src", "scenes", "userLogic"];
-    pathString: "frontend.src.scenes.userLogic";
+    path: ["scenes", "userLogic"];
+    pathString: "scenes.userLogic";
     propTypes: any;
     props: Record<string, any>;
     reducer: (state: any, action: () => any, fullState: any) => {

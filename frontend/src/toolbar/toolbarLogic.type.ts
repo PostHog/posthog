@@ -4,7 +4,7 @@ export interface toolbarLogicType {
     key: any;
     actionCreators: {
         authenticate: () => ({
-            type: "authenticate (frontend.src.toolbar.toolbarLogic)";
+            type: "authenticate (toolbar.toolbarLogic)";
             payload: {
                 value: boolean;
             };
@@ -13,7 +13,7 @@ export interface toolbarLogicType {
     actionKeys: any;
     actions: {
         authenticate: () => ({
-            type: "authenticate (frontend.src.toolbar.toolbarLogic)";
+            type: "authenticate (toolbar.toolbarLogic)";
             payload: {
                 value: boolean;
             };
@@ -24,8 +24,8 @@ export interface toolbarLogicType {
     constants: any;
     defaults: any;
     events: any;
-    path: ["frontend", "src", "toolbar", "toolbarLogic"];
-    pathString: "frontend.src.toolbar.toolbarLogic";
+    path: ["toolbar", "toolbarLogic"];
+    pathString: "toolbar.toolbarLogic";
     propTypes: any;
     props: Record<string, any>;
     reducer: (state: any, action: () => any, fullState: any) => {
