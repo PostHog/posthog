@@ -19,8 +19,8 @@
         "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\"",
         "eslint": "eslint frontend/src",
         "eslint:github-action": "yarn run eslint",
-        "typegen": "kea-typegen --write",
-        "typegen-watch": "kea-typegen --write --watch"
+        "typegen": "kea-typegen --write --path frontend/src",
+        "typegen-watch": "kea-typegen --write --watch --path frontend/src"
     },
     "license": "MIT",
     "dependencies": {
@@ -84,7 +84,7 @@
         "html-webpack-harddisk-plugin": "^1.0.1",
         "html-webpack-plugin": "^4.3.0",
         "husky": ">=4",
-        "kea-typegen": "^0.0.16",
+        "kea-typegen": "^0.0.19",
         "lint-staged": ">=10",
         "mini-css-extract-plugin": "^0.9.0",
         "nodemon": "^2.0.4",
