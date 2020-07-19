@@ -1,6 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface heatmapLogicType {
+    key: any;
     actionCreators: {
         enableHeatmap: () => ({
             type: "enable heatmap (frontend.src.toolbar.elements.heatmapLogic)";
@@ -47,6 +48,7 @@ export interface heatmapLogicType {
             };
         });
     };
+    actionKeys: any;
     actions: {
         enableHeatmap: () => ({
             type: "enable heatmap (frontend.src.toolbar.elements.heatmapLogic)";
@@ -94,8 +96,13 @@ export interface heatmapLogicType {
         });
     };
     cache: Record<string, any>;
+    connections: any;
+    constants: any;
+    defaults: any;
+    events: any;
     path: ["frontend", "src", "toolbar", "elements", "heatmapLogic"];
     pathString: "frontend.src.toolbar.elements.heatmapLogic";
+    propTypes: any;
     props: Record<string, any>;
     reducer: (state: any, action: () => any, fullState: any) => {
         heatmapEnabled: boolean;
@@ -103,6 +110,7 @@ export interface heatmapLogicType {
         events: undefined[];
         eventsLoading: boolean;
     };
+    reducerOptions: any;
     reducers: {
         heatmapEnabled: (state: boolean, action: any, fullState: any) => boolean;
         heatmapLoading: (state: boolean, action: any, fullState: any) => boolean;

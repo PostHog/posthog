@@ -1,6 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface toolbarLogicType {
+    key: any;
     actionCreators: {
         authenticate: () => ({
             type: "authenticate (frontend.src.toolbar.toolbarLogic)";
@@ -9,6 +10,7 @@ export interface toolbarLogicType {
             };
         });
     };
+    actionKeys: any;
     actions: {
         authenticate: () => ({
             type: "authenticate (frontend.src.toolbar.toolbarLogic)";
@@ -18,8 +20,13 @@ export interface toolbarLogicType {
         });
     };
     cache: Record<string, any>;
+    connections: any;
+    constants: any;
+    defaults: any;
+    events: any;
     path: ["frontend", "src", "toolbar", "toolbarLogic"];
     pathString: "frontend.src.toolbar.toolbarLogic";
+    propTypes: any;
     props: Record<string, any>;
     reducer: (state: any, action: () => any, fullState: any) => {
         rawApiURL: string;
@@ -28,6 +35,7 @@ export interface toolbarLogicType {
         actionId: number | null;
         userIntent: string | null;
     };
+    reducerOptions: any;
     reducers: {
         rawApiURL: (state: string, action: any, fullState: any) => string;
         rawJsURL: (state: string, action: any, fullState: any) => string;

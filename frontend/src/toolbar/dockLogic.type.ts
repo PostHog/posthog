@@ -1,6 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface dockLogicType<ToolbarMode,  AnimationState> {
+    key: any;
     actionCreators: {
         button: () => ({
             type: "button (frontend.src.toolbar.dockLogic)";
@@ -61,6 +62,7 @@ export interface dockLogicType<ToolbarMode,  AnimationState> {
             payload: { mode: ToolbarMode; update: boolean; windowWidth: number; windowHeight: number; };
         });
     };
+    actionKeys: any;
     actions: {
         button: () => ({
             type: "button (frontend.src.toolbar.dockLogic)";
@@ -122,8 +124,13 @@ export interface dockLogicType<ToolbarMode,  AnimationState> {
         });
     };
     cache: Record<string, any>;
+    connections: any;
+    constants: any;
+    defaults: any;
+    events: any;
     path: ["frontend", "src", "toolbar", "dockLogic"];
     pathString: "frontend.src.toolbar.dockLogic";
+    propTypes: any;
     props: Record<string, any>;
     reducer: (state: any, action: () => any, fullState: any) => {
         mode: ToolbarMode;
@@ -131,6 +138,7 @@ export interface dockLogicType<ToolbarMode,  AnimationState> {
         dockStatus: AnimationState;
         buttonStatus: AnimationState;
     };
+    reducerOptions: any;
     reducers: {
         mode: (state: ToolbarMode, action: any, fullState: any) => ToolbarMode;
         lastMode: (state: ToolbarMode, action: any, fullState: any) => ToolbarMode;

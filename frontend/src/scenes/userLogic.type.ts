@@ -1,6 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface userLogicType<UserType> {
+    key: any;
     actionCreators: {
         loadUser: () => ({
             type: "load user (frontend.src.scenes.userLogic)";
@@ -25,6 +26,7 @@ export interface userLogicType<UserType> {
             payload: { updateKey: string; error: string; };
         });
     };
+    actionKeys: any;
     actions: {
         loadUser: () => ({
             type: "load user (frontend.src.scenes.userLogic)";
@@ -50,12 +52,18 @@ export interface userLogicType<UserType> {
         });
     };
     cache: Record<string, any>;
+    connections: any;
+    constants: any;
+    defaults: any;
+    events: any;
     path: ["frontend", "src", "scenes", "userLogic"];
     pathString: "frontend.src.scenes.userLogic";
+    propTypes: any;
     props: Record<string, any>;
     reducer: (state: any, action: () => any, fullState: any) => {
         user: UserType | null;
     };
+    reducerOptions: any;
     reducers: {
         user: (state: UserType | null, action: any, fullState: any) => UserType | null;
     };

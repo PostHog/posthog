@@ -1,6 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface elementsLogicType<ToolbarMode> {
+    key: any;
     actionCreators: {
         enableInspect: () => ({
             type: "enable inspect (frontend.src.toolbar.elements.elementsLogic)";
@@ -41,6 +42,7 @@ export interface elementsLogicType<ToolbarMode> {
             payload: { element: any; };
         });
     };
+    actionKeys: any;
     actions: {
         enableInspect: () => ({
             type: "enable inspect (frontend.src.toolbar.elements.elementsLogic)";
@@ -82,8 +84,13 @@ export interface elementsLogicType<ToolbarMode> {
         });
     };
     cache: Record<string, any>;
+    connections: any;
+    constants: any;
+    defaults: any;
+    events: any;
     path: ["frontend", "src", "toolbar", "elements", "elementsLogic"];
     pathString: "frontend.src.toolbar.elements.elementsLogic";
+    propTypes: any;
     props: Record<string, any>;
     reducer: (state: any, action: () => any, fullState: any) => {
         inspectEnabledRaw: boolean;
@@ -93,6 +100,7 @@ export interface elementsLogicType<ToolbarMode> {
         selectedElement: any;
         enabledLast: any;
     };
+    reducerOptions: any;
     reducers: {
         inspectEnabledRaw: (state: boolean, action: any, fullState: any) => boolean;
         rectUpdateCounter: (state: number, action: any, fullState: any) => number;
