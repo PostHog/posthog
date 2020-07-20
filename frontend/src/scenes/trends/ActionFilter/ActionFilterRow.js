@@ -81,9 +81,9 @@ const MATHS = {
 const determineFilterLabel = (visible, filter) => {
     if (visible) return 'Hide filters'
     if (filter.properties && Object.keys(filter.properties).length > 0) {
-        return (
-            Object.keys(filter.properties).length + ' filter' + (Object.keys(filter.properties).length === 1 ? '' : 's')
-        )
+        return `${Object.keys(filter.properties).length} filter${
+            Object.keys(filter.properties).length === 1 ? '' : 's'
+        }`
     }
     return 'Add filters'
 }
