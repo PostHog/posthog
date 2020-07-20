@@ -65,7 +65,11 @@ const submenuOverride = {
 export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
     const [inviteModalOpen, setInviteModalOpen] = useState(false)
     const [toolbarModalOpen, setToolbarModalOpen] = useState(false)
-    const collapseSidebar = () => {
+    const collapseSidebar = (url) => (e) => {
+        if (e.ctrlKey) {
+            console.log(e)
+            window.open(url, '_blank')
+        }
         if (!sidebarCollapsed && window.innerWidth <= 991) {
             setSidebarCollapsed(true)
         }
@@ -132,14 +136,17 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         >
                             <LineChartOutlined />
                             <span className="sidebar-label">{dashboard.name}</span>
-                            <Link to={`/dashboard/${dashboard.id}`} onClick={collapseSidebar} />
+                            <Link
+                                to={`/dashboard/${dashboard.id}`}
+                                onClick={collapseSidebar(`/dashboard/${dashboard.id}`)}
+                            />
                         </Menu.Item>
                     ))}
 
                     <Menu.Item key="dashboards" style={itemStyle} data-attr="menu-item-dashboards" title="">
                         <FundOutlined />
                         <span className="sidebar-label">Dashboards</span>
-                        <Link to="/dashboard" onClick={collapseSidebar} />
+                        <Link to="/dashboard" onClick={collapseSidebar('/dashboard')} />
                     </Menu.Item>
 
                     {pinnedDashboards.length > 0 ? <Menu.Divider /> : null}
@@ -147,7 +154,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     <Menu.Item key="trends" style={itemStyle} data-attr="menu-item-trends" title="">
                         <RiseOutlined />
                         <span className="sidebar-label">{'Trends'}</span>
-                        <Link to={'/trends'} onClick={collapseSidebar} />
+                        <Link to={'/trends'} onClick={collapseSidebar('/trends')} />
                     </Menu.Item>
 
                     <Menu.SubMenu
@@ -166,22 +173,22 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <Menu.Item key="events" style={itemStyle} data-attr="menu-item-all-events">
                             <ContainerOutlined />
                             <span className="sidebar-label">{'All Events'}</span>
-                            <Link to={'/events'} onClick={collapseSidebar} />
+                            <Link to={'/events'} onClick={collapseSidebar('/events')} />
                         </Menu.Item>
                         <Menu.Item key="actions" style={itemStyle} data-attr="menu-item-actions">
                             <AimOutlined />
                             <span className="sidebar-label">{'Actions'}</span>
-                            <Link to={'/actions'} onClick={collapseSidebar} />
+                            <Link to={'/actions'} onClick={collapseSidebar('/actions')} />
                         </Menu.Item>
                         <Menu.Item key="liveActions" style={itemStyle} data-attr="menu-item-live-actions">
                             <SyncOutlined />
                             <span className="sidebar-label">{'Live Actions'}</span>
-                            <Link to={'/actions/live'} onClick={collapseSidebar} />
+                            <Link to={'/actions/live'} onClick={collapseSidebar('/actions/live')} />
                         </Menu.Item>
                         <Menu.Item key="sessions" style={itemStyle} data-attr="menu-item-sessions">
                             <ClockCircleOutlined />
                             <span className="sidebar-label">{'Sessions'}</span>
-                            <Link to={'/sessions'} onClick={collapseSidebar} />
+                            <Link to={'/sessions'} onClick={collapseSidebar('/sessions')} />
                         </Menu.Item>
                     </Menu.SubMenu>
                     <Menu.SubMenu
@@ -200,38 +207,41 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <Menu.Item key="people" style={itemStyle} data-attr="menu-item-all-people">
                             <UserOutlined />
                             <span className="sidebar-label">{'All Users'}</span>
-                            <Link to={'/people'} onClick={collapseSidebar} />
+                            <Link to={'/people'} onClick={collapseSidebar('/people')} />
                         </Menu.Item>
                         <Menu.Item key="cohorts" style={itemStyle} data-attr="menu-item-cohorts">
                             <UsergroupAddOutlined />
                             <span className="sidebar-label">{'Cohorts'}</span>
-                            <Link to={'/people/cohorts'} onClick={collapseSidebar} />
+                            <Link to={'/people/cohorts'} onClick={collapseSidebar('/people/cohorts')} />
                         </Menu.Item>
                         <Menu.Item key="retention" style={itemStyle} data-attr="menu-item-retention">
                             <RetweetOutlined />
                             <span className="sidebar-label">{'Retention'}</span>
-                            <Link to={'/people/retention'} onClick={collapseSidebar} />
+                            <Link to={'/people/retention'} onClick={collapseSidebar('/people/retention')} />
                         </Menu.Item>
                     </Menu.SubMenu>
                     <Menu.Item key="funnels" style={itemStyle} data-attr="menu-item-funnels">
                         <FunnelPlotOutlined />
                         <span className="sidebar-label">{'Funnels'}</span>
-                        <Link to={'/funnel'} onClick={collapseSidebar} />
+                        <Link to={'/funnel'} onClick={collapseSidebar('/funnel')} />
                     </Menu.Item>
                     <Menu.Item key="paths" style={itemStyle} data-attr="menu-item-paths">
                         <ForkOutlined />
                         <span className="sidebar-label">{'Paths'}</span>
-                        <Link to={'/paths'} onClick={collapseSidebar} />
+                        <Link to={'/paths'} onClick={collapseSidebar('/paths')} />
                     </Menu.Item>
                     <Menu.Item key="experiments" style={itemStyle} data-attr="menu-item-feature-f">
                         <ExperimentOutlined />
                         <span className="sidebar-label">{'Experiments'}</span>
-                        <Link to={'/experiments/feature_flags'} onClick={collapseSidebar} />
+                        <Link
+                            to={'/experiments/feature_flags'}
+                            onClick={collapseSidebar('/experiments/feature_flags')}
+                        />
                     </Menu.Item>
                     <Menu.Item key="setup" style={itemStyle} data-attr="menu-item-setup">
                         <SettingOutlined />
                         <span className="sidebar-label">{'Setup'}</span>
-                        <Link to={'/setup'} onClick={collapseSidebar} />
+                        <Link to={'/setup'} onClick={collapseSidebar('/setup')} />
                     </Menu.Item>
                     <Menu.Item
                         key="invite"
