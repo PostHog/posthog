@@ -7,6 +7,10 @@ export function Link({ to, preventClick = false, ...props }) {
             href={to || '#'}
             {...props}
             onClick={(event) => {
+                if (event.ctrlKey) {
+                    window.open(to, '_blank')
+                }
+
                 if (!props.target) {
                     event.preventDefault()
                     event.stopPropagation()
