@@ -1,5 +1,5 @@
 import React from 'react'
-import { disableMinuteFor, disableHourFor } from '../../scenes/trends/trendsLogic'
+import { disableMinuteFor, disableHourFor } from 'scenes/trends/trendsLogic'
 import { Select } from 'antd'
 
 let intervalMapping = {
@@ -31,7 +31,11 @@ export function IntervalFilter({ filters, setFilters, disabled = false }) {
         >
             {Object.entries(intervalMapping).map(([key, value]) => {
                 return (
-                    <Select.Option key={key} value={key}>
+                    <Select.Option
+                        key={key}
+                        value={key}
+                        disabled={(key === 'minute' || key === 'hour') && !!filters.session}
+                    >
                         {value}
                     </Select.Option>
                 )
