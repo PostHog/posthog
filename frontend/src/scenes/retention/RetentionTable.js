@@ -60,7 +60,8 @@ export function RetentionTable({ logic }) {
     return (
         <>
             <PropertyFilters pageKey="RetentionTable" />
-            <div>
+            <div className="mb-4">
+                <span>Target Event: </span>
                 <button
                     ref={node}
                     className="filter-action btn btn-sm btn-light"
