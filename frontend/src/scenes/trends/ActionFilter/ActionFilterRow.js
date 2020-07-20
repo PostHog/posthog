@@ -237,7 +237,7 @@ function MathPropertySelector(props) {
             data-attr={`math-property-selector-${props.index}`}
         >
             {props.properties
-                .filter(({ value }) => value[0] !== '$' && value !== 'distinct_id')
+                .filter(({ value }) => value[0] !== '$' && value !== 'distinct_id' && value !== 'token')
                 .map(({ value, label }) => (
                     <Tooltip
                         placement="right"
