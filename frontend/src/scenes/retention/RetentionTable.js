@@ -1,7 +1,9 @@
 import React, { useRef, useState } from 'react'
 import { useValues, useActions } from 'kea'
-import { Table } from 'antd'
+import { Table, Modal, Button, Spin } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { percentage } from 'lib/utils'
+import { Link } from 'lib/components/Link'
 import { DownOutlined } from '@ant-design/icons'
 import { entityFilterLogic } from 'scenes/trends/ActionFilter/entityFilterLogic'
 import { ActionFilterDropdown } from 'scenes/trends/ActionFilter/ActionFilterDropdown'
@@ -9,8 +11,10 @@ import { ActionFilterDropdown } from 'scenes/trends/ActionFilter/ActionFilterDro
 export function RetentionTable({ logic }) {
     const node = useRef()
     const [open, setOpen] = useState(false)
-    const { retention, retentionLoading, startEntity, filters } = useValues(logic)
-    const { setFilters } = useActions(logic)
+    const { retention, retentionLoading, peopleLoading, people, loadingMore, startEntity, filters } = useValues(logic)
+    const { loadPeople, loadMore, setFilters } = useActions(logic)
+    const [modalVisible, setModalVisible] = useState(false)
+    const [selectedRow, selectRow] = useState(0)
 
     const entityLogic = entityFilterLogic({
         setFilters: (filters) => {
@@ -31,7 +35,7 @@ export function RetentionTable({ logic }) {
         {
             title: 'Users',
             key: 'users',
-            render: (row) => row.values[0],
+            render: (row) => row.values[0]['count'],
         },
     ]
 
@@ -44,12 +48,15 @@ export function RetentionTable({ logic }) {
                     if (dayIndex >= row.values.length) {
                         return ''
                     }
-                    return renderPercentage(row.values[dayIndex], row.values[0])
+                    return renderPercentage(row.values[dayIndex]['count'], row.values[0]['count'])
                 },
             })
         })
     }
 
+    function dismissModal() {
+        setModalVisible(false)
+    }
     return (
         <>
             <PropertyFilters pageKey="RetentionTable" />
@@ -87,7 +94,107 @@ export function RetentionTable({ logic }) {
                 dataSource={retention.data}
                 columns={columns}
                 loading={retentionLoading}
+                onRow={(_, rowIndex) => {
+                    return {
+                        onClick: () => {
+                            !people[rowIndex] && loadPeople(rowIndex)
+                            setModalVisible(true)
+                            selectRow(rowIndex)
+                        },
+                    }
+                }}
             />
+            {retention.data && (
+                <Modal
+                    visible={modalVisible}
+                    closable={false}
+                    onCancel={dismissModal}
+                    footer={<Button onClick={dismissModal}>Close</Button>}
+                    style={{
+                        top: 20,
+                        minWidth: retention?.data[selectedRow]?.values[0]?.count === 0 ? '10%' : '90%',
+                        fontSize: 16,
+                    }}
+                    title={retention.data[selectedRow].date}
+                >
+                    {retention && !peopleLoading ? (
+                        <div>
+                            {retention?.data[selectedRow]?.values[0]?.count === 0 ? (
+                                <span>No users during this period.</span>
+                            ) : (
+                                <div>
+                                    <table className="table table-bordered table-fixed">
+                                        <tbody>
+                                            <tr>
+                                                <th />
+                                                {retention.data &&
+                                                    retention.data
+                                                        .slice(0, retention.data[selectedRow].values.length)
+                                                        .map((data, index) => <th key={index}>{data.label}</th>)}
+                                            </tr>
+                                            <tr>
+                                                <td />
+                                                {retention.data &&
+                                                    retention.data[selectedRow].values.map((data, index) => (
+                                                        <td key={index}>
+                                                            {data.count}&nbsp;{' '}
+                                                            {data.count > 0 && (
+                                                                <span>
+                                                                    (
+                                                                    {percentage(
+                                                                        data.count /
+                                                                            retention.data[selectedRow].values[0][
+                                                                                'count'
+                                                                            ]
+                                                                    )}
+                                                                    )
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                    ))}
+                                            </tr>
+                                            {people[selectedRow] &&
+                                                people[selectedRow].map((person) => (
+                                                    <tr key={person.id}>
+                                                        <td className="text-overflow" style={{ minWidth: 200 }}>
+                                                            <Link to={`/person_by_id/${person.id}`}>{person.name}</Link>
+                                                        </td>
+                                                        {retention.data[selectedRow].values.map((step, index) => {
+                                                            return (
+                                                                <td
+                                                                    key={index}
+                                                                    className={
+                                                                        step.people.indexOf(person.id) > -1
+                                                                            ? 'retention-success'
+                                                                            : 'retention-dropped'
+                                                                    }
+                                                                />
+                                                            )
+                                                        })}
+                                                    </tr>
+                                                ))}
+                                        </tbody>
+                                    </table>
+                                    <div
+                                        style={{
+                                            margin: '1rem',
+                                            textAlign: 'center',
+                                        }}
+                                    >
+                                        {retention.data[selectedRow].values.some((element) => element.next) && (
+                                            <Button type="primary" onClick={() => loadMore(selectedRow)}>
+                                                {loadingMore ? <Spin /> : 'Load More People'}
+                                            </Button>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <Spin></Spin>
+                    )}
+                </Modal>
+            )}
         </>
     )
 }
