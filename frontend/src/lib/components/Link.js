@@ -7,8 +7,8 @@ export function Link({ to, preventClick = false, ...props }) {
             href={to || '#'}
             {...props}
             onClick={(event) => {
-                if (event.ctrlKey) {
-                    window.open(to, '_blank')
+                if (event.metaKey || event.ctrlKey) {
+                    return window.open(to, '_blank')
                 }
 
                 if (!props.target) {
