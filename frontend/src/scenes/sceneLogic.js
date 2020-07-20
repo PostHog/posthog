@@ -24,6 +24,7 @@ export const scenes = {
     paths: () => import(/* webpackChunkName: 'paths' */ './paths/Paths'),
     cohorts: () => import(/* webpackChunkName: 'cohorts' */ './users/Cohorts'),
     featureFlags: () => import(/* webpackChunkName: 'featureFlags' */ './experiments/FeatureFlags'),
+    annotations: () => import(/* webpackChunkName: 'annotations' */ './annotations/AnnotationsScene'),
 }
 
 export const redirects = {
@@ -52,6 +53,7 @@ export const routes = {
     '/people/cohorts': 'cohorts',
     '/experiments/feature_flags': 'featureFlags',
     '/sessions': 'sessions',
+    '/annotations': 'annotations',
 }
 
 export const sceneLogic = kea({

@@ -22,6 +22,7 @@ export const annotationsModel = kea({
                     'api/annotation/?' +
                         toParams({
                             apply_all: true,
+                            deleted: false,
                         })
                 )
                 return response.results
