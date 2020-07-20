@@ -112,7 +112,10 @@ export const dashboardLogic = kea({
         itemsLoading: [() => [selectors.allItemsLoading], (allItemsLoading) => allItemsLoading],
         dashboard: [
             () => [selectors.allItems, dashboardsModel.selectors.dashboards],
-            (allItems, dashboards) => (allItems ? allItems : dashboards.find((d) => d.id === props.id) || null),
+            (allItems, dashboards) => {
+                let dashboard = dashboards.find((d) => d.id === props.id) || false
+                return dashboard ? dashboard : allItems
+            },
         ],
         breakpoints: [() => [], () => ({ lg: 1600, sm: 940, xs: 480, xxs: 0 })],
         cols: [() => [], () => ({ lg: 24, sm: 12, xs: 6, xxs: 2 })],

@@ -7,7 +7,7 @@ import django.utils.timezone
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0069_auto_20200714_1642"),
+        ("posthog", "0068_auto_20200629_1322"),
     ]
 
     operations = [
