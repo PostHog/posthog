@@ -1146,7 +1146,7 @@ class TestRetention(TransactionBaseTest):
         self.assertEqual(result["data"][0]["date"], "Wed. 10 June")
 
         self.assertEqual(
-            self.pluck(result["data"], "values"),
+            self.pluck(result["data"], "values", "count"),
             [[1, 1, 1, 0, 0, 1, 1], [2, 2, 1, 0, 1, 2], [2, 1, 0, 1, 2], [1, 0, 0, 1], [0, 0, 0], [1, 1], [2],],
         )
 
