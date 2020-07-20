@@ -76,7 +76,7 @@ class Filter(PropertyMixin):
     def date_from(self) -> Optional[datetime.datetime]:
         if self._date_from:
             if self._date_from == "all":
-                return None
+                return "all"
             return relative_date_parse(self._date_from)
         return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
 
@@ -89,6 +89,8 @@ class Filter(PropertyMixin):
     @property
     def date_filter_Q(self) -> Q:
         date_from = self.date_from
+        if date_from == "all":
+            return Q()
         if not date_from:
             date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
         filter = Q(timestamp__gte=date_from)
