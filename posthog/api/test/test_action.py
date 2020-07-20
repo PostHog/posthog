@@ -344,6 +344,46 @@ class TestTrends(TransactionBaseTest):
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
+    def test_filter_events_by_cohort(self):
+        person1 = Person.objects.create(team=self.team, distinct_ids=["person_1"], properties={"name": "John"})
+        person2 = Person.objects.create(team=self.team, distinct_ids=["person_2"], properties={"name": "Jane"})
+
+        event1 = Event.objects.create(
+            event="event_name",
+            team=self.team,
+            distinct_id="person_1",
+            properties={"$browser": "Safari"},
+            timestamp=datetime.now(),
+        )
+        event2 = Event.objects.create(
+            event="event_name",
+            team=self.team,
+            distinct_id="person_2",
+            properties={"$browser": "Chrome"},
+            timestamp=datetime.now(),
+        )
+        event3 = Event.objects.create(
+            event="event_name",
+            team=self.team,
+            distinct_id="person_2",
+            properties={"$browser": "Safari"},
+            timestamp=datetime.now(),
+        )
+
+        cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"name": "Jane"}}])
+        cohort.calculate_people()
+
+        with self.assertNumQueries(6):
+            response = self.client.get(
+                "/api/action/trends/",
+                data={
+                    "properties": jdumps([{"key": "id", "value": cohort.pk, "type": "cohort"}]),
+                    "events": jdumps([{"id": "event_name"}]),
+                },
+            ).json()
+        self.assertEqual(response[0]["count"], 2)
+        self.assertEqual(response[0]["data"][-1], 2)
+
     def test_date_filtering(self):
         self._create_events()
         with freeze_time("2020-01-02"):
@@ -1035,7 +1075,7 @@ class TestRetention(TransactionBaseTest):
         self.assertEqual(result["data"][0]["date"], "Wed. 10 June")
 
         self.assertEqual(
-            self.pluck(result["data"], "values"),
+            self.pluck(result["data"], "values", "count"),
             [[1, 1, 1, 0, 0, 1, 1], [2, 2, 1, 0, 1, 2], [2, 1, 0, 1, 2], [1, 0, 0, 1], [0, 0, 0], [1, 1], [2],],
         )
 
@@ -1079,7 +1119,7 @@ class TestRetention(TransactionBaseTest):
         )
         self.assertEqual(result["data"][0]["date"], "Wed. 10 June")
         self.assertEqual(
-            self.pluck(result["data"], "values"),
+            self.pluck(result["data"], "values", "count"),
             [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1]],
         )
 
@@ -1092,5 +1132,5 @@ class TestRetention(TransactionBaseTest):
     def _date(self, day, hour=5):
         return datetime(2020, 6, 10 + day, hour).isoformat()
 
-    def pluck(self, list_of_dicts, key):
-        return [d[key] for d in list_of_dicts]
+    def pluck(self, list_of_dicts, key, child_key=None):
+        return [self.pluck(d[key], child_key) if child_key else d[key] for d in list_of_dicts]

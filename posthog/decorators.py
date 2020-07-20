@@ -1,10 +1,10 @@
 import json
-import hashlib
 from posthog.models import Filter, DashboardItem
 from posthog.utils import generate_cache_key
 from django.core.cache import cache
 import json
 from datetime import datetime
+from .utils import generate_cache_key
 
 TRENDS_ENDPOINT = "Trends"
 FUNNEL_ENDPOINT = "Funnel"

@@ -22,6 +22,7 @@ export const dashboardLogic = kea({
         duplicateDashboardItem: (id, dashboardId, move = false) => ({ id, dashboardId, move }),
         duplicateDashboardItemSuccess: (item) => ({ item }),
         updateLayouts: (layouts) => ({ layouts }),
+        updateContainerWidth: (containerWidth, columns) => ({ containerWidth, columns }),
         saveLayouts: true,
         updateItemColor: (id, color) => ({ id, color }),
         enableDragging: true,
@@ -92,6 +93,18 @@ export const dashboardLogic = kea({
                 disableDragging: () => 'off',
             },
         ],
+        containerWidth: [
+            null,
+            {
+                updateContainerWidth: (_, { containerWidth }) => containerWidth,
+            },
+        ],
+        columns: [
+            null,
+            {
+                updateContainerWidth: (_, { columns }) => columns,
+            },
+        ],
     }),
 
     selectors: ({ props, selectors }) => ({
@@ -103,6 +116,13 @@ export const dashboardLogic = kea({
         ],
         breakpoints: [() => [], () => ({ lg: 1600, sm: 940, xs: 480, xxs: 0 })],
         cols: [() => [], () => ({ lg: 24, sm: 12, xs: 6, xxs: 2 })],
+        sizeKey: [
+            (s) => [s.columns, s.cols],
+            (columns, cols) => {
+                const [size] = Object.entries(cols).find(([, value]) => value === columns) || []
+                return size
+            },
+        ],
         layouts: [
             () => [selectors.items, selectors.cols],
             (items, cols) => {
@@ -173,6 +193,19 @@ export const dashboardLogic = kea({
                     allLayouts[col] = cleanLayouts
                 })
                 return allLayouts
+            },
+        ],
+        layout: [(s) => [s.layouts, s.sizeKey], (layouts, sizeKey) => layouts[sizeKey]],
+        layoutForItem: [
+            (s) => [s.layout],
+            (layout) => {
+                const layoutForItem = {}
+                if (layout) {
+                    for (const obj of layout) {
+                        layoutForItem[obj.i] = obj
+                    }
+                }
+                return layoutForItem
             },
         ],
     }),

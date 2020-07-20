@@ -3,9 +3,9 @@ import './AnnotationMarker.scss'
 import React, { useState, useEffect, useRef } from 'react'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-import { Button, Popover, Row, Input } from 'antd'
+import { Button, Popover, Row, Input, Checkbox, Tooltip } from 'antd'
 import { humanFriendlyDetailedTime } from '~/lib/utils'
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
+import { DeleteOutlined, PlusOutlined, GlobalOutlined } from '@ant-design/icons'
 import _ from 'lodash'
 import { annotationsLogic } from './annotationsLogic'
 import moment from 'moment'
@@ -48,6 +48,7 @@ export function AnnotationMarker({
     const popupRef = useRef()
     const [focused, setFocused] = useState(false)
     const [textInput, setTextInput] = useState('')
+    const [applyAll, setApplyAll] = useState(false)
     const [textAreaVisible, setTextAreaVisible] = useState(false)
     const [hovered, setHovered] = useState(false)
     const {
@@ -107,6 +108,13 @@ export function AnnotationMarker({
                             value={textInput}
                             onChange={(e) => setTextInput(e.target.value)}
                         />
+                        <Checkbox
+                            onChange={(e) => {
+                                setApplyAll(e.target.checked)
+                            }}
+                        >
+                            Create for all charts
+                        </Checkbox>
                         <Row justify="end">
                             <Button
                                 style={{ marginRight: 10 }}
@@ -121,7 +129,7 @@ export function AnnotationMarker({
                                 type="primary"
                                 onClick={() => {
                                     closePopup()
-                                    onCreateAnnotation?.(textInput)
+                                    onCreateAnnotation?.(textInput, applyAll)
                                     setTextInput('')
                                 }}
                             >
@@ -141,13 +149,20 @@ export function AnnotationMarker({
                                                 : data.created_by &&
                                                   (data.created_by.first_name || data.created_by.email)}
                                         </b>
-                                        <i style={{ color: 'gray' }}>{humanFriendlyDetailedTime(data.created_at)}</i>
+                                        <i style={{ color: 'gray', marginRight: 6 }}>
+                                            {humanFriendlyDetailedTime(data.created_at)}
+                                        </i>
+                                        {data.apply_all && (
+                                            <Tooltip title="This note is shown on all charts">
+                                                <GlobalOutlined></GlobalOutlined>
+                                            </Tooltip>
+                                        )}
                                     </div>
                                     {(!data.created_by || data.created_by.id === id || data.created_by === 'local') && (
                                         <DeleteOutlined
                                             className="clickable"
                                             onClick={() => {
-                                                onDelete(data.id)
+                                                onDelete(data)
                                             }}
                                         ></DeleteOutlined>
                                     )}
@@ -165,6 +180,15 @@ export function AnnotationMarker({
                                 autoFocus
                             />
                         )}
+                        {textAreaVisible && (
+                            <Checkbox
+                                onChange={(e) => {
+                                    setApplyAll(e.target.checked)
+                                }}
+                            >
+                                Create for all charts
+                            </Checkbox>
+                        )}
                         {textAreaVisible ? (
                             <Row justify="end">
                                 <Button style={{ marginRight: 10 }} onClick={() => setTextAreaVisible(false)}>
@@ -173,7 +197,7 @@ export function AnnotationMarker({
                                 <Button
                                     type="primary"
                                     onClick={() => {
-                                        onCreate(textInput)
+                                        onCreate(textInput, applyAll)
                                         setTextInput('')
                                         setTextAreaVisible(false)
                                     }}
