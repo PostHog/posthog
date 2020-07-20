@@ -65,12 +65,14 @@ class UserManager(BaseUserManager):
 
         return self._create_user(email, password, **extra_fields)
 
+
 def default_onboarding_dict():
-    return {'active': True, 'initial': True, 'steps': {0: False, 1: False, 2: False}}
-    
+    return {"active": True, "initial": True, "steps": {0: False, 1: False, 2: False}}
+
+
 class User(AbstractUser):
-    DEFAULT = 'default'
-    TOOLBAR = 'toolbar'
+    DEFAULT = "default"
+    TOOLBAR = "toolbar"
     TOOLBAR_CHOICES = [
         (DEFAULT, DEFAULT),
         (TOOLBAR, TOOLBAR),
@@ -78,18 +80,10 @@ class User(AbstractUser):
 
     username = None  # type: ignore
     email = models.EmailField(_("email address"), unique=True)
-    temporary_token: models.CharField = models.CharField(
-        max_length=200, null=True, blank=True
-    )
-    distinct_id: models.CharField = models.CharField(
-        max_length=200, null=True, blank=True
-    )
-    email_opt_in: models.BooleanField = models.BooleanField(
-        default=False, null=True, blank=True
-    )
-    anonymize_data: models.BooleanField = models.BooleanField(
-        default=False, null=True, blank=True
-    )
+    temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    anonymize_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     toolbar_mode: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=DEFAULT
     )

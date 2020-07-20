@@ -9,6 +9,7 @@ from .event import EventSerializer
 from typing import Union
 from .base import CursorPagination as BaseCursorPagination
 import json
+from django.core.cache import cache
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -38,9 +39,7 @@ class CursorPagination(BaseCursorPagination):
 
 
 class PersonViewSet(viewsets.ModelViewSet):
-    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (
-        csvrenderers.PaginatedCSVRenderer,
-    )
+    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = CursorPagination
@@ -50,9 +49,7 @@ class PersonViewSet(viewsets.ModelViewSet):
             return None
         return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
-    def _filter_request(
-        self, request: request.Request, queryset: QuerySet, team: Team
-    ) -> QuerySet:
+    def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
         if request.GET.get("id"):
             people = request.GET["id"].split(",")
             queryset = queryset.filter(id__in=people)
@@ -69,14 +66,10 @@ class PersonViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(cohort__id=request.GET["cohort"])
         if request.GET.get("properties"):
             queryset = queryset.filter(
-                Filter(
-                    data={"properties": json.loads(request.GET["properties"])}
-                ).properties_to_Q(team_id=team.pk)
+                Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(team_id=team.pk)
             )
 
-        queryset = queryset.prefetch_related(
-            Prefetch("persondistinctid_set", to_attr="distinct_ids_cache")
-        )
+        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset
 
     def destroy(self, request: request.Request, pk=None):  # type: ignore
@@ -95,12 +88,8 @@ class PersonViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def by_distinct_id(self, request):
-        person = self.get_queryset().get(
-            persondistinctid__distinct_id=str(request.GET["distinct_id"])
-        )
-        return response.Response(
-            PersonSerializer(person, context={"request": request}).data
-        )
+        person = self.get_queryset().get(persondistinctid__distinct_id=str(request.GET["distinct_id"]))
+        return response.Response(PersonSerializer(person, context={"request": request}).data)
 
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request) -> response.Response:
@@ -109,15 +98,10 @@ class PersonViewSet(viewsets.ModelViewSet):
 
         people = self.get_queryset()
         people = (
-            people.annotate(keys=JsonKeys("properties"))
-            .values("keys")
-            .annotate(count=Count("id"))
-            .order_by("-count")
+            people.annotate(keys=JsonKeys("properties")).values("keys").annotate(count=Count("id")).order_by("-count")
         )
 
-        return response.Response(
-            [{"name": event["keys"], "count": event["count"]} for event in people]
-        )
+        return response.Response([{"name": event["keys"], "count": event["count"]} for event in people])
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request) -> response.Response:
@@ -132,13 +116,29 @@ class PersonViewSet(viewsets.ModelViewSet):
 
         if request.GET.get("value"):
             people = people.extra(
-                where=["properties ->> %s LIKE %s"],
-                params=[request.GET["key"], "%{}%".format(request.GET["value"])],
+                where=["properties ->> %s LIKE %s"], params=[request.GET["key"], "%{}%".format(request.GET["value"])],
             )
 
         return response.Response(
-            [
-                {"name": convert_property_value(event[key]), "count": event["count"]}
-                for event in people[:50]
-            ]
+            [{"name": convert_property_value(event[key]), "count": event["count"]} for event in people[:50]]
         )
+
+    @action(methods=["GET"], detail=False)
+    def references(self, request: request.Request) -> response.Response:
+        reference_id = request.GET.get("id", None)
+        offset = request.GET.get("offset", None)
+
+        if not reference_id or not offset:
+            return response.Response({})
+
+        offset_value = int(offset)
+        cached_result = cache.get(reference_id)
+        if cached_result:
+            return response.Response(
+                {
+                    "result": cached_result[offset_value : offset_value + 100],
+                    "offset": offset_value + 100 if len(cached_result) > offset_value + 100 else None,
+                }
+            )
+        else:
+            return response.Response({})

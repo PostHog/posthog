@@ -18,7 +18,7 @@ export function SessionsTable({ logic }) {
             render: function RenderSession(session) {
                 return (
                     <Link to={`/person/${encodeURIComponent(session.distinct_id)}`} className="ph-no-capture">
-                        {session.properties.email || session.distinct_id}
+                        {session.properties?.email || session.distinct_id}
                     </Link>
                 )
             },
@@ -78,7 +78,7 @@ export function SessionsTable({ logic }) {
                 locale={{ emptyText: 'No Sessions on ' + moment(selectedDate).format('YYYY-MM-DD') }}
                 data-attr="sessions-table"
                 size="small"
-                rowKey={item => item.global_session_id}
+                rowKey={(item) => item.global_session_id}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 rowClassName="cursor-pointer"
                 dataSource={sessions}

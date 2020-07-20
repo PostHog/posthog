@@ -7,13 +7,13 @@ import django.utils.timezone
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0019_team_name'),
+        ("posthog", "0019_team_name"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='event',
-            name='timestamp',
+            model_name="event",
+            name="timestamp",
             field=models.DateTimeField(blank=True, default=django.utils.timezone.now),
         ),
     ]

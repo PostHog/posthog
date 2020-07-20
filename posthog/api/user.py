@@ -31,12 +31,8 @@ def user(request):
 
         if "team" in data:
             team.app_urls = data["team"].get("app_urls", team.app_urls)
-            team.opt_out_capture = data["team"].get(
-                "opt_out_capture", team.opt_out_capture
-            )
-            team.slack_incoming_webhook = data["team"].get(
-                "slack_incoming_webhook", team.slack_incoming_webhook
-            )
+            team.opt_out_capture = data["team"].get("opt_out_capture", team.opt_out_capture)
+            team.slack_incoming_webhook = data["team"].get("slack_incoming_webhook", team.slack_incoming_webhook)
             team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
             team.completed_snippet_onboarding = data["team"].get(
                 "completed_snippet_onboarding", team.completed_snippet_onboarding
@@ -44,23 +40,15 @@ def user(request):
             team.save()
 
         if "user" in data:
-            request.user.email_opt_in = data["user"].get(
-                "email_opt_in", request.user.email_opt_in
-            )
-            request.user.anonymize_data = data["user"].get(
-                "anonymize_data", request.user.anonymize_data
-            )
-            request.user.toolbar_mode = data["user"].get(
-                "toolbar_mode", request.user.toolbar_mode
-            )
+            request.user.email_opt_in = data["user"].get("email_opt_in", request.user.email_opt_in)
+            request.user.anonymize_data = data["user"].get("anonymize_data", request.user.anonymize_data)
+            request.user.toolbar_mode = data["user"].get("toolbar_mode", request.user.toolbar_mode)
             posthoganalytics.identify(
                 request.user.distinct_id,
                 {
                     "email_opt_in": request.user.email_opt_in,
                     "anonymize_data": request.user.anonymize_data,
-                    "email": request.user.email
-                    if not request.user.anonymize_data
-                    else None,
+                    "email": request.user.email if not request.user.anonymize_data else None,
                     "is_signed_up": True,
                 },
             )
@@ -88,9 +76,7 @@ def user(request):
                 "completed_snippet_onboarding": team.completed_snippet_onboarding,
             },
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
-            "posthog_version": settings.VERSION
-            if hasattr(settings, "VERSION")
-            else None,
+            "posthog_version": settings.VERSION if hasattr(settings, "VERSION") else None,
             "onboarding": request.user.onboarding,
         }
     )
@@ -102,6 +88,7 @@ def redirect_to_site(request):
 
     team = request.user.team_set.get()
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
+    use_new_toolbar = request.user.toolbar_mode == "toolbar"
 
     if not app_url:
         return HttpResponse(status=404)
@@ -116,14 +103,20 @@ def redirect_to_site(request):
         "apiURL": request.build_absolute_uri("/"),
         "userIntent": request.GET.get("userIntent"),
     }
-    if settings.DEBUG:
-        params["jsURL"] = "http://localhost:8234/"
-    if request.user.toolbar_mode == "toolbar":
+
+    if settings.JS_URL:
+        params["jsURL"] = settings.JS_URL
+
+    if use_new_toolbar:
+        params["action"] = "ph_authorize"
         params["toolbarVersion"] = "toolbar"
 
     state = urllib.parse.quote(json.dumps(params))
 
-    return redirect("{}#state={}".format(app_url, state))
+    if use_new_toolbar:
+        return redirect("{}#__posthog={}".format(app_url, state))
+    else:
+        return redirect("{}#state={}".format(app_url, state))
 
 
 @require_http_methods(["PATCH"])

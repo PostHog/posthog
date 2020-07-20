@@ -19,7 +19,7 @@ function _EditFunnel({ funnelId }) {
 
     return (
         <form
-            onSubmit={e => {
+            onSubmit={(e) => {
                 e.preventDefault()
                 if (!funnel.id) {
                     createFunnel(funnel)
@@ -37,7 +37,7 @@ function _EditFunnel({ funnelId }) {
                             placeholder="Name of Funnel: (e.g. User drop off through signup)"
                             type="text"
                             autoFocus
-                            onChange={e => setFunnel({ name: e.target.value })}
+                            onChange={(e) => setFunnel({ name: e.target.value })}
                             value={funnel.name || ''}
                             className="form-control"
                             data-attr="edit-funnel-input"
@@ -51,7 +51,7 @@ function _EditFunnel({ funnelId }) {
                         <br />
                         <ActionFilter
                             filters={funnel.filters}
-                            setFilters={filters => setFunnel({ filters }, false)}
+                            setFilters={(filters) => setFunnel({ filters }, false)}
                             typeKey={`EditFunnel-${funnel.id || 'new'}`}
                             hideMathSelector={true}
                         />
@@ -63,7 +63,7 @@ function _EditFunnel({ funnelId }) {
                         pageKey={`EditFunnel-${funnel.id || 'new'}`}
                         properties={eventProperties}
                         propertyFilters={funnel.filters.properties || []}
-                        onChange={properties =>
+                        onChange={(properties) =>
                             setFunnel({
                                 filters: {
                                     properties,

@@ -2,13 +2,15 @@ import { resetContext } from 'kea'
 import localStoragePlugin from 'kea-localstorage'
 import { routerPlugin } from 'kea-router'
 import { loadersPlugin } from 'kea-loaders'
+import { windowValuesPlugin } from 'kea-window-values'
 import { toast } from 'react-toastify'
 import React from 'react'
 
-export const initKea = () =>
+export function initKea(): void {
     resetContext({
         plugins: [
             localStoragePlugin,
+            windowValuesPlugin({ window: window }),
             routerPlugin,
             loadersPlugin({
                 onFailure({ error, reducerKey, actionKey }) {
@@ -19,8 +21,9 @@ export const initKea = () =>
                             <p className="error-message">"{error.message}"</p>
                         </div>
                     )
-                    window.Sentry ? window.Sentry.captureException(error) : console.error(error)
+                    window['Sentry'] ? window['Sentry'].captureException(error) : console.error(error)
                 },
             }),
         ],
     })
+}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from 'react'
 
 export function useEscapeKey(callback, deps = []) {
-    const escFunction = useCallback(event => {
+    const escFunction = useCallback((event) => {
         if (event.keyCode === 27) {
             callback()
         }

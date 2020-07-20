@@ -6,23 +6,25 @@ from posthog.models.user import default_onboarding_dict, User
 
 
 def update_old_rows_forward(apps, schema_editor):
-    User.objects.all().update(onboarding={'active': False, 'initial': False, 'steps': {0: True, 1: True, 2: True}})
+    User.objects.all().update(onboarding={"active": False, "initial": False, "steps": {0: True, 1: True, 2: True}})
+
 
 def update_old_rows_reverse(apps, schema_editor):
     # don't need to do anything
     return
 
+
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0065_auto_20200624_1842'),
+        ("posthog", "0069_auto_20200714_1642"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='user',
-            name='onboarding',
+            model_name="user",
+            name="onboarding",
             field=django.contrib.postgres.fields.jsonb.JSONField(default=default_onboarding_dict),
         ),
-        migrations.RunPython(update_old_rows_forward, update_old_rows_reverse)
+        migrations.RunPython(update_old_rows_forward, update_old_rows_reverse),
     ]

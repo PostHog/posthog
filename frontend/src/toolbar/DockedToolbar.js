@@ -1,5 +1,4 @@
 import React from 'react'
-import { hot } from 'react-hot-loader/root'
 import { useActions, useValues } from 'kea'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { ToolbarTabs } from '~/toolbar/ToolbarTabs'
@@ -9,20 +8,18 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 import { Button } from 'antd'
 import { dockLogic } from '~/toolbar/dockLogic'
-import { CloseOutlined, InsertRowRightOutlined } from '@ant-design/icons'
 
-export const ToolbarContent = hot(_ToolbarContent)
-function _ToolbarContent({ type }) {
+export function DockedToolbar({ type }) {
     const { tab } = useValues(toolbarTabLogic)
     const { hoverElement, selectedElement, inspectEnabled, heatmapEnabled } = useValues(elementsLogic)
     const { setSelectedElement } = useActions(elementsLogic)
-    const { button, dock } = useActions(dockLogic)
+    const { dockTopMargin } = useValues(dockLogic)
 
     const showElementInsteadOfTabs =
         type === 'dock' && tab === 'stats' && (inspectEnabled || heatmapEnabled) && (hoverElement || selectedElement)
 
     return (
-        <div>
+        <div style={{ transform: `translate(0, ${dockTopMargin}px)`, transition: 'transform 0.3s' }}>
             {showElementInsteadOfTabs ? (
                 <>
                     <div style={{ height: 66, lineHeight: '56px' }}>
@@ -36,22 +33,10 @@ function _ToolbarContent({ type }) {
                             <div>Click on an element to select it!</div>
                         ) : null}
                     </div>
-                    <div className="toolbar-block">
-                        <ElementInfo />
-                    </div>
+                    <ElementInfo />
                 </>
             ) : (
                 <div>
-                    {type === 'float' ? (
-                        <div style={{ textAlign: 'right' }}>
-                            <Button onClick={dock}>
-                                Dock <InsertRowRightOutlined />
-                            </Button>
-                            <Button onClick={button}>
-                                Close <CloseOutlined />
-                            </Button>
-                        </div>
-                    ) : null}
                     <ToolbarTabs type={type} />
                     {tab === 'stats' ? <StatsTab /> : null}
                     {tab === 'actions' ? <ActionsTab /> : null}

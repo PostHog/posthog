@@ -23,14 +23,14 @@ export function OnboardingWidget() {
     const { setTourActive, setTourType, updateOnboardingInitial } = useActions(onboardingLogic)
     const [visible, setVisible] = useState(user.onboarding.initial ? true : false)
 
-    const unfinishedCount = _.filter(checked, isChecked => !isChecked).length
+    const unfinishedCount = _.filter(checked, (isChecked) => !isChecked).length
 
     function closePopup() {
         if (user.onboarding.initial) updateOnboardingInitial(false)
         setVisible(false)
     }
 
-    let onClickOutside = event => {
+    let onClickOutside = (event) => {
         if (contentRef.current && !contentRef.current.contains(event.target)) {
             closePopup()
         }
@@ -95,7 +95,7 @@ export function OnboardingWidget() {
     }
 
     return (
-        <div>
+        <div className="mr-2 ml-2">
             <Popover
                 visible={visible}
                 content={actionsLoading ? <Loading></Loading> : content({ actions })}

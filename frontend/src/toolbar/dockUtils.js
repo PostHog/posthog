@@ -4,7 +4,8 @@ export function applyDockBodyStyles(htmlStyle, bodyStyle, zoom, padding, deferTr
     // htmlStyle.background = 'hsl(231, 17%, 22%)'
     htmlStyle.background = 'linear-gradient(to right, hsla(234, 17%, 94%, 1) 71%, hsla(234, 17%, 99%, 1) 100%)'
     bodyStyle.boxShadow = 'hsl(219, 14%, 76%) 30px 30px 70px, hsl(219, 14%, 76%) 8px 8px 10px'
-    if (!bodyStyle.backgroundColor) {
+    if (!bodyStyle.background && !bodyStyle.backgroundColor && !bodyStyle.backgroundImage) {
+        // if body background is not set, set to white to avoid transparency
         bodyStyle.backgroundColor = 'white'
     }
     bodyStyle.width = `100vw`
@@ -23,11 +24,11 @@ export function applyDockBodyStyles(htmlStyle, bodyStyle, zoom, padding, deferTr
 
 let listener
 export function attachDockScrollListener(zoom, padding) {
-    listener = function() {
+    listener = function () {
         const bodyElements = [...document.body.getElementsByTagName('*')]
         bodyElements
-            .filter(x => getComputedStyle(x, null).getPropertyValue('position') === 'fixed')
-            .forEach(e => {
+            .filter((x) => getComputedStyle(x, null).getPropertyValue('position') === 'fixed')
+            .forEach((e) => {
                 const h = (window.pageYOffset + (window.pageYOffset > padding ? -padding : 0)) / zoom
                 e.style.marginTop = `${h}px`
                 e.setAttribute('data-posthog-fix-fixed', 'yes')
@@ -35,8 +36,8 @@ export function attachDockScrollListener(zoom, padding) {
 
         const tweakedElements = [...document.querySelectorAll('[data-posthog-fix-fixed=yes]')]
         tweakedElements
-            .filter(x => getComputedStyle(x, null).getPropertyValue('position') !== 'fixed')
-            .forEach(e => {
+            .filter((x) => getComputedStyle(x, null).getPropertyValue('position') !== 'fixed')
+            .forEach((e) => {
                 e.style.marginTop = 0
             })
     }
@@ -57,8 +58,4 @@ export function updateDockToolbarVariables(shadowRef, zoom, padding, sidebarWidt
             toolbarDiv.style.setProperty('--sidebar-width', `${sidebarWidth}px`)
         }
     }
-}
-
-export function keepInBounds(value, lowerBound, upperBound) {
-    return value < lowerBound ? lowerBound : value > upperBound ? upperBound : value
 }

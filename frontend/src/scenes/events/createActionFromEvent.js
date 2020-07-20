@@ -62,7 +62,7 @@ export async function createActionFromEvent(event, increment) {
                 Action succesfully created.{' '}
                 <a
                     href="#"
-                    onClick={e => {
+                    onClick={(e) => {
                         e.preventDefault()
                         window.history.back()
                     }}

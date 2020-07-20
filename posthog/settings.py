@@ -14,6 +14,7 @@ import ast
 import os
 import sys
 from typing import List, Optional
+from distutils.util import strtobool
 
 import sentry_sdk
 from sentry_sdk.integrations.django import DjangoIntegration
@@ -21,15 +22,14 @@ from sentry_sdk.integrations.django import DjangoIntegration
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
-VERSION = '1.9.0'
+VERSION = "1.11.0"
+
 
 def get_env(key):
     try:
         return os.environ[key]
     except KeyError:
-        raise ImproperlyConfigured(
-            f'The environment var "{key}" is absolutely required to run this software'
-        )
+        raise ImproperlyConfigured(f'The environment var "{key}" is absolutely required to run this software')
 
 
 def get_list(text: str) -> List[str]:
@@ -42,7 +42,7 @@ def get_bool_from_env(name: str, default_value: bool) -> bool:
     if name in os.environ:
         value = os.environ[name]
         try:
-            return ast.literal_eval(value)
+            return bool(strtobool(str(value)))
         except ValueError as e:
             raise ValueError(f"{value} is an invalid value for {name}, expected boolean") from e
     return default_value
@@ -52,9 +52,14 @@ def get_bool_from_env(name: str, default_value: bool) -> bool:
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DEBUG = get_bool_from_env("DEBUG", False)
-TEST = 'test' in sys.argv
+TEST = "test" in sys.argv
 
 SITE_URL = os.environ.get("SITE_URL", "http://localhost:8000")
+
+if DEBUG:
+    JS_URL = os.environ.get("JS_URL", "http://localhost:8234/")
+else:
+    JS_URL = os.environ.get("JS_URL", "")
 
 SECURE_SSL_REDIRECT = False
 
@@ -63,32 +68,33 @@ if not DEBUG and not TEST:
     SESSION_COOKIE_SECURE = True
     if os.environ.get("SENTRY_DSN"):
         sentry_sdk.init(
-            dsn=os.environ["SENTRY_DSN"],
-            integrations=[DjangoIntegration()],
-            request_bodies="always",
+            dsn=os.environ["SENTRY_DSN"], integrations=[DjangoIntegration()], request_bodies="always",
         )
 
-if get_bool_from_env('DISABLE_SECURE_SSL_REDIRECT', False):
+if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
     SECURE_SSL_REDIRECT = False
     SESSION_COOKIE_SECURE = False
 
-if get_bool_from_env('IS_BEHIND_PROXY', False):
+if get_bool_from_env("IS_BEHIND_PROXY", False):
     USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
+ASYNC_EVENT_ACTION_MAPPING = False
+
+if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
+    ASYNC_EVENT_ACTION_MAPPING = True
+
 # IP block settings
-ALLOWED_IP_BLOCKS = get_list(os.environ.get('ALLOWED_IP_BLOCKS', ''))
-TRUSTED_PROXIES = os.environ.get('TRUSTED_PROXIES', False)
-TRUST_ALL_PROXIES = os.environ.get('TRUST_ALL_PROXIES', False)
+ALLOWED_IP_BLOCKS = get_list(os.environ.get("ALLOWED_IP_BLOCKS", ""))
+TRUSTED_PROXIES = os.environ.get("TRUSTED_PROXIES", False)
+TRUST_ALL_PROXIES = os.environ.get("TRUST_ALL_PROXIES", False)
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    "SECRET_KEY", "6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-_y7c_c^l5c0m$"
-)
+SECRET_KEY = os.environ.get("SECRET_KEY", "6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-_y7c_c^l5c0m$")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 
@@ -111,6 +117,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "posthog.middleware.SameSiteSessionMiddleware",  # keep this at the top
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.AllowIP",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -192,9 +199,7 @@ SOCIAL_AUTH_GITHUB_SECRET = os.environ.get("SOCIAL_AUTH_GITHUB_SECRET", "")
 SOCIAL_AUTH_GITLAB_SCOPE = ["read_user"]
 SOCIAL_AUTH_GITLAB_KEY = os.environ.get("SOCIAL_AUTH_GITLAB_KEY", "")
 SOCIAL_AUTH_GITLAB_SECRET = os.environ.get("SOCIAL_AUTH_GITLAB_SECRET", "")
-SOCIAL_AUTH_GITLAB_API_URL = os.environ.get(
-    "SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com"
-)
+SOCIAL_AUTH_GITLAB_API_URL = os.environ.get("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
@@ -205,9 +210,7 @@ else:
     DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 if DATABASE_URL:
-    DATABASES = {
-        "default": dj_database_url.config(default=DATABASE_URL, conn_max_age=600)
-    }
+    DATABASES = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=600)}
 elif os.environ.get("POSTHOG_DB_NAME"):
     DATABASES = {
         "default": {
@@ -228,7 +231,7 @@ else:
 # Broker
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
-if TEST or DEBUG or (sys.argv[1] and sys.argv[1] == "collectstatic"):
+if TEST or DEBUG or (len(sys.argv) > 1 and sys.argv[1] == "collectstatic"):
     REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost/")
 else:
     REDIS_URL = os.environ.get("REDIS_URL", "")
@@ -244,16 +247,12 @@ if not REDIS_URL:
     print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")
     print("️⚠️ 🚨🚨🚨 PostHog warning! 🚨🚨🚨")
     print("⚠️")
-    print(
-        "️⚠️ The environment variable REDIS_URL or POSTHOG_REDIS_HOST is not configured!"
-    )
+    print("️⚠️ The environment variable REDIS_URL or POSTHOG_REDIS_HOST is not configured!")
     print("⚠️ Redis will be mandatory in the next versions of PostHog (1.1.0+).")
     print("⚠️ Please configure it now to avoid future surprises!")
     print("⚠️")
     print("⚠️ See here for more information!")
-    print(
-        "⚠️ --> https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
-    )
+    print("⚠️ --> https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011")
     print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")
 
     raise ImproperlyConfigured(
@@ -262,18 +261,14 @@ if not REDIS_URL:
 
 
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
-CELERY_BEAT_MAX_LOOP_INTERVAL = (
-    30  # sleep max 30sec before checking for new periodic events
-)
+CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
-    },
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",},

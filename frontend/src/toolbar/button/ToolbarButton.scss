@@ -11,8 +11,108 @@
     }
 
     .circle-button {
+        transition: box-shadow 0.2s ease;
+        box-shadow: 0 0.3px 0.7px rgba(0, 0, 0, 0.25), 0 0.8px 1.7px rgba(0, 0, 0, 0.18),
+            0 1.5px 3.1px rgba(0, 0, 0, 0.149), 0 2.7px 5.4px rgba(0, 0, 0, 0.125), 0 5px 10px rgba(0, 0, 0, 0.101),
+            0 12px 24px rgba(0, 0, 0, 0.07);
         &:hover {
-            box-shadow: 0 0 13px 4px rgba(0, 0, 0, 0.5) !important;
+            box-shadow: 0 1.3px 2.7px rgba(0, 0, 0, 0.25), 0 3.2px 6.4px rgba(0, 0, 0, 0.18),
+                0 6px 12px rgba(0, 0, 0, 0.149), 0 10.7px 21.4px rgba(0, 0, 0, 0.125),
+                0 20.1px 40.1px rgba(0, 0, 0, 0.101), 0 48px 96px rgba(0, 0, 0, 0.07);
+        }
+    }
+
+    .circle-label {
+        font-weight: 700;
+        text-shadow: black 0 0 1px, black 0 0 2px, rgba(0, 0, 0, 0.25) 0 0.3px 0.7px, rgba(0, 0, 0, 0.18) 0 0.8px 1.6px,
+            rgba(0, 0, 0, 0.15) 0 1.5px 3px, rgba(0, 0, 0, 0.125) 0 2.7px 5.4px, rgba(0, 0, 0, 0.1) 0 5px 10px,
+            rgba(0, 0, 0, 0.07) 0 12px 24px;
+    }
+}
+
+.toolbar-info-windows {
+    position: fixed;
+    width: 300px;
+    left: 0;
+    top: 0;
+    z-index: 2147483020;
+    box-shadow: 0 0.3px 0.7px rgba(0, 0, 0, 0.25), 0 0.8px 1.7px rgba(0, 0, 0, 0.18), 0 1.5px 3.1px rgba(0, 0, 0, 0.149),
+        0 2.7px 5.4px rgba(0, 0, 0, 0.125), 0 5px 10px rgba(0, 0, 0, 0.101), 0 12px 24px rgba(0, 0, 0, 0.07);
+    opacity: 1;
+    transition: opacity ease 0.5s;
+
+    .toolbar-block {
+        max-height: 80vh;
+        overflow: auto;
+    }
+
+    .toolbar-info-window-title {
+        height: 42px;
+        line-height: 26px;
+        padding-left: 15px;
+        display: flex;
+        width: 100%;
+        align-items: center;
+
+        .toolbar-info-window-draggable {
+            cursor: move;
+            flex: 1;
+            display: flex;
+            width: 100%;
+            align-items: center;
+            cursor: move;
+            > svg:first-child {
+                margin-right: 9px;
+                height: 18px;
+                width: auto;
+            }
+
+            .window-label {
+                flex: 1;
+            }
+        }
+        .close-button {
+            cursor: pointer;
+            width: 40px;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.4);
+            line-height: 42px;
+            &:hover {
+                background: rgba(255, 255, 255, 0.6);
+            }
+        }
+    }
+
+    &.heatmap-button-window {
+        border-left: 4px solid #f54d01;
+        .toolbar-block {
+            background: hsla(19, 99%, 99%, 1);
+        }
+        .toolbar-info-window-title {
+            color: hsla(19, 89%, 15%, 1);
+            background: hsla(19, 99%, 83%, 1);
+        }
+    }
+
+    &.actions-button-window {
+        border-left: 4px solid #94d674;
+        .toolbar-block {
+            background: hsla(100, 74%, 98%, 1);
+        }
+        .toolbar-info-window-title {
+            color: hsla(100, 34%, 15%, 1);
+            background: #d6ebcc;
+        }
+    }
+
+    &.stats-button-window {
+        border-left: 4px solid #f1aa04;
+        .toolbar-block {
+            background: hsla(41, 93%, 99%, 1);
+        }
+        .toolbar-info-window-title {
+            color: hsla(41, 33%, 12%, 1);
+            background: #fef5e2;
         }
     }
 }

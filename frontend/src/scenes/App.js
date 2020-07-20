@@ -12,6 +12,7 @@ import { TopContent } from '~/layout/TopContent'
 import { SendEventsOverlay } from '~/layout/SendEventsOverlay'
 import { PGTour } from '~/layout/onboarding'
 const OnboardingWizard = lazy(() => import('~/scenes/onboarding/onboardingWizard'))
+import BillingToolbar from 'lib/components/BillingToolbar'
 
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -80,6 +81,9 @@ function App() {
                 </div>
                 <Layout.Content className="pl-5 pr-5 pt-3" data-attr="layout-content">
                     <PGTour></PGTour>
+                    {user.billing?.should_setup_billing && (
+                        <BillingToolbar billingUrl={user.billing.subscription_url} />
+                    )}
                     {!user.has_events && image ? (
                         <SendEventsOverlay image={image} user={user} />
                     ) : (

@@ -14,3 +14,4 @@ from .person import Person, PersonDistinctId
 from .property import Property
 from .team import Team
 from .user import User, UserManager
+from .annotation import Annotation
