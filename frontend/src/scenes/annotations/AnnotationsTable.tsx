@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useValues } from 'kea'
 import { Table, Tag, Button, Modal, Input } from 'antd'
 import { Link } from 'lib/components/Link'
@@ -14,7 +14,8 @@ export function AnnotationsTable(props: Props) {
     const { logic } = props;
     const { annotations, annotationsLoading } = useValues(logic)
     const [open, setOpen] = useState(false)
-    console.log(annotations)
+    const [selectedAnnotation, setSelected] = useState(null)
+
     let columns = [
         {
             title: 'Annotation',
@@ -82,19 +83,51 @@ export function AnnotationsTable(props: Props) {
             dataSource={annotations}
             columns={columns}
             loading={annotationsLoading}
+            onRow={(annotation) => ({
+                onClick: () => {
+                    setSelected(annotation)
+                    setOpen(true)
+                },
+            })}
         />
-        <CreateAnnotationModal visible={open} onCancel={() => setOpen(false)} onSubmit={(input) => {}}></CreateAnnotationModal>
+        <CreateAnnotationModal 
+            visible={open} 
+            onCancel={() => {
+                setOpen(false)
+                setTimeout(() => setSelected(null), 500)
+                
+            }} 
+            onSubmit={(input) => {}} 
+            annotation={selectedAnnotation}
+        ></CreateAnnotationModal>
     </div>
 }
 
 interface CreateAnnotationModalProps {
     visible: boolean,
     onCancel: () => void,
-    onSubmit: (input: string) => void
+    onSubmit: (input: string) => void,
+    annotation?: any
+}
+
+enum ModalMode {
+    CREATE,
+    EDIT
 }
 
 function CreateAnnotationModal(props: CreateAnnotationModalProps) {
     const [textInput, setTextInput] = useState('')
+    const [modalMode, setModalMode] = useState<ModalMode>(ModalMode.CREATE)
+
+    useEffect(() => {
+        if (props.annotation) {
+            setModalMode(ModalMode.EDIT)
+            setTextInput(props.annotation.content)
+        } else {
+            setModalMode(ModalMode.CREATE)
+            setTextInput('')
+        }
+    }, [props.annotation])
 
     return (
         <Modal 
@@ -110,15 +143,15 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps) {
                         props.onSubmit(textInput)
                     }}
                 >
-                    Submit
+                    {modalMode === ModalMode.CREATE ? "Submit" : "Update"}
                 </Button>,
             ]} 
             closable={false} 
             visible={props.visible} 
             onCancel={props.onCancel}
-            title={"Create a Global Annotation"}
+            title={modalMode === ModalMode.CREATE ? "Create Global Annotation" : "Edit Annotation"}
         >
-            <span>This annotation will appear on all charts</span>
+            {modalMode === ModalMode.CREATE && <span>This annotation will appear on all charts</span>}
             <TextArea 
                 maxLength={300}
                 style={{ marginBottom: 12, marginTop: 12 }}
