@@ -272,6 +272,62 @@ class TestEvents(TransactionBaseTest):
         self.assertEqual(response["result"][0]["days"][0], "2012-01-14")
         self.assertEqual(response["result"][0]["days"][1], "2012-01-15")
 
+    def test_sessions_avg_length_interval(self):
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            Event.objects.create(team=self.team, event="1st action", distinct_id="1")
+            Event.objects.create(team=self.team, event="1st action", distinct_id="2")
+        with freeze_time("2012-01-14T03:25:34.000Z"):
+            Event.objects.create(team=self.team, event="2nd action", distinct_id="1")
+            Event.objects.create(team=self.team, event="2nd action", distinct_id="2")
+        with freeze_time("2012-01-25T03:59:34.000Z"):
+            Event.objects.create(team=self.team, event="3rd action", distinct_id="1")
+            Event.objects.create(team=self.team, event="3rd action", distinct_id="2")
+        with freeze_time("2012-01-25T04:01:34.000Z"):
+            Event.objects.create(team=self.team, event="4th action", distinct_id="1")
+            Event.objects.create(team=self.team, event="4th action", distinct_id="2")
+
+        with freeze_time("2012-03-14T03:21:34.000Z"):
+            Event.objects.create(team=self.team, event="1st action", distinct_id="2")
+        with freeze_time("2012-03-14T03:25:34.000Z"):
+            Event.objects.create(team=self.team, event="2nd action", distinct_id="2")
+        with freeze_time("2012-03-15T03:59:34.000Z"):
+            Event.objects.create(team=self.team, event="3rd action", distinct_id="2")
+        with freeze_time("2012-03-15T04:01:34.000Z"):
+            Event.objects.create(team=self.team, event="4th action", distinct_id="2")
+
+        # month
+        month_response = self.client.get(
+            "/api/event/sessions/?session=avg&date_from=2012-01-01&date_to=2012-04-01&interval=month"
+        ).json()
+        self.assertEqual(month_response["result"][0]["data"][0], 180)
+        self.assertEqual(month_response["result"][0]["data"][2], 180)
+        self.assertEqual(month_response["result"][0]["labels"][0], "Tue. 31 January")
+        self.assertEqual(month_response["result"][0]["labels"][1], "Wed. 29 February")
+        self.assertEqual(month_response["result"][0]["days"][0], "2012-01-31")
+        self.assertEqual(month_response["result"][0]["days"][1], "2012-02-29")
+
+        # # week
+        week_response = self.client.get(
+            "/api/event/sessions/?session=avg&date_from=2012-01-01&date_to=2012-02-01&interval=week"
+        ).json()
+        self.assertEqual(week_response["result"][0]["data"][1], 240.0)
+        self.assertEqual(week_response["result"][0]["data"][3], 120.0)
+        self.assertEqual(week_response["result"][0]["labels"][0], "Sun. 1 January")
+        self.assertEqual(week_response["result"][0]["labels"][1], "Sun. 8 January")
+        self.assertEqual(week_response["result"][0]["days"][0], "2012-01-01")
+        self.assertEqual(week_response["result"][0]["days"][1], "2012-01-08")
+
+        # # # hour
+        hour_response = self.client.get(
+            "/api/event/sessions/?session=avg&date_from=2012-03-14&date_to=2012-03-16&interval=hour"
+        ).json()
+        self.assertEqual(hour_response["result"][0]["data"][3], 240.0)
+        self.assertEqual(hour_response["result"][0]["data"][27], 120.0)
+        self.assertEqual(hour_response["result"][0]["labels"][0], "Wed. 14 March, 00:00")
+        self.assertEqual(hour_response["result"][0]["labels"][1], "Wed. 14 March, 01:00")
+        self.assertEqual(hour_response["result"][0]["days"][0], "2012-03-14 00:00:00")
+        self.assertEqual(hour_response["result"][0]["days"][1], "2012-03-14 01:00:00")
+
     def test_sessions_count_buckets(self):
 
         # 0 seconds

@@ -476,17 +476,19 @@ class EventViewSet(viewsets.ModelViewSet):
         cursor = connection.cursor()
         cursor.execute(average_length_time, params)
         time_series_avg = cursor.fetchall()
-        time_series_avg_friendly = []
-        date_range = pd.date_range(
-            date_filter["timestamp__gte"].date(), date_filter["timestamp__lte"].date(), freq=interval_freq,
-        )
-        time_series_avg_friendly = [
-            (day, round(time_series_avg[index][1] if index < len(time_series_avg) else 0),)
-            for index, day in enumerate(date_range)
-        ]
 
-        time_series_data = append_data(time_series_avg_friendly, math=None)
+        date_range = pd.date_range(date_filter["timestamp__gte"], date_filter["timestamp__lte"], freq=interval_freq,)
+        df = pd.DataFrame([{"date": a[0], "count": a[1], "breakdown": "Total"} for a in time_series_avg])
+        if interval == "week":
+            df["date"] = df["date"].apply(lambda x: x - pd.offsets.Week(weekday=6))
+        elif interval == "month":
+            df["date"] = df["date"].apply(lambda x: x - pd.offsets.MonthEnd(n=0))
 
+        df_dates = pd.DataFrame(df.groupby("date").mean(), index=date_range)
+        df_dates = df_dates.fillna(0)
+        values = [(key, round(value[0])) if len(value) > 0 else (key, 0) for key, value in df_dates.iterrows()]
+
+        time_series_data = append_data(values, interval=interval, math=None)
         # calculate average
         totals = [sum(x) for x in list(zip(*time_series_avg))[2:4]]
         overall_average = (totals[0] / totals[1]) if totals else 0
