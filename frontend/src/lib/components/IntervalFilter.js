@@ -11,7 +11,8 @@ let intervalMapping = {
 }
 
 export function IntervalFilter({ filters, setFilters, disabled = false }) {
-    const { interval, date_from } = filters
+    const { interval } = filters
+    let date_from
     return (
         <Select
             bordered={false}
