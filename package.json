@@ -103,8 +103,8 @@
         }
     },
     "lint-staged": {
-        "*.{js,css,scss}": "prettier --write",
-        "*.js": "eslint",
+        "*.{js,ts,tsx,css,scss}": "prettier --write",
+        "*.{js,ts,tsx}": "eslint",
         "*.py": "black -l 120"
     },
     "optionalDependencies": {

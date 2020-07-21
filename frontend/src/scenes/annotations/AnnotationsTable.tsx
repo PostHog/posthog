@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
 import { Table, Tag, Button, Modal, Input, DatePicker } from 'antd'
 import { Link } from 'lib/components/Link'
@@ -12,19 +12,19 @@ interface Props {
     logic: any
 }
 
-export function AnnotationsTable(props: Props) {
+export function AnnotationsTable(props: Props): JSX.Element {
     const { logic } = props
     const { annotations, annotationsLoading } = useValues(logic)
     const { loadAnnotations } = useActions(logic)
-    // const { createGlobalAnnotation } = useActions(annotationsModel)
+    const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
     const [selectedAnnotation, setSelected] = useState(null)
 
-    let columns = [
+    const columns = [
         {
             title: 'Annotation',
             key: 'annotation',
-            render: function RenderAnnotation(annotation) {
+            render: function RenderAnnotation(annotation): JSX.Element {
                 return (
                     <span
                         style={{
@@ -43,7 +43,7 @@ export function AnnotationsTable(props: Props) {
         {
             title: 'Created By',
             key: 'person',
-            render: function RenderPerson(annotation) {
+            render: function RenderPerson(annotation): JSX.Element {
                 const { created_by } = annotation
 
                 return (
@@ -56,19 +56,19 @@ export function AnnotationsTable(props: Props) {
         },
         {
             title: 'Last Updated',
-            render: function RenderLastUpdated(annotation) {
+            render: function RenderLastUpdated(annotation): JSX.Element {
                 return <span>{humanFriendlyDetailedTime(annotation.updated_at)}</span>
             },
         },
         {
             title: 'Status',
-            render: function RenderStatus(annotation) {
+            render: function RenderStatus(annotation): JSX.Element {
                 return annotation.deleted ? <Tag color="red">Deleted</Tag> : <Tag color="green">Active</Tag>
             },
         },
         {
             title: 'Type',
-            render: function RenderType(annotation) {
+            render: function RenderType(annotation): JSX.Element {
                 return annotation.apply_all ? <Tag color="blue">Global</Tag> : <Tag color="purple">Dashboard Item</Tag>
             },
         },
@@ -77,20 +77,20 @@ export function AnnotationsTable(props: Props) {
     return (
         <div>
             <h1 className="page-header">Annotations</h1>
-            <Button className="mb-4" type="primary" data-attr="create-annotation" onClick={() => setOpen(true)}>
+            <Button className="mb-4" type="primary" data-attr="create-annotation" onClick={(): void => setOpen(true)}>
                 + Create Global Annotation
             </Button>
             <Table
                 data-attr="annotations-table"
                 size="small"
-                rowKey={(item) => item.id}
+                rowKey={(item): string => item.id}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 rowClassName="cursor-pointer"
                 dataSource={annotations}
                 columns={columns}
                 loading={annotationsLoading}
-                onRow={(annotation) => ({
-                    onClick: () => {
+                onRow={(annotation): HTMLAttributes<HTMLElement> => ({
+                    onClick: (): void => {
                         setSelected(annotation)
                         setOpen(true)
                     },
@@ -98,11 +98,11 @@ export function AnnotationsTable(props: Props) {
             />
             <CreateAnnotationModal
                 visible={open}
-                onCancel={() => {
+                onCancel={(): void => {
                     setOpen(false)
-                    setTimeout(() => setSelected(null), 500)
+                    setTimeout((): void => setSelected(null), 500)
                 }}
-                onSubmit={(input, selectedDate) => {
+                onSubmit={(input, selectedDate): void => {
                     createGlobalAnnotation(input, selectedDate, null)
                     setOpen(false)
                     setTimeout(() => setSelected(null), 500)
@@ -126,7 +126,7 @@ enum ModalMode {
     EDIT,
 }
 
-function CreateAnnotationModal(props: CreateAnnotationModalProps) {
+function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
     const [textInput, setTextInput] = useState('')
     const [modalMode, setModalMode] = useState<ModalMode>(ModalMode.CREATE)
     const [selectedDate, setDate] = useState<moment.Moment>(moment())
@@ -144,13 +144,13 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps) {
     return (
         <Modal
             footer={[
-                <Button key="create-annotation-cancel" onClick={() => props.onCancel()}>
+                <Button key="create-annotation-cancel" onClick={(): void => props.onCancel()}>
                     Cancel
                 </Button>,
                 <Button
                     type="primary"
                     key="create-annotation-submit"
-                    onClick={() => {
+                    onClick={(): void => {
                         props.onSubmit(textInput, selectedDate)
                     }}
                 >
@@ -173,9 +173,9 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps) {
                     Date:
                     <DatePicker
                         className="mb-2 mt-2 ml-2"
-                        getPopupContainer={(trigger) => trigger.parentElement}
+                        getPopupContainer={(trigger): HTMLElement => trigger.parentElement}
                         value={selectedDate}
-                        onChange={(date) => setDate(date)}
+                        onChange={(date): void => setDate(date)}
                         allowClear={false}
                     ></DatePicker>
                 </div>
@@ -185,7 +185,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps) {
                 style={{ marginBottom: 12, marginTop: 12 }}
                 rows={4}
                 value={textInput}
-                onChange={(e) => setTextInput(e.target.value)}
+                onChange={(e): void => setTextInput(e.target.value)}
             ></TextArea>
         </Modal>
     )
