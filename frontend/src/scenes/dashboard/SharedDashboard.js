@@ -32,7 +32,7 @@ ReactDOM.render(
             </Row>
             <Dashboard id={dashboard.id} share_token={dashboard.share_token} />
 
-            <div style={{ textAlign: 'center' }}>
+            <div style={{ textAlign: 'center', marginBottom: '4rem', marginTop: '1rem'}}>
                 Made with <a href="https://posthog.com">PostHog - Open Source Product Analytics</a>
             </div>
         </div>

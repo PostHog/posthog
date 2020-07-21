@@ -5,7 +5,13 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { router } from 'kea-router'
 
-export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filters: filtersParam, cachedResults }) {
+export function ActionsLineGraph({
+    dashboardItemId = null,
+    color = 'white',
+    filters: filtersParam,
+    cachedResults,
+    inSharedMode,
+}) {
     const logic = trendsLogic({ dashboardItemId, filters: filtersParam, cachedResults })
     const { filters, results, resultsLoading } = useValues(logic)
     const { loadResults, loadPeople } = useActions(logic)
@@ -27,6 +33,7 @@ export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filt
                 labels={(results[0] && results[0].labels) || []}
                 isInProgress={!filters.date_to}
                 dashboardItemId={dashboardItemId || fromItem}
+                inSharedMode={inSharedMode}
                 onClick={
                     dashboardItemId
                         ? null

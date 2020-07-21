@@ -309,6 +309,7 @@ export function DashboardItem({
                                 filters={filters}
                                 color={color}
                                 theme={color === 'white' ? 'light' : 'dark'}
+                                inSharedMode={inSharedMode}
                             />
                         </Alert.ErrorBoundary>
                     ) : (
