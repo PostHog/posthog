@@ -1,6 +1,6 @@
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Tag, Button, Modal, Input, DatePicker, Row } from 'antd'
+import { Table, Tag, Button, Modal, Input, DatePicker, Row, Spin } from 'antd'
 import { Link } from 'lib/components/Link'
 import 'lib/components/Annotations/AnnotationMarker.scss'
 import { humanFriendlyDetailedTime } from 'lib/utils'
@@ -16,8 +16,8 @@ interface Props {
 
 export function AnnotationsTable(props: Props): JSX.Element {
     const { logic } = props
-    const { annotations, annotationsLoading } = useValues(logic)
-    const { loadAnnotations, updateAnnotation, deleteAnnotation } = useActions(logic)
+    const { annotations, annotationsLoading, next, loadingNext } = useValues(logic)
+    const { loadAnnotations, updateAnnotation, deleteAnnotation, loadAnnotationsNext } = useActions(logic)
     const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
     const [selectedAnnotation, setSelected] = useState(null)
@@ -103,6 +103,26 @@ export function AnnotationsTable(props: Props): JSX.Element {
                     },
                 })}
             />
+            <div
+                style={{
+                    visibility: next ? 'visible' : 'hidden',
+                    margin: '2rem auto 5rem',
+                    textAlign: 'center',
+                }}
+            >
+                {loadingNext ? (
+                    <Spin></Spin>
+                ) : (
+                    <Button
+                        type="primary"
+                        onClick={(): void => {
+                            loadAnnotationsNext()
+                        }}
+                    >
+                        {'Load more annotations'}
+                    </Button>
+                )}
+            </div>
             <CreateAnnotationModal
                 visible={open}
                 onCancel={(): void => {
