@@ -45,13 +45,16 @@ class Property:
         value = self._parse_value(self.value)
         if self.operator == "is_not":
             return Q(~Q(**{"properties__{}".format(self.key): value}) | ~Q(properties__has_key=self.key))
-        if self.operator == "not_icontains":
-            return Q(~Q(**{"properties__{}__icontains".format(self.key): value}) | ~Q(properties__has_key=self.key))
         if self.operator == "is_set":
             return Q(**{"properties__{}__isnull".format(self.key): False})
         if self.operator == "is_not_set":
             return Q(**{"properties__{}__isnull".format(self.key): True})
-        return Q(**{"properties__{}{}".format(self.key, "__{}".format(self.operator) if self.operator else ""): value})
+        if isinstance(self.operator, str) and self.operator.startswith("not_"):
+            return Q(
+                ~Q(**{"properties__{}__{}".format(self.key, self.operator[4:]): value})
+                | ~Q(properties__has_key=self.key)
+            )
+        return Q(**{"properties__{}{}".format(self.key, f"__{self.operator}" if self.operator else ""): value})
 
 
 class PropertyMixin:

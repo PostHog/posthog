@@ -47,6 +47,15 @@ class TestPropertiesToQ(BaseTest):
         events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
         self.assertEqual(events.get(), event2)
 
+    def test_regex(self):
+        Event.objects.create(team=self.team, event="$pageview")
+        event2 = Event.objects.create(
+            team=self.team, event="$pageview", properties={"$current_url": "https://whatever.com"},
+        )
+        filter = Filter(data={"properties": {"$current_url__regex": "\.com$"}})
+        events = Event.objects.filter(filter.properties_to_Q(team_id=self.team.pk))
+        self.assertEqual(events.get(), event2)
+
     def test_is_not(self):
         event1 = Event.objects.create(team=self.team, event="$pageview")
         event2 = Event.objects.create(

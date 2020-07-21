@@ -139,11 +139,13 @@ class EventManager(models.QuerySet):
     def filter_by_url(self, action_step: ActionStep, subquery: QuerySet):
         if not action_step.url:
             return subquery
-        url_exact = action_step.url_matching == ActionStep.EXACT
-        return subquery.extra(
-            where=["properties ->> '$current_url' {} %s".format("=" if url_exact else "LIKE")],
-            params=[action_step.url if url_exact else "%{}%".format(action_step.url)],
-        )
+        if action_step.url_matching == ActionStep.EXACT:
+            where, param = "properties->>'$current_url' = %s", action_step.url
+        elif action_step.url_matching == ActionStep.REGEX:
+            where, param = "properties->>'$current_url' ~ %s", action_step.url
+        else:
+            where, param = "properties->>'$current_url' LIKE %s", f"%{action_step.url}%"
+        return subquery.extra(where=[where], params=[param])
 
     def filter_by_event(self, action_step):
         if not action_step.event:
@@ -183,7 +185,7 @@ class EventManager(models.QuerySet):
                     pk=OuterRef("id"),
                     **self.filter_by_event(step),
                     **self.filter_by_element(model_to_dict(step), team_id=action.team_id),
-                    **self.filter_by_period(start, end)
+                    **self.filter_by_period(start, end),
                 )
                 .only("id")
             )
