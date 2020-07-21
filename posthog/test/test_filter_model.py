@@ -1,5 +1,8 @@
 from posthog.api.test.base import BaseTest
 from posthog.models import Filter, Property, Event, Person, Element
+from django.db.models import Q
+from dateutil.relativedelta import relativedelta
+from django.utils import timezone
 import json
 
 
@@ -154,3 +157,36 @@ class TestPropertiesToQ(BaseTest):
         events = Event.objects.add_person_id(self.team.pk).filter(filter.properties_to_Q(team_id=self.team.pk))
         self.assertEqual(events[0], event1)
         self.assertEqual(len(events), 1)
+
+class TestDateFilterQ(BaseTest):
+    def test_filter_by_all(self):
+        filter = Filter(
+            data={
+                "properties": [
+                    {
+                        "key": "name",
+                        "value": json.dumps({"first_name": "Mary", "last_name": "Smith"}),
+                        "type": "person",
+                    }
+                ],
+                "date_from": "all"
+            }
+        )
+        date_filter_query = filter.date_filter_Q
+        self.assertEqual(date_filter_query, Q())
+
+    def test_default_filter_by_date_from(self):
+        filter = Filter(
+            data={
+                "properties": [
+                    {
+                        "key": "name",
+                        "value": json.dumps({"first_name": "Mary", "last_name": "Smith"}),
+                        "type": "person",
+                    }
+                ],
+            }
+        )
+        one_week_ago = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
+        date_filter_query = filter.date_filter_Q
+        self.assertEqual(date_filter_query, Q(timestamp__gte=one_week_ago))
