@@ -136,7 +136,7 @@ function _Trends() {
                     <Card
                         title={
                             <div className="float-right pt-1 pb-1">
-                                <IntervalFilter setFilters={setFilters} filters={filters} disabled={filters.session} />
+                                <IntervalFilter setFilters={setFilters} filters={filters} />
                                 <ChartFilter
                                     displayMap={displayMap}
                                     filters={filters}

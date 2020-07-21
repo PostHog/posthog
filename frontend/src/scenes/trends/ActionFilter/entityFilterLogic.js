@@ -41,6 +41,7 @@ export const entityFilterLogic = kea({
             type: filter.type,
             value: filter.value,
             math: filter.math,
+            math_property: filter.math_property,
             index: filter.index,
         }),
         updateFilter: (filter) => ({ type: filter.type, index: filter.index, value: filter.value, name: filter.name }),
@@ -91,8 +92,10 @@ export const entityFilterLogic = kea({
                 values.localFilters.map((filter, i) => (i === index ? { ...filter, properties } : filter))
             )
         },
-        updateFilterMath: ({ math, index }) => {
-            actions.setFilters(values.localFilters.map((filter, i) => (i === index ? { ...filter, math } : filter)))
+        updateFilterMath: ({ math, math_property, index }) => {
+            actions.setFilters(
+                values.localFilters.map((filter, i) => (i === index ? { ...filter, math, math_property } : filter))
+            )
         },
         removeLocalFilter: ({ index }) => {
             actions.setFilters(values.localFilters.filter((_, i) => i !== index))

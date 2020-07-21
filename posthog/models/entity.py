@@ -15,6 +15,7 @@ class Entity(PropertyMixin):
     order: Optional[int]
     name: Optional[str]
     math: Optional[str]
+    math_property: Optional[str]
     properties: List[Property]
 
     def __init__(self, data: Dict[str, Any]) -> None:
@@ -28,6 +29,7 @@ class Entity(PropertyMixin):
         self.order = data.get("order")
         self.name = data.get("name")
         self.math = data.get("math")
+        self.math_property = data.get("math_property")
         self.properties = self._parse_properties(data.get("properties"))
         if self.type == TREND_FILTER_TYPE_EVENTS and not self.name:
             # It won't be an int if it's an event, but mypy...
@@ -40,5 +42,6 @@ class Entity(PropertyMixin):
             "order": self.order,
             "name": self.name,
             "math": self.math,
+            "math_property": self.math_property,
             "properties": [prop.to_dict() for prop in self.properties],
         }

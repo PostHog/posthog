@@ -69,6 +69,7 @@ def user(request):
                 "slack_incoming_webhook": team.slack_incoming_webhook,
                 "event_names": team.event_names,
                 "event_properties": team.event_properties,
+                "event_properties_numerical": team.event_properties_numerical,
                 "completed_snippet_onboarding": team.completed_snippet_onboarding,
             },
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
@@ -105,6 +106,10 @@ def redirect_to_site(request):
     if use_new_toolbar:
         params["action"] = "ph_authorize"
         params["toolbarVersion"] = "toolbar"
+
+    if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
+        params["instrument"] = True
+        params["userEmail"] = request.user.email
 
     state = urllib.parse.quote(json.dumps(params))
 
