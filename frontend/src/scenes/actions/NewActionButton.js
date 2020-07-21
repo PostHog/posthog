@@ -9,7 +9,7 @@ export function NewActionButton() {
             <Button type="primary" onClick={() => setVisible(true)} data-attr="create-action">
                 + New Action
             </Button>
-            <NewActionModal visible={visible} onVisibleChanged={visible => setVisible(visible)}></NewActionModal>
+            <NewActionModal visible={visible} onVisibleChanged={(visible) => setVisible(visible)}></NewActionModal>
         </>
     )
 }

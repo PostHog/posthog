@@ -11,10 +11,10 @@ export const onboardingLogic = kea({
     actions: () => ({
         setTourFinish: true,
         setTourActive: true,
-        setTourStep: step => ({ step }),
-        setTourType: type => ({ type }),
-        updateOnboardingStep: index => ({ index }),
-        updateOnboardingInitial: initial => ({ initial }),
+        setTourStep: (step) => ({ step }),
+        setTourType: (type) => ({ type }),
+        updateOnboardingStep: (index) => ({ index }),
+        updateOnboardingInitial: (initial) => ({ initial }),
     }),
     reducers: ({ actions }) => ({
         tourActive: [
@@ -50,7 +50,7 @@ export const onboardingLogic = kea({
     selectors: ({ selectors, props }) => ({
         checked: [
             () => [selectors.localChecked],
-            localChecked => {
+            (localChecked) => {
                 return localChecked.map((val, index) => val || props.user.onboarding.steps[index])
             },
         ],

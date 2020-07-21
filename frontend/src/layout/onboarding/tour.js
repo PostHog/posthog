@@ -68,7 +68,7 @@ const actionTour = [
     {
         selector: '[data-attr="action-edit-type-group"]',
         content: <ToolTipText>{'There are several different ways you can create an action'}</ToolTipText>,
-        action: node => {
+        action: (node) => {
             node.click()
         },
     },
@@ -81,7 +81,7 @@ const actionTour = [
                 }
             </ToolTipText>
         ),
-        action: node => {
+        action: (node) => {
             node.click()
         },
         stepInteraction: false,
