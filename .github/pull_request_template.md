@@ -1,6 +1,7 @@
 ## Changes
 
-
+*Please describe.*  
+*If this affects the front-end, include screenshots.*  
 
 ## Checklist
 
