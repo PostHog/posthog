@@ -1,6 +1,6 @@
 describe('Setup', () => {
     it('Setup loaded', () => {
-        cy.get('[data-attr=menu-item-setup]').click()
+        cy.get('[data-attr=menu-item-settings]').click()
         cy.get('[data-attr=layout-content]').should('exist')
     })
 
@@ -16,7 +16,7 @@ describe('Setup', () => {
             })
         })
         cy.reload(true)
-        cy.get('[data-attr=menu-item-setup]').click()
+        cy.get('[data-attr=menu-item-settings]').click()
         cy.get('[data-attr=app-url-suggestion]').click()
         cy.get('[data-attr=app-url-item]').should('contain', '/demo')
     })
