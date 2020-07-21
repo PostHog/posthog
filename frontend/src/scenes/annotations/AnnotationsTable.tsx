@@ -1,10 +1,12 @@
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Tag, Button, Modal, Input, DatePicker } from 'antd'
+import { Table, Tag, Button, Modal, Input, DatePicker, Row } from 'antd'
 import { Link } from 'lib/components/Link'
+import 'lib/components/Annotations/AnnotationMarker.scss'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import moment from 'moment'
 import { annotationsModel } from '~/models/annotationsModel'
+import { DeleteOutlined } from '@ant-design/icons'
 
 const { TextArea } = Input
 
@@ -15,7 +17,7 @@ interface Props {
 export function AnnotationsTable(props: Props): JSX.Element {
     const { logic } = props
     const { annotations, annotationsLoading } = useValues(logic)
-    const { loadAnnotations, updateAnnotation } = useActions(logic)
+    const { loadAnnotations, updateAnnotation, deleteAnnotation } = useActions(logic)
     const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
     const [selectedAnnotation, setSelected] = useState(null)
@@ -74,6 +76,11 @@ export function AnnotationsTable(props: Props): JSX.Element {
         },
     ]
 
+    function closeModal(): void {
+        setOpen(false)
+        setTimeout(() => setSelected(null), 500)
+    }
+
     return (
         <div>
             <h1 className="page-header">Annotations</h1>
@@ -99,16 +106,18 @@ export function AnnotationsTable(props: Props): JSX.Element {
             <CreateAnnotationModal
                 visible={open}
                 onCancel={(): void => {
-                    setOpen(false)
-                    setTimeout((): void => setSelected(null), 500)
+                    closeModal()
                 }}
                 onSubmit={async (input, selectedDate): Promise<void> => {
                     ;(await selectedAnnotation)
                         ? updateAnnotation(selectedAnnotation.id, input)
                         : createGlobalAnnotation(input, selectedDate, null)
-                    setOpen(false)
-                    setTimeout(() => setSelected(null), 500)
+                    closeModal()
                     loadAnnotations()
+                }}
+                onDelete={(): void => {
+                    deleteAnnotation(selectedAnnotation.id)
+                    closeModal()
                 }}
                 annotation={selectedAnnotation}
             ></CreateAnnotationModal>
@@ -119,6 +128,7 @@ export function AnnotationsTable(props: Props): JSX.Element {
 interface CreateAnnotationModalProps {
     visible: boolean
     onCancel: () => void
+    onDelete: () => void
     onSubmit: (input: string, date: moment.Moment) => void
     annotation?: any
 }
@@ -167,7 +177,15 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
             {modalMode === ModalMode.CREATE ? (
                 <span>This annotation will appear on all charts</span>
             ) : (
-                <span>Change existing annotation text</span>
+                <Row justify="space-between">
+                    <span>Change existing annotation text</span>
+                    <DeleteOutlined
+                        className="clickable"
+                        onClick={(): void => {
+                            props.onDelete()
+                        }}
+                    ></DeleteOutlined>
+                </Row>
             )}
             <br></br>
             {modalMode === ModalMode.CREATE && (
@@ -184,7 +202,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
             )}
             <TextArea
                 maxLength={300}
-                style={{ marginBottom: 12, marginTop: 12 }}
+                style={{ marginBottom: 12, marginTop: 5 }}
                 rows={4}
                 value={textInput}
                 onChange={(e): void => setTextInput(e.target.value)}
