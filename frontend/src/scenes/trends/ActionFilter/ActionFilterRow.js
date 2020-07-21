@@ -236,7 +236,7 @@ function MathPropertySelector(props) {
 
     return (
         <Dropdown
-            title="Select property"
+            title={props.mathProperty || 'Select property'}
             titleEmpty="No applicable properties"
             buttonClassName="btn btn-sm btn-light ml-2"
             data-attr={`math-property-selector-${props.index}`}
