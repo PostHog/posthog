@@ -188,6 +188,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                 <Button
                     type="primary"
                     key="create-annotation-submit"
+                    data-attr="create-annotation-submit"
                     onClick={(): void => {
                         props.onSubmit(textInput, selectedDate)
                     }}
@@ -227,6 +228,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                 </div>
             )}
             <TextArea
+                data-attr="create-annotation-input"
                 maxLength={300}
                 style={{ marginBottom: 12, marginTop: 5 }}
                 rows={4}
