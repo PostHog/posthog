@@ -6,6 +6,7 @@ import {
     updateDockToolbarVariables,
 } from '~/toolbar/dockUtils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { posthog } from '~/toolbar/posthog'
 
 // props:
 // - shadowRef: shadowRoot ref
@@ -120,12 +121,14 @@ export const dockLogic = kea({
             window.addEventListener('resize', cache.onScrollResize)
             window.requestAnimationFrame(() => {
                 if (toolbarLogic.values.isAuthenticated) {
+                    posthog.capture('Toolbar Authenticated')
                     if (values.lastMode === 'dock') {
                         actions.dock()
                     } else {
                         actions.button()
                     }
                 } else {
+                    posthog.capture('Toolbar Pre-Authorize')
                     actions.button()
                 }
             })
@@ -138,12 +141,15 @@ export const dockLogic = kea({
 
     listeners: ({ actions, values, props }) => ({
         button: () => {
+            posthog.capture('Toolbar Button Mode')
             values.mode !== 'button' && actions.setMode('button', false)
         },
         dock: () => {
+            posthog.capture('Toolbar Dock Mode')
             values.mode !== 'dock' && actions.setMode('dock', false)
         },
         hideButton: () => {
+            posthog.capture('Toolbar Closed')
             values.mode !== '' && actions.setMode('', false)
         },
         update: () => {
