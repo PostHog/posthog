@@ -15,7 +15,7 @@ interface Props {
 export function AnnotationsTable(props: Props): JSX.Element {
     const { logic } = props
     const { annotations, annotationsLoading } = useValues(logic)
-    const { loadAnnotations } = useActions(logic)
+    const { loadAnnotations, updateAnnotation } = useActions(logic)
     const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
     const [selectedAnnotation, setSelected] = useState(null)
@@ -102,8 +102,10 @@ export function AnnotationsTable(props: Props): JSX.Element {
                     setOpen(false)
                     setTimeout((): void => setSelected(null), 500)
                 }}
-                onSubmit={(input, selectedDate): void => {
-                    createGlobalAnnotation(input, selectedDate, null)
+                onSubmit={async (input, selectedDate): Promise<void> => {
+                    ;(await selectedAnnotation)
+                        ? updateAnnotation(selectedAnnotation.id, input)
+                        : createGlobalAnnotation(input, selectedDate, null)
                     setOpen(false)
                     setTimeout(() => setSelected(null), 500)
                     loadAnnotations()

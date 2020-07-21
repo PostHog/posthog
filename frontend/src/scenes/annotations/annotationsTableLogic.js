@@ -12,6 +12,14 @@ export const annotationsTableLogic = kea({
             },
         },
     }),
+    actions: () => ({
+        updateAnnotation: (id, content) => ({ id, content }),
+    }),
+    listeners: () => ({
+        updateAnnotation: async ({ id, content }) => {
+            await api.update(`api/annotation/${id}`, { content })
+        },
+    }),
     events: ({ actions }) => ({
         afterMount: actions.loadAnnotations,
     }),
