@@ -85,7 +85,7 @@ export const entityFilterLogic = kea({
             actions.setFilters(
                 values.localFilters.map((filter, i) => (i === index ? { ...filter, id: value, name, type } : filter))
             )
-            actions.selectFilter(null)
+            !props.singleMode && actions.selectFilter(null)
         },
         updateFilterProperty: ({ properties, index }) => {
             actions.setFilters(
@@ -108,6 +108,15 @@ export const entityFilterLogic = kea({
         },
         setFilters: ({ filters }) => {
             props.setFilters(toFilters(filters))
+        },
+    }),
+    events: ({ actions, props, values }) => ({
+        afterMount: () => {
+            if (props.singleMode) {
+                const filter = { id: null, type: EntityTypes.NEW_ENTITY, order: values.localFilters.length }
+                actions.setLocalFilters({ [`${EntityTypes.NEW_ENTITY}`]: [filter] })
+                actions.selectFilter({ filter, type: EntityTypes.NEW_ENTITY, index: 0 })
+            }
         },
     }),
 })

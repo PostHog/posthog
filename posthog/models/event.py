@@ -1,3 +1,4 @@
+from posthog.models.entity import Entity
 from django.core.cache import cache
 from django.conf import settings
 from django.db import models, transaction
@@ -17,6 +18,7 @@ from django.db.models.functions import TruncDay
 from django.contrib.postgres.fields import JSONField
 from django.utils import timezone
 from django.forms.models import model_to_dict
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 
 from psycopg2 import sql  # type: ignore
 
@@ -210,12 +212,16 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def query_retention(self, filters, team, event="$pageview") -> dict:
-        filtered_events = (
-            Event.objects.filter_by_event_with_people(event=event, team_id=team.id)
-            .filter(filters.date_filter_Q)
-            .filter(filters.properties_to_Q(team_id=team.pk))
-        )
+    def query_retention(self, filters, team, start_entity: Optional[Entity] = None) -> dict:
+
+        events: QuerySet = QuerySet()
+        entity = Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}) if not start_entity else start_entity
+        if entity.type == TREND_FILTER_TYPE_EVENTS:
+            events = Event.objects.filter_by_event_with_people(event=entity.id, team_id=team.id)
+        elif entity.type == TREND_FILTER_TYPE_ACTIONS:
+            events = Event.objects.filter(action__pk=entity.id).add_person_id(team.id)
+
+        filtered_events = events.filter(filters.date_filter_Q).filter(filters.properties_to_Q(team_id=team.pk))
 
         first_date = (
             filtered_events.annotate(first_date=TruncDay("timestamp")).values("first_date", "person_id").distinct()
