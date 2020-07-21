@@ -17,6 +17,7 @@ import json
 import re
 import os
 import pytz
+import hashlib
 
 
 def relative_date_parse(input: str) -> datetime.datetime:
@@ -220,3 +221,8 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
                 raise AuthenticationFailed(detail="User doesnt exist")
             return (user.first(), None)
         return None
+
+
+def generate_cache_key(obj):
+    stringified = json.dumps(obj)
+    return hashlib.md5(stringified.encode("utf-8")).hexdigest()

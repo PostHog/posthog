@@ -43,9 +43,9 @@ function _Setup() {
             This key is write-only, in that it can only create new events. It can't read any events or any of your other
             data stored on PostHog.
             <Divider />
-            <h2 id="urls">Permitted domains</h2>
-            These are the domains and urls where the toolbar will automatically open if you're logged in. It's also the
-            domains where you'll be able to create actions on.
+            <h2 id="urls">Permitted Domains/URLs</h2>
+            These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's also
+            where you'll be able to create Actions.
             <EditAppUrls />
             <Divider />
             <h2 id="slack">Slack or Teams Integration</h2>

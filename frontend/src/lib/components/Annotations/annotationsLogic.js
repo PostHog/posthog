@@ -1,23 +1,29 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
 import moment from 'moment'
 import _ from 'lodash'
-import { deleteWithUndo } from 'lib/utils'
-import { determineDifferenceType } from '~/lib/utils'
+import { determineDifferenceType, deleteWithUndo, toParams } from '~/lib/utils'
+import { annotationsModel } from '~/models/annotationsModel'
+import { getNextKey } from './utils'
 
 export const annotationsLogic = kea({
     key: (props) => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
+    connect: {
+        actions: [annotationsModel, ['loadGlobalAnnotations', 'deleteGlobalAnnotation', 'createGlobalAnnotation']],
+        values: [annotationsModel, ['globalAnnotations']],
+    },
     actions: () => ({
-        createAnnotation: (content, date_marker) => ({
+        createAnnotation: (content, date_marker, apply_all = false) => ({
             content,
             date_marker,
             created_at: moment(),
+            apply_all,
         }),
-        createAnnotationNow: (content, date_marker) => ({
+        createAnnotationNow: (content, date_marker, apply_all = false) => ({
             content,
             date_marker,
             created_at: moment(),
+            apply_all,
         }),
         deleteAnnotation: (id) => ({ id }),
         clearAnnotationsToCreate: true,
@@ -40,9 +46,9 @@ export const annotationsLogic = kea({
     }),
     reducers: () => ({
         annotations: {
-            createAnnotationNow: (state, { content, date_marker, created_at }) => [
+            createAnnotationNow: (state, { content, date_marker, created_at, apply_all }) => [
                 ...state,
-                { id: getNextKey(state), content, date_marker, created_at, created_by: 'local' },
+                { id: getNextKey(state), content, date_marker, created_at, created_by: 'local', apply_all },
             ],
             deleteAnnotation: (state, { id }) => {
                 if (id >= 0) {
@@ -55,7 +61,7 @@ export const annotationsLogic = kea({
         annotationsToCreate: [
             [],
             {
-                createAnnotation: (state, { content, date_marker, created_at }) => [
+                createAnnotation: (state, { content, date_marker, created_at, apply_all }) => [
                     ...state,
                     {
                         id: getNextKey(state),
@@ -63,6 +69,7 @@ export const annotationsLogic = kea({
                         date_marker,
                         created_at,
                         created_by: 'local',
+                        apply_all,
                     },
                 ],
                 clearAnnotationsToCreate: () => [],
@@ -84,14 +91,18 @@ export const annotationsLogic = kea({
     }),
     selectors: ({ selectors }) => ({
         annotationsList: [
-            () => [selectors.annotationsToCreate, selectors.annotations],
-            (annotationsToCreate, annotations) => {
+            () => [selectors.annotationsToCreate, selectors.annotations, selectors.globalAnnotations],
+            (annotationsToCreate, annotations, globalAnnotations) => {
                 const result = [
                     ...annotationsToCreate.map((val) => ({
                         ...val,
                         id: parseInt(val.id),
                     })),
                     ...annotations.map((val) => ({
+                        ...val,
+                        id: parseInt(val.id),
+                    })),
+                    ...globalAnnotations.map((val) => ({
                         ...val,
                         id: parseInt(val.id),
                     })),
@@ -110,12 +121,13 @@ export const annotationsLogic = kea({
         ],
     }),
     listeners: ({ actions, props }) => ({
-        createAnnotationNow: async ({ content, date_marker, created_at }) => {
+        createAnnotationNow: async ({ content, date_marker, created_at, apply_all }) => {
             await api.create('api/annotation', {
                 content,
                 date_marker: moment(date_marker),
                 created_at,
                 dashboard_item: props.pageKey,
+                apply_all,
             })
             actions.loadAnnotations({})
         },
@@ -135,10 +147,3 @@ export const annotationsLogic = kea({
         afterMount: () => props.pageKey && actions.loadAnnotations({}),
     }),
 })
-
-function getNextKey(arr) {
-    if (arr.length === 0) return -1
-    const result = arr.reduce((prev, curr) => (prev.id < curr.id ? prev : curr))
-    if (result.id >= 0) return -1
-    else return result.id - 1
-}

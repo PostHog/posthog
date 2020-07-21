@@ -1,7 +1,7 @@
 import './DashboardHeader.scss'
 
 import { Loading, triggerResizeAfterADelay } from 'lib/utils'
-import { Button, Dropdown, Menu, Select, Tooltip } from 'antd'
+import { Button, Dropdown, Menu, Select, Tooltip, Row, Col, Modal } from 'antd'
 import { router } from 'kea-router'
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
@@ -16,8 +16,12 @@ import {
     FullscreenExitOutlined,
     LockOutlined,
     UnlockOutlined,
+    PlusOutlined,
+    FunnelPlotOutlined,
+    RiseOutlined,
 } from '@ant-design/icons'
 import { FullScreen } from 'lib/components/FullScreen'
+import { Card } from '../../lib/utils'
 
 export function DashboardHeader({ logic }) {
     const { dashboard, draggingEnabled } = useValues(logic)
@@ -25,6 +29,7 @@ export function DashboardHeader({ logic }) {
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [fullScreen, setFullScreen] = useState(false)
+    const [isAddItemModalVisible, setIsAddItemModalVisible] = useState(false)
 
     return (
         <div className={`dashboard-header${fullScreen ? ' full-screen' : ''}`}>
@@ -54,6 +59,10 @@ export function DashboardHeader({ logic }) {
                     </div>
                     {dashboard ? (
                         <div className="dashboard-meta">
+                            <Button type="primary" onClick={() => setIsAddItemModalVisible(true)}>
+                                <PlusOutlined />
+                                <span className="hide-when-small">Add Item</span>
+                            </Button>
                             {!fullScreen ? (
                                 <Tooltip title={dashboard.pinned ? 'Pinned into sidebar' : 'Pin into sidebar'}>
                                     <Button
@@ -69,7 +78,7 @@ export function DashboardHeader({ logic }) {
                                 </Tooltip>
                             ) : null}
 
-                            <Tooltip title={'Click here or long press on a panel to rearrange the dashboard.'}>
+                            <Tooltip title="Click here or long press on a panel to rearrange the dashboard.">
                                 <Button
                                     className="button-box-when-small enable-dragging-button"
                                     type={draggingEnabled === 'off' ? 'primary' : ''}
@@ -122,6 +131,55 @@ export function DashboardHeader({ logic }) {
                     ) : null}
                 </>
             )}
+            <Modal
+                visible={isAddItemModalVisible}
+                style={{ cursor: 'pointer' }}
+                onCancel={() => {
+                    setIsAddItemModalVisible(false)
+                }}
+                title="Create dashboard item"
+                footer={[
+                    <Button
+                        key="cancel-button"
+                        onClick={() => {
+                            setIsAddItemModalVisible(false)
+                        }}
+                    >
+                        Cancel
+                    </Button>,
+                ]}
+            >
+                {
+                    <Row gutter={2} justify="space-between">
+                        <Col xs={11}>
+                            <Card
+                                title="Trend Graph"
+                                onClick={() => router.actions.push('/trends')}
+                                size="small"
+                                style={{ marginBottom: 0 }}
+                            >
+                                <div style={{ textAlign: 'center', fontSize: 60 }}>
+                                    <RiseOutlined />
+                                </div>
+                            </Card>
+                        </Col>
+                        <Col xs={11}>
+                            <Card
+                                title="Funnel Visualization"
+                                onClick={() => {
+                                    router.actions.push('/funnel')
+                                }}
+                                size="small"
+                                style={{ marginBottom: 0 }}
+                            >
+                                <div style={{ textAlign: 'center', fontSize: 60 }} data-attr="new-action-pageview">
+                                    <FunnelPlotOutlined />
+                                </div>
+                            </Card>
+                        </Col>
+                    </Row>
+                }
+            </Modal>
         </div>
     )
 }

@@ -1,3 +1,4 @@
+from django.core.cache import cache
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models import (
@@ -28,6 +29,8 @@ from .team import Team
 from .filter import Filter
 from .utils import namedtuplefetchall
 
+from posthog.utils import generate_cache_key
+
 from posthog.tasks.slack import post_event_to_slack
 from typing import Dict, Union, List, Optional, Any, Tuple
 
@@ -35,6 +38,8 @@ from collections import defaultdict
 import copy
 import datetime
 import re
+import random
+import string
 
 attribute_regex = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 
@@ -134,11 +139,13 @@ class EventManager(models.QuerySet):
     def filter_by_url(self, action_step: ActionStep, subquery: QuerySet):
         if not action_step.url:
             return subquery
-        url_exact = action_step.url_matching == ActionStep.EXACT
-        return subquery.extra(
-            where=["properties ->> '$current_url' {} %s".format("=" if url_exact else "LIKE")],
-            params=[action_step.url if url_exact else "%{}%".format(action_step.url)],
-        )
+        if action_step.url_matching == ActionStep.EXACT:
+            where, param = "properties->>'$current_url' = %s", action_step.url
+        elif action_step.url_matching == ActionStep.REGEX:
+            where, param = "properties->>'$current_url' ~ %s", action_step.url
+        else:
+            where, param = "properties->>'$current_url' LIKE %s", f"%{action_step.url}%"
+        return subquery.extra(where=[where], params=[param])
 
     def filter_by_event(self, action_step):
         if not action_step.event:
@@ -178,7 +185,7 @@ class EventManager(models.QuerySet):
                     pk=OuterRef("id"),
                     **self.filter_by_event(step),
                     **self.filter_by_element(model_to_dict(step), team_id=action.team_id),
-                    **self.filter_by_period(start, end)
+                    **self.filter_by_period(start, end),
                 )
                 .only("id")
             )
@@ -203,7 +210,7 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def query_retention(self, filters, team, event="$pageview") -> models.QuerySet:
+    def query_retention(self, filters, team, event="$pageview") -> dict:
         filtered_events = (
             Event.objects.filter_by_event_with_people(event=event, team_id=team.id)
             .filter(filters.date_filter_Q)
@@ -221,7 +228,8 @@ class EventManager(models.QuerySet):
             SELECT
                 DATE_PART('days', first_date - %s) AS first_date,
                 DATE_PART('days', timestamp - first_date) AS date,
-                COUNT(DISTINCT "events"."person_id")
+                COUNT(DISTINCT "events"."person_id"),
+                array_agg(DISTINCT "events"."person_id") as people
             FROM ({events_query}) events
             LEFT JOIN ({first_date_query}) first_event_date
               ON (events.person_id = first_event_date.person_id)
@@ -238,7 +246,41 @@ class EventManager(models.QuerySet):
                 full_query, (filters.date_from,) + events_query_params + first_date_params,
             )
             data = namedtuplefetchall(cursor)
-        return data
+
+            scores: dict = {}
+            for datum in data:
+                key = round(datum.first_date, 1)
+                if not scores.get(key, None):
+                    scores.update({key: {}})
+                for person in datum.people:
+                    if not scores[key].get(person, None):
+                        scores[key].update({person: 1})
+                    else:
+                        scores[key][person] += 1
+
+        by_dates = {}
+        for row in data:
+            people = sorted(row.people, key=lambda p: scores[round(row.first_date, 1)][int(p)], reverse=True)
+
+            random_key = "".join(
+                random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(10)
+            )
+            cache_key = generate_cache_key("{}{}{}".format(random_key, str(round(row.first_date, 0)), str(team.pk)))
+            cache.set(
+                cache_key, people, 600,
+            )
+            by_dates.update(
+                {
+                    (int(row.first_date), int(row.date)): {
+                        "count": row.count,
+                        "people": people[0:100],
+                        "offset": 100,
+                        "next": cache_key if len(people) > 100 else None,
+                    }
+                }
+            )
+
+        return by_dates
 
     def create(self, site_url: Optional[str] = None, *args: Any, **kwargs: Any):
         with transaction.atomic():

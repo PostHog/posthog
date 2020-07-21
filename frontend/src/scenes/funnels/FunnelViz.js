@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react'
 import FunnelGraph from 'funnel-graph-js'
 import { Link } from 'lib/components/Link'
-import { Loading } from 'lib/utils'
+import { Loading, humanFriendlyDuration } from 'lib/utils'
 import PropTypes from 'prop-types'
 import { useValues, useActions } from 'kea'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
@@ -20,7 +20,12 @@ export function FunnelViz({ funnel: funnelParam, dashboardItemId, filters: filte
         let graph = new FunnelGraph({
             container: '.funnel-graph',
             data: {
-                labels: funnel.steps.map((step) => `${step.name} (${step.count})`),
+                labels: funnel.steps.map(
+                    (step) =>
+                        `${step.name} (${step.count})  ${
+                            step.average_time ? 'Avg Time: ' + humanFriendlyDuration(step.average_time) || '' : ''
+                        }`
+                ),
                 values: funnel.steps.map((step) => step.count),
                 colors: ['#66b0ff', 'var(--blue)'],
             },

@@ -1169,7 +1169,7 @@ class TestRetention(TransactionBaseTest):
         self.assertEqual(result["data"][0]["date"], "Wed. 10 June")
 
         self.assertEqual(
-            self.pluck(result["data"], "values"),
+            self.pluck(result["data"], "values", "count"),
             [[1, 1, 1, 0, 0, 1, 1], [2, 2, 1, 0, 1, 2], [2, 1, 0, 1, 2], [1, 0, 0, 1], [0, 0, 0], [1, 1], [2],],
         )
 
@@ -1213,7 +1213,7 @@ class TestRetention(TransactionBaseTest):
         )
         self.assertEqual(result["data"][0]["date"], "Wed. 10 June")
         self.assertEqual(
-            self.pluck(result["data"], "values"),
+            self.pluck(result["data"], "values", "count"),
             [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1]],
         )
 
@@ -1226,5 +1226,5 @@ class TestRetention(TransactionBaseTest):
     def _date(self, day, hour=5):
         return datetime(2020, 6, 10 + day, hour).isoformat()
 
-    def pluck(self, list_of_dicts, key):
-        return [d[key] for d in list_of_dicts]
+    def pluck(self, list_of_dicts, key, child_key=None):
+        return [self.pluck(d[key], child_key) if child_key else d[key] for d in list_of_dicts]

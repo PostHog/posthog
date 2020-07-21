@@ -203,6 +203,11 @@ class TestFilterByActions(BaseTest):
             action=action3, url="https://posthog.com/%/123", url_matching=ActionStep.CONTAINS,
         )
 
+        action4 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(
+            action=action4, url="/123$", url_matching=ActionStep.REGEX,
+        )
+
         event1 = Event.objects.create(team=self.team, distinct_id="whatever")
         event2 = Event.objects.create(
             team=self.team,
@@ -220,6 +225,10 @@ class TestFilterByActions(BaseTest):
         self.assertEqual(len(events), 1)
 
         events = Event.objects.filter_by_action(action3)
+        self.assertEqual(events[0], event2)
+        self.assertEqual(len(events), 1)
+
+        events = Event.objects.filter_by_action(action4)
         self.assertEqual(events[0], event2)
         self.assertEqual(len(events), 1)
 

@@ -107,7 +107,9 @@ def setup_admin(request):
         try:
             return render_template("setup_admin.html", request)
         except TemplateDoesNotExist:
-            return HttpResponse("Frontend not built yet. Please try again shortly or build manually using <code>./bin/start-frontend</code>")
+            return HttpResponse(
+                "Frontend not built yet. Please try again shortly or build manually using <code>./bin/start-frontend</code>"
+            )
     if request.method == "POST":
         email = request.POST["email"]
         password = request.POST["password"]

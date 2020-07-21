@@ -4,31 +4,68 @@ import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 
 export const retentionTableLogic = kea({
-    loaders: props => ({
+    loaders: ({ values }) => ({
         retention: {
             __default: {},
             loadRetention: async () => {
-                const urlParams = toParams({ properties: props.values.properties })
-                return await api.get(`api/action/retention/?${urlParams}`)
+                const urlParams = toParams({ properties: values.properties })
+                const result = await api.get(`api/action/retention/?${urlParams}`)
+                return result
+            },
+        },
+        people: {
+            __default: {},
+            loadPeople: async (rowIndex) => {
+                const people = values.retention.data[rowIndex].values[0].people
+
+                if (people.length === 0) return []
+                let results = (await api.get('api/person/?id=' + people.join(','))).results
+                results.sort(function (a, b) {
+                    return people.indexOf(a.id) - people.indexOf(b.id)
+                })
+                return {
+                    ...values.people,
+                    [`${rowIndex}`]: results,
+                }
             },
         },
     }),
     actions: () => ({
-        setProperties: properties => ({ properties }),
+        setProperties: (properties) => ({ properties }),
+        loadMore: (selectedIndex) => ({ selectedIndex }),
+        loadMorePeople: (selectedIndex, peopleIds) => ({ selectedIndex, peopleIds }),
+        updatePeople: (selectedIndex, people) => ({ selectedIndex, people }),
+        updateRetention: (retention) => ({ retention }),
     }),
     reducers: () => ({
-        initialPathname: [state => router.selectors.location(state).pathname, { noop: a => a }],
+        initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
         properties: [
             [],
             {
                 setProperties: (_, { properties }) => properties,
             },
         ],
+        people: {
+            updatePeople: (state, { selectedIndex, people }) => ({
+                ...state,
+                [`${selectedIndex}`]: [...state[selectedIndex], ...people],
+            }),
+        },
+        retention: {
+            updateRetention: (_, { retention }) => retention,
+        },
+        loadingMore: [
+            false,
+            {
+                loadMore: () => true,
+                updatePeople: () => false,
+            },
+        ],
     }),
     selectors: ({ selectors }) => ({
         propertiesForUrl: [
             () => [selectors.properties],
-            properties => {
+            (properties) => {
                 if (Object.keys(properties).length > 0) {
                     return { properties }
                 } else {
@@ -64,7 +101,38 @@ export const retentionTableLogic = kea({
             }
         },
     }),
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         setProperties: () => actions.loadRetention(),
+        loadMore: async ({ selectedIndex }) => {
+            let peopleToAdd = []
+            for (const [index, { next, offset }] of values.retention.data[selectedIndex].values.entries()) {
+                if (next) {
+                    const params = toParams({ id: next, offset })
+                    const referenceResults = await api.get(`api/person/references/?${params}`)
+                    let retentionCopy = { ...values.retention }
+                    if (referenceResults.offset) {
+                        retentionCopy.data[selectedIndex].values[index].offset = referenceResults.offset
+                    } else {
+                        retentionCopy.data[selectedIndex].values[index].next = null
+                    }
+                    retentionCopy.data[selectedIndex].values[index].people = [
+                        ...retentionCopy.data[selectedIndex].values[index].people,
+                        ...referenceResults.result,
+                    ]
+                    actions.updateRetention(retentionCopy)
+                    if (index === 0) peopleToAdd = referenceResults.result
+                }
+            }
+
+            actions.loadMorePeople(selectedIndex, peopleToAdd)
+        },
+        loadMorePeople: async ({ selectedIndex, peopleIds }) => {
+            if (peopleIds.length === 0) actions.updatePeople(selectedIndex, [])
+            const peopleResult = (await api.get('api/person/?id=' + peopleIds.join(','))).results
+            peopleResult.sort(function (a, b) {
+                return peopleIds.indexOf(a.id) - peopleIds.indexOf(b.id)
+            })
+            actions.updatePeople(selectedIndex, peopleResult)
+        },
     }),
 })

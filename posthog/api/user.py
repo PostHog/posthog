@@ -107,6 +107,10 @@ def redirect_to_site(request):
         params["action"] = "ph_authorize"
         params["toolbarVersion"] = "toolbar"
 
+    if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
+        params["instrument"] = True
+        params["userEmail"] = request.user.email
+
     state = urllib.parse.quote(json.dumps(params))
 
     if use_new_toolbar:
