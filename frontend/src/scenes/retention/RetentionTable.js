@@ -201,7 +201,7 @@ export function RetentionTable({ logic }) {
 }
 
 const renderPercentage = (value, total) => {
-    const percentage = total > 0 ? (100.0 * value) / total : 100
+    const percentage = total > 0 ? (100.0 * value) / total : 0
     const backgroundColor = `hsl(212, 63%, ${30 + (100 - percentage) * 0.65}%)`
     const color = percentage >= 65 ? 'hsl(0, 0%, 80%)' : undefined
     return (
