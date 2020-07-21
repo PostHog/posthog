@@ -19,7 +19,7 @@ export function ShareModal({ logic, onCancel }) {
                 onClick={(_, e) => e.stopPropagation()}
                 checked={isShared}
                 data-attr="share-dashboard-switch"
-                onChange={active => {
+                onChange={(active) => {
                     setIsShared(active)
                     setIsSharedDashboard(dashboard.id, active)
                 }}
