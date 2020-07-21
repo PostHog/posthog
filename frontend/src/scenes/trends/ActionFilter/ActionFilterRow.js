@@ -230,36 +230,39 @@ function MathSelector(props) {
 }
 
 function MathPropertySelector(props) {
+    const applicableProperties = props.properties.filter(
+        ({ value }) => value[0] !== '$' && value !== 'distinct_id' && value !== 'token'
+    )
+
     return (
         <Dropdown
-            title={props.mathProperty || 'Select property'}
+            title="Select property"
+            titleEmpty="No applicable properties"
             buttonClassName="btn btn-sm btn-light ml-2"
             data-attr={`math-property-selector-${props.index}`}
         >
-            {props.properties
-                .filter(({ value }) => value[0] !== '$' && value !== 'distinct_id' && value !== 'token')
-                .map(({ value, label }) => (
-                    <Tooltip
-                        placement="right"
-                        title={
-                            <>
-                                Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>.
-                                Note that only {props.name} occurences where <code>{label}</code> is set and a number
-                                will be taken into account.
-                            </>
-                        }
-                        key={`math-property-${value}-${props.index}`}
+            {applicableProperties.map(({ value, label }) => (
+                <Tooltip
+                    placement="right"
+                    title={
+                        <>
+                            Calculate {MATHS[props.math].name.toLowerCase()} from property <code>{label}</code>. Note
+                            that only {props.name} occurences where <code>{label}</code> is set and a number will be
+                            taken into account.
+                        </>
+                    }
+                    key={`math-property-${value}-${props.index}`}
+                >
+                    <a
+                        href="#"
+                        className="dropdown-item"
+                        onClick={() => props.onMathPropertySelect(props.index, value)}
+                        data-attr={`math-property-${value}-${props.index}`}
                     >
-                        <a
-                            href="#"
-                            className="dropdown-item"
-                            onClick={() => props.onMathPropertySelect(props.index, value)}
-                            data-attr={`math-property-${value}-${props.index}`}
-                        >
-                            {label}
-                        </a>
-                    </Tooltip>
-                ))}
+                        {label}
+                    </a>
+                </Tooltip>
+            ))}
         </Dropdown>
     )
 }
