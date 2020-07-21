@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react'
-import { useValues } from 'kea'
-import { Table, Tag, Button, Modal, Input } from 'antd'
+import { useValues, useActions } from 'kea'
+import { Table, Tag, Button, Modal, Input, DatePicker} from 'antd'
 import { Link } from 'lib/components/Link'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import moment from 'moment'
+import { annotationsModel } from '~/models/annotationsModel'
 
 const { TextArea } = Input
 
@@ -13,6 +15,8 @@ interface Props {
 export function AnnotationsTable(props: Props) {
     const { logic } = props;
     const { annotations, annotationsLoading } = useValues(logic)
+    const { loadAnnotations } = useActions(logic)
+    const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
     const [selectedAnnotation, setSelected] = useState(null)
 
@@ -97,7 +101,12 @@ export function AnnotationsTable(props: Props) {
                 setTimeout(() => setSelected(null), 500)
                 
             }} 
-            onSubmit={(input) => {}} 
+            onSubmit={(input, selectedDate) => {
+                createGlobalAnnotation(input, selectedDate, null)
+                setOpen(false)
+                setTimeout(() => setSelected(null), 500)
+                loadAnnotations()
+            }} 
             annotation={selectedAnnotation}
         ></CreateAnnotationModal>
     </div>
@@ -106,7 +115,7 @@ export function AnnotationsTable(props: Props) {
 interface CreateAnnotationModalProps {
     visible: boolean,
     onCancel: () => void,
-    onSubmit: (input: string) => void,
+    onSubmit: (input: string, date: moment.Moment) => void,
     annotation?: any
 }
 
@@ -118,6 +127,7 @@ enum ModalMode {
 function CreateAnnotationModal(props: CreateAnnotationModalProps) {
     const [textInput, setTextInput] = useState('')
     const [modalMode, setModalMode] = useState<ModalMode>(ModalMode.CREATE)
+    const [selectedDate, setDate] = useState<moment.Moment>(moment())
 
     useEffect(() => {
         if (props.annotation) {
@@ -140,7 +150,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps) {
                     type="primary"
                     key="create-annotation-submit"
                     onClick={() => {
-                        props.onSubmit(textInput)
+                        props.onSubmit(textInput, selectedDate)
                     }}
                 >
                     {modalMode === ModalMode.CREATE ? "Submit" : "Update"}
@@ -151,7 +161,13 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps) {
             onCancel={props.onCancel}
             title={modalMode === ModalMode.CREATE ? "Create Global Annotation" : "Edit Annotation"}
         >
-            {modalMode === ModalMode.CREATE && <span>This annotation will appear on all charts</span>}
+            {modalMode === ModalMode.CREATE ? <span>This annotation will appear on all charts</span> : <span>Change existing annotation text</span>}
+            <br></br>
+            {modalMode === ModalMode.CREATE &&  
+            <div>
+                Date: 
+                <DatePicker className="mb-2 mt-2 ml-2" getPopupContainer={(trigger) => trigger.parentElement} value={selectedDate} onChange={(date) => setDate(date)} allowClear={false}></DatePicker>
+            </div>}
             <TextArea 
                 maxLength={300}
                 style={{ marginBottom: 12, marginTop: 12 }}

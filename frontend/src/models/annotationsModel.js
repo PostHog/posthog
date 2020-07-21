@@ -44,7 +44,7 @@ export const annotationsModel = kea({
         createGlobalAnnotation: async ({ dashboard_item, content, date_marker, created_at }) => {
             await api.create('api/annotation', {
                 content,
-                date_marker: moment(date_marker),
+                date_marker: moment.isMoment(date_marker) ? date_marker : moment(date_marker),
                 created_at,
                 dashboard_item,
                 apply_all: true,
