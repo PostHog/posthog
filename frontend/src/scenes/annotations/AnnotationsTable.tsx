@@ -84,6 +84,12 @@ export function AnnotationsTable(props: Props): JSX.Element {
     return (
         <div>
             <h1 className="page-header">Annotations</h1>
+            <p style={{ maxWidth: 600 }}>
+                <i>
+                    Edit an annotation by clicking on one below. You can add global annotations here. Dashboard specific
+                    annotations can be added directly on the dashboard.
+                </i>
+            </p>
             <Button className="mb-4" type="primary" data-attr="create-annotation" onClick={(): void => setOpen(true)}>
                 + Create Global Annotation
             </Button>
