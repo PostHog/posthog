@@ -16,7 +16,7 @@ export function AnnotationsTable(props: Props) {
     const { logic } = props
     const { annotations, annotationsLoading } = useValues(logic)
     const { loadAnnotations } = useActions(logic)
-    const { createGlobalAnnotation } = useActions(annotationsModel)
+    // const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
     const [selectedAnnotation, setSelected] = useState(null)
 
