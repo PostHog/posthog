@@ -30,9 +30,9 @@ ReactDOM.render(
                     <span style={{ paddingTop: 15, display: 'inline-block' }}>{dashboard.team_name}</span>
                 </Col>
             </Row>
-            <Dashboard id={dashboard.id} share_token={dashboard.share_token} />
+            <Dashboard id={dashboard.id} shareToken={dashboard.share_token} />
 
-            <div style={{ textAlign: 'center', marginBottom: '4rem', marginTop: '1rem'}}>
+            <div style={{ textAlign: 'center', paddingBottom: '4rem', marginTop: '1rem' }}>
                 Made with <a href="https://posthog.com">PostHog - Open Source Product Analytics</a>
             </div>
         </div>

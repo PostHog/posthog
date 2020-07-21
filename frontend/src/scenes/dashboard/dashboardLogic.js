@@ -18,7 +18,7 @@ export const dashboardLogic = kea({
         renameDashboard: true,
         renameDashboardItem: (id) => ({ id }),
         renameDashboardItemSuccess: (item) => ({ item }),
-        setIsSharedDashboard: (id, is_shared) => ({ id, is_shared }),
+        setIsSharedDashboard: (id, isShared) => ({ id, isShared }),
         duplicateDashboardItem: (id, dashboardId, move = false) => ({ id, dashboardId, move }),
         duplicateDashboardItemSuccess: (item) => ({ item }),
         updateLayouts: (layouts) => ({ layouts }),
@@ -38,7 +38,7 @@ export const dashboardLogic = kea({
                 loadDashboardItems: async () => {
                     try {
                         const dashboard = await api.get(
-                            `api/dashboard/${props.id}${props.share_token ? '/?share_token=' + props.share_token : ''}`
+                            `api/dashboard/${props.id}${props.shareToken ? '/?share_token=' + props.shareToken : ''}`
                         )
                         return dashboard
                     } catch (error) {
@@ -238,8 +238,8 @@ export const dashboardLogic = kea({
             router.actions.push(`/dashboard/${dashboard.id}`)
         },
 
-        setIsSharedDashboard: ({ id, is_shared }) => {
-            dashboardsModel.actions.setIsSharedDashboard({ id, is_shared })
+        setIsSharedDashboard: ({ id, isShared }) => {
+            dashboardsModel.actions.setIsSharedDashboard({ id, isShared })
         },
 
         renameDashboard: async () => {

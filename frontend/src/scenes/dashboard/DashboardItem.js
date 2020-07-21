@@ -152,7 +152,6 @@ export function DashboardItem({
                             <Tooltip
                                 title={
                                     <i>
-                                        {' '}
                                         Refreshed: {item.last_refresh ? moment(item.last_refresh).fromNow() : 'never'}
                                     </i>
                                 }
@@ -240,7 +239,7 @@ export function DashboardItem({
                                                                 marginBottom: 1,
                                                             }}
                                                         />
-                                                        {color}
+                                                        {dashboard.name}
                                                     </Menu.Item>
                                                 ))}
                                             </Menu.SubMenu>

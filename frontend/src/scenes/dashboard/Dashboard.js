@@ -11,15 +11,15 @@ import { HedgehogOverlay } from 'lib/components/HedgehogOverlay/HedgehogOverlay'
 import { hot } from 'react-hot-loader/root'
 
 export const Dashboard = hot(_Dashboard)
-function _Dashboard({ id, share_token }) {
-    const logic = dashboardLogic({ id: parseInt(id), share_token })
+function _Dashboard({ id, shareToken }) {
+    const logic = dashboardLogic({ id: parseInt(id), shareToken })
     const { dashboard, itemsLoading, items } = useValues(logic)
     const { user } = useValues(userLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
     return (
         <div>
-            {!share_token && <DashboardHeader id={id} logic={logic} />}
+            {!shareToken && <DashboardHeader id={id} logic={logic} />}
 
             {dashboardsLoading ? (
                 <SceneLoading />
@@ -29,7 +29,7 @@ function _Dashboard({ id, share_token }) {
                     <HedgehogOverlay type="sad" />
                 </>
             ) : items && items.length > 0 ? (
-                <DashboardItems logic={logic} inSharedMode={!!share_token} />
+                <DashboardItems logic={logic} inSharedMode={!!shareToken} />
             ) : itemsLoading ? (
                 <SceneLoading />
             ) : user.has_events ? (
