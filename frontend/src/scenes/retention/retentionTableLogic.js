@@ -96,12 +96,6 @@ export const retentionTableLogic = kea({
     events: ({ actions }) => ({
         afterMount: actions.loadRetention,
     }),
-    actionToUrl: ({ values }) => ({
-        setProperties: () => {
-            return [router.values.location.pathname, values.propertiesForUrl]
-        },
-    }),
-
     urlToAction: ({ actions, values }) => ({
         '*': (_, searchParams) => {
             try {

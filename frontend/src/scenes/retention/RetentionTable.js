@@ -1,30 +1,14 @@
-import React, { useRef, useState } from 'react'
+import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { Table, Modal, Button, Spin } from 'antd'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
-import { DownOutlined } from '@ant-design/icons'
-import { entityFilterLogic } from 'scenes/trends/ActionFilter/entityFilterLogic'
-import { ActionFilterDropdown } from 'scenes/trends/ActionFilter/ActionFilterDropdown'
 
 export function RetentionTable({ logic }) {
-    const node = useRef()
-    const [open, setOpen] = useState(false)
-    const { retention, retentionLoading, peopleLoading, people, loadingMore, startEntity, filters } = useValues(logic)
-    const { loadPeople, loadMore, setFilters } = useActions(logic)
+    const { retention, retentionLoading, peopleLoading, people, loadingMore } = useValues(logic)
+    const { loadPeople, loadMore } = useActions(logic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
-
-    const entityLogic = entityFilterLogic({
-        setFilters: (filters) => {
-            setFilters(filters)
-            setOpen(false)
-        },
-        filters: filters,
-        typeKey: 'retention-table',
-        singleMode: true,
-    })
 
     let columns = [
         {
@@ -59,34 +43,6 @@ export function RetentionTable({ logic }) {
     }
     return (
         <>
-            <h4 className="secondary">Filters</h4>
-            <PropertyFilters pageKey="RetentionTable" />
-            <div className="mb-4">
-                <h4 className="secondary">Target Event</h4>
-                <button
-                    ref={node}
-                    className="filter-action btn btn-sm btn-light"
-                    type="button"
-                    onClick={() => setOpen(!open)}
-                    style={{
-                        fontWeight: 500,
-                    }}
-                >
-                    {startEntity?.name || 'Select action'}
-                    <DownOutlined style={{ marginLeft: '3px', color: 'rgba(0, 0, 0, 0.25)' }} />
-                </button>
-                {open && (
-                    <ActionFilterDropdown
-                        logic={entityLogic}
-                        onClickOutside={(e) => {
-                            if (node.current.contains(e.target)) {
-                                return
-                            }
-                            setOpen(false)
-                        }}
-                    />
-                )}
-            </div>
             <Table
                 data-attr="retention-table"
                 size="small"

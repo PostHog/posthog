@@ -1,24 +1,18 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 
-import { Card, CloseButton, Loading } from 'lib/utils'
+import { Card, Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DateFilter } from 'lib/components/DateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 
-import { ActionFilter } from './ActionFilter/ActionFilter'
 import { ActionsPie } from './ActionsPie'
-import { BreakdownFilter } from './BreakdownFilter'
 import { ActionsTable } from './ActionsTable'
 import { ActionsLineGraph } from './ActionsLineGraph'
-import { ShownAsFilter } from './ShownAsFilter'
 import { PeopleModal } from './PeopleModal'
 import { trendsLogic, ViewType } from './trendsLogic'
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Tooltip, Checkbox } from 'antd'
-import { SessionFilter } from 'lib/components/SessionsFilter'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { Tabs, Row, Col, Checkbox } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -33,6 +27,14 @@ import { hot } from 'react-hot-loader/root'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
+import { RetentionTable } from 'scenes/retention/RetentionTable'
+import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
+
+import { Paths } from 'scenes/paths/Paths'
+import { pathsLogic } from 'scenes/paths/pathsLogic'
+
+import { RetentionTab, SessionTab, TrendTab, PathTab } from './InsightTabs'
+
 const { TabPane } = Tabs
 
 const displayMap = {
@@ -40,6 +42,27 @@ const displayMap = {
     [`${ACTIONS_LINE_GRAPH_CUMULATIVE}`]: CUMULATIVE_CHART_LABEL,
     [`${ACTIONS_TABLE}`]: TABLE_LABEL,
     [`${ACTIONS_PIE_CHART}`]: PIE_CHART_LABEL,
+}
+
+const showChartFilter = {
+    [`${ViewType.FILTERS}`]: true,
+    [`${ViewType.SESSIONS}`]: true,
+    [`${ViewType.RETENTION}`]: false,
+    [`${ViewType.PATHS}`]: false,
+}
+
+const showDateFilter = {
+    [`${ViewType.FILTERS}`]: true,
+    [`${ViewType.SESSIONS}`]: true,
+    [`${ViewType.RETENTION}`]: true,
+    [`${ViewType.PATHS}`]: true,
+}
+
+const showComparePrevious = {
+    [`${ViewType.FILTERS}`]: true,
+    [`${ViewType.SESSIONS}`]: true,
+    [`${ViewType.RETENTION}`]: false,
+    [`${ViewType.PATHS}`]: false,
 }
 
 export const Trends = hot(_Trends)
@@ -50,10 +73,14 @@ function _Trends() {
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsList } = useValues(annotationsLogic({ pageKey: fromItem }))
 
+    const _pathsLogic = pathsLogic()
+    const { paths, filter: pathFilter, pathsLoading } = useValues(_pathsLogic)
+    const _retentionLogic = retentionTableLogic()
+
     return (
         <div className="actions-graph">
             <PeopleModal visible={showingPeople} />
-            <h1 className="page-header">Trends</h1>
+            <h1 className="page-header">Insights</h1>
             <Row gutter={16}>
                 <Col xs={24} xl={7}>
                     <Card>
@@ -66,67 +93,22 @@ function _Trends() {
                                 onChange={(key) => setActiveView(key)}
                                 animated={false}
                             >
-                                <TabPane tab={'Actions & Events'} key={ViewType.FILTERS}>
-                                    <ActionFilter filters={filters} setFilters={setFilters} typeKey="trends" />
-                                    <hr />
-                                    <h4 className="secondary">Filters</h4>
-                                    <PropertyFilters pageKey="trends-filters" style={{ marginBottom: 0 }} />
-                                    <hr />
-                                    <h4 className="secondary">
-                                        Break down by
-                                        <Tooltip
-                                            placement="right"
-                                            title="Use breakdown to see the volume of events for each variation of that property. For example, breaking down by $current_url will give you the event volume for each url your users have visited."
-                                        >
-                                            <InfoCircleOutlined
-                                                className="info"
-                                                style={{ color: '#007bff' }}
-                                            ></InfoCircleOutlined>
-                                        </Tooltip>
-                                    </h4>
-                                    <Row>
-                                        <BreakdownFilter
-                                            filters={filters}
-                                            onChange={(breakdown, breakdown_type) =>
-                                                setFilters({ breakdown, breakdown_type })
-                                            }
-                                        />
-                                        {filters.breakdown && (
-                                            <CloseButton
-                                                onClick={() => setFilters({ breakdown: false, breakdown_type: null })}
-                                                style={{ marginTop: 1, marginLeft: 10 }}
-                                            />
-                                        )}
-                                    </Row>
-                                    <hr />
-                                    <h4 className="secondary">
-                                        Shown as
-                                        <Tooltip
-                                            placement="right"
-                                            title='
-                                            Stickiness shows you how many days users performed an action within the timeframe. If a user
-                                            performed an action on Monday and again on Friday, it would be shown 
-                                            as "2 days".'
-                                        >
-                                            <InfoCircleOutlined
-                                                className="info"
-                                                style={{ color: '#007bff' }}
-                                            ></InfoCircleOutlined>
-                                        </Tooltip>
-                                    </h4>
-                                    <ShownAsFilter
+                                <TabPane tab={'Trends'} key={ViewType.FILTERS} data-attr="insight-trend-tab">
+                                    <TrendTab
                                         filters={filters}
-                                        onChange={(shown_as) => setFilters({ shown_as })}
-                                    />
+                                        onEntityChanged={(payload) => setFilters(payload)}
+                                        onBreakdownChanged={(breakdownPayload) => setFilters(breakdownPayload)}
+                                        onShownAsChanged={(shown_as) => setFilters({ shown_as })}
+                                    ></TrendTab>
                                 </TabPane>
-                                <TabPane tab="Sessions" key={ViewType.SESSIONS} data-attr="trends-sessions-tab">
-                                    <SessionFilter
-                                        value={filters.session}
-                                        onChange={(v) => setFilters({ session: v })}
-                                    />
-                                    <hr />
-                                    <h4 className="secondary">Filters</h4>
-                                    <PropertyFilters pageKey="trends-sessions" style={{ marginBottom: 0 }} />
+                                <TabPane tab="Sessions" key={ViewType.SESSIONS} data-attr="insight-sessions-tab">
+                                    <SessionTab filters={filters} onChange={(v) => setFilters({ session: v })} />
+                                </TabPane>
+                                <TabPane tab="Retention" key={ViewType.RETENTION} data-attr="insight-retention-tab">
+                                    <RetentionTab></RetentionTab>
+                                </TabPane>
+                                <TabPane tab="User Paths" key={ViewType.PATHS} data-attr="insight-path-tab">
+                                    <PathTab filter={pathFilter}></PathTab>
                                 </TabPane>
                             </Tabs>
                         </div>
@@ -137,37 +119,43 @@ function _Trends() {
                         title={
                             <div className="float-right pt-1 pb-1">
                                 <IntervalFilter setFilters={setFilters} filters={filters} />
-                                <ChartFilter
-                                    displayMap={displayMap}
-                                    filters={filters}
-                                    onChange={(display) => {
-                                        if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART)
-                                            clearAnnotationsToCreate()
-                                        setDisplay(display)
-                                    }}
-                                />
-                                <DateFilter
-                                    onChange={(date_from, date_to) => {
-                                        setFilters({
-                                            date_from: date_from,
-                                            date_to: date_to && date_to,
-                                            ...(['-24h', '-48h', 'dStart', '-1d'].indexOf(date_from) > -1
-                                                ? { interval: 'hour' }
-                                                : {}),
-                                        })
-                                    }}
-                                    dateFrom={filters.date_from}
-                                    dateTo={filters.date_to}
-                                />
-                                <Checkbox
-                                    onChange={(e) => {
-                                        setFilters({ compare: e.target.checked })
-                                    }}
-                                    checked={filters.compare}
-                                    style={{ marginLeft: 8, marginRight: 6 }}
-                                >
-                                    Compare Previous
-                                </Checkbox>
+                                {showChartFilter[activeView] && (
+                                    <ChartFilter
+                                        displayMap={displayMap}
+                                        filters={filters}
+                                        onChange={(display) => {
+                                            if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART)
+                                                clearAnnotationsToCreate()
+                                            setDisplay(display)
+                                        }}
+                                    />
+                                )}
+                                {showDateFilter[activeView] && (
+                                    <DateFilter
+                                        onChange={(date_from, date_to) => {
+                                            setFilters({
+                                                date_from: date_from,
+                                                date_to: date_to && date_to,
+                                                ...(['-24h', '-48h', 'dStart', '-1d'].indexOf(date_from) > -1
+                                                    ? { interval: 'hour' }
+                                                    : {}),
+                                            })
+                                        }}
+                                        dateFrom={filters.date_from}
+                                        dateTo={filters.date_to}
+                                    />
+                                )}
+                                {showComparePrevious[activeView] && (
+                                    <Checkbox
+                                        onChange={(e) => {
+                                            setFilters({ compare: e.target.checked })
+                                        }}
+                                        checked={filters.compare}
+                                        style={{ marginLeft: 8, marginRight: 6 }}
+                                    >
+                                        Compare Previous
+                                    </Checkbox>
+                                )}
                                 <SaveToDashboard
                                     filters={filters}
                                     type={filters.display || ACTIONS_LINE_GRAPH_LINEAR}
@@ -177,25 +165,51 @@ function _Trends() {
                         }
                     >
                         <div className="card-body card-body-graph">
-                            {(filters.actions || filters.events || filters.session) && (
-                                <div
-                                    style={{
-                                        minHeight: '70vh',
-                                        position: 'relative',
-                                    }}
-                                >
-                                    {resultsLoading && <Loading />}
-                                    {(!filters.display ||
-                                        filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && <ActionsLineGraph />}
-                                    {filters.display === ACTIONS_TABLE && <ActionsTable filters={filters} />}
-                                    {filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={filters} />}
-                                </div>
-                            )}
+                            {
+                                {
+                                    [`${ViewType.FILTERS}`]: (
+                                        <TrendViz filters={filters} loading={resultsLoading}></TrendViz>
+                                    ),
+                                    [`${ViewType.SESSIONS}`]: (
+                                        <TrendViz filters={filters} loading={resultsLoading}></TrendViz>
+                                    ),
+                                    [`${ViewType.RETENTION}`]: <RetentionTable logic={_retentionLogic} />,
+                                    [`${ViewType.PATHS}`]: (
+                                        <Paths
+                                            logic={_pathsLogic}
+                                            paths={paths}
+                                            pathsLoading={pathsLoading}
+                                            filter={pathFilter}
+                                        />
+                                    ),
+                                }[activeView]
+                            }
                         </div>
                     </Card>
                 </Col>
             </Row>
         </div>
+    )
+}
+
+function TrendViz({ filters, loading }) {
+    return (
+        <>
+            {(filters.actions || filters.events || filters.session) && (
+                <div
+                    style={{
+                        minHeight: '70vh',
+                        position: 'relative',
+                    }}
+                >
+                    {loading && <Loading />}
+                    {(!filters.display ||
+                        filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
+                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && <ActionsLineGraph />}
+                    {filters.display === ACTIONS_TABLE && <ActionsTable filters={filters} />}
+                    {filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={filters} />}
+                </div>
+            )}
+        </>
     )
 }

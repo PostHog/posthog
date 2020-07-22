@@ -42,6 +42,8 @@ export const disableHourFor = {
 export const ViewType = {
     FILTERS: 'FILTERS',
     SESSIONS: 'SESSIONS',
+    RETENTION: 'RETENTION',
+    PATHS: 'PATHS',
 }
 
 function cleanFilters(filters) {
@@ -161,6 +163,7 @@ export const trendsLogic = kea({
             next,
         }),
         setActiveView: (type) => ({ type }),
+        updateActiveView: (type) => ({ type }),
         setCachedUrl: (type, url) => ({ type, url }),
     }),
 
@@ -197,10 +200,15 @@ export const trendsLogic = kea({
                 [actions.setShowingPeople]: (_, { isShowing }) => isShowing,
             },
         ],
+        activeView: [
+            ViewType.FILTERS,
+            {
+                updateActiveView: (_, { type }) => type,
+            },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
-        activeView: [() => [selectors.filters], (filters) => (filters.session ? ViewType.SESSIONS : ViewType.FILTERS)],
         peopleAction: [
             () => [selectors.filters, selectors.actions],
             (filters, actions) =>
@@ -261,10 +269,31 @@ export const trendsLogic = kea({
             }
             actions.setCachedUrl(values.activeView, window.location.pathname + window.location.search)
             const cachedUrl = values.cachedUrls[type]
+            actions.updateActiveView(type)
+
             if (cachedUrl) {
                 return cachedUrl
             }
-            return ['/trends', type === ViewType.SESSIONS ? { session: 'avg' } : {}]
+            let urlParams = {}
+            if (type === ViewType.SESSIONS) {
+                urlParams = {
+                    insight: 'session',
+                    session: 'avg',
+                }
+            } else if (type === ViewType.RETENTION) {
+                urlParams = {
+                    insight: 'retention',
+                }
+            } else if (type === ViewType.FILTERS) {
+                urlParams = {
+                    insight: 'filters',
+                }
+            } else if (type === ViewType.PATHS) {
+                urlParams = {
+                    insight: 'paths',
+                }
+            }
+            return ['/trends', urlParams]
         },
     }),
 
