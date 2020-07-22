@@ -16,6 +16,7 @@ services:
     container_name: posthog_web
     ports:
       - "8000:8000"
+      - "80:8000"
     environment:
       IS_DOCKER: "true"
       DATABASE_URL: "postgres://posthog:posthog@db:5432/posthog"

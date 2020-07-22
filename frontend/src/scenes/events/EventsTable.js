@@ -75,6 +75,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
         {
             title: 'Person',
             key: 'person',
+            ellipsis: true,
             render: function renderPerson({ event }) {
                 if (!event) return { props: { colSpan: 0 } }
                 return showLinkToPerson ? (

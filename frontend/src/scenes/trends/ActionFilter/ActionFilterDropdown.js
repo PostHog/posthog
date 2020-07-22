@@ -30,7 +30,9 @@ export function ActionFilterDropdown({ onClickOutside, logic }) {
         <div ref={dropdownRef} className="action-filter-dropdown">
             <ActionSelectTabs
                 selected={
-                    selectedFilter.type && selectedFilter.type !== EntityTypes.NEW_ENTITY ? selectedFilter.type : null
+                    selectedFilter && selectedFilter.type && selectedFilter.type !== EntityTypes.NEW_ENTITY
+                        ? selectedFilter.type
+                        : null
                 }
             >
                 <ActionPanelContainer

@@ -8,9 +8,11 @@ export const retentionTableLogic = kea({
         retention: {
             __default: {},
             loadRetention: async () => {
-                const urlParams = toParams({ properties: values.properties })
-                const result = await api.get(`api/action/retention/?${urlParams}`)
-                return result
+                let params = {}
+                params['properties'] = values.properties
+                if (values.startEntity) params['start_entity'] = values.startEntity
+                const urlParams = toParams(params)
+                return await api.get(`api/action/retention/?${urlParams}`)
             },
         },
         people: {
@@ -32,6 +34,7 @@ export const retentionTableLogic = kea({
     }),
     actions: () => ({
         setProperties: (properties) => ({ properties }),
+        setFilters: (filters) => ({ filters }),
         loadMore: (selectedIndex) => ({ selectedIndex }),
         loadMorePeople: (selectedIndex, peopleIds) => ({ selectedIndex, peopleIds }),
         updatePeople: (selectedIndex, people) => ({ selectedIndex, people }),
@@ -43,6 +46,12 @@ export const retentionTableLogic = kea({
             [],
             {
                 setProperties: (_, { properties }) => properties,
+            },
+        ],
+        filters: [
+            {},
+            {
+                setFilters: (_, { filters }) => filters,
             },
         ],
         people: {
@@ -71,6 +80,16 @@ export const retentionTableLogic = kea({
                 } else {
                     return ''
                 }
+            },
+        ],
+        startEntity: [
+            () => [selectors.filters],
+            (filters) => {
+                const result = Object.keys(filters).reduce(function (r, k) {
+                    return r.concat(filters[k])
+                }, [])
+
+                return result[0] || { id: '$pageview', type: 'events', name: '$pageview' }
             },
         ],
     }),
@@ -103,6 +122,7 @@ export const retentionTableLogic = kea({
     }),
     listeners: ({ actions, values }) => ({
         setProperties: () => actions.loadRetention(),
+        setFilters: () => actions.loadRetention(),
         loadMore: async ({ selectedIndex }) => {
             let peopleToAdd = []
             for (const [index, { next, offset }] of values.retention.data[selectedIndex].values.entries()) {
