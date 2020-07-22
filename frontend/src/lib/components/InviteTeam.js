@@ -17,10 +17,10 @@ export function InviteTeam({ user }) {
     const url = window.location.origin
     return (
         <div data-attr="invite-team-modal">
-            <br />
-            Send your team the following URL:
-            <br />
-            <br />
+            <h2>Team Invite Link</h2>
+            <p>
+                Build an even better product, <i>together</i>.
+            </p>
             <div>
                 <Input
                     data-attr="copy-invite-to-clipboard-input"

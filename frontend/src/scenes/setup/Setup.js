@@ -51,7 +51,7 @@ function _Setup() {
             <h2 id="slack">Slack or Teams Integration</h2>
             <SlackIntegration />
             <Divider />
-            <h2 id="invite">Invite your team</h2>
+            <h2 id="invite">Invite Teammate</h2>
             <div className="row">
                 <div className="col-lg-6">
                     <InviteTeam user={user} />

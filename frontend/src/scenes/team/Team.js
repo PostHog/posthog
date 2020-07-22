@@ -16,12 +16,18 @@ function Team({ user }) {
     const ActionsComponent = (_text, record) => {
         const handleClick = () => {
             confirm({
-                title: 'Are you sure delete this user?',
+                title: `Delete teammate ${record.first_name}?`,
                 icon: <ExclamationCircleOutlined />,
-                content: 'The user will be permanently deleted. This action cannot be undone.',
-                okText: 'Yes',
+                content: (
+                    <>
+                        Their PostHog account will be deleted.
+                        <br />
+                        This cannot be undone.
+                    </>
+                ),
+                okText: 'Delete',
                 okType: 'danger',
-                cancelText: 'No',
+                cancelText: 'Cancel',
                 onOk() {
                     deleteUser(record)
                 },
@@ -30,15 +36,20 @@ function Team({ user }) {
 
         return (
             <div>
-                <a className="text-danger" onClick={handleClick}>
-                    <DeleteOutlined />
-                </a>
+                {record.id !== user.id && (
+                    <a className="text-danger" onClick={handleClick}>
+                        <DeleteOutlined />
+                    </a>
+                )}
             </div>
         )
     }
 
     ActionsComponent.displayName = 'ActionsComponent'
 
+    const userDataMarked = users?.results?.map((result) =>
+        result.id === user.id ? { ...result, first_name: `${result.first_name} (you)` } : result
+    )
     const columns = [
         {
             title: 'Name',
@@ -51,7 +62,7 @@ function Team({ user }) {
             key: 'email',
         },
         {
-            title: 'Actions',
+            title: '',
             dataIndex: 'actions',
             key: 'actions',
             align: 'center',
@@ -64,24 +75,23 @@ function Team({ user }) {
             <div>
                 <h1 className="page-header">Team</h1>
                 <p style={{ maxWidth: 600 }}>
-                    <i>This is the list of all the users with access to PostHog for your team.</i>
+                    <i>This is you and all your teammates. Manage them from here.</i>
                 </p>
                 <Row style={{ marginBottom: 32 }}>
                     <Button type="primary" onClick={() => setInviteModalOpen(true)}>
-                        + Invite new user
+                        + Invite Teammate
                     </Button>
                 </Row>
                 <Card>
-                    {usersLoading && (
+                    {usersLoading ? (
                         <div className="loading-overlay mt-5">
                             <div />
                             <Loading />
                             <br />
                         </div>
-                    )}
-                    {!usersLoading && (
+                    ) : (
                         <div className="card-body">
-                            <Table dataSource={users.results} columns={columns} rowKey="distinct_id" />
+                            <Table dataSource={userDataMarked} columns={columns} rowKey="distinct_id" />
                         </div>
                     )}
                 </Card>

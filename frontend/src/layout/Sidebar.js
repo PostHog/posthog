@@ -233,7 +233,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         data-attr="menu-item-invite-team"
                     >
                         <PlusOutlined />
-                        <span className="sidebar-label">{'Invite your team'}</span>
+                        <span className="sidebar-label">Invite Teammate</span>
                     </Menu.Item>
                 </Menu>
 
