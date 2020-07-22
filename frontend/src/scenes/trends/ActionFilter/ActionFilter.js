@@ -24,7 +24,10 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector })
 
     const renderLocalFilters = () =>
         localFilters.map((filter, index) => (
-            <div key={filter.id.toString()} data-grid={layouts.find((layout) => layout.i === filter.id)}>
+            <div
+                key={filter.id ? filter.id.toString() : filter.id}
+                data-grid={layouts.find((layout) => layout.i === filter.id)}
+            >
                 <ActionFilterRow
                     logic={logic}
                     filter={filter}

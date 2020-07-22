@@ -36,7 +36,7 @@ function getHeight(id, heights) {
 
 function toLayouts(localFilters, heights) {
     return localFilters.map((filter) => ({
-        i: filter.id.toString(),
+        i: filter.id ? filter.id.toString() : filter.id,
         x: 1,
         y: filter.order,
         w: 1,
