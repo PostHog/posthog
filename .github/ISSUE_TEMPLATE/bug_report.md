@@ -30,4 +30,4 @@ labels: bug
 
 
 
-#### *Thank you* for your bug report – we are dedicated to squashing any that appear!
+#### *Thank you* for your bug report – we love squashing them!
