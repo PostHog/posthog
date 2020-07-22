@@ -204,7 +204,9 @@ class EventViewSet(viewsets.ModelViewSet):
         events = (
             self.get_queryset()
             .filter(action__deleted=False, action__isnull=False)
-            .prefetch_related(Prefetch("action_set", queryset=Action.objects.filter(deleted=False).order_by("id")))[0:101]
+            .prefetch_related(Prefetch("action_set", queryset=Action.objects.filter(deleted=False).order_by("id")))[
+                0:101
+            ]
         )
         matches = []
         ids_seen: List[int] = []
@@ -378,8 +380,9 @@ class EventViewSet(viewsets.ModelViewSet):
         )
 
         result: List = []
+        interval = request.GET.get("interval", None)
         if session_type == "avg":
-            result = self._session_avg(all_sessions, sessions_sql_params, date_filter)
+            result = self._session_avg(all_sessions, sessions_sql_params, date_filter, interval)
         elif session_type == "dist":
             result = self._session_dist(all_sessions, sessions_sql_params)
         else:
@@ -443,32 +446,51 @@ class EventViewSet(viewsets.ModelViewSet):
         return result
 
     def _session_avg(
-        self, base_query: str, params: Tuple[Any, ...], date_filter: Dict[str, datetime]
+        self, base_query: str, params: Tuple[Any, ...], date_filter: Dict[str, datetime], interval: Optional[str]
     ) -> List[Dict[str, Any]]:
-        average_length_time = "SELECT date_trunc('day', timestamp) as start_time,\
+        def _determineInterval(interval):
+            if interval == "minute":
+                return (
+                    "minute",
+                    "min",
+                )
+            elif interval == "hour":
+                return "hour", "H"
+            elif interval == "week":
+                return "week", "W"
+            elif interval == "month":
+                return "month", "M"
+            else:
+                return "day", "D"
+
+        interval, interval_freq = _determineInterval(interval)
+
+        average_length_time = "SELECT date_trunc('{interval}', timestamp) as start_time,\
                         AVG(length) AS average_session_length_per_day,\
                         SUM(length) AS total_session_length_per_day, \
                         COUNT(1) as num_sessions_per_day\
                         FROM (SELECT global_session_id, EXTRACT('EPOCH' FROM (MAX(timestamp) - MIN(timestamp)))\
                             AS length,\
                             MIN(timestamp) as timestamp FROM ({}) as count GROUP BY 1) as agg group by 1 order by start_time".format(
-            base_query
+            base_query, interval=interval
         )
 
         cursor = connection.cursor()
         cursor.execute(average_length_time, params)
         time_series_avg = cursor.fetchall()
-        time_series_avg_friendly = []
-        date_range = pd.date_range(
-            date_filter["timestamp__gte"].date(), date_filter["timestamp__lte"].date(), freq="D",
-        )
-        time_series_avg_friendly = [
-            (day, round(time_series_avg[index][1] if index < len(time_series_avg) else 0),)
-            for index, day in enumerate(date_range)
-        ]
 
-        time_series_data = append_data(time_series_avg_friendly, math=None)
+        date_range = pd.date_range(date_filter["timestamp__gte"], date_filter["timestamp__lte"], freq=interval_freq,)
+        df = pd.DataFrame([{"date": a[0], "count": a[1], "breakdown": "Total"} for a in time_series_avg])
+        if interval == "week":
+            df["date"] = df["date"].apply(lambda x: x - pd.offsets.Week(weekday=6))
+        elif interval == "month":
+            df["date"] = df["date"].apply(lambda x: x - pd.offsets.MonthEnd(n=0))
 
+        df_dates = pd.DataFrame(df.groupby("date").mean(), index=date_range)
+        df_dates = df_dates.fillna(0)
+        values = [(key, round(value[0])) if len(value) > 0 else (key, 0) for key, value in df_dates.iterrows()]
+
+        time_series_data = append_data(values, interval=interval, math=None)
         # calculate average
         totals = [sum(x) for x in list(zip(*time_series_avg))[2:4]]
         overall_average = (totals[0] / totals[1]) if totals else 0

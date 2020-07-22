@@ -74,7 +74,12 @@ export let CloseButton = (props) => {
 
 export function Card(props) {
     return (
-        <div {...props} className={'card ' + props.className} style={props.style} title="">
+        <div
+            {...props}
+            className={'card' + (props.className ? ` ${props.className}` : '')}
+            style={props.style}
+            title=""
+        >
             {props.title && <div className="card-header">{props.title}</div>}
             {props.children}
         </div>
@@ -190,6 +195,8 @@ export const operatorMap = {
     is_not: "≠ doesn't equal",
     icontains: '∋ contains',
     not_icontains: "∌ doesn't contain",
+    regex: '∼ matches regex',
+    not_regex: "≁ doesn't match regex",
     gt: '> greater than',
     lt: '< lower than',
     is_set: '✓ is set',

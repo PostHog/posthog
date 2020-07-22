@@ -20,6 +20,7 @@ import {
     ExperimentOutlined,
     ClockCircleOutlined,
     RetweetOutlined,
+    MessageOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -60,6 +61,8 @@ const submenuOverride = {
     sessions: 'events',
     cohorts: 'people',
     retention: 'people',
+    setup: 'settings',
+    annotations: 'settings',
 }
 
 export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
@@ -228,11 +231,31 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <span className="sidebar-label">{'Experiments'}</span>
                         <Link to={'/experiments/feature_flags'} onClick={collapseSidebar} />
                     </Menu.Item>
-                    <Menu.Item key="setup" style={itemStyle} data-attr="menu-item-setup">
-                        <SettingOutlined />
-                        <span className="sidebar-label">{'Setup'}</span>
-                        <Link to={'/setup'} onClick={collapseSidebar} />
-                    </Menu.Item>
+
+                    <Menu.SubMenu
+                        key="settings"
+                        title={
+                            <span style={itemStyle} data-attr="menu-item-settings">
+                                <SettingOutlined />
+                                <span className="sidebar-label">{'Settings'}</span>
+                            </span>
+                        }
+                        onTitleClick={() => {
+                            collapseSidebar()
+                            location.pathname !== '/setup' && push('/setup')
+                        }}
+                    >
+                        <Menu.Item key="setup" style={itemStyle} data-attr="menu-item-setup">
+                            <SettingOutlined />
+                            <span className="sidebar-label">{'Setup'}</span>
+                            <Link to={'/setup'} onClick={collapseSidebar} />
+                        </Menu.Item>
+                        <Menu.Item key="annotations" style={itemStyle} data-attr="menu-item-annotations">
+                            <MessageOutlined />
+                            <span className="sidebar-label">{'Annotations'}</span>
+                            <Link to={'/annotations'} onClick={collapseSidebar} />
+                        </Menu.Item>
+                    </Menu.SubMenu>
                     <Menu.Item
                         key="invite"
                         style={itemStyle}

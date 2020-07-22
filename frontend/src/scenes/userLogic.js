@@ -34,10 +34,7 @@ export const userLogic = kea({
         customEventNames: [
             () => [selectors.user],
             (user) => {
-                const eventNames = user.team.event_names
-                const regex = new RegExp('^[^$].*')
-                const filtered = eventNames.filter((event) => event.match(regex))
-                return filtered
+                return user.team.event_names.filter((event) => !event.startsWith('!'))
             },
         ],
         eventNamesGrouped: [

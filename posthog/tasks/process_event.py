@@ -1,3 +1,7 @@
+from numbers import Number
+from celery import shared_task
+from django.core import serializers
+from posthog.models import Person, Element, Event, Team, PersonDistinctId
 import datetime
 from typing import Union, Dict, Optional
 
@@ -79,6 +83,9 @@ def _store_names_and_properties(team: Team, event: str, properties: Dict) -> Non
     for key in properties.keys():
         if key not in team.event_properties:
             team.event_properties.append(key)
+            save = True
+        if isinstance(key, Number) and key not in team.event_properties_numerical:
+            team.event_properties_numerical.append(key)
             save = True
     if save:
         team.save()

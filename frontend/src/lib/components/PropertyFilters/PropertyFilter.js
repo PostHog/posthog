@@ -94,7 +94,7 @@ function PropertyPaneContents({
                 </Select>
             </div>
             {displayOperatorAndValue && (
-                <div className={isOperatorFlag(operator) ? 'col-8 p-0' : 'col-3 pl-0'}>
+                <div className={isOperatorFlag(operator) ? 'col-8 p-0' : 'col-4 pl-0'}>
                     <Select
                         style={{ width: '100%' }}
                         defaultActiveFirstOption
@@ -126,7 +126,7 @@ function PropertyPaneContents({
                 </div>
             )}
             {displayOperatorAndValue && !isOperatorFlag(operator) && (
-                <div className="col-5 p-0">
+                <div className="col-4 p-0">
                     <PropertyValue
                         type={type}
                         key={propkey}

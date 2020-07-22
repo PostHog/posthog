@@ -38,6 +38,8 @@ export const annotationsLogic = kea({
                     ...(before ? { before } : {}),
                     ...(after ? { after } : {}),
                     ...(props.pageKey ? { dashboardItemId: props.pageKey } : {}),
+                    apply_all: false,
+                    deleted: false,
                 }
                 const response = await api.get('api/annotation/?' + toParams(params))
                 return response.results
