@@ -112,14 +112,6 @@ export const pathsLogic = kea({
             },
         ],
     }),
-    // actionToUrl: ({ values }) => ({
-    //     setProperties: () => {
-    //         return [router.values.location.pathname, values.propertiesForUrl]
-    //     },
-    //     setFilter: () => {
-    //         return [router.values.location.pathname, values.propertiesForUrl]
-    //     },
-    // }),
     urlToAction: ({ actions, values }) => ({
         '*': (_, searchParams) => {
             try {

@@ -44,6 +44,13 @@ const displayMap = {
     [`${ACTIONS_PIE_CHART}`]: PIE_CHART_LABEL,
 }
 
+const showIntervalFilter = {
+    [`${ViewType.FILTERS}`]: true,
+    [`${ViewType.SESSIONS}`]: true,
+    [`${ViewType.RETENTION}`]: false,
+    [`${ViewType.PATHS}`]: false,
+}
+
 const showChartFilter = {
     [`${ViewType.FILTERS}`]: true,
     [`${ViewType.SESSIONS}`]: true,
@@ -75,6 +82,7 @@ function _Trends() {
 
     const _pathsLogic = pathsLogic()
     const { paths, filter: pathFilter, pathsLoading } = useValues(_pathsLogic)
+    const { setFilter: setPathFilter } = useActions(_pathsLogic)
     const _retentionLogic = retentionTableLogic()
 
     return (
@@ -108,7 +116,10 @@ function _Trends() {
                                     <RetentionTab></RetentionTab>
                                 </TabPane>
                                 <TabPane tab="User Paths" key={ViewType.PATHS} data-attr="insight-path-tab">
-                                    <PathTab filter={pathFilter}></PathTab>
+                                    <PathTab
+                                        onChange={(payload) => setPathFilter(payload)}
+                                        filter={pathFilter}
+                                    ></PathTab>
                                 </TabPane>
                             </Tabs>
                         </div>
@@ -118,7 +129,9 @@ function _Trends() {
                     <Card
                         title={
                             <div className="float-right pt-1 pb-1">
-                                <IntervalFilter setFilters={setFilters} filters={filters} />
+                                {showIntervalFilter[activeView] && (
+                                    <IntervalFilter setFilters={setFilters} filters={filters} />
+                                )}
                                 {showChartFilter[activeView] && (
                                     <ChartFilter
                                         displayMap={displayMap}
