@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
+import { ViewType } from 'scenes/trends/trendsLogic'
 
 export const retentionTableLogic = kea({
     loaders: ({ values }) => ({
@@ -96,6 +97,11 @@ export const retentionTableLogic = kea({
     events: ({ actions }) => ({
         afterMount: actions.loadRetention,
     }),
+    actionToUrl: ({ actions, values }) => ({
+        [actions.setFilters]: () => {
+            return ['/trends', { target: values.startEntity, insight: ViewType.RETENTION }]
+        },
+    }),
     urlToAction: ({ actions, values }) => ({
         '*': (_, searchParams) => {
             try {
@@ -111,6 +117,11 @@ export const retentionTableLogic = kea({
 
             if (!objectsEqual(searchParams.properties || {}, values.properties)) {
                 actions.setProperties(searchParams.properties || {})
+            }
+            if (searchParams.target && values.startEntity.id !== searchParams.target?.id) {
+                actions.setFilters({
+                    [`${searchParams.target.type}`]: [searchParams.target],
+                })
             }
         },
     }),

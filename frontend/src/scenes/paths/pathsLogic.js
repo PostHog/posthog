@@ -3,6 +3,7 @@ import { toParams, objectsEqual } from 'lib/utils'
 import api from 'lib/api'
 import { router } from 'kea-router'
 import lo from 'lodash'
+import { ViewType } from 'scenes/trends/trendsLogic'
 
 export const PAGEVIEW = '$pageview'
 export const SCREEN = '$screen'
@@ -112,30 +113,37 @@ export const pathsLogic = kea({
             },
         ],
     }),
+    actionToUrl: ({ actions, values }) => ({
+        [actions.setFilter]: () => {
+            return ['/trends', { filter: values.filter, insight: ViewType.PATHS }]
+        },
+    }),
     urlToAction: ({ actions, values }) => ({
-        '*': (_, searchParams) => {
-            try {
-                // if the url changed, but we are not anymore on the page we were at when the logic was mounted
-                if (router.values.location.pathname !== values.initialPathname) {
+        '/trends': (_, searchParams) => {
+            if (searchParams.insight === ViewType.PATHS) {
+                try {
+                    // if the url changed, but we are not anymore on the page we were at when the logic was mounted
+                    if (router.values.location.pathname !== values.initialPathname) {
+                        return
+                    }
+                } catch (error) {
+                    // since this is a catch-all route, this code might run during or after the logic was unmounted
+                    // if we have an error accessing the filter value, the logic is gone and we should return
                     return
                 }
-            } catch (error) {
-                // since this is a catch-all route, this code might run during or after the logic was unmounted
-                // if we have an error accessing the filter value, the logic is gone and we should return
-                return
-            }
 
-            if (
-                !objectsEqual(
-                    (!lo.isEmpty(searchParams.properties) && searchParams.properties) || {},
-                    values.properties
-                )
-            ) {
-                actions.setProperties(searchParams.properties || {})
-            }
+                if (
+                    !objectsEqual(
+                        (!lo.isEmpty(searchParams.properties) && searchParams.properties) || {},
+                        values.properties
+                    )
+                ) {
+                    actions.setProperties(searchParams.properties || {})
+                }
 
-            if (!objectsEqual(!lo.isEmpty(searchParams.filter) || {}, values.filter)) {
-                actions.setFilter(searchParams.filter || {})
+                if (!objectsEqual(!lo.isEmpty(searchParams.filter) || {}, values.filter)) {
+                    actions.setFilter(searchParams.filter || {})
+                }
             }
         },
     }),
