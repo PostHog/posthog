@@ -4,9 +4,7 @@ from posthog.models import User, Team
 from posthog.api.user import UserSerializer
 
 
-class TeamUserViewSet(
-    mixins.DestroyModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet
-):
+class TeamUserViewSet(mixins.DestroyModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = UserSerializer
     queryset = User.objects.none()
     lookup_field = "distinct_id"
@@ -20,10 +18,11 @@ class TeamUserViewSet(
         Overridden to validate that user is not deleting themselves.
         """
 
-        instance = self.get_object()
+        user_to_delete = self.get_object()
 
-        if instance == request.user:
+        if user_to_delete == request.user:
             raise exceptions.ValidationError({"detail": "Cannot delete yourself."})
-
-        self.perform_destroy(instance)
+        user_to_delete.team_set.clear()
+        user_to_delete.is_active = False
+        user_to_delete.save()
         return response.Response(status=status.HTTP_204_NO_CONTENT)
