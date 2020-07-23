@@ -17,6 +17,8 @@ Chart.defaults.global.animation.duration = 0
 Chart.defaults.global.elements.line.tension = 0
 //--Chart Style Options--//
 
+const noop = () => {}
+
 export function LineGraph({
     datasets,
     labels,
@@ -26,6 +28,7 @@ export function LineGraph({
     onClick,
     ['data-attr']: dataAttr,
     dashboardItemId,
+    inSharedMode,
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
@@ -37,19 +40,20 @@ export function LineGraph({
     const [labelIndex, setLabelIndex] = useState(null)
     const [holdLabelIndex, setHoldLabelIndex] = useState(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState(null)
-    const { createAnnotation, createAnnotationNow, updateDiffType, createGlobalAnnotation } = useActions(
-        annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
-    )
+    const { createAnnotation, createAnnotationNow, updateDiffType, createGlobalAnnotation } = !inSharedMode
+        ? useActions(annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null }))
+        : { createAnnotation: noop, createAnnotationNow: noop, updateDiffType: noop, createGlobalAnnotation: noop }
 
-    const { annotationsList, annotationsLoading } = useValues(
-        annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
-    )
+    const { annotationsList, annotationsLoading } = !inSharedMode
+        ? useValues(annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null }))
+        : { annotationsList: [], annotationsLoading: false }
     const [leftExtent, setLeftExtent] = useState(0)
     const [interval, setInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
     const size = useWindowSize()
 
-    const annotationsCondition = (!type || type === 'line') && datasets.length > 0 && !datasets[0].compare
+    const annotationsCondition =
+        (!type || type === 'line') && datasets.length > 0 && !datasets[0].compare && !inSharedMode
 
     useEscapeKey(() => setFocused(false), [focused])
 

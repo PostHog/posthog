@@ -223,6 +223,5 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
         return None
 
 
-def generate_cache_key(obj):
-    stringified = json.dumps(obj)
-    return hashlib.md5(stringified.encode("utf-8")).hexdigest()
+def generate_cache_key(stringified: str) -> str:
+    return "cache_" + hashlib.md5(stringified.encode("utf-8")).hexdigest()

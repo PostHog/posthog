@@ -6,6 +6,7 @@ import { router } from 'kea-router'
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { ShareModal } from './ShareModal'
 import {
     PushpinFilled,
     PushpinOutlined,
@@ -16,6 +17,7 @@ import {
     FullscreenExitOutlined,
     LockOutlined,
     UnlockOutlined,
+    ShareAltOutlined,
     PlusOutlined,
     FunnelPlotOutlined,
     RiseOutlined,
@@ -29,11 +31,13 @@ export function DashboardHeader({ logic }) {
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [fullScreen, setFullScreen] = useState(false)
+    const [showShareModal, setShowShareModal] = useState(false)
     const [isAddItemModalVisible, setIsAddItemModalVisible] = useState(false)
 
     return (
         <div className={`dashboard-header${fullScreen ? ' full-screen' : ''}`}>
             {fullScreen ? <FullScreen onExit={() => setFullScreen(false)} /> : null}
+            {showShareModal && <ShareModal logic={logic} onCancel={() => setShowShareModal(false)} />}
             {dashboardsLoading ? (
                 <Loading />
             ) : (
@@ -78,16 +82,27 @@ export function DashboardHeader({ logic }) {
                                 </Tooltip>
                             ) : null}
 
-                            <Tooltip title="Click here or long press on a panel to rearrange the dashboard.">
+                            <Tooltip title={'Share dashboard.'}>
                                 <Button
                                     className="button-box-when-small enable-dragging-button"
+                                    type={dashboard.is_shared ? 'primary' : ''}
+                                    onClick={() => setShowShareModal(true)}
+                                    data-attr="dashboard-share-button"
+                                >
+                                    <ShareAltOutlined />
+                                    <span className="hide-when-small">
+                                        {dashboard.is_shared ? 'Shared' : 'Share dashboard'}
+                                    </span>
+                                </Button>
+                            </Tooltip>
+
+                            <Tooltip title="Click here or long press on a panel to rearrange the dashboard.">
+                                <Button
+                                    className="button-box enable-dragging-button"
                                     type={draggingEnabled === 'off' ? 'primary' : ''}
                                     onClick={draggingEnabled === 'off' ? enableDragging : disableDragging}
                                 >
                                     {draggingEnabled !== 'off' ? <UnlockOutlined /> : <LockOutlined />}
-                                    <span className="hide-when-small">
-                                        {draggingEnabled !== 'off' ? 'Lock Dragging' : 'Dragging Locked'}
-                                    </span>
                                 </Button>
                             </Tooltip>
 

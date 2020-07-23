@@ -24,7 +24,9 @@ class TeamManager(models.Manager):
         action = Action.objects.create(team=team, name="Pageviews")
         ActionStep.objects.create(action=action, event="$pageview")
 
-        dashboard = Dashboard.objects.create(name="Default", pinned=True, team=team)
+        dashboard = Dashboard.objects.create(
+            name="Default", pinned=True, team=team, share_token=secrets.token_urlsafe(22)
+        )
 
         DashboardItem.objects.create(
             team=team,

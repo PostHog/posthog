@@ -11,7 +11,7 @@ from django.template.loader import render_to_string
 from django.template.exceptions import TemplateDoesNotExist
 from urllib.parse import urlparse
 
-from .api import router, capture, user, decide
+from .api import router, capture, user, decide, dashboard
 from .models import Team, User, Event
 from .utils import render_template
 from .views import health, stats
@@ -224,6 +224,7 @@ urlpatterns = [
     path("api/user/test_slack_webhook/", user.test_slack_webhook),
     path("decide/", decide.get_decide),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
+    path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
     path("engage/", capture.get_event),
     path("engage", capture.get_event),
     re_path(r"^demo.*", decorators.login_required(demo)),

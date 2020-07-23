@@ -1,15 +1,4 @@
-from . import (
-    event,
-    person,
-    action,
-    funnel,
-    dashboard,
-    paths,
-    cohort,
-    element,
-    feature_flag,
-    annotation
-)
+from . import event, person, action, funnel, dashboard, paths, cohort, element, feature_flag, annotation
 from rest_framework import routers
 
 router = routers.DefaultRouter()

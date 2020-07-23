@@ -14,12 +14,8 @@ class Annotation(models.Model):
     dashboard_item: models.ForeignKey = models.ForeignKey(
         "DashboardItem", on_delete=models.SET_NULL, null=True, blank=True
     )
-    created_by: models.ForeignKey = models.ForeignKey(
-        "User", on_delete=models.SET_NULL, null=True, blank=True
-    )
-    creation_type = models.CharField(
-        max_length=3, choices=CreationType.choices, default=CreationType.USER,
-    )
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    creation_type = models.CharField(max_length=3, choices=CreationType.choices, default=CreationType.USER,)
     date_marker: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     apply_all: models.BooleanField = models.BooleanField(default=False)

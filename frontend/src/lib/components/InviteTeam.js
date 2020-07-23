@@ -1,19 +1,7 @@
-import React, { useRef } from 'react'
-import { toast } from 'react-toastify'
-import { Tooltip, Input } from 'antd'
-import { CopyOutlined } from '@ant-design/icons'
+import React from 'react'
+import { CopyToClipboard } from 'lib/components/CopyToClipboard'
 
 export function InviteTeam({ user }) {
-    const urlRef = useRef()
-
-    function copyToClipboard() {
-        urlRef.current.focus()
-        urlRef.current.select()
-        document.execCommand('copy')
-        urlRef.current.blur()
-        toast('Link copied!')
-    }
-
     const url = window.location.origin
     return (
         <div data-attr="invite-team-modal">
@@ -22,16 +10,9 @@ export function InviteTeam({ user }) {
             <br />
             <br />
             <div>
-                <Input
+                <CopyToClipboard
                     data-attr="copy-invite-to-clipboard-input"
-                    type="text"
-                    ref={urlRef}
-                    value={url + '/signup/' + user.team.signup_token}
-                    suffix={
-                        <Tooltip title="Copy to Clipboard">
-                            <CopyOutlined onClick={copyToClipboard} />
-                        </Tooltip>
-                    }
+                    url={url + '/signup/' + user.team.signup_token}
                 />
             </div>
             <br />
