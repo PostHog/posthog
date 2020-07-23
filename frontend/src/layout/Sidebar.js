@@ -146,7 +146,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
 
                     <Menu.Item key="trends" style={itemStyle} data-attr="menu-item-trends" title="">
                         <RiseOutlined />
-                        <span className="sidebar-label">{'Trends'}</span>
+                        <span className="sidebar-label">{'Insights'}</span>
                         <Link to={'/trends'} onClick={collapseSidebar} />
                     </Menu.Item>
 

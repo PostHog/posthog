@@ -36,6 +36,7 @@ import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { People } from 'scenes/funnels/People'
 
 const { TabPane } = Tabs
 
@@ -66,7 +67,7 @@ const showDateFilter = {
     [`${ViewType.TRENDS}`]: true,
     [`${ViewType.SESSIONS}`]: true,
     [`${ViewType.FUNNELS}`]: true,
-    [`${ViewType.RETENTION}`]: true,
+    [`${ViewType.RETENTION}`]: false,
     [`${ViewType.PATHS}`]: true,
 }
 
@@ -209,6 +210,11 @@ function _Trends() {
                             }
                         </div>
                     </Card>
+                    {activeView === ViewType.FUNNELS && (
+                        <Card>
+                            <FunnelPeople></FunnelPeople>
+                        </Card>
+                    )}
                 </Col>
             </Row>
         </div>
@@ -248,4 +254,16 @@ function FunnelInsight() {
             )}
         </div>
     )
+}
+
+function FunnelPeople() {
+    const { funnel } = useValues(funnelLogic({ id: null }))
+    if (funnel.id) {
+        return (
+            <div className="funnel">
+                <People />
+            </div>
+        )
+    }
+    return <></>
 }
