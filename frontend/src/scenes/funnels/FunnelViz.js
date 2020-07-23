@@ -6,13 +6,12 @@ import PropTypes from 'prop-types'
 import { useValues, useActions } from 'kea'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 
-export function FunnelViz({ funnel: funnelParam, dashboardItemId, filters: filtersParam }) {
+export function FunnelViz({ funnel: funnelParam, dashboardItemId, funnelId }) {
     const container = useRef()
     const [funnel, setFunnel] = useState(funnelParam)
-    const { results: funnelResult, resultsLoading: funnelLoading } = useValues(
-        funnelVizLogic({ filters: filtersParam, dashboardItemId })
-    )
-    const { loadResults: loadFunnel } = useActions(funnelVizLogic({ filters: filtersParam, dashboardItemId }))
+    const logic = funnelVizLogic({ funnelId, dashboardItemId })
+    const { results: funnelResult, resultsLoading: funnelLoading } = useValues(logic)
+    const { loadResults: loadFunnel } = useActions(logic)
 
     function buildChart() {
         if (!funnel || funnel.steps.length == 0) return
@@ -83,5 +82,5 @@ export function FunnelViz({ funnel: funnelParam, dashboardItemId, filters: filte
 
 FunnelViz.propTypes = {
     funnel: PropTypes.object,
-    filters: PropTypes.shape({ funnel_id: PropTypes.number }),
+    funnelId: PropTypes.number,
 }

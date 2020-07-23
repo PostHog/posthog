@@ -108,7 +108,12 @@ export function DashboardItem({
     })
 
     const filters = { ...item.filters, from_dashboard: item.id }
-    const logicProps = { dashboardItemId: item.id, filters: filters, cachedResults: item.result }
+    const logicProps = {
+        dashboardItemId: item.id,
+        filters: filters,
+        cachedResults: item.result,
+        funnelId: item.funnel_id,
+    }
     const { loadResults } = useActions(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
     const { resultsLoading } = useValues(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
     const previousLoading = usePrevious(resultsLoading)
@@ -309,6 +314,7 @@ export function DashboardItem({
                                 color={color}
                                 theme={color === 'white' ? 'light' : 'dark'}
                                 inSharedMode={inSharedMode}
+                                funnelId={item.funnel_id}
                             />
                         </Alert.ErrorBoundary>
                     ) : (
