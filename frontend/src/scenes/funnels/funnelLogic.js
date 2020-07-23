@@ -84,9 +84,9 @@ export const funnelLogic = kea({
         },
     }),
 
-    actionToUrl: () => ({
-        createFunnelSuccess: ({ funnel }) => `/funnel/${funnel.id}`,
-    }),
+    // actionToUrl: () => ({
+    //     createFunnelSuccess: ({ funnel }) => `/funnel/${funnel.id}`,
+    // }),
 
     events: ({ actions, key, props }) => ({
         afterMount: () => {

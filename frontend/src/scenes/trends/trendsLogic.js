@@ -40,8 +40,9 @@ export const disableHourFor = {
 }
 
 export const ViewType = {
-    FILTERS: 'FILTERS',
+    TRENDS: 'TRENDS',
     SESSIONS: 'SESSIONS',
+    FUNNELS: 'FUNNELS',
     RETENTION: 'RETENTION',
     PATHS: 'PATHS',
 }
@@ -201,7 +202,7 @@ export const trendsLogic = kea({
             },
         ],
         activeView: [
-            ViewType.FILTERS,
+            ViewType.TRENDS,
             {
                 updateActiveView: (_, { type }) => type,
             },
@@ -284,7 +285,7 @@ export const trendsLogic = kea({
                 urlParams = {
                     insight: 'retention',
                 }
-            } else if (type === ViewType.FILTERS) {
+            } else if (type === ViewType.TRENDS) {
                 urlParams = {
                     insight: 'filters',
                 }

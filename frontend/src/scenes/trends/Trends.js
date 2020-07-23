@@ -33,7 +33,9 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { Paths } from 'scenes/paths/Paths'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 
-import { RetentionTab, SessionTab, TrendTab, PathTab } from './InsightTabs'
+import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
+import { FunnelViz } from 'scenes/funnels/FunnelViz'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
 const { TabPane } = Tabs
 
@@ -45,29 +47,33 @@ const displayMap = {
 }
 
 const showIntervalFilter = {
-    [`${ViewType.FILTERS}`]: true,
+    [`${ViewType.TRENDS}`]: true,
     [`${ViewType.SESSIONS}`]: true,
+    [`${ViewType.FUNNELS}`]: false,
     [`${ViewType.RETENTION}`]: false,
     [`${ViewType.PATHS}`]: false,
 }
 
 const showChartFilter = {
-    [`${ViewType.FILTERS}`]: true,
+    [`${ViewType.TRENDS}`]: true,
     [`${ViewType.SESSIONS}`]: true,
+    [`${ViewType.FUNNELS}`]: false,
     [`${ViewType.RETENTION}`]: false,
     [`${ViewType.PATHS}`]: false,
 }
 
 const showDateFilter = {
-    [`${ViewType.FILTERS}`]: true,
+    [`${ViewType.TRENDS}`]: true,
     [`${ViewType.SESSIONS}`]: true,
+    [`${ViewType.FUNNELS}`]: true,
     [`${ViewType.RETENTION}`]: true,
     [`${ViewType.PATHS}`]: true,
 }
 
 const showComparePrevious = {
-    [`${ViewType.FILTERS}`]: true,
+    [`${ViewType.TRENDS}`]: true,
     [`${ViewType.SESSIONS}`]: true,
+    [`${ViewType.FUNNELS}`]: false,
     [`${ViewType.RETENTION}`]: false,
     [`${ViewType.PATHS}`]: false,
 }
@@ -101,7 +107,7 @@ function _Trends() {
                                 onChange={(key) => setActiveView(key)}
                                 animated={false}
                             >
-                                <TabPane tab={'Trends'} key={ViewType.FILTERS} data-attr="insight-trend-tab">
+                                <TabPane tab={'Trends'} key={ViewType.TRENDS} data-attr="insight-trend-tab">
                                     <TrendTab
                                         filters={filters}
                                         onEntityChanged={(payload) => setFilters(payload)}
@@ -111,6 +117,9 @@ function _Trends() {
                                 </TabPane>
                                 <TabPane tab="Sessions" key={ViewType.SESSIONS} data-attr="insight-sessions-tab">
                                     <SessionTab filters={filters} onChange={(v) => setFilters({ session: v })} />
+                                </TabPane>
+                                <TabPane tab="Funnels" key={ViewType.FUNNELS} data-attr="insight-funnels-tab">
+                                    <FunnelTab></FunnelTab>
                                 </TabPane>
                                 <TabPane tab="Retention" key={ViewType.RETENTION} data-attr="insight-retention-tab">
                                     <RetentionTab></RetentionTab>
@@ -180,12 +189,13 @@ function _Trends() {
                         <div className="card-body card-body-graph">
                             {
                                 {
-                                    [`${ViewType.FILTERS}`]: (
-                                        <TrendViz filters={filters} loading={resultsLoading}></TrendViz>
+                                    [`${ViewType.TRENDS}`]: (
+                                        <TrendInsight filters={filters} loading={resultsLoading}></TrendInsight>
                                     ),
                                     [`${ViewType.SESSIONS}`]: (
-                                        <TrendViz filters={filters} loading={resultsLoading}></TrendViz>
+                                        <TrendInsight filters={filters} loading={resultsLoading}></TrendInsight>
                                     ),
+                                    [`${ViewType.FUNNELS}`]: <FunnelInsight></FunnelInsight>,
                                     [`${ViewType.RETENTION}`]: <RetentionTable logic={_retentionLogic} />,
                                     [`${ViewType.PATHS}`]: (
                                         <Paths
@@ -205,7 +215,7 @@ function _Trends() {
     )
 }
 
-function TrendViz({ filters, loading }) {
+function TrendInsight({ filters, loading }) {
     return (
         <>
             {(filters.actions || filters.events || filters.session) && (
@@ -224,5 +234,18 @@ function TrendViz({ filters, loading }) {
                 </div>
             )}
         </>
+    )
+}
+
+function FunnelInsight() {
+    const { funnel, funnelLoading, stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic({ id: null }))
+    if (!funnel && funnelLoading) return <Loading />
+    return (
+        <div style={{ height: 300 }}>
+            {stepsWithCountLoading && <Loading />}
+            {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 && (
+                <FunnelViz funnel={{ steps: stepsWithCount }} />
+            )}
+        </div>
     )
 }
