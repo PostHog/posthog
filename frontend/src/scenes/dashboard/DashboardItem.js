@@ -67,12 +67,8 @@ const typeMap = {
         element: FunnelViz,
         icon: FunnelPlotOutlined,
         viewText: 'View funnel',
-        link: ({ filters, id, dashboard, name }) =>
-            combineUrl(
-                `/funnel/${filters.funnel_id}`,
-                {},
-                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
-            ).url,
+        link: ({ funnel, id, dashboard, name }) =>
+            combineUrl(`/funnel/${funnel}`, {}, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
     },
 }
 
@@ -112,7 +108,7 @@ export function DashboardItem({
         dashboardItemId: item.id,
         filters: filters,
         cachedResults: item.result,
-        funnelId: item.funnel_id,
+        funnelId: item.funnel,
     }
     const { loadResults } = useActions(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
     const { resultsLoading } = useValues(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
@@ -314,7 +310,7 @@ export function DashboardItem({
                                 color={color}
                                 theme={color === 'white' ? 'light' : 'dark'}
                                 inSharedMode={inSharedMode}
-                                funnelId={item.funnel_id}
+                                funnelId={item.funnel}
                             />
                         </Alert.ErrorBoundary>
                     ) : (

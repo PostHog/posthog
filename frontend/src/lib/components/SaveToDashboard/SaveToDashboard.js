@@ -3,7 +3,7 @@ import { Button } from 'antd'
 import { SaveToDashboardModal } from './SaveToDashboardModal'
 import { router } from 'kea-router'
 
-export function SaveToDashboard({ name, type, filters, annotations }) {
+export function SaveToDashboard({ name, type, filters, annotations, funnelId }) {
     const [openModal, setOpenModal] = useState(false)
     const [{ fromItem, fromItemName, fromDashboard }] = useState(router.values.hashParams)
 
@@ -15,6 +15,7 @@ export function SaveToDashboard({ name, type, filters, annotations }) {
                     name={name}
                     type={type}
                     filters={filters}
+                    funnelId={funnelId}
                     fromItem={fromItem}
                     fromDashboard={fromDashboard}
                     fromItemName={fromItemName}
