@@ -263,6 +263,24 @@ class TestTrends(TransactionBaseTest):
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
 
+    def test_trends_per_day_48hours(self):
+        self._create_events()
+        with freeze_time("2020-01-03T13:00:01Z"):
+            action_response = self.client.get("/api/action/trends/?date_from=-48h&interval=day").json()
+            event_response = self.client.get(
+                "/api/action/trends/",
+                data={
+                    "date_from": "-48h",
+                    "events": jdumps([{"id": "sign up"}, {"id": "no events"}]),
+                    "interval": "day",
+                },
+            ).json()
+
+        self.assertEqual(action_response[0]["data"][1], 1.0)
+        self.assertEqual(action_response[0]["labels"][1], "Thu. 2 January")
+
+        self.assertTrue(self._compare_entity_response(action_response, event_response))
+
     def test_trends_per_day_cumulative(self):
         self._create_events()
         with freeze_time("2020-01-04T13:00:01Z"):
