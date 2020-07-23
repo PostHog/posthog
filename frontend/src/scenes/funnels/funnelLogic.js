@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
+import { ViewType } from 'scenes/trends/trendsLogic'
 
 export const funnelLogic = kea({
     key: (props) => props.id || 'new',
@@ -83,11 +84,17 @@ export const funnelLogic = kea({
             toast('Funnel saved!')
         },
     }),
-
-    // actionToUrl: () => ({
-    //     createFunnelSuccess: ({ funnel }) => `/funnel/${funnel.id}`,
-    // }),
-
+    urlToAction: ({ actions }) => ({
+        '/trends': (_, searchParams) => {
+            if (searchParams.insight === ViewType.FUNNELS) {
+                const id = searchParams.id
+                if (id) {
+                    actions.loadFunnel(id)
+                    actions.loadStepsWithCount({ id })
+                }
+            }
+        },
+    }),
     events: ({ actions, key, props }) => ({
         afterMount: () => {
             if (key === 'new') {

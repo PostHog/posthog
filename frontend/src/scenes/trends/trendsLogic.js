@@ -278,20 +278,24 @@ export const trendsLogic = kea({
             let urlParams = {}
             if (type === ViewType.SESSIONS) {
                 urlParams = {
-                    insight: 'session',
+                    insight: ViewType.SESSIONS,
                     session: 'avg',
                 }
             } else if (type === ViewType.RETENTION) {
                 urlParams = {
-                    insight: 'retention',
+                    insight: ViewType.RETENTION,
                 }
             } else if (type === ViewType.TRENDS) {
                 urlParams = {
-                    insight: 'filters',
+                    insight: ViewType.TRENDS,
                 }
             } else if (type === ViewType.PATHS) {
                 urlParams = {
-                    insight: 'paths',
+                    insight: ViewType.PATHS,
+                }
+            } else if (type === ViewType.FUNNELS) {
+                urlParams = {
+                    insight: ViewType.FUNNELS,
                 }
             }
             return ['/trends', urlParams]
@@ -307,6 +311,7 @@ export const trendsLogic = kea({
             const cleanSearchParams = cleanFilters(searchParams)
 
             const keys = Object.keys(searchParams)
+
             // opening /trends without any params, just open $pageview, $screen or the first random event
             if (
                 (keys.length === 0 || (keys.length === 1 && keys[0] === 'properties')) &&
@@ -327,6 +332,8 @@ export const trendsLogic = kea({
                         order: 0,
                     },
                 ]
+            } else if (searchParams.insight) {
+                actions.updateActiveView(searchParams.insight)
             }
 
             if (!objectsEqual(cleanSearchParams, values.filters)) {
