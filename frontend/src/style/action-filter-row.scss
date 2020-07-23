@@ -4,14 +4,17 @@
     }
     .action-filter-row-handle {
         color: $gray-500;
-        font-size: 18px;
+        font-size: 14px;
         position: relative;
-        top: 4px;
         left: 4px;
         
         &:hover {
             cursor: pointer;
             color: $gray-900;
+        }
+        &.outside {
+            position: absolute;
+            left: -18px
         }
     }
 }

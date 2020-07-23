@@ -7,7 +7,7 @@ import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { Tooltip } from 'antd'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { userLogic } from 'scenes/userLogic'
-import { DownOutlined, DragOutlined } from '@ant-design/icons'
+import { DownOutlined, MenuOutlined } from '@ant-design/icons'
 
 const MATHS = {
     total: {
@@ -88,7 +88,7 @@ const determineFilterLabel = (visible, filter) => {
     return 'Add filters'
 }
 
-export function ActionFilterRow({ logic, filter, index, hideMathSelector, dragging }) {
+export function ActionFilterRow({ logic, filter, index, hideMathSelector, dragging, dragIconPosition = '' }) {
     const node = useRef()
     const { selectedFilter, entities } = useValues(logic)
     const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty, setLayoutHeight } = useActions(
@@ -159,8 +159,8 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector, draggi
         value = entity.id || filter.id
     }
     return (
-        <div className="action-filter-row pb-1">
-            <DragOutlined className="action-filter-row-handle mr-2 pt-2" />
+        <div className="action-filter-row pb-1 pt-1 pl-1">
+            <MenuOutlined className={`action-filter-row-handle ${dragIconPosition} mr-2 pt-2`} />
             <button
                 data-attr={'trend-element-subject-' + index}
                 ref={node}

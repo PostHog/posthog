@@ -67,7 +67,12 @@ function _Trends() {
                                 animated={false}
                             >
                                 <TabPane tab={'Actions & Events'} key={ViewType.FILTERS}>
-                                    <ActionFilter filters={filters} setFilters={setFilters} typeKey="trends" />
+                                    <ActionFilter
+                                        filters={filters}
+                                        setFilters={setFilters}
+                                        typeKey="trends"
+                                        dragIconPosition="outside"
+                                    />
                                     <hr />
                                     <h4 className="secondary">Filters</h4>
                                     <PropertyFilters pageKey="trends-filters" style={{ marginBottom: 0 }} />

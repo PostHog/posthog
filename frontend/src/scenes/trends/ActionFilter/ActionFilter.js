@@ -7,7 +7,7 @@ import { Button } from 'antd'
 
 const ReactGridLayout = WidthProvider(GridLayout)
 
-export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector }) {
+export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector, dragIconPosition }) {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
     const { localFilters, layouts } = useValues(logic)
@@ -35,6 +35,7 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector })
                     key={index}
                     hideMathSelector={hideMathSelector}
                     dragging={draggedRow === filter.id}
+                    dragIconPosition={dragIconPosition}
                 />
             </div>
         ))
