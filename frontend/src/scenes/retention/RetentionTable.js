@@ -3,10 +3,11 @@ import { useValues, useActions } from 'kea'
 import { Table, Modal, Button, Spin } from 'antd'
 import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
+import { retentionTableLogic } from './retentionTableLogic'
 
-export function RetentionTable({ logic }) {
-    const { retention, retentionLoading, peopleLoading, people, loadingMore } = useValues(logic)
-    const { loadPeople, loadMore } = useActions(logic)
+export function RetentionTable() {
+    const { retention, retentionLoading, peopleLoading, people, loadingMore } = useValues(retentionTableLogic)
+    const { loadPeople, loadMore } = useActions(retentionTableLogic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
 

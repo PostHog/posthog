@@ -7,12 +7,14 @@ import { getChartColors } from 'lib/colors'
 import { useValues, useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
-export function ActionsPie({ dashboardItemId, filters: filtersParam, color }) {
+export function ActionsPie({ dashboardItemId, filters: filtersParam, color, view }) {
     const [data, setData] = useState(null)
     const [total, setTotal] = useState(0)
 
-    const { filters, results, resultsLoading } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
-    const { loadResults } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
+    const { filters, results, resultsLoading } = useValues(
+        trendsLogic({ dashboardItemId, view, filters: filtersParam })
+    )
+    const { loadResults } = useActions(trendsLogic({ dashboardItemId, view, filters: filtersParam }))
 
     function updateData() {
         const data = results

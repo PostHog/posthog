@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
-import { ViewType } from 'scenes/trends/trendsLogic'
+import { ViewType } from 'scenes/trends/insightLogic'
 
 export const retentionTableLogic = kea({
     loaders: ({ values }) => ({

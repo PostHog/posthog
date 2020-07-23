@@ -1,8 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react'
-import PropTypes from 'prop-types'
 import { Select, DatePicker, Button } from 'antd'
-
+import { useValues, useActions } from 'kea'
 import moment from 'moment'
+import { dateFilterLogic } from './dateFilterLogic'
 
 let dateMapping = {
     Today: ['dStart'],
@@ -32,7 +32,11 @@ function dateFilterToText(date_from, date_to) {
     return name
 }
 
-export function DateFilter({ dateFrom, dateTo, onChange, style }) {
+export function DateFilter({ style }) {
+    const {
+        dates: { dateFrom, dateTo },
+    } = useValues(dateFilterLogic)
+    const { setDates } = useActions(dateFilterLogic)
     const [rangeDateFrom, setRangeDateFrom] = useState(isDate.test(dateFrom) && moment(dateFrom).toDate())
     const [rangeDateTo, setRangeDateTo] = useState(isDate.test(dateTo) && moment(dateTo).toDate())
     const [dateRangeOpen, setDateRangeOpen] = useState(false)
@@ -44,7 +48,7 @@ export function DateFilter({ dateFrom, dateTo, onChange, style }) {
     }
 
     function setDate(fromDate, toDate) {
-        onChange(fromDate, toDate)
+        setDates(fromDate, toDate)
     }
 
     function _onChange(v) {
@@ -127,10 +131,6 @@ export function DateFilter({ dateFrom, dateTo, onChange, style }) {
             ]}
         </Select>
     )
-}
-
-DateFilter.propTypes = {
-    onChange: PropTypes.func.isRequired,
 }
 
 function DatePickerDropdown(props) {

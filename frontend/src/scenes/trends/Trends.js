@@ -4,15 +4,15 @@ import { useActions, useValues } from 'kea'
 import { Card, Loading } from 'lib/utils'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { DateFilter } from 'lib/components/DateFilter'
-import { IntervalFilter } from 'lib/components/IntervalFilter'
+import { IntervalFilter } from 'lib/components/IntervalFilter/IntervalFilter'
 
 import { ActionsPie } from './ActionsPie'
 import { ActionsTable } from './ActionsTable'
 import { ActionsLineGraph } from './ActionsLineGraph'
 import { PeopleModal } from './PeopleModal'
-import { trendsLogic, ViewType } from './trendsLogic'
+
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Checkbox } from 'antd'
+import { Tabs, Row, Col } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -28,15 +28,16 @@ import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
 import { RetentionTable } from 'scenes/retention/RetentionTable'
-import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 
 import { Paths } from 'scenes/paths/Paths'
-import { pathsLogic } from 'scenes/paths/pathsLogic'
 
 import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { People } from 'scenes/funnels/People'
+import { insightLogic, ViewType } from './insightLogic'
+import { trendsLogic } from './trendsLogic'
+import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 
 const { TabPane } = Tabs
 
@@ -81,20 +82,15 @@ const showComparePrevious = {
 
 export const Trends = hot(_Trends)
 function _Trends() {
-    const { filters, resultsLoading, showingPeople, activeView } = useValues(trendsLogic({ dashboardItemId: null }))
-    const { setFilters, setDisplay, setActiveView } = useActions(trendsLogic({ dashboardItemId: null }))
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsList } = useValues(annotationsLogic({ pageKey: fromItem }))
 
-    const _pathsLogic = pathsLogic()
-    const { paths, filter: pathFilter, pathsLoading } = useValues(_pathsLogic)
-    const { setFilter: setPathFilter } = useActions(_pathsLogic)
-    const _retentionLogic = retentionTableLogic()
+    const { activeView, allFilters } = useValues(insightLogic)
+    const { setActiveView } = useActions(insightLogic)
 
     return (
         <div className="actions-graph">
-            <PeopleModal visible={showingPeople} />
             <h1 className="page-header">Insights</h1>
             <Row gutter={16}>
                 <Col xs={24} xl={7}>
@@ -109,15 +105,10 @@ function _Trends() {
                                 animated={false}
                             >
                                 <TabPane tab={'Trends'} key={ViewType.TRENDS} data-attr="insight-trend-tab">
-                                    <TrendTab
-                                        filters={filters}
-                                        onEntityChanged={(payload) => setFilters(payload)}
-                                        onBreakdownChanged={(breakdownPayload) => setFilters(breakdownPayload)}
-                                        onShownAsChanged={(shown_as) => setFilters({ shown_as })}
-                                    ></TrendTab>
+                                    <TrendTab></TrendTab>
                                 </TabPane>
                                 <TabPane tab="Sessions" key={ViewType.SESSIONS} data-attr="insight-sessions-tab">
-                                    <SessionTab filters={filters} onChange={(v) => setFilters({ session: v })} />
+                                    <SessionTab />
                                 </TabPane>
                                 <TabPane tab="Funnels" key={ViewType.FUNNELS} data-attr="insight-funnels-tab">
                                     <FunnelTab></FunnelTab>
@@ -126,10 +117,7 @@ function _Trends() {
                                     <RetentionTab></RetentionTab>
                                 </TabPane>
                                 <TabPane tab="User Paths" key={ViewType.PATHS} data-attr="insight-path-tab">
-                                    <PathTab
-                                        onChange={(payload) => setPathFilter(payload)}
-                                        filter={pathFilter}
-                                    ></PathTab>
+                                    <PathTab></PathTab>
                                 </TabPane>
                             </Tabs>
                         </div>
@@ -139,49 +127,24 @@ function _Trends() {
                     <Card
                         title={
                             <div className="float-right pt-1 pb-1">
-                                {showIntervalFilter[activeView] && (
-                                    <IntervalFilter setFilters={setFilters} filters={filters} />
-                                )}
+                                {showIntervalFilter[activeView] && <IntervalFilter view={activeView} />}
                                 {showChartFilter[activeView] && (
                                     <ChartFilter
-                                        displayMap={displayMap}
-                                        filters={filters}
                                         onChange={(display) => {
                                             if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART)
                                                 clearAnnotationsToCreate()
-                                            setDisplay(display)
                                         }}
+                                        displayMap={displayMap}
+                                        filters={{}}
                                     />
                                 )}
-                                {showDateFilter[activeView] && (
-                                    <DateFilter
-                                        onChange={(date_from, date_to) => {
-                                            setFilters({
-                                                date_from: date_from,
-                                                date_to: date_to && date_to,
-                                                ...(['-24h', '-48h', 'dStart', '-1d'].indexOf(date_from) > -1
-                                                    ? { interval: 'hour' }
-                                                    : {}),
-                                            })
-                                        }}
-                                        dateFrom={filters.date_from}
-                                        dateTo={filters.date_to}
-                                    />
-                                )}
-                                {showComparePrevious[activeView] && (
-                                    <Checkbox
-                                        onChange={(e) => {
-                                            setFilters({ compare: e.target.checked })
-                                        }}
-                                        checked={filters.compare}
-                                        style={{ marginLeft: 8, marginRight: 6 }}
-                                    >
-                                        Compare Previous
-                                    </Checkbox>
-                                )}
+
+                                {showDateFilter[activeView] && <DateFilter />}
+
+                                {showComparePrevious[activeView] && <CompareFilter />}
                                 <SaveToDashboard
-                                    filters={filters}
-                                    type={filters.display || ACTIONS_LINE_GRAPH_LINEAR}
+                                    filters={allFilters}
+                                    type={allFilters.display || ACTIONS_LINE_GRAPH_LINEAR}
                                     annotations={annotationsList}
                                 />
                             </div>
@@ -190,22 +153,11 @@ function _Trends() {
                         <div className="card-body card-body-graph">
                             {
                                 {
-                                    [`${ViewType.TRENDS}`]: (
-                                        <TrendInsight filters={filters} loading={resultsLoading}></TrendInsight>
-                                    ),
-                                    [`${ViewType.SESSIONS}`]: (
-                                        <TrendInsight filters={filters} loading={resultsLoading}></TrendInsight>
-                                    ),
+                                    [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS}></TrendInsight>,
+                                    [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS}></TrendInsight>,
                                     [`${ViewType.FUNNELS}`]: <FunnelInsight></FunnelInsight>,
-                                    [`${ViewType.RETENTION}`]: <RetentionTable logic={_retentionLogic} />,
-                                    [`${ViewType.PATHS}`]: (
-                                        <Paths
-                                            logic={_pathsLogic}
-                                            paths={paths}
-                                            pathsLoading={pathsLoading}
-                                            filter={pathFilter}
-                                        />
-                                    ),
+                                    [`${ViewType.RETENTION}`]: <RetentionTable />,
+                                    [`${ViewType.PATHS}`]: <Paths />,
                                 }[activeView]
                             }
                         </div>
@@ -221,7 +173,9 @@ function _Trends() {
     )
 }
 
-function TrendInsight({ filters, loading }) {
+function TrendInsight({ view }) {
+    const { filters, loading, showingPeople } = useValues(trendsLogic({ dashboardItemId: null, view, filters: null }))
+
     return (
         <>
             {(filters.actions || filters.events || filters.session) && (
@@ -234,11 +188,12 @@ function TrendInsight({ filters, loading }) {
                     {loading && <Loading />}
                     {(!filters.display ||
                         filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && <ActionsLineGraph />}
-                    {filters.display === ACTIONS_TABLE && <ActionsTable filters={filters} />}
-                    {filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={filters} />}
+                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && <ActionsLineGraph view={view} />}
+                    {filters.display === ACTIONS_TABLE && <ActionsTable filters={filters} view={view} />}
+                    {filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={filters} view={view} />}
                 </div>
             )}
+            <PeopleModal visible={showingPeople} view={view} />
         </>
     )
 }

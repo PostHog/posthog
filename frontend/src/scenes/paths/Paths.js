@@ -1,11 +1,12 @@
 import React, { useRef, useState, useEffect } from 'react'
 import api from 'lib/api'
+import { useValues } from 'kea'
 import { Loading, stripHTTP } from 'lib/utils'
 import { Modal, Button, Spin } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
-import { AUTOCAPTURE } from 'scenes/paths/pathsLogic'
+import { AUTOCAPTURE, pathsLogic } from 'scenes/paths/pathsLogic'
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
@@ -51,8 +52,9 @@ function NoData() {
     )
 }
 
-export function Paths({ paths, filter, pathsLoading }) {
+export function Paths() {
     const canvas = useRef(null)
+    const { paths, filter, pathsLoading } = useValues(pathsLogic)
 
     const [modalVisible, setModalVisible] = useState(false)
     const [eventelements, setEventelements] = useState(null)

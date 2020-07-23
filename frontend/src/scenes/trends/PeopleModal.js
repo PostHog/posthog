@@ -5,9 +5,9 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Modal, Button, Spin } from 'antd'
 import { PeopleTable } from 'scenes/users/PeopleTable'
 
-export function PeopleModal({ visible }) {
-    const { people, filters } = useValues(trendsLogic({ id: null }))
-    const { setShowingPeople, loadMorePeople } = useActions(trendsLogic({ dashboardItemId: null }))
+export function PeopleModal({ visible, view }) {
+    const { people, filters } = useValues(trendsLogic({ dashboardItemId: null, view }))
+    const { setShowingPeople, loadMorePeople } = useActions(trendsLogic({ dashboardItemId: null, view }))
 
     const title =
         filters.shown_as === 'Stickiness'

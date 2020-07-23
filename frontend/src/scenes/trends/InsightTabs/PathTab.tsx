@@ -1,5 +1,5 @@
 import React from 'react'
-import { useValues } from 'kea'
+import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import {
     PAGEVIEW,
@@ -7,19 +7,16 @@ import {
     CUSTOM_EVENT,
     pathOptionsToLabels,
     pathOptionsToProperty,
+    pathsLogic,
 } from 'scenes/paths/pathsLogic'
 import { Select } from 'antd'
 import { userLogic } from 'scenes/userLogic'
 import { PropertyValue } from 'lib/components/PropertyFilters'
 
-interface Props {
-    filter: Record<string, unknown>
-    onChange: (payload: Record<string, unknown>) => void
-}
-
-export function PathTab(props: Props): JSX.Element {
-    const { onChange, filter } = props
+export function PathTab(): JSX.Element {
     const { customEventNames } = useValues(userLogic)
+    const { filter } = useValues(pathsLogic)
+    const { setFilter } = useActions(pathsLogic)
 
     return (
         <>
@@ -29,7 +26,7 @@ export function PathTab(props: Props): JSX.Element {
                 bordered={false}
                 defaultValue={PAGEVIEW}
                 dropdownMatchSelectWidth={false}
-                onChange={(value): void => onChange({ type: value, start: null })}
+                onChange={(value): void => setFilter({ type: value, start: null })}
                 style={{ paddingTop: 2 }}
             >
                 {Object.entries(pathOptionsToLabels).map(([value, name], index) => {
@@ -49,7 +46,7 @@ export function PathTab(props: Props): JSX.Element {
                         name,
                     }))
                 }
-                onSet={(value): void => onChange({ start: value })}
+                onSet={(value): void => setFilter({ start: value })}
                 propertyKey={pathOptionsToProperty[filter.type]}
                 type="event"
                 style={{ width: 200, paddingTop: 2 }}

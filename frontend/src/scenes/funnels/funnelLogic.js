@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
-import { ViewType } from 'scenes/trends/trendsLogic'
+import { ViewType } from 'scenes/trends/insightLogic'
 
 export const funnelLogic = kea({
     key: (props) => props.id || 'new',

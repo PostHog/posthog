@@ -6,6 +6,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 import { STICKINESS, ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
+import { ViewType, insightLogic } from './insightLogic'
 
 export const EntityTypes = {
     ACTIONS: 'actions',
@@ -37,14 +38,6 @@ export const disableHourFor = {
     '-1mStart': false,
     yStart: true,
     all: true,
-}
-
-export const ViewType = {
-    TRENDS: 'TRENDS',
-    SESSIONS: 'SESSIONS',
-    FUNNELS: 'FUNNELS',
-    RETENTION: 'RETENTION',
-    PATHS: 'PATHS',
 }
 
 function cleanFilters(filters) {
@@ -114,19 +107,21 @@ function parsePeopleParams(peopleParams, filters) {
 // - dashboardItemId
 // - filters
 export const trendsLogic = kea({
-    key: (props) => props.dashboardItemId || 'all_trends',
+    key: (props) => {
+        return props.dashboardItemId || 'trends_' + props.view || 'all_trends'
+    },
 
     connect: {
         values: [userLogic, ['eventNames'], actionsModel, ['actions']],
+        actions: [insightLogic, ['setAllFilters']],
     },
 
-    loaders: ({ values }) => ({
+    loaders: ({ values, props }) => ({
         results: {
             __default: [],
-            setActiveView: () => [],
             loadResults: async (refresh = false, breakpoint) => {
                 let response
-                if (values.activeView === ViewType.SESSIONS) {
+                if (props.view === ViewType.SESSIONS) {
                     response = await api.get(
                         'api/event/sessions/?' +
                             (refresh ? 'refresh=true&' : '') +
@@ -163,9 +158,6 @@ export const trendsLogic = kea({
             breakdown_value,
             next,
         }),
-        setActiveView: (type) => ({ type }),
-        updateActiveView: (type) => ({ type }),
-        setCachedUrl: (type, url) => ({ type, url }),
     }),
 
     reducers: ({ actions, props }) => ({
@@ -188,23 +180,11 @@ export const trendsLogic = kea({
                 [actions.setLoadingMorePeople]: (state, { status }) => ({ ...state, loadingMore: status }),
             },
         ],
-        cachedUrls: [
-            {},
-            {
-                [actions.setCachedUrl]: (state, { type, url }) => ({ ...state, [type]: url }),
-            },
-        ],
         showingPeople: [
             false,
             {
                 [actions.loadPeople]: () => true,
                 [actions.setShowingPeople]: (_, { isShowing }) => isShowing,
-            },
-        ],
-        activeView: [
-            ViewType.TRENDS,
-            {
-                updateActiveView: (_, { type }) => type,
             },
         ],
     }),
@@ -253,6 +233,9 @@ export const trendsLogic = kea({
                 people.next
             )
         },
+        [actions.setFilters]: () => {
+            actions.setAllFilters(values.filters)
+        },
     }),
 
     actionToUrl: ({ actions, values, props }) => ({
@@ -263,42 +246,6 @@ export const trendsLogic = kea({
             if (!fromUrl) {
                 return ['/trends', values.filters]
             }
-        },
-        [actions.setActiveView]: ({ type }) => {
-            if (props.dashboardItemId) {
-                return // don't use the URL if on the dashboard
-            }
-            actions.setCachedUrl(values.activeView, window.location.pathname + window.location.search)
-            const cachedUrl = values.cachedUrls[type]
-            actions.updateActiveView(type)
-
-            if (cachedUrl) {
-                return cachedUrl
-            }
-            let urlParams = {}
-            if (type === ViewType.SESSIONS) {
-                urlParams = {
-                    insight: ViewType.SESSIONS,
-                    session: 'avg',
-                }
-            } else if (type === ViewType.RETENTION) {
-                urlParams = {
-                    insight: ViewType.RETENTION,
-                }
-            } else if (type === ViewType.TRENDS) {
-                urlParams = {
-                    insight: ViewType.TRENDS,
-                }
-            } else if (type === ViewType.PATHS) {
-                urlParams = {
-                    insight: ViewType.PATHS,
-                }
-            } else if (type === ViewType.FUNNELS) {
-                urlParams = {
-                    insight: ViewType.FUNNELS,
-                }
-            }
-            return ['/trends', urlParams]
         },
     }),
 
@@ -332,8 +279,6 @@ export const trendsLogic = kea({
                         order: 0,
                     },
                 ]
-            } else if (searchParams.insight) {
-                actions.updateActiveView(searchParams.insight)
             }
 
             if (!objectsEqual(cleanSearchParams, values.filters)) {

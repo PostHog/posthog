@@ -5,9 +5,11 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { router } from 'kea-router'
 
-export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filters: filtersParam }) {
-    const { filters, results, resultsLoading } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
-    const { loadResults, loadPeople } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
+export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filters: filtersParam, view }) {
+    const { filters, results, resultsLoading } = useValues(
+        trendsLogic({ dashboardItemId, view, filters: filtersParam })
+    )
+    const { loadResults, loadPeople } = useActions(trendsLogic({ dashboardItemId, view, filters: filtersParam }))
 
     const { people_action, people_day, ...otherFilters } = filters // eslint-disable-line
     const [{ fromItem }] = useState(router.values.hashParams)
@@ -15,6 +17,7 @@ export function ActionsLineGraph({ dashboardItemId = null, color = 'white', filt
     useEffect(() => {
         loadResults()
     }, [toParams(otherFilters)])
+
     return results && !resultsLoading ? (
         filters.session || results.reduce((total, item) => total + item.count, 0) > 0 ? (
             <LineGraph

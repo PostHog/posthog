@@ -1,4 +1,5 @@
 import React from 'react'
+import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { Tooltip, Row } from 'antd'
@@ -6,27 +7,18 @@ import { BreakdownFilter } from '../BreakdownFilter'
 import { CloseButton } from 'lib/utils'
 import { ShownAsFilter } from '../ShownAsFilter'
 import { InfoCircleOutlined } from '@ant-design/icons'
+import { trendsLogic } from '../trendsLogic'
+import { ViewType } from '../insightLogic'
 
-interface Props {
-    filters: Record<string, unknown>
-    onEntityChanged: (payload: Record<string, unknown>) => void
-    onBreakdownChanged: (breakdownPayload: BreakdownPayload) => void
-    onShownAsChanged: (shown_as: string) => void
-}
-
-interface BreakdownPayload {
-    breakdown: boolean
-    breakdown_type: string
-}
-
-export function TrendTab(props: Props): JSX.Element {
-    const { filters, onEntityChanged, onBreakdownChanged, onShownAsChanged } = props
+export function TrendTab(): JSX.Element {
+    const { filters } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.TRENDS }))
+    const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view: ViewType.TRENDS }))
 
     return (
         <>
             <ActionFilter
                 filters={filters}
-                setFilters={(payload): void => onEntityChanged(payload)}
+                setFilters={(payload): void => setFilters(payload)}
                 typeKey="trends"
                 hideMathSelector={false}
             />
@@ -46,11 +38,11 @@ export function TrendTab(props: Props): JSX.Element {
             <Row>
                 <BreakdownFilter
                     filters={filters}
-                    onChange={(breakdown, breakdown_type): void => onBreakdownChanged({ breakdown, breakdown_type })}
+                    onChange={(breakdown, breakdown_type): void => setFilters({ breakdown, breakdown_type })}
                 />
                 {filters.breakdown && (
                     <CloseButton
-                        onClick={(): void => onBreakdownChanged({ breakdown: false, breakdown_type: null })}
+                        onClick={(): void => setFilters({ breakdown: false, breakdown_type: null })}
                         style={{ marginTop: 1, marginLeft: 10 }}
                     />
                 )}
@@ -68,7 +60,7 @@ export function TrendTab(props: Props): JSX.Element {
                     <InfoCircleOutlined className="info" style={{ color: '#007bff' }}></InfoCircleOutlined>
                 </Tooltip>
             </h4>
-            <ShownAsFilter filters={filters} onChange={(shown_as): void => onShownAsChanged(shown_as)} />
+            <ShownAsFilter filters={filters} onChange={(shown_as): void => setFilters({ shown_as })} />
         </>
     )
 }

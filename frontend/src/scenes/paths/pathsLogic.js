@@ -3,7 +3,7 @@ import { toParams, objectsEqual } from 'lib/utils'
 import api from 'lib/api'
 import { router } from 'kea-router'
 import lo from 'lodash'
-import { ViewType } from 'scenes/trends/trendsLogic'
+import { ViewType } from 'scenes/trends/insightLogic'
 
 export const PAGEVIEW = '$pageview'
 export const SCREEN = '$screen'
