@@ -126,11 +126,26 @@ function _Trends() {
                 onChange={(key) => setActiveView(key)}
                 animated={false}
             >
-                <TabPane tab={'Trends'} key={ViewType.TRENDS} data-attr="insight-trend-tab"></TabPane>
-                <TabPane tab="Sessions" key={ViewType.SESSIONS} data-attr="insight-sessions-tab"></TabPane>
-                <TabPane tab="Funnels" key={ViewType.FUNNELS} data-attr="insight-funnels-tab"></TabPane>
-                <TabPane tab="Retention" key={ViewType.RETENTION} data-attr="insight-retention-tab"></TabPane>
-                <TabPane tab="User Paths" key={ViewType.PATHS} data-attr="insight-path-tab"></TabPane>
+                <TabPane
+                    tab={<span data-attr="insight-trends-tab">Trends</span>}
+                    key={ViewType.TRENDS}
+                    data-attr="insight-trend-tab"
+                ></TabPane>
+                <TabPane
+                    tab={<span data-attr="insight-sessions-tab">Sessions</span>}
+                    key={ViewType.SESSIONS}
+                    data-attr="insight-sessions-tab"
+                ></TabPane>
+                <TabPane
+                    tab={<span data-attr="insight-funnels-tab">Funnels</span>}
+                    key={ViewType.FUNNELS}
+                    data-attr="insight-funnels-tab"
+                ></TabPane>
+                <TabPane
+                    tab={<span data-attr="insight-retention-tab">Retention</span>}
+                    key={ViewType.RETENTION}
+                ></TabPane>
+                <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS}></TabPane>
             </Tabs>
             <Row gutter={16}>
                 <Col xs={24} xl={7}>

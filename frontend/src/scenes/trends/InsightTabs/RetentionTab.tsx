@@ -24,7 +24,7 @@ export function RetentionTab(): JSX.Element {
     })
 
     return (
-        <>
+        <div data-attr="retention-tab">
             <h4 className="secondary">Target Event</h4>
             <button
                 ref={node}
@@ -52,6 +52,6 @@ export function RetentionTab(): JSX.Element {
             <hr />
             <h4 className="secondary">Filters</h4>
             <PropertyFilters pageKey="insight-retention" />
-        </>
+        </div>
     )
 }

@@ -16,7 +16,7 @@ export function FunnelTab(): JSX.Element {
     const { eventProperties } = useValues(userLogic)
 
     return (
-        <>
+        <div data-attr="funnel-tab">
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
@@ -71,6 +71,6 @@ export function FunnelTab(): JSX.Element {
                     Save funnel
                 </Button>
             </form>
-        </>
+        </div>
     )
 }

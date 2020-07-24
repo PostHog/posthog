@@ -1,10 +1,17 @@
 describe('Paths', () => {
     beforeEach(() => {
-        cy.get('[data-attr=menu-item-paths]').click()
+        cy.visit('/')
+        cy.get('[data-attr=insight-path-tab]').click()
     })
 
     it('Paths loaded', () => {
-        cy.get('h1').should('contain', 'Paths')
+        cy.get('[data-attr=paths-viz]').should('exist')
+    })
+
+    it('Apply date filter', () => {
+        cy.get('[data-attr=date-filter]').click()
+        cy.contains('Last 30 days').click()
+
         cy.get('[data-attr=paths-viz]').should('exist')
     })
 })
