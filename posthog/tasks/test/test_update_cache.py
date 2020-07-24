@@ -1,12 +1,14 @@
-from posthog.tasks.update_cache import update_cache_item, update_cached_items
-from posthog.api.test.base import BaseTest
-from posthog.models import Filter, DashboardItem, Dashboard, Funnel
-from posthog.utils import generate_cache_key
-from django.core.cache import cache
-from freezegun import freeze_time
-from unittest.mock import patch, MagicMock
-from django.utils.timezone import now
 import json
+from unittest.mock import MagicMock, patch
+
+from django.core.cache import cache
+from django.utils.timezone import now
+from freezegun import freeze_time
+
+from posthog.api.test.base import BaseTest
+from posthog.models import Dashboard, DashboardItem, Filter, Funnel
+from posthog.tasks.update_cache import update_cache_item, update_cached_items
+from posthog.utils import generate_cache_key
 
 
 class TestUpdateCache(BaseTest):

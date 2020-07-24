@@ -13,14 +13,13 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 import ast
 import os
 import sys
-from typing import List, Optional
 from distutils.util import strtobool
-
-import sentry_sdk
-from sentry_sdk.integrations.django import DjangoIntegration
+from typing import List, Optional
 
 import dj_database_url
+import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
+from sentry_sdk.integrations.django import DjangoIntegration
 
 VERSION = "1.11.0"
 

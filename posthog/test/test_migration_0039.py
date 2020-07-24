@@ -1,8 +1,9 @@
-from django.apps import apps
-from django.test import TestCase
-from django.db.migrations.executor import MigrationExecutor
-from django.db import connection
 from typing import Optional
+
+from django.apps import apps
+from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
+from django.test import TestCase
 
 
 class TestMigrations(TestCase):

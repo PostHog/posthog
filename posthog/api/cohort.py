@@ -1,9 +1,11 @@
+from typing import Any, Dict, Optional
+
+from django.db.models import Count, QuerySet
 from rest_framework import request, response, serializers, viewsets
-from posthog.models import Cohort
-from typing import Dict, Any, Optional
+
 from posthog.api.user import UserSerializer
+from posthog.models import Cohort
 from posthog.tasks.calculate_cohort import calculate_cohort
-from django.db.models import QuerySet, Count
 
 
 class CohortSerializer(serializers.ModelSerializer):

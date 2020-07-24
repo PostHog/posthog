@@ -1,35 +1,22 @@
+import json
 from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
+
+import pandas as pd
 from dateutil.relativedelta import relativedelta
-from posthog.models import (
-    Event,
-    Person,
-    Element,
-    Action,
-    ElementGroup,
-    Filter,
-    PersonDistinctId,
-    Team,
-)
-from posthog.utils import (
-    friendly_time,
-    request_to_date_query,
-    append_data,
-    convert_property_value,
-    get_compare_period_dates,
-    dict_from_cursor_fetchall,
-)
+from django.db import connection
+from django.db.models import F, Prefetch, Q, QuerySet
+from django.db.models.expressions import Window
+from django.db.models.functions import Lag
+from django.utils.timezone import now
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from django.db.models import QuerySet, F, Prefetch, Q
-from django.db.models.functions import Lag
-from django.db.models.expressions import Window
-from django.db import connection
-from django.utils.timezone import now
-from typing import Any, Dict, List, Optional
-from django.utils.timezone import now
-import json
-import pandas as pd
-from typing import Tuple, Optional
+
+from posthog.models import (Action, Element, ElementGroup, Event, Filter,
+                            Person, PersonDistinctId, Team)
+from posthog.utils import (append_data, convert_property_value,
+                           dict_from_cursor_fetchall, friendly_time,
+                           get_compare_period_dates, request_to_date_query)
 
 
 class ElementSerializer(serializers.ModelSerializer):

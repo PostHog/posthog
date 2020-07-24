@@ -1,7 +1,10 @@
-from .base import BaseTest, TransactionBaseTest
-from posthog.models import Event, Person, Element, Action, ActionStep, Team
-from freezegun import freeze_time
 import json
+
+from freezegun import freeze_time
+
+from posthog.models import Action, ActionStep, Element, Event, Person, Team
+
+from .base import BaseTest, TransactionBaseTest
 
 
 class TestEvents(TransactionBaseTest):

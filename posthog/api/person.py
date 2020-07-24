@@ -1,15 +1,20 @@
-from posthog.models import Event, Team, Person, PersonDistinctId, Cohort, Filter
-from posthog.utils import convert_property_value
-from rest_framework import serializers, viewsets, response, request
+import json
+from typing import Union
+
+from django.core.cache import cache
+from django.db.models import (Count, Func, OuterRef, Prefetch, Q, QuerySet,
+                              Subquery)
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers  # type: ignore
-from django.db.models import Q, Prefetch, QuerySet, Subquery, OuterRef, Count, Func
-from .event import EventSerializer
-from typing import Union
+
+from posthog.models import (Cohort, Event, Filter, Person, PersonDistinctId,
+                            Team)
+from posthog.utils import convert_property_value
+
 from .base import CursorPagination as BaseCursorPagination
-import json
-from django.core.cache import cache
+from .event import EventSerializer
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):

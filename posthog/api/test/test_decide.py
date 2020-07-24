@@ -1,9 +1,10 @@
-from .base import BaseTest
-
-from posthog.models import Person, FeatureFlag
-from unittest.mock import patch
 import base64
 import json
+from unittest.mock import patch
+
+from posthog.models import FeatureFlag, Person
+
+from .base import BaseTest
 
 
 class TestDecide(BaseTest):

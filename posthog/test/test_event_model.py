@@ -1,15 +1,9 @@
-from posthog.models import (
-    Event,
-    Element,
-    Action,
-    ActionStep,
-    Person,
-    Team,
-    ElementGroup,
-)
-from posthog.models.event import Selector, SelectorPart
+from unittest.mock import call, patch
+
 from posthog.api.test.base import BaseTest
-from unittest.mock import patch, call
+from posthog.models import (Action, ActionStep, Element, ElementGroup, Event,
+                            Person, Team)
+from posthog.models.event import Selector, SelectorPart
 
 
 class TestFilterByActions(BaseTest):

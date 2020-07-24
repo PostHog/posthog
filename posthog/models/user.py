@@ -1,11 +1,10 @@
-from django.conf import settings
-from django.db import models
-from django.contrib.auth.models import AbstractUser, BaseUserManager
-from typing import Union, Optional, List
-from django.utils.translation import ugettext_lazy as _
-
 import secrets
+from typing import List, Optional, Union
 
+from django.conf import settings
+from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.db import models
+from django.utils.translation import ugettext_lazy as _
 from rest_framework.fields import BooleanField
 
 

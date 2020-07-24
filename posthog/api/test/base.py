@@ -1,6 +1,6 @@
-from django.test import TransactionTestCase, TestCase
-from posthog.models import User, Team
-from django.test import Client
+from django.test import Client, TestCase, TransactionTestCase
+
+from posthog.models import Team, User
 
 
 class BaseTest(TestCase):

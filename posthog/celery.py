@@ -1,14 +1,14 @@
 import os
+import time
+from datetime import datetime
+from typing import Optional
+
+import redis
 from celery import Celery, group
 from celery.schedules import crontab
+from dateutil import parser
 from django.conf import settings
 from django.db import connection
-import redis
-import time
-from typing import Optional
-from datetime import datetime
-from dateutil import parser
-
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -69,7 +69,8 @@ def update_event_partitions():
 
 @app.task
 def calculate_event_action_mappings():
-    from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
+    from posthog.tasks.calculate_action import \
+        calculate_actions_from_last_calculation
 
     calculate_actions_from_last_calculation()
 

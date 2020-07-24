@@ -1,18 +1,17 @@
-from rest_framework import viewsets, request
-from rest_framework.response import Response
-from rest_framework.decorators import action
-from posthog.models import Event, Filter
-from posthog.utils import request_to_date_query, dict_from_cursor_fetchall
-from django.db.models import OuterRef
-from django.db import connection
+import json
 from typing import Optional
 
+from django.db import connection
+from django.db.models import F, OuterRef, Q
 from django.db.models.expressions import Window
 from django.db.models.functions import Lag
-from django.db.models import F, Q
-from django.db import connection
+from rest_framework import request, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
-import json
+from posthog.models import Event, Filter
+from posthog.utils import dict_from_cursor_fetchall, request_to_date_query
+
 
 # At the moment, paths don't support users changing distinct_ids midway through.
 # See: https://github.com/PostHog/posthog/issues/185

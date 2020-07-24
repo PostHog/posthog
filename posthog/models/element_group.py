@@ -1,10 +1,12 @@
-from django.db import models, transaction
-from django.forms.models import model_to_dict
-from .element import Element
-from .team import Team
-from typing import List, Dict, Any
 import hashlib
 import json
+from typing import Any, Dict, List
+
+from django.db import models, transaction
+from django.forms.models import model_to_dict
+
+from .element import Element
+from .team import Team
 
 
 class ElementGroupManager(models.Manager):

@@ -1,11 +1,13 @@
-from posthog.models import Funnel, DashboardItem
+import datetime
+import json
+from typing import Any, Dict, List
+
+from django.db.models import QuerySet
 from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
-from django.db.models import QuerySet
-from typing import List, Dict, Any
-import json
-from posthog.decorators import cached_function, FUNNEL_ENDPOINT
-import datetime
+
+from posthog.decorators import FUNNEL_ENDPOINT, cached_function
+from posthog.models import DashboardItem, Funnel
 
 
 class FunnelSerializer(serializers.HyperlinkedModelSerializer):
