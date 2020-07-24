@@ -7,6 +7,10 @@ export const ViewType = {
     RETENTION: 'RETENTION',
     PATHS: 'PATHS',
 }
+/*
+InsighLogic maintains state for changing between insight features
+This includes handling the urls and view state
+*/
 
 export const insightLogic = kea({
     actions: () => ({
@@ -28,6 +32,9 @@ export const insightLogic = kea({
                 updateActiveView: (_, { type }) => type,
             },
         ],
+        /*
+        allfilters is passed to components that are shared between the different insight features
+        */
         allFilters: [
             {},
             {

@@ -95,6 +95,10 @@ function _Trends() {
                 <Col xs={24} xl={7}>
                     <Card>
                         <div className="card-body px-4">
+                            {/* 
+                            These are insight specific filters. 
+                            They each have insight specific logics
+                            */}
                             <Tabs
                                 activeKey={activeView}
                                 style={{
@@ -123,6 +127,10 @@ function _Trends() {
                     </Card>
                 </Col>
                 <Col xs={24} xl={17}>
+                    {/* 
+                    These are filters that are reused between insight features. 
+                    They each have generic logic that updates the url
+                    */}
                     <Card
                         title={
                             <div className="float-right pt-1 pb-1">
