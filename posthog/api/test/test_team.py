@@ -56,7 +56,8 @@ class TestTeamUser(BaseTest):
         response = self.client.delete(f"/api/team/user/{user2.distinct_id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        self.assertFalse(User.objects.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).exists())
+        self.assertFalse(User.objects.get(id=user2.id).is_active)
+        self.assertFalse(team.users.filter(Q(pk=user2.pk) | Q(distinct_id=user2.distinct_id)).exists())
 
     def test_cannot_delete_yourself(self):
         team, user = self.create_team_and_user()
