@@ -1,7 +1,8 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
-import { ViewType } from 'scenes/trends/insightLogic'
+import { ViewType, insightLogic } from 'scenes/trends/insightLogic'
+import { objectsEqual } from 'lib/utils'
 
 export const funnelLogic = kea({
     key: (props) => props.id || 'new',
@@ -10,12 +11,17 @@ export const funnelLogic = kea({
         setFunnel: (funnel, update) => ({ funnel, update }),
     }),
 
+    connect: {
+        actions: [insightLogic, ['setAllFilters']],
+    },
+
     loaders: ({ props }) => ({
         funnel: [
             { filters: {} },
             {
                 loadFunnel: async (id = props.id) => {
-                    return await api.get('api/funnel/' + id + '/?exclude_count=1')
+                    const funnel = await api.get('api/funnel/' + id + '/?exclude_count=1')
+                    return funnel
                 },
                 updateFunnel: async (funnel) => {
                     return await api.update('api/funnel/' + funnel.id, funnel)
@@ -75,22 +81,41 @@ export const funnelLogic = kea({
         setFunnel: ({ update }) => {
             if (update) actions.updateFunnel(values.funnel)
         },
+        loadFunnelSuccess: ({ funnel }) => {
+            actions.setAllFilters(funnel.filters)
+        },
         updateFunnelSuccess: async ({ funnel }) => {
             actions.loadStepsWithCount({ id: funnel.id, refresh: true })
+            actions.setAllFilters(funnel.filters)
             toast('Funnel saved!')
         },
         createFunnelSuccess: ({ funnel }) => {
             actions.loadStepsWithCount({ id: funnel.id, refresh: true })
+            actions.setAllFilters(funnel.filters)
             toast('Funnel saved!')
         },
     }),
-    urlToAction: ({ actions }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/trends': (_, searchParams) => {
             if (searchParams.insight === ViewType.FUNNELS) {
                 const id = searchParams.id
                 if (id) {
                     actions.loadFunnel(id)
                     actions.loadStepsWithCount({ id })
+                }
+
+                const paramsToCheck = {
+                    date_from: searchParams.date_from,
+                    date_to: searchParams.date_to,
+                }
+
+                const _filters = {
+                    date_from: values.funnel.filters.date_from,
+                    date_to: values.funnel.filters.date_to,
+                }
+
+                if (!objectsEqual(_filters, paramsToCheck) && values.funnel.id) {
+                    actions.setFunnel({ filters: paramsToCheck }, true)
                 }
             }
         },
@@ -100,6 +125,7 @@ export const funnelLogic = kea({
             if (key === 'new') {
                 return
             }
+
             actions.loadFunnel()
             actions.loadStepsWithCount({ id: props.id })
         },

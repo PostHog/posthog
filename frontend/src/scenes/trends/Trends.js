@@ -88,7 +88,6 @@ function _Trends() {
 
     const { activeView, allFilters } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
-
     return (
         <div className="actions-graph">
             <h1 className="page-header">Insights</h1>
@@ -127,7 +126,9 @@ function _Trends() {
                     <Card
                         title={
                             <div className="float-right pt-1 pb-1">
-                                {showIntervalFilter[activeView] && <IntervalFilter view={activeView} />}
+                                {showIntervalFilter[activeView] && (
+                                    <IntervalFilter filters={allFilters} view={activeView} />
+                                )}
                                 {showChartFilter[activeView] && (
                                     <ChartFilter
                                         onChange={(display) => {
@@ -135,11 +136,11 @@ function _Trends() {
                                                 clearAnnotationsToCreate()
                                         }}
                                         displayMap={displayMap}
-                                        filters={{}}
+                                        filters={allFilters}
                                     />
                                 )}
 
-                                {showDateFilter[activeView] && <DateFilter />}
+                                {showDateFilter[activeView] && <DateFilter view={activeView} filters={allFilters} />}
 
                                 {showComparePrevious[activeView] && <CompareFilter />}
                                 <SaveToDashboard

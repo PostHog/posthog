@@ -3,6 +3,7 @@ import { Select, DatePicker, Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import moment from 'moment'
 import { dateFilterLogic } from './dateFilterLogic'
+import { ViewType } from 'scenes/trends/insightLogic'
 
 let dateMapping = {
     Today: ['dStart'],
@@ -32,7 +33,7 @@ function dateFilterToText(date_from, date_to) {
     return name
 }
 
-export function DateFilter({ style }) {
+export function DateFilter({ style, filters, view }) {
     const {
         dates: { dateFrom, dateTo },
     } = useValues(dateFilterLogic)
@@ -87,7 +88,10 @@ export function DateFilter({ style }) {
             data-attr="date-filter"
             bordered={false}
             id="daterange_selector"
-            value={dateFilterToText(dateFrom, dateTo)}
+            value={dateFilterToText(
+                view === ViewType.FUNNELS ? filters.date_from : dateFrom,
+                view === ViewType.FUNNELS ? filters.date_to : dateTo
+            )}
             onChange={_onChange}
             style={{
                 marginRight: 4,
