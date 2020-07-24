@@ -108,7 +108,7 @@
         "*.{js,ts,tsx}": "eslint",
         "*.py": [
             "./env/bin/black -l 120",
-            "./env/bin/isort"
+            "./env/bin/isort -m 3 --tc --fgw 8 --up -n -l 120"
         ]
     },
     "optionalDependencies": {
