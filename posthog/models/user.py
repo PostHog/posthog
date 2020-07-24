@@ -48,8 +48,7 @@ class UserManager(BaseUserManager):
         """Create and save a regular User with the given email and password."""
         extra_fields.setdefault("is_staff", False)
         extra_fields.setdefault("is_superuser", False)
-        if not settings.TEST:
-            extra_fields.setdefault("distinct_id", secrets.token_urlsafe(32))
+        extra_fields.setdefault("distinct_id", secrets.token_urlsafe(32))
         return self._create_user(email, password, **extra_fields)
 
     def create_superuser(self, email, password, **extra_fields):
