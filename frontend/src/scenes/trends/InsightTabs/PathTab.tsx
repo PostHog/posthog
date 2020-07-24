@@ -23,7 +23,6 @@ export function PathTab(): JSX.Element {
             <h4 className="secondary">Path Type</h4>
             <Select
                 value={filter?.type || PAGEVIEW}
-                bordered={false}
                 defaultValue={PAGEVIEW}
                 dropdownMatchSelectWidth={false}
                 onChange={(value): void => setFilter({ type: value, start: null })}
@@ -50,7 +49,6 @@ export function PathTab(): JSX.Element {
                 propertyKey={pathOptionsToProperty[filter.type]}
                 type="event"
                 style={{ width: 200, paddingTop: 2 }}
-                bordered={false}
                 value={filter.start}
                 placeholder={'Select start element'}
             ></PropertyValue>

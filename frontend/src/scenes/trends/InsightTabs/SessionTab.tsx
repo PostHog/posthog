@@ -11,6 +11,7 @@ export function SessionTab(): JSX.Element {
 
     return (
         <>
+            <h4 className="secondary">{'Type'}</h4>
             <SessionFilter value={filters.session} onChange={(v): void => setFilters({ session: v })} />
             <hr />
             <h4 className="secondary">Filters</h4>

@@ -16,6 +16,7 @@ export function TrendTab(): JSX.Element {
 
     return (
         <>
+            <h4 className="secondary">{'Actions & Events'}</h4>
             <ActionFilter
                 filters={filters}
                 setFilters={(payload): void => setFilters(payload)}

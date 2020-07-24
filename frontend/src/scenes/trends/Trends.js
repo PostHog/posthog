@@ -117,6 +117,21 @@ function _Trends() {
     return (
         <div className="actions-graph">
             <h1 className="page-header">Insights</h1>
+            <Tabs
+                size="large"
+                activeKey={activeView}
+                style={{
+                    overflow: 'visible',
+                }}
+                onChange={(key) => setActiveView(key)}
+                animated={false}
+            >
+                <TabPane tab={'Trends'} key={ViewType.TRENDS} data-attr="insight-trend-tab"></TabPane>
+                <TabPane tab="Sessions" key={ViewType.SESSIONS} data-attr="insight-sessions-tab"></TabPane>
+                <TabPane tab="Funnels" key={ViewType.FUNNELS} data-attr="insight-funnels-tab"></TabPane>
+                <TabPane tab="Retention" key={ViewType.RETENTION} data-attr="insight-retention-tab"></TabPane>
+                <TabPane tab="User Paths" key={ViewType.PATHS} data-attr="insight-path-tab"></TabPane>
+            </Tabs>
             <Row gutter={16}>
                 <Col xs={24} xl={7}>
                     <Card>
@@ -125,30 +140,15 @@ function _Trends() {
                             These are insight specific filters. 
                             They each have insight specific logics
                             */}
-                            <Tabs
-                                activeKey={activeView}
-                                style={{
-                                    overflow: 'visible',
-                                }}
-                                onChange={(key) => setActiveView(key)}
-                                animated={false}
-                            >
-                                <TabPane tab={'Trends'} key={ViewType.TRENDS} data-attr="insight-trend-tab">
-                                    <TrendTab></TrendTab>
-                                </TabPane>
-                                <TabPane tab="Sessions" key={ViewType.SESSIONS} data-attr="insight-sessions-tab">
-                                    <SessionTab />
-                                </TabPane>
-                                <TabPane tab="Funnels" key={ViewType.FUNNELS} data-attr="insight-funnels-tab">
-                                    <FunnelTab></FunnelTab>
-                                </TabPane>
-                                <TabPane tab="Retention" key={ViewType.RETENTION} data-attr="insight-retention-tab">
-                                    <RetentionTab></RetentionTab>
-                                </TabPane>
-                                <TabPane tab="User Paths" key={ViewType.PATHS} data-attr="insight-path-tab">
-                                    <PathTab></PathTab>
-                                </TabPane>
-                            </Tabs>
+                            {
+                                {
+                                    [`${ViewType.TRENDS}`]: <TrendTab></TrendTab>,
+                                    [`${ViewType.SESSIONS}`]: <SessionTab />,
+                                    [`${ViewType.FUNNELS}`]: <FunnelTab></FunnelTab>,
+                                    [`${ViewType.RETENTION}`]: <RetentionTab></RetentionTab>,
+                                    [`${ViewType.PATHS}`]: <PathTab></PathTab>,
+                                }[activeView]
+                            }
                         </div>
                     </Card>
                 </Col>
