@@ -17,18 +17,18 @@ export const chartFilterLogic = kea({
     }),
     listeners: ({ actions, values }) => ({
         [actions.setChartFilter]: () => {
-            const { properties: _, ...searchParams } = router.values.searchParams // eslint-disable-line
+            const { display, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
 
             searchParams.display = values.chartFilter
 
-            if (!objectsEqual(router.values.searchParams, searchParams)) {
+            if (!objectsEqual(display, values.chartFilter)) {
                 router.actions.push(pathname, searchParams)
             }
         },
     }),
     urlToAction: ({ actions }) => ({
-        '*': (_, { display }) => {
+        '/trends': (_, { display }) => {
             if (display) actions.setChartFilter(display)
         },
     }),

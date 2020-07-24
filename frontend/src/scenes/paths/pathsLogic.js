@@ -99,13 +99,18 @@ export const pathsLogic = kea({
         propertiesForUrl: [
             () => [selectors.properties, selectors.filter],
             (properties, filter) => {
-                let result = {}
+                let result = {
+                    insight: ViewType.PATHS,
+                }
                 if (!lo.isEmpty(properties)) {
                     result['properties'] = properties
                 }
 
                 if (!lo.isEmpty(filter)) {
-                    result['filter'] = filter
+                    result = {
+                        ...result,
+                        ...filter,
+                    }
                 }
 
                 if (lo.isEmpty(result)) return ''
@@ -113,9 +118,12 @@ export const pathsLogic = kea({
             },
         ],
     }),
-    actionToUrl: ({ actions, values }) => ({
-        [actions.setFilter]: () => {
-            return ['/trends', { filter: values.filter, insight: ViewType.PATHS }]
+    actionToUrl: ({ values }) => ({
+        setProperties: () => {
+            return [router.values.location.pathname, values.propertiesForUrl]
+        },
+        setFilter: () => {
+            return [router.values.location.pathname, values.propertiesForUrl]
         },
     }),
     urlToAction: ({ actions, values }) => ({
@@ -132,17 +140,14 @@ export const pathsLogic = kea({
                     return
                 }
 
-                if (
-                    !objectsEqual(
-                        (!lo.isEmpty(searchParams.properties) && searchParams.properties) || {},
-                        values.properties
-                    )
-                ) {
+                if (!objectsEqual(searchParams.properties, values.properties)) {
                     actions.setProperties(searchParams.properties || {})
                 }
 
-                if (!objectsEqual(!lo.isEmpty(searchParams.filter) || {}, values.filter)) {
-                    actions.setFilter(searchParams.filter || {})
+                const { insight: _, properties: __, ...restParams } = searchParams
+
+                if (!objectsEqual(restParams, values.filter)) {
+                    actions.setFilter(restParams)
                 }
             }
         },

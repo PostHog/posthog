@@ -23,28 +23,28 @@ export const intervalFilterLogic = kea({
     }),
     listeners: ({ actions, values }) => ({
         [actions.setIntervalFilter]: () => {
-            const { properties: _, ...searchParams } = router.values.searchParams // eslint-disable-line
+            const { interval, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
 
             searchParams.interval = values.interval
 
-            if (!objectsEqual(router.values.searchParams, searchParams)) {
+            if (!objectsEqual(interval, values.interval)) {
                 router.actions.push(pathname, searchParams)
             }
         },
         [actions.setDateFrom]: () => {
-            const { properties: _, ...searchParams } = router.values.searchParams // eslint-disable-line
+            const { date_from, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
 
             searchParams.date_from = values.dateFrom
 
-            if (!objectsEqual(router.values.searchParams, searchParams)) {
+            if (!objectsEqual(date_from, values.dateFrom)) {
                 router.actions.push(pathname, searchParams)
             }
         },
     }),
     urlToAction: ({ actions }) => ({
-        '*': (_, { interval, date_from }) => {
+        '/trends': (_, { interval, date_from }) => {
             if (interval) actions.setIntervalFilter(interval)
             if (date_from) actions.setDateFrom(date_from)
         },

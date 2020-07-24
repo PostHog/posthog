@@ -16,19 +16,19 @@ export const dateFilterLogic = kea({
     }),
     listeners: ({ actions, values }) => ({
         [actions.setDates]: () => {
-            const { properties: _, ...searchParams } = router.values.searchParams // eslint-disable-line
+            const { date_from, date_to, ...searchParams } = router.values.searchParams // eslint-disable-line
             const { pathname } = router.values.location
 
             searchParams.date_from = values.dates.dateFrom
             searchParams.date_to = values.dates.dateTo
 
-            if (!objectsEqual(router.values.searchParams, searchParams)) {
+            if (!objectsEqual(date_from, values.dates.dateFrom) || !objectsEqual(date_to, values.dates.dateTo)) {
                 router.actions.push(pathname, searchParams)
             }
         },
     }),
     urlToAction: ({ actions }) => ({
-        '*': (_, { date_from, date_to }) => {
+        '/trends': (_, { date_from, date_to }) => {
             actions.setDates(date_from, date_to)
         },
     }),
