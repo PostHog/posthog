@@ -113,6 +113,7 @@ function _Trends() {
 
     const { activeView, allFilters } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
+
     return (
         <div className="actions-graph">
             <h1 className="page-header">Insights</h1>

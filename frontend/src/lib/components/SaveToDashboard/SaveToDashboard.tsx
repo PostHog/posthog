@@ -64,7 +64,7 @@ export function SaveToDashboard(props: Props): JSX.Element {
                 type="primary"
                 data-attr="save-to-dashboard-button"
             >
-                {fromItem && type !== 'FunnelViz' ? 'Update Dashboard' : 'Add to dashboard'}
+                {fromItem && _type !== 'FunnelViz' ? 'Update Dashboard' : 'Add to dashboard'}
             </Button>
         </span>
     )

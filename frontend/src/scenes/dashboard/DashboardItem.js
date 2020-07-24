@@ -28,6 +28,7 @@ import { usePrevious } from 'lib/hooks/usePrevious'
 import moment from 'moment'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
+import { ViewType } from 'scenes/trends/insightLogic'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -68,7 +69,11 @@ const typeMap = {
         icon: FunnelPlotOutlined,
         viewText: 'View funnel',
         link: ({ funnel, id, dashboard, name }) =>
-            combineUrl(`/funnel/${funnel}`, {}, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+            combineUrl(
+                `/trends`,
+                { insight: ViewType.FUNNELS, id: funnel },
+                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
+            ).url,
     },
 }
 
