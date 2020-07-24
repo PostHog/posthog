@@ -122,6 +122,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
+
         request = self.context["request"]
         team = request.user.team_set.get()
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated

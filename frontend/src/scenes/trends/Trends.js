@@ -83,6 +83,14 @@ const showComparePrevious = {
     [`${ViewType.PATHS}`]: false,
 }
 
+const disableSaveToDashboard = {
+    [`${ViewType.TRENDS}`]: false,
+    [`${ViewType.SESSIONS}`]: false,
+    [`${ViewType.FUNNELS}`]: false,
+    [`${ViewType.RETENTION}`]: true,
+    [`${ViewType.PATHS}`]: true,
+}
+
 function determineInsightType(activeView, display) {
     if (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) {
         return display || ACTIONS_LINE_GRAPH_LINEAR
@@ -169,9 +177,17 @@ function _Trends() {
 
                                 {showComparePrevious[activeView] && <CompareFilter />}
                                 <SaveToDashboard
-                                    filters={allFilters}
-                                    type={determineInsightType(activeView, allFilters.display)}
-                                    annotations={annotationsList}
+                                    disabled={disableSaveToDashboard[activeView]}
+                                    item={{
+                                        type: determineInsightType(activeView, allFilters.display),
+                                        entity:
+                                            activeView === ViewType.FUNNELS
+                                                ? allFilters
+                                                : {
+                                                      filters: allFilters,
+                                                      annotations: annotationsList,
+                                                  },
+                                    }}
                                 />
                             </div>
                         }

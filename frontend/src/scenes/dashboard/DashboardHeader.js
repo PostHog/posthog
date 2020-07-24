@@ -27,6 +27,7 @@ export function DashboardHeader({ logic }) {
     const { dashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const [fullScreen, setFullScreen] = useState(false)
+    const [showShareModal, setShowShareModal] = useState(false)
 
     return (
         <div className={`dashboard-header${fullScreen ? ' full-screen' : ''}`}>
