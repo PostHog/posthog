@@ -31,19 +31,25 @@ export function TeamInvitationLink({ user }) {
     )
 }
 
+export function TeamInvitationContent({ user }) {
+    return (
+        <div>
+            <p>
+                <TeamInvitationLink user={user} />
+            </p>
+            Invite teammates with the link above.
+            <br />
+            Build an even better product, <i>together</i>.
+        </div>
+    )
+}
+
 export function TeamInvitationModal({ user, visible, onCancel }) {
     return (
         <Modal visible={visible} footer={null} onCancel={onCancel}>
             <div data-attr="invite-team-modal">
                 <h2>Team Invitation</h2>
-                <p>
-                    Send this link to invite teammate(s).
-                    <br />
-                    Build an even better product <i>together</i>.
-                </p>
-                <div>
-                    <TeamInvitationLink user={user} />
-                </div>
+                <TeamInvitationContent user={user} />
             </div>
         </Modal>
     )

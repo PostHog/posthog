@@ -1,6 +1,6 @@
 import React from 'react'
 import { Card, Loading } from 'lib/utils'
-import { TeamInvitationLink } from 'lib/components/TeamInvitation'
+import { TeamInvitationContent } from 'lib/components/TeamInvitation'
 import { Table, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { teamLogic } from './teamLogic'
@@ -73,20 +73,13 @@ function Team({ user }) {
         <>
             <div>
                 <h1 className="page-header">Team</h1>
-                <p style={{ maxWidth: 600 }}>
-                    <i>This is you and all your teammates. Manage them from here.</i>
-                </p>
-                <p style={{ maxWidth: 600 }}>
-                    <TeamInvitationLink user={user} />
-                </p>
-                <p style={{ maxWidth: 600 }}>
+                <div style={{ maxWidth: 600 }}>
                     <i>
-                        Send the link above to invite teammate(s).
-                        <br />
-                        Build an even better product together.
+                        <p>This is you and all your teammates. Manage them from here.</p>
+                        <TeamInvitationContent user={user} />
                     </i>
-                </p>
-                <Card>
+                </div>
+                <Card style={{ marginTop: '1rem' }}>
                     {usersLoading ? (
                         <div className="loading-overlay mt-5">
                             <div />
