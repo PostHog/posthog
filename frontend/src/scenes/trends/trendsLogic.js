@@ -120,6 +120,7 @@ export const trendsLogic = kea({
         results: {
             __default: [],
             loadResults: async (refresh = false, breakpoint) => {
+                if (values.results.length === 0 && props.cachedResults) return props.cachedResults
                 let response
                 if (props.view === ViewType.SESSIONS) {
                     response = await api.get(

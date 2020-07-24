@@ -21,6 +21,9 @@ class TestPerson(BaseTest):
         response = self.client.get("/api/person/?search=another@gm").json()
         self.assertEqual(len(response["results"]), 1)
 
+        response = self.client.get("/api/person/?search=_id_3").json()
+        self.assertEqual(len(response["results"]), 1)
+
     def test_properties(self):
         Person.objects.create(
             team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"},

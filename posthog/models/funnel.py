@@ -21,6 +21,7 @@ from .utils import namedtuplefetchall
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from datetime import timedelta
+from django.utils import timezone
 
 
 class Funnel(models.Model):
@@ -42,7 +43,15 @@ class Funnel(models.Model):
                     **{filter_key: step.id},
                     team_id=team_id,
                     **({"distinct_id": "1234321"} if index > 0 else {}),
-                    **({"timestamp__gte": "2000-01-01"} if index > 0 else {}),
+                    **(
+                        {
+                            "timestamp__gte": timezone.now().replace(
+                                year=2000, month=1, day=1, hour=0, minute=0, second=0, microsecond=0
+                            )
+                        }
+                        if index > 0
+                        else {}
+                    ),
                 )
                 .filter(filter.properties_to_Q(team_id=team_id))
                 .filter(step.properties_to_Q(team_id=team_id))

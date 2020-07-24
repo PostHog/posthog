@@ -1,8 +1,7 @@
 import './Sidebar.scss'
-
 import React, { useState } from 'react'
 import { router } from 'kea-router'
-import { InviteTeam } from 'lib/components/InviteTeam'
+import { TeamInvitationModal } from 'lib/components/TeamInvitation'
 import { Menu, Layout, Modal } from 'antd'
 import {
     UserOutlined,
@@ -19,6 +18,7 @@ import {
     ExperimentOutlined,
     ClockCircleOutlined,
     MessageOutlined,
+    TeamOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -184,6 +184,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <Link to={'/sessions'} onClick={collapseSidebar} />
                         </Menu.Item>
                     </Menu.SubMenu>
+
                     <Menu.SubMenu
                         key="people"
                         title={
@@ -208,6 +209,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <Link to={'/people/cohorts'} onClick={collapseSidebar} />
                         </Menu.Item>
                     </Menu.SubMenu>
+
                     <Menu.Item key="funnels" style={itemStyle} data-attr="menu-item-funnels">
                         <FunnelPlotOutlined />
                         <span className="sidebar-label">{'Funnels'}</span>
@@ -243,6 +245,13 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <Link to={'/annotations'} onClick={collapseSidebar} />
                         </Menu.Item>
                     </Menu.SubMenu>
+
+                    <Menu.Item key="team" style={itemStyle} data-attr="menu-item-team">
+                        <TeamOutlined />
+                        <span className="sidebar-label">{'Team'}</span>
+                        <Link to={'/team'} onClick={collapseSidebar} />
+                    </Menu.Item>
+
                     <Menu.Item
                         key="invite"
                         style={itemStyle}
@@ -250,7 +259,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         data-attr="menu-item-invite-team"
                     >
                         <PlusOutlined />
-                        <span className="sidebar-label">{'Invite your team'}</span>
+                        <span className="sidebar-label">Invite Teammate</span>
                     </Menu.Item>
                 </Menu>
 
@@ -263,9 +272,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     <ToolbarModal />
                 </Modal>
 
-                <Modal visible={inviteModalOpen} footer={null} onCancel={() => setInviteModalOpen(false)}>
-                    <InviteTeam user={user} />
-                </Modal>
+                <TeamInvitationModal user={user} visible={inviteModalOpen} onCancel={() => setInviteModalOpen(false)} />
             </Layout.Sider>
         </>
     )

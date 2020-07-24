@@ -5,7 +5,6 @@ from django.conf import settings
 from django.db import connection
 import redis
 import time
-from django.core.cache import cache
 from typing import Optional
 from datetime import datetime
 from dateutil import parser
@@ -84,43 +83,16 @@ def calculate_cohort():
 
 @app.task
 def check_cached_items():
-    keys = cache.keys("*_dashboard_*")
-    tasks = []
-    for key in keys:
-        item = cache.get(key)
-        if item is not None and item["details"] is not None:
-            last_accessed = None
-            if item.get("last_accessed"):
-                last_accessed = item["last_accessed"]
-            cache_type = item["type"]
-            payload = item["details"]
-            tasks.append(update_cache_item.s(key, cache_type, payload, last_accessed))
+    from posthog.tasks.update_cache import update_cached_items
 
-    taskset = group(tasks)
-    taskset.apply_async()
+    update_cached_items()
 
 
 @app.task
-def update_cache_item(key: str, cache_type: str, payload: dict, last_accessed: Optional[str]):
-    from posthog.tasks.update_cache import update_cache
+def update_cache_item_task(key: str, cache_type: str, payload: dict) -> None:
+    from posthog.tasks.update_cache import update_cache_item
 
-    data = update_cache(cache_type, payload)
-    if last_accessed:
-        last_accessed_dt = parser.isoparse(last_accessed)
-        diff = datetime.now() - last_accessed_dt
-        if diff.days > 7:
-            return
-    if data:
-        cache.set(
-            key,
-            {
-                "result": data,
-                "details": payload,
-                "type": cache_type,
-                "last_accessed": last_accessed if last_accessed else datetime.now(),
-            },
-            900,
-        )
+    update_cache_item(key, cache_type, payload)
 
 
 @app.task(bind=True)

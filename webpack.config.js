@@ -11,7 +11,13 @@ const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 // main = app
 // toolbar = new toolbar
 // editor = old toolbar
-module.exports = () => [createEntry('main'), createEntry('toolbar'), createEntry('editor')]
+// shared_dashboard = publicly available dashboard
+module.exports = () => [
+    createEntry('main'),
+    createEntry('toolbar'),
+    createEntry('editor'),
+    createEntry('shared_dashboard'),
+]
 
 function createEntry(entry) {
     return {
@@ -26,6 +32,8 @@ function createEntry(entry) {
                     ? './frontend/src/toolbar/index.js'
                     : entry === 'editor'
                     ? './frontend/src/editor/index.js'
+                    : entry === 'shared_dashboard'
+                    ? './frontend/src/scenes/dashboard/SharedDashboard.js'
                     : null,
         },
         watchOptions: {
@@ -72,7 +80,7 @@ function createEntry(entry) {
                     // Loaders are applying from right to left(!)
                     // The first loader will be applied after others
                     use: [
-                        entry === 'main'
+                        entry === 'main' || entry === 'shared_dashboard'
                             ? {
                                   // After all CSS loaders we use plugin to do his work.
                                   // It gets all transformed CSS and extracts it into separate
@@ -182,12 +190,27 @@ function createEntry(entry) {
                           title: 'PostHog',
                           template: path.join(__dirname, 'frontend', 'src', 'index.html'),
                       }),
+
                       new HtmlWebpackPlugin({
                           alwaysWriteToDisk: true,
                           title: 'PostHog',
                           filename: 'layout.html',
                           inject: false,
                           template: path.join(__dirname, 'frontend', 'src', 'layout.ejs'),
+                      }),
+                      new HtmlWebpackHarddiskPlugin(),
+                  ]
+                : entry === 'shared_dashboard'
+                ? [
+                      new MiniCssExtractPlugin({
+                          filename: '[name].css',
+                          ignoreOrder: true,
+                      }),
+                      new HtmlWebpackPlugin({
+                          alwaysWriteToDisk: true,
+                          title: 'PostHog',
+                          filename: 'shared_dashboard.html',
+                          template: path.join(__dirname, 'frontend', 'src', 'shared_dashboard.ejs'),
                       }),
                       new HtmlWebpackHarddiskPlugin(),
                   ]

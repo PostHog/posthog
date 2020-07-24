@@ -5,11 +5,10 @@ import PropTypes from 'prop-types'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
-export function ActionsTable({ dashboardItemId = null, filters: filtersParam, view }) {
-    const { filters, results, resultsLoading } = useValues(
-        trendsLogic({ dashboardItemId, view, filters: filtersParam })
-    )
-    const { loadResults } = useActions(trendsLogic({ dashboardItemId, view, filters: filtersParam }))
+export function ActionsTable({ dashboardItemId = null, view, filters: filtersParam, cachedResults }) {
+    const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
+    const { filters, results, resultsLoading } = useValues(logic)
+    const { loadResults } = useActions(logic)
 
     useEffect(() => {
         loadResults()

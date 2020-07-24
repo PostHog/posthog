@@ -18,6 +18,7 @@ export const dashboardLogic = kea({
         renameDashboard: true,
         renameDashboardItem: (id) => ({ id }),
         renameDashboardItemSuccess: (item) => ({ item }),
+        setIsSharedDashboard: (id, isShared) => ({ id, isShared }),
         duplicateDashboardItem: (id, dashboardId, move = false) => ({ id, dashboardId, move }),
         duplicateDashboardItemSuccess: (item) => ({ item }),
         updateLayouts: (layouts) => ({ layouts }),
@@ -36,8 +37,10 @@ export const dashboardLogic = kea({
             {
                 loadDashboardItems: async () => {
                     try {
-                        const { items } = await api.get(`api/dashboard/${props.id}`)
-                        return items
+                        const dashboard = await api.get(
+                            `api/dashboard/${props.id}${props.shareToken ? '/?share_token=' + props.shareToken : ''}`
+                        )
+                        return dashboard
                     } catch (error) {
                         if (error.status === 404) {
                             // silently escape
@@ -52,10 +55,12 @@ export const dashboardLogic = kea({
 
     reducers: ({ props }) => ({
         allItems: {
-            renameDashboardItemSuccess: (state, { item }) => state.map((i) => (i.id === item.id ? item : i)),
+            renameDashboardItemSuccess: (state, { item }) => {
+                return { ...state, items: state.items.map((i) => (i.id === item.id ? item : i)) }
+            },
             updateLayouts: (state, { layouts }) => {
                 let itemLayouts = {}
-                state.forEach((item) => {
+                state.items.forEach((item) => {
                     itemLayouts[item.id] = {}
                 })
 
@@ -68,14 +73,17 @@ export const dashboardLogic = kea({
                     })
                 })
 
-                return state.map((item) => ({ ...item, layouts: itemLayouts[item.id] }))
+                return { ...state, items: state.items.map((item) => ({ ...item, layouts: itemLayouts[item.id] })) }
             },
             [dashboardsModel.actions.updateDashboardItem]: (state, { item }) => {
-                return state.map((i) => (i.id === item.id ? item : i))
+                return { ...state, items: state.items.map((i) => (i.id === item.id ? item : i)) }
             },
-            updateItemColor: (state, { id, color }) => state.map((i) => (i.id === id ? { ...i, color } : i)),
-            duplicateDashboardItemSuccess: (state, { item }) =>
-                item.dashboard === parseInt(props.id) ? [...state, item] : state,
+            updateItemColor: (state, { id, color }) => {
+                return { ...state, items: state.items.map((i) => (i.id === id ? { ...i, color } : i)) }
+            },
+            duplicateDashboardItemSuccess: (state, { item }) => {
+                return { ...state, items: item.dashboard === parseInt(props.id) ? [...state.items, item] : state.items }
+            },
         },
         draggingEnabled: [
             () => (isAndroidOrIOS() ? 'off' : 'on'),
@@ -100,11 +108,14 @@ export const dashboardLogic = kea({
     }),
 
     selectors: ({ props, selectors }) => ({
-        items: [() => [selectors.allItems], (allItems) => allItems.filter((i) => !i.deleted)],
+        items: [() => [selectors.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [() => [selectors.allItemsLoading], (allItemsLoading) => allItemsLoading],
         dashboard: [
-            () => [dashboardsModel.selectors.dashboards],
-            (dashboards) => dashboards.find((d) => d.id === props.id) || null,
+            () => [selectors.allItems, dashboardsModel.selectors.dashboards],
+            (allItems, dashboards) => {
+                let dashboard = dashboards.find((d) => d.id === props.id) || false
+                return dashboard ? dashboard : allItems
+            },
         ],
         breakpoints: [() => [], () => ({ lg: 1600, sm: 940, xs: 480, xxs: 0 })],
         cols: [() => [], () => ({ lg: 24, sm: 12, xs: 6, xxs: 2 })],
@@ -225,6 +236,10 @@ export const dashboardLogic = kea({
 
         [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
             router.actions.push(`/dashboard/${dashboard.id}`)
+        },
+
+        setIsSharedDashboard: ({ id, isShared }) => {
+            dashboardsModel.actions.setIsSharedDashboard({ id, isShared })
         },
 
         renameDashboard: async () => {

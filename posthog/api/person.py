@@ -61,7 +61,10 @@ class PersonViewSet(viewsets.ModelViewSet):
                     queryset = queryset.filter(properties__has_key=part.split(":")[1])
                 else:
                     contains.append(part)
-            queryset = queryset.filter(properties__icontains=" ".join(contains))
+            queryset = queryset.filter(
+                Q(properties__icontains=" ".join(contains))
+                | Q(persondistinctid__distinct_id__icontains=" ".join(contains))
+            )
         if request.GET.get("cohort"):
             queryset = queryset.filter(cohort__id=request.GET["cohort"])
         if request.GET.get("properties"):
