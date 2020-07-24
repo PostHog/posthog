@@ -58,7 +58,7 @@ function _Funnels() {
                     </a>
                 </i>
             </p>
-            <LinkButton to={'/funnel/new'} type="primary" data-attr="create-funnel">
+            <LinkButton to={'/trends?insight=FUNNELS'} type="primary" data-attr="create-funnel">
                 + New Funnel
             </LinkButton>
             <br />
