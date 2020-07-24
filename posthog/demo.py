@@ -13,7 +13,6 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import (Action, ActionStep, Dashboard, DashboardItem,
                             Element, Event, Funnel, Person, PersonDistinctId,
                             Team)
-from posthog.urls import render_template
 from posthog.utils import render_template
 
 
