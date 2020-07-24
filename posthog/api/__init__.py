@@ -11,6 +11,7 @@ from . import (
     funnel,
     paths,
     person,
+    team,
 )
 
 router = routers.DefaultRouter()
@@ -25,3 +26,4 @@ router.register(r"dashboard", dashboard.DashboardsViewSet)
 router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"paths", paths.PathsViewSet, basename="paths")
+router.register(r"team/user", team.TeamUserViewSet)
