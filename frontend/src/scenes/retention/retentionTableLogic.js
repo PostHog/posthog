@@ -2,7 +2,14 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
-import { ViewType } from 'scenes/trends/insightLogic'
+import { ViewType, insightLogic } from 'scenes/trends/insightLogic'
+
+function cleanRetentionParams(filters, properties) {
+    return {
+        ...filters,
+        properties: properties,
+    }
+}
 
 export const retentionTableLogic = kea({
     loaders: ({ values }) => ({
@@ -33,6 +40,9 @@ export const retentionTableLogic = kea({
             },
         },
     }),
+    connect: {
+        actions: [insightLogic, ['setAllFilters']],
+    },
     actions: () => ({
         setProperties: (properties) => ({ properties }),
         setFilters: (filters) => ({ filters }),
@@ -126,8 +136,14 @@ export const retentionTableLogic = kea({
         },
     }),
     listeners: ({ actions, values }) => ({
-        setProperties: () => actions.loadRetention(),
-        setFilters: () => actions.loadRetention(),
+        setProperties: () => {
+            actions.loadRetention()
+            actions.setAllFilters(cleanRetentionParams({ target: values.startEntity }, values.properties))
+        },
+        setFilters: () => {
+            actions.loadRetention()
+            actions.setAllFilters(cleanRetentionParams({ target: values.startEntity }, values.properties))
+        },
         loadMore: async ({ selectedIndex }) => {
             let peopleToAdd = []
             for (const [index, { next, offset }] of values.retention.data[selectedIndex].values.entries()) {

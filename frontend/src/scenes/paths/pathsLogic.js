@@ -3,7 +3,7 @@ import { toParams, objectsEqual } from 'lib/utils'
 import api from 'lib/api'
 import { router } from 'kea-router'
 import lo from 'lodash'
-import { ViewType } from 'scenes/trends/insightLogic'
+import { ViewType, insightLogic } from 'scenes/trends/insightLogic'
 
 export const PAGEVIEW = '$pageview'
 export const SCREEN = '$screen'
@@ -30,6 +30,16 @@ function checkRoot(nodeToVerify, paths, start) {
         tempSource = paths.find((node) => node.target === tempSource.source)
     }
     return tempSource
+}
+
+function cleanPathParams(filters, properties) {
+    return {
+        start: filters.start,
+        type: filters.type,
+        date_from: filters.date_from,
+        date_to: filters.date_to,
+        properties: properties,
+    }
 }
 
 export const pathsLogic = kea({
@@ -62,6 +72,9 @@ export const pathsLogic = kea({
             },
         },
     }),
+    connect: {
+        actions: [insightLogic, ['setAllFilters']],
+    },
     reducers: () => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
         filter: [
@@ -86,6 +99,7 @@ export const pathsLogic = kea({
     listeners: ({ actions, values }) => ({
         setProperties: () => {
             actions.loadPaths()
+            actions.setAllFilters(cleanPathParams(values.filter, values.properties))
         },
         setFilter: () => {
             if (
@@ -93,6 +107,8 @@ export const pathsLogic = kea({
                 (values.filter.type === AUTOCAPTURE && !isNaN(values.filter.start))
             )
                 actions.loadPaths()
+
+            actions.setAllFilters(cleanPathParams(values.filter, values.properties))
         },
     }),
     selectors: ({ selectors }) => ({
