@@ -1,8 +1,7 @@
 from unittest.mock import call, patch
 
 from posthog.api.test.base import BaseTest
-from posthog.models import (Action, ActionStep, Element, ElementGroup, Event,
-                            Person, Team)
+from posthog.models import Action, ActionStep, Element, ElementGroup, Event, Person, Team
 from posthog.models.event import Selector, SelectorPart
 
 

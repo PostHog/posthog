@@ -7,8 +7,7 @@ from django.db.models import Q
 from django.http import HttpRequest
 from django.utils import timezone
 
-from posthog.constants import (TREND_FILTER_TYPE_ACTIONS,
-                               TREND_FILTER_TYPE_EVENTS)
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.utils import relative_date_parse
 
 from .entity import Entity

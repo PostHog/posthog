@@ -6,8 +6,16 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.api.test.base import BaseTest
-from posthog.models import (Action, ActionStep, Element, ElementGroup, Event,
-                            Person, Team, User)
+from posthog.models import (
+    Action,
+    ActionStep,
+    Element,
+    ElementGroup,
+    Event,
+    Person,
+    Team,
+    User,
+)
 from posthog.tasks.process_event import process_event
 
 

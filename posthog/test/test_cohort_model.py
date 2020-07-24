@@ -1,6 +1,5 @@
 from posthog.api.test.base import BaseTest
-from posthog.models import (Action, ActionStep, Cohort, Element, Event, Person,
-                            Team)
+from posthog.models import Action, ActionStep, Cohort, Element, Event, Person, Team
 
 
 class TestCohort(BaseTest):

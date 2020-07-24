@@ -13,8 +13,7 @@ from posthog.api.action import calculate_trends, get_actions
 from posthog.api.funnel import FunnelSerializer
 from posthog.celery import app, update_cache_item_task
 from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT
-from posthog.models import (Action, ActionStep, DashboardItem, Entity, Filter,
-                            Funnel)
+from posthog.models import Action, ActionStep, DashboardItem, Entity, Filter, Funnel
 from posthog.utils import generate_cache_key
 
 logger = logging.getLogger(__name__)

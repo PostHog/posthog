@@ -69,8 +69,7 @@ def update_event_partitions():
 
 @app.task
 def calculate_event_action_mappings():
-    from posthog.tasks.calculate_action import \
-        calculate_actions_from_last_calculation
+    from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 
     calculate_actions_from_last_calculation()
 

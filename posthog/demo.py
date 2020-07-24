@@ -10,9 +10,18 @@ from django.http import HttpResponseNotFound, JsonResponse
 from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models import (Action, ActionStep, Dashboard, DashboardItem,
-                            Element, Event, Funnel, Person, PersonDistinctId,
-                            Team)
+from posthog.models import (
+    Action,
+    ActionStep,
+    Dashboard,
+    DashboardItem,
+    Element,
+    Event,
+    Funnel,
+    Person,
+    PersonDistinctId,
+    Team,
+)
 from posthog.utils import render_template
 
 

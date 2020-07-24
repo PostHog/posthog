@@ -14,8 +14,17 @@ from django.core import serializers
 from django.core.management.base import BaseCommand
 from django.utils.timezone import now
 
-from posthog.models import (Action, ActionStep, Element, Event, Funnel,
-                            FunnelStep, Person, PersonDistinctId, Team)
+from posthog.models import (
+    Action,
+    ActionStep,
+    Element,
+    Event,
+    Funnel,
+    FunnelStep,
+    Person,
+    PersonDistinctId,
+    Team,
+)
 
 
 def clean_csv_value(value: Optional[any]) -> str:

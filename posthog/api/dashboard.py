@@ -8,8 +8,7 @@ from django.db.models import Prefetch, QuerySet
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
-from rest_framework import (authentication, request, response, serializers,
-                            viewsets)
+from rest_framework import authentication, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 

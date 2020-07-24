@@ -2,15 +2,13 @@ import json
 from typing import Union
 
 from django.core.cache import cache
-from django.db.models import (Count, Func, OuterRef, Prefetch, Q, QuerySet,
-                              Subquery)
+from django.db.models import Count, Func, OuterRef, Prefetch, Q, QuerySet, Subquery
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers  # type: ignore
 
-from posthog.models import (Cohort, Event, Filter, Person, PersonDistinctId,
-                            Team)
+from posthog.models import Cohort, Event, Filter, Person, PersonDistinctId, Team
 from posthog.utils import convert_property_value
 
 from .base import CursorPagination as BaseCursorPagination

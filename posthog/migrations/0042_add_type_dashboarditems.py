@@ -2,8 +2,7 @@
 
 from django.db import migrations
 
-from posthog.constants import (TREND_FILTER_TYPE_ACTIONS,
-                               TREND_FILTER_TYPE_EVENTS)
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 
 
 def update_filter_types(apps, schema_editor):

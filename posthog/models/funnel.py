@@ -9,8 +9,7 @@ from django.db.models import IntegerField, Min, Value
 from django.utils import timezone
 from psycopg2 import sql  # type: ignore
 
-from posthog.constants import (TREND_FILTER_TYPE_ACTIONS,
-                               TREND_FILTER_TYPE_EVENTS)
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 
 from .action import Action
 from .entity import Entity

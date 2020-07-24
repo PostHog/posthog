@@ -12,11 +12,24 @@ from django.utils.timezone import now
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 
-from posthog.models import (Action, Element, ElementGroup, Event, Filter,
-                            Person, PersonDistinctId, Team)
-from posthog.utils import (append_data, convert_property_value,
-                           dict_from_cursor_fetchall, friendly_time,
-                           get_compare_period_dates, request_to_date_query)
+from posthog.models import (
+    Action,
+    Element,
+    ElementGroup,
+    Event,
+    Filter,
+    Person,
+    PersonDistinctId,
+    Team,
+)
+from posthog.utils import (
+    append_data,
+    convert_property_value,
+    dict_from_cursor_fetchall,
+    friendly_time,
+    get_compare_period_dates,
+    request_to_date_query,
+)
 
 
 class ElementSerializer(serializers.ModelSerializer):
