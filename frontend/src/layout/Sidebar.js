@@ -1,9 +1,8 @@
 import './Sidebar.scss'
-
 import React, { useState } from 'react'
 import { router } from 'kea-router'
-import { InviteTeam } from 'lib/components/InviteTeam'
-import { Menu, Layout, Modal } from 'antd'
+import { TeamInvitationModal } from 'lib/components/TeamInvitation'
+import { Menu, Layout } from 'antd'
 import {
     UserOutlined,
     ForkOutlined,
@@ -237,9 +236,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                     </Menu.Item>
                 </Menu>
 
-                <Modal visible={inviteModalOpen} footer={null} onCancel={() => setInviteModalOpen(false)}>
-                    <InviteTeam user={user} />
-                </Modal>
+                <TeamInvitationModal user={user} visible={inviteModalOpen} onCancel={() => setInviteModalOpen(false)} />
             </Layout.Sider>
         </>
     )

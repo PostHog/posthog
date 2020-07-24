@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { Divider } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
-import { InviteTeam } from 'lib/components/InviteTeam'
+import { TeamInvitationModal } from 'lib/components/TeamInvitation'
 import { OptOutCapture } from './OptOutCapture'
 import { UpdateEmailPreferences } from './UpdateEmailPreferences'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
@@ -54,7 +54,7 @@ function _Setup() {
             <h2 id="invite">Invite Teammate</h2>
             <div className="row">
                 <div className="col-lg-6">
-                    <InviteTeam user={user} />
+                    <TeamInvitationModal user={user} />
                 </div>
             </div>
             <Divider />

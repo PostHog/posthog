@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { Card, Loading } from 'lib/utils'
-import { InviteTeam } from 'lib/components/InviteTeam'
-import { Table, Modal, Button, Row } from 'antd'
+import { TeamInvitationLink } from 'lib/components/TeamInvitation'
+import { Table, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { teamLogic } from './teamLogic'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
@@ -11,7 +11,6 @@ function Team({ user }) {
     const { users, usersLoading } = useValues(logic)
     const { deleteUser } = useActions(logic)
     const { confirm } = Modal
-    const [inviteModalOpen, setInviteModalOpen] = useState(false)
 
     const ActionsComponent = (_text, record) => {
         const handleClick = () => {
@@ -77,11 +76,16 @@ function Team({ user }) {
                 <p style={{ maxWidth: 600 }}>
                     <i>This is you and all your teammates. Manage them from here.</i>
                 </p>
-                <Row style={{ marginBottom: 32 }}>
-                    <Button type="primary" onClick={() => setInviteModalOpen(true)}>
-                        + Invite Teammate
-                    </Button>
-                </Row>
+                <p style={{ maxWidth: 600 }}>
+                    <TeamInvitationLink user={user} />
+                </p>
+                <p style={{ maxWidth: 600 }}>
+                    <i>
+                        Send the link above to invite teammate(s).
+                        <br />
+                        Build an even better product together.
+                    </i>
+                </p>
                 <Card>
                     {usersLoading ? (
                         <div className="loading-overlay mt-5">
@@ -96,9 +100,6 @@ function Team({ user }) {
                     )}
                 </Card>
             </div>
-            <Modal visible={inviteModalOpen} footer={null} onCancel={() => setInviteModalOpen(false)}>
-                <InviteTeam user={user} />
-            </Modal>
         </>
     )
 }
