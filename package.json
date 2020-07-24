@@ -106,7 +106,7 @@
     "lint-staged": {
         "*.{js,ts,tsx,css,scss}": "prettier --write",
         "*.{js,ts,tsx}": "eslint",
-        "*.py": "black -l 120"
+        "*.py": ["black -l 120","isort"]
     },
     "optionalDependencies": {
         "fsevents": "^2.1.2"
