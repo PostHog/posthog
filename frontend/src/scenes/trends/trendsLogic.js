@@ -239,13 +239,12 @@ export const trendsLogic = kea({
     }),
 
     actionToUrl: ({ actions, values, props }) => ({
-        [actions.setFilters]: ({ fromUrl }) => {
+        [actions.setFilters]: () => {
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            if (!fromUrl) {
-                return ['/trends', values.filters]
-            }
+
+            return ['/trends', values.filters]
         },
     }),
 
@@ -261,7 +260,7 @@ export const trendsLogic = kea({
 
             // opening /trends without any params, just open $pageview, $screen or the first random event
             if (
-                (keys.length === 0 || (keys.length === 1 && keys[0] === 'properties')) &&
+                (keys.length === 0 || (!searchParams.actions && !searchParams.events)) &&
                 values.eventNames &&
                 values.eventNames[0]
             ) {
@@ -279,6 +278,10 @@ export const trendsLogic = kea({
                         order: 0,
                     },
                 ]
+            }
+
+            if (searchParams.insight === ViewType.SESSIONS && !searchParams.session) {
+                cleanSearchParams['session'] = 'avg'
             }
 
             if (!objectsEqual(cleanSearchParams, values.filters)) {
