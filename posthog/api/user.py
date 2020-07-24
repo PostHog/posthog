@@ -181,4 +181,4 @@ def test_slack_webhook(request):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "first_name", "email"]
+        fields = ["id", "distinct_id", "first_name", "email"]
