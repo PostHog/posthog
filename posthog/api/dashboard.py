@@ -8,6 +8,7 @@ from posthog.utils import (
     PersonalAccessTokenAuthentication,
 )
 from django.contrib.auth.models import AnonymousUser
+from django.http import HttpRequest
 from django.core.cache import cache
 from django.db.models import Prefetch, QuerySet
 from django.http import HttpRequest
