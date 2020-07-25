@@ -214,11 +214,23 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
                     + "See https://posthog.com/docs/deployment/running-behind-proxy for more information."
                 )
         if request.GET.get("temporary_token"):
-            user_model = apps.get_model(app_label="posthog", model_name="User")
-            user = user_model.objects.filter(temporary_token=request.GET.get("temporary_token"))
+            User = apps.get_model(app_label="posthog", model_name="User")
+            user = User.objects.filter(temporary_token=request.GET.get("temporary_token"))
             if not user.exists():
                 raise AuthenticationFailed(detail="User doesnt exist")
             return (user.first(), None)
+        return None
+
+
+class PublicTokenAuthentication(authentication.BaseAuthentication):
+    def authenticate(self, request: request.Request):
+        if request.GET.get("share_token") and request.parser_context and request.parser_context.get("kwargs"):
+            dashboard = Dashboard.objects.filter(
+                share_token=request.GET.get("share_token"), pk=request.parser_context["kwargs"].get("pk"),
+            )
+            if not dashboard.exists():
+                raise AuthenticationFailed(detail="Dashboard doesn't exist")
+            return (AnonymousUser(), None)
         return None
 
 
