@@ -1,4 +1,3 @@
-import secrets
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -12,14 +11,18 @@ from .action_step import ActionStep
 from .dashboard import Dashboard
 from .dashboard_item import DashboardItem
 from .user import User
+from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
+from typing import Optional, List, Dict
+from datetime import datetime
+from .utils import generate_random_token
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
 
 class TeamManager(models.Manager):
     def create_with_data(self, users: Optional[List[User]], **kwargs):
-        kwargs["api_token"] = kwargs.get("api_token", secrets.token_urlsafe(32))
-        kwargs["signup_token"] = kwargs.get("signup_token", secrets.token_urlsafe(22))
+        kwargs["api_token"] = kwargs.get("api_token", generate_random_token())
+        kwargs["signup_token"] = kwargs.get("signup_token", generate_random_token(22))
         team = Team.objects.create(**kwargs)
         if users:
             team.users.set(users)
@@ -28,7 +31,7 @@ class TeamManager(models.Manager):
         ActionStep.objects.create(action=action, event="$pageview")
 
         dashboard = Dashboard.objects.create(
-            name="Default", pinned=True, team=team, share_token=secrets.token_urlsafe(22)
+            name="Default", pinned=True, team=team, share_token=generate_random_token()
         )
 
         DashboardItem.objects.create(
