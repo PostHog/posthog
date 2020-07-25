@@ -5,7 +5,9 @@ from rest_framework import authentication, request, response, serializers, views
 from rest_framework.decorators import action
 
 from posthog.models import Element, ElementGroup, Event, Filter, Team
-from posthog.utils import TemporaryTokenAuthentication
+from posthog.utils import TemporaryTokenAuthentication, PersonalAccessTokenAuthentication
+from django.db.models import QuerySet, Count, Prefetch
+import json
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -29,6 +31,7 @@ class ElementViewSet(viewsets.ModelViewSet):
     serializer_class = ElementSerializer
     authentication_classes = [
         TemporaryTokenAuthentication,
+        PersonalAccessTokenAuthentication,
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]

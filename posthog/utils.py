@@ -198,6 +198,23 @@ def cors_response(request, response):
     return response
 
 
+class PersonalAccessTokenAuthentication(authentication.BaseAuthentication):
+    def authenticate(self, request: request.Request):
+        personal_access_token = request.GET.get("personal_access_token")
+        if not personal_access_token:
+            try:
+                personal_access_token = json.loads(request.body).get("personal_access_token")
+            except:
+                pass
+        if personal_access_token:
+            User = apps.get_model(app_label="posthog", model_name="User")
+            try:
+                return User.objects.get(personal_access_token=personal_access_token)
+            except User.DoesNotExist:
+                raise AuthenticationFailed(detail="Invalid personal access token.")
+        return None
+
+
 class TemporaryTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: request.Request):
         # if the Origin is different, the only authentication method should be temporary_token

@@ -1,8 +1,12 @@
 import secrets
 from datetime import datetime
 from typing import Any, Dict, List
-
-from posthog.utils import render_template, generate_cache_key, PublicTokenAuthentication
+from posthog.utils import (
+    render_template,
+    generate_cache_key,
+    PublicTokenAuthentication,
+    PersonalAccessTokenAuthentication,
+)
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.db.models import Prefetch, QuerySet
@@ -59,6 +63,7 @@ class DashboardsViewSet(viewsets.ModelViewSet):
     serializer_class = DashboardSerializer
     authentication_classes = [
         PublicTokenAuthentication,
+        PersonalAccessTokenAuthentication,
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
