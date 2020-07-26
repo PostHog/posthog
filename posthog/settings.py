@@ -303,7 +303,8 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 100,
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated",],
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "posthog.utils.PersonalAccessTokenAuthentication" "rest_framework.authentication.BasicAuthentication",
+        "posthog.utils.PersonalAccessTokenAuthentication",
+        "rest_framework.authentication.BasicAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
 }

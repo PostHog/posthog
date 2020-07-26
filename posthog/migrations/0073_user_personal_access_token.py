@@ -4,7 +4,7 @@ from django.db import migrations, models
 from posthog.models.utils import generate_random_token
 
 
-def add_signup_tokens(apps, schema_editor):
+def add_personal_access_tokens(apps, schema_editor):
     User = apps.get_model("posthog", "User")
     for user in User.objects.filter(personal_access_token__isnull=True):
         user.personal_access_token = generate_random_token()
@@ -25,6 +25,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="user",
             name="personal_access_token",
-            field=models.CharField(default=generate_random_token, max_length=32),
+            field=models.CharField(blank=True, max_length=200, null=True),
         ),
+        migrations.RunPython(add_personal_access_tokens, backwards),
     ]
