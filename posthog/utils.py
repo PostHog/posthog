@@ -200,20 +200,29 @@ def cors_response(request, response):
     return response
 
 
-class PersonalAccessTokenAuthentication(authentication.BaseAuthentication):
+class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: request.Request):
-        personal_access_token = request.META.get("HTTP_X_PAT")
-        if not personal_access_token:
+        personal_api_key = None
+        authorization_header = request.META.get("HTTP_AUTHORIZATION")
+        if authorization_header:
+            authorization_match = re.match(r"^Bearer (\S+)$", authorization_header)
+            if authorization_match:
+                personal_api_key = authorization_match.group(1)
+        if not personal_api_key:
             try:
-                personal_access_token = request.data.get("personal_access_token")
+                personal_api_key = request.data.get("personal_api_key")
             except AttributeError:
-                pass
-        if personal_access_token:
-            User = apps.get_model(app_label="posthog", model_name="User")
+                personal_api_key = None
+        if personal_api_key:
+            PersonalAPIKey = apps.get_model(app_label="posthog", model_name="PersonalAPIKey")
             try:
-                return User.objects.get(personal_access_token=personal_access_token), None
-            except User.DoesNotExist:
-                raise AuthenticationFailed(detail="Personal access token invalid.")
+                personal_api_key_object = PersonalAPIKey.objects.get(value=personal_api_key)
+            except PersonalAPIKey.DoesNotExist:
+                raise AuthenticationFailed(detail="Personal API key invalid.")
+            else:
+                personal_api_key_object.last_used_at = datetime.datetime.now()
+                personal_api_key_object.save()
+                return personal_api_key_object.user, None
         return None
 
 

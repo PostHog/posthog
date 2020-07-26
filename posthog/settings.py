@@ -306,7 +306,7 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 100,
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated",],
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "posthog.utils.PersonalAccessTokenAuthentication",
+        "posthog.utils.PersonalAPIKeyAuthentication",
         "rest_framework.authentication.BasicAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
@@ -316,7 +316,7 @@ REST_FRAMEWORK = {
 
 HOOK_EVENTS = {
     # 'any.event.name': 'App.Model.Action' (created/updated/deleted)
-    "action_performed": "posthog.Action.created",
+    "action_defined": "posthog.Action.created",
     "action_performed": "posthog.Action.performed",
 }
 HOOK_DELIVERER = "posthog.tasks.hooks.deliver_hook_wrapper"

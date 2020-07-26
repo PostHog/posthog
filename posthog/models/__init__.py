@@ -15,3 +15,5 @@ from .person import Person, PersonDistinctId
 from .property import Property
 from .team import Team
 from .user import User, UserManager
+from .personal_api_key import PersonalAPIKey
+from .annotation import Annotation

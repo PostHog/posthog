@@ -5,7 +5,7 @@ from posthog.utils import (
     render_template,
     generate_cache_key,
     PublicTokenAuthentication,
-    PersonalAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
 )
 from django.contrib.auth.models import AnonymousUser
 from django.http import HttpRequest
@@ -64,7 +64,7 @@ class DashboardsViewSet(viewsets.ModelViewSet):
     serializer_class = DashboardSerializer
     authentication_classes = [
         PublicTokenAuthentication,
-        PersonalAccessTokenAuthentication,
+        PersonalAPIKeyAuthentication,
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]

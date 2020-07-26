@@ -13,11 +13,11 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
 from rest_framework import serializers
-
 from posthog.models import Event, User
+from posthog.utils import PersonalAPIKeyAuthentication
 
 
-# TODO: PAT auth doesn't work for /api/user/*, because this is not DRF - remake these endpoints with DRF
+# TODO: Personal API key auth doesn't work for /api/user/*, because this is not DRF - remake these endpoints with DRF!
 def user(request):
     if not request.user.is_authenticated:
         return HttpResponse("Unauthorized", status=401)
@@ -62,7 +62,15 @@ def user(request):
             "email_opt_in": request.user.email_opt_in,
             "anonymize_data": request.user.anonymize_data,
             "toolbar_mode": request.user.toolbar_mode,
-            "personal_access_token": request.user.personal_access_token,
+            "personal_api_keys": [
+                {
+                    "id": personal_api_key.id,
+                    "label": personal_api_key.label,
+                    "created_at": personal_api_key.created_at,
+                    "last_used_at": personal_api_key.last_used_at,
+                }
+                for personal_api_key in request.user.personal_api_keys.all()
+            ],
             "team": {
                 "app_urls": team.app_urls,
                 "api_token": team.api_token,

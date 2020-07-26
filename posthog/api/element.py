@@ -3,9 +3,8 @@ import json
 from django.db.models import Count, Prefetch, QuerySet
 from rest_framework import authentication, request, response, serializers, viewsets
 from rest_framework.decorators import action
-
-from posthog.models import Element, ElementGroup, Event, Filter, Team
-from posthog.utils import TemporaryTokenAuthentication, PersonalAccessTokenAuthentication
+from posthog.models import Element, Team, Event, ElementGroup, Filter
+from posthog.utils import TemporaryTokenAuthentication, PersonalAPIKeyAuthentication
 from django.db.models import QuerySet, Count, Prefetch
 import json
 
@@ -31,7 +30,7 @@ class ElementViewSet(viewsets.ModelViewSet):
     serializer_class = ElementSerializer
     authentication_classes = [
         TemporaryTokenAuthentication,
-        PersonalAccessTokenAuthentication,
+        PersonalAPIKeyAuthentication,
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
