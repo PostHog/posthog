@@ -17,6 +17,7 @@ from rest_framework import serializers
 from posthog.models import Event, User
 
 
+# TODO: PAT auth doesn't work for /api/user/*, because this is not DRF - remake these endpoints with DRF
 def user(request):
     if not request.user.is_authenticated:
         return HttpResponse("Unauthorized", status=401)
