@@ -117,6 +117,7 @@ INSTALLED_APPS = [
     "loginas",
     "corsheaders",
     "social_django",
+    "rest_hooks",
 ]
 
 MIDDLEWARE = [
@@ -248,7 +249,9 @@ if not REDIS_URL and os.environ.get("POSTHOG_REDIS_HOST", ""):
 
 if not REDIS_URL:
     raise ImproperlyConfigured(
-        f'The environment var "REDIS_URL" or "POSTHOG_REDIS_HOST" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011'
+        "Env var REDIS_URL or POSTHOG_REDIS_HOST is absolutely required to run this software.\n"
+        "If upgrading from PostHog 1.0.10 or earlier, see here: "
+        "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
@@ -308,6 +311,15 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.SessionAuthentication",
     ],
 }
+
+# Zapier
+
+HOOK_EVENTS = {
+    # 'any.event.name': 'App.Model.Action' (created/updated/deleted)
+    "action_performed": "posthog.Action.created",
+    "action_performed": "posthog.Action.performed",
+}
+HOOK_DELIVERER = "posthog.tasks.hooks.deliver_hook_wrapper"
 
 # Email
 EMAIL_HOST = os.environ.get("EMAIL_HOST")
