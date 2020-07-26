@@ -202,18 +202,16 @@ def cors_response(request, response):
 
 class PersonalAccessTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: request.Request):
-        personal_access_token = request.GET.get("personal_access_token")
-        if not personal_access_token:
-            try:
-                personal_access_token = json.loads(request.body).get("personal_access_token")
-            except:
-                pass
+        try:
+            personal_access_token = request.data.get("personal_access_token")
+        except AttributeError:
+            personal_access_token = None
         if personal_access_token:
             User = apps.get_model(app_label="posthog", model_name="User")
             try:
-                return User.objects.get(personal_access_token=personal_access_token)
+                return User.objects.get(personal_access_token=personal_access_token), None
             except User.DoesNotExist:
-                raise AuthenticationFailed(detail="Invalid personal access token.")
+                raise AuthenticationFailed(detail="Personal access token invalid.")
         return None
 
 
