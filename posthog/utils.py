@@ -202,10 +202,12 @@ def cors_response(request, response):
 
 class PersonalAccessTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request: request.Request):
-        try:
-            personal_access_token = request.data.get("personal_access_token")
-        except AttributeError:
-            personal_access_token = None
+        personal_access_token = request.META.get("HTTP_X_PAT")
+        if not personal_access_token:
+            try:
+                personal_access_token = request.data.get("personal_access_token")
+            except AttributeError:
+                pass
         if personal_access_token:
             User = apps.get_model(app_label="posthog", model_name="User")
             try:
