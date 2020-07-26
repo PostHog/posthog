@@ -61,6 +61,7 @@ def user(request):
             "email_opt_in": request.user.email_opt_in,
             "anonymize_data": request.user.anonymize_data,
             "toolbar_mode": request.user.toolbar_mode,
+            "personal_access_token": request.user.personal_access_token,
             "team": {
                 "app_urls": team.app_urls,
                 "api_token": team.api_token,
