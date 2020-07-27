@@ -1,6 +1,6 @@
 from django.db import models
+from django.utils import timezone
 from .user import User
-from datetime import datetime
 from .utils import generate_random_token
 
 
@@ -11,5 +11,5 @@ class PersonalAPIKey(models.Model):
     value: models.CharField = models.CharField(
         unique=True, max_length=100, default=generate_random_token, editable=False
     )
-    created_at: models.DateTimeField = models.DateTimeField(default=datetime.now)
+    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_used_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)

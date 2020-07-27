@@ -10,6 +10,7 @@ import pytz
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.apps import apps
+from django.utils import timezone
 from django.conf import settings
 from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -36,7 +37,7 @@ def relative_date_parse(input: str) -> datetime.datetime:
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
-    date = now()
+    date = timezone.now()
     if not match:
         return date
     if match.group("type") == "h":
@@ -222,12 +223,12 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             except PersonalAPIKey.DoesNotExist:
                 raise AuthenticationFailed(detail="Personal API key invalid.")
             else:
-                personal_api_key_object.last_used_at = datetime.datetime.now()
+                personal_api_key_object.last_used_at = timezone.now()
                 personal_api_key_object.save()
                 return personal_api_key_object.user, None
         return None
 
-    def authenticate_header(self, request):
+    def authenticate_header(self, request) -> str:
         return self.keyword
 
 
