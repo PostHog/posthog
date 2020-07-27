@@ -37,6 +37,7 @@ export function PathTab(): JSX.Element {
                 })}
             </Select>
             <hr />
+            <h4 className="secondary">Start Point</h4>
             <PropertyValue
                 endpoint={filter?.type === AUTOCAPTURE && 'api/paths/elements'}
                 outerOptions={
