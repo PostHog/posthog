@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
                     "id",
                     models.CharField(
                         default=posthog.models.utils.generate_random_token,
-                        max_length=40,
+                        max_length=100,
                         primary_key=True,
                         serialize=False,
                     ),
@@ -30,7 +30,7 @@ class Migration(migrations.Migration):
                 (
                     "value",
                     models.CharField(
-                        default=posthog.models.utils.generate_random_token, editable=False, max_length=40, unique=True
+                        default=posthog.models.utils.generate_random_token, editable=False, max_length=100, unique=True
                     ),
                 ),
                 ("created_at", models.DateTimeField(default=datetime.datetime.now)),
