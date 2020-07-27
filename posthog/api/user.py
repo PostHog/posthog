@@ -69,7 +69,7 @@ def user(request):
                     "created_at": personal_api_key.created_at,
                     "last_used_at": personal_api_key.last_used_at,
                 }
-                for personal_api_key in request.user.personal_api_keys.all()
+                for personal_api_key in request.user.personal_api_keys.order_by("-created_at").all()
             ],
             "team": {
                 "app_urls": team.app_urls,
