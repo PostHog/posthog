@@ -9,6 +9,8 @@ def namedtuplefetchall(cursor):
     return [nt_result(*row) for row in cursor.fetchall()]
 
 
-def generate_random_token(length: int = 32) -> str:
+def generate_random_token(nbytes: int = 32) -> str:
     """Generate a securely random token"""
-    return secrets.token_urlsafe(length)
+    # random 32 bytes - default value here - is believed to be sufficiently secure for practically all purposes
+    # https://docs.python.org/3/library/secrets.html#how-many-bytes-should-tokens-use
+    return secrets.token_urlsafe(nbytes)
