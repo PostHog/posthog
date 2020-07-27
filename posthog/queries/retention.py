@@ -1,6 +1,7 @@
 from posthog.models import Filter, Team, Entity, Event
 from typing import Optional
 import datetime
+from datetime import timedelta
 
 
 class Retention:
