@@ -5,7 +5,7 @@ import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { elementToActionStep, elementToSelector } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { heatmapLogicType } from './heatmapLogic.type'
+import { heatmapLogicType } from './heatmapLogicType'
 
 export const heatmapLogic = kea<heatmapLogicType>({
     actions: {
@@ -154,7 +154,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
     }),
 
     listeners: ({ actions, values }) => ({
-        [currentPageLogic.actions.setHref]: ({ href }) => {
+        [currentPageLogic.actionTypes.setHref]: ({ href }) => {
             if (values.heatmapEnabled) {
                 actions.resetEvents()
                 actions.getEvents({ $current_url: href })

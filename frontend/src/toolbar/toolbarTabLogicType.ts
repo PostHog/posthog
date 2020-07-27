@@ -8,7 +8,12 @@ export interface toolbarTabLogicType {
             payload: { tab: string; };
         });
     };
-    actionKeys: any;
+    actionKeys: {
+        "set tab (toolbar.toolbarTabLogic)": "setTab";
+    };
+    actionTypes: {
+        setTab: "set tab (toolbar.toolbarTabLogic)";
+    };
     actions: {
         setTab: (tab: string) => ({
             type: "set tab (toolbar.toolbarTabLogic)";
@@ -41,4 +46,18 @@ export interface toolbarTabLogicType {
         tab: string;
     };
     _isKea: true;
+    __keaTypeGenInternalReducerActions: {
+        "button (toolbar.dockLogic)": () => ({
+            type: "button (toolbar.dockLogic)";
+            payload: {
+                value: boolean;
+            };
+        });
+        "dock (toolbar.dockLogic)": () => ({
+            type: "dock (toolbar.dockLogic)";
+            payload: {
+                value: boolean;
+            };
+        });
+    };
 }

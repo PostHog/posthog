@@ -10,7 +10,12 @@ export interface toolbarLogicType {
             };
         });
     };
-    actionKeys: any;
+    actionKeys: {
+        "authenticate (toolbar.toolbarLogic)": "authenticate";
+    };
+    actionTypes: {
+        authenticate: "authenticate (toolbar.toolbarLogic)";
+    };
     actions: {
         authenticate: () => ({
             type: "authenticate (toolbar.toolbarLogic)";
@@ -71,7 +76,7 @@ export interface toolbarLogicType {
         isAuthenticated: boolean;
     };
     _isKea: true;
-    __selectorTypeHelp: {
+    __keaTypeGenInternalSelectorTypes: {
         apiURL: (arg1: string) => string;
         jsURL: (arg1: string) => string;
         isAuthenticated: (arg1: string) => boolean;

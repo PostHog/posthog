@@ -62,7 +62,30 @@ export interface dockLogicType<ToolbarMode,  AnimationState> {
             payload: { mode: ToolbarMode; update: boolean; windowWidth: number; windowHeight: number; };
         });
     };
-    actionKeys: any;
+    actionKeys: {
+        "button (toolbar.dockLogic)": "button";
+        "dock (toolbar.dockLogic)": "dock";
+        "hide button (toolbar.dockLogic)": "hideButton";
+        "update (toolbar.dockLogic)": "update";
+        "button animated (toolbar.dockLogic)": "buttonAnimated";
+        "button faded (toolbar.dockLogic)": "buttonFaded";
+        "dock animated (toolbar.dockLogic)": "dockAnimated";
+        "dock faded (toolbar.dockLogic)": "dockFaded";
+        "hide button animated (toolbar.dockLogic)": "hideButtonAnimated";
+        "set mode (toolbar.dockLogic)": "setMode";
+    };
+    actionTypes: {
+        button: "button (toolbar.dockLogic)";
+        dock: "dock (toolbar.dockLogic)";
+        hideButton: "hide button (toolbar.dockLogic)";
+        update: "update (toolbar.dockLogic)";
+        buttonAnimated: "button animated (toolbar.dockLogic)";
+        buttonFaded: "button faded (toolbar.dockLogic)";
+        dockAnimated: "dock animated (toolbar.dockLogic)";
+        dockFaded: "dock faded (toolbar.dockLogic)";
+        hideButtonAnimated: "hide button animated (toolbar.dockLogic)";
+        setMode: "set mode (toolbar.dockLogic)";
+    };
     actions: {
         button: () => ({
             type: "button (toolbar.dockLogic)";
@@ -180,7 +203,7 @@ export interface dockLogicType<ToolbarMode,  AnimationState> {
         dockTopMargin: any;
     };
     _isKea: true;
-    __selectorTypeHelp: {
+    __keaTypeGenInternalSelectorTypes: {
         isAnimating: (arg1: AnimationState, arg2: AnimationState) => boolean;
         padding: (arg1: any) => number;
         bodyWidth: (arg1: any, arg2: number, arg3: number) => number;

@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { dockLogic } from '~/toolbar/dockLogic'
-import { toolbarTabLogicType } from '~/toolbar/toolbarTabLogic.type'
+import { toolbarTabLogicType } from '~/toolbar/toolbarTabLogicType'
 
 export const toolbarTabLogic = kea<toolbarTabLogicType>({
     actions: () => ({
@@ -11,8 +11,8 @@ export const toolbarTabLogic = kea<toolbarTabLogicType>({
             'stats',
             {
                 setTab: (_, { tab }) => tab,
-                [dockLogic.actions.button]: () => 'stats',
-                [dockLogic.actions.dock]: () => 'stats',
+                [dockLogic.actionTypes.button]: () => 'stats',
+                [dockLogic.actionTypes.dock]: () => 'stats',
             },
         ],
     }),

@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from '../lib/api'
 import { posthogEvents } from 'lib/utils'
-import { userLogicType } from './userLogic.type'
+import { userLogicType } from './userLogicType'
 import { UserType } from '~/types'
 
 export const userLogic = kea<userLogicType<UserType>>({

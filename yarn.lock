@@ -1662,6 +1662,11 @@
     "@webassemblyjs/wast-parser" "1.8.5"
     "@xtuc/long" "4.2.2"
 
+"@wessberg/ts-clone-node@0.3.8":
+  version "0.3.8"
+  resolved "https://registry.yarnpkg.com/@wessberg/ts-clone-node/-/ts-clone-node-0.3.8.tgz#25bf1e0625a4b4b836324427894ab138ebd7fb00"
+  integrity sha512-m/+1ox7e2K/KwWFe1K7OpiqTHZnraCG6urhCt4Y5Dxw8dr1NMcV52Q8qvJd0lGfhGhZiVD/SWbUj9i2wKzdK6w==
+
 "@xtuc/ieee754@^1.2.0":
   version "1.2.0"
   resolved "https://registry.yarnpkg.com/@xtuc/ieee754/-/ieee754-1.2.0.tgz#eef014a3145ae477a1cbc00cd1e552336dceb790"
@@ -6049,11 +6054,12 @@ kea-router@^0.4.0:
   dependencies:
     url-pattern "^1.0.3"
 
-kea-typegen@^0.0.19:
-  version "0.0.19"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.0.19.tgz#09828613cfea4a90755d92e51739b8e47cb3fd31"
-  integrity sha512-2n674XWI/WUdERI4skb4WG/dOfq6RRD2JAA0YXOGVDyes+Y5uYuN0bV5kS7+eHJAkjoqztALaulaLRkjhPTmuQ==
+kea-typegen@^0.0.26:
+  version "0.0.26"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.0.26.tgz#f22e38c37fac8e6895edec6da672375e5be319e7"
+  integrity sha512-dU7K3mXRmrxtrn6c2ciTw5/oA91hNFIYWcBQN5U1M44ozlfOdXvBoKntrX+IzCH5vzFpYNAHED/ROeSLtt+Axg==
   dependencies:
+    "@wessberg/ts-clone-node" "0.3.8"
     yargs "^15.4.0"
 
 kea-window-values@^0.0.1:
@@ -6061,10 +6067,10 @@ kea-window-values@^0.0.1:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.0.1.tgz#918eee6647507e2d3d5d19466b9561261e7bc8d7"
   integrity sha512-60SfOqHrmnCC8hSD2LALMJemYcohQ8tGcTHlA5u4rQy0l0wFFE4gqH1WbKd+73j9m4f6zdoOk07rwJf+P8maiQ==
 
-kea@2.2.0-beta.1:
-  version "2.2.0-beta.1"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.2.0-beta.1.tgz#e412be2a2e83f1ba9f319c74f20b3d2c8f2f5454"
-  integrity sha512-ju0UbjLFVB2J7I+l34nbWk0f5Sp1EjeSL2q9n+uvzzh0DrHhSOWCF0Rlw0SAfc9Hxli7jylEJVriisiHgD7F2A==
+kea@2.2.0-beta.3:
+  version "2.2.0-beta.3"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.2.0-beta.3.tgz#a7ffddeaf2fd609f92e6c3ee75c3c4b89f071046"
+  integrity sha512-5Q3yNJ8I4olOEDd4weISfJaU4dqz1sNAGSNLdPAzh7JdKZmJzu84vatDdQskk9rASlM1xW3whXYkteGRDpLmwg==
 
 keyv@^3.0.0:
   version "3.1.0"

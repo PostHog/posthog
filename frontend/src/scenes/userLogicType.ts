@@ -26,7 +26,20 @@ export interface userLogicType<UserType> {
             payload: { updateKey: string; error: string; };
         });
     };
-    actionKeys: any;
+    actionKeys: {
+        "load user (scenes.userLogic)": "loadUser";
+        "set user (scenes.userLogic)": "setUser";
+        "user update request (scenes.userLogic)": "userUpdateRequest";
+        "user update success (scenes.userLogic)": "userUpdateSuccess";
+        "user update failure (scenes.userLogic)": "userUpdateFailure";
+    };
+    actionTypes: {
+        loadUser: "load user (scenes.userLogic)";
+        setUser: "set user (scenes.userLogic)";
+        userUpdateRequest: "user update request (scenes.userLogic)";
+        userUpdateSuccess: "user update success (scenes.userLogic)";
+        userUpdateFailure: "user update failure (scenes.userLogic)";
+    };
     actions: {
         loadUser: () => ({
             type: "load user (scenes.userLogic)";
@@ -85,7 +98,7 @@ export interface userLogicType<UserType> {
         eventNamesGrouped: { label: string; options: { label: string; value: string; }[]; }[];
     };
     _isKea: true;
-    __selectorTypeHelp: {
+    __keaTypeGenInternalSelectorTypes: {
         eventProperties: (arg1: UserType) => { value: string; label: string; }[];
         eventNames: (arg1: UserType) => string[];
         customEventNames: (arg1: UserType) => string[];

@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { toolbarLogicType } from '~/toolbar/toolbarLogic.type'
+import { toolbarLogicType } from '~/toolbar/toolbarLogicType'
 
 // input: props = all editorProps
 export const toolbarLogic = kea<toolbarLogicType>({

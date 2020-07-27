@@ -6,7 +6,7 @@ import {
     updateDockToolbarVariables,
 } from '~/toolbar/dockUtils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { dockLogicType } from '~/toolbar/dockLogic.type'
+import { dockLogicType } from '~/toolbar/dockLogicType'
 import { AnimationState, ToolbarMode } from '~/toolbar/types'
 
 // props:

@@ -48,7 +48,26 @@ export interface heatmapLogicType {
             };
         });
     };
-    actionKeys: any;
+    actionKeys: {
+        "enable heatmap (toolbar.elements.heatmapLogic)": "enableHeatmap";
+        "disable heatmap (toolbar.elements.heatmapLogic)": "disableHeatmap";
+        "reset events (toolbar.elements.heatmapLogic)": "resetEvents";
+        "reset events success (toolbar.elements.heatmapLogic)": "resetEventsSuccess";
+        "reset events failure (toolbar.elements.heatmapLogic)": "resetEventsFailure";
+        "get events (toolbar.elements.heatmapLogic)": "getEvents";
+        "get events success (toolbar.elements.heatmapLogic)": "getEventsSuccess";
+        "get events failure (toolbar.elements.heatmapLogic)": "getEventsFailure";
+    };
+    actionTypes: {
+        enableHeatmap: "enable heatmap (toolbar.elements.heatmapLogic)";
+        disableHeatmap: "disable heatmap (toolbar.elements.heatmapLogic)";
+        resetEvents: "reset events (toolbar.elements.heatmapLogic)";
+        resetEventsSuccess: "reset events success (toolbar.elements.heatmapLogic)";
+        resetEventsFailure: "reset events failure (toolbar.elements.heatmapLogic)";
+        getEvents: "get events (toolbar.elements.heatmapLogic)";
+        getEventsSuccess: "get events success (toolbar.elements.heatmapLogic)";
+        getEventsFailure: "get events failure (toolbar.elements.heatmapLogic)";
+    };
     actions: {
         enableHeatmap: () => ({
             type: "enable heatmap (toolbar.elements.heatmapLogic)";
@@ -146,7 +165,7 @@ export interface heatmapLogicType {
         highestClickCount: any;
     };
     _isKea: true;
-    __selectorTypeHelp: {
+    __keaTypeGenInternalSelectorTypes: {
         elements: (arg1: undefined[]) => { element: any; count: any; selector: any; hash: any; }[];
         countedElements: (arg1: { element: any; count: any; selector: any; hash: any; }[]) => any[];
         elementCount: (arg1: any[]) => number;

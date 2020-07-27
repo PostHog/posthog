@@ -7,7 +7,7 @@ import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import { elementsLogicType } from '~/toolbar/elements/elementsLogic.type'
+import { elementsLogicType } from '~/toolbar/elements/elementsLogicType'
 import { ToolbarMode } from '~/toolbar/types'
 
 export const elementsLogic = kea<elementsLogicType<ToolbarMode>>({

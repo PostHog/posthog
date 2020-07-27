@@ -42,7 +42,26 @@ export interface elementsLogicType<ToolbarMode> {
             payload: { element: any; };
         });
     };
-    actionKeys: any;
+    actionKeys: {
+        "enable inspect (toolbar.elements.elementsLogic)": "enableInspect";
+        "disable inspect (toolbar.elements.elementsLogic)": "disableInspect";
+        "select element (toolbar.elements.elementsLogic)": "selectElement";
+        "create action (toolbar.elements.elementsLogic)": "createAction";
+        "update rects (toolbar.elements.elementsLogic)": "updateRects";
+        "set hover element (toolbar.elements.elementsLogic)": "setHoverElement";
+        "set highlight element (toolbar.elements.elementsLogic)": "setHighlightElement";
+        "set selected element (toolbar.elements.elementsLogic)": "setSelectedElement";
+    };
+    actionTypes: {
+        enableInspect: "enable inspect (toolbar.elements.elementsLogic)";
+        disableInspect: "disable inspect (toolbar.elements.elementsLogic)";
+        selectElement: "select element (toolbar.elements.elementsLogic)";
+        createAction: "create action (toolbar.elements.elementsLogic)";
+        updateRects: "update rects (toolbar.elements.elementsLogic)";
+        setHoverElement: "set hover element (toolbar.elements.elementsLogic)";
+        setHighlightElement: "set highlight element (toolbar.elements.elementsLogic)";
+        setSelectedElement: "set selected element (toolbar.elements.elementsLogic)";
+    };
     actions: {
         enableInspect: () => ({
             type: "enable inspect (toolbar.elements.elementsLogic)";
@@ -172,7 +191,7 @@ export interface elementsLogicType<ToolbarMode> {
         highlightElementMeta: any;
     };
     _isKea: true;
-    __selectorTypeHelp: {
+    __keaTypeGenInternalSelectorTypes: {
         inspectEnabled: (arg1: ToolbarMode, arg2: boolean, arg3: string, arg4: any, arg5: any) => boolean;
         heatmapEnabled: (arg1: boolean, arg2: string) => boolean;
         heatmapElements: (arg1: any[], arg2: number, arg3: boolean) => any[];
