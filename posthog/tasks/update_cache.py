@@ -1,7 +1,7 @@
 from celery import shared_task, group
-from posthog.api.action import calculate_trends, get_actions
+from posthog.queries.trends import Trends
 from posthog.api.funnel import FunnelSerializer
-from posthog.models import Filter, Action, Funnel, Entity, DashboardItem, ActionStep
+from posthog.models import Filter, Action, Funnel, Entity, DashboardItem, ActionStep, Team
 from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT
 from posthog.utils import generate_cache_key
 from posthog.celery import update_cache_item_task
@@ -63,7 +63,7 @@ def _calculate_trends(filter: Filter, team_id: int) -> List[Dict[str, Any]]:
     actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters=filter.to_dict())
     dashboard_items.update(refreshing=True)
-    result = calculate_trends(filter, team_id, actions)
+    result = Trends().run(filter, Team(pk=team_id), actions)
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result
 
