@@ -11,6 +11,7 @@ from . import (
     annotation,
     personal_api_key,
     team_user,
+    hook,
 )
 from rest_framework import routers
 
@@ -28,3 +29,4 @@ router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"paths", paths.PathsViewSet, basename="paths")
 router.register(r"personal_api_key", personal_api_key.PersonalAPIKeyViewSet)
 router.register(r"team/user", team_user.TeamUserViewSet)
+router.register(r"hook", hook.HookViewSet)
