@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import moment from 'moment'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { Modal, Button, Spin } from 'antd'
 import { PeopleTable } from 'scenes/users/PeopleTable'
 

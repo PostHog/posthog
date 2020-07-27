@@ -3,7 +3,7 @@ import { Select, DatePicker, Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import moment from 'moment'
 import { dateFilterLogic } from './dateFilterLogic'
-import { ViewType } from 'scenes/trends/insightLogic'
+import { ViewType } from 'scenes/insights/insightLogic'
 
 let dateMapping = {
     Today: ['dStart'],

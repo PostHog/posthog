@@ -28,7 +28,7 @@ export const chartFilterLogic = kea({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/trends': (_, { display }) => {
+        '/insights': (_, { display }) => {
             if (display) actions.setChartFilter(display)
         },
     }),

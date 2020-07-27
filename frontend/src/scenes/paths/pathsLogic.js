@@ -3,7 +3,7 @@ import { toParams, objectsEqual } from 'lib/utils'
 import api from 'lib/api'
 import { router } from 'kea-router'
 import lo from 'lodash'
-import { ViewType, insightLogic } from 'scenes/trends/insightLogic'
+import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 
 export const PAGEVIEW = '$pageview'
 export const SCREEN = '$screen'
@@ -143,7 +143,7 @@ export const pathsLogic = kea({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/trends': (_, searchParams) => {
+        '/insights': (_, searchParams) => {
             if (searchParams.insight === ViewType.PATHS) {
                 try {
                     // if the url changed, but we are not anymore on the page we were at when the logic was mounted

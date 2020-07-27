@@ -105,8 +105,8 @@ function determineInsightType(activeView, display) {
     }
 }
 
-export const Trends = hot(_Trends)
-function _Trends() {
+export const Insights = hot(_Insights)
+function _Insights() {
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsList } = useValues(annotationsLogic({ pageKey: fromItem }))

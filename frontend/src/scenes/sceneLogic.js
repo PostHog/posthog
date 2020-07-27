@@ -18,7 +18,7 @@ export const scenes = {
     editFunnel: () => import(/* webpackChunkName: 'editFunnel' */ './funnels/Funnel'),
     funnels: () => import(/* webpackChunkName: 'funnels' */ './funnels/Funnels'),
     setup: () => import(/* webpackChunkName: 'setup' */ './setup/Setup'),
-    trends: () => import(/* webpackChunkName: 'trends' */ './trends/Trends'),
+    insights: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
     cohorts: () => import(/* webpackChunkName: 'cohorts' */ './users/Cohorts'),
     featureFlags: () => import(/* webpackChunkName: 'featureFlags' */ './experiments/FeatureFlags'),
     annotations: () => import(/* webpackChunkName: 'annotations' */ './annotations/AnnotationsScene'),
@@ -26,7 +26,7 @@ export const scenes = {
 }
 
 export const redirects = {
-    '/': '/trends',
+    '/': '/insights',
 }
 
 export const routes = {
@@ -36,7 +36,7 @@ export const routes = {
     '/action': 'action',
     '/actions/live': 'liveActions',
     '/actions': 'actions',
-    '/trends': 'trends',
+    '/insights': 'insights',
     '/funnel': 'funnels',
     '/funnel/new': 'editFunnel',
     '/setup': 'setup',

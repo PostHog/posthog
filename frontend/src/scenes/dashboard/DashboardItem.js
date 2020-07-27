@@ -4,9 +4,9 @@ import { Dropdown, Menu, Tooltip, Alert } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
-import { ActionsLineGraph } from 'scenes/trends/ActionsLineGraph'
-import { ActionsTable } from 'scenes/trends/ActionsTable'
-import { ActionsPie } from 'scenes/trends/ActionsPie'
+import { ActionsLineGraph } from 'scenes/insights/ActionsLineGraph'
+import { ActionsTable } from 'scenes/insights/ActionsTable'
+import { ActionsPie } from 'scenes/insights/ActionsPie'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import {
     EllipsisOutlined,
@@ -26,9 +26,9 @@ import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import moment from 'moment'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
-import { ViewType } from 'scenes/trends/insightLogic'
+import { ViewType } from 'scenes/insights/insightLogic'
 
 const typeMap = {
     ActionsLineGraph: {
@@ -37,7 +37,7 @@ const typeMap = {
         icon: LineChartOutlined,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }) =>
-            combineUrl('/trends', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
     },
     ActionsLineGraphCumulative: {
         className: 'graph',
@@ -45,7 +45,7 @@ const typeMap = {
         icon: LineChartOutlined,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }) =>
-            combineUrl('/trends', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
     },
     ActionsTable: {
         className: 'table',
@@ -53,7 +53,7 @@ const typeMap = {
         icon: TableOutlined,
         viewText: 'View table',
         link: ({ filters, id, dashboard, name }) =>
-            combineUrl('/trends', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
     },
     ActionsPie: {
         className: 'pie',
@@ -61,7 +61,7 @@ const typeMap = {
         icon: PieChartOutlined,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }) =>
-            combineUrl('/trends', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
+            combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
     },
     FunnelViz: {
         className: 'funnel',
@@ -70,7 +70,7 @@ const typeMap = {
         viewText: 'View funnel',
         link: ({ funnel, id, dashboard, name }) =>
             combineUrl(
-                `/trends`,
+                `/insights`,
                 { insight: ViewType.FUNNELS, id: funnel },
                 { fromItem: id, fromItemName: name, fromDashboard: dashboard }
             ).url,

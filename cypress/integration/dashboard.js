@@ -34,7 +34,7 @@ describe('Dashboards', () => {
         cy.get('[data-attr=dashboard-name-0]').click()
         cy.get('[data-attr=dashboard-item-0-dropdown]').click()
         cy.get('[data-attr=dashboard-item-0-dropdown-view]').click()
-        cy.location('pathname').should('include', '/trends')
+        cy.location('pathname').should('include', '/insights')
     })
 
     it('Rename dashboard item', () => {

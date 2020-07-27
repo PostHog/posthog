@@ -28,7 +28,7 @@ export const dateFilterLogic = kea({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/trends': (_, { date_from, date_to }) => {
+        '/insights': (_, { date_from, date_to }) => {
             actions.setDates(date_from, date_to)
         },
     }),

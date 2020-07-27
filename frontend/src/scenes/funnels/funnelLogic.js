@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
-import { ViewType, insightLogic } from 'scenes/trends/insightLogic'
+import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { objectsEqual } from 'lib/utils'
 
 export const funnelLogic = kea({
@@ -96,7 +96,7 @@ export const funnelLogic = kea({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/trends': (_, searchParams) => {
+        '/insights': (_, searchParams) => {
             if (searchParams.insight === ViewType.FUNNELS) {
                 const id = searchParams.id
                 if (id) {

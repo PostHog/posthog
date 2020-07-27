@@ -3,7 +3,7 @@ import { Loading, toParams } from '../../lib/utils'
 import { Table } from 'antd'
 import PropTypes from 'prop-types'
 import { useActions, useValues } from 'kea'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { trendsLogic } from 'scenes/insights/trendsLogic'
 
 export function ActionsTable({ dashboardItemId = null, view, filters: filtersParam, cachedResults }) {
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })

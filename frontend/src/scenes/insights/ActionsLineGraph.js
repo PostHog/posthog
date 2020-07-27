@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Loading, toParams } from '../../lib/utils'
 import { LineGraph } from './LineGraph'
 import { useActions, useValues } from 'kea'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { router } from 'kea-router'
 
 export function ActionsLineGraph({

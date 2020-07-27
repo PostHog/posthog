@@ -245,12 +245,12 @@ export const trendsLogic = kea({
                 return // don't use the URL if on the dashboard
             }
 
-            return ['/trends', values.filters]
+            return ['/insights', values.filters]
         },
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        '/trends': (_, searchParams) => {
+        '/insights': (_, searchParams) => {
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }

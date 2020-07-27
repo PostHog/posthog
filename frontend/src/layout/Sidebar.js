@@ -144,10 +144,10 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
 
                     {pinnedDashboards.length > 0 ? <Menu.Divider /> : null}
 
-                    <Menu.Item key="trends" style={itemStyle} data-attr="menu-item-trends" title="">
+                    <Menu.Item key="insights" style={itemStyle} data-attr="menu-item-insights" title="">
                         <RiseOutlined />
                         <span className="sidebar-label">{'Insights'}</span>
-                        <Link to={'/trends?insight=TRENDS'} onClick={collapseSidebar} />
+                        <Link to={'/insights?insight=TRENDS'} onClick={collapseSidebar} />
                     </Menu.Item>
 
                     <Menu.SubMenu

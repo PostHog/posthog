@@ -27,7 +27,7 @@ export const compareFilterLogic = kea({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/trends': (_, { compare }) => {
+        '/insights': (_, { compare }) => {
             if (compare) actions.setCompare(compare)
         },
     }),

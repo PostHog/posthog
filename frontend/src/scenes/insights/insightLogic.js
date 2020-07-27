@@ -54,11 +54,11 @@ export const insightLogic = kea({
             const urlParams = {
                 insight: type,
             }
-            return ['/trends', urlParams]
+            return ['/insights', urlParams]
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/trends': (_, searchParams) => {
+        '/insights': (_, searchParams) => {
             if (searchParams.insight && searchParams.insight !== values.activeView) {
                 actions.updateActiveView(searchParams.insight)
             }
