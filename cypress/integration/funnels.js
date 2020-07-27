@@ -12,6 +12,15 @@ describe('Funnels', () => {
         cy.get('[data-attr=funnel-tab]').should('exist')
     })
 
+    it('Apply date filter to funnel', () => {
+        cy.get('[data-attr=funnel-link-0]').click()
+        cy.get('[data-attr=funnel-tab]').should('exist')
+        cy.get('[data-attr=date-filter]').click()
+        cy.contains('Last 30 days').click()
+
+        cy.get('[data-attr=funnel-viz]').should('exist')
+    })
+
     it('Go to new funnel screen', () => {
         cy.get('[data-attr=create-funnel]').click()
         cy.get('[data-attr=funnel-tab]').should('exist')
