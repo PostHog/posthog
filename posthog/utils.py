@@ -201,11 +201,13 @@ def cors_response(request, response):
 
 
 class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
+    keyword = "Bearer"
+
     def authenticate(self, request: request.Request):
         personal_api_key = None
         authorization_header = request.META.get("HTTP_AUTHORIZATION")
         if authorization_header:
-            authorization_match = re.match(r"^Bearer (\S+)$", authorization_header)
+            authorization_match = re.match(fr"^{self.keyword} (\S+)$", authorization_header)
             if authorization_match:
                 personal_api_key = authorization_match.group(1)
         if not personal_api_key:
@@ -224,6 +226,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 personal_api_key_object.save()
                 return personal_api_key_object.user, None
         return None
+
+    def authenticate_header(self, request):
+        return self.keyword
 
 
 class TemporaryTokenAuthentication(authentication.BaseAuthentication):
