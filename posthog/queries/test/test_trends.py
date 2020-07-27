@@ -82,7 +82,9 @@ class TestTrends(BaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             # with self.assertNumQueries(16):
             response = Trends().run(
-                Filter(data={"date_from": "-7d", "events": [{"id": "sign up"}, {"id": "no events"}],}), self.team
+                Filter(data={"date_from": "-7d", "events": [{"id": "sign up"}, {"id": "no events"}],}),
+                self.team,
+                Action.objects.all(),
             )
         self.assertEqual(response[0]["label"], "sign up")
         self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
@@ -93,20 +95,16 @@ class TestTrends(BaseTest):
     def test_trends_per_day_48hours(self):
         self._create_events()
         with freeze_time("2020-01-03T13:00:01Z"):
-            action_response = self.client.get("/api/action/trends/?date_from=-48h&interval=day").json()
-            event_response = self.client.get(
-                "/api/action/trends/",
-                data={
-                    "date_from": "-48h",
-                    "events": jdumps([{"id": "sign up"}, {"id": "no events"}]),
-                    "interval": "day",
-                },
-            ).json()
+            response = Trends().run(
+                Filter(
+                    data={"date_from": "-48h", "interval": "day", "events": [{"id": "sign up"}, {"id": "no events"}],}
+                ),
+                self.team,
+                Action.objects.all(),
+            )
 
-        self.assertEqual(action_response[0]["data"][1], 1.0)
-        self.assertEqual(action_response[0]["labels"][1], "Thu. 2 January")
-
-        self.assertTrue(self._compare_entity_response(action_response, event_response))
+        self.assertEqual(response[0]["data"][1], 1.0)
+        self.assertEqual(response[0]["labels"][1], "Thu. 2 January")
 
     # def test_trends_per_day_cumulative(self):
     #     self._create_events()
