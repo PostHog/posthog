@@ -1,8 +1,11 @@
 from posthog.queries.stickiness import Stickiness
 from posthog.api.test.base import BaseTest
 from posthog.queries.retention import Retention
-from posthog.models import Action, Person, Event, ActionStep, Team, Filter
+from posthog.models import Action, Person, Event, ActionStep, Team, Filter, Entity
 from freezegun import freeze_time
+from datetime import datetime
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+import pytz
 
 
 class TestRetention(BaseTest):
@@ -103,7 +106,7 @@ class TestRetention(BaseTest):
 
         start_entity = Entity({"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS})
         result = Retention().run(
-            Filter(data={"date_from": self._date(0, hour=0)}), self.team, start_entity=start_entity, total_days=7
+            Filter(data={"date_from": self._date(0, hour=0), "entities": [start_entity]}), self.team, total_days=7
         )
 
         self.assertEqual(len(result["data"]), 7)
@@ -133,7 +136,7 @@ class TestRetention(BaseTest):
         return sign_up_action
 
     def _date(self, day, hour=5):
-        return datetime(2020, 6, 10 + day, hour).isoformat()
+        return datetime(2020, 6, 10 + day, hour, tzinfo=pytz.UTC).isoformat()
 
     def pluck(self, list_of_dicts, key, child_key=None):
         return [self.pluck(d[key], child_key) if child_key else d[key] for d in list_of_dicts]

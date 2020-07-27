@@ -27,7 +27,10 @@ class Retention:
 
         return result
 
-    def run(self, filter: Filter, team: Team):
+    def run(self, filter: Filter, team: Team, total_days: Optional[int] = None):
         return self.calculate_retention(
-            filter=filter, team=team, start_entity=filter.entities[0] if len(filter.entities) > 0 else None
+            filter=filter,
+            team=team,
+            start_entity=filter.entities[0] if len(filter.entities) > 0 else None,
+            total_days=total_days,
         )

@@ -71,7 +71,7 @@ class Stickiness:
             "count": sum(data),
         }
 
-    def run(self, filter: Filter, team: Team) -> Dict[str, Any]:
+    def run(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         response = []
 
         if not filter.date_from:

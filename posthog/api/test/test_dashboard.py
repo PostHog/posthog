@@ -1,6 +1,5 @@
 from .base import BaseTest, TransactionBaseTest
 from posthog.models import Dashboard, Filter, DashboardItem
-from posthog.api.action import calculate_trends
 from posthog.decorators import TRENDS_ENDPOINT
 from django.core.cache import cache
 from django.utils.timezone import now
