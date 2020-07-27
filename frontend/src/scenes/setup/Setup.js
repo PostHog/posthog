@@ -15,6 +15,7 @@ import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from 'scenes/setup/ToolbarSettings'
+import { PersonalAPIKeys } from './PersonalAPIKeys'
 
 export const Setup = hot(_Setup)
 function _Setup() {
@@ -37,19 +38,16 @@ function _Setup() {
             library for the specific language or platform you're using (Python, Ruby, Node, Go, PHP, iOS, Android, and
             more).
             <Divider />
-            <h2 id="api-key">Write-Only API Key</h2>
-            You can use this team-wide key in any one of{' '}
+            <h2 id="team-api-key">Team API Key</h2>
+            You can use this write-only key in any one of{' '}
             <a href="https://posthog.com/docs/integrations">our libraries</a>.
             <pre className="code">{user.team.api_token}</pre>
-            Write-only means it can only create new events. It can't read events or any of your other data stored on
+            Write-only means it can only create new events. It can't read events or any of your other data stored with
             PostHog, so it's safe to use in public apps. Still, if possible, include it in the build as an environment
-            variable instead of hardcoding.
+            variable instead of hard-coding.
             <Divider />
-            <h2 id="api-key-rw">Personal Access Token</h2>
-            This string allows full access to <i>your</i> account through the API, as if you were logged in. You can
-            also use it in integrations, such as <a href="https://zapier.com/apps/posthog/">our Zapier one</a>.
-            <pre className="code">{user.personal_access_token}</pre>
-            Keep this secret at all times.
+            <h2 id="personal-api-keys">Personal API Keys</h2>
+            <PersonalAPIKeys user={user} />
             <Divider />
             <h2 id="urls">Permitted Domains/URLs</h2>
             These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's also
