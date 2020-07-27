@@ -74,7 +74,7 @@ export const funnelLogic = kea({
 
     listeners: ({ actions, values }) => ({
         loadStepsWithCountSuccess: async () => {
-            if (values.stepsWithCount[0].people.length > 0) {
+            if (values.stepsWithCount[0]?.people.length > 0) {
                 actions.loadPeople(values.stepsWithCount)
             }
         },
@@ -82,24 +82,30 @@ export const funnelLogic = kea({
             if (update) actions.updateFunnel(values.funnel)
         },
         loadFunnelSuccess: ({ funnel }) => {
-            actions.setAllFilters({ funnelId: funnel.id, name: funnel.name })
+            actions.setAllFilters({ funnelId: funnel.id, name: funnel.name, date_from: funnel.filters.date_from })
         },
         updateFunnelSuccess: async ({ funnel }) => {
             actions.loadStepsWithCount({ id: funnel.id, refresh: true })
-            actions.setAllFilters({ funnelId: funnel.id, name: funnel.name })
+            actions.setAllFilters({ funnelId: funnel.id, name: funnel.name, date_from: funnel.filters.date_from })
             toast('Funnel saved!')
         },
         createFunnelSuccess: ({ funnel }) => {
             actions.loadStepsWithCount({ id: funnel.id, refresh: true })
-            actions.setAllFilters({ funnelId: funnel.id, name: funnel.name })
+            actions.setAllFilters({ funnelId: funnel.id, name: funnel.name, date_from: funnel.filters.date_from })
             toast('Funnel saved!')
         },
     }),
+    actionToUrl: ({ actions }) => ({
+        [actions.createFunnelSuccess]: ({ funnel }) => {
+            return ['/insights', { id: funnel.id, insight: ViewType.FUNNELS }]
+        },
+    }),
+
     urlToAction: ({ actions, values }) => ({
         '/insights': (_, searchParams) => {
             if (searchParams.insight === ViewType.FUNNELS) {
                 const id = searchParams.id
-                if (id) {
+                if (id != values.funnel.id) {
                     actions.loadFunnel(id)
                     actions.loadStepsWithCount({ id })
                 }
