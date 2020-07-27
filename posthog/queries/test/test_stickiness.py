@@ -43,10 +43,6 @@ class TestStickiness(BaseTest):
     def test_stickiness(self):
         person1 = self._create_multiple_people()[0]
 
-        watched_movie = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=watched_movie, event="watched movie")
-        watched_movie.calculate_events()
-
         with freeze_time("2020-01-08T13:01:01Z"):
             filter = Filter(
                 data={
@@ -67,3 +63,24 @@ class TestStickiness(BaseTest):
         self.assertEqual(response[0]["data"][2], 1)
         self.assertEqual(response[0]["labels"][6], "7 days")
         self.assertEqual(response[0]["data"][6], 0)
+
+    def test_stickiness_action(self):
+        person1 = self._create_multiple_people()[0]
+
+        watched_movie = Action.objects.create(team=self.team, name="watch movie action")
+        ActionStep.objects.create(action=watched_movie, event="watched movie")
+        watched_movie.calculate_events()
+
+        with freeze_time("2020-01-08T13:01:01Z"):
+            filter = Filter(
+                data={
+                    "shown_as": "Stickiness",
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-08",
+                    "actions": [{"id": watched_movie.pk}],
+                }
+            )
+            response = Stickiness().run(filter, self.team)
+        self.assertEqual(response[0]["label"], "watch movie action")
+        self.assertEqual(response[0]["count"], 4)
+        self.assertEqual(response[0]["labels"][0], "1 day")

@@ -1,6 +1,7 @@
 from typing import List, Dict, Any
 from .base import filter_events, handle_compare, process_entity_for_events
-from posthog.models import Entity, Filter, Team, Event
+from posthog.models import Entity, Filter, Team, Event, Action
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from django.db.models import QuerySet, Count, functions
 from django.utils.timezone import now
 from django.db import connection
@@ -18,6 +19,9 @@ class Stickiness:
         if filter.interval is None:
             filter.interval = "day"
 
+        import ipdb
+
+        ipdb.set_trace()
         serialized: Dict[str, Any] = {
             "action": entity.to_dict(),
             "label": entity.name,
@@ -85,6 +89,8 @@ class Stickiness:
             filter._date_to = now().isoformat()
 
         for entity in filter.entities:
+            if entity.type == TREND_FILTER_TYPE_ACTIONS:
+                entity.name = Action.objects.only("name").get(team=team, pk=entity.id).name
 
             entity_resp = handle_compare(entity=entity, filter=filter, func=self._serialize_entity, team_id=team.pk)
             response.extend(entity_resp)
