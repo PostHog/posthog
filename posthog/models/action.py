@@ -4,6 +4,8 @@ from django.core.exceptions import EmptyResultSet
 from django.db import connection, models, transaction
 from django.utils import timezone
 from sentry_sdk import capture_exception
+from rest_hooks.signals import hook_event
+from .user import User
 
 from .user import User
 
@@ -78,6 +80,9 @@ class Action(models.Model):
         self.is_calculating = False
         self.last_calculated_at = calculated_at
         self.save()
+
+    def on_perform(self):
+        hook_event.send(sender=self.__class__, action="performed", instance=self)
 
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
