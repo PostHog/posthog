@@ -1,15 +1,17 @@
-from posthog.models import Filter, Entity, Event, Team
-from typing import Optional, Callable, List, Dict, Any
-from dateutil.relativedelta import relativedelta
-from posthog.utils import get_compare_period_dates
-from django.db.models import Q, QuerySet
 import copy
-from posthog.constants import (
-    TREND_FILTER_TYPE_ACTIONS,
-    TREND_FILTER_TYPE_EVENTS,
-    TRENDS_CUMULATIVE,
-    TRENDS_STICKINESS,
-)
+from typing import Any, Callable, Dict, List, Optional
+
+from dateutil.relativedelta import relativedelta
+from django.db.models import Q, QuerySet
+
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_STICKINESS
+from posthog.models import Entity, Event, Filter, Team
+from posthog.utils import get_compare_period_dates
+
+
+"""
+process_entity_for_events takes in an Entity and team_id, and returns an Event QuerySet that's correctly filtered
+"""
 
 
 def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> QuerySet:
@@ -23,7 +25,7 @@ def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> Q
     return QuerySet()
 
 
-def determine_compared_filter(filter: Filter) -> Filter:
+def _determine_compared_filter(filter: Filter) -> Filter:
     date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
     compared_filter = copy.deepcopy(filter)
     compared_filter._date_from = date_from.date().isoformat()
@@ -31,7 +33,7 @@ def determine_compared_filter(filter: Filter) -> Filter:
     return compared_filter
 
 
-def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter: Filter, label: str) -> List[Dict[str, Any]]:
+def _convert_to_comparison(trend_entity: List[Dict[str, Any]], filter: Filter, label: str) -> List[Dict[str, Any]]:
     for entity in trend_entity:
         days = [i for i in range(len(entity["days"]))]
         labels = [
@@ -44,23 +46,35 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter: Filter, la
     return trend_entity
 
 
+"""
+    handle_compare takes an Entity, Filter and a callable.
+    It'll automatically create a new entity with the 'current' and 'previous' labels and automatically pick the right date_from and date_to filters .
+    It will then call func(entity, filter, team_id).
+"""
+
+
 def handle_compare(entity: Entity, filter: Filter, func: Callable, team_id: int) -> List:
     entities_list = []
     trend_entity = func(entity=entity, filter=filter, team_id=team_id)
     if filter.compare:
-        trend_entity = convert_to_comparison(trend_entity, filter, "{} - {}".format(entity.name, "current"))
+        trend_entity = _convert_to_comparison(trend_entity, filter, "{} - {}".format(entity.name, "current"))
         entities_list.extend(trend_entity)
 
-        compared_filter = determine_compared_filter(filter)
+        compared_filter = _determine_compared_filter(filter)
         compared_trend_entity = func(entity=entity, filter=compared_filter, team_id=team_id)
 
-        compared_trend_entity = convert_to_comparison(
+        compared_trend_entity = _convert_to_comparison(
             compared_trend_entity, compared_filter, "{} - {}".format(entity.name, "previous"),
         )
         entities_list.extend(compared_trend_entity)
     else:
         entities_list.extend(trend_entity)
     return entities_list
+
+
+"""
+filter_events takes team_id, filter, entity and generates a Q objects that you can use to filter a QuerySet
+"""
 
 
 def filter_events(team_id: int, filter: Filter, entity: Optional[Entity] = None) -> Q:
@@ -86,5 +100,12 @@ def filter_events(team_id: int, filter: Filter, entity: Optional[Entity] = None)
 
 
 class BaseQuery:
+    """
+        Run needs to be implemented in the individual Query class. It takes in a Filter, Team
+        and optionally other arguments within kwargs (though use sparingly!)
+
+        The output is a List comprised of Dicts. What those dicts looks like depend on the needs of the frontend.
+    """
+
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         raise NotImplementedError("You need to implement run")
