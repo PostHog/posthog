@@ -85,7 +85,7 @@
         "html-webpack-harddisk-plugin": "^1.0.1",
         "html-webpack-plugin": "^4.3.0",
         "husky": ">=4",
-        "kea-typegen": "^0.0.31",
+        "kea-typegen": "^0.0.32",
         "lint-staged": ">=10",
         "mini-css-extract-plugin": "^0.9.0",
         "nodemon": "^2.0.4",
