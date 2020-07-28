@@ -48,7 +48,7 @@ export function AnnotationMarker({
     const popupRef = useRef()
     const [focused, setFocused] = useState(false)
     const [textInput, setTextInput] = useState('')
-    const [applyAll, setApplyAll] = useState(false)
+    const [applyAll, setApplyAll] = useState(true)
     const [textAreaVisible, setTextAreaVisible] = useState(false)
     const [hovered, setHovered] = useState(false)
     const {
