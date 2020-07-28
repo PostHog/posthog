@@ -114,19 +114,6 @@ export function LineGraph({
         }
     }
 
-    function calculateTotalForTooltip(tooltipItemIndex, data) {
-        let total = 0
-        const actionsValueMap = {}
-        data.datasets.map((dataset) => {
-            const actionId = dataset.action.id
-            if (!actionsValueMap[actionId]) {
-                total += dataset.data[tooltipItemIndex] || 0
-                actionsValueMap[actionId] = dataset.data[tooltipItemIndex]
-            }
-        })
-        return total
-    }
-
     function buildChart() {
         const myChartRef = chartRef.current.getContext('2d')
 
@@ -168,6 +155,7 @@ export function LineGraph({
                                         index === datasetLength - 1 || index === datasetLength - 2 ? datum : null
                                     )
                                   : datasetCopy.data
+
                           return processDataset(datasetCopy, index)
                       }),
                   ]
@@ -230,12 +218,6 @@ export function LineGraph({
                                       }
 
                                       const labels = [label + ' - ' + tooltipItem.yLabel.toLocaleString()]
-
-                                      if (isStacked) {
-                                          const total = calculateTotalForTooltip(tooltipItem.index, data)
-                                          if (total > 0) labels.push(`Total - ${total}`)
-                                      }
-
                                       return labels
                                   },
                               },
@@ -263,6 +245,7 @@ export function LineGraph({
                                           precision: 0,
                                           padding: annotationsLoading || annotationsList.length === 0 ? 0 : 35,
                                       },
+                                      stacked: isStacked,
                                   },
                               ],
                               yAxes: [

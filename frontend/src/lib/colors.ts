@@ -98,7 +98,7 @@ export function getChartColors(backgroundColor: string): string[] {
     return colorsForBackground(colors[0], colors[1], colors[2])
 }
 
-export function setOpacityToHexColor(hexCode: string, opacity: number) : string {
+export function setOpacityToHexColor(hexCode: string, opacity: number): string {
     // Alpha can be added to hex values to obtain a lighter set of colors
     // 1A as suffix means the alpha is set to 10% or opacity is 0.1
     const alpha = Math.floor(255 * opacity).toString(16)
