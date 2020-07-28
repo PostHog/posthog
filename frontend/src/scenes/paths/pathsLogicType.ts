@@ -10,12 +10,12 @@ export interface pathsLogicType {
             payload: any
         }
         loadPathsSuccess: (paths: {
-            nodes: never[]
-            links: never[]
+            nodes: undefined[]
+            links: undefined[]
         }) => {
             type: 'load paths success (scenes.paths.pathsLogic)'
             payload: {
-                paths: { nodes: never[]; links: never[] }
+                paths: { nodes: undefined[]; links: undefined[] }
             }
         }
         loadPathsFailure: (
@@ -61,12 +61,12 @@ export interface pathsLogicType {
             payload: any
         }
         loadPathsSuccess: (paths: {
-            nodes: never[]
-            links: never[]
+            nodes: undefined[]
+            links: undefined[]
         }) => {
             type: 'load paths success (scenes.paths.pathsLogic)'
             payload: {
-                paths: { nodes: never[]; links: never[] }
+                paths: { nodes: undefined[]; links: undefined[] }
             }
         }
         loadPathsFailure: (
@@ -104,7 +104,7 @@ export interface pathsLogicType {
         action: () => any,
         fullState: any
     ) => {
-        paths: { nodes: never[]; links: never[] }
+        paths: { nodes: undefined[]; links: undefined[] }
         pathsLoading: boolean
         initialPathname: (state: any) => any
         filter: { type: string }
@@ -113,10 +113,10 @@ export interface pathsLogicType {
     reducerOptions: any
     reducers: {
         paths: (
-            state: { nodes: never[]; links: never[] },
+            state: { nodes: undefined[]; links: undefined[] },
             action: any,
             fullState: any
-        ) => { nodes: never[]; links: never[] }
+        ) => { nodes: undefined[]; links: undefined[] }
         pathsLoading: (state: boolean, action: any, fullState: any) => boolean
         initialPathname: (state: (state: any) => any, action: any, fullState: any) => (state: any) => any
         filter: (state: { type: string }, action: any, fullState: any) => { type: string }
@@ -125,14 +125,14 @@ export interface pathsLogicType {
     selector: (
         state: any
     ) => {
-        paths: { nodes: never[]; links: never[] }
+        paths: { nodes: undefined[]; links: undefined[] }
         pathsLoading: boolean
         initialPathname: (state: any) => any
         filter: { type: string }
         properties: {}
     }
     selectors: {
-        paths: (state: any, props: any) => { nodes: never[]; links: never[] }
+        paths: (state: any, props: any) => { nodes: undefined[]; links: undefined[] }
         pathsLoading: (state: any, props: any) => boolean
         initialPathname: (state: any, props: any) => (state: any) => any
         filter: (state: any, props: any) => { type: string }
@@ -140,7 +140,7 @@ export interface pathsLogicType {
         propertiesForUrl: (state: any, props: any) => '' | { properties: any; filter: any }
     }
     values: {
-        paths: { nodes: never[]; links: never[] }
+        paths: { nodes: undefined[]; links: undefined[] }
         pathsLoading: boolean
         initialPathname: (state: any) => any
         filter: { type: string }
