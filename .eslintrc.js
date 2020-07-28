@@ -38,8 +38,17 @@ module.exports = {
     overrides: [
         {
             // enable the rule specifically for TypeScript files
+            files: ['*Type.ts', '*Type.tsx'],
+            rules: {
+                '@typescript-eslint/no-explicit-any': ['off'],
+                '@typescript-eslint/ban-types': ['off'],
+            },
+        },
+        {
+            // enable the rule specifically for TypeScript files
             files: ['*.ts', '*.tsx'],
             rules: {
+                '@typescript-eslint/no-explicit-any': ['off'],
                 '@typescript-eslint/explicit-function-return-type': [
                     'error',
                     {
