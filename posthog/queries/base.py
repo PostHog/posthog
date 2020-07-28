@@ -1,4 +1,4 @@
-from posthog.models import Filter, Entity, Event
+from posthog.models import Filter, Entity, Event, Team
 from typing import Optional, Callable, List, Dict, Any
 from dateutil.relativedelta import relativedelta
 from posthog.utils import get_compare_period_dates
@@ -83,3 +83,8 @@ def filter_events(team_id: int, filter: Filter, entity: Optional[Entity] = None)
     if entity and entity.properties:
         filters &= entity.properties_to_Q(team_id=team_id)
     return filters
+
+
+class BaseQuery:
+    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+        raise NotImplementedError("You need to implement run")

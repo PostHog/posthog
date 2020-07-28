@@ -82,9 +82,7 @@ class TestTrends(BaseTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             # with self.assertNumQueries(16):
             response = Trends().run(
-                Filter(data={"date_from": "-7d", "events": [{"id": "sign up"}, {"id": "no events"}],}),
-                self.team,
-                Action.objects.all(),
+                Filter(data={"date_from": "-7d", "events": [{"id": "sign up"}, {"id": "no events"}],}), self.team,
             )
         self.assertEqual(response[0]["label"], "sign up")
         self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
@@ -100,7 +98,6 @@ class TestTrends(BaseTest):
                     data={"date_from": "-48h", "interval": "day", "events": [{"id": "sign up"}, {"id": "no events"}],}
                 ),
                 self.team,
-                Action.objects.all(),
             )
 
         self.assertEqual(response[0]["data"][1], 1.0)

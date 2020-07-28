@@ -1,5 +1,5 @@
 from django.db.models.expressions import Subquery
-from .base import filter_events, process_entity_for_events, handle_compare
+from .base import filter_events, process_entity_for_events, handle_compare, BaseQuery
 from posthog.models import (
     Event,
     Team,
@@ -248,7 +248,7 @@ def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optiona
     return ret_dict
 
 
-class Trends:
+class Trends(BaseQuery):
     def _serialize_entity(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         if filter.interval is None:
             filter.interval = "day"
@@ -282,7 +282,11 @@ class Trends:
 
         return response
 
-    def calculate_trends(self, filter: Filter, team_id: int, actions: QuerySet) -> List[Dict[str, Any]]:
+    def calculate_trends(self, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
+        actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team_id).order_by(
+            "-id"
+        )
+        actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
         entities_list = []
 
         if len(filter.entities) == 0:
@@ -314,5 +318,5 @@ class Trends:
 
         return entities_list
 
-    def run(self, filter: Filter, team: Team, actions: QuerySet):
-        return self.calculate_trends(filter, team.pk, actions)
+    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+        return self.calculate_trends(filter, team.pk)

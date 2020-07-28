@@ -30,14 +30,14 @@ class TestRetention(BaseTest):
 
         result = Retention().run(Filter(data={"date_from": self._date(0, hour=0)}), self.team, total_days=7)
 
-        self.assertEqual(len(result["data"]), 7)
+        self.assertEqual(len(result), 7)
         self.assertEqual(
-            self.pluck(result["data"], "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
+            self.pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
         )
-        self.assertEqual(result["data"][0]["date"], "Wed. 10 June")
+        self.assertEqual(result[0]["date"], "Wed. 10 June")
 
         self.assertEqual(
-            self.pluck(result["data"], "values", "count"),
+            self.pluck(result, "values", "count"),
             [[1, 1, 1, 0, 0, 1, 1], [2, 2, 1, 0, 1, 2], [2, 1, 0, 1, 2], [1, 0, 0, 1], [0, 0, 0], [1, 1], [2],],
         )
 
@@ -75,13 +75,13 @@ class TestRetention(BaseTest):
             total_days=7,
         )
 
-        self.assertEqual(len(result["data"]), 7)
+        self.assertEqual(len(result), 7)
         self.assertEqual(
-            self.pluck(result["data"], "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
+            self.pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
         )
-        self.assertEqual(result["data"][0]["date"], "Wed. 10 June")
+        self.assertEqual(result[0]["date"], "Wed. 10 June")
         self.assertEqual(
-            self.pluck(result["data"], "values", "count"),
+            self.pluck(result, "values", "count"),
             [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1]],
         )
 
@@ -109,14 +109,14 @@ class TestRetention(BaseTest):
             Filter(data={"date_from": self._date(0, hour=0), "entities": [start_entity]}), self.team, total_days=7
         )
 
-        self.assertEqual(len(result["data"]), 7)
+        self.assertEqual(len(result), 7)
         self.assertEqual(
-            self.pluck(result["data"], "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
+            self.pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
         )
-        self.assertEqual(result["data"][0]["date"], "Wed. 10 June")
+        self.assertEqual(result[0]["date"], "Wed. 10 June")
 
         self.assertEqual(
-            self.pluck(result["data"], "values", "count"),
+            self.pluck(result, "values", "count"),
             [[1, 1, 1, 0, 0, 1, 1], [2, 2, 1, 0, 1, 2], [2, 1, 0, 1, 2], [1, 0, 0, 1], [0, 0, 0], [1, 1], [2],],
         )
 

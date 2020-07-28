@@ -63,7 +63,7 @@ def _calculate_trends(filter: Filter, team_id: int) -> List[Dict[str, Any]]:
     actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters=filter.to_dict())
     dashboard_items.update(refreshing=True)
-    result = Trends().run(filter, Team(pk=team_id), actions)
+    result = Trends().run(filter, Team(pk=team_id))
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result
 

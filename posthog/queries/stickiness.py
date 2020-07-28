@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-from .base import filter_events, handle_compare, process_entity_for_events
+from .base import filter_events, handle_compare, process_entity_for_events, BaseQuery
 from posthog.models import Entity, Filter, Team, Event, Action
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from django.db.models import QuerySet, Count, functions
@@ -14,14 +14,11 @@ def execute_custom_sql(query, params):
     return cursor.fetchall()
 
 
-class Stickiness:
+class Stickiness(BaseQuery):
     def _serialize_entity(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
         if filter.interval is None:
             filter.interval = "day"
 
-        import ipdb
-
-        ipdb.set_trace()
         serialized: Dict[str, Any] = {
             "action": entity.to_dict(),
             "label": entity.name,
@@ -75,7 +72,7 @@ class Stickiness:
             "count": sum(data),
         }
 
-    def run(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         response = []
 
         if not filter.date_from:
