@@ -12,12 +12,7 @@ module.exports = {
             version: 'detect',
         },
     },
-    extends: [
-        'plugin:react/recommended',
-        'plugin:@typescript-eslint/recommended',
-        'prettier/@typescript-eslint',
-        'plugin:prettier/recommended', // Enables eslint-plugin-prettier and eslint-config-prettier. This will display prettier errors as ESLint errors. Make sure this is always the last configuration in the extends array.
-    ],
+    extends: ['plugin:@typescript-eslint/recommended', 'plugin:react/recommended', 'prettier/@typescript-eslint'],
     globals: {
         Atomics: 'readonly',
         SharedArrayBuffer: 'readonly',
@@ -27,6 +22,8 @@ module.exports = {
         ecmaFeatures: {
             jsx: true,
         },
+        ecmaVersion: 2018,
+        sourceType: 'module',
     },
     plugins: ['prettier', 'react', 'cypress', '@typescript-eslint'],
     rules: {
@@ -36,13 +33,28 @@ module.exports = {
         '@typescript-eslint/explicit-function-return-type': 'off',
         '@typescript-eslint/explicit-module-boundary-types': 'off',
         '@typescript-eslint/no-empty-function': 'off',
+        '@typescript-eslint/no-inferrable-types': 'off',
     },
     overrides: [
         {
             // enable the rule specifically for TypeScript files
+            files: ['*Type.ts', '*Type.tsx'],
+            rules: {
+                '@typescript-eslint/no-explicit-any': ['off'],
+                '@typescript-eslint/ban-types': ['off'],
+            },
+        },
+        {
+            // enable the rule specifically for TypeScript files
             files: ['*.ts', '*.tsx'],
             rules: {
-                '@typescript-eslint/explicit-function-return-type': ['error'],
+                '@typescript-eslint/no-explicit-any': ['off'],
+                '@typescript-eslint/explicit-function-return-type': [
+                    'error',
+                    {
+                        allowExpressions: true,
+                    },
+                ],
                 '@typescript-eslint/explicit-module-boundary-types': ['error'],
             },
         },
