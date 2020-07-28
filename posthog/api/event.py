@@ -386,7 +386,7 @@ class EventViewSet(viewsets.ModelViewSet):
         elif session_type == "dist":
             result = self._session_dist(all_sessions, sessions_sql_params)
         else:
-            result = self._session_list(all_sessions, sessions_sql_params, team, date_filter, request)
+            result = self._session_list(all_sessions, sessions_sql_params, team, request)
 
         return result
 
