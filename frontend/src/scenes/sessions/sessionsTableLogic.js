@@ -40,7 +40,8 @@ export const sessionsTableLogic = kea({
     listeners: ({ values, actions }) => ({
         fetchNextSessions: async () => {
             const response = await api.get(
-                'api/event/sessions/?' + toParams({ date_from: values.selectedDate, offset: values.offset })
+                'api/event/sessions/?' +
+                    toParams({ date_from: values.selectedDate.toISOString(), offset: values.offset })
             )
             if (response.offset) actions.setOffset(response.offset)
             else actions.setOffset(null)

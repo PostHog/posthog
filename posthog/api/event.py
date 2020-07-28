@@ -391,12 +391,7 @@ class EventViewSet(viewsets.ModelViewSet):
         return result
 
     def _session_list(
-        self,
-        base_query: str,
-        params: Tuple[Any, ...],
-        team: Team,
-        date_filter: Dict[str, datetime],
-        request: request.Request,
+        self, base_query: str, params: Tuple[Any, ...], team: Team, request: request.Request,
     ) -> List[Dict[str, Any]]:
         session_list = "SELECT * FROM (SELECT global_session_id, properties, start_time, length, sessions.distinct_id, event_count, events from\
                                 (SELECT\
