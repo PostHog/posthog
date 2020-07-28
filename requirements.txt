@@ -1,4 +1,3 @@
-# django-rest-hooks from GitHub as version on PyPI is out of date
 git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
 amqp==2.5.2
 appnope==0.1.0
