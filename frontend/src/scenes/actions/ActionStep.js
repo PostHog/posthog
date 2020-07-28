@@ -4,6 +4,26 @@ import { AppEditorLink } from '../../lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
 
+const MATCHING_NOTES = {
+    contains: (
+        <>
+            Use <code>%</code> for wildcard, for example: <code>/user/%/edit</code>.
+        </>
+    ),
+    regex: (
+        <>
+            <a
+                href="https://www.postgresql.org/docs/current/functions-matching.html#FUNCTIONS-POSIX-REGEXP"
+                target="_blank"
+                rel="noreferrer"
+            >
+                PostgreSQL regular expression syntax
+            </a>{' '}
+            applies.
+        </>
+    ),
+}
+
 let getSafeText = (el) => {
     if (!el.childNodes || !el.childNodes.length) return
     let elText = ''
@@ -17,6 +37,7 @@ let getSafeText = (el) => {
     })
     return elText
 }
+
 export class ActionStep extends Component {
     constructor(props) {
         super(props)
@@ -278,11 +299,18 @@ export class ActionStep extends Component {
                     contains
                 </button>
                 <button
+                    onClick={() => this.sendStep({ ...step, url_matching: 'regex' })}
+                    type="button"
+                    className={'btn btn-sm ' + (step.url_matching == 'regex' ? 'btn-secondary' : 'btn-light')}
+                >
+                    matches regex
+                </button>
+                <button
                     onClick={() => this.sendStep({ ...step, url_matching: 'exact' })}
                     type="button"
                     className={'btn btn-sm ' + (step.url_matching == 'exact' ? 'btn-secondary' : 'btn-light')}
                 >
-                    exactly matches
+                    matches exactly
                 </button>
             </div>
         )
@@ -361,9 +389,9 @@ export class ActionStep extends Component {
                                     extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
                                     label="URL"
                                 />
-                                {(!step.url_matching || step.url_matching == 'contains') && (
+                                {step.url_matching && step.url_matching in MATCHING_NOTES && (
                                     <small style={{ display: 'block', marginTop: -12 }}>
-                                        Use '%' for wildcard, for example: /user/%/edit
+                                        {MATCHING_NOTES[step.url_matching]}
                                     </small>
                                 )}
                             </div>

@@ -1,3 +1,5 @@
+import './ActionsPie.scss'
+
 import React, { useEffect, useState } from 'react'
 import { Loading } from 'lib/utils'
 import { LineGraph } from './LineGraph'
@@ -5,12 +7,12 @@ import { getChartColors } from 'lib/colors'
 import { useValues, useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
-export function ActionsPie({ dashboardItemId, filters: filtersParam, color }) {
+export function ActionsPie({ dashboardItemId, filters: filtersParam, color, cachedResults }) {
     const [data, setData] = useState(null)
     const [total, setTotal] = useState(0)
-
-    const { filters, results, resultsLoading } = useValues(trendsLogic({ dashboardItemId, filters: filtersParam }))
-    const { loadResults } = useActions(trendsLogic({ dashboardItemId, filters: filtersParam }))
+    const logic = trendsLogic({ dashboardItemId, filters: filtersParam, cachedResults })
+    const { filters, results, resultsLoading } = useValues(logic)
+    const { loadResults } = useActions(logic)
 
     function updateData() {
         const data = results
@@ -43,32 +45,20 @@ export function ActionsPie({ dashboardItemId, filters: filtersParam, color }) {
 
     return data && !resultsLoading ? (
         data[0] && data[0].labels ? (
-            <div
-                style={{
-                    position: 'absolute',
-                    width: '100%',
-                    height: '80%',
-                }}
-            >
-                <h1
-                    style={{
-                        position: 'absolute',
-                        margin: '0 auto',
-                        left: '50%',
-                        top: '100%',
-                        fontSize: '1.5rem',
-                        pointerEvents: 'none',
-                    }}
-                >
-                    <div style={{ marginLeft: '-50%', marginTop: 5 }}>Total: {total}</div>
+            <div className="actions-pie-component">
+                <div className="pie-chart">
+                    <LineGraph
+                        data-attr="trend-pie-graph"
+                        color={color}
+                        type="doughnut"
+                        datasets={data}
+                        labels={data[0].labels}
+                    />
+                </div>
+                <h1>
+                    <span className="label">Total: </span>
+                    {total}
                 </h1>
-                <LineGraph
-                    data-attr="trend-pie-graph"
-                    color={color}
-                    type="doughnut"
-                    datasets={data}
-                    labels={data[0].labels}
-                />
             </div>
         ) : (
             <p style={{ textAlign: 'center', marginTop: '4rem' }}>We couldn't find any matching actions.</p>

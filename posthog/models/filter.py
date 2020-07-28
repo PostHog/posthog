@@ -26,6 +26,11 @@ class Filter(PropertyMixin):
     entities: List[Entity] = []
     display: Optional[str] = None
     selector: Optional[str] = None
+    shown_as: Optional[str] = None
+    breakdown: Optional[str] = None
+    breakdown_type: Optional[str] = None
+    compare: Optional[bool] = None
+    funnel_id: Optional[int] = None
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None,) -> None:
         if request:
@@ -44,6 +49,11 @@ class Filter(PropertyMixin):
         self.selector = data.get("selector", [])
         self.interval = data.get("interval")
         self.display = data.get("display")
+        self.selector = data.get("selector")
+        self.shown_as = data.get("shown_as")
+        self.breakdown = data.get("breakdown")
+        self.breakdown_type = data.get("breakdown_type")
+        self.compare = data.get("compare")
 
         if data.get("actions"):
             self.entities.extend(
@@ -59,9 +69,15 @@ class Filter(PropertyMixin):
         return {
             "date_from": self._date_from,
             "date_to": self._date_to,
-            "entities": self.entities,
-            "interval": self.interval,
             "properties": [prop.to_dict() for prop in self.properties],
+            "interval": self.interval,
+            "events": [entity.to_dict() for entity in self.events],
+            "actions": [entity.to_dict() for entity in self.actions],
+            "selector": self.selector,
+            "shown_as": self.shown_as,
+            "breakdown": self.breakdown,
+            "breakdown_type": self.breakdown_type,
+            "compare": self.compare,
         }
 
     @property
@@ -89,6 +105,8 @@ class Filter(PropertyMixin):
     @property
     def date_filter_Q(self) -> Q:
         date_from = self.date_from
+        if self._date_from == "all":
+            return Q()
         if not date_from:
             date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
         filter = Q(timestamp__gte=date_from)

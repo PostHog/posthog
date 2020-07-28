@@ -18,7 +18,7 @@ export function SessionsTable({ logic }) {
             render: function RenderSession(session) {
                 return (
                     <Link to={`/person/${encodeURIComponent(session.distinct_id)}`} className="ph-no-capture">
-                        {session.properties.email || session.distinct_id}
+                        {session.properties?.email || session.distinct_id}
                     </Link>
                 )
             },

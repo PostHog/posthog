@@ -3,11 +3,13 @@ from django.contrib.postgres.fields import JSONField
 
 
 class ActionStep(models.Model):
-    EXACT = "exact"
     CONTAINS = "contains"
+    REGEX = "regex"
+    EXACT = "exact"
     URL_MATCHING = [
-        (EXACT, EXACT),
         (CONTAINS, CONTAINS),
+        (REGEX, REGEX),
+        (EXACT, EXACT),
     ]
     action: models.ForeignKey = models.ForeignKey("Action", related_name="steps", on_delete=models.CASCADE)
     tag_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)

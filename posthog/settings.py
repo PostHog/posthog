@@ -22,7 +22,7 @@ from sentry_sdk.integrations.django import DjangoIntegration
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
-VERSION = "1.10.1"
+VERSION = "1.11.0"
 
 
 def get_env(key):
@@ -78,6 +78,11 @@ if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
 if get_bool_from_env("IS_BEHIND_PROXY", False):
     USE_X_FORWARDED_HOST = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+ASYNC_EVENT_ACTION_MAPPING = False
+
+if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
+    ASYNC_EVENT_ACTION_MAPPING = True
 
 # IP block settings
 ALLOWED_IP_BLOCKS = get_list(os.environ.get("ALLOWED_IP_BLOCKS", ""))
@@ -332,5 +337,5 @@ CACHES = {
 
 if TEST:
     CACHES["default"] = {
-        "BACKEND": "django.core.cache.backends.dummy.DummyCache",
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }

@@ -24,6 +24,7 @@ import uuid
 
 import random
 import json
+import secrets
 
 
 def _create_anonymous_users(team: Team, base_url: str) -> None:
@@ -175,7 +176,7 @@ def _create_funnel(team: Team, base_url: str) -> None:
         },
     )
 
-    dashboard = Dashboard.objects.create(name="Default", pinned=True, team=team)
+    dashboard = Dashboard.objects.create(name="Default", pinned=True, team=team, share_token=secrets.token_urlsafe(22))
     DashboardItem.objects.create(
         team=team,
         dashboard=dashboard,

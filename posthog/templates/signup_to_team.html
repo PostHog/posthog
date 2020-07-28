@@ -21,9 +21,12 @@
             </div>
             <div class='field'>
                 <small id="passwordHelpBlock" class="form-text text-muted">
-                    Your password must be 8-20 characters long and must contain an uppercase letter and a number.
+                    Your password must be at least 8 characters long and must contain at least 1 lowercase letter, 1 uppercase letter, and 1 digit. We strongly recommend at least 1 special character as well.
                 </small>
-                <input pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}$" type="password" name='password' id="inputPassword" placeholder="" required>
+                <input
+                    pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[!-~]{8,}$" type="password" name='password'
+                    id="inputPassword" placeholder="" required
+                >
                 <label for="inputPassword">Password</label>
             </div>
             <p>

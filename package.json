@@ -41,7 +41,8 @@
         "kea-router": "^0.4.0",
         "kea-window-values": "^0.0.1",
         "moment": "^2.24.0",
-        "posthog-js": "1.3.1",
+        "posthog-js": "1.3.5",
+        "posthog-js-lite": "^0.0.1",
         "prop-types": "^15.7.2",
         "react": ">= 16.8",
         "react-datepicker": "^2.13.0",
@@ -64,6 +65,7 @@
         "@babel/preset-env": "7.10.4",
         "@babel/preset-typescript": "^7.10.4",
         "@hot-loader/react-dom": "^16.13.0",
+        "@types/react": "^16.9.41",
         "@typescript-eslint/eslint-plugin": "^3.0.0",
         "@typescript-eslint/parser": "^3.0.0",
         "autoprefixer": "^9.7.4",
@@ -102,8 +104,8 @@
         }
     },
     "lint-staged": {
-        "*.{js,css,scss}": "prettier --write",
-        "*.js": "eslint",
+        "*.{js,ts,tsx,css,scss}": "prettier --write",
+        "*.{js,ts,tsx}": "eslint",
         "*.py": "black -l 120"
     },
     "optionalDependencies": {

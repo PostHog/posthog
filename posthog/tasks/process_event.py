@@ -1,13 +1,17 @@
+from numbers import Number
 from celery import shared_task
 from django.core import serializers
 from posthog.models import Person, Element, Event, Team, PersonDistinctId
+import datetime
 from typing import Union, Dict, Optional
-from dateutil.relativedelta import relativedelta
+
+from celery import shared_task
 from dateutil import parser
+from dateutil.relativedelta import relativedelta
+from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
-from django.db import IntegrityError
-import datetime
+from posthog.models import Person, Element, Event, Team, PersonDistinctId
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
@@ -79,6 +83,9 @@ def _store_names_and_properties(team: Team, event: str, properties: Dict) -> Non
     for key in properties.keys():
         if key not in team.event_properties:
             team.event_properties.append(key)
+            save = True
+        if isinstance(key, Number) and key not in team.event_properties_numerical:
+            team.event_properties_numerical.append(key)
             save = True
     if save:
         team.save()
@@ -164,7 +171,7 @@ def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[dat
                 capture_exception(e)
 
         return data["timestamp"]
-    now_datetime = parser.isoparse(now)
+    now_datetime = parser.parse(now)
     if data.get("offset"):
         return now_datetime - relativedelta(microseconds=data["offset"] * 1000)
     return now_datetime

@@ -1,0 +1,23 @@
+.toolbar-modal {
+    padding: 30px;
+    padding-bottom: 40px;
+    min-height: 400px;
+    position: relative;
+    overflow: hidden;
+
+    .hog-icon {
+        position: absolute;
+        left: -40px;
+        width: 300px;
+        height: 175px;
+        bottom: -15px;
+        opacity: 0.2;
+    }
+
+    .toolbar-help {
+        position: absolute;
+        bottom: 20px;
+        right: 20px;
+        display: block;
+    }
+}

@@ -1,9 +1,9 @@
-from posthog.models import DashboardItem
 from django.db.models import QuerySet
 from posthog.models import Annotation
 from rest_framework import request, serializers, viewsets
 from typing import Dict, Any
 from posthog.api.user import UserSerializer
+from distutils.util import strtobool
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
@@ -21,6 +21,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "deleted",
+            "apply_all",
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
@@ -38,20 +39,28 @@ class AnnotationsViewSet(viewsets.ModelViewSet):
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
         team = self.request.user.team_set.get()
+
         if self.action == "list":  # type: ignore
             queryset = self._filter_request(self.request, queryset)
-            queryset = queryset.filter(deleted=False)
+            order = self.request.GET.get("order", None)
+            if order:
+                queryset = queryset.order_by(order)
 
         return queryset.filter(team=team)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
-        for key, _ in request.GET.items():
+        filters = request.GET.dict()
+
+        for key in filters:
             if key == "after":
                 queryset = queryset.filter(created_at__gt=request.GET["after"])
             elif key == "before":
                 queryset = queryset.filter(created_at__lt=request.GET["before"])
             elif key == "dashboardItemId":
-                queryset = queryset.filter(
-                    dashboard_item_id=request.GET["dashboardItemId"]
-                )
+                queryset = queryset.filter(dashboard_item_id=request.GET["dashboardItemId"])
+            elif key == "apply_all":
+                queryset = queryset.filter(apply_all=bool(strtobool(str(request.GET["apply_all"]))))
+            elif key == "deleted":
+                queryset = queryset.filter(apply_all=bool(strtobool(str(request.GET["deleted"]))))
+
         return queryset

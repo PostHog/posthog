@@ -14,7 +14,10 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
 Chart.defaults.global.legend.display = false
 Chart.defaults.global.animation.duration = 0
+Chart.defaults.global.elements.line.tension = 0
 //--Chart Style Options--//
+
+const noop = () => {}
 
 export function LineGraph({
     datasets,
@@ -26,6 +29,7 @@ export function LineGraph({
     ['data-attr']: dataAttr,
     dashboardItemId,
     isStacked,
+    inSharedMode,
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
@@ -37,19 +41,20 @@ export function LineGraph({
     const [labelIndex, setLabelIndex] = useState(null)
     const [holdLabelIndex, setHoldLabelIndex] = useState(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState(null)
-    const { createAnnotation, createAnnotationNow, updateDiffType } = useActions(
-        annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
-    )
+    const { createAnnotation, createAnnotationNow, updateDiffType, createGlobalAnnotation } = !inSharedMode
+        ? useActions(annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null }))
+        : { createAnnotation: noop, createAnnotationNow: noop, updateDiffType: noop, createGlobalAnnotation: noop }
 
-    const { annotationsList, annotationsLoading } = useValues(
-        annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null })
-    )
+    const { annotationsList, annotationsLoading } = !inSharedMode
+        ? useValues(annotationsLogic({ pageKey: dashboardItemId ? dashboardItemId : null }))
+        : { annotationsList: [], annotationsLoading: false }
     const [leftExtent, setLeftExtent] = useState(0)
     const [interval, setInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
     const size = useWindowSize()
 
-    const annotationsCondition = (!type || type === 'line') && datasets.length > 0 && !datasets[0].compare
+    const annotationsCondition =
+        (!type || type === 'line') && datasets.length > 0 && !datasets[0].compare && !inSharedMode
 
     useEscapeKey(() => setFocused(false), [focused])
 
@@ -182,7 +187,6 @@ export function LineGraph({
                           maintainAspectRatio: false,
                           scaleShowHorizontalLines: false,
                           tooltips: {
-                              yAlign: 'bottom',
                               enabled: true,
                               intersect: false,
                               mode: 'nearest',
@@ -204,6 +208,12 @@ export function LineGraph({
                                       if (entityData.dotted && !(tooltipItem.index === entityData.data.length - 1))
                                           return null
                                       var label = entityData.chartLabel || entityData.label || ''
+                                      if (entityData.action) {
+                                          let math = 'Total'
+                                          if (entityData.action.math === 'dau')
+                                              label += ` (${entityData.action.math.toUpperCase()}) `
+                                          else label += ` (${math}) `
+                                      }
                                       if (
                                           entityData.action &&
                                           entityData.action.properties &&
@@ -368,8 +378,10 @@ export function LineGraph({
                         setHoldLabelIndex(labelIndex)
                         setSelectedDayLabel(datasets[0].days[labelIndex])
                     }}
-                    onCreateAnnotation={(textInput) => {
-                        if (dashboardItemId) createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
+                    onCreateAnnotation={(textInput, applyAll) => {
+                        if (applyAll)
+                            createGlobalAnnotation(textInput, datasets[0].days[holdLabelIndex], dashboardItemId)
+                        else if (dashboardItemId) createAnnotationNow(textInput, datasets[0].days[holdLabelIndex])
                         else {
                             createAnnotation(textInput, datasets[0].days[holdLabelIndex])
                             toast('This annotation will be saved if the graph is made into a dashboard item!')

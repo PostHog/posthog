@@ -4,7 +4,8 @@ export function applyDockBodyStyles(htmlStyle, bodyStyle, zoom, padding, deferTr
     // htmlStyle.background = 'hsl(231, 17%, 22%)'
     htmlStyle.background = 'linear-gradient(to right, hsla(234, 17%, 94%, 1) 71%, hsla(234, 17%, 99%, 1) 100%)'
     bodyStyle.boxShadow = 'hsl(219, 14%, 76%) 30px 30px 70px, hsl(219, 14%, 76%) 8px 8px 10px'
-    if (!bodyStyle.backgroundColor) {
+    if (!bodyStyle.background && !bodyStyle.backgroundColor && !bodyStyle.backgroundImage) {
+        // if body background is not set, set to white to avoid transparency
         bodyStyle.backgroundColor = 'white'
     }
     bodyStyle.width = `100vw`

@@ -5,10 +5,10 @@ from django.conf import settings
 from django.db import connection
 import redis
 import time
-from django.core.cache import cache
 from typing import Optional
 from datetime import datetime
 from dateutil import parser
+
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -31,6 +31,9 @@ app.conf.broker_pool_limit = 0
 # Connect to our Redis instance to store the heartbeat
 redis_instance = redis.from_url(settings.REDIS_URL, db=0)
 
+# How frequently do we want to calculate action -> event relationships if async is enabled
+ACTION_EVENT_MAPPING_INTERVAL_MINUTES = 10
+
 
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
@@ -41,6 +44,14 @@ def setup_periodic_tasks(sender, **kwargs):
     )
     sender.add_periodic_task(15 * 60, calculate_cohort.s(), name="debug")
     sender.add_periodic_task(600, check_cached_items.s(), name="check dashboard items")
+
+    if settings.ASYNC_EVENT_ACTION_MAPPING:
+        sender.add_periodic_task(
+            (60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
+            calculate_event_action_mappings.s(),
+            name="calculate event action mappings",
+            expires=(60 * ACTION_EVENT_MAPPING_INTERVAL_MINUTES),
+        )
 
 
 @app.task
@@ -57,6 +68,13 @@ def update_event_partitions():
 
 
 @app.task
+def calculate_event_action_mappings():
+    from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
+
+    calculate_actions_from_last_calculation()
+
+
+@app.task
 def calculate_cohort():
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
@@ -65,43 +83,16 @@ def calculate_cohort():
 
 @app.task
 def check_cached_items():
-    keys = cache.keys("*_dashboard_*")
-    tasks = []
-    for key in keys:
-        item = cache.get(key)
-        if item is not None and item["details"] is not None:
-            last_accessed = None
-            if item.get("last_accessed"):
-                last_accessed = item["last_accessed"]
-            cache_type = item["type"]
-            payload = item["details"]
-            tasks.append(update_cache_item.s(key, cache_type, payload, last_accessed))
+    from posthog.tasks.update_cache import update_cached_items
 
-    taskset = group(tasks)
-    taskset.apply_async()
+    update_cached_items()
 
 
 @app.task
-def update_cache_item(key: str, cache_type: str, payload: dict, last_accessed: Optional[str]):
-    from posthog.tasks.update_cache import update_cache
+def update_cache_item_task(key: str, cache_type: str, payload: dict) -> None:
+    from posthog.tasks.update_cache import update_cache_item
 
-    data = update_cache(cache_type, payload)
-    if last_accessed:
-        last_accessed_dt = parser.isoparse(last_accessed)
-        diff = datetime.now() - last_accessed_dt
-        if diff.days > 7:
-            return
-    if data:
-        cache.set(
-            key,
-            {
-                "result": data,
-                "details": payload,
-                "type": cache_type,
-                "last_accessed": last_accessed if last_accessed else datetime.now(),
-            },
-            900,
-        )
+    update_cache_item(key, cache_type, payload)
 
 
 @app.task(bind=True)

@@ -42,11 +42,7 @@ function _Funnel({ id }) {
                                     dateFrom={funnel.filters.date_from}
                                     dateTo={funnel.filters.date_to}
                                 />
-                                <SaveToDashboard
-                                    filters={{ funnel_id: funnel.id }}
-                                    type="FunnelViz"
-                                    name={funnel.name}
-                                />
+                                <SaveToDashboard funnelId={funnel.id} type="FunnelViz" name={funnel.name} />
                             </span>
                             Graph
                         </span>

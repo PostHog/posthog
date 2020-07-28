@@ -6,10 +6,10 @@ export const funnelVizLogic = kea({
     loaders: ({ props }) => ({
         results: {
             loadResults: async (refresh = false) => {
-                const { funnel_id, from_dashboard } = props.filters
+                const { from_dashboard } = props.filters
                 let response = await api.get(
                     'api/funnel/' +
-                        funnel_id +
+                        props.funnelId +
                         '/?' +
                         (refresh ? 'refresh=true' : '') +
                         (from_dashboard ? '&from_dashboard=' + from_dashboard : '')

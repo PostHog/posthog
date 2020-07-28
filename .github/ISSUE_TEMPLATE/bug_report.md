@@ -6,25 +6,28 @@ labels: bug
 
 ---
 
-**Describe the bug**
+## Bug description
+
+*Please describe.*  
+*If this affects the front-end, screenshots would be of great help.*  
+
+## Expected behavior
 
 
 
-**To Reproduce**
+## How to reproduce
+
 1. 
 2. 
 3. 
 
-**Expected behavior**
+## Environment
+
+- PostHog cloud or self-managed?
+- PostHog version/commit
+
+## Additional context
 
 
 
-**Screenshots**
-
-
-
-**Hosted or self hosted?:**
-- hosted/self-hosted
-- (if self-hosted) what version?
-
-**Additional context**
+#### *Thank you* for your bug report – we love squashing them!

@@ -39,6 +39,7 @@ export function SaveToDashboardModal({
     name: initialName,
     type,
     filters,
+    funnelId,
     fromItem,
     fromDashboard,
     fromItemName,
@@ -58,19 +59,26 @@ export function SaveToDashboardModal({
     async function save(event) {
         event.preventDefault()
         if (newItem) {
-            const response = await api.create('api/dashboard_item', { filters, type, name, dashboard: dashboardId })
+            const response = await api.create('api/dashboard_item', {
+                filters,
+                funnel: funnelId,
+                type,
+                name,
+                dashboard: dashboardId,
+            })
             if (annotations) {
-                for (const { content, date_marker, created_at } of annotations) {
+                for (const { content, date_marker, created_at, apply_all } of annotations) {
                     await api.create('api/annotation', {
                         content,
                         date_marker: moment(date_marker),
                         created_at,
                         dashboard_item: response.id,
+                        apply_all,
                     })
                 }
             }
         } else {
-            await api.update(`api/dashboard_item/${fromItem}`, { filters, type })
+            await api.update(`api/dashboard_item/${fromItem}`, { filters, type, funnel: funnelId })
         }
         toast(
             <div data-attr="success-toast">
