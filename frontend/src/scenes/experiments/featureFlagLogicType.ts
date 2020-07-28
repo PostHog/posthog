@@ -15,11 +15,11 @@ export interface featureFlagLogicType {
             payload: any
         }
         loadFeatureFlagsSuccess: (
-            featureFlags: undefined[]
+            featureFlags: never[]
         ) => {
             type: 'load feature flags success (scenes.experiments.featureFlagLogic)'
             payload: {
-                featureFlags: undefined[]
+                featureFlags: never[]
             }
         }
         loadFeatureFlagsFailure: (
@@ -37,11 +37,11 @@ export interface featureFlagLogicType {
             payload: any
         }
         updateFeatureFlagSuccess: (
-            featureFlags: undefined[]
+            featureFlags: never[]
         ) => {
             type: 'update feature flag success (scenes.experiments.featureFlagLogic)'
             payload: {
-                featureFlags: undefined[]
+                featureFlags: never[]
             }
         }
         updateFeatureFlagFailure: (
@@ -59,11 +59,11 @@ export interface featureFlagLogicType {
             payload: any
         }
         createFeatureFlagSuccess: (
-            featureFlags: undefined[]
+            featureFlags: never[]
         ) => {
             type: 'create feature flag success (scenes.experiments.featureFlagLogic)'
             payload: {
-                featureFlags: undefined[]
+                featureFlags: never[]
             }
         }
         createFeatureFlagFailure: (
@@ -112,11 +112,11 @@ export interface featureFlagLogicType {
             payload: any
         }
         loadFeatureFlagsSuccess: (
-            featureFlags: undefined[]
+            featureFlags: never[]
         ) => {
             type: 'load feature flags success (scenes.experiments.featureFlagLogic)'
             payload: {
-                featureFlags: undefined[]
+                featureFlags: never[]
             }
         }
         loadFeatureFlagsFailure: (
@@ -134,11 +134,11 @@ export interface featureFlagLogicType {
             payload: any
         }
         updateFeatureFlagSuccess: (
-            featureFlags: undefined[]
+            featureFlags: never[]
         ) => {
             type: 'update feature flag success (scenes.experiments.featureFlagLogic)'
             payload: {
-                featureFlags: undefined[]
+                featureFlags: never[]
             }
         }
         updateFeatureFlagFailure: (
@@ -156,11 +156,11 @@ export interface featureFlagLogicType {
             payload: any
         }
         createFeatureFlagSuccess: (
-            featureFlags: undefined[]
+            featureFlags: never[]
         ) => {
             type: 'create feature flag success (scenes.experiments.featureFlagLogic)'
             payload: {
-                featureFlags: undefined[]
+                featureFlags: never[]
             }
         }
         createFeatureFlagFailure: (
@@ -186,26 +186,26 @@ export interface featureFlagLogicType {
         action: () => any,
         fullState: any
     ) => {
-        featureFlags: undefined[]
+        featureFlags: never[]
         featureFlagsLoading: boolean
     }
     reducerOptions: any
     reducers: {
-        featureFlags: (state: undefined[], action: any, fullState: any) => undefined[]
+        featureFlags: (state: never[], action: any, fullState: any) => never[]
         featureFlagsLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
         state: any
     ) => {
-        featureFlags: undefined[]
+        featureFlags: never[]
         featureFlagsLoading: boolean
     }
     selectors: {
-        featureFlags: (state: any, props: any) => undefined[]
+        featureFlags: (state: any, props: any) => never[]
         featureFlagsLoading: (state: any, props: any) => boolean
     }
     values: {
-        featureFlags: undefined[]
+        featureFlags: never[]
         featureFlagsLoading: boolean
     }
     _isKea: true

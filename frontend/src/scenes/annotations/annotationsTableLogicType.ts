@@ -8,11 +8,11 @@ export interface annotationsTableLogicType {
             payload: any
         }
         loadAnnotationsSuccess: (
-            annotations: undefined[]
+            annotations: never[]
         ) => {
             type: 'load annotations success (scenes.annotations.annotationsTableLogic)'
             payload: {
-                annotations: undefined[]
+                annotations: never[]
             }
         }
         loadAnnotationsFailure: (
@@ -87,11 +87,11 @@ export interface annotationsTableLogicType {
             payload: any
         }
         loadAnnotationsSuccess: (
-            annotations: undefined[]
+            annotations: never[]
         ) => {
             type: 'load annotations success (scenes.annotations.annotationsTableLogic)'
             payload: {
-                annotations: undefined[]
+                annotations: never[]
             }
         }
         loadAnnotationsFailure: (
@@ -152,14 +152,14 @@ export interface annotationsTableLogicType {
         action: () => any,
         fullState: any
     ) => {
-        annotations: undefined[]
+        annotations: never[]
         annotationsLoading: boolean
         next: null
         loadingNext: boolean
     }
     reducerOptions: any
     reducers: {
-        annotations: (state: undefined[], action: any, fullState: any) => undefined[]
+        annotations: (state: never[], action: any, fullState: any) => never[]
         annotationsLoading: (state: boolean, action: any, fullState: any) => boolean
         next: (state: null, action: any, fullState: any) => null
         loadingNext: (state: boolean, action: any, fullState: any) => boolean
@@ -167,19 +167,19 @@ export interface annotationsTableLogicType {
     selector: (
         state: any
     ) => {
-        annotations: undefined[]
+        annotations: never[]
         annotationsLoading: boolean
         next: null
         loadingNext: boolean
     }
     selectors: {
-        annotations: (state: any, props: any) => undefined[]
+        annotations: (state: any, props: any) => never[]
         annotationsLoading: (state: any, props: any) => boolean
         next: (state: any, props: any) => null
         loadingNext: (state: any, props: any) => boolean
     }
     values: {
-        annotations: undefined[]
+        annotations: never[]
         annotationsLoading: boolean
         next: null
         loadingNext: boolean

@@ -178,14 +178,14 @@ export interface propertyFilterLogicType {
     ) => {
         personProperties: any
         personPropertiesLoading: boolean
-        eventProperties: undefined[]
+        eventProperties: never[]
         filters: any
     }
     reducerOptions: any
     reducers: {
         personProperties: (state: any, action: any, fullState: any) => any
         personPropertiesLoading: (state: boolean, action: any, fullState: any) => boolean
-        eventProperties: (state: undefined[], action: any, fullState: any) => undefined[]
+        eventProperties: (state: never[], action: any, fullState: any) => never[]
         filters: (state: any, action: any, fullState: any) => any
     }
     selector: (
@@ -193,19 +193,19 @@ export interface propertyFilterLogicType {
     ) => {
         personProperties: any
         personPropertiesLoading: boolean
-        eventProperties: undefined[]
+        eventProperties: never[]
         filters: any
     }
     selectors: {
         personProperties: (state: any, props: any) => any
         personPropertiesLoading: (state: any, props: any) => boolean
-        eventProperties: (state: any, props: any) => undefined[]
+        eventProperties: (state: any, props: any) => never[]
         filters: (state: any, props: any) => any
     }
     values: {
         personProperties: any
         personPropertiesLoading: boolean
-        eventProperties: undefined[]
+        eventProperties: never[]
         filters: any
     }
     _isKea: true

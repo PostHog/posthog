@@ -8,11 +8,11 @@ export interface actionsModelType {
             payload: any
         }
         loadActionsSuccess: (
-            actions: undefined[]
+            actions: never[]
         ) => {
             type: 'load actions success (models.actionsModel)'
             payload: {
-                actions: undefined[]
+                actions: never[]
             }
         }
         loadActionsFailure: (
@@ -40,11 +40,11 @@ export interface actionsModelType {
             payload: any
         }
         loadActionsSuccess: (
-            actions: undefined[]
+            actions: never[]
         ) => {
             type: 'load actions success (models.actionsModel)'
             payload: {
-                actions: undefined[]
+                actions: never[]
             }
         }
         loadActionsFailure: (
@@ -70,32 +70,32 @@ export interface actionsModelType {
         action: () => any,
         fullState: any
     ) => {
-        actions: undefined[]
+        actions: never[]
         actionsLoading: boolean
     }
     reducerOptions: any
     reducers: {
-        actions: (state: undefined[], action: any, fullState: any) => undefined[]
+        actions: (state: never[], action: any, fullState: any) => never[]
         actionsLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
         state: any
     ) => {
-        actions: undefined[]
+        actions: never[]
         actionsLoading: boolean
     }
     selectors: {
-        actions: (state: any, props: any) => undefined[]
+        actions: (state: any, props: any) => never[]
         actionsLoading: (state: any, props: any) => boolean
-        actionsGrouped: (state: any, props: any) => { label: string; options: any[] }[]
+        actionsGrouped: (state: any, props: any) => { label: string; options: never[] }[]
     }
     values: {
-        actions: undefined[]
+        actions: never[]
         actionsLoading: boolean
-        actionsGrouped: { label: string; options: any[] }[]
+        actionsGrouped: { label: string; options: never[] }[]
     }
     _isKea: true
     __keaTypeGenInternalSelectorTypes: {
-        actionsGrouped: (arg1: any) => { label: string; options: any[] }[]
+        actionsGrouped: (arg1: any) => { label: string; options: never[] }[]
     }
 }

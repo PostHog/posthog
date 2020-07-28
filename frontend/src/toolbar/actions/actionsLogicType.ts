@@ -10,11 +10,11 @@ export interface actionsLogicType {
             payload: any
         }
         getActionsSuccess: (
-            allActions: undefined[]
+            allActions: never[]
         ) => {
             type: 'get actions success (toolbar.actions.actionsLogic)'
             payload: {
-                allActions: undefined[]
+                allActions: never[]
             }
         }
         getActionsFailure: (
@@ -32,11 +32,11 @@ export interface actionsLogicType {
             payload: any
         }
         updateActionSuccess: (
-            allActions: undefined[]
+            allActions: never[]
         ) => {
             type: 'update action success (toolbar.actions.actionsLogic)'
             payload: {
-                allActions: undefined[]
+                allActions: never[]
             }
         }
         updateActionFailure: (
@@ -54,11 +54,11 @@ export interface actionsLogicType {
             payload: any
         }
         deleteActionSuccess: (
-            allActions: undefined[]
+            allActions: never[]
         ) => {
             type: 'delete action success (toolbar.actions.actionsLogic)'
             payload: {
-                allActions: undefined[]
+                allActions: never[]
             }
         }
         deleteActionFailure: (
@@ -100,11 +100,11 @@ export interface actionsLogicType {
             payload: any
         }
         getActionsSuccess: (
-            allActions: undefined[]
+            allActions: never[]
         ) => {
             type: 'get actions success (toolbar.actions.actionsLogic)'
             payload: {
-                allActions: undefined[]
+                allActions: never[]
             }
         }
         getActionsFailure: (
@@ -122,11 +122,11 @@ export interface actionsLogicType {
             payload: any
         }
         updateActionSuccess: (
-            allActions: undefined[]
+            allActions: never[]
         ) => {
             type: 'update action success (toolbar.actions.actionsLogic)'
             payload: {
-                allActions: undefined[]
+                allActions: never[]
             }
         }
         updateActionFailure: (
@@ -144,11 +144,11 @@ export interface actionsLogicType {
             payload: any
         }
         deleteActionSuccess: (
-            allActions: undefined[]
+            allActions: never[]
         ) => {
             type: 'delete action success (toolbar.actions.actionsLogic)'
             payload: {
-                allActions: undefined[]
+                allActions: never[]
             }
         }
         deleteActionFailure: (
@@ -174,29 +174,29 @@ export interface actionsLogicType {
         action: () => any,
         fullState: any
     ) => {
-        allActions: undefined[]
+        allActions: never[]
         allActionsLoading: boolean
     }
     reducerOptions: any
     reducers: {
-        allActions: (state: undefined[], action: any, fullState: any) => undefined[]
+        allActions: (state: never[], action: any, fullState: any) => never[]
         allActionsLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
         state: any
     ) => {
-        allActions: undefined[]
+        allActions: never[]
         allActionsLoading: boolean
     }
     selectors: {
-        allActions: (state: any, props: any) => undefined[]
+        allActions: (state: any, props: any) => never[]
         allActionsLoading: (state: any, props: any) => boolean
         sortedActions: (state: any, props: any) => any[]
         actionsForCurrentUrl: (state: any, props: any) => any
         actionCount: (state: any, props: any) => any
     }
     values: {
-        allActions: undefined[]
+        allActions: never[]
         allActionsLoading: boolean
         sortedActions: any[]
         actionsForCurrentUrl: any

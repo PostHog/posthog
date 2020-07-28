@@ -205,7 +205,7 @@ export interface retentionTableLogicType {
         people: {}
         peopleLoading: boolean
         initialPathname: (state: any) => any
-        properties: undefined[]
+        properties: never[]
         filters: {}
         loadingMore: boolean
     }
@@ -216,7 +216,7 @@ export interface retentionTableLogicType {
         people: (state: {}, action: any, fullState: any) => {}
         peopleLoading: (state: boolean, action: any, fullState: any) => boolean
         initialPathname: (state: (state: any) => any, action: any, fullState: any) => (state: any) => any
-        properties: (state: undefined[], action: any, fullState: any) => undefined[]
+        properties: (state: never[], action: any, fullState: any) => never[]
         filters: (state: {}, action: any, fullState: any) => {}
         loadingMore: (state: boolean, action: any, fullState: any) => boolean
     }
@@ -228,7 +228,7 @@ export interface retentionTableLogicType {
         people: {}
         peopleLoading: boolean
         initialPathname: (state: any) => any
-        properties: undefined[]
+        properties: never[]
         filters: {}
         loadingMore: boolean
     }
@@ -238,7 +238,7 @@ export interface retentionTableLogicType {
         people: (state: any, props: any) => {}
         peopleLoading: (state: any, props: any) => boolean
         initialPathname: (state: any, props: any) => (state: any) => any
-        properties: (state: any, props: any) => undefined[]
+        properties: (state: any, props: any) => never[]
         filters: (state: any, props: any) => {}
         loadingMore: (state: any, props: any) => boolean
         propertiesForUrl: (state: any, props: any) => '' | { properties: any }
@@ -250,7 +250,7 @@ export interface retentionTableLogicType {
         people: {}
         peopleLoading: boolean
         initialPathname: (state: any) => any
-        properties: undefined[]
+        properties: never[]
         filters: {}
         loadingMore: boolean
         propertiesForUrl: '' | { properties: any }

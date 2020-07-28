@@ -22,11 +22,11 @@ export interface annotationsModelType {
             payload: any
         }
         loadGlobalAnnotationsSuccess: (
-            globalAnnotations: undefined[]
+            globalAnnotations: never[]
         ) => {
             type: 'load global annotations success (models.annotationsModel)'
             payload: {
-                globalAnnotations: undefined[]
+                globalAnnotations: never[]
             }
         }
         loadGlobalAnnotationsFailure: (
@@ -72,11 +72,11 @@ export interface annotationsModelType {
             payload: any
         }
         loadGlobalAnnotationsSuccess: (
-            globalAnnotations: undefined[]
+            globalAnnotations: never[]
         ) => {
             type: 'load global annotations success (models.annotationsModel)'
             payload: {
-                globalAnnotations: undefined[]
+                globalAnnotations: never[]
             }
         }
         loadGlobalAnnotationsFailure: (
@@ -102,27 +102,27 @@ export interface annotationsModelType {
         action: () => any,
         fullState: any
     ) => {
-        globalAnnotations: undefined[]
+        globalAnnotations: never[]
         globalAnnotationsLoading: boolean
     }
     reducerOptions: any
     reducers: {
-        globalAnnotations: (state: undefined[], action: any, fullState: any) => undefined[]
+        globalAnnotations: (state: never[], action: any, fullState: any) => never[]
         globalAnnotationsLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
         state: any
     ) => {
-        globalAnnotations: undefined[]
+        globalAnnotations: never[]
         globalAnnotationsLoading: boolean
     }
     selectors: {
-        globalAnnotations: (state: any, props: any) => undefined[]
+        globalAnnotations: (state: any, props: any) => never[]
         globalAnnotationsLoading: (state: any, props: any) => boolean
         activeGlobalAnnotations: (state: any, props: any) => any
     }
     values: {
-        globalAnnotations: undefined[]
+        globalAnnotations: never[]
         globalAnnotationsLoading: boolean
         activeGlobalAnnotations: any
     }

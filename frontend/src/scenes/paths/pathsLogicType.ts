@@ -10,14 +10,14 @@ export interface pathsLogicType {
             payload: any
         }
         loadPathsSuccess: (paths: {
-            nodes: undefined[]
-            links: undefined[]
+            nodes: never[]
+            links: never[]
         }) => {
             type: 'load paths success (scenes.paths.pathsLogic)'
             payload: {
                 paths: {
-                    nodes: undefined[]
-                    links: undefined[]
+                    nodes: never[]
+                    links: never[]
                 }
             }
         }
@@ -64,14 +64,14 @@ export interface pathsLogicType {
             payload: any
         }
         loadPathsSuccess: (paths: {
-            nodes: undefined[]
-            links: undefined[]
+            nodes: never[]
+            links: never[]
         }) => {
             type: 'load paths success (scenes.paths.pathsLogic)'
             payload: {
                 paths: {
-                    nodes: undefined[]
-                    links: undefined[]
+                    nodes: never[]
+                    links: never[]
                 }
             }
         }
@@ -111,8 +111,8 @@ export interface pathsLogicType {
         fullState: any
     ) => {
         paths: {
-            nodes: undefined[]
-            links: undefined[]
+            nodes: never[]
+            links: never[]
         }
         pathsLoading: boolean
         initialPathname: (state: any) => any
@@ -125,14 +125,14 @@ export interface pathsLogicType {
     reducers: {
         paths: (
             state: {
-                nodes: undefined[]
-                links: undefined[]
+                nodes: never[]
+                links: never[]
             },
             action: any,
             fullState: any
         ) => {
-            nodes: undefined[]
-            links: undefined[]
+            nodes: never[]
+            links: never[]
         }
         pathsLoading: (state: boolean, action: any, fullState: any) => boolean
         initialPathname: (state: (state: any) => any, action: any, fullState: any) => (state: any) => any
@@ -151,8 +151,8 @@ export interface pathsLogicType {
         state: any
     ) => {
         paths: {
-            nodes: undefined[]
-            links: undefined[]
+            nodes: never[]
+            links: never[]
         }
         pathsLoading: boolean
         initialPathname: (state: any) => any
@@ -166,8 +166,8 @@ export interface pathsLogicType {
             state: any,
             props: any
         ) => {
-            nodes: undefined[]
-            links: undefined[]
+            nodes: never[]
+            links: never[]
         }
         pathsLoading: (state: any, props: any) => boolean
         initialPathname: (state: any, props: any) => (state: any) => any
@@ -182,8 +182,8 @@ export interface pathsLogicType {
     }
     values: {
         paths: {
-            nodes: undefined[]
-            links: undefined[]
+            nodes: never[]
+            links: never[]
         }
         pathsLoading: boolean
         initialPathname: (state: any) => any

@@ -80,14 +80,18 @@ export interface logicType {
         action: () => any,
         fullState: any
     ) => {
-        editedWebhook: (state: any) => string
+        editedWebhook: (state: any) => string | undefined
         isSaving: boolean
         isSaved: boolean
         error: null
     }
     reducerOptions: any
     reducers: {
-        editedWebhook: (state: (state: any) => string, action: any, fullState: any) => (state: any) => string
+        editedWebhook: (
+            state: (state: any) => string | undefined,
+            action: any,
+            fullState: any
+        ) => (state: any) => string | undefined
         isSaving: (state: boolean, action: any, fullState: any) => boolean
         isSaved: (state: boolean, action: any, fullState: any) => boolean
         error: (state: null, action: any, fullState: any) => null
@@ -95,19 +99,19 @@ export interface logicType {
     selector: (
         state: any
     ) => {
-        editedWebhook: (state: any) => string
+        editedWebhook: (state: any) => string | undefined
         isSaving: boolean
         isSaved: boolean
         error: null
     }
     selectors: {
-        editedWebhook: (state: any, props: any) => (state: any) => string
+        editedWebhook: (state: any, props: any) => (state: any) => string | undefined
         isSaving: (state: any, props: any) => boolean
         isSaved: (state: any, props: any) => boolean
         error: (state: any, props: any) => null
     }
     values: {
-        editedWebhook: (state: any) => string
+        editedWebhook: (state: any) => string | undefined
         isSaving: boolean
         isSaved: boolean
         error: null
@@ -121,7 +125,7 @@ export interface logicType {
             type: 'user update success (scenes.userLogic)'
             payload: {
                 user: UserType
-                updateKey: string
+                updateKey: string | undefined
             }
         }
     }

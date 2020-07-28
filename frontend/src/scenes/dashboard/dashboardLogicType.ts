@@ -103,11 +103,11 @@ export interface dashboardLogicType {
             payload: any
         }
         loadDashboardItemsSuccess: (
-            allItems: undefined[]
+            allItems: never[]
         ) => {
             type: 'load dashboard items success (scenes.dashboard.dashboardLogic)'
             payload: {
-                allItems: undefined[]
+                allItems: never[]
             }
         }
         loadDashboardItemsFailure: (
@@ -260,11 +260,11 @@ export interface dashboardLogicType {
             payload: any
         }
         loadDashboardItemsSuccess: (
-            allItems: undefined[]
+            allItems: never[]
         ) => {
             type: 'load dashboard items success (scenes.dashboard.dashboardLogic)'
             payload: {
-                allItems: undefined[]
+                allItems: never[]
             }
         }
         loadDashboardItemsFailure: (
@@ -290,33 +290,33 @@ export interface dashboardLogicType {
         action: () => any,
         fullState: any
     ) => {
-        allItems: undefined[]
+        allItems: never[]
         allItemsLoading: boolean
-        draggingEnabled: () => 'on' | 'off'
+        draggingEnabled: () => 'off' | 'on'
         containerWidth: null
         columns: null
     }
     reducerOptions: any
     reducers: {
-        allItems: (state: undefined[], action: any, fullState: any) => undefined[]
+        allItems: (state: never[], action: any, fullState: any) => never[]
         allItemsLoading: (state: boolean, action: any, fullState: any) => boolean
-        draggingEnabled: (state: () => 'on' | 'off', action: any, fullState: any) => () => 'on' | 'off'
+        draggingEnabled: (state: () => 'off' | 'on', action: any, fullState: any) => () => 'off' | 'on'
         containerWidth: (state: null, action: any, fullState: any) => null
         columns: (state: null, action: any, fullState: any) => null
     }
     selector: (
         state: any
     ) => {
-        allItems: undefined[]
+        allItems: never[]
         allItemsLoading: boolean
-        draggingEnabled: () => 'on' | 'off'
+        draggingEnabled: () => 'off' | 'on'
         containerWidth: null
         columns: null
     }
     selectors: {
-        allItems: (state: any, props: any) => undefined[]
+        allItems: (state: any, props: any) => never[]
         allItemsLoading: (state: any, props: any) => boolean
-        draggingEnabled: (state: any, props: any) => () => 'on' | 'off'
+        draggingEnabled: (state: any, props: any) => () => 'off' | 'on'
         containerWidth: (state: any, props: any) => null
         columns: (state: any, props: any) => null
         items: (state: any, props: any) => any
@@ -324,15 +324,15 @@ export interface dashboardLogicType {
         dashboard: (state: any, props: any) => any
         breakpoints: (state: any, props: any) => { lg: number; sm: number; xs: number; xxs: number }
         cols: (state: any, props: any) => { lg: number; sm: number; xs: number; xxs: number }
-        sizeKey: (state: any, props: any) => string
+        sizeKey: (state: any, props: any) => string | undefined
         layouts: (state: any, props: any) => {}
         layout: (state: any, props: any) => any
         layoutForItem: (state: any, props: any) => {}
     }
     values: {
-        allItems: undefined[]
+        allItems: never[]
         allItemsLoading: boolean
-        draggingEnabled: () => 'on' | 'off'
+        draggingEnabled: () => 'off' | 'on'
         containerWidth: null
         columns: null
         items: any
@@ -340,7 +340,7 @@ export interface dashboardLogicType {
         dashboard: any
         breakpoints: { lg: number; sm: number; xs: number; xxs: number }
         cols: { lg: number; sm: number; xs: number; xxs: number }
-        sizeKey: string
+        sizeKey: string | undefined
         layouts: {}
         layout: any
         layoutForItem: {}
@@ -350,7 +350,7 @@ export interface dashboardLogicType {
         items: (arg1: any) => any
         itemsLoading: (arg1: any) => any
         dashboard: (arg1: any, arg2: any) => any
-        sizeKey: (arg1: any, arg2: any) => string
+        sizeKey: (arg1: any, arg2: any) => string | undefined
         layouts: (arg1: any, arg2: any) => {}
         layout: (arg1: any, arg2: any) => any
         layoutForItem: (arg1: any) => {}
