@@ -19,10 +19,10 @@ export interface heatmapLogicType {
             type: "reset events (toolbar.elements.heatmapLogic)";
             payload: any;
         });
-        resetEventsSuccess: (events: undefined[]) => ({
+        resetEventsSuccess: (events: never[]) => ({
             type: "reset events success (toolbar.elements.heatmapLogic)";
             payload: {
-                events: undefined[];
+                events: never[];
             };
         });
         resetEventsFailure: (error: string) => ({
@@ -35,10 +35,10 @@ export interface heatmapLogicType {
             type: "get events (toolbar.elements.heatmapLogic)";
             payload: any;
         });
-        getEventsSuccess: (events: undefined[]) => ({
+        getEventsSuccess: (events: never[]) => ({
             type: "get events success (toolbar.elements.heatmapLogic)";
             payload: {
-                events: undefined[];
+                events: never[];
             };
         });
         getEventsFailure: (error: string) => ({
@@ -85,10 +85,10 @@ export interface heatmapLogicType {
             type: "reset events (toolbar.elements.heatmapLogic)";
             payload: any;
         });
-        resetEventsSuccess: (events: undefined[]) => ({
+        resetEventsSuccess: (events: never[]) => ({
             type: "reset events success (toolbar.elements.heatmapLogic)";
             payload: {
-                events: undefined[];
+                events: never[];
             };
         });
         resetEventsFailure: (error: string) => ({
@@ -101,10 +101,10 @@ export interface heatmapLogicType {
             type: "get events (toolbar.elements.heatmapLogic)";
             payload: any;
         });
-        getEventsSuccess: (events: undefined[]) => ({
+        getEventsSuccess: (events: never[]) => ({
             type: "get events success (toolbar.elements.heatmapLogic)";
             payload: {
-                events: undefined[];
+                events: never[];
             };
         });
         getEventsFailure: (error: string) => ({
@@ -126,28 +126,28 @@ export interface heatmapLogicType {
     reducer: (state: any, action: () => any, fullState: any) => {
         heatmapEnabled: boolean;
         heatmapLoading: boolean;
-        events: undefined[];
+        events: never[];
         eventsLoading: boolean;
     };
     reducerOptions: any;
     reducers: {
         heatmapEnabled: (state: boolean, action: any, fullState: any) => boolean;
         heatmapLoading: (state: boolean, action: any, fullState: any) => boolean;
-        events: (state: undefined[], action: any, fullState: any) => undefined[];
+        events: (state: never[], action: any, fullState: any) => never[];
         eventsLoading: (state: boolean, action: any, fullState: any) => boolean;
     };
     selector: (state: any) => {
         heatmapEnabled: boolean;
         heatmapLoading: boolean;
-        events: undefined[];
+        events: never[];
         eventsLoading: boolean;
     };
     selectors: {
         heatmapEnabled: (state: any, props: any) => boolean;
         heatmapLoading: (state: any, props: any) => boolean;
-        events: (state: any, props: any) => undefined[];
+        events: (state: any, props: any) => never[];
         eventsLoading: (state: any, props: any) => boolean;
-        elements: (state: any, props: any) => { element: any; count: any; selector: any; hash: any; }[];
+        elements: (state: any, props: any) => ({ element: any; count: any; selector: any; hash: any; } | null | undefined)[];
         countedElements: (state: any, props: any) => any[];
         elementCount: (state: any, props: any) => number;
         clickCount: (state: any, props: any) => any;
@@ -156,9 +156,9 @@ export interface heatmapLogicType {
     values: {
         heatmapEnabled: boolean;
         heatmapLoading: boolean;
-        events: undefined[];
+        events: never[];
         eventsLoading: boolean;
-        elements: { element: any; count: any; selector: any; hash: any; }[];
+        elements: ({ element: any; count: any; selector: any; hash: any; } | null | undefined)[];
         countedElements: any[];
         elementCount: number;
         clickCount: any;
@@ -166,8 +166,8 @@ export interface heatmapLogicType {
     };
     _isKea: true;
     __keaTypeGenInternalSelectorTypes: {
-        elements: (arg1: undefined[]) => { element: any; count: any; selector: any; hash: any; }[];
-        countedElements: (arg1: { element: any; count: any; selector: any; hash: any; }[]) => any[];
+        elements: (arg1: never[]) => ({ element: any; count: any; selector: any; hash: any; } | null | undefined)[];
+        countedElements: (arg1: ({ element: any; count: any; selector: any; hash: any; } | null | undefined)[]) => any[];
         elementCount: (arg1: any[]) => number;
         clickCount: (arg1: any[]) => any;
         highestClickCount: (arg1: any[]) => any;

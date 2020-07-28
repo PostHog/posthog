@@ -79,6 +79,6 @@ export interface toolbarLogicType {
     __keaTypeGenInternalSelectorTypes: {
         apiURL: (arg1: string) => string;
         jsURL: (arg1: string) => string;
-        isAuthenticated: (arg1: string) => boolean;
+        isAuthenticated: (arg1: string | null) => boolean;
     };
 }

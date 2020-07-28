@@ -11,19 +11,19 @@ export interface userLogicType<UserType> {
         });
         setUser: (user: UserType | null, updateKey?: string) => ({
             type: "set user (scenes.userLogic)";
-            payload: { user: UserType; updateKey: string; };
+            payload: { user: UserType; updateKey: string | undefined; };
         });
         userUpdateRequest: (update: Partial<UserType>, updateKey?: string) => ({
             type: "user update request (scenes.userLogic)";
-            payload: { update: Partial<UserType>; updateKey: string; };
+            payload: { update: Partial<UserType>; updateKey: string | undefined; };
         });
         userUpdateSuccess: (user: UserType, updateKey?: string) => ({
             type: "user update success (scenes.userLogic)";
-            payload: { user: UserType; updateKey: string; };
+            payload: { user: UserType; updateKey: string | undefined; };
         });
         userUpdateFailure: (error: string, updateKey?: string) => ({
             type: "user update failure (scenes.userLogic)";
-            payload: { updateKey: string; error: string; };
+            payload: { updateKey: string | undefined; error: string; };
         });
     };
     actionKeys: {
@@ -49,19 +49,19 @@ export interface userLogicType<UserType> {
         });
         setUser: (user: UserType | null, updateKey?: string) => ({
             type: "set user (scenes.userLogic)";
-            payload: { user: UserType; updateKey: string; };
+            payload: { user: UserType; updateKey: string | undefined; };
         });
         userUpdateRequest: (update: Partial<UserType>, updateKey?: string) => ({
             type: "user update request (scenes.userLogic)";
-            payload: { update: Partial<UserType>; updateKey: string; };
+            payload: { update: Partial<UserType>; updateKey: string | undefined; };
         });
         userUpdateSuccess: (user: UserType, updateKey?: string) => ({
             type: "user update success (scenes.userLogic)";
-            payload: { user: UserType; updateKey: string; };
+            payload: { user: UserType; updateKey: string | undefined; };
         });
         userUpdateFailure: (error: string, updateKey?: string) => ({
             type: "user update failure (scenes.userLogic)";
-            payload: { updateKey: string; error: string; };
+            payload: { updateKey: string | undefined; error: string; };
         });
     };
     cache: Record<string, any>;
@@ -86,22 +86,22 @@ export interface userLogicType<UserType> {
     selectors: {
         user: (state: any, props: any) => UserType | null;
         eventProperties: (state: any, props: any) => { value: string; label: string; }[];
-        eventNames: (state: any, props: any) => string[];
+        eventNames: (state: any, props: any) => string[] | undefined;
         customEventNames: (state: any, props: any) => string[];
         eventNamesGrouped: (state: any, props: any) => { label: string; options: { label: string; value: string; }[]; }[];
     };
     values: {
         user: UserType | null;
         eventProperties: { value: string; label: string; }[];
-        eventNames: string[];
+        eventNames: string[] | undefined;
         customEventNames: string[];
         eventNamesGrouped: { label: string; options: { label: string; value: string; }[]; }[];
     };
     _isKea: true;
     __keaTypeGenInternalSelectorTypes: {
-        eventProperties: (arg1: UserType) => { value: string; label: string; }[];
-        eventNames: (arg1: UserType) => string[];
-        customEventNames: (arg1: UserType) => string[];
-        eventNamesGrouped: (arg1: UserType) => { label: string; options: { label: string; value: string; }[]; }[];
+        eventProperties: (arg1: UserType | null) => { value: string; label: string; }[];
+        eventNames: (arg1: UserType | null) => string[] | undefined;
+        customEventNames: (arg1: UserType | null) => string[];
+        eventNamesGrouped: (arg1: UserType | null) => { label: string; options: { label: string; value: string; }[]; }[];
     };
 }

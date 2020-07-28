@@ -43,7 +43,7 @@ export const elementsLogic = kea<elementsLogicType<ToolbarMode>>({
             enableInspect: () => null,
             disableInspect: () => null,
             createAction: () => null,
-            [toolbarTabLogic.actions.setTab]: () => null,
+            [toolbarTabLogic.actionTypes.setTab]: () => null,
         },
         highlightElement: {
             setHighlightElement: (_, { element }) => element,
@@ -52,20 +52,20 @@ export const elementsLogic = kea<elementsLogicType<ToolbarMode>>({
             selectElement: () => null,
             disableInspect: () => null,
             createAction: () => null,
-            [toolbarTabLogic.actions.setTab]: () => null,
+            [toolbarTabLogic.actionTypes.setTab]: () => null,
         },
         selectedElement: {
             setSelectedElement: (_, { element }) => element,
             disableInspect: () => null,
             createAction: () => null,
-            [toolbarTabLogic.actions.setTab]: () => null,
-            [heatmapLogic.actions.disableHeatmap]: () => null,
+            [toolbarTabLogic.actionTypes.setTab]: () => null,
+            [heatmapLogic.actionTypes.disableHeatmap]: () => null,
             [actionsTabLogic.actions.selectAction]: () => null,
         },
         enabledLast: {
             // keep track of what to disable first with ESC
             enableInspect: () => 'inspect',
-            [heatmapLogic.actions.enableHeatmap]: () => 'heatmap',
+            [heatmapLogic.actionTypes.enableHeatmap]: () => 'heatmap',
         },
     }),
 

@@ -20,7 +20,7 @@
         "eslint": "eslint frontend/src",
         "eslint:github-action": "yarn run eslint",
         "typegen": "./node_modules/.bin/kea-typegen write --path frontend/src",
-        "typegen-watch": "./node_modules/.bin/kea-typegen watch --path frontend/src"
+        "typegen-watch": "./node_modules/.bin/kea-typegen watch --verbose --path frontend/src"
     },
     "license": "MIT",
     "dependencies": {
@@ -66,6 +66,7 @@
         "@babel/preset-env": "7.10.4",
         "@babel/preset-typescript": "^7.10.4",
         "@hot-loader/react-dom": "^16.13.0",
+        "@types/react": "^16.9.43",
         "@typescript-eslint/eslint-plugin": "^3.6.0",
         "@typescript-eslint/parser": "^3.6.0",
         "autoprefixer": "^9.7.4",
@@ -84,7 +85,7 @@
         "html-webpack-harddisk-plugin": "^1.0.1",
         "html-webpack-plugin": "^4.3.0",
         "husky": ">=4",
-        "kea-typegen": "^0.0.26",
+        "kea-typegen": "^0.0.27",
         "lint-staged": ">=10",
         "mini-css-extract-plugin": "^0.9.0",
         "nodemon": "^2.0.4",

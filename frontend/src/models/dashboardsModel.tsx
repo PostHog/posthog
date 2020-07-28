@@ -1,21 +1,52 @@
+import * as React from 'react'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { delay, idToKey } from 'lib/utils'
-import React from 'react'
 import { toast } from 'react-toastify'
+import { dashboardsModelType } from '~/models/dashboardsModelType'
 
-export const dashboardsModel = kea({
+interface Dashboard {
+    created_at: string
+    created_by: number
+    deleted: boolean
+    id: number
+    is_shared: boolean
+    items: DashboardItem[]
+    name: string
+    pinned: boolean
+    share_token: string
+}
+
+type LayoutKey = 'lg' | 'sm' | 'xs' | 'xxs'
+
+interface DashboardItem {
+    color: string
+    dashboard: number
+    deleted: boolean
+    // filters: {,…}
+    // funnel: null
+    id: string
+    last_refresh: string
+    layouts: Record<LayoutKey, { h: number; w: number; x: number; y: number }>
+    name: string
+    // order: null
+    // refreshing: true
+    // result: null
+    type: string
+}
+
+export const dashboardsModel = kea<dashboardsModelType<Dashboard, DashboardItem>>({
     actions: () => ({
-        delayedDeleteDashboard: (id) => ({ id }),
-        setLastVisitedDashboardId: (id) => ({ id }),
+        delayedDeleteDashboard: (id: number) => ({ id }),
+        setLastVisitedDashboardId: (id: number) => ({ id }),
         // this is moved out of dashboardLogic, so that you can click "undo" on a item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
-        updateDashboardItem: (item) => ({ item }),
+        updateDashboardItem: (item: DashboardItem) => ({ item }),
     }),
     loaders: () => ({
         rawDashboards: [
-            {},
+            {} as Record<string, Dashboard>,
             {
                 loadDashboards: async () => {
                     const { results } = await api.get('api/dashboard')
@@ -26,12 +57,17 @@ export const dashboardsModel = kea({
         // We're not using this loader as a reducer per se, but just calling it `dashboard`
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
-            addDashboard: async ({ name }) => await api.create('api/dashboard', { name, pinned: true }),
-            renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),
-            deleteDashboard: async ({ id }) => await api.update(`api/dashboard/${id}`, { deleted: true }),
-            restoreDashboard: async ({ id }) => await api.update(`api/dashboard/${id}`, { deleted: false }),
-            pinDashboard: async (id) => await api.update(`api/dashboard/${id}`, { pinned: true }),
-            unpinDashboard: async (id) => await api.update(`api/dashboard/${id}`, { pinned: false }),
+            __default: null as Dashboard | null,
+            addDashboard: async ({ name }: { name: string }) =>
+                await api.create('api/dashboard', { name, pinned: true }),
+            renameDashboard: async ({ id, name }: { id: number; name: string }) =>
+                await api.update(`api/dashboard/${id}`, { name }),
+            deleteDashboard: async ({ id }: { id: number }) =>
+                await api.update(`api/dashboard/${id}`, { deleted: true }),
+            restoreDashboard: async ({ id }: { id: number }) =>
+                await api.update(`api/dashboard/${id}`, { deleted: false }),
+            pinDashboard: async (id: number) => await api.update(`api/dashboard/${id}`, { pinned: true }),
+            unpinDashboard: async (id: number) => await api.update(`api/dashboard/${id}`, { pinned: false }),
         },
     }),
 
