@@ -18,7 +18,8 @@
         "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-array",
         "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\"",
         "eslint": "eslint frontend/src",
-        "eslint:github-action": "yarn run eslint"
+        "eslint:github-action": "yarn run eslint",
+        "typegen:watch": "kea-typegen watch --path frontend/src"
     },
     "license": "MIT",
     "dependencies": {
@@ -41,7 +42,7 @@
         "kea-router": "^0.4.0",
         "kea-window-values": "^0.0.1",
         "moment": "^2.24.0",
-        "posthog-js": "1.3.5",
+        "posthog-js": "file:.yalc/posthog-js",
         "posthog-js-lite": "^0.0.1",
         "prop-types": "^15.7.2",
         "react": ">= 16.8",
@@ -84,7 +85,7 @@
         "html-webpack-harddisk-plugin": "^1.0.1",
         "html-webpack-plugin": "^4.3.0",
         "husky": ">=4",
-        "kea-typegen": "^0.0.29",
+        "kea-typegen": "^0.0.31",
         "lint-staged": ">=10",
         "mini-css-extract-plugin": "^0.9.0",
         "nodemon": "^2.0.4",
