@@ -71,6 +71,10 @@ if not DEBUG and not TEST:
             dsn=os.environ["SENTRY_DSN"], integrations=[DjangoIntegration()], request_bodies="always",
         )
 
+if get_bool_from_env("LOCAL_HTTPS", False):
+    SECURE_SSL_REDIRECT = False
+    SESSION_COOKIE_SECURE = True
+
 if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
     SECURE_SSL_REDIRECT = False
     SESSION_COOKIE_SECURE = False
