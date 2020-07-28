@@ -283,9 +283,9 @@ class Trends(BaseQuery):
         return response
 
     def calculate_trends(self, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
-        actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team_id).order_by(
-            "-id"
-        )
+        actions = Action.objects.filter(team_id=team_id).order_by("-id")
+        if len(filter.actions) > 0:
+            actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team_id)
         actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
         entities_list = []
 
