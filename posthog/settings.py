@@ -243,21 +243,9 @@ if not REDIS_URL and os.environ.get("POSTHOG_REDIS_HOST", ""):
     )
 
 if not REDIS_URL:
-    print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")
-    print("️⚠️ 🚨🚨🚨 PostHog warning! 🚨🚨🚨")
-    print("⚠️")
-    print("️⚠️ The environment variable REDIS_URL or POSTHOG_REDIS_HOST is not configured!")
-    print("⚠️ Redis will be mandatory in the next versions of PostHog (1.1.0+).")
-    print("⚠️ Please configure it now to avoid future surprises!")
-    print("⚠️")
-    print("⚠️ See here for more information!")
-    print("⚠️ --> https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011")
-    print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")
-
     raise ImproperlyConfigured(
         f'The environment var "REDIS_URL" or "POSTHOG_REDIS_HOST" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011'
     )
-
 
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
@@ -338,3 +326,10 @@ if TEST:
     CACHES["default"] = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
+
+
+if DEBUG:
+    print("🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰")
+    print("️🧰 🔧 Running PostHog in __development mode__! DEBUG=1 🔧 🧰")
+    print("️🧰 ⚠️ Please update your config if this is a live site ⚠️ 🧰")
+    print("🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰")
