@@ -9,6 +9,7 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { toast } from 'react-toastify'
 import { Annotations, annotationsLogic, AnnotationMarker } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
+import moment from 'moment'
 
 //--Chart Style Options--//
 // Chart.defaults.global.defaultFontFamily = "'PT Sans', sans-serif"
@@ -50,6 +51,7 @@ export function LineGraph({
     const [leftExtent, setLeftExtent] = useState(0)
     const [interval, setInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
+    const [annotationInRange, setInRange] = useState(false)
     const size = useWindowSize()
 
     const annotationsCondition =
@@ -66,11 +68,21 @@ export function LineGraph({
     // update boundaries and axis padding when user hovers with mouse or annotations load
     useEffect(() => {
         if (annotationsCondition && myLineChart.current) {
-            myLineChart.current.options.scales.xAxes[0].ticks.padding = annotationsList.length > 0 || focused ? 35 : 0
+            myLineChart.current.options.scales.xAxes[0].ticks.padding = annotationInRange || focused ? 35 : 0
             myLineChart.current.update()
             calculateBoundaries()
         }
-    }, [annotationsLoading, annotationsCondition, annotationsList])
+    }, [annotationsLoading, annotationsCondition, annotationsList, annotationInRange])
+
+    useEffect(() => {
+        if (annotationsCondition && datasets[0]?.days?.length > 0) {
+            const begin = moment(datasets[0].days[0])
+            const end = moment(datasets[0].days[datasets[0].days.length - 1]).add(2, 'days')
+            const checkBetween = (element) =>
+                moment(element.date_marker).isSameOrBefore(end) && moment(element.date_marker).isSameOrAfter(begin)
+            setInRange(annotationsList.some(checkBetween))
+        }
+    }, [datasets, annotationsList, annotationsCondition])
 
     // recalculate diff if interval type selection changes
     useEffect(() => {
@@ -238,7 +250,7 @@ export function LineGraph({
                                           min: 0,
                                           fontColor: axisLabelColor,
                                           precision: 0,
-                                          padding: annotationsLoading || annotationsList.length === 0 ? 0 : 35,
+                                          padding: annotationsLoading || !annotationInRange ? 0 : 35,
                                       },
                                   },
                               ],
