@@ -74,7 +74,11 @@ export interface sceneLogicType {
     ) => {
         scene: null
         params: {}
-        loadedScenes: { 404: { component: () => Element } }
+        loadedScenes: {
+            404: {
+                component: () => Element
+            }
+        }
         loadingScene: null
     }
     reducerOptions: any
@@ -82,10 +86,18 @@ export interface sceneLogicType {
         scene: (state: null, action: any, fullState: any) => null
         params: (state: {}, action: any, fullState: any) => {}
         loadedScenes: (
-            state: { 404: { component: () => Element } },
+            state: {
+                404: {
+                    component: () => Element
+                }
+            },
             action: any,
             fullState: any
-        ) => { 404: { component: () => Element } }
+        ) => {
+            404: {
+                component: () => Element
+            }
+        }
         loadingScene: (state: null, action: any, fullState: any) => null
     }
     selector: (
@@ -93,19 +105,34 @@ export interface sceneLogicType {
     ) => {
         scene: null
         params: {}
-        loadedScenes: { 404: { component: () => Element } }
+        loadedScenes: {
+            404: {
+                component: () => Element
+            }
+        }
         loadingScene: null
     }
     selectors: {
         scene: (state: any, props: any) => null
         params: (state: any, props: any) => {}
-        loadedScenes: (state: any, props: any) => { 404: { component: () => Element } }
+        loadedScenes: (
+            state: any,
+            props: any
+        ) => {
+            404: {
+                component: () => Element
+            }
+        }
         loadingScene: (state: any, props: any) => null
     }
     values: {
         scene: null
         params: {}
-        loadedScenes: { 404: { component: () => Element } }
+        loadedScenes: {
+            404: {
+                component: () => Element
+            }
+        }
         loadingScene: null
     }
     _isKea: true
