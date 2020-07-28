@@ -386,17 +386,12 @@ class EventViewSet(viewsets.ModelViewSet):
         elif session_type == "dist":
             result = self._session_dist(all_sessions, sessions_sql_params)
         else:
-            result = self._session_list(all_sessions, sessions_sql_params, team, date_filter, request)
+            result = self._session_list(all_sessions, sessions_sql_params, team, request)
 
         return result
 
     def _session_list(
-        self,
-        base_query: str,
-        params: Tuple[Any, ...],
-        team: Team,
-        date_filter: Dict[str, datetime],
-        request: request.Request,
+        self, base_query: str, params: Tuple[Any, ...], team: Team, request: request.Request,
     ) -> List[Dict[str, Any]]:
         session_list = "SELECT * FROM (SELECT global_session_id, properties, start_time, length, sessions.distinct_id, event_count, events from\
                                 (SELECT\
