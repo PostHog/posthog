@@ -29,7 +29,7 @@ describe('Auth', () => {
     })
 
     it('Sign up using team link', () => {
-        cy.get('[data-attr=menu-item-setup]').click()
+        cy.get('[data-attr=menu-item-team]').click()
         cy.get('[data-attr=copy-invite-to-clipboard-input]')
             .invoke('val')
             .then((link) => {
@@ -50,7 +50,7 @@ describe('Auth', () => {
     })
 
     it('Sign up using team link with updates', () => {
-        cy.get('[data-attr=menu-item-setup]').click()
+        cy.get('[data-attr=menu-item-team]').click()
         cy.get('[data-attr=copy-invite-to-clipboard-input]')
             .invoke('val')
             .then((link) => {

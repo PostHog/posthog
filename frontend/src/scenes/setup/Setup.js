@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { Divider } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
-import { InviteTeam } from 'lib/components/InviteTeam'
 import { OptOutCapture } from './OptOutCapture'
 import { UpdateEmailPreferences } from './UpdateEmailPreferences'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
@@ -43,20 +42,13 @@ function _Setup() {
             This key is write-only, in that it can only create new events. It can't read any events or any of your other
             data stored on PostHog.
             <Divider />
-            <h2 id="urls">Permitted domains</h2>
-            These are the domains and urls where the toolbar will automatically open if you're logged in. It's also the
-            domains where you'll be able to create actions on.
+            <h2 id="urls">Permitted Domains/URLs</h2>
+            These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's also
+            where you'll be able to create Actions.
             <EditAppUrls />
             <Divider />
             <h2 id="slack">Slack or Teams Integration</h2>
             <SlackIntegration />
-            <Divider />
-            <h2 id="invite">Invite your team</h2>
-            <div className="row">
-                <div className="col-lg-6">
-                    <InviteTeam user={user} />
-                </div>
-            </div>
             <Divider />
             <h2 id="demodata">Delete HogFlix demo data</h2>
             <DeleteDemoData />

@@ -7,3 +7,10 @@
         padding: 8px;
     }
 }
+
+.retention-success {
+    background-color: lighten($blue, 20%);
+}
+.retention-dropped {
+    background-color: $gray-200;
+}

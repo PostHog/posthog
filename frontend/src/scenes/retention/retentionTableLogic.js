@@ -18,8 +18,25 @@ export const retentionTableLogic = kea({
                 let params = { properties: values.properties }
                 if (values.selectedDate) params['date_from'] = values.selectedDate.toISOString()
                 if (values.period) params['period'] = dateOptions[values.period]
+                if (values.startEntity) params['start_entity'] = values.startEntity
                 const urlParams = toParams(params)
                 return await api.get(`api/action/retention/?${urlParams}`)
+            },
+        },
+        people: {
+            __default: {},
+            loadPeople: async (rowIndex) => {
+                const people = values.retention.data[rowIndex].values[0].people
+
+                if (people.length === 0) return []
+                let results = (await api.get('api/person/?id=' + people.join(','))).results
+                results.sort(function (a, b) {
+                    return people.indexOf(a.id) - people.indexOf(b.id)
+                })
+                return {
+                    ...values.people,
+                    [`${rowIndex}`]: results,
+                }
             },
         },
     }),
@@ -27,6 +44,11 @@ export const retentionTableLogic = kea({
         setProperties: (properties) => ({ properties }),
         dateChanged: (date) => ({ date }),
         setPeriod: (period) => ({ period }),
+        setFilters: (filters) => ({ filters }),
+        loadMore: (selectedIndex) => ({ selectedIndex }),
+        loadMorePeople: (selectedIndex, peopleIds) => ({ selectedIndex, peopleIds }),
+        updatePeople: (selectedIndex, people) => ({ selectedIndex, people }),
+        updateRetention: (retention) => ({ retention }),
     }),
     reducers: () => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
@@ -38,6 +60,28 @@ export const retentionTableLogic = kea({
         ],
         selectedDate: [moment().subtract(11, 'days').startOf('day'), { dateChanged: (_, { date }) => date }],
         period: ['d', { setPeriod: (_, { period }) => period }],
+        filters: [
+            {},
+            {
+                setFilters: (_, { filters }) => filters,
+            },
+        ],
+        people: {
+            updatePeople: (state, { selectedIndex, people }) => ({
+                ...state,
+                [`${selectedIndex}`]: [...state[selectedIndex], ...people],
+            }),
+        },
+        retention: {
+            updateRetention: (_, { retention }) => retention,
+        },
+        loadingMore: [
+            false,
+            {
+                loadMore: () => true,
+                updatePeople: () => false,
+            },
+        ],
     }),
     selectors: ({ selectors }) => ({
         propertiesForUrl: [
@@ -55,6 +99,16 @@ export const retentionTableLogic = kea({
                 }
 
                 return result
+            },
+        ],
+        startEntity: [
+            () => [selectors.filters],
+            (filters) => {
+                const result = Object.keys(filters).reduce(function (r, k) {
+                    return r.concat(filters[k])
+                }, [])
+
+                return result[0] || { id: '$pageview', type: 'events', name: '$pageview' }
             },
         ],
     }),
@@ -97,13 +151,45 @@ export const retentionTableLogic = kea({
             }
         },
     }),
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         setProperties: () => actions.loadRetention(),
         dateChanged: () => {
             actions.loadRetention()
         },
         setPeriod: () => {
             actions.loadRetention()
+        },
+        setFilters: () => actions.loadRetention(),
+        loadMore: async ({ selectedIndex }) => {
+            let peopleToAdd = []
+            for (const [index, { next, offset }] of values.retention.data[selectedIndex].values.entries()) {
+                if (next) {
+                    const params = toParams({ id: next, offset })
+                    const referenceResults = await api.get(`api/person/references/?${params}`)
+                    let retentionCopy = { ...values.retention }
+                    if (referenceResults.offset) {
+                        retentionCopy.data[selectedIndex].values[index].offset = referenceResults.offset
+                    } else {
+                        retentionCopy.data[selectedIndex].values[index].next = null
+                    }
+                    retentionCopy.data[selectedIndex].values[index].people = [
+                        ...retentionCopy.data[selectedIndex].values[index].people,
+                        ...referenceResults.result,
+                    ]
+                    actions.updateRetention(retentionCopy)
+                    if (index === 0) peopleToAdd = referenceResults.result
+                }
+            }
+
+            actions.loadMorePeople(selectedIndex, peopleToAdd)
+        },
+        loadMorePeople: async ({ selectedIndex, peopleIds }) => {
+            if (peopleIds.length === 0) actions.updatePeople(selectedIndex, [])
+            const peopleResult = (await api.get('api/person/?id=' + peopleIds.join(','))).results
+            peopleResult.sort(function (a, b) {
+                return peopleIds.indexOf(a.id) - peopleIds.indexOf(b.id)
+            })
+            actions.updatePeople(selectedIndex, peopleResult)
         },
     }),
 })

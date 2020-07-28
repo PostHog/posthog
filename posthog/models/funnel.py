@@ -2,20 +2,12 @@ from collections import defaultdict
 import re
 
 from django.db import models
-from django.contrib.postgres.fields import JSONField, ArrayField
+from django.contrib.postgres.fields import JSONField
 from django.db import connection
 from django.db.models import (
-    Exists,
     Min,
-    OuterRef,
-    Q,
-    Subquery,
-    F,
-    signals,
-    Prefetch,
     IntegerField,
     Value,
-    QuerySet,
 )
 from typing import List, Dict, Any, Optional
 
@@ -28,6 +20,8 @@ from .entity import Entity
 from .utils import namedtuplefetchall
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from datetime import timedelta
+from django.utils import timezone
 
 
 class Funnel(models.Model):
@@ -49,7 +43,15 @@ class Funnel(models.Model):
                     **{filter_key: step.id},
                     team_id=team_id,
                     **({"distinct_id": "1234321"} if index > 0 else {}),
-                    **({"timestamp__gte": "2000-01-01"} if index > 0 else {}),
+                    **(
+                        {
+                            "timestamp__gte": timezone.now().replace(
+                                year=2000, month=1, day=1, hour=0, minute=0, second=0, microsecond=0
+                            )
+                        }
+                        if index > 0
+                        else {}
+                    ),
                 )
                 .filter(filter.properties_to_Q(team_id=team_id))
                 .filter(step.properties_to_Q(team_id=team_id))
@@ -173,10 +175,25 @@ class Funnel(models.Model):
             people = namedtuplefetchall(cursor)
         steps = []
 
+        average_time: Dict[int, Dict[str, Any]] = {}
+        for index, funnel_step in enumerate(filter.entities, start=0):
+            if index != 0:
+                average_time[index] = {"total_time": timedelta(0), "total_people": 0}
+
         person_score: Dict = defaultdict(int)
         for index, funnel_step in enumerate(filter.entities):
             relevant_people = []
             for person in people:
+                if (
+                    index > 0
+                    and getattr(person, "step_{}".format(index))
+                    and getattr(person, "step_{}".format(index - 1))
+                ):
+                    average_time[index]["total_time"] += getattr(person, "step_{}".format(index)) - getattr(
+                        person, "step_{}".format(index - 1)
+                    )
+                    average_time[index]["total_people"] += 1
+
                 if getattr(person, "step_{}".format(index)):
                     person_score[person.id] += 1
                     relevant_people.append(person.id)
@@ -187,4 +204,12 @@ class Funnel(models.Model):
                 steps[index]["people"] = sorted(steps[index]["people"], key=lambda p: person_score[p], reverse=True)[
                     0:100
                 ]
+
+        for index in average_time.keys():
+            steps[index - 1]["average_time"] = (
+                (average_time[index]["total_time"].total_seconds() / average_time[index]["total_people"])
+                if average_time[index]["total_people"] > 0
+                else 0
+            )
+
         return steps

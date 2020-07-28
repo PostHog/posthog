@@ -8,7 +8,8 @@ from . import (
     cohort,
     element,
     feature_flag,
-    annotation
+    annotation,
+    team,
 )
 from rest_framework import routers
 
@@ -24,3 +25,4 @@ router.register(r"dashboard", dashboard.DashboardsViewSet)
 router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"paths", paths.PathsViewSet, basename="paths")
+router.register(r"team/user", team.TeamUserViewSet)

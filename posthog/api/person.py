@@ -9,6 +9,7 @@ from .event import EventSerializer
 from typing import Union
 from .base import CursorPagination as BaseCursorPagination
 import json
+from django.core.cache import cache
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -60,7 +61,10 @@ class PersonViewSet(viewsets.ModelViewSet):
                     queryset = queryset.filter(properties__has_key=part.split(":")[1])
                 else:
                     contains.append(part)
-            queryset = queryset.filter(properties__icontains=" ".join(contains))
+            queryset = queryset.filter(
+                Q(properties__icontains=" ".join(contains))
+                | Q(persondistinctid__distinct_id__icontains=" ".join(contains))
+            )
         if request.GET.get("cohort"):
             queryset = queryset.filter(cohort__id=request.GET["cohort"])
         if request.GET.get("properties"):
@@ -121,3 +125,23 @@ class PersonViewSet(viewsets.ModelViewSet):
         return response.Response(
             [{"name": convert_property_value(event[key]), "count": event["count"]} for event in people[:50]]
         )
+
+    @action(methods=["GET"], detail=False)
+    def references(self, request: request.Request) -> response.Response:
+        reference_id = request.GET.get("id", None)
+        offset = request.GET.get("offset", None)
+
+        if not reference_id or not offset:
+            return response.Response({})
+
+        offset_value = int(offset)
+        cached_result = cache.get(reference_id)
+        if cached_result:
+            return response.Response(
+                {
+                    "result": cached_result[offset_value : offset_value + 100],
+                    "offset": offset_value + 100 if len(cached_result) > offset_value + 100 else None,
+                }
+            )
+        else:
+            return response.Response({})

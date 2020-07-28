@@ -1,5 +1,35 @@
 # Changelog
 
+### 1.11.0 - Friday 17 July
+
+- Annotations
+
+![](https://posthog.com/static/1d927d103ca02ecae58c602008c6eea7/c83ae/annotations.png)
+
+- Cohort filters
+
+![](https://posthog.com/static/9ad08691d6f6c70ae5168ba9fbedf2db/c83ae/cohort-filter.png)
+
+- Retention table filtering
+
+![](https://posthog.com/static/2a8f824019810bdb6b4459743eddffe0/c83ae/retention-filter.png)
+
+- Many toolbar fixes.
+
+![heatmap](../images/casts/heatmap.gif)
+
+#### Bug fixes and performance improvements
+
+* Some first-time contributors ran into errors with TemplateDoesNotExist, which [we've solved](https://github.com/PostHog/posthog/pull/1200)
+* Add comprehensive Cypress tests for dashboards [to avoid bugs](https://github.com/PostHog/posthog/pull/1171)
+* Add webpackbar for better [readability while developing](https://github.com/PostHog/posthog/pull/1185)
+* Moves total to the bottom of the pie chart to fix z-index issues [readability while developing](https://github.com/PostHog/posthog/pull/1179)
+* Fix an issue with [filtering on the event type](https://github.com/PostHog/posthog/pull/1168)
+* Add Typescript to the [PostHog frontend codebase](https://github.com/PostHog/posthog/pull/1157)
+* Fix the ability to [delete dashboards](https://github.com/PostHog/posthog/pull/1152)
+* Add support [for LZ-String compression](https://github.com/PostHog/posthog/pull/1058)
+* [Use Black for Python formatting](https://github.com/PostHog/posthog/pull/1136
+
 ### 1.10.1 - Thursday 2 July 2020
 
 #### Bugfixes

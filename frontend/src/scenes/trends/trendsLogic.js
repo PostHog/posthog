@@ -117,11 +117,12 @@ export const trendsLogic = kea({
         values: [userLogic, ['eventNames'], actionsModel, ['actions']],
     },
 
-    loaders: ({ values }) => ({
+    loaders: ({ values, props }) => ({
         results: {
             __default: [],
             setActiveView: () => [],
             loadResults: async (refresh = false, breakpoint) => {
+                if (values.results.length === 0 && props.cachedResults) return props.cachedResults
                 let response
                 if (values.activeView === ViewType.SESSIONS) {
                     response = await api.get(

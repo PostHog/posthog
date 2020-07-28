@@ -28,6 +28,8 @@ export const dashboardsModel = kea({
         dashboard: {
             addDashboard: async ({ name }) => await api.create('api/dashboard', { name, pinned: true }),
             renameDashboard: async ({ id, name }) => await api.update(`api/dashboard/${id}`, { name }),
+            setIsSharedDashboard: async ({ id, isShared }) =>
+                await api.update(`api/dashboard/${id}`, { is_shared: isShared }),
             deleteDashboard: async ({ id }) => await api.update(`api/dashboard/${id}`, { deleted: true }),
             restoreDashboard: async ({ id }) => await api.update(`api/dashboard/${id}`, { deleted: false }),
             pinDashboard: async (id) => await api.update(`api/dashboard/${id}`, { pinned: true }),
@@ -47,6 +49,7 @@ export const dashboardsModel = kea({
             addDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             renameDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+            setIsSharedDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             deleteDashboardSuccess: (state, { dashboard }) => ({
                 ...state,
                 [dashboard.id]: { ...state[dashboard.id], deleted: true },

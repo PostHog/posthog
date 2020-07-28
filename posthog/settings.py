@@ -22,7 +22,7 @@ from sentry_sdk.integrations.django import DjangoIntegration
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
-VERSION = "1.10.1"
+VERSION = "1.11.0"
 
 
 def get_env(key):
@@ -337,5 +337,5 @@ CACHES = {
 
 if TEST:
     CACHES["default"] = {
-        "BACKEND": "django.core.cache.backends.dummy.DummyCache",
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }

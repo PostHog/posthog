@@ -13,23 +13,20 @@ module.exports = {
         },
     },
     extends: [
-        'plugin:@typescript-eslint/recommended',
-        'eslint:recommended',
         'plugin:react/recommended',
+        'plugin:@typescript-eslint/recommended',
         'prettier/@typescript-eslint',
+        'plugin:prettier/recommended', // Enables eslint-plugin-prettier and eslint-config-prettier. This will display prettier errors as ESLint errors. Make sure this is always the last configuration in the extends array.
     ],
     globals: {
         Atomics: 'readonly',
         SharedArrayBuffer: 'readonly',
     },
-    parser: 'babel-eslint',
+    parser: '@typescript-eslint/parser',
     parserOptions: {
-        project: './tsconfig.json',
         ecmaFeatures: {
             jsx: true,
         },
-        ecmaVersion: 2018,
-        sourceType: 'module',
     },
     plugins: ['prettier', 'react', 'cypress', '@typescript-eslint'],
     rules: {

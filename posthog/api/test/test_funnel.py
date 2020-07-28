@@ -1,7 +1,12 @@
 from posthog.models import Funnel, Action, ActionStep, Event, Element, Person
+from posthog.tasks.update_cache import update_cache_item
 from .base import BaseTest
+from posthog.utils import generate_cache_key
+from django.core.cache import cache
+from unittest.mock import patch
 
 
+@patch("posthog.celery.update_cache_item_task.delay", update_cache_item)
 class TestCreateFunnel(BaseTest):
     TESTS_API = True
 
@@ -75,6 +80,7 @@ class TestCreateFunnel(BaseTest):
         self.assertEqual(Funnel.objects.get().name, "Whatever2")
 
 
+@patch("posthog.celery.update_cache_item_task.delay", update_cache_item)
 class TestGetFunnel(BaseTest):
     TESTS_API = True
 
@@ -191,11 +197,11 @@ class TestGetFunnel(BaseTest):
         person_wrong_order = Person.objects.create(distinct_ids=["badalgo"], team=self.team)
         self._signup_event(distinct_id="badalgo")
         with self.assertNumQueries(8):
-            response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
+            response = self.client.get("/api/funnel/{}/?refresh=true".format(funnel.pk)).json()
 
         self._pay_event(distinct_id="badalgo")
         with self.assertNumQueries(8):
-            response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
+            response = self.client.get("/api/funnel/{}/?refresh=true".format(funnel.pk)).json()
 
     def test_funnel_no_events(self):
         funnel = self._basic_funnel()
@@ -290,3 +296,45 @@ class TestGetFunnel(BaseTest):
         self.assertEqual(response["steps"][0]["count"], 1)
         self.assertEqual(response["steps"][1]["count"], 1)
         self.assertEqual(response["steps"][2]["count"], 0)
+
+    def test_cached_funnel(self):
+        action_sign_up = Action.objects.create(team=self.team, name="signed up")
+        ActionStep.objects.create(action=action_sign_up, tag_name="button", text="Sign up!")
+        action_credit_card = Action.objects.create(team=self.team, name="paid")
+        ActionStep.objects.create(action=action_credit_card, tag_name="button", text="Pay $10")
+        action_play_movie = Action.objects.create(team=self.team, name="watched movie")
+        ActionStep.objects.create(action=action_play_movie, tag_name="a", href="/movie")
+        Action.objects.create(team=self.team, name="user logged out")
+
+        [action.calculate_events() for action in Action.objects.all()]
+
+        self.client.post(
+            "/api/funnel/",
+            data={
+                "name": "Whatever",
+                "filters": {
+                    "events": [{"id": "user signed up", "type": "events", "order": 0},],
+                    "actions": [{"id": action_sign_up.pk, "type": "actions", "order": 1},],
+                },
+            },
+            content_type="application/json",
+        ).json()
+        funnel = Funnel.objects.get()
+
+        funnel_key = generate_cache_key("funnel_{}_{}".format(funnel.pk, self.team.pk))
+
+        # no refresh after getting
+        self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
+        original_name = cache.get(funnel_key)["result"]["name"]
+
+        self.client.patch(
+            "/api/funnel/{}/".format(funnel.pk), data={"name": "Whatever2"}, content_type="application/json"
+        ).json()
+
+        self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
+        refreshed_name = cache.get(funnel_key)["result"]["name"]
+        self.assertEqual("Whatever", refreshed_name)
+
+        self.client.get("/api/funnel/{}/?refresh=true".format(funnel.pk)).json()
+        refreshed_name = cache.get(funnel_key)["result"]["name"]
+        self.assertEqual("Whatever2", refreshed_name)

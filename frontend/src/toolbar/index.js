@@ -18,13 +18,7 @@ window.ph_load_editor = function (editorParams) {
 
     ReactDOM.render(
         <Provider store={getContext().store}>
-            <ToolbarApp
-                jsURL={editorParams.jsURL || editorParams.apiURL}
-                apiURL={editorParams.apiURL}
-                temporaryToken={editorParams.temporaryToken}
-                actionId={editorParams.actionId}
-                userIntent={editorParams.userIntent}
-            />
+            <ToolbarApp {...editorParams} jsURL={editorParams.jsURL || editorParams.apiURL} />
         </Provider>,
         container
     )

@@ -39,20 +39,17 @@ class AnnotationsViewSet(viewsets.ModelViewSet):
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
         team = self.request.user.team_set.get()
+
         if self.action == "list":  # type: ignore
             queryset = self._filter_request(self.request, queryset)
-            queryset = queryset.filter(deleted=False)
+            order = self.request.GET.get("order", None)
+            if order:
+                queryset = queryset.order_by(order)
 
         return queryset.filter(team=team)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
-
-        apply_all = filters.pop("apply_all", None)
-        if apply_all:
-            queryset = queryset.filter(apply_all=bool(strtobool(str(apply_all))))
-        else:
-            queryset = queryset.filter(apply_all=False)
 
         for key in filters:
             if key == "after":
@@ -61,5 +58,9 @@ class AnnotationsViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(created_at__lt=request.GET["before"])
             elif key == "dashboardItemId":
                 queryset = queryset.filter(dashboard_item_id=request.GET["dashboardItemId"])
+            elif key == "apply_all":
+                queryset = queryset.filter(apply_all=bool(strtobool(str(request.GET["apply_all"]))))
+            elif key == "deleted":
+                queryset = queryset.filter(apply_all=bool(strtobool(str(request.GET["deleted"]))))
 
         return queryset

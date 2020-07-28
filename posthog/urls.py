@@ -11,7 +11,7 @@ from django.template.loader import render_to_string
 from django.template.exceptions import TemplateDoesNotExist
 from urllib.parse import urlparse
 
-from .api import router, capture, user, decide
+from .api import router, capture, user, decide, dashboard
 from .models import Team, User, Event
 from .utils import render_template
 from .views import health, stats
@@ -107,7 +107,9 @@ def setup_admin(request):
         try:
             return render_template("setup_admin.html", request)
         except TemplateDoesNotExist:
-            return HttpResponse("Frontend not built yet. Please try again shortly or build manually using <code>./bin/start-frontend</code>")
+            return HttpResponse(
+                "Frontend not built yet. Please try again shortly or build manually using <code>./bin/start-frontend</code>"
+            )
     if request.method == "POST":
         email = request.POST["email"]
         password = request.POST["password"]
@@ -222,6 +224,7 @@ urlpatterns = [
     path("api/user/test_slack_webhook/", user.test_slack_webhook),
     path("decide/", decide.get_decide),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
+    path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
     path("engage/", capture.get_event),
     path("engage", capture.get_event),
     re_path(r"^demo.*", decorators.login_required(demo)),
