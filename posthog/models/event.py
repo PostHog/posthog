@@ -266,7 +266,7 @@ class EventManager(models.QuerySet):
 
         by_dates = {}
         for row in data:
-            people = sorted(row.people, key=lambda p: scores[round(row.first_date, 1)][int(p)], reverse=True)
+            people = sorted(row.people, key=lambda p: scores[round(row.first_date, 1)][int(p)], reverse=True,)
 
             random_key = "".join(
                 random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(10)
@@ -412,7 +412,7 @@ class Event(models.Model):
                 events = namedtuplefetchall(cursor)
 
         event = [event for event in events][0]
-        filtered_actions = [action for action in actions if getattr(event, "action_{}".format(action.pk))]
+        filtered_actions = [action for action in actions if getattr(event, "action_{}".format(action.pk), None)]
         return filtered_actions
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True, blank=True)
