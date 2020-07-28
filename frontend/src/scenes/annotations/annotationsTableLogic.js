@@ -34,6 +34,7 @@ export const annotationsTableLogic = kea({
     actions: () => ({
         updateAnnotation: (id, content) => ({ id, content }),
         deleteAnnotation: (id) => ({ id }),
+        restoreAnnotation: (id) => ({ id }),
         loadAnnotationsNext: () => true,
         setNext: (next) => ({ next }),
         appendAnnotations: (annotations) => ({ annotations }),
@@ -41,6 +42,10 @@ export const annotationsTableLogic = kea({
     listeners: ({ actions, values }) => ({
         updateAnnotation: async ({ id, content }) => {
             await api.update(`api/annotation/${id}`, { content })
+        },
+        restoreAnnotation: async ({ id }) => {
+            await api.update(`api/annotation/${id}`, { deleted: false })
+            actions.loadAnnotations({})
         },
         deleteAnnotation: ({ id }) => {
             deleteWithUndo({
