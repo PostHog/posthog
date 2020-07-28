@@ -134,7 +134,7 @@ export function PersonalAPIKeys({ user }) {
                     setIsCreateKeyModalOpen(true)
                 }}
             >
-                + Create Personal API Key
+                + Create a Personal API Key
             </Button>
             <CreateKeyModal visible={isCreateKeyModalOpen} setVisible={setIsCreateKeyModalOpen} />
             <PersonalAPIKeysTable keys={user.personal_api_keys} />
