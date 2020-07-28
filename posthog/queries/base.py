@@ -23,7 +23,7 @@ def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> Q
     return QuerySet()
 
 
-def determine_compared_filter(filter):
+def determine_compared_filter(filter: Filter) -> Filter:
     date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
     compared_filter = copy.deepcopy(filter)
     compared_filter._date_from = date_from.date().isoformat()
