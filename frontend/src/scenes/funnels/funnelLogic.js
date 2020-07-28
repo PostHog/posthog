@@ -9,6 +9,7 @@ export const funnelLogic = kea({
 
     actions: () => ({
         setFunnel: (funnel, update) => ({ funnel, update }),
+        clearFunnel: true,
     }),
 
     connect: {
@@ -50,6 +51,13 @@ export const funnelLogic = kea({
                 ...funnel,
                 filters: { ...state.filters, ...funnel.filters },
             }),
+            clearFunnel: () => ({ filters: {} }),
+        },
+        stepsWithCount: {
+            clearFunnel: () => null,
+        },
+        people: {
+            clearFunnel: () => null,
         },
     }),
 
@@ -98,6 +106,9 @@ export const funnelLogic = kea({
     actionToUrl: ({ actions }) => ({
         [actions.createFunnelSuccess]: ({ funnel }) => {
             return ['/insights', { id: funnel.id, insight: ViewType.FUNNELS }]
+        },
+        [actions.clearFunnel]: () => {
+            return ['/insights', { insight: ViewType.FUNNELS }]
         },
     }),
 

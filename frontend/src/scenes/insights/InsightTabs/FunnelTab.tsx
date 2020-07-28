@@ -7,11 +7,11 @@ import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { Link } from 'lib/components/Link'
-import { Button } from 'antd'
+import { Button, Row } from 'antd'
 
 export function FunnelTab(): JSX.Element {
     const { funnel, isStepsEmpty } = useValues(funnelLogic({ id: null }))
-    const { setFunnel, updateFunnel, createFunnel } = useActions(funnelLogic({ id: null }))
+    const { setFunnel, updateFunnel, createFunnel, clearFunnel } = useActions(funnelLogic({ id: null }))
     const { actions, actionsLoading } = useValues(actionsModel())
     const { eventProperties } = useValues(userLogic)
 
@@ -67,9 +67,20 @@ export function FunnelTab(): JSX.Element {
                     style={{ marginBottom: 20 }}
                 />
                 <hr />
-                <Button type="primary" htmlType="submit" disabled={isStepsEmpty} data-attr="save-funnel-button">
-                    Save funnel
-                </Button>
+                <Row justify="start">
+                    <Button type="primary" htmlType="submit" disabled={isStepsEmpty} data-attr="save-funnel-button">
+                        Save funnel
+                    </Button>
+                    {funnel.id && (
+                        <Button
+                            onClick={(): void => clearFunnel()}
+                            className="ml-2"
+                            data-attr="save-funnel-clear-button"
+                        >
+                            Clear
+                        </Button>
+                    )}
+                </Row>
             </form>
         </div>
     )
