@@ -51,6 +51,7 @@ export const sessionsTableLogic = kea({
         },
         dateChanged: ({ date }) => {
             actions.loadSessions(date)
+            actions.setOffset(null)
         },
     }),
     events: ({ actions }) => ({
