@@ -104,9 +104,12 @@
         }
     },
     "lint-staged": {
-        "*.{js,ts,tsx,css,scss}": "prettier --write",
+        "*.{js,ts,tsx,json,css,scss}": "prettier --write",
         "*.{js,ts,tsx}": "eslint",
-        "*.py": "black -l 120"
+        "*.py": [
+            "./env/bin/black -l 120",
+            "./env/bin/isort -m 3 --tc --fgw 8 --up -n -l 120"
+        ]
     },
     "optionalDependencies": {
         "fsevents": "^2.1.2"

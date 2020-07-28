@@ -1,8 +1,9 @@
 from django.test import TestCase
-from posthog.models import Event
-from posthog.api.test.base import BaseTest
-from posthog.utils import relative_date_parse
 from freezegun import freeze_time
+
+from posthog.api.test.base import BaseTest
+from posthog.models import Event
+from posthog.utils import relative_date_parse
 
 
 class TestRelativeDateParse(TestCase):

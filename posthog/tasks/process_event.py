@@ -1,17 +1,15 @@
-from numbers import Number
-from celery import shared_task
-from django.core import serializers
-from posthog.models import Person, Element, Event, Team, PersonDistinctId
 import datetime
-from typing import Union, Dict, Optional
+from numbers import Number
+from typing import Dict, Optional, Union
 
 from celery import shared_task
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
+from django.core import serializers
 from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
-from posthog.models import Person, Element, Event, Team, PersonDistinctId
+from posthog.models import Element, Event, Person, PersonDistinctId, Team
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:

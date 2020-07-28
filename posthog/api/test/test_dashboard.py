@@ -1,11 +1,14 @@
-from .base import BaseTest, TransactionBaseTest
-from posthog.models import Dashboard, Filter, DashboardItem
-from posthog.api.action import calculate_trends
-from posthog.decorators import TRENDS_ENDPOINT
+import json
+
 from django.core.cache import cache
 from django.utils.timezone import now
 from freezegun import freeze_time
-import json
+
+from posthog.api.action import calculate_trends
+from posthog.decorators import TRENDS_ENDPOINT
+from posthog.models import Dashboard, DashboardItem, Filter
+
+from .base import BaseTest, TransactionBaseTest
 
 
 class TestDashboard(TransactionBaseTest):

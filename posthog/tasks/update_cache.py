@@ -1,19 +1,20 @@
-from celery import shared_task, group
+import datetime
+import json
+import logging
+from typing import Any, Dict, List, Optional, Union
+
+from celery import group, shared_task
+from dateutil.relativedelta import relativedelta
+from django.core.cache import cache
+from django.db.models import Prefetch, Q
+from django.utils import timezone
+
 from posthog.api.action import calculate_trends, get_actions
 from posthog.api.funnel import FunnelSerializer
-from posthog.models import Filter, Action, Funnel, Entity, DashboardItem, ActionStep
+from posthog.celery import app, update_cache_item_task
 from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT
+from posthog.models import Action, ActionStep, DashboardItem, Entity, Filter, Funnel
 from posthog.utils import generate_cache_key
-from posthog.celery import update_cache_item_task
-from django.db.models import Prefetch, Q
-from django.core.cache import cache
-from django.utils import timezone
-from dateutil.relativedelta import relativedelta
-import logging
-from typing import List, Dict, Any, Union, Optional
-import json
-import datetime
-from posthog.celery import app
 
 logger = logging.getLogger(__name__)
 

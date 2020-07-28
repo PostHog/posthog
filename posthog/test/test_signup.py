@@ -1,8 +1,9 @@
-from django.test import TestCase, Client
-from posthog.models import User, Dashboard, DashboardItem, Action, Person, Event, Team
-from social_django.strategy import DjangoStrategy
-from social_django.models import DjangoStorage
+from django.test import Client, TestCase
 from social_core.utils import module_member
+from social_django.models import DjangoStorage
+from social_django.strategy import DjangoStrategy
+
+from posthog.models import Action, Dashboard, DashboardItem, Event, Person, Team, User
 from posthog.urls import social_create_user
 
 

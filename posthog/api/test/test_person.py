@@ -1,6 +1,8 @@
-from .base import BaseTest
-from posthog.models import Person, Event, Cohort
 import json
+
+from posthog.models import Cohort, Event, Person
+
+from .base import BaseTest
 
 
 class TestPerson(BaseTest):

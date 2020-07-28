@@ -1,9 +1,11 @@
-from .base import BaseTest
-from posthog.models import Element, ElementGroup, Team, Event
-from django.utils.timezone import now
-from dateutil.relativedelta import relativedelta
-
 import json
+
+from dateutil.relativedelta import relativedelta
+from django.utils.timezone import now
+
+from posthog.models import Element, ElementGroup, Event, Team
+
+from .base import BaseTest
 
 
 class TestElement(BaseTest):

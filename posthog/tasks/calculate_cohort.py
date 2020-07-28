@@ -1,11 +1,13 @@
-from celery import shared_task
-from posthog.models import Cohort
-from posthog.celery import app
-from django.utils import timezone
-from django.db.models import Q
-from dateutil.relativedelta import relativedelta
 import logging
 import time
+
+from celery import shared_task
+from dateutil.relativedelta import relativedelta
+from django.db.models import Q
+from django.utils import timezone
+
+from posthog.celery import app
+from posthog.models import Cohort
 
 logger = logging.getLogger(__name__)
 

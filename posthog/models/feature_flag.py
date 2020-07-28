@@ -1,9 +1,11 @@
-from django.db import models
-from django.contrib.postgres.fields import JSONField
-from django.utils import timezone
-from .person import Person
-from .filter import Filter
 import hashlib
+
+from django.contrib.postgres.fields import JSONField
+from django.db import models
+from django.utils import timezone
+
+from .filter import Filter
+from .person import Person
 
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 

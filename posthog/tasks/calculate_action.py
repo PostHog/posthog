@@ -1,9 +1,10 @@
-from celery import shared_task
-from posthog.models import Action
-from posthog.celery import app
 import logging
 import time
 
+from celery import shared_task
+
+from posthog.celery import app
+from posthog.models import Action
 
 logger = logging.getLogger(__name__)
 

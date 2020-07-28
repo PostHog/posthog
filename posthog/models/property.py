@@ -1,7 +1,9 @@
-from django.db.models import Q, Exists, OuterRef
-from .person import Person
 import json
-from typing import List, Optional, Union, Dict, Any
+from typing import Any, Dict, List, Optional, Union
+
+from django.db.models import Exists, OuterRef, Q
+
+from .person import Person
 
 
 class Property:

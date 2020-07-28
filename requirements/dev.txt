@@ -26,10 +26,10 @@ flake8-logging-format==0.6.0  # via -r requirements/dev.in
 flake8-print==3.1.4       # via -r requirements/dev.in
 flake8==3.7.9             # via -r requirements/dev.in, flake8-bugbear, flake8-colors, flake8-commas, flake8-comprehensions, flake8-print
 freezegun==0.3.15         # via -r requirements/dev.in
-importlib-metadata==1.6.0  # via flake8-comprehensions
 ipdb==0.13.2              # via -r requirements/dev.in
 ipython-genutils==0.2.0   # via traitlets
 ipython==7.14.0           # via ipdb
+isort==5.1.4              # via -r requirements/dev.in
 jedi==0.17.0              # via ipython
 mccabe==0.6.1             # via flake8
 mypy-extensions==0.4.3    # via -r requirements/dev.in, mypy
@@ -57,7 +57,6 @@ traitlets==4.3.3          # via ipython
 typed-ast==1.4.1          # via black, mypy
 typing-extensions==3.7.4.2  # via django-stubs, djangorestframework-stubs, mypy
 wcwidth==0.1.9            # via prompt-toolkit
-zipp==3.1.0               # via importlib-metadata
 
 # The following packages are considered to be unsafe in a requirements file:
 # pip

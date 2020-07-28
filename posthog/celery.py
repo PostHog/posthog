@@ -1,14 +1,14 @@
 import os
+import time
+from datetime import datetime
+from typing import Optional
+
+import redis
 from celery import Celery, group
 from celery.schedules import crontab
+from dateutil import parser
 from django.conf import settings
 from django.db import connection
-import redis
-import time
-from typing import Optional
-from datetime import datetime
-from dateutil import parser
-
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")

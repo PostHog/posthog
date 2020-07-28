@@ -1,7 +1,10 @@
-from .base import BaseTest
-from posthog.models import Annotation, Dashboard, DashboardItem
 from datetime import datetime
+
 from freezegun import freeze_time
+
+from posthog.models import Annotation, Dashboard, DashboardItem
+
+from .base import BaseTest
 
 
 class TestAnnotation(BaseTest):
