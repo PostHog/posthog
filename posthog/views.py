@@ -1,9 +1,10 @@
-from typing import Dict, Union
-from django.http import HttpResponse
-from django.conf import settings
 import json
-import redis
 import time
+from typing import Dict, Union
+
+import redis
+from django.conf import settings
+from django.http import HttpResponse
 
 if settings.REDIS_URL:
     redis_instance = redis.from_url(settings.REDIS_URL, db=0)

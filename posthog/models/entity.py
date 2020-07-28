@@ -1,5 +1,7 @@
+from typing import Any, Dict, List, Optional, Union
+
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from typing import Union, Dict, Any, Optional, List
+
 from .property import Property, PropertyMixin
 
 

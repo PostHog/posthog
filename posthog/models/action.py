@@ -1,10 +1,11 @@
 import datetime
 
-from django.db import models, connection, transaction
 from django.core.exceptions import EmptyResultSet
+from django.db import connection, models, transaction
 from django.utils import timezone
-from .user import User
 from sentry_sdk import capture_exception
+
+from .user import User
 
 
 class Action(models.Model):

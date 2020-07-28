@@ -1,13 +1,15 @@
-from django.conf import settings
-from django.http import JsonResponse, HttpRequest
-from django.views.decorators.csrf import csrf_exempt
-from typing import Optional, List, Any, Dict
-from posthog.utils import cors_response
-from urllib.parse import urlparse
-from posthog.models import FeatureFlag, Team
-import json
 import base64
+import json
 import secrets
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
+
+from django.conf import settings
+from django.http import HttpRequest, JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+
+from posthog.models import FeatureFlag, Team
+from posthog.utils import cors_response
 
 
 def _load_data(data: str) -> Dict[str, Any]:

@@ -1,15 +1,17 @@
-from dateutil.relativedelta import relativedelta
-from django.utils import timezone
-from django.db.models import Q
-from django.http import HttpRequest
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from posthog.utils import relative_date_parse
-from typing import Union, Dict, Any, List, Optional
-from .entity import Entity
-from .property import Property, PropertyMixin
-
 import datetime
 import json
+from typing import Any, Dict, List, Optional, Union
+
+from dateutil.relativedelta import relativedelta
+from django.db.models import Q
+from django.http import HttpRequest
+from django.utils import timezone
+
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.utils import relative_date_parse
+
+from .entity import Entity
+from .property import Property, PropertyMixin
 
 
 class Filter(PropertyMixin):

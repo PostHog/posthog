@@ -1,31 +1,29 @@
-import random
+import io
 import json
+import random
+import time
 import uuid
-import psycopg2
+from pathlib import Path
+from typing import Iterator, List, Optional
 from urllib.parse import urlparse
-from django.conf import settings
 
+import psycopg2
+from dateutil.relativedelta import relativedelta
+from django.conf import settings
+from django.core import serializers
 from django.core.management.base import BaseCommand
 from django.utils.timezone import now
-from django.core import serializers
-
-from dateutil.relativedelta import relativedelta
-from pathlib import Path
-from typing import List
-import time
-from typing import Iterator, Optional
-import io
 
 from posthog.models import (
-    Event,
-    Element,
-    Team,
-    Person,
-    PersonDistinctId,
-    Funnel,
     Action,
     ActionStep,
+    Element,
+    Event,
+    Funnel,
     FunnelStep,
+    Person,
+    PersonDistinctId,
+    Team,
 )
 
 

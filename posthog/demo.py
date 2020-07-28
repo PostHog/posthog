@@ -1,30 +1,28 @@
+import json
+import random
+import secrets
+import uuid
+from pathlib import Path
+from typing import List
+
+from dateutil.relativedelta import relativedelta
+from django.http import HttpResponseNotFound, JsonResponse
+from django.utils.timezone import now
+
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import (
-    Person,
-    PersonDistinctId,
-    Event,
-    Element,
     Action,
     ActionStep,
-    Funnel,
-    Team,
     Dashboard,
     DashboardItem,
+    Element,
+    Event,
+    Funnel,
+    Person,
+    PersonDistinctId,
+    Team,
 )
-from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
-from django.http import HttpResponseNotFound, JsonResponse
-
-from posthog.urls import render_template
 from posthog.utils import render_template
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-
-from typing import List
-from pathlib import Path
-import uuid
-
-import random
-import json
-import secrets
 
 
 def _create_anonymous_users(team: Team, base_url: str) -> None:

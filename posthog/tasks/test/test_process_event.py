@@ -1,20 +1,22 @@
+from datetime import timedelta
+from unittest.mock import call, patch
+
 from django.test import TransactionTestCase
 from django.utils.timezone import now
-from datetime import timedelta
 from freezegun import freeze_time
+
 from posthog.api.test.base import BaseTest
 from posthog.models import (
-    Event,
     Action,
     ActionStep,
-    Person,
+    Element,
     ElementGroup,
+    Event,
+    Person,
     Team,
     User,
-    Element,
 )
 from posthog.tasks.process_event import process_event
-from unittest.mock import patch, call
 
 
 class ProcessEvent(BaseTest):

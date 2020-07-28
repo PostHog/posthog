@@ -1,7 +1,7 @@
 """Cause git to detect a merge conflict when two branches have migrations."""
 
-from django.db.migrations.loader import MigrationLoader
 from django.core.management.commands.makemigrations import Command as MakeMigrationsCommand
+from django.db.migrations.loader import MigrationLoader
 
 
 class Command(MakeMigrationsCommand):

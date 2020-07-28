@@ -4,14 +4,14 @@
     "paths": {
       "lib/*": ["./src/lib/*"],
       "scenes/*": ["./src/scenes/*"],
-      "~/*": ["./*"]
+      "~/*": ["./src/*"]
     },
     // https://www.sitepoint.com/react-with-typescript-best-practices/
     "allowJs": true, // Allow JavaScript files to be compiled
     "skipLibCheck": true, // Skip type checking of all declaration files
     "esModuleInterop": true, // Disables namespace imports (import * as fs from "fs") and enables CJS/AMD/UMD style imports (import fs from "fs")
     "allowSyntheticDefaultImports": true, // Allow default imports from modules with no default export
-//    "strict": true, // Enable all strict type checking options
+    "strict": false, // Enable all strict type checking options
     "forceConsistentCasingInFileNames": true, // Disallow inconsistently-cased references to the same file.
     "module": "esnext", // Specify module code generation
     "moduleResolution": "node", // Resolve modules using Node.js style

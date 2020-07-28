@@ -40,6 +40,14 @@ export const annotationsModel = kea({
             },
         },
     }),
+    selectors: ({ selectors }) => ({
+        activeGlobalAnnotations: [
+            () => [selectors.globalAnnotations],
+            (globalAnnotations) => {
+                return globalAnnotations.filter((annotation) => !annotation.deleted)
+            },
+        ],
+    }),
     listeners: ({ actions }) => ({
         createGlobalAnnotation: async ({ dashboard_item, content, date_marker, created_at }) => {
             await api.create('api/annotation', {

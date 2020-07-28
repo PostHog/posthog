@@ -6,7 +6,7 @@ import 'lib/components/Annotations/AnnotationMarker.scss'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import moment from 'moment'
 import { annotationsModel } from '~/models/annotationsModel'
-import { DeleteOutlined } from '@ant-design/icons'
+import { DeleteOutlined, RedoOutlined } from '@ant-design/icons'
 
 const { TextArea } = Input
 
@@ -17,7 +17,9 @@ interface Props {
 export function AnnotationsTable(props: Props): JSX.Element {
     const { logic } = props
     const { annotations, annotationsLoading, next, loadingNext } = useValues(logic)
-    const { loadAnnotations, updateAnnotation, deleteAnnotation, loadAnnotationsNext } = useActions(logic)
+    const { loadAnnotations, updateAnnotation, deleteAnnotation, loadAnnotationsNext, restoreAnnotation } = useActions(
+        logic
+    )
     const { createGlobalAnnotation } = useActions(annotationsModel)
     const [open, setOpen] = useState(false)
     const [selectedAnnotation, setSelected] = useState(null)
@@ -55,6 +57,12 @@ export function AnnotationsTable(props: Props): JSX.Element {
                 )
             },
             ellipsis: true,
+        },
+        {
+            title: 'Date Marker',
+            render: function RenderDateMarker(annotation): JSX.Element {
+                return <span>{moment(annotation.date_marker).format('YYYY-MM-DD')}</span>
+            },
         },
         {
             title: 'Last Updated',
@@ -145,6 +153,10 @@ export function AnnotationsTable(props: Props): JSX.Element {
                     deleteAnnotation(selectedAnnotation.id)
                     closeModal()
                 }}
+                onRestore={(): void => {
+                    restoreAnnotation(selectedAnnotation.id)
+                    closeModal()
+                }}
                 annotation={selectedAnnotation}
             ></CreateAnnotationModal>
         </div>
@@ -155,6 +167,7 @@ interface CreateAnnotationModalProps {
     visible: boolean
     onCancel: () => void
     onDelete: () => void
+    onRestore: () => void
     onSubmit: (input: string, date: moment.Moment) => void
     annotation?: any
 }
@@ -206,12 +219,21 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
             ) : (
                 <Row justify="space-between">
                     <span>Change existing annotation text</span>
-                    <DeleteOutlined
-                        className="clickable"
-                        onClick={(): void => {
-                            props.onDelete()
-                        }}
-                    ></DeleteOutlined>
+                    {!props.annotation?.deleted ? (
+                        <DeleteOutlined
+                            className="clickable"
+                            onClick={(): void => {
+                                props.onDelete()
+                            }}
+                        />
+                    ) : (
+                        <RedoOutlined
+                            className="clickable"
+                            onClick={(): void => {
+                                props.onRestore()
+                            }}
+                        />
+                    )}
                 </Row>
             )}
             <br></br>

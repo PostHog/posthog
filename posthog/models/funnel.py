@@ -1,27 +1,21 @@
-from collections import defaultdict
 import re
+from collections import defaultdict
+from datetime import timedelta
+from typing import Any, Dict, List, Optional
 
-from django.db import models
 from django.contrib.postgres.fields import JSONField
-from django.db import connection
-from django.db.models import (
-    Min,
-    IntegerField,
-    Value,
-)
-from typing import List, Dict, Any, Optional
-
+from django.db import connection, models
+from django.db.models import IntegerField, Min, Value
+from django.utils import timezone
 from psycopg2 import sql  # type: ignore
 
-from .event import Event
-from .action import Action
-from .filter import Filter
-from .entity import Entity
-from .utils import namedtuplefetchall
-
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from datetime import timedelta
-from django.utils import timezone
+
+from .action import Action
+from .entity import Entity
+from .event import Event
+from .filter import Filter
+from .utils import namedtuplefetchall
 
 
 class Funnel(models.Model):

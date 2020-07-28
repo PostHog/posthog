@@ -20,3 +20,4 @@ django-stubs
 freezegun
 packaging
 black
+isort

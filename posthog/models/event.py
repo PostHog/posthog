@@ -1,47 +1,44 @@
-from posthog.models.entity import Entity
-from django.core.cache import cache
-from django.conf import settings
-from django.db import models, transaction
-from django.db.models import (
-    Exists,
-    OuterRef,
-    Q,
-    Subquery,
-    F,
-    signals,
-    Prefetch,
-    QuerySet,
-    Value,
-)
-from django.db import connection
-from django.db.models.functions import TruncDay
-from django.contrib.postgres.fields import JSONField
-from django.utils import timezone
-from django.forms.models import model_to_dict
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-
-from psycopg2 import sql  # type: ignore
-
-from .element_group import ElementGroup
-from .element import Element
-from .action import Action
-from .action_step import ActionStep
-from .person import PersonDistinctId, Person
-from .team import Team
-from .filter import Filter
-from .utils import namedtuplefetchall
-
-from posthog.utils import generate_cache_key
-
-from posthog.tasks.slack import post_event_to_slack
-from typing import Dict, Union, List, Optional, Any, Tuple
-
-from collections import defaultdict
 import copy
 import datetime
-import re
 import random
+import re
 import string
+from collections import defaultdict
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+from django.conf import settings
+from django.contrib.postgres.fields import JSONField
+from django.core.cache import cache
+from django.db import connection, models, transaction
+from django.db.models import (
+    Exists,
+    F,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+    signals,
+)
+from django.db.models.functions import TruncDay
+from django.forms.models import model_to_dict
+from django.utils import timezone
+from psycopg2 import sql  # type: ignore
+
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.models.entity import Entity
+from posthog.tasks.slack import post_event_to_slack
+from posthog.utils import generate_cache_key
+
+from .action import Action
+from .action_step import ActionStep
+from .element import Element
+from .element_group import ElementGroup
+from .filter import Filter
+from .person import Person, PersonDistinctId
+from .team import Team
+from .utils import namedtuplefetchall
 
 attribute_regex = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 
@@ -266,7 +263,7 @@ class EventManager(models.QuerySet):
 
         by_dates = {}
         for row in data:
-            people = sorted(row.people, key=lambda p: scores[round(row.first_date, 1)][int(p)], reverse=True)
+            people = sorted(row.people, key=lambda p: scores[round(row.first_date, 1)][int(p)], reverse=True,)
 
             random_key = "".join(
                 random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(10)
@@ -412,7 +409,7 @@ class Event(models.Model):
                 events = namedtuplefetchall(cursor)
 
         event = [event for event in events][0]
-        filtered_actions = [action for action in actions if getattr(event, "action_{}".format(action.pk))]
+        filtered_actions = [action for action in actions if getattr(event, "action_{}".format(action.pk), None)]
         return filtered_actions
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True, blank=True)

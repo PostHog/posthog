@@ -1,16 +1,17 @@
-from django.db import models, connection, transaction
-from django.db.models import Q
+import json
+from typing import Any, Dict, Optional
+
+from dateutil.relativedelta import relativedelta
 from django.contrib.postgres.fields import JSONField
+from django.db import connection, models, transaction
+from django.db.models import Q
 from django.utils import timezone
-from .person import Person
+from sentry_sdk import capture_exception
+
 from .action import Action
 from .event import Event
 from .filter import Filter
-from dateutil.relativedelta import relativedelta
-from sentry_sdk import capture_exception
-
-from typing import Any, Dict, Optional
-import json
+from .person import Person
 
 
 class Group(object):

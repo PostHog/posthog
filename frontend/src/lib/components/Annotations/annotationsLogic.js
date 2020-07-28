@@ -10,7 +10,7 @@ export const annotationsLogic = kea({
     key: (props) => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
     connect: {
         actions: [annotationsModel, ['loadGlobalAnnotations', 'deleteGlobalAnnotation', 'createGlobalAnnotation']],
-        values: [annotationsModel, ['globalAnnotations']],
+        values: [annotationsModel, ['activeGlobalAnnotations']],
     },
     actions: () => ({
         createAnnotation: (content, date_marker, apply_all = false) => ({
@@ -93,8 +93,8 @@ export const annotationsLogic = kea({
     }),
     selectors: ({ selectors }) => ({
         annotationsList: [
-            () => [selectors.annotationsToCreate, selectors.annotations, selectors.globalAnnotations],
-            (annotationsToCreate, annotations, globalAnnotations) => {
+            () => [selectors.annotationsToCreate, selectors.annotations, selectors.activeGlobalAnnotations],
+            (annotationsToCreate, annotations, activeGlobalAnnotations) => {
                 const result = [
                     ...annotationsToCreate.map((val) => ({
                         ...val,
@@ -104,7 +104,7 @@ export const annotationsLogic = kea({
                         ...val,
                         id: parseInt(val.id),
                     })),
-                    ...globalAnnotations.map((val) => ({
+                    ...activeGlobalAnnotations.map((val) => ({
                         ...val,
                         id: parseInt(val.id),
                     })),

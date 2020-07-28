@@ -1,8 +1,10 @@
-from .base import BaseTest
-from posthog.models import Person, Event, Element
-from django.utils.timezone import now
 from dateutil.relativedelta import relativedelta
+from django.utils.timezone import now
 from freezegun import freeze_time
+
+from posthog.models import Element, Event, Person
+
+from .base import BaseTest
 
 
 class TestPaths(BaseTest):

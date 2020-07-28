@@ -1,27 +1,28 @@
-from typing import cast, Optional
-from django.contrib import admin
-from django.urls import path, include, re_path
-from django.views.generic.base import TemplateView
-from django.http import HttpResponse, JsonResponse
-from django.shortcuts import redirect
-from django.contrib.auth import authenticate, login, views as auth_views, decorators
-from django.conf import settings
-from django.views.decorators.csrf import csrf_exempt, csrf_protect
-from django.template.loader import render_to_string
-from django.template.exceptions import TemplateDoesNotExist
+import json
+import os
+from typing import Optional, cast
 from urllib.parse import urlparse
 
-from .api import router, capture, user, decide, dashboard
-from .models import Team, User, Event
+import posthoganalytics
+from django.conf import settings
+from django.contrib import admin
+from django.contrib.auth import authenticate, decorators, login
+from django.contrib.auth import views as auth_views
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import redirect
+from django.template.exceptions import TemplateDoesNotExist
+from django.template.loader import render_to_string
+from django.urls import include, path, re_path
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
+from django.views.generic.base import TemplateView
+from rest_framework import permissions
+
+from posthog.demo import delete_demo_data, demo
+
+from .api import capture, dashboard, decide, router, user
+from .models import Event, Team, User
 from .utils import render_template
 from .views import health, stats
-from posthog.demo import demo, delete_demo_data
-import json
-import posthoganalytics
-import os
-
-
-from rest_framework import permissions
 
 
 def home(request, **kwargs):
