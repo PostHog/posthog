@@ -9,6 +9,7 @@ from . import (
     event,
     feature_flag,
     funnel,
+    insight,
     paths,
     person,
     team,
@@ -16,6 +17,7 @@ from . import (
 
 router = routers.DefaultRouter()
 router.register(r"annotation", annotation.AnnotationsViewSet)
+router.register(r"insight", insight.InsightViewSet)
 router.register(r"event", event.EventViewSet)
 router.register(r"element", element.ElementViewSet)
 router.register(r"person", person.PersonViewSet)

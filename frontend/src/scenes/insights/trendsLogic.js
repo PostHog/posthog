@@ -234,8 +234,11 @@ export const trendsLogic = kea({
                 people.next
             )
         },
-        [actions.setFilters]: () => {
+        [actions.setFilters]: async () => {
             actions.setAllFilters(values.filters)
+            api.create('api/insight', {
+                filters: values.filters,
+            })
         },
     }),
 

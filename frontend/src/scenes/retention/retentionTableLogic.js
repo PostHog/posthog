@@ -139,10 +139,16 @@ export const retentionTableLogic = kea({
         setProperties: () => {
             actions.loadRetention()
             actions.setAllFilters(cleanRetentionParams({ target: values.startEntity }, values.properties))
+            api.create('api/insight', {
+                filters: cleanRetentionParams({ target: values.startEntity }, values.properties),
+            })
         },
         setFilters: () => {
             actions.loadRetention()
             actions.setAllFilters(cleanRetentionParams({ target: values.startEntity }, values.properties))
+            api.create('api/insight', {
+                filters: cleanRetentionParams({ target: values.startEntity }, values.properties),
+            })
         },
         loadMore: async ({ selectedIndex }) => {
             let peopleToAdd = []

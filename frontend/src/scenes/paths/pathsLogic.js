@@ -109,6 +109,9 @@ export const pathsLogic = kea({
                 actions.loadPaths()
 
             actions.setAllFilters(cleanPathParams(values.filter, values.properties))
+            api.create('api/insight', {
+                filters: cleanPathParams(values.filter, values.properties),
+            })
         },
     }),
     selectors: ({ selectors }) => ({
