@@ -1,6 +1,9 @@
 import React from 'react'
-import { disableMinuteFor, disableHourFor } from 'scenes/trends/trendsLogic'
+import { disableMinuteFor, disableHourFor } from 'scenes/insights/trendsLogic'
 import { Select } from 'antd'
+import { intervalFilterLogic } from './intervalFilterLogic'
+import { useValues, useActions } from 'kea'
+import { ViewType } from 'scenes/insights/insightLogic'
 
 let intervalMapping = {
     minute: 'Minute',
@@ -10,14 +13,16 @@ let intervalMapping = {
     month: 'Monthly',
 }
 
-export function IntervalFilter({ filters, setFilters, disabled = false }) {
-    const { interval } = filters
+export function IntervalFilter({ view, disabled = false }) {
     let date_from
+
+    const { interval } = useValues(intervalFilterLogic)
+    const { setIntervalFilter, setDateFrom } = useActions(intervalFilterLogic)
     return (
         <Select
             bordered={false}
             disabled={disabled}
-            defaultValue={intervalMapping[interval]}
+            defaultValue={intervalMapping[interval] || intervalMapping['day']}
             value={intervalMapping[interval]}
             dropdownMatchSelectWidth={false}
             onChange={(key) => {
@@ -45,10 +50,10 @@ export function IntervalFilter({ filters, setFilters, disabled = false }) {
                 }
 
                 if (date_from) {
-                    setFilters({ interval: key, date_from: date_from })
-                } else {
-                    setFilters({ interval: key })
+                    setDateFrom(date_from)
                 }
+
+                setIntervalFilter(key)
             }}
             data-attr="interval-filter"
         >
@@ -57,7 +62,7 @@ export function IntervalFilter({ filters, setFilters, disabled = false }) {
                     <Select.Option
                         key={key}
                         value={key}
-                        disabled={(key === 'minute' || key === 'hour') && !!filters.session}
+                        disabled={(key === 'minute' || key === 'hour') && view === ViewType.SESSIONS}
                     >
                         {value}
                     </Select.Option>

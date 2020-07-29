@@ -1,20 +1,28 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
+import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
+import { objectsEqual } from 'lib/utils'
 
 export const funnelLogic = kea({
     key: (props) => props.id || 'new',
 
     actions: () => ({
         setFunnel: (funnel, update) => ({ funnel, update }),
+        clearFunnel: true,
     }),
+
+    connect: {
+        actions: [insightLogic, ['setAllFilters']],
+    },
 
     loaders: ({ props }) => ({
         funnel: [
             { filters: {} },
             {
                 loadFunnel: async (id = props.id) => {
-                    return await api.get('api/funnel/' + id + '/?exclude_count=1')
+                    const funnel = await api.get('api/funnel/' + id + '/?exclude_count=1')
+                    return funnel
                 },
                 updateFunnel: async (funnel) => {
                     return await api.update('api/funnel/' + funnel.id, funnel)
@@ -43,6 +51,13 @@ export const funnelLogic = kea({
                 ...funnel,
                 filters: { ...state.filters, ...funnel.filters },
             }),
+            clearFunnel: () => ({ filters: {} }),
+        },
+        stepsWithCount: {
+            clearFunnel: () => null,
+        },
+        people: {
+            clearFunnel: () => null,
         },
     }),
 
@@ -67,32 +82,67 @@ export const funnelLogic = kea({
 
     listeners: ({ actions, values }) => ({
         loadStepsWithCountSuccess: async () => {
-            if (values.stepsWithCount[0].people.length > 0) {
+            if (values.stepsWithCount[0]?.people.length > 0) {
                 actions.loadPeople(values.stepsWithCount)
             }
         },
         setFunnel: ({ update }) => {
             if (update) actions.updateFunnel(values.funnel)
         },
+        loadFunnelSuccess: ({ funnel }) => {
+            actions.setAllFilters({ funnelId: funnel.id, name: funnel.name, date_from: funnel.filters.date_from })
+        },
         updateFunnelSuccess: async ({ funnel }) => {
             actions.loadStepsWithCount({ id: funnel.id, refresh: true })
+            actions.setAllFilters({ funnelId: funnel.id, name: funnel.name, date_from: funnel.filters.date_from })
             toast('Funnel saved!')
         },
         createFunnelSuccess: ({ funnel }) => {
             actions.loadStepsWithCount({ id: funnel.id, refresh: true })
+            actions.setAllFilters({ funnelId: funnel.id, name: funnel.name, date_from: funnel.filters.date_from })
             toast('Funnel saved!')
         },
     }),
-
-    actionToUrl: () => ({
-        createFunnelSuccess: ({ funnel }) => `/funnel/${funnel.id}`,
+    actionToUrl: ({ actions }) => ({
+        [actions.createFunnelSuccess]: ({ funnel }) => {
+            return ['/insights', { id: funnel.id, insight: ViewType.FUNNELS }]
+        },
+        [actions.clearFunnel]: () => {
+            return ['/insights', { insight: ViewType.FUNNELS }]
+        },
     }),
 
+    urlToAction: ({ actions, values }) => ({
+        '/insights': (_, searchParams) => {
+            if (searchParams.insight === ViewType.FUNNELS) {
+                const id = searchParams.id
+                if (id != values.funnel.id) {
+                    actions.loadFunnel(id)
+                    actions.loadStepsWithCount({ id })
+                }
+
+                const paramsToCheck = {
+                    date_from: searchParams.date_from,
+                    date_to: searchParams.date_to,
+                }
+
+                const _filters = {
+                    date_from: values.funnel.filters.date_from,
+                    date_to: values.funnel.filters.date_to,
+                }
+
+                if (!objectsEqual(_filters, paramsToCheck) && values.funnel.id) {
+                    actions.setFunnel({ filters: paramsToCheck }, true)
+                }
+            }
+        },
+    }),
     events: ({ actions, key, props }) => ({
         afterMount: () => {
             if (key === 'new') {
                 return
             }
+
             actions.loadFunnel()
             actions.loadStepsWithCount({ id: props.id })
         },

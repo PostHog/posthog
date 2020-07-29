@@ -2,6 +2,14 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
+import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
+
+function cleanRetentionParams(filters, properties) {
+    return {
+        ...filters,
+        properties: properties,
+    }
+}
 
 export const retentionTableLogic = kea({
     loaders: ({ values }) => ({
@@ -32,6 +40,9 @@ export const retentionTableLogic = kea({
             },
         },
     }),
+    connect: {
+        actions: [insightLogic, ['setAllFilters']],
+    },
     actions: () => ({
         setProperties: (properties) => ({ properties }),
         setFilters: (filters) => ({ filters }),
@@ -96,12 +107,11 @@ export const retentionTableLogic = kea({
     events: ({ actions }) => ({
         afterMount: actions.loadRetention,
     }),
-    actionToUrl: ({ values }) => ({
-        setProperties: () => {
-            return [router.values.location.pathname, values.propertiesForUrl]
+    actionToUrl: ({ actions, values }) => ({
+        [actions.setFilters]: () => {
+            return ['/insights', { target: values.startEntity, insight: ViewType.RETENTION }]
         },
     }),
-
     urlToAction: ({ actions, values }) => ({
         '*': (_, searchParams) => {
             try {
@@ -118,11 +128,22 @@ export const retentionTableLogic = kea({
             if (!objectsEqual(searchParams.properties || {}, values.properties)) {
                 actions.setProperties(searchParams.properties || {})
             }
+            if (searchParams.target && values.startEntity.id !== searchParams.target?.id) {
+                actions.setFilters({
+                    [`${searchParams.target.type}`]: [searchParams.target],
+                })
+            }
         },
     }),
     listeners: ({ actions, values }) => ({
-        setProperties: () => actions.loadRetention(),
-        setFilters: () => actions.loadRetention(),
+        setProperties: () => {
+            actions.loadRetention()
+            actions.setAllFilters(cleanRetentionParams({ target: values.startEntity }, values.properties))
+        },
+        setFilters: () => {
+            actions.loadRetention()
+            actions.setAllFilters(cleanRetentionParams({ target: values.startEntity }, values.properties))
+        },
         loadMore: async ({ selectedIndex }) => {
             let peopleToAdd = []
             for (const [index, { next, offset }] of values.retention.data[selectedIndex].values.entries()) {

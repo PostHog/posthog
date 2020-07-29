@@ -20,7 +20,7 @@ import { router } from 'kea-router'
 
 const darkerScenes = {
     dashboard: true,
-    trends: true,
+    insights: true,
     funnel: true,
     editFunnel: true,
     paths: true,
@@ -33,7 +33,7 @@ const urlBackgroundMap = {
     '/sessions': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
     '/actions': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
     '/actions/live': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-actions.png',
-    '/trends': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-action-trends.png',
+    '/insights': 'https://posthog.s3.eu-west-2.amazonaws.com/preview-action-trends.png',
     '/funnel': 'https://posthog.s3.eu-west-2.amazonaws.com/funnel.png',
     '/paths': 'https://posthog.s3.eu-west-2.amazonaws.com/paths.png',
 }

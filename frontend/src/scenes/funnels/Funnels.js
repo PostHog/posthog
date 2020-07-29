@@ -18,7 +18,7 @@ function _Funnels() {
             key: 'name',
             render: function RenderName(_, funnel, index) {
                 return (
-                    <Link data-attr={'funnel-link-' + index} to={`/funnel/${funnel.id}`}>
+                    <Link data-attr={'funnel-link-' + index} to={`/insights?insight=FUNNELS&id=${funnel.id}`}>
                         {funnel.name}
                     </Link>
                 )
@@ -29,7 +29,7 @@ function _Funnels() {
             render: function RenderActions(_, funnel, index) {
                 return (
                     <span>
-                        <Link to={`/funnel/${funnel.id}`} data-attr={'funnel-edit-' + index}>
+                        <Link to={`/insights?insight=FUNNELS&id=${funnel.id}`} data-attr={'funnel-edit-' + index}>
                             <i className="fi flaticon-edit" />
                         </Link>
                         <DeleteWithUndo
@@ -58,7 +58,7 @@ function _Funnels() {
                     </a>
                 </i>
             </p>
-            <LinkButton to={'/funnel/new'} type="primary" data-attr="create-funnel">
+            <LinkButton to={'/insights?insight=FUNNELS'} type="primary" data-attr="create-funnel">
                 + New Funnel
             </LinkButton>
             <br />

@@ -1,9 +1,14 @@
 import React from 'react'
+import { useValues, useActions } from 'kea'
 import { Select, Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, STICKINESS } from '~/lib/constants'
+import { chartFilterLogic } from './chartFilterLogic'
 export function ChartFilter(props) {
     let { filters, displayMap, onChange } = props
+
+    const { chartFilter } = useValues(chartFilterLogic)
+    const { setChartFilter } = useActions(chartFilterLogic)
     return [
         (!filters.display ||
             filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
@@ -21,8 +26,11 @@ export function ChartFilter(props) {
         <Select
             key="2"
             defaultValue={displayMap[filters.display || ACTIONS_LINE_GRAPH_LINEAR]}
-            value={displayMap[filters.display || ACTIONS_LINE_GRAPH_LINEAR]}
-            onChange={onChange}
+            value={displayMap[chartFilter || ACTIONS_LINE_GRAPH_LINEAR]}
+            onChange={(value) => {
+                setChartFilter(value)
+                onChange(value)
+            }}
             bordered={false}
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"

@@ -34,7 +34,8 @@ function _Dashboard({ id, shareToken }) {
                 <SceneLoading />
             ) : user.has_events ? (
                 <p>
-                    There are no panels on this dashboard. <Link to="/trends">Click here to add some!</Link>
+                    There are no panels on this dashboard.{' '}
+                    <Link to="/insights?insight=TRENDS">Click here to add some!</Link>
                 </p>
             ) : (
                 <p />
