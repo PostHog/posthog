@@ -8,11 +8,11 @@ export interface annotationsTableLogicType {
             payload: any
         }
         loadAnnotationsSuccess: (
-            annotations: never[]
+            annotations: undefined[]
         ) => {
             type: 'load annotations success (scenes.annotations.annotationsTableLogic)'
             payload: {
-                annotations: never[]
+                annotations: undefined[]
             }
         }
         loadAnnotationsFailure: (
@@ -34,6 +34,12 @@ export interface annotationsTableLogicType {
             id: any
         ) => {
             type: 'delete annotation (scenes.annotations.annotationsTableLogic)'
+            payload: { id: any }
+        }
+        restoreAnnotation: (
+            id: any
+        ) => {
+            type: 'restore annotation (scenes.annotations.annotationsTableLogic)'
             payload: { id: any }
         }
         loadAnnotationsNext: () => {
@@ -59,6 +65,7 @@ export interface annotationsTableLogicType {
         'load annotations failure (scenes.annotations.annotationsTableLogic)': 'loadAnnotationsFailure'
         'update annotation (scenes.annotations.annotationsTableLogic)': 'updateAnnotation'
         'delete annotation (scenes.annotations.annotationsTableLogic)': 'deleteAnnotation'
+        'restore annotation (scenes.annotations.annotationsTableLogic)': 'restoreAnnotation'
         'load annotations next (scenes.annotations.annotationsTableLogic)': 'loadAnnotationsNext'
         'set next (scenes.annotations.annotationsTableLogic)': 'setNext'
         'append annotations (scenes.annotations.annotationsTableLogic)': 'appendAnnotations'
@@ -69,6 +76,7 @@ export interface annotationsTableLogicType {
         loadAnnotationsFailure: 'load annotations failure (scenes.annotations.annotationsTableLogic)'
         updateAnnotation: 'update annotation (scenes.annotations.annotationsTableLogic)'
         deleteAnnotation: 'delete annotation (scenes.annotations.annotationsTableLogic)'
+        restoreAnnotation: 'restore annotation (scenes.annotations.annotationsTableLogic)'
         loadAnnotationsNext: 'load annotations next (scenes.annotations.annotationsTableLogic)'
         setNext: 'set next (scenes.annotations.annotationsTableLogic)'
         appendAnnotations: 'append annotations (scenes.annotations.annotationsTableLogic)'
@@ -79,11 +87,11 @@ export interface annotationsTableLogicType {
             payload: any
         }
         loadAnnotationsSuccess: (
-            annotations: never[]
+            annotations: undefined[]
         ) => {
             type: 'load annotations success (scenes.annotations.annotationsTableLogic)'
             payload: {
-                annotations: never[]
+                annotations: undefined[]
             }
         }
         loadAnnotationsFailure: (
@@ -105,6 +113,12 @@ export interface annotationsTableLogicType {
             id: any
         ) => {
             type: 'delete annotation (scenes.annotations.annotationsTableLogic)'
+            payload: { id: any }
+        }
+        restoreAnnotation: (
+            id: any
+        ) => {
+            type: 'restore annotation (scenes.annotations.annotationsTableLogic)'
             payload: { id: any }
         }
         loadAnnotationsNext: () => {
@@ -138,14 +152,14 @@ export interface annotationsTableLogicType {
         action: () => any,
         fullState: any
     ) => {
-        annotations: never[]
+        annotations: undefined[]
         annotationsLoading: boolean
         next: null
         loadingNext: boolean
     }
     reducerOptions: any
     reducers: {
-        annotations: (state: never[], action: any, fullState: any) => never[]
+        annotations: (state: undefined[], action: any, fullState: any) => undefined[]
         annotationsLoading: (state: boolean, action: any, fullState: any) => boolean
         next: (state: null, action: any, fullState: any) => null
         loadingNext: (state: boolean, action: any, fullState: any) => boolean
@@ -153,19 +167,19 @@ export interface annotationsTableLogicType {
     selector: (
         state: any
     ) => {
-        annotations: never[]
+        annotations: undefined[]
         annotationsLoading: boolean
         next: null
         loadingNext: boolean
     }
     selectors: {
-        annotations: (state: any, props: any) => never[]
+        annotations: (state: any, props: any) => undefined[]
         annotationsLoading: (state: any, props: any) => boolean
         next: (state: any, props: any) => null
         loadingNext: (state: any, props: any) => boolean
     }
     values: {
-        annotations: never[]
+        annotations: undefined[]
         annotationsLoading: boolean
         next: null
         loadingNext: boolean

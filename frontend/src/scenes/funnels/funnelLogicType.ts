@@ -21,7 +21,9 @@ export interface funnelLogicType {
         }) => {
             type: 'load funnel success (scenes.funnels.funnelLogic)'
             payload: {
-                funnel: { filters: {} }
+                funnel: {
+                    filters: {}
+                }
             }
         }
         loadFunnelFailure: (
@@ -43,7 +45,9 @@ export interface funnelLogicType {
         }) => {
             type: 'update funnel success (scenes.funnels.funnelLogic)'
             payload: {
-                funnel: { filters: {} }
+                funnel: {
+                    filters: {}
+                }
             }
         }
         updateFunnelFailure: (
@@ -65,7 +69,9 @@ export interface funnelLogicType {
         }) => {
             type: 'create funnel success (scenes.funnels.funnelLogic)'
             payload: {
-                funnel: { filters: {} }
+                funnel: {
+                    filters: {}
+                }
             }
         }
         createFunnelFailure: (
@@ -177,7 +183,9 @@ export interface funnelLogicType {
         }) => {
             type: 'load funnel success (scenes.funnels.funnelLogic)'
             payload: {
-                funnel: { filters: {} }
+                funnel: {
+                    filters: {}
+                }
             }
         }
         loadFunnelFailure: (
@@ -199,7 +207,9 @@ export interface funnelLogicType {
         }) => {
             type: 'update funnel success (scenes.funnels.funnelLogic)'
             payload: {
-                funnel: { filters: {} }
+                funnel: {
+                    filters: {}
+                }
             }
         }
         updateFunnelFailure: (
@@ -221,7 +231,9 @@ export interface funnelLogicType {
         }) => {
             type: 'create funnel success (scenes.funnels.funnelLogic)'
             payload: {
-                funnel: { filters: {} }
+                funnel: {
+                    filters: {}
+                }
             }
         }
         createFunnelFailure: (
@@ -292,7 +304,9 @@ export interface funnelLogicType {
         action: () => any,
         fullState: any
     ) => {
-        funnel: { filters: {} }
+        funnel: {
+            filters: {}
+        }
         funnelLoading: boolean
         stepsWithCount: any
         stepsWithCountLoading: boolean
@@ -301,7 +315,15 @@ export interface funnelLogicType {
     }
     reducerOptions: any
     reducers: {
-        funnel: (state: { filters: {} }, action: any, fullState: any) => { filters: {} }
+        funnel: (
+            state: {
+                filters: {}
+            },
+            action: any,
+            fullState: any
+        ) => {
+            filters: {}
+        }
         funnelLoading: (state: boolean, action: any, fullState: any) => boolean
         stepsWithCount: (state: any, action: any, fullState: any) => any
         stepsWithCountLoading: (state: boolean, action: any, fullState: any) => boolean
@@ -311,7 +333,9 @@ export interface funnelLogicType {
     selector: (
         state: any
     ) => {
-        funnel: { filters: {} }
+        funnel: {
+            filters: {}
+        }
         funnelLoading: boolean
         stepsWithCount: any
         stepsWithCountLoading: boolean
@@ -319,7 +343,12 @@ export interface funnelLogicType {
         peopleLoading: boolean
     }
     selectors: {
-        funnel: (state: any, props: any) => { filters: {} }
+        funnel: (
+            state: any,
+            props: any
+        ) => {
+            filters: {}
+        }
         funnelLoading: (state: any, props: any) => boolean
         stepsWithCount: (state: any, props: any) => any
         stepsWithCountLoading: (state: any, props: any) => boolean
@@ -329,7 +358,9 @@ export interface funnelLogicType {
         isStepsEmpty: (state: any, props: any) => boolean
     }
     values: {
-        funnel: { filters: {} }
+        funnel: {
+            filters: {}
+        }
         funnelLoading: boolean
         stepsWithCount: any
         stepsWithCountLoading: boolean

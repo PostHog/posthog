@@ -14,28 +14,28 @@ export interface userLogicType<UserType, EventProperty> {
             updateKey?: string
         ) => {
             type: 'set user (scenes.userLogic)'
-            payload: { user: UserType | null; updateKey: string | undefined }
+            payload: { user: UserType; updateKey: string }
         }
         userUpdateRequest: (
             update: Partial<UserType>,
             updateKey?: string
         ) => {
             type: 'user update request (scenes.userLogic)'
-            payload: { update: Partial<UserType>; updateKey: string | undefined }
+            payload: { update: Partial<UserType>; updateKey: string }
         }
         userUpdateSuccess: (
             user: UserType,
             updateKey?: string
         ) => {
             type: 'user update success (scenes.userLogic)'
-            payload: { user: UserType; updateKey: string | undefined }
+            payload: { user: UserType; updateKey: string }
         }
         userUpdateFailure: (
             error: string,
             updateKey?: string
         ) => {
             type: 'user update failure (scenes.userLogic)'
-            payload: { updateKey: string | undefined; error: string }
+            payload: { updateKey: string; error: string }
         }
     }
     actionKeys: {
@@ -64,28 +64,28 @@ export interface userLogicType<UserType, EventProperty> {
             updateKey?: string
         ) => {
             type: 'set user (scenes.userLogic)'
-            payload: { user: UserType | null; updateKey: string | undefined }
+            payload: { user: UserType; updateKey: string }
         }
         userUpdateRequest: (
             update: Partial<UserType>,
             updateKey?: string
         ) => {
             type: 'user update request (scenes.userLogic)'
-            payload: { update: Partial<UserType>; updateKey: string | undefined }
+            payload: { update: Partial<UserType>; updateKey: string }
         }
         userUpdateSuccess: (
             user: UserType,
             updateKey?: string
         ) => {
             type: 'user update success (scenes.userLogic)'
-            payload: { user: UserType; updateKey: string | undefined }
+            payload: { user: UserType; updateKey: string }
         }
         userUpdateFailure: (
             error: string,
             updateKey?: string
         ) => {
             type: 'user update failure (scenes.userLogic)'
-            payload: { updateKey: string | undefined; error: string }
+            payload: { updateKey: string; error: string }
         }
     }
     cache: Record<string, any>
@@ -129,9 +129,9 @@ export interface userLogicType<UserType, EventProperty> {
     }
     _isKea: true
     __keaTypeGenInternalSelectorTypes: {
-        eventProperties: (arg1: UserType | null) => EventProperty[]
-        eventNames: (arg1: UserType | null) => string[]
-        customEventNames: (arg1: UserType | null) => string[]
-        eventNamesGrouped: (arg1: UserType | null) => { label: string; options: EventProperty[] }[]
+        eventProperties: (arg1: UserType) => EventProperty[]
+        eventNames: (arg1: UserType) => string[]
+        customEventNames: (arg1: UserType) => string[]
+        eventNamesGrouped: (arg1: UserType) => { label: string; options: EventProperty[] }[]
     }
 }

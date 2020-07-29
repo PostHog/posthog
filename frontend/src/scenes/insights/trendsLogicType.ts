@@ -8,11 +8,11 @@ export interface trendsLogicType {
             payload: any
         }
         setActiveViewSuccess: (
-            results: never[]
+            results: undefined[]
         ) => {
             type: 'set active view success (scenes.trends.trendsLogic)'
             payload: {
-                results: never[]
+                results: undefined[]
             }
         }
         setActiveViewFailure: (
@@ -30,11 +30,11 @@ export interface trendsLogicType {
             payload: any
         }
         loadResultsSuccess: (
-            results: never[]
+            results: undefined[]
         ) => {
             type: 'load results success (scenes.trends.trendsLogic)'
             payload: {
-                results: never[]
+                results: undefined[]
             }
         }
         loadResultsFailure: (
@@ -152,11 +152,11 @@ export interface trendsLogicType {
             payload: any
         }
         setActiveViewSuccess: (
-            results: never[]
+            results: undefined[]
         ) => {
             type: 'set active view success (scenes.trends.trendsLogic)'
             payload: {
-                results: never[]
+                results: undefined[]
             }
         }
         setActiveViewFailure: (
@@ -174,11 +174,11 @@ export interface trendsLogicType {
             payload: any
         }
         loadResultsSuccess: (
-            results: never[]
+            results: undefined[]
         ) => {
             type: 'load results success (scenes.trends.trendsLogic)'
             payload: {
-                results: never[]
+                results: undefined[]
             }
         }
         loadResultsFailure: (
@@ -270,7 +270,7 @@ export interface trendsLogicType {
         action: () => any,
         fullState: any
     ) => {
-        results: never[]
+        results: undefined[]
         resultsLoading: boolean
         filters: any
         people: null
@@ -279,7 +279,7 @@ export interface trendsLogicType {
     }
     reducerOptions: any
     reducers: {
-        results: (state: never[], action: any, fullState: any) => never[]
+        results: (state: undefined[], action: any, fullState: any) => undefined[]
         resultsLoading: (state: boolean, action: any, fullState: any) => boolean
         filters: (state: any, action: any, fullState: any) => any
         people: (state: null, action: any, fullState: any) => null
@@ -289,7 +289,7 @@ export interface trendsLogicType {
     selector: (
         state: any
     ) => {
-        results: never[]
+        results: undefined[]
         resultsLoading: boolean
         filters: any
         people: null
@@ -297,7 +297,7 @@ export interface trendsLogicType {
         showingPeople: boolean
     }
     selectors: {
-        results: (state: any, props: any) => never[]
+        results: (state: any, props: any) => undefined[]
         resultsLoading: (state: any, props: any) => boolean
         filters: (state: any, props: any) => any
         people: (state: any, props: any) => null
@@ -309,7 +309,7 @@ export interface trendsLogicType {
         peopleDay: (state: any, props: any) => any
     }
     values: {
-        results: never[]
+        results: undefined[]
         resultsLoading: boolean
         filters: any
         people: null
