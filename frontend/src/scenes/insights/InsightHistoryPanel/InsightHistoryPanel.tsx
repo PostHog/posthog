@@ -11,7 +11,7 @@ const InsightHistoryType = {
 
 const { TabPane } = Tabs
 
-export function InsightHistoryPanel(): JSX.Element {
+export const InsightHistoryPanel: React.FC = () => {
     const { insights, insightsLoading } = useValues(insightsModel)
 
     const columns = [
