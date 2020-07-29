@@ -1,6 +1,7 @@
-from django.db import models, transaction
-from django.contrib.postgres.fields import JSONField
 from typing import Any, List
+
+from django.contrib.postgres.fields import JSONField
+from django.db import models, transaction
 
 
 class PersonManager(models.Manager):

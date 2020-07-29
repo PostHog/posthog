@@ -1,9 +1,11 @@
-from django.db.models import QuerySet
-from posthog.models import Annotation
-from rest_framework import request, serializers, viewsets
-from typing import Dict, Any
-from posthog.api.user import UserSerializer
 from distutils.util import strtobool
+from typing import Any, Dict
+
+from django.db.models import QuerySet
+from rest_framework import request, serializers, viewsets
+
+from posthog.api.user import UserSerializer
+from posthog.models import Annotation
 
 
 class AnnotationSerializer(serializers.ModelSerializer):

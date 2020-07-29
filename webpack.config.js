@@ -46,6 +46,8 @@ function createEntry(entry) {
             publicPath:
                 process.env.NODE_ENV === 'production'
                     ? '/static/'
+                    : process.env.JS_URL
+                    ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
                     : process.env.IS_PORTER
                     ? `https://${process.env.PORTER_WEBPACK_HOST}/static/`
                     : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234/static/`,
@@ -162,9 +164,12 @@ function createEntry(entry) {
             port: 8234,
             noInfo: true,
             stats: 'minimal',
-            public: process.env.IS_PORTER
-                ? `https://${process.env.PORTER_WEBPACK_HOST}`
-                : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234`,
+            disableHostCheck: !!process.env.LOCAL_HTTPS,
+            public: process.env.JS_URL
+                ? new URL(process.env.JS_URL).host
+                : process.env.IS_PORTER
+                ? `${process.env.PORTER_WEBPACK_HOST}`
+                : `${webpackDevServerHost}:8234`,
             allowedHosts: process.env.IS_PORTER
                 ? [`${process.env.PORTER_WEBPACK_HOST}`, `${process.env.PORTER_SERVER_HOST}`]
                 : [],
@@ -204,7 +209,7 @@ function createEntry(entry) {
                 ? [
                       new MiniCssExtractPlugin({
                           filename: '[name].css',
-                          ignoreOrder: true
+                          ignoreOrder: true,
                       }),
                       new HtmlWebpackPlugin({
                           alwaysWriteToDisk: true,

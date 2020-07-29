@@ -1,19 +1,21 @@
-from django.http import HttpResponse, JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.utils import timezone
-from posthog.models import Team
-from posthog.utils import get_ip_address, cors_response
-from typing import Dict, Union, Optional, List, Any
-from posthog.tasks.process_event import process_event
-from datetime import datetime
-from dateutil import parser
-from sentry_sdk import push_scope
-import lzstring  # type: ignore
-import re
-import json
-import secrets
 import base64
 import gzip
+import json
+import re
+import secrets
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Union
+
+import lzstring  # type: ignore
+from dateutil import parser
+from django.http import HttpResponse, JsonResponse
+from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
+from sentry_sdk import push_scope
+
+from posthog.models import Team
+from posthog.tasks.process_event import process_event
+from posthog.utils import cors_response, get_ip_address
 
 
 def _load_data(request) -> Optional[Union[Dict, List]]:

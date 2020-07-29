@@ -1,14 +1,16 @@
-from .base import BaseTest
+import base64
+import gzip
+import json
+from datetime import timedelta
+from unittest.mock import call, patch
+from urllib.parse import quote
+
+import lzstring  # type: ignore
 from django.conf import settings
 from django.utils import timezone
 from freezegun import freeze_time
-from unittest.mock import patch, call
-from datetime import timedelta
-from urllib.parse import quote
-import base64
-import json
-import gzip
-import lzstring  # type: ignore
+
+from .base import BaseTest
 
 
 class TestCapture(BaseTest):

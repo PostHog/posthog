@@ -1,5 +1,6 @@
-from .base import BaseTest, TransactionBaseTest
 from posthog.models import FeatureFlag
+
+from .base import BaseTest, TransactionBaseTest
 
 
 class TestFeatureFlagApi(TransactionBaseTest):

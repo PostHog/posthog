@@ -1,27 +1,21 @@
-from collections import defaultdict
 import re
+from collections import defaultdict
+from datetime import timedelta
+from typing import Any, Dict, List, Optional
 
-from django.db import models
 from django.contrib.postgres.fields import JSONField
-from django.db import connection
-from django.db.models import (
-    Min,
-    IntegerField,
-    Value,
-)
-from typing import List, Dict, Any, Optional
-
+from django.db import connection, models
+from django.db.models import IntegerField, Min, Value
+from django.utils import timezone
 from psycopg2 import sql  # type: ignore
 
-from .event import Event
-from .action import Action
-from .filter import Filter
-from .entity import Entity
-from .utils import namedtuplefetchall
-
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from datetime import timedelta
-from django.utils import timezone
+
+from .action import Action
+from .entity import Entity
+from .event import Event
+from .filter import Filter
+from .utils import namedtuplefetchall
 
 
 class Funnel(models.Model):
@@ -43,7 +37,15 @@ class Funnel(models.Model):
                     **{filter_key: step.id},
                     team_id=team_id,
                     **({"distinct_id": "1234321"} if index > 0 else {}),
-                    **({"timestamp__gte": timezone.now().replace(year=2000, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)} if index > 0 else {}),
+                    **(
+                        {
+                            "timestamp__gte": timezone.now().replace(
+                                year=2000, month=1, day=1, hour=0, minute=0, second=0, microsecond=0
+                            )
+                        }
+                        if index > 0
+                        else {}
+                    ),
                 )
                 .filter(filter.properties_to_Q(team_id=team_id))
                 .filter(step.properties_to_Q(team_id=team_id))

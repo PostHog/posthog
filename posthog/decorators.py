@@ -1,9 +1,11 @@
 import json
-from posthog.models import Filter, DashboardItem
-from posthog.utils import generate_cache_key
-from django.core.cache import cache
-import json
 from datetime import datetime
+
+from django.core.cache import cache
+
+from posthog.models import DashboardItem, Filter
+from posthog.utils import generate_cache_key
+
 from .utils import generate_cache_key
 
 TRENDS_ENDPOINT = "Trends"

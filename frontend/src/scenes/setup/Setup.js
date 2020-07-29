@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { Divider } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
-import { InviteTeam } from 'lib/components/InviteTeam'
 import { OptOutCapture } from './OptOutCapture'
 import { UpdateEmailPreferences } from './UpdateEmailPreferences'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
@@ -50,13 +49,6 @@ function _Setup() {
             <Divider />
             <h2 id="slack">Slack or Teams Integration</h2>
             <SlackIntegration />
-            <Divider />
-            <h2 id="invite">Invite your team</h2>
-            <div className="row">
-                <div className="col-lg-6">
-                    <InviteTeam user={user} />
-                </div>
-            </div>
             <Divider />
             <h2 id="demodata">Delete HogFlix demo data</h2>
             <DeleteDemoData />

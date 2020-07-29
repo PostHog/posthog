@@ -1,5 +1,18 @@
-from . import event, person, action, funnel, dashboard, paths, cohort, element, feature_flag, annotation
 from rest_framework import routers
+
+from . import (
+    action,
+    annotation,
+    cohort,
+    dashboard,
+    element,
+    event,
+    feature_flag,
+    funnel,
+    paths,
+    person,
+    team,
+)
 
 router = routers.DefaultRouter()
 router.register(r"annotation", annotation.AnnotationsViewSet)
@@ -13,3 +26,4 @@ router.register(r"dashboard", dashboard.DashboardsViewSet)
 router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"paths", paths.PathsViewSet, basename="paths")
+router.register(r"team/user", team.TeamUserViewSet)

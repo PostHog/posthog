@@ -1,7 +1,8 @@
+import os
+
+import posthoganalytics
 from django.apps import AppConfig
 from django.conf import settings
-import posthoganalytics
-import os
 
 
 class PostHogConfig(AppConfig):

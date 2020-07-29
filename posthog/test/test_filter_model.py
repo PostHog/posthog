@@ -1,9 +1,11 @@
-from posthog.api.test.base import BaseTest
-from posthog.models import Filter, Property, Event, Person, Element
-from django.db.models import Q
-from dateutil.relativedelta import relativedelta
-from django.utils import timezone
 import json
+
+from dateutil.relativedelta import relativedelta
+from django.db.models import Q
+from django.utils import timezone
+
+from posthog.api.test.base import BaseTest
+from posthog.models import Element, Event, Filter, Person, Property
 
 
 class TestFilter(BaseTest):
@@ -167,6 +169,7 @@ class TestPropertiesToQ(BaseTest):
         self.assertEqual(events[0], event1)
         self.assertEqual(len(events), 1)
 
+
 class TestDateFilterQ(BaseTest):
     def test_filter_by_all(self):
         filter = Filter(
@@ -178,7 +181,7 @@ class TestDateFilterQ(BaseTest):
                         "type": "person",
                     }
                 ],
-                "date_from": "all"
+                "date_from": "all",
             }
         )
         date_filter_query = filter.date_filter_Q

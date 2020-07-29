@@ -1,5 +1,5 @@
-from django.db import models, connection, transaction
 from django.contrib.postgres.fields import JSONField
+from django.db import connection, models, transaction
 
 
 class ActionStep(models.Model):

@@ -1,8 +1,9 @@
-from django.conf import settings
-from django.core.exceptions import MiddlewareNotUsed
-from django.http import HttpResponse, HttpRequest
 from ipaddress import ip_address, ip_network
+
+from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core.exceptions import MiddlewareNotUsed
+from django.http import HttpRequest, HttpResponse
 
 
 class AllowIP(object):

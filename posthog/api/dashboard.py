@@ -1,17 +1,19 @@
-from rest_framework import request, response, serializers, viewsets, authentication
+import secrets
+from datetime import datetime
+from typing import Any, Dict, List
+
+from django.contrib.auth.models import AnonymousUser
+from django.core.cache import cache
+from django.db.models import Prefetch, QuerySet
+from django.http import HttpRequest
+from django.shortcuts import get_object_or_404
+from django.utils.timezone import now
+from rest_framework import authentication, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
+
 from posthog.models import Dashboard, DashboardItem, Filter
-from typing import Dict, Any, List
-from django.db.models import QuerySet, Prefetch
-from django.shortcuts import get_object_or_404
-from datetime import datetime
-from posthog.utils import render_template, generate_cache_key
-from django.contrib.auth.models import AnonymousUser
-from django.http import HttpRequest
-from django.core.cache import cache
-from django.utils.timezone import now
-import secrets
+from posthog.utils import generate_cache_key, render_template
 
 
 class PublicTokenAuthentication(authentication.BaseAuthentication):

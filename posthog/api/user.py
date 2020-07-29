@@ -1,19 +1,20 @@
-from django.http import HttpResponse, JsonResponse
-from django.views.decorators.http import require_http_methods
-from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth import update_session_auth_hash
-from django.core.exceptions import ValidationError
-from django.shortcuts import redirect
-from django.conf import settings
-from rest_framework import serializers
-from posthog.models import Event, User
-import requests
-
-import urllib.parse
-import secrets
 import json
 import os
+import secrets
+import urllib.parse
+
 import posthoganalytics
+import requests
+from django.conf import settings
+from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import redirect
+from django.views.decorators.http import require_http_methods
+from rest_framework import serializers
+
+from posthog.models import Event, User
 
 
 def user(request):
@@ -181,4 +182,4 @@ def test_slack_webhook(request):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "first_name", "email"]
+        fields = ["id", "distinct_id", "first_name", "email"]

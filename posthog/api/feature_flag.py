@@ -1,11 +1,13 @@
-from posthog.models import FeatureFlag
-from posthog.api.user import UserSerializer
-from rest_framework import request, serializers, viewsets
-from django.db.models import QuerySet
-from django.db import IntegrityError
-from typing import List, Dict, Any
-import posthoganalytics
 import json
+from typing import Any, Dict, List
+
+import posthoganalytics
+from django.db import IntegrityError
+from django.db.models import QuerySet
+from rest_framework import request, serializers, viewsets
+
+from posthog.api.user import UserSerializer
+from posthog.models import FeatureFlag
 
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):

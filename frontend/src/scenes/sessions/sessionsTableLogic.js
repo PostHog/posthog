@@ -4,12 +4,12 @@ import moment from 'moment'
 import { toParams } from 'lib/utils'
 
 export const sessionsTableLogic = kea({
-    loaders: ({ actions }) => ({
+    loaders: ({ actions, values }) => ({
         sessions: {
             __default: [],
             loadSessions: async (selectedDate) => {
                 const response = await api.get(
-                    'api/event/sessions' + (selectedDate ? '/?date_from=' + selectedDate.toISOString() : '')
+                    'api/event/sessions' + (selectedDate ? '/?date_from=' + values.selectedDateURLparam : '')
                 )
                 if (response.offset) actions.setOffset(response.offset)
                 if (response.date_from) actions.setDate(moment(response.date_from).startOf('day'))
@@ -37,10 +37,13 @@ export const sessionsTableLogic = kea({
         ],
         selectedDate: [moment().startOf('day'), { dateChanged: (_, { date }) => date, setDate: (_, { date }) => date }],
     }),
+    selectors: ({ selectors }) => ({
+        selectedDateURLparam: [() => [selectors.selectedDate], (selectedDate) => selectedDate.toISOString()],
+    }),
     listeners: ({ values, actions }) => ({
         fetchNextSessions: async () => {
             const response = await api.get(
-                'api/event/sessions/?' + toParams({ date_from: values.selectedDate, offset: values.offset })
+                'api/event/sessions/?' + toParams({ date_from: values.selectedDateURLparam, offset: values.offset })
             )
             if (response.offset) actions.setOffset(response.offset)
             else actions.setOffset(null)
@@ -48,6 +51,7 @@ export const sessionsTableLogic = kea({
         },
         dateChanged: ({ date }) => {
             actions.loadSessions(date)
+            actions.setOffset(null)
         },
     }),
     events: ({ actions }) => ({
