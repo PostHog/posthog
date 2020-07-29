@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Loading, toParams } from '../../lib/utils'
 import { LineGraph } from './LineGraph'
 import { useActions, useValues } from 'kea'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { trendsLogic } from 'scenes/insights/trendsLogic'
 import { router } from 'kea-router'
 
 export function ActionsLineGraph({
@@ -11,8 +11,9 @@ export function ActionsLineGraph({
     filters: filtersParam,
     cachedResults,
     inSharedMode,
+    view,
 }) {
-    const logic = trendsLogic({ dashboardItemId, filters: filtersParam, cachedResults })
+    const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
     const { filters, results, resultsLoading } = useValues(logic)
     const { loadResults, loadPeople } = useActions(logic)
 
@@ -22,6 +23,7 @@ export function ActionsLineGraph({
     useEffect(() => {
         loadResults()
     }, [toParams(otherFilters)])
+
     return results && !resultsLoading ? (
         filters.session || results.reduce((total, item) => total + item.count, 0) > 0 ? (
             <LineGraph

@@ -60,7 +60,7 @@ export function SaveToDashboardModal({
         event.preventDefault()
         if (newItem) {
             const response = await api.create('api/dashboard_item', {
-                filters,
+                filters: funnelId ? {} : filters,
                 funnel: funnelId,
                 type,
                 name,

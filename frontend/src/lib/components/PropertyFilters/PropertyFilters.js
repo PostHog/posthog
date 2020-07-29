@@ -61,7 +61,7 @@ const FilterRow = React.memo(function FilterRow({ item, index, filters, cohorts,
     )
 })
 
-export function PropertyFilters({ endpoint, propertyFilters, onChange, pageKey }) {
+export function PropertyFilters({ endpoint = null, propertyFilters = null, onChange = null, pageKey }) {
     const logic = propertyFilterLogic({ propertyFilters, endpoint, onChange, pageKey })
     const { filters } = useValues(logic)
     const { cohorts } = useValues(cohortsModel)

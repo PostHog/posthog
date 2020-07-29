@@ -1,8 +1,9 @@
 import React, { useRef, useEffect, useState } from 'react'
-import PropTypes from 'prop-types'
 import { Select, DatePicker, Button } from 'antd'
-
+import { useValues, useActions } from 'kea'
 import moment from 'moment'
+import { dateFilterLogic } from './dateFilterLogic'
+import { ViewType } from 'scenes/insights/insightLogic'
 
 let dateMapping = {
     Today: ['dStart'],
@@ -32,7 +33,11 @@ function dateFilterToText(date_from, date_to) {
     return name
 }
 
-export function DateFilter({ dateFrom, dateTo, onChange, style }) {
+export function DateFilter({ style, filters, view }) {
+    const {
+        dates: { dateFrom, dateTo },
+    } = useValues(dateFilterLogic)
+    const { setDates } = useActions(dateFilterLogic)
     const [rangeDateFrom, setRangeDateFrom] = useState(isDate.test(dateFrom) && moment(dateFrom).toDate())
     const [rangeDateTo, setRangeDateTo] = useState(isDate.test(dateTo) && moment(dateTo).toDate())
     const [dateRangeOpen, setDateRangeOpen] = useState(false)
@@ -44,7 +49,7 @@ export function DateFilter({ dateFrom, dateTo, onChange, style }) {
     }
 
     function setDate(fromDate, toDate) {
-        onChange(fromDate, toDate)
+        setDates(fromDate, toDate)
     }
 
     function _onChange(v) {
@@ -83,7 +88,10 @@ export function DateFilter({ dateFrom, dateTo, onChange, style }) {
             data-attr="date-filter"
             bordered={false}
             id="daterange_selector"
-            value={dateFilterToText(dateFrom, dateTo)}
+            value={dateFilterToText(
+                view === ViewType.FUNNELS ? filters.date_from : dateFrom,
+                view === ViewType.FUNNELS ? filters.date_to : dateTo
+            )}
             onChange={_onChange}
             style={{
                 marginRight: 4,
@@ -127,10 +135,6 @@ export function DateFilter({ dateFrom, dateTo, onChange, style }) {
             ]}
         </Select>
     )
-}
-
-DateFilter.propTypes = {
-    onChange: PropTypes.func.isRequired,
 }
 
 function DatePickerDropdown(props) {

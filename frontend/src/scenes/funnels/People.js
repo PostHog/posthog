@@ -3,10 +3,10 @@ import { useValues } from 'kea'
 import { funnelLogic } from './funnelLogic'
 import { Link } from 'lib/components/Link'
 import { Card, percentage, Loading } from 'lib/utils'
-import { EntityTypes } from 'scenes/trends/trendsLogic'
+import { EntityTypes } from 'scenes/insights/trendsLogic'
 
-export function People({ id }) {
-    const { stepsWithCount, peopleSorted, peopleLoading } = useValues(funnelLogic({ id }))
+export function People() {
+    const { stepsWithCount, peopleSorted, peopleLoading } = useValues(funnelLogic({ id: null }))
 
     return (
         <Card title="Per user">

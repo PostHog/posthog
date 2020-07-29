@@ -6,6 +6,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 import { STICKINESS, ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
+import { ViewType, insightLogic } from './insightLogic'
 
 export const EntityTypes = {
     ACTIONS: 'actions',
@@ -37,11 +38,6 @@ export const disableHourFor = {
     '-1mStart': false,
     yStart: true,
     all: true,
-}
-
-export const ViewType = {
-    FILTERS: 'FILTERS',
-    SESSIONS: 'SESSIONS',
 }
 
 function cleanFilters(filters) {
@@ -111,20 +107,22 @@ function parsePeopleParams(peopleParams, filters) {
 // - dashboardItemId
 // - filters
 export const trendsLogic = kea({
-    key: (props) => props.dashboardItemId || 'all_trends',
+    key: (props) => {
+        return props.dashboardItemId || 'trends_' + props.view || 'all_trends'
+    },
 
     connect: {
         values: [userLogic, ['eventNames'], actionsModel, ['actions']],
+        actions: [insightLogic, ['setAllFilters']],
     },
 
     loaders: ({ values, props }) => ({
         results: {
             __default: [],
-            setActiveView: () => [],
             loadResults: async (refresh = false, breakpoint) => {
                 if (values.results.length === 0 && props.cachedResults) return props.cachedResults
                 let response
-                if (values.activeView === ViewType.SESSIONS) {
+                if (props.view === ViewType.SESSIONS || props.filters?.session) {
                     response = await api.get(
                         'api/event/sessions/?' +
                             (refresh ? 'refresh=true&' : '') +
@@ -161,8 +159,6 @@ export const trendsLogic = kea({
             breakdown_value,
             next,
         }),
-        setActiveView: (type) => ({ type }),
-        setCachedUrl: (type, url) => ({ type, url }),
     }),
 
     reducers: ({ actions, props }) => ({
@@ -185,12 +181,6 @@ export const trendsLogic = kea({
                 [actions.setLoadingMorePeople]: (state, { status }) => ({ ...state, loadingMore: status }),
             },
         ],
-        cachedUrls: [
-            {},
-            {
-                [actions.setCachedUrl]: (state, { type, url }) => ({ ...state, [type]: url }),
-            },
-        ],
         showingPeople: [
             false,
             {
@@ -201,7 +191,6 @@ export const trendsLogic = kea({
     }),
 
     selectors: ({ selectors }) => ({
-        activeView: [() => [selectors.filters], (filters) => (filters.session ? ViewType.SESSIONS : ViewType.FILTERS)],
         peopleAction: [
             () => [selectors.filters, selectors.actions],
             (filters, actions) =>
@@ -245,32 +234,23 @@ export const trendsLogic = kea({
                 people.next
             )
         },
+        [actions.setFilters]: () => {
+            actions.setAllFilters(values.filters)
+        },
     }),
 
     actionToUrl: ({ actions, values, props }) => ({
-        [actions.setFilters]: ({ fromUrl }) => {
+        [actions.setFilters]: () => {
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            if (!fromUrl) {
-                return ['/trends', values.filters]
-            }
-        },
-        [actions.setActiveView]: ({ type }) => {
-            if (props.dashboardItemId) {
-                return // don't use the URL if on the dashboard
-            }
-            actions.setCachedUrl(values.activeView, window.location.pathname + window.location.search)
-            const cachedUrl = values.cachedUrls[type]
-            if (cachedUrl) {
-                return cachedUrl
-            }
-            return ['/trends', type === ViewType.SESSIONS ? { session: 'avg' } : {}]
+
+            return ['/insights', values.filters]
         },
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        '/trends': (_, searchParams) => {
+        '/insights': (_, searchParams) => {
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
@@ -278,9 +258,10 @@ export const trendsLogic = kea({
             const cleanSearchParams = cleanFilters(searchParams)
 
             const keys = Object.keys(searchParams)
+
             // opening /trends without any params, just open $pageview, $screen or the first random event
             if (
-                (keys.length === 0 || (keys.length === 1 && keys[0] === 'properties')) &&
+                (keys.length === 0 || (!searchParams.actions && !searchParams.events)) &&
                 values.eventNames &&
                 values.eventNames[0]
             ) {
@@ -298,6 +279,10 @@ export const trendsLogic = kea({
                         order: 0,
                     },
                 ]
+            }
+
+            if (searchParams.insight === ViewType.SESSIONS && !searchParams.session) {
+                cleanSearchParams['session'] = 'avg'
             }
 
             if (!objectsEqual(cleanSearchParams, values.filters)) {

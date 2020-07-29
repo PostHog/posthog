@@ -12,16 +12,13 @@ export const scenes = {
     sessions: () => import(/* webpackChunkName: 'events' */ './sessions/Sessions'),
     person: () => import(/* webpackChunkName: 'person' */ './users/Person'),
     people: () => import(/* webpackChunkName: 'people' */ './users/People'),
-    retention: () => import(/* webpackChunkName: 'retention' */ './retention/Retention'),
     actions: () => import(/* webpackChunkName: 'actions' */ './actions/Actions'),
     action: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     liveActions: () => import(/* webpackChunkName: 'liveActions' */ './actions/LiveActions'),
-    funnel: () => import(/* webpackChunkName: 'funnel' */ './funnels/Funnel'),
     editFunnel: () => import(/* webpackChunkName: 'editFunnel' */ './funnels/Funnel'),
     funnels: () => import(/* webpackChunkName: 'funnels' */ './funnels/Funnels'),
     setup: () => import(/* webpackChunkName: 'setup' */ './setup/Setup'),
-    trends: () => import(/* webpackChunkName: 'trends' */ './trends/Trends'),
-    paths: () => import(/* webpackChunkName: 'paths' */ './paths/Paths'),
+    insights: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
     cohorts: () => import(/* webpackChunkName: 'cohorts' */ './users/Cohorts'),
     featureFlags: () => import(/* webpackChunkName: 'featureFlags' */ './experiments/FeatureFlags'),
     annotations: () => import(/* webpackChunkName: 'annotations' */ './annotations/AnnotationsScene'),
@@ -29,7 +26,7 @@ export const scenes = {
 }
 
 export const redirects = {
-    '/': '/trends',
+    '/': '/insights',
 }
 
 export const routes = {
@@ -39,18 +36,15 @@ export const routes = {
     '/action': 'action',
     '/actions/live': 'liveActions',
     '/actions': 'actions',
-    '/trends': 'trends',
+    '/insights': 'insights',
     '/funnel': 'funnels',
     '/funnel/new': 'editFunnel',
-    '/funnel/:id': 'funnel',
-    '/paths': 'paths',
     '/setup': 'setup',
     '/events': 'events',
     '/person_by_id/:id': 'person',
     '/person/*': 'person',
     '/people': 'people',
     '/people/new_cohort': 'people',
-    '/people/retention': 'retention',
     '/people/cohorts': 'cohorts',
     '/experiments/feature_flags': 'featureFlags',
     '/sessions': 'sessions',

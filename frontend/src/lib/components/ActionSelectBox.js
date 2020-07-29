@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ActionSelectInfo } from 'scenes/trends/ActionSelectInfo'
+import { ActionSelectInfo } from 'scenes/insights/ActionSelectInfo'
 import PropTypes from 'prop-types'
 import { ActionSelectTab } from './ActionSelectTab'
 import { Select } from 'antd'

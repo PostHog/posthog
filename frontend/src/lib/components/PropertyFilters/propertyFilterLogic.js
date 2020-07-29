@@ -90,12 +90,12 @@ export const propertyFilterLogic = kea({
                 }
                 props.onChange(cleanedFilters)
             } else {
-                const { properties: _, ...searchParams } = router.values.searchParams // eslint-disable-line
+                const { properties, ...searchParams } = router.values.searchParams // eslint-disable-line
                 const { pathname } = router.values.location
 
                 searchParams.properties = cleanedFilters
 
-                if (!objectsEqual(router.values.searchParams, searchParams)) {
+                if (!objectsEqual(properties, cleanedFilters)) {
                     router.actions.push(pathname, searchParams)
                 }
             }
