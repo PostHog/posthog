@@ -109,6 +109,7 @@ export function AnnotationMarker({
                             onChange={(e) => setTextInput(e.target.value)}
                         />
                         <Checkbox
+                            checked={applyAll}
                             onChange={(e) => {
                                 setApplyAll(e.target.checked)
                             }}
@@ -182,6 +183,7 @@ export function AnnotationMarker({
                         )}
                         {textAreaVisible && (
                             <Checkbox
+                                checked={applyAll}
                                 onChange={(e) => {
                                     setApplyAll(e.target.checked)
                                 }}
