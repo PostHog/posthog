@@ -223,6 +223,8 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             except PersonalAPIKey.DoesNotExist:
                 raise AuthenticationFailed(detail="Personal API key invalid.")
             else:
+                if not personal_api_key_object.user.is_active:
+                    raise AuthenticationFailed(detail="Personal API key invalid.")
                 personal_api_key_object.last_used_at = timezone.now()
                 personal_api_key_object.save()
                 return personal_api_key_object.user, None
