@@ -9,7 +9,6 @@ from django.core.cache import cache
 from django.db.models import Prefetch, Q
 from django.utils import timezone
 
-from posthog.api.action import calculate_trends, get_actions
 from posthog.api.funnel import FunnelSerializer
 from posthog.celery import app, update_cache_item_task
 from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT

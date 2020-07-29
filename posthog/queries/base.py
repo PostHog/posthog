@@ -6,8 +6,7 @@ from django.db.models import Q, QuerySet
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_STICKINESS
 from posthog.models import Entity, Event, Filter, Team
-from posthog.utils import get_compare_period_dates
-
+from posthog.utils import get_compare_period_dates, timezone
 
 """
 process_entity_for_events takes in an Entity and team_id, and returns an Event QuerySet that's correctly filtered
@@ -26,6 +25,8 @@ def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> Q
 
 
 def _determine_compared_filter(filter: Filter) -> Filter:
+    if not filter.date_to or not filter.date_from:
+        raise ValueError("You need date_from and date_to to compare")
     date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
     compared_filter = copy.deepcopy(filter)
     compared_filter._date_from = date_from.date().isoformat()
