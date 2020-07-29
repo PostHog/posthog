@@ -1,12 +1,12 @@
 from django.db import models
 from django.utils import timezone
-from .user import User
 from .utils import generate_random_token
 
 
 class PersonalAPIKey(models.Model):
     id: models.CharField = models.CharField(primary_key=True, max_length=100, default=generate_random_token)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="personal_api_keys")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="personal_api_keys")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="personal_api_keys")
     label: models.CharField = models.CharField(max_length=40)
     value: models.CharField = models.CharField(
         unique=True, max_length=100, default=generate_random_token, editable=False
