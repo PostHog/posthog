@@ -102,8 +102,9 @@ def _get_token(data, request) -> Optional[str]:
 
 def _get_personal_api_key(data, request) -> Optional[str]:
     authorization_header = request.META.get("HTTP_AUTHORIZATION")  # Authorization header
+    personal_api_key = None
     if authorization_header:
-        authorization_match = re.match(fr"^Bearer (\S+)$", authorization_header)
+        authorization_match = re.match(fr"^Bearer\s+(\S+)$", authorization_header)
         if authorization_match:
             personal_api_key = authorization_match.group(1)
     if not personal_api_key:
@@ -127,7 +128,12 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
 @csrf_exempt
 def get_event(request):
     now = timezone.now()
-    data = _load_data(request)
+    try:
+        data = _load_data(request)
+    except:
+        return cors_response(
+            request, JsonResponse({"code": "validation", "message": "Malformed request data.",}, status=400,),
+        )
     if not data:
         return cors_response(request, HttpResponse("1"))
     sent_at = _get_sent_at(data, request)
@@ -197,6 +203,25 @@ def get_event(request):
                     status=400,
                 ),
             )
+
+        extra_properties_json = event.get("extra_properties_json")
+        extra_properties = None
+        are_extra_properties_set_and_malformed = False
+        if extra_properties_json:
+            try:
+                extra_properties = json.loads(extra_properties_json)
+            except json.JSONDecodeError:
+                are_extra_properties_set_and_malformed = True
+        if extra_properties is not None and not isinstance(extra_properties, dict):
+            are_extra_properties_set_and_malformed = True
+        if are_extra_properties_set_and_malformed:
+            return cors_response(
+                request,
+                JsonResponse(
+                    {"code": "validation", "message": "Field `extra_properties_json` is malformed!", "item": event,},
+                    status=400,
+                ),
+            )
         process_event.delay(
             distinct_id=distinct_id,
             ip=get_ip_address(request),
@@ -205,6 +230,7 @@ def get_event(request):
             team_id=team.id,
             now=now,
             sent_at=sent_at,
+            extra_properties=extra_properties,
         )
 
     return cors_response(request, JsonResponse({"status": 1}))
