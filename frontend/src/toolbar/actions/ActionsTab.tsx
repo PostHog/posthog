@@ -14,7 +14,7 @@ export function ActionsTab(): JSX.Element {
     const { apiURL } = useValues(toolbarLogic)
 
     return (
-        <div className={`toolbar-content ${className || ''}`}>
+        <div className="toolbar-content">
             <div className="toolbar-block">
                 {selectedAction ? (
                     <EditAction />
