@@ -6,7 +6,7 @@ import { PlusOutlined } from '@ant-design/icons'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 
-export function ActionsList() {
+export function ActionsList(): JSX.Element {
     const { allActions, actionsForCurrentUrl, allActionsLoading } = useValues(actionsLogic)
 
     const { newAction } = useActions(actionsTabLogic)

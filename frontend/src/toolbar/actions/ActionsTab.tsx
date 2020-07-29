@@ -9,7 +9,7 @@ import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { EditAction } from '~/toolbar/actions/EditAction'
 import { ExportOutlined } from '@ant-design/icons'
 
-export function ActionsTab({ className = '' }) {
+export function ActionsTab(): JSX.Element {
     const { selectedAction } = useValues(actionsTabLogic)
     const { apiURL } = useValues(toolbarLogic)
 

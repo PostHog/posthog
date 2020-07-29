@@ -2,15 +2,20 @@ import React from 'react'
 import { useActions } from 'kea'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { List, Space } from 'antd'
+import { ActionType } from '~/types'
 
-export function ActionsListView({ actions }) {
+interface ActionsListViewProps {
+    actions: ActionType[]
+}
+
+export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element {
     const { selectAction } = useActions(actionsTabLogic)
     return (
         <List
             itemLayout="horizontal"
             dataSource={actions}
             renderItem={(action, index) => (
-                <List.Item onClick={() => selectAction(action.id)} style={{ cursor: 'pointer' }}>
+                <List.Item onClick={() => selectAction(action.id || null)} style={{ cursor: 'pointer' }}>
                     <List.Item.Meta
                         title={
                             <Space>

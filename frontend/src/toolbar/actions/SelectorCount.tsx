@@ -1,6 +1,10 @@
 import React from 'react'
 
-export function SelectorCount({ selector }) {
+interface SelectorCountProps {
+    selector: string
+}
+
+export function SelectorCount({ selector }: SelectorCountProps): JSX.Element {
     let selectorError = false
     let matches
 

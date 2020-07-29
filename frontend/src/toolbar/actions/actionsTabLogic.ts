@@ -22,7 +22,7 @@ function newAction(element: HTMLElement | null): Partial<ActionType> {
 export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, ActionStepForm, FormInstance>>({
     actions: {
         setForm: (form: FormInstance) => ({ form }),
-        selectAction: (id: number | null) => ({ id }),
+        selectAction: (id: number | null) => ({ id: id || null }),
         newAction: (element?: HTMLElement) => ({ element }),
         inspectForElementWithIndex: (index: number) => ({ index }),
         inspectElementSelected: (element: HTMLElement, index: number | null) => ({ element, index }),
