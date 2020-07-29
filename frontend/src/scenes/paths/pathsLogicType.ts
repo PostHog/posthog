@@ -178,7 +178,7 @@ export interface pathsLogicType {
             type: string
         }
         properties: (state: any, props: any) => {}
-        propertiesForUrl: (state: any, props: any) => '' | { properties: any; filter: any }
+        propertiesForUrl: (state: any, props: any) => '' | { insight: string }
     }
     values: {
         paths: {
@@ -191,10 +191,10 @@ export interface pathsLogicType {
             type: string
         }
         properties: {}
-        propertiesForUrl: '' | { properties: any; filter: any }
+        propertiesForUrl: '' | { insight: string }
     }
     _isKea: true
     __keaTypeGenInternalSelectorTypes: {
-        propertiesForUrl: (arg1: any, arg2: any) => '' | { properties: any; filter: any }
+        propertiesForUrl: (arg1: any, arg2: any) => '' | { insight: string }
     }
 }

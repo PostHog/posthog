@@ -166,6 +166,9 @@ export interface dockLogicType {
         action: () => any,
         fullState: any
     ) => {
+        windowWidth: any
+        windowHeight: any
+        windowScroll: any
         mode: string
         lastMode: string
         dockStatus: string
@@ -173,6 +176,9 @@ export interface dockLogicType {
     }
     reducerOptions: any
     reducers: {
+        windowWidth: (state: any, action: any, fullState: any) => any
+        windowHeight: (state: any, action: any, fullState: any) => any
+        windowScroll: (state: any, action: any, fullState: any) => any
         mode: (state: string, action: any, fullState: any) => string
         lastMode: (state: string, action: any, fullState: any) => string
         dockStatus: (state: string, action: any, fullState: any) => string
@@ -181,18 +187,27 @@ export interface dockLogicType {
     selector: (
         state: any
     ) => {
+        windowWidth: any
+        windowHeight: any
+        windowScroll: any
         mode: string
         lastMode: string
         dockStatus: string
         buttonStatus: string
     }
     selectors: {
+        windowWidth: (state: any, props: any) => any
+        windowHeight: (state: any, props: any) => any
+        windowScroll: (state: any, props: any) => any
         mode: (state: any, props: any) => string
         lastMode: (state: any, props: any) => string
         dockStatus: (state: any, props: any) => string
         buttonStatus: (state: any, props: any) => string
     }
     values: {
+        windowWidth: any
+        windowHeight: any
+        windowScroll: any
         mode: string
         lastMode: string
         dockStatus: string

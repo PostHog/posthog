@@ -186,6 +186,8 @@ export interface toolbarButtonLogicType {
         action: () => any,
         fullState: any
     ) => {
+        windowHeight: any
+        windowWidth: number
         heatmapInfoVisible: boolean
         actionsInfoVisible: boolean
         statsVisible: boolean
@@ -206,6 +208,8 @@ export interface toolbarButtonLogicType {
     }
     reducerOptions: any
     reducers: {
+        windowHeight: (state: any, action: any, fullState: any) => any
+        windowWidth: (state: number, action: any, fullState: any) => number
         heatmapInfoVisible: (state: boolean, action: any, fullState: any) => boolean
         actionsInfoVisible: (state: boolean, action: any, fullState: any) => boolean
         statsVisible: (state: boolean, action: any, fullState: any) => boolean
@@ -248,6 +252,8 @@ export interface toolbarButtonLogicType {
     selector: (
         state: any
     ) => {
+        windowHeight: any
+        windowWidth: number
         heatmapInfoVisible: boolean
         actionsInfoVisible: boolean
         statsVisible: boolean
@@ -267,6 +273,8 @@ export interface toolbarButtonLogicType {
         }
     }
     selectors: {
+        windowHeight: (state: any, props: any) => any
+        windowWidth: (state: any, props: any) => number
         heatmapInfoVisible: (state: any, props: any) => boolean
         actionsInfoVisible: (state: any, props: any) => boolean
         statsVisible: (state: any, props: any) => boolean
@@ -307,6 +315,8 @@ export interface toolbarButtonLogicType {
         statsExtensionPercentage: (state: any, props: any) => any
     }
     values: {
+        windowHeight: any
+        windowWidth: number
         heatmapInfoVisible: boolean
         actionsInfoVisible: boolean
         statsVisible: boolean
