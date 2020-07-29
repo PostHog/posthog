@@ -3,14 +3,20 @@ from typing import Dict, List, Optional
 
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.db import models
+<<<<<<< HEAD
 
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 
+=======
+from django.contrib.postgres.fields import JSONField, ArrayField
+from django.utils import timezone
+>>>>>>> 893e701... Add personal API key support to capture endpoint, get_cached_from_token
 from .action import Action
 from .action_step import ActionStep
 from .dashboard import Dashboard
 from .dashboard_item import DashboardItem
 from .user import User
+from .personal_api_key import PersonalAPIKey
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from typing import Optional, List, Dict
 from datetime import datetime
@@ -64,10 +70,26 @@ class TeamManager(models.Manager):
         )
         return team
 
-    def get_cached_from_token(self, token: str) -> "Team":
-        if TEAM_CACHE.get(token):
-            return TEAM_CACHE[token]
-        team = Team.objects.get(api_token=token)
+    def get_cached_from_token(self, token: str, is_personal_api_key: bool = False) -> Optional["posthog.Team"]:
+        team_from_cache = TEAM_CACHE.get(token)
+        if team_from_cache:
+            return team_from_cache
+        if not is_personal_api_key:
+            try:
+                team = Team.objects.get(api_token=token)
+            except Team.DoesNotExist:
+                return None
+        else:
+            try:
+                personal_api_key = PersonalAPIKey.objects.select_related("user").select_related("team").get(value=token)
+            except PersonalAPIKey.DoesNotExist:
+                return None
+            else:
+                if not personal_api_key.user.is_active:
+                    return None
+                team = personal_api_key.team
+                personal_api_key.last_used_at = timezone.now()
+                personal_api_key.save()
         TEAM_CACHE[token] = team
         return team
 
