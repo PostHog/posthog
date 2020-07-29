@@ -41,6 +41,7 @@ import { People } from 'scenes/funnels/People'
 import { insightLogic, ViewType } from './insightLogic'
 import { trendsLogic } from './trendsLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
+import { InsightHistoryPanel } from './InsightHistoryPanel'
 
 const { TabPane } = Tabs
 
@@ -164,6 +165,11 @@ function _Insights() {
                                     [`${ViewType.PATHS}`]: <PathTab></PathTab>,
                                 }[activeView]
                             }
+                        </div>
+                    </Card>
+                    <Card>
+                        <div className="card-body px-4">
+                            <InsightHistoryPanel />
                         </div>
                     </Card>
                 </Col>
