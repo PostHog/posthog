@@ -3,8 +3,9 @@ import { inBounds } from '~/toolbar/utils'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { toolbarButtonLogicType } from '~/toolbar/button/toolbarButtonLogicType'
 
-export const toolbarButtonLogic = kea({
+export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
     actions: () => ({
         showHeatmapInfo: true,
         hideHeatmapInfo: true,
@@ -12,11 +13,11 @@ export const toolbarButtonLogic = kea({
         hideActionsInfo: true,
         showStats: true,
         hideStats: true,
-        setExtensionPercentage: (percentage) => ({ percentage }),
-        saveDragPosition: (x, y) => ({ x, y }),
-        saveHeatmapPosition: (x, y) => ({ x, y }),
-        saveActionsPosition: (x, y) => ({ x, y }),
-        saveStatsPosition: (x, y) => ({ x, y }),
+        setExtensionPercentage: (percentage: number) => ({ percentage }),
+        saveDragPosition: (x: number, y: number) => ({ x, y }),
+        saveHeatmapPosition: (x: number, y: number) => ({ x, y }),
+        saveActionsPosition: (x: number, y: number) => ({ x, y }),
+        saveStatsPosition: (x: number, y: number) => ({ x, y }),
     }),
 
     windowValues: () => ({
@@ -30,8 +31,8 @@ export const toolbarButtonLogic = kea({
             {
                 showHeatmapInfo: () => true,
                 hideHeatmapInfo: () => false,
-                [heatmapLogic.actions.disableHeatmap]: () => false,
-                [heatmapLogic.actions.enableHeatmap]: () => false,
+                [heatmapLogic.actionTypes.disableHeatmap]: () => false,
+                [heatmapLogic.actionTypes.enableHeatmap]: () => false,
             },
         ],
         actionsInfoVisible: [
@@ -39,8 +40,8 @@ export const toolbarButtonLogic = kea({
             {
                 showActionsInfo: () => true,
                 hideActionsInfo: () => false,
-                [actionsTabLogic.actions.showButtonActions]: () => false,
-                [actionsTabLogic.actions.hideButtonActions]: () => false,
+                [actionsTabLogic.actionTypes.showButtonActions]: () => false,
+                [actionsTabLogic.actionTypes.hideButtonActions]: () => false,
             },
         ],
         statsVisible: [
@@ -57,28 +58,28 @@ export const toolbarButtonLogic = kea({
             },
         ],
         lastDragPosition: [
-            null,
+            null as null | { x: number; y: number },
             { persist: true },
             {
-                saveDragPosition: (state, { x, y }) => ({ x, y }),
+                saveDragPosition: (_, { x, y }) => ({ x, y }),
             },
         ],
         heatmapPosition: [
             { x: 100, y: 100 },
             {
-                saveHeatmapPosition: (state, { x, y }) => ({ x, y }),
+                saveHeatmapPosition: (_, { x, y }) => ({ x, y }),
             },
         ],
         actionsPosition: [
-            { x: 120, y: 100 },
+            { x: 120, y: 100 } as { x: number; y: number },
             {
-                saveActionsPosition: (state, { x, y }) => ({ x, y }),
+                saveActionsPosition: (_, { x, y }) => ({ x, y }),
             },
         ],
         statsPosition: [
-            { x: 140, y: 100 },
+            { x: 140, y: 100 } as { x: number; y: number },
             {
-                saveStatsPosition: (state, { x, y }) => ({ x, y }),
+                saveStatsPosition: (_, { x, y }) => ({ x, y }),
             },
         ],
     }),

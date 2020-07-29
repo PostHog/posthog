@@ -1,6 +1,6 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface dockLogicType {
+export interface dockLogicType<ToolbarMode, ToolbarAnimationState> {
     key: any
     actionCreators: {
         button: () => {
@@ -58,11 +58,11 @@ export interface dockLogicType {
             }
         }
         setMode: (
-            mode: any,
-            update?: any
+            mode: ToolbarMode,
+            update?: boolean
         ) => {
             type: 'set mode (toolbar.dockLogic)'
-            payload: { mode: any; update: boolean; windowWidth: number; windowHeight: number }
+            payload: { mode: ToolbarMode; update: boolean; windowWidth: number; windowHeight: number }
         }
     }
     actionKeys: {
@@ -145,11 +145,11 @@ export interface dockLogicType {
             }
         }
         setMode: (
-            mode: any,
-            update?: any
+            mode: ToolbarMode,
+            update?: boolean
         ) => {
             type: 'set mode (toolbar.dockLogic)'
-            payload: { mode: any; update: boolean; windowWidth: number; windowHeight: number }
+            payload: { mode: ToolbarMode; update: boolean; windowWidth: number; windowHeight: number }
         }
     }
     cache: Record<string, any>
@@ -169,20 +169,20 @@ export interface dockLogicType {
         windowWidth: number
         windowHeight: number
         windowScroll: number
-        mode: string
-        lastMode: string
-        dockStatus: string
-        buttonStatus: string
+        mode: ToolbarMode
+        lastMode: ToolbarMode
+        dockStatus: ToolbarAnimationState
+        buttonStatus: ToolbarAnimationState
     }
     reducerOptions: any
     reducers: {
         windowWidth: (state: number, action: any, fullState: any) => number
         windowHeight: (state: number, action: any, fullState: any) => number
         windowScroll: (state: number, action: any, fullState: any) => number
-        mode: (state: string, action: any, fullState: any) => string
-        lastMode: (state: string, action: any, fullState: any) => string
-        dockStatus: (state: string, action: any, fullState: any) => string
-        buttonStatus: (state: string, action: any, fullState: any) => string
+        mode: (state: ToolbarMode, action: any, fullState: any) => ToolbarMode
+        lastMode: (state: ToolbarMode, action: any, fullState: any) => ToolbarMode
+        dockStatus: (state: ToolbarAnimationState, action: any, fullState: any) => ToolbarAnimationState
+        buttonStatus: (state: ToolbarAnimationState, action: any, fullState: any) => ToolbarAnimationState
     }
     selector: (
         state: any
@@ -190,28 +190,53 @@ export interface dockLogicType {
         windowWidth: number
         windowHeight: number
         windowScroll: number
-        mode: string
-        lastMode: string
-        dockStatus: string
-        buttonStatus: string
+        mode: ToolbarMode
+        lastMode: ToolbarMode
+        dockStatus: ToolbarAnimationState
+        buttonStatus: ToolbarAnimationState
     }
     selectors: {
         windowWidth: (state: any, props: any) => number
         windowHeight: (state: any, props: any) => number
         windowScroll: (state: any, props: any) => number
-        mode: (state: any, props: any) => string
-        lastMode: (state: any, props: any) => string
-        dockStatus: (state: any, props: any) => string
-        buttonStatus: (state: any, props: any) => string
+        mode: (state: any, props: any) => ToolbarMode
+        lastMode: (state: any, props: any) => ToolbarMode
+        dockStatus: (state: any, props: any) => ToolbarAnimationState
+        buttonStatus: (state: any, props: any) => ToolbarAnimationState
+        isAnimating: (state: any, props: any) => boolean
+        sidebarWidth: (state: any, props: any) => number
+        padding: (state: any, props: any) => number
+        bodyWidth: (state: any, props: any) => number
+        zoom: (state: any, props: any) => number
+        domZoom: (state: any, props: any) => number
+        domPadding: (state: any, props: any) => number
+        dockTopMargin: (state: any, props: any) => number
     }
     values: {
         windowWidth: number
         windowHeight: number
         windowScroll: number
-        mode: string
-        lastMode: string
-        dockStatus: string
-        buttonStatus: string
+        mode: ToolbarMode
+        lastMode: ToolbarMode
+        dockStatus: ToolbarAnimationState
+        buttonStatus: ToolbarAnimationState
+        isAnimating: boolean
+        sidebarWidth: number
+        padding: number
+        bodyWidth: number
+        zoom: number
+        domZoom: number
+        domPadding: number
+        dockTopMargin: number
     }
     _isKea: true
+    __keaTypeGenInternalSelectorTypes: {
+        isAnimating: (arg1: ToolbarAnimationState, arg2: ToolbarAnimationState) => boolean
+        padding: (arg1: number) => number
+        bodyWidth: (arg1: number, arg2: number, arg3: number) => number
+        zoom: (arg1: number, arg2: number) => number
+        domZoom: (arg1: number, arg2: ToolbarMode) => number
+        domPadding: (arg1: number, arg2: ToolbarMode) => number
+        dockTopMargin: (arg1: number) => number
+    }
 }

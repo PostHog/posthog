@@ -40,38 +40,38 @@ export interface toolbarButtonLogicType {
             }
         }
         setExtensionPercentage: (
-            percentage: any
+            percentage: number
         ) => {
             type: 'set extension percentage (toolbar.button.toolbarButtonLogic)'
-            payload: { percentage: any }
+            payload: { percentage: number }
         }
         saveDragPosition: (
-            x: any,
-            y: any
+            x: number,
+            y: number
         ) => {
             type: 'save drag position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: any; y: any }
+            payload: { x: number; y: number }
         }
         saveHeatmapPosition: (
-            x: any,
-            y: any
+            x: number,
+            y: number
         ) => {
             type: 'save heatmap position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: any; y: any }
+            payload: { x: number; y: number }
         }
         saveActionsPosition: (
-            x: any,
-            y: any
+            x: number,
+            y: number
         ) => {
             type: 'save actions position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: any; y: any }
+            payload: { x: number; y: number }
         }
         saveStatsPosition: (
-            x: any,
-            y: any
+            x: number,
+            y: number
         ) => {
             type: 'save stats position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: any; y: any }
+            payload: { x: number; y: number }
         }
     }
     actionKeys: {
@@ -138,38 +138,38 @@ export interface toolbarButtonLogicType {
             }
         }
         setExtensionPercentage: (
-            percentage: any
+            percentage: number
         ) => {
             type: 'set extension percentage (toolbar.button.toolbarButtonLogic)'
-            payload: { percentage: any }
+            payload: { percentage: number }
         }
         saveDragPosition: (
-            x: any,
-            y: any
+            x: number,
+            y: number
         ) => {
             type: 'save drag position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: any; y: any }
+            payload: { x: number; y: number }
         }
         saveHeatmapPosition: (
-            x: any,
-            y: any
+            x: number,
+            y: number
         ) => {
             type: 'save heatmap position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: any; y: any }
+            payload: { x: number; y: number }
         }
         saveActionsPosition: (
-            x: any,
-            y: any
+            x: number,
+            y: number
         ) => {
             type: 'save actions position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: any; y: any }
+            payload: { x: number; y: number }
         }
         saveStatsPosition: (
-            x: any,
-            y: any
+            x: number,
+            y: number
         ) => {
             type: 'save stats position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: any; y: any }
+            payload: { x: number; y: number }
         }
     }
     cache: Record<string, any>
@@ -192,7 +192,10 @@ export interface toolbarButtonLogicType {
         actionsInfoVisible: boolean
         statsVisible: boolean
         extensionPercentage: number
-        lastDragPosition: null
+        lastDragPosition: null | {
+            x: number
+            y: number
+        }
         heatmapPosition: {
             x: number
             y: number
@@ -214,7 +217,17 @@ export interface toolbarButtonLogicType {
         actionsInfoVisible: (state: boolean, action: any, fullState: any) => boolean
         statsVisible: (state: boolean, action: any, fullState: any) => boolean
         extensionPercentage: (state: number, action: any, fullState: any) => number
-        lastDragPosition: (state: null, action: any, fullState: any) => null
+        lastDragPosition: (
+            state: null | {
+                x: number
+                y: number
+            },
+            action: any,
+            fullState: any
+        ) => null | {
+            x: number
+            y: number
+        }
         heatmapPosition: (
             state: {
                 x: number
@@ -258,7 +271,10 @@ export interface toolbarButtonLogicType {
         actionsInfoVisible: boolean
         statsVisible: boolean
         extensionPercentage: number
-        lastDragPosition: null
+        lastDragPosition: null | {
+            x: number
+            y: number
+        }
         heatmapPosition: {
             x: number
             y: number
@@ -279,7 +295,13 @@ export interface toolbarButtonLogicType {
         actionsInfoVisible: (state: any, props: any) => boolean
         statsVisible: (state: any, props: any) => boolean
         extensionPercentage: (state: any, props: any) => number
-        lastDragPosition: (state: any, props: any) => null
+        lastDragPosition: (
+            state: any,
+            props: any
+        ) => null | {
+            x: number
+            y: number
+        }
         heatmapPosition: (
             state: any,
             props: any
@@ -307,12 +329,12 @@ export interface toolbarButtonLogicType {
         side: (state: any, props: any) => 'left' | 'right'
         closeDistance: (state: any, props: any) => number
         closeRotation: (state: any, props: any) => number
-        inspectExtensionPercentage: (state: any, props: any) => any
-        heatmapExtensionPercentage: (state: any, props: any) => any
-        heatmapWindowVisible: (state: any, props: any) => any
-        actionsExtensionPercentage: (state: any, props: any) => any
-        actionsWindowVisible: (state: any, props: any) => any
-        statsExtensionPercentage: (state: any, props: any) => any
+        inspectExtensionPercentage: (state: any, props: any) => number
+        heatmapExtensionPercentage: (state: any, props: any) => number
+        heatmapWindowVisible: (state: any, props: any) => boolean
+        actionsExtensionPercentage: (state: any, props: any) => number
+        actionsWindowVisible: (state: any, props: any) => boolean
+        statsExtensionPercentage: (state: any, props: any) => number
     }
     values: {
         windowHeight: number
@@ -321,7 +343,10 @@ export interface toolbarButtonLogicType {
         actionsInfoVisible: boolean
         statsVisible: boolean
         extensionPercentage: number
-        lastDragPosition: null
+        lastDragPosition: null | {
+            x: number
+            y: number
+        }
         heatmapPosition: {
             x: number
             y: number
@@ -340,26 +365,52 @@ export interface toolbarButtonLogicType {
         side: 'left' | 'right'
         closeDistance: number
         closeRotation: number
-        inspectExtensionPercentage: any
-        heatmapExtensionPercentage: any
-        heatmapWindowVisible: any
-        actionsExtensionPercentage: any
-        actionsWindowVisible: any
-        statsExtensionPercentage: any
+        inspectExtensionPercentage: number
+        heatmapExtensionPercentage: number
+        heatmapWindowVisible: boolean
+        actionsExtensionPercentage: number
+        actionsWindowVisible: boolean
+        statsExtensionPercentage: number
     }
     _isKea: true
     __keaTypeGenInternalSelectorTypes: {
-        dragPosition: (arg1: any, arg2: any, arg3: any) => { x: number; y: number }
-        toolbarListVerticalPadding: (arg1: any, arg2: any) => number
-        dockButtonOnTop: (arg1: any, arg2: any) => boolean
-        side: (arg1: any, arg2: any) => 'left' | 'right'
-        closeDistance: (arg1: any, arg2: any) => number
-        closeRotation: (arg1: any, arg2: any) => number
-        inspectExtensionPercentage: (arg1: any, arg2: any) => any
-        heatmapExtensionPercentage: (arg1: any, arg2: any) => any
-        heatmapWindowVisible: (arg1: any, arg2: any) => any
-        actionsExtensionPercentage: (arg1: any, arg2: any) => any
-        actionsWindowVisible: (arg1: any, arg2: any) => any
-        statsExtensionPercentage: (arg1: any, arg2: any) => any
+        dragPosition: (arg1: { x: number; y: number } | null, arg2: number, arg3: number) => { x: number; y: number }
+        toolbarListVerticalPadding: (arg1: { x: number; y: number }, arg2: number) => number
+        dockButtonOnTop: (arg1: { x: number; y: number }, arg2: number) => boolean
+        side: (arg1: { x: number; y: number }, arg2: number) => 'left' | 'right'
+        closeDistance: (arg1: { x: number; y: number }, arg2: number) => number
+        closeRotation: (arg1: { x: number; y: number }, arg2: number) => number
+        inspectExtensionPercentage: (arg1: boolean, arg2: number) => number
+        heatmapExtensionPercentage: (arg1: boolean, arg2: number) => number
+        heatmapWindowVisible: (arg1: boolean, arg2: boolean) => boolean
+        actionsExtensionPercentage: (arg1: boolean, arg2: number) => number
+        actionsWindowVisible: (arg1: boolean, arg2: boolean) => boolean
+        statsExtensionPercentage: (arg1: boolean, arg2: number) => number
+    }
+    __keaTypeGenInternalReducerActions: {
+        'disable heatmap (toolbar.elements.heatmapLogic)': () => {
+            type: 'disable heatmap (toolbar.elements.heatmapLogic)'
+            payload: {
+                value: boolean
+            }
+        }
+        'enable heatmap (toolbar.elements.heatmapLogic)': () => {
+            type: 'enable heatmap (toolbar.elements.heatmapLogic)'
+            payload: {
+                value: boolean
+            }
+        }
+        'show button actions (toolbar.actions.actionsTabLogic)': () => {
+            type: 'show button actions (toolbar.actions.actionsTabLogic)'
+            payload: {
+                value: boolean
+            }
+        }
+        'hide button actions (toolbar.actions.actionsTabLogic)': () => {
+            type: 'hide button actions (toolbar.actions.actionsTabLogic)'
+            payload: {
+                value: boolean
+            }
+        }
     }
 }

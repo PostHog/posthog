@@ -7,28 +7,32 @@ import { toast } from 'react-toastify'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+import { actionsTabLogicType } from '~/toolbar/actions/actionsTabLogicType'
+import { ActionType, ToolbarTab } from '~/types'
+import { ActionForm, ActionStepForm } from '~/toolbar/types'
+import { FormInstance } from 'antd/es/form'
 
-function newAction(element) {
+function newAction(element: HTMLElement | null): Partial<ActionType> {
     return {
         name: '',
         steps: [element ? actionStepToAntdForm(elementToActionStep(element), true) : {}],
     }
 }
 
-export const actionsTabLogic = kea({
+export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, ActionStepForm, FormInstance>>({
     actions: {
-        setForm: (form) => ({ form }),
-        selectAction: (id) => ({ id }),
-        newAction: (element = null) => ({ element }),
-        inspectForElementWithIndex: (index) => ({ index }),
-        inspectElementSelected: (element, index) => ({ element, index }),
-        setEditingFields: (editingFields) => ({ editingFields }),
+        setForm: (form: FormInstance) => ({ form }),
+        selectAction: (id: number | null) => ({ id }),
+        newAction: (element?: HTMLElement) => ({ element }),
+        inspectForElementWithIndex: (index: number) => ({ index }),
+        inspectElementSelected: (element: HTMLElement, index: number | null) => ({ element, index }),
+        setEditingFields: (editingFields: ActionStepForm) => ({ editingFields }),
         incrementCounter: true,
-        saveAction: (formValues) => ({ formValues }),
+        saveAction: (formValues: ActionForm) => ({ formValues }),
         deleteAction: true,
         showButtonActions: true,
         hideButtonActions: true,
-        setShowActionsTooltip: (showActionsTooltip) => ({ showActionsTooltip }),
+        setShowActionsTooltip: (showActionsTooltip: boolean) => ({ showActionsTooltip }),
     },
 
     reducers: {
@@ -39,28 +43,43 @@ export const actionsTabLogic = kea({
                 hideButtonActions: () => false,
             },
         ],
-        selectedActionId: {
-            selectAction: (_, { id }) => id,
-            newAction: () => 'new',
-        },
-        newActionForElement: {
-            newAction: (_, { element }) => element,
-            selectAction: () => null,
-        },
-        inspectingElement: {
-            inspectForElementWithIndex: (_, { index }) => index,
-            inspectElementSelected: () => null,
-            selectAction: () => null,
-            newAction: () => null,
-        },
-        editingFields: {
-            setEditingFields: (_, { editingFields }) => editingFields,
-            selectAction: () => null,
-            newAction: () => null,
-        },
-        form: {
-            setForm: (_, { form }) => form,
-        },
+        selectedActionId: [
+            null as number | 'new' | null,
+            {
+                selectAction: (_, { id }) => id,
+                newAction: () => 'new',
+            },
+        ],
+        newActionForElement: [
+            null as HTMLElement | null,
+            {
+                newAction: (_, { element }) => element,
+                selectAction: () => null,
+            },
+        ],
+        inspectingElement: [
+            null as number | null,
+            {
+                inspectForElementWithIndex: (_, { index }) => index,
+                inspectElementSelected: () => null,
+                selectAction: () => null,
+                newAction: () => null,
+            },
+        ],
+        editingFields: [
+            null as ActionStepForm | null,
+            {
+                setEditingFields: (_, { editingFields }) => editingFields,
+                selectAction: () => null,
+                newAction: () => null,
+            },
+        ],
+        form: [
+            null as FormInstance | null,
+            {
+                setForm: (_, { form }) => form,
+            },
+        ],
         counter: [
             0,
             {
@@ -78,23 +97,28 @@ export const actionsTabLogic = kea({
     selectors: {
         selectedAction: [
             (s) => [s.selectedActionId, s.newActionForElement, actionsLogic.selectors.allActions],
-            (selectedActionId, newActionForElement, allActions) => {
+            (selectedActionId, newActionForElement, allActions): ActionType | null => {
                 if (selectedActionId === 'new') {
                     return newAction(newActionForElement)
                 }
-                return allActions.find((a) => a.id === selectedActionId)
+                return allActions.find((a) => a.id === selectedActionId) || null
             },
         ],
         initialValuesForForm: [
             (s) => [s.selectedAction],
-            (selectedAction) =>
-                selectedAction ? { ...selectedAction, steps: selectedAction.steps.map(actionStepToAntdForm) } : {},
+            (selectedAction): ActionForm =>
+                selectedAction
+                    ? {
+                          ...selectedAction,
+                          steps: selectedAction.steps?.map((step) => actionStepToAntdForm(step)) || [],
+                      }
+                    : { steps: [] },
         ],
         selectedEditedAction: [
             // `editingFields` don't update on values.form.setFields(fields), so reloading by tagging a few other selectors
             (s) => [s.selectedAction, s.initialValuesForForm, s.form, s.editingFields, s.inspectingElement, s.counter],
-            (selectedAction, initialValuesForForm, form) => {
-                return selectedAction ? { ...initialValuesForForm, ...(form?.getFieldValue() || {}) } : null
+            (selectedAction, initialValuesForForm, form): ActionForm => {
+                return selectedAction ? { ...initialValuesForForm, ...(form?.getFieldValue('') || {}) } : null
             },
         ],
     },
@@ -120,7 +144,7 @@ export const actionsTabLogic = kea({
             if (values.form) {
                 const actionStep = actionStepToAntdForm(elementToActionStep(element), true)
                 const fields = Object.entries(actionStep).map(([key, value]) => {
-                    return { name: ['steps', index, key], value }
+                    return { name: ['steps', index || 0, key], value }
                 })
                 values.form.setFields(fields)
                 actions.incrementCounter()
@@ -129,7 +153,7 @@ export const actionsTabLogic = kea({
         saveAction: async ({ formValues }, breakpoint) => {
             const actionToSave = {
                 ...formValues,
-                steps: formValues.steps.map(stepToDatabaseFormat),
+                steps: formValues.steps?.map(stepToDatabaseFormat) || [],
             }
             const { apiURL, temporaryToken } = toolbarLogic.values
             const { selectedActionId } = values
@@ -175,7 +199,7 @@ export const actionsTabLogic = kea({
         hideButtonActions: () => {
             actions.setShowActionsTooltip(false)
         },
-        [actionsLogic.actions.getActionsSuccess]: () => {
+        [actionsLogic.actionTypes.getActionsSuccess]: () => {
             actions.setShowActionsTooltip(true)
         },
         setShowActionsTooltip: async ({ showActionsTooltip }, breakpoint) => {
@@ -184,7 +208,8 @@ export const actionsTabLogic = kea({
                 actions.setShowActionsTooltip(false)
             }
         },
-        [toolbarTabLogic.actions.setTab]: ({ tab }) => {
+        // not sure why { tab: ToolbarTab } needs to be manually added...
+        [toolbarTabLogic.actionTypes.setTab]: ({ tab }: { tab: ToolbarTab }) => {
             if (tab === 'actions') {
                 actionsLogic.actions.getActions()
             }

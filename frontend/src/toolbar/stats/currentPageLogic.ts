@@ -1,8 +1,9 @@
 import { kea } from 'kea'
+import { currentPageLogicType } from '~/toolbar/stats/currentPageLogicType'
 
-export const currentPageLogic = kea({
+export const currentPageLogic = kea<currentPageLogicType>({
     actions: () => ({
-        setHref: (href) => ({ href }),
+        setHref: (href: string) => ({ href }),
     }),
 
     reducers: () => ({

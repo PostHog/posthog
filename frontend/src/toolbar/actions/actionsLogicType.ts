@@ -1,20 +1,20 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface actionsLogicType {
+export interface actionsLogicType<ActionType> {
     key: any
     actionCreators: {
         getActions: (
-            _: any
+            _?: any
         ) => {
             type: 'get actions (toolbar.actions.actionsLogic)'
             payload: any
         }
         getActionsSuccess: (
-            allActions: never[]
+            allActions: ActionType[]
         ) => {
             type: 'get actions success (toolbar.actions.actionsLogic)'
             payload: {
-                allActions: never[]
+                allActions: ActionType[]
             }
         }
         getActionsFailure: (
@@ -27,16 +27,20 @@ export interface actionsLogicType {
         }
         updateAction: ({
             action,
-        }: any) => {
+        }: {
+            action: ActionType
+        }) => {
             type: 'update action (toolbar.actions.actionsLogic)'
-            payload: any
+            payload: {
+                action: ActionType
+            }
         }
         updateActionSuccess: (
-            allActions: never[]
+            allActions: ActionType[]
         ) => {
             type: 'update action success (toolbar.actions.actionsLogic)'
             payload: {
-                allActions: never[]
+                allActions: ActionType[]
             }
         }
         updateActionFailure: (
@@ -49,16 +53,20 @@ export interface actionsLogicType {
         }
         deleteAction: ({
             id,
-        }: any) => {
+        }: {
+            id: number
+        }) => {
             type: 'delete action (toolbar.actions.actionsLogic)'
-            payload: any
+            payload: {
+                id: number
+            }
         }
         deleteActionSuccess: (
-            allActions: never[]
+            allActions: ActionType[]
         ) => {
             type: 'delete action success (toolbar.actions.actionsLogic)'
             payload: {
-                allActions: never[]
+                allActions: ActionType[]
             }
         }
         deleteActionFailure: (
@@ -94,17 +102,17 @@ export interface actionsLogicType {
     }
     actions: {
         getActions: (
-            _: any
+            _?: any
         ) => {
             type: 'get actions (toolbar.actions.actionsLogic)'
             payload: any
         }
         getActionsSuccess: (
-            allActions: never[]
+            allActions: ActionType[]
         ) => {
             type: 'get actions success (toolbar.actions.actionsLogic)'
             payload: {
-                allActions: never[]
+                allActions: ActionType[]
             }
         }
         getActionsFailure: (
@@ -117,16 +125,20 @@ export interface actionsLogicType {
         }
         updateAction: ({
             action,
-        }: any) => {
+        }: {
+            action: ActionType
+        }) => {
             type: 'update action (toolbar.actions.actionsLogic)'
-            payload: any
+            payload: {
+                action: ActionType
+            }
         }
         updateActionSuccess: (
-            allActions: never[]
+            allActions: ActionType[]
         ) => {
             type: 'update action success (toolbar.actions.actionsLogic)'
             payload: {
-                allActions: never[]
+                allActions: ActionType[]
             }
         }
         updateActionFailure: (
@@ -139,16 +151,20 @@ export interface actionsLogicType {
         }
         deleteAction: ({
             id,
-        }: any) => {
+        }: {
+            id: number
+        }) => {
             type: 'delete action (toolbar.actions.actionsLogic)'
-            payload: any
+            payload: {
+                id: number
+            }
         }
         deleteActionSuccess: (
-            allActions: never[]
+            allActions: ActionType[]
         ) => {
             type: 'delete action success (toolbar.actions.actionsLogic)'
             payload: {
-                allActions: never[]
+                allActions: ActionType[]
             }
         }
         deleteActionFailure: (
@@ -174,38 +190,38 @@ export interface actionsLogicType {
         action: () => any,
         fullState: any
     ) => {
-        allActions: never[]
+        allActions: ActionType[]
         allActionsLoading: boolean
     }
     reducerOptions: any
     reducers: {
-        allActions: (state: never[], action: any, fullState: any) => never[]
+        allActions: (state: ActionType[], action: any, fullState: any) => ActionType[]
         allActionsLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
         state: any
     ) => {
-        allActions: never[]
+        allActions: ActionType[]
         allActionsLoading: boolean
     }
     selectors: {
-        allActions: (state: any, props: any) => never[]
+        allActions: (state: any, props: any) => ActionType[]
         allActionsLoading: (state: any, props: any) => boolean
-        sortedActions: (state: any, props: any) => any[]
-        actionsForCurrentUrl: (state: any, props: any) => any
-        actionCount: (state: any, props: any) => any
+        sortedActions: (state: any, props: any) => ActionType[]
+        actionsForCurrentUrl: (state: any, props: any) => ActionType[]
+        actionCount: (state: any, props: any) => number
     }
     values: {
-        allActions: never[]
+        allActions: ActionType[]
         allActionsLoading: boolean
-        sortedActions: any[]
-        actionsForCurrentUrl: any
-        actionCount: any
+        sortedActions: ActionType[]
+        actionsForCurrentUrl: ActionType[]
+        actionCount: number
     }
     _isKea: true
     __keaTypeGenInternalSelectorTypes: {
-        sortedActions: (arg1: any) => any[]
-        actionsForCurrentUrl: (arg1: any, arg2: any) => any
-        actionCount: (arg1: any) => any
+        sortedActions: (arg1: ActionType[]) => ActionType[]
+        actionsForCurrentUrl: (arg1: ActionType[], arg2: string) => ActionType[]
+        actionCount: (arg1: ActionType[]) => number
     }
 }

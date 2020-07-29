@@ -1393,6 +1393,11 @@
     "@types/prop-types" "*"
     csstype "^2.2.0"
 
+"@types/simmerjs@^0.5.1":
+  version "0.5.1"
+  resolved "https://registry.yarnpkg.com/@types/simmerjs/-/simmerjs-0.5.1.tgz#74ff8f8614ddf995c135eebc6348fb5d42cadaa1"
+  integrity sha512-246t3U8Y3zVaUPwI5kDlOah0eL3rc2tZ1dX72SYBs0he6GyINOhZMP8qXEdgxbl4q/ARQkrYHZl9fLgDmBpo9w==
+
 "@types/sinon-chai@3.2.3":
   version "3.2.3"
   resolved "https://registry.yarnpkg.com/@types/sinon-chai/-/sinon-chai-3.2.3.tgz#afe392303dda95cc8069685d1e537ff434fa506e"
@@ -6076,10 +6081,10 @@ kea-router@^0.4.0:
   dependencies:
     url-pattern "^1.0.3"
 
-kea-typegen@^0.0.32:
-  version "0.0.32"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.0.32.tgz#f2d5704f5a0eb78af318bbfdf29d8f1724575657"
-  integrity sha512-KXxoDuGwS7qMrvtP6dOFCfd5ynywDVPKgW7zyodZZ93Ieq6Z9avncxxG4YNmXoMRAo5VWeQlT01JG/Ckpi71cg==
+kea-typegen@^0.0.33:
+  version "0.0.33"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.0.33.tgz#3a67835c5a47c074d21d291ae94b8053206d2fe0"
+  integrity sha512-eP2aUUWPc+uA4Y+SAsc8MvEgRtw09Q6j4t6AIsBi02Sq4r4gqyirdKDv7bMoOgiNs+Tn2V7VvQV7PQCQIamHkQ==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.8"
     prettier "^2.0.5"
@@ -6090,10 +6095,10 @@ kea-window-values@^0.0.1:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.0.1.tgz#918eee6647507e2d3d5d19466b9561261e7bc8d7"
   integrity sha512-60SfOqHrmnCC8hSD2LALMJemYcohQ8tGcTHlA5u4rQy0l0wFFE4gqH1WbKd+73j9m4f6zdoOk07rwJf+P8maiQ==
 
-kea@^2.2.0-beta.3:
-  version "2.2.0-beta.3"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.2.0-beta.3.tgz#a7ffddeaf2fd609f92e6c3ee75c3c4b89f071046"
-  integrity sha512-5Q3yNJ8I4olOEDd4weISfJaU4dqz1sNAGSNLdPAzh7JdKZmJzu84vatDdQskk9rASlM1xW3whXYkteGRDpLmwg==
+kea@^2.2.0-beta.4:
+  version "2.2.0-beta.4"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.2.0-beta.4.tgz#26a627a9b255129fd8e6bbe9593ddac81b7d5b4e"
+  integrity sha512-8BCwKOt2MW06o2eiK1b4U4YXKbsKLN48dTGWRjif2AHyYGjKsHWg5XmV5YpdzbyYSLAiSJfaxXsgghwWm5YABQ==
 
 keyv@^3.0.0:
   version "3.1.0"

@@ -1,44 +1,44 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface actionsTabLogicType {
+export interface actionsTabLogicType<ActionType, ActionForm, ActionStepForm, FormInstance> {
     key: any
     actionCreators: {
         setForm: (
-            form: any
+            form: FormInstance
         ) => {
             type: 'set form (toolbar.actions.actionsTabLogic)'
-            payload: { form: any }
+            payload: { form: FormInstance }
         }
         selectAction: (
-            id: any
+            id: number | null
         ) => {
             type: 'select action (toolbar.actions.actionsTabLogic)'
-            payload: { id: any }
+            payload: { id: number | null }
         }
         newAction: (
-            element?: any
+            element?: HTMLElement
         ) => {
             type: 'new action (toolbar.actions.actionsTabLogic)'
-            payload: { element: any }
+            payload: { element: HTMLElement | undefined }
         }
         inspectForElementWithIndex: (
-            index: any
+            index: number
         ) => {
             type: 'inspect for element with index (toolbar.actions.actionsTabLogic)'
-            payload: { index: any }
+            payload: { index: number }
         }
         inspectElementSelected: (
-            element: any,
-            index: any
+            element: HTMLElement,
+            index: number | null
         ) => {
             type: 'inspect element selected (toolbar.actions.actionsTabLogic)'
-            payload: { element: any; index: any }
+            payload: { element: HTMLElement; index: number | null }
         }
         setEditingFields: (
-            editingFields: any
+            editingFields: ActionStepForm
         ) => {
             type: 'set editing fields (toolbar.actions.actionsTabLogic)'
-            payload: { editingFields: any }
+            payload: { editingFields: ActionStepForm }
         }
         incrementCounter: () => {
             type: 'increment counter (toolbar.actions.actionsTabLogic)'
@@ -47,10 +47,10 @@ export interface actionsTabLogicType {
             }
         }
         saveAction: (
-            formValues: any
+            formValues: ActionForm
         ) => {
             type: 'save action (toolbar.actions.actionsTabLogic)'
-            payload: { formValues: any }
+            payload: { formValues: ActionForm }
         }
         deleteAction: () => {
             type: 'delete action (toolbar.actions.actionsTabLogic)'
@@ -71,10 +71,10 @@ export interface actionsTabLogicType {
             }
         }
         setShowActionsTooltip: (
-            showActionsTooltip: any
+            showActionsTooltip: boolean
         ) => {
             type: 'set show actions tooltip (toolbar.actions.actionsTabLogic)'
-            payload: { showActionsTooltip: any }
+            payload: { showActionsTooltip: boolean }
         }
     }
     actionKeys: {
@@ -107,41 +107,41 @@ export interface actionsTabLogicType {
     }
     actions: {
         setForm: (
-            form: any
+            form: FormInstance
         ) => {
             type: 'set form (toolbar.actions.actionsTabLogic)'
-            payload: { form: any }
+            payload: { form: FormInstance }
         }
         selectAction: (
-            id: any
+            id: number | null
         ) => {
             type: 'select action (toolbar.actions.actionsTabLogic)'
-            payload: { id: any }
+            payload: { id: number | null }
         }
         newAction: (
-            element?: any
+            element?: HTMLElement
         ) => {
             type: 'new action (toolbar.actions.actionsTabLogic)'
-            payload: { element: any }
+            payload: { element: HTMLElement | undefined }
         }
         inspectForElementWithIndex: (
-            index: any
+            index: number
         ) => {
             type: 'inspect for element with index (toolbar.actions.actionsTabLogic)'
-            payload: { index: any }
+            payload: { index: number }
         }
         inspectElementSelected: (
-            element: any,
-            index: any
+            element: HTMLElement,
+            index: number | null
         ) => {
             type: 'inspect element selected (toolbar.actions.actionsTabLogic)'
-            payload: { element: any; index: any }
+            payload: { element: HTMLElement; index: number | null }
         }
         setEditingFields: (
-            editingFields: any
+            editingFields: ActionStepForm
         ) => {
             type: 'set editing fields (toolbar.actions.actionsTabLogic)'
-            payload: { editingFields: any }
+            payload: { editingFields: ActionStepForm }
         }
         incrementCounter: () => {
             type: 'increment counter (toolbar.actions.actionsTabLogic)'
@@ -150,10 +150,10 @@ export interface actionsTabLogicType {
             }
         }
         saveAction: (
-            formValues: any
+            formValues: ActionForm
         ) => {
             type: 'save action (toolbar.actions.actionsTabLogic)'
-            payload: { formValues: any }
+            payload: { formValues: ActionForm }
         }
         deleteAction: () => {
             type: 'delete action (toolbar.actions.actionsTabLogic)'
@@ -174,10 +174,10 @@ export interface actionsTabLogicType {
             }
         }
         setShowActionsTooltip: (
-            showActionsTooltip: any
+            showActionsTooltip: boolean
         ) => {
             type: 'set show actions tooltip (toolbar.actions.actionsTabLogic)'
-            payload: { showActionsTooltip: any }
+            payload: { showActionsTooltip: boolean }
         }
     }
     cache: Record<string, any>
@@ -195,22 +195,22 @@ export interface actionsTabLogicType {
         fullState: any
     ) => {
         buttonActionsVisible: boolean
-        selectedActionId: any
-        newActionForElement: any
-        inspectingElement: any
-        editingFields: any
-        form: any
+        selectedActionId: number | 'new' | null
+        newActionForElement: HTMLElement | null
+        inspectingElement: number | null
+        editingFields: ActionStepForm | null
+        form: FormInstance | null
         counter: number
         showActionsTooltip: boolean
     }
     reducerOptions: any
     reducers: {
         buttonActionsVisible: (state: boolean, action: any, fullState: any) => boolean
-        selectedActionId: (state: any, action: any, fullState: any) => any
-        newActionForElement: (state: any, action: any, fullState: any) => any
-        inspectingElement: (state: any, action: any, fullState: any) => any
-        editingFields: (state: any, action: any, fullState: any) => any
-        form: (state: any, action: any, fullState: any) => any
+        selectedActionId: (state: number | 'new' | null, action: any, fullState: any) => number | 'new' | null
+        newActionForElement: (state: HTMLElement | null, action: any, fullState: any) => HTMLElement | null
+        inspectingElement: (state: number | null, action: any, fullState: any) => number | null
+        editingFields: (state: ActionStepForm | null, action: any, fullState: any) => ActionStepForm | null
+        form: (state: FormInstance | null, action: any, fullState: any) => FormInstance | null
         counter: (state: number, action: any, fullState: any) => number
         showActionsTooltip: (state: boolean, action: any, fullState: any) => boolean
     }
@@ -218,44 +218,51 @@ export interface actionsTabLogicType {
         state: any
     ) => {
         buttonActionsVisible: boolean
-        selectedActionId: any
-        newActionForElement: any
-        inspectingElement: any
-        editingFields: any
-        form: any
+        selectedActionId: number | 'new' | null
+        newActionForElement: HTMLElement | null
+        inspectingElement: number | null
+        editingFields: ActionStepForm | null
+        form: FormInstance | null
         counter: number
         showActionsTooltip: boolean
     }
     selectors: {
         buttonActionsVisible: (state: any, props: any) => boolean
-        selectedActionId: (state: any, props: any) => any
-        newActionForElement: (state: any, props: any) => any
-        inspectingElement: (state: any, props: any) => any
-        editingFields: (state: any, props: any) => any
-        form: (state: any, props: any) => any
+        selectedActionId: (state: any, props: any) => number | 'new' | null
+        newActionForElement: (state: any, props: any) => HTMLElement | null
+        inspectingElement: (state: any, props: any) => number | null
+        editingFields: (state: any, props: any) => ActionStepForm | null
+        form: (state: any, props: any) => FormInstance | null
         counter: (state: any, props: any) => number
         showActionsTooltip: (state: any, props: any) => boolean
-        selectedAction: (state: any, props: any) => any
-        initialValuesForForm: (state: any, props: any) => any
-        selectedEditedAction: (state: any, props: any) => any
+        selectedAction: (state: any, props: any) => ActionType | null
+        initialValuesForForm: (state: any, props: any) => ActionForm
+        selectedEditedAction: (state: any, props: any) => ActionForm
     }
     values: {
         buttonActionsVisible: boolean
-        selectedActionId: any
-        newActionForElement: any
-        inspectingElement: any
-        editingFields: any
-        form: any
+        selectedActionId: number | 'new' | null
+        newActionForElement: HTMLElement | null
+        inspectingElement: number | null
+        editingFields: ActionStepForm | null
+        form: FormInstance | null
         counter: number
         showActionsTooltip: boolean
-        selectedAction: any
-        initialValuesForForm: any
-        selectedEditedAction: any
+        selectedAction: ActionType | null
+        initialValuesForForm: ActionForm
+        selectedEditedAction: ActionForm
     }
     _isKea: true
     __keaTypeGenInternalSelectorTypes: {
-        selectedAction: (arg1: any, arg2: any, arg3: any) => any
-        initialValuesForForm: (arg1: any) => any
-        selectedEditedAction: (arg1: any, arg2: any, arg3: any, arg4: any, arg5: any, arg6: any) => any
+        selectedAction: (arg1: number | 'new' | null, arg2: HTMLElement | null, arg3: ActionType[]) => ActionType | null
+        initialValuesForForm: (arg1: ActionType | null) => ActionForm
+        selectedEditedAction: (
+            arg1: ActionType | null,
+            arg2: ActionForm,
+            arg3: FormInstance | null,
+            arg4: ActionStepForm | null,
+            arg5: number | null,
+            arg6: number
+        ) => ActionForm
     }
 }

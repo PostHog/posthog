@@ -7,10 +7,12 @@ import {
 } from '~/toolbar/dockUtils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { posthog } from '~/toolbar/posthog'
+import { dockLogicType } from '~/toolbar/dockLogicType'
+import { ToolbarAnimationState, ToolbarMode } from '~/types'
 
 // props:
 // - shadowRef: shadowRoot ref
-export const dockLogic = kea({
+export const dockLogic = kea<dockLogicType<ToolbarMode, ToolbarAnimationState>>({
     props: {
         shadowRef: 'required',
         padding: 'optional',
@@ -33,7 +35,7 @@ export const dockLogic = kea({
         dockAnimated: true,
         dockFaded: true,
         hideButtonAnimated: true,
-        setMode: (mode, update = false) => ({
+        setMode: (mode: ToolbarMode, update: boolean = false) => ({
             mode,
             update,
             windowWidth: window.innerWidth,
@@ -49,13 +51,13 @@ export const dockLogic = kea({
 
     reducers: () => ({
         mode: [
-            '',
+            '' as ToolbarMode,
             {
                 setMode: (_, { mode }) => mode,
             },
         ],
         lastMode: [
-            '',
+            '' as ToolbarMode,
             { persist: true },
             {
                 button: () => 'button',
@@ -63,7 +65,7 @@ export const dockLogic = kea({
             },
         ],
         dockStatus: [
-            'disabled',
+            'disabled' as ToolbarAnimationState,
             {
                 dock: () => 'animating',
                 dockAnimated: () => 'fading-in',
@@ -75,7 +77,7 @@ export const dockLogic = kea({
             },
         ],
         buttonStatus: [
-            'disabled',
+            'disabled' as ToolbarAnimationState,
             {
                 button: () => 'animating',
                 buttonAnimated: () => 'fading-in',
@@ -115,7 +117,7 @@ export const dockLogic = kea({
 
     events: ({ cache, actions, values }) => ({
         afterMount: () => {
-            window.__POSTHOG_SET_MODE__ = actions.setMode // export this for debugging in case it goes wrong client side
+            ;(window as any)['__POSTHOG_SET_MODE__'] = actions.setMode // export this for debugging in case it goes wrong client side
             cache.onScrollResize = () => actions.update()
             window.addEventListener('scroll', cache.onScrollResize)
             window.addEventListener('resize', cache.onScrollResize)
@@ -158,7 +160,7 @@ export const dockLogic = kea({
         setMode: async ({ mode, update }, breakpoint) => {
             const { padding, sidebarWidth, zoom } = values
             const bodyStyle = window.document.body.style
-            const htmlStyle = window.document.querySelector('html').style
+            const htmlStyle = window.document.querySelector('html')!.style
             const shadowRef = props.shadowRef
 
             // Update CSS variables (--zoom, etc) in #dock-toolbar inside the shadow root

@@ -5,12 +5,15 @@ import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { elementToActionStep, elementToSelector } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { heatmapLogicType } from '~/toolbar/elements/heatmapLogicType'
+import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
+import { ActionStepType } from '~/types'
 
-export const heatmapLogic = kea({
+export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionStepType>>({
     actions: {
         enableHeatmap: true,
         disableHeatmap: true,
-        setShowHeatmapTooltip: (showHeatmapTooltip) => ({ showHeatmapTooltip }),
+        setShowHeatmapTooltip: (showHeatmapTooltip: boolean) => ({ showHeatmapTooltip }),
     },
 
     reducers: {
@@ -41,10 +44,10 @@ export const heatmapLogic = kea({
 
     loaders: {
         events: [
-            [],
+            [] as ElementsEventType[],
             {
                 resetEvents: () => [],
-                getEvents: async ({ $current_url }, breakpoint) => {
+                getEvents: async ({ $current_url }: { $current_url: string }, breakpoint) => {
                     const params = {
                         properties: [{ key: '$current_url', value: $current_url }],
                         temporary_token: toolbarLogic.values.temporaryToken,
@@ -74,38 +77,37 @@ export const heatmapLogic = kea({
         elements: [
             (selectors) => [selectors.events],
             (events) => {
-                const elements = events
-                    .map((event) => {
-                        let combinedSelector
-                        for (let i = 0; i < event.elements.length; i++) {
-                            const selector = elementToSelector(event.elements[i])
-                            combinedSelector = combinedSelector ? `${selector} > ${combinedSelector}` : selector
+                const elements: CountedHTMLElement[] = []
+                events.forEach((event) => {
+                    let combinedSelector
+                    for (let i = 0; i < event.elements.length; i++) {
+                        const selector = elementToSelector(event.elements[i])
+                        combinedSelector = combinedSelector ? `${selector} > ${combinedSelector}` : selector
 
-                            try {
-                                const elements = Array.from(document.querySelectorAll(combinedSelector))
+                        try {
+                            const domElements = Array.from(document.querySelectorAll(combinedSelector))
 
-                                if (elements.length === 1) {
-                                    return {
-                                        element: elements[0],
-                                        count: event.count,
-                                        selector: selector,
-                                        hash: event.hash,
-                                    }
-                                }
-
-                                if (elements.length === 0 && i === event.elements.length - 1) {
-                                    console.error('Found a case with 0 elements')
-                                    return null
-                                }
-                            } catch (error) {
-                                console.error('Invalid selector!', combinedSelector)
-                                throw error
+                            if (domElements.length === 1) {
+                                elements.push({
+                                    element: domElements[0],
+                                    count: event.count,
+                                    selector: selector,
+                                    hash: event.hash,
+                                } as CountedHTMLElement)
                             }
 
-                            // TODO: what if multiple elements will continue to match until the end?
+                            if (domElements.length === 0 && i === event.elements.length - 1) {
+                                console.error('Found a case with 0 elements')
+                                return null
+                            }
+                        } catch (error) {
+                            console.error('Invalid selector!', combinedSelector)
+                            throw error
                         }
-                    })
-                    .filter((e) => e)
+
+                        // TODO: what if multiple elements will continue to match until the end?
+                    }
+                })
 
                 return elements
             },
@@ -113,9 +115,10 @@ export const heatmapLogic = kea({
         countedElements: [
             (selectors) => [selectors.elements],
             (elements) => {
-                const elementCounter = new Map()
-                const elementSelector = new Map()
-                elements.forEach(({ element, selector, count }) => {
+                const elementCounter = new Map<HTMLElement, number>()
+                const elementSelector = new Map<HTMLElement, string>()
+
+                ;(elements || []).forEach(({ element, selector, count }) => {
                     const oldCount = elementCounter.get(element) || 0
                     elementCounter.set(element, oldCount + count)
                     if (oldCount === 0) {
@@ -123,15 +126,15 @@ export const heatmapLogic = kea({
                     }
                 })
 
-                const countedElements = []
+                const countedElements = [] as CountedHTMLElement[]
                 elementCounter.forEach((count, element) => {
-                    const selector = elementSelector[element]
+                    const selector = elementSelector.get(element)
                     countedElements.push({
                         count,
                         element,
                         selector,
                         actionStep: elementToActionStep(element),
-                    })
+                    } as CountedHTMLElement)
                 })
 
                 countedElements.sort((a, b) => b.count - a.count)
@@ -160,7 +163,7 @@ export const heatmapLogic = kea({
     }),
 
     listeners: ({ actions, values }) => ({
-        [currentPageLogic.actions.setHref]: ({ href }) => {
+        [currentPageLogic.actionTypes.setHref]: ({ href }) => {
             if (values.heatmapEnabled) {
                 actions.resetEvents()
                 actions.getEvents({ $current_url: href })

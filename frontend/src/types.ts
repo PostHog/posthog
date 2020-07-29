@@ -23,3 +23,51 @@ export interface TeamType {
     signup_token: string
     slack_incoming_webhook: string
 }
+
+export interface ActionType {
+    count?: number
+    created_at?: string
+    deleted?: boolean
+    id?: number
+    is_calculating?: boolean
+    name?: string
+    post_to_slack?: boolean
+    steps?: ActionStepType[]
+}
+
+export interface ActionStepType {
+    event?: string
+    href?: string
+    id?: number
+    name?: string
+    properties?: []
+    selector?: string
+    tag_name?: string
+    text?: string
+    url?: string
+    url_matching?: 'contains' | 'regex' | 'exact'
+}
+
+export interface ElementType {
+    attr_class?: string[]
+    attr_id?: string
+    attributes: Record<string, string>
+    href: string
+    nth_child: number
+    nth_of_type: number
+    order: number
+    tag_name: string
+    text?: string
+}
+
+export type ToolbarTab = 'stats' | 'actions'
+export type ToolbarMode = 'button' | 'dock' | ''
+export type ToolbarAnimationState = 'animating' | 'fading-in' | 'complete' | 'disabled' | 'fading-out'
+
+export type EditorProps = {
+    apiURL?: string
+    jsURL?: string
+    temporaryToken?: string
+    actionId?: number
+    userIntent?: string
+}

@@ -1,5 +1,7 @@
 import Simmer from 'simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
+import { ActionStepType, ElementType } from '~/types'
+import { ActionStepForm, BoxColor } from '~/toolbar/types'
 
 const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
 
@@ -12,8 +14,8 @@ const TAGS_TO_IGNORE = ['html', 'body', 'meta', 'head', 'script', 'link', 'style
 
 const simmer = new Simmer(window, { depth: 8 })
 
-export function getSafeText(el) {
-    if (!el.childNodes || !el.childNodes.length) return
+export function getSafeText(el: HTMLElement): string {
+    if (!el.childNodes || !el.childNodes.length) return ''
     let elText = ''
     el.childNodes.forEach((child) => {
         if (child.nodeType !== 3 || !child.textContent) return
@@ -26,19 +28,19 @@ export function getSafeText(el) {
     return elText
 }
 
-export function elementToQuery(element) {
+export function elementToQuery(element: HTMLElement): string | null {
     if (!element) {
         return null
     }
     return (
         simmer(element)
             // Turn tags into lower cases
-            .replace(/(^[A-Z]+| [A-Z]+)/g, (d) => d.toLowerCase())
+            .replace(/(^[A-Z]+| [A-Z]+)/g, (d: string) => d.toLowerCase())
     )
 }
 
-export function elementToActionStep(element) {
-    let query = elementToQuery(element)
+export function elementToActionStep(element: HTMLElement): ActionStepType {
+    const query = elementToQuery(element)
     const tagName = element.tagName.toLowerCase()
 
     return {
@@ -53,7 +55,7 @@ export function elementToActionStep(element) {
     }
 }
 
-export function elementToSelector(element) {
+export function elementToSelector(element: ElementType): string {
     let selector = ''
     if (element.tag_name) {
         selector += cssEscape(element.tag_name)
@@ -71,23 +73,23 @@ export function elementToSelector(element) {
         selector += `[href="${cssEscape(element.href)}"]`
     }
     if (element.nth_child) {
-        selector += `:nth-child(${parseInt(element.nth_child)})`
+        selector += `:nth-child(${cssEscape(element.nth_child)})`
     }
     if (element.nth_of_type) {
-        selector += `:nth-of-type(${parseInt(element.nth_of_type)})`
+        selector += `:nth-of-type(${cssEscape(element.nth_of_type)})`
     }
     return selector
 }
 
-export function getShadowRoot() {
-    return window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot
+export function getShadowRoot(): ShadowRoot | null {
+    return window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot || null
 }
 
-export function hasCursorPointer(element) {
+export function hasCursorPointer(element: HTMLElement): boolean {
     return window.getComputedStyle(element)?.getPropertyValue('cursor') === 'pointer'
 }
 
-export function trimElement(element, selectingClickTargets = false) {
+export function trimElement(element: HTMLElement, selectingClickTargets = false): HTMLElement | null {
     if (!element) {
         return null
     }
@@ -102,7 +104,7 @@ export function trimElement(element, selectingClickTargets = false) {
             if (loopElement.matches(CLICK_TARGET_SELECTOR)) {
                 return loopElement
             }
-            let compStyles = window.getComputedStyle(loopElement)
+            const compStyles = window.getComputedStyle(loopElement)
             if (compStyles.getPropertyValue('cursor') === 'pointer') {
                 const parentStyles = loopElement.parentElement
                     ? window.getComputedStyle(loopElement.parentElement)
@@ -129,14 +131,14 @@ export function trimElement(element, selectingClickTargets = false) {
     }
 }
 
-export function inBounds(min, value, max) {
+export function inBounds(min: number, value: number, max: number): number {
     return Math.max(min, Math.min(max, value))
 }
 
-export function getAllClickTargets() {
-    const elements = document.querySelectorAll(CLICK_TARGET_SELECTOR)
+export function getAllClickTargets(): HTMLElement[] {
+    const elements = (document.querySelectorAll(CLICK_TARGET_SELECTOR) as unknown) as HTMLElement[]
 
-    let allElements = [...document.querySelectorAll('*')]
+    const allElements = [...((document.querySelectorAll('*') as unknown) as HTMLElement[])]
     const clickTags = CLICK_TARGET_SELECTOR.split(',').map((c) => c.trim())
 
     // loop through all elements and getComputedStyle
@@ -144,17 +146,17 @@ export function getAllClickTargets() {
         if (clickTags.indexOf(el.tagName.toLowerCase()) >= 0) {
             return false
         }
-        let compStyles = window.getComputedStyle(el)
+        const compStyles = window.getComputedStyle(el)
         return compStyles.getPropertyValue('cursor') === 'pointer'
     })
 
     const selectedElements = [...elements, ...pointerElements].map((e) => trimElement(e, true))
-    const uniqueElements = Array.from(new Set(selectedElements))
+    const uniqueElements = Array.from(new Set(selectedElements)) as HTMLElement[]
 
     return uniqueElements
 }
 
-export function stepMatchesHref(step, href) {
+export function stepMatchesHref(step: ActionStepType, href: string): boolean {
     if (!step.url_matching || !step.url) {
         return true
     }
@@ -167,13 +169,13 @@ export function stepMatchesHref(step, href) {
     return false
 }
 
-function matchRuleShort(str, rule) {
-    const escapeRegex = (str) => str.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
+function matchRuleShort(str: string, rule: string): boolean {
+    const escapeRegex = (str: string): string => str.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
     return new RegExp('^' + rule.split('%').map(escapeRegex).join('.*') + '$').test(str)
 }
 
-export function isParentOf(element, possibleParent) {
-    let loopElement = element
+export function isParentOf(element: HTMLElement, possibleParent: HTMLElement): boolean {
+    let loopElement = element as HTMLElement | null
     while (loopElement) {
         if (loopElement !== element && loopElement === possibleParent) {
             return true
@@ -184,7 +186,7 @@ export function isParentOf(element, possibleParent) {
     return false
 }
 
-export function getElementForStep(step) {
+export function getElementForStep(step: ActionStepForm): HTMLElement | null {
     if (!step) {
         return null
     }
@@ -204,17 +206,17 @@ export function getElementForStep(step) {
         return null
     }
 
-    let elements
+    let elements = [] as HTMLElement[]
     try {
-        elements = document.querySelectorAll(selector || '*')
+        elements = [...((document.querySelectorAll(selector || '*') as unknown) as HTMLElement[])]
     } catch (e) {
         console.error('Can not use selector:', selector)
         throw e
     }
 
-    if (hasText) {
+    if (hasText && step?.text) {
         const textToSearch = step.text.toString().trim()
-        elements = [...elements].filter(
+        elements = elements.filter(
             (e) =>
                 TAGS_TO_IGNORE.indexOf(e.tagName.toLowerCase()) === -1 &&
                 e.innerText?.trim() === textToSearch &&
@@ -232,7 +234,7 @@ export function getElementForStep(step) {
     return null
 }
 
-export function getBoxColors(color, hover = false, opacity = 0.2) {
+export function getBoxColors(color: 'blue' | 'red' | 'green', hover = false, opacity = 0.2): BoxColor | undefined {
     if (color === 'blue') {
         return {
             backgroundBlendMode: 'multiply',
@@ -256,13 +258,13 @@ export function getBoxColors(color, hover = false, opacity = 0.2) {
     }
 }
 
-export function actionStepToAntdForm(step, isNew = false) {
+export function actionStepToAntdForm(step: ActionStepType, isNew = false): ActionStepForm {
     if (!step) {
         return {}
     }
 
-    if (typeof step.selector_selected !== 'undefined') {
-        return step
+    if (typeof (step as ActionStepForm).selector_selected !== 'undefined') {
+        return step as ActionStepForm
     }
 
     if (isNew) {
@@ -286,14 +288,14 @@ export function actionStepToAntdForm(step, isNew = false) {
     return newStep
 }
 
-export function stepToDatabaseFormat(step) {
+export function stepToDatabaseFormat(step: ActionStepForm): ActionStepType {
     const { href_selected, text_selected, selector_selected, url_selected, ...rest } = step
     const newStep = {
         ...rest,
-        href: href_selected ? rest.href : null,
-        text: text_selected ? rest.text : null,
-        selector: selector_selected ? rest.selector : null,
-        url: url_selected ? rest.url : null,
+        href: href_selected ? rest.href : undefined,
+        text: text_selected ? rest.text : undefined,
+        selector: selector_selected ? rest.selector : undefined,
+        url: url_selected ? rest.url : undefined,
     }
     return newStep
 }
