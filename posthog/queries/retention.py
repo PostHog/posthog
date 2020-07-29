@@ -1,7 +1,8 @@
-from posthog.models import Filter, Team, Entity, Event
-from typing import Optional, List, Dict, Any
 import datetime
 from datetime import timedelta
+from typing import Any, Dict, List, Optional
+
+from posthog.models import Entity, Event, Filter, Team
 from posthog.queries.base import BaseQuery
 
 
@@ -30,5 +31,5 @@ class Retention(BaseQuery):
             filter=filter,
             team=team,
             start_entity=filter.entities[0] if len(filter.entities) > 0 else None,
-            total_days=kwargs.get("total_days"),
+            total_days=kwargs.get("total_days", 11),
         )

@@ -1,11 +1,13 @@
-from posthog.queries.stickiness import Stickiness
-from posthog.api.test.base import BaseTest
-from posthog.queries.retention import Retention
-from posthog.models import Action, Person, Event, ActionStep, Team, Filter, Entity
-from freezegun import freeze_time
 from datetime import datetime
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+
 import pytz
+from freezegun import freeze_time
+
+from posthog.api.test.base import BaseTest
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.models import Action, ActionStep, Entity, Event, Filter, Person, Team
+from posthog.queries.retention import Retention
+from posthog.queries.stickiness import Stickiness
 
 
 class TestRetention(BaseTest):
@@ -28,17 +30,30 @@ class TestRetention(BaseTest):
             ]
         )
 
-        result = Retention().run(Filter(data={"date_from": self._date(0, hour=0)}), self.team, total_days=7)
+        result = Retention().run(Filter(data={"date_from": self._date(0, hour=0)}), self.team)
 
-        self.assertEqual(len(result), 7)
+        self.assertEqual(len(result), 11)
         self.assertEqual(
-            self.pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
+            self.pluck(result, "label"),
+            ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"],
         )
         self.assertEqual(result[0]["date"], "Wed. 10 June")
 
         self.assertEqual(
             self.pluck(result, "values", "count"),
-            [[1, 1, 1, 0, 0, 1, 1], [2, 2, 1, 0, 1, 2], [2, 1, 0, 1, 2], [1, 0, 0, 1], [0, 0, 0], [1, 1], [2],],
+            [
+                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                [1, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 0, 0],
+                [2, 0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [0, 0, 0],
+                [0, 0],
+                [0],
+            ],
         )
 
     def test_retention_with_properties(self):
