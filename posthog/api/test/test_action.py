@@ -4,7 +4,6 @@ from unittest.mock import call, patch
 
 from freezegun import freeze_time
 
-from posthog.api.action import calculate_retention
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import (
     Action,
