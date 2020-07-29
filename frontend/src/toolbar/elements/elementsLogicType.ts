@@ -203,6 +203,7 @@ export interface elementsLogicType<
             element: HTMLElement
             rect?: DOMRect | undefined
             index?: number | undefined
+            count?: number | undefined
         } | null
         hoverElementMeta: (
             state: any,
@@ -213,6 +214,7 @@ export interface elementsLogicType<
             element: HTMLElement
             rect?: DOMRect | undefined
             index?: number | undefined
+            count?: number | undefined
         } | null
         highlightElementMeta: (
             state: any,
@@ -223,6 +225,7 @@ export interface elementsLogicType<
             element: HTMLElement
             rect?: DOMRect | undefined
             index?: number | undefined
+            count?: number | undefined
         } | null
     }
     values: {
@@ -253,6 +256,7 @@ export interface elementsLogicType<
             element: HTMLElement
             rect?: DOMRect | undefined
             index?: number | undefined
+            count?: number | undefined
         } | null
         hoverElementMeta: {
             actionStep: ActionStepType
@@ -260,6 +264,7 @@ export interface elementsLogicType<
             element: HTMLElement
             rect?: DOMRect | undefined
             index?: number | undefined
+            count?: number | undefined
         } | null
         highlightElementMeta: {
             actionStep: ActionStepType
@@ -267,6 +272,7 @@ export interface elementsLogicType<
             element: HTMLElement
             rect?: DOMRect | undefined
             index?: number | undefined
+            count?: number | undefined
         } | null
     }
     _isKea: true
@@ -329,6 +335,7 @@ export interface elementsLogicType<
             element: HTMLElement
             rect?: DOMRect | undefined
             index?: number | undefined
+            count?: number | undefined
         } | null
         hoverElementMeta: (
             arg1: HTMLElement | null,
@@ -340,6 +347,7 @@ export interface elementsLogicType<
             element: HTMLElement
             rect?: DOMRect | undefined
             index?: number | undefined
+            count?: number | undefined
         } | null
         highlightElementMeta: (
             arg1: HTMLElement | null,
@@ -351,6 +359,7 @@ export interface elementsLogicType<
             element: HTMLElement
             rect?: DOMRect | undefined
             index?: number | undefined
+            count?: number | undefined
         } | null
     }
     __keaTypeGenInternalReducerActions: {

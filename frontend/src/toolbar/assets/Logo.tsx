@@ -1,6 +1,6 @@
 import React from 'react'
 
-export function Logo(props) {
+export function Logo(props: React.PropsWithoutRef<JSX.IntrinsicElements['svg']>): JSX.Element {
     return (
         <svg
             fill="none"

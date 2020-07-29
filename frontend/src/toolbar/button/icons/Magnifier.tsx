@@ -1,6 +1,10 @@
 import React from 'react'
 
-export function Magnifier({ engaged = false, ...props }) {
+interface MagnifierProps extends React.PropsWithoutRef<JSX.IntrinsicElements['svg']> {
+    engaged?: boolean
+}
+
+export function Magnifier({ engaged = false, ...props }: MagnifierProps): JSX.Element {
     return (
         <svg width="34" height="42" viewBox="0 0 34 42" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path

@@ -6,7 +6,7 @@ import { FireFilled, FireOutlined } from '@ant-design/icons'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
 interface HeatmapStatsProps {
-    buttonMode: boolean
+    buttonMode?: boolean
 }
 
 export function HeatmapStats({ buttonMode = false }: HeatmapStatsProps): JSX.Element {

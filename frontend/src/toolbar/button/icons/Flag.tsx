@@ -1,7 +1,12 @@
 import './Flag.scss'
 import React from 'react'
 
-export function Flag({ engaged, animated, ...props }) {
+interface FlagProps extends React.PropsWithoutRef<JSX.IntrinsicElements['svg']> {
+    engaged?: boolean
+    animated?: boolean
+}
+
+export function Flag({ engaged, animated, ...props }: FlagProps): JSX.Element {
     return engaged ? (
         <svg
             className={`posthog-toolbar-icon-flag${animated ? ' animated' : ''}`}

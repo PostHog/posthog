@@ -11,7 +11,7 @@ import { HeatmapLabel } from '~/toolbar/elements/HeatmapLabel'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { getBoxColors } from '~/toolbar/utils'
 
-export function Elements() {
+export function Elements(): JSX.Element {
     const { domZoom, domPadding, mode } = useValues(dockLogic)
     const {
         heatmapElements,
@@ -36,7 +36,7 @@ export function Elements() {
                         position: 'absolute',
                         top: 0,
                         left: 0,
-                        zIndex: '2147483021',
+                        zIndex: 2147483021,
                         pointerEvents: 'none',
                     }}
                 >
@@ -51,11 +51,11 @@ export function Elements() {
                     position: 'absolute',
                     top: 0,
                     left: 0,
-                    zIndex: '2147483010',
+                    zIndex: 2147483010,
                     pointerEvents: 'none',
                 }}
             >
-                {highlightElementMeta ? <FocusRect rect={highlightElementMeta.rect} /> : null}
+                {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
 
                 {elementsToDisplay.map(({ rect, element }, index) => (
                     <HeatmapElement
@@ -95,7 +95,11 @@ export function Elements() {
                                     opacity: !hoverElement || hoverElement === element ? 1 : 0.4,
                                     transition: 'opacity 0.2s, box-shadow 0.2s',
                                     cursor: 'pointer',
-                                    ...getBoxColors('red', hoverElement === element, (count / highestClickCount) * 0.4),
+                                    ...getBoxColors(
+                                        'red',
+                                        hoverElement === element,
+                                        ((count || 0) / highestClickCount) * 0.4
+                                    ),
                                 }}
                                 onClick={() => selectElement(element)}
                                 onMouseOver={() => setHoverElement(element)}
@@ -124,31 +128,33 @@ export function Elements() {
                 })}
 
                 {labelsToDisplay.map(({ element, rect, index }, loopIndex) => {
-                    return (
-                        <HeatmapLabel
-                            key={`label-${loopIndex}`}
-                            rect={rect}
-                            domPadding={domPadding}
-                            domZoom={domZoom}
-                            align="left"
-                            style={{
-                                zIndex: 5,
-                                opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
-                                transition: 'opacity 0.2s, transform 0.2s linear',
-                                transform: hoverElement === element ? 'scale(1.3)' : 'none',
-                                pointerEvents: 'all',
-                                cursor: 'pointer',
-                                color: 'hsla(141, 21%, 12%, 1)',
-                                background: 'hsl(147, 100%, 62%)',
-                                boxShadow: 'hsla(141, 100%, 32%, 1) 0px 1px 5px 1px',
-                            }}
-                            onClick={() => selectElement(element)}
-                            onMouseOver={() => setHoverElement(element)}
-                            onMouseOut={() => setHoverElement(null)}
-                        >
-                            {index + 1}
-                        </HeatmapLabel>
-                    )
+                    if (rect) {
+                        return (
+                            <HeatmapLabel
+                                key={`label-${loopIndex}`}
+                                rect={rect}
+                                domPadding={domPadding}
+                                domZoom={domZoom}
+                                align="left"
+                                style={{
+                                    zIndex: 5,
+                                    opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
+                                    transition: 'opacity 0.2s, transform 0.2s linear',
+                                    transform: hoverElement === element ? 'scale(1.3)' : 'none',
+                                    pointerEvents: 'all',
+                                    cursor: 'pointer',
+                                    color: 'hsla(141, 21%, 12%, 1)',
+                                    background: 'hsl(147, 100%, 62%)',
+                                    boxShadow: 'hsla(141, 100%, 32%, 1) 0px 1px 5px 1px',
+                                }}
+                                onClick={() => selectElement(element)}
+                                onMouseOver={() => setHoverElement(element)}
+                                onMouseOut={() => setHoverElement(null)}
+                            >
+                                {(index || loopIndex) + 1}
+                            </HeatmapLabel>
+                        )
+                    }
                 })}
             </div>
         </>

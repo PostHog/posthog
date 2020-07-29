@@ -1,18 +1,36 @@
 import React from 'react'
 import { inBounds } from '~/toolbar/utils'
 
-export const heatmapLabelStyle = {
+const heatmapLabelStyle = {
     lineHeight: '14px',
     padding: '1px 4px',
     color: 'hsla(54, 20%, 12%, 1)',
     background: '#FFEB3B',
     boxShadow: 'hsla(54, 100%, 32%, 1) 0px 1px 5px 1px',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: 'bold' as const,
     fontFamily: 'monospace',
 }
 
-export function HeatmapLabel({ rect, domPadding, domZoom, style = {}, align = 'right', children, ...props }) {
+interface HeatmapLabelProps extends React.PropsWithoutRef<JSX.IntrinsicElements['div']> {
+    rect?: DOMRect
+    domPadding: number
+    domZoom: number
+    align?: 'left' | 'right'
+}
+
+export function HeatmapLabel({
+    rect,
+    domPadding,
+    domZoom,
+    style = {},
+    align = 'right',
+    children,
+    ...props
+}: HeatmapLabelProps): JSX.Element | null {
+    if (!rect) {
+        return null
+    }
     return (
         <div
             style={{

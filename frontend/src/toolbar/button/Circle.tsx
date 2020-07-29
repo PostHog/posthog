@@ -1,5 +1,33 @@
 import React from 'react'
 
+interface CircleProps extends React.PropsWithoutRef<JSX.IntrinsicElements['div']> {
+    width: number
+    x?: number
+    y?: number
+    extensionPercentage?: number
+    distance?: number
+    rotation?: number
+    content?: string | JSX.Element
+    className?: string
+    top?: number
+    left?: number
+    right?: number
+    bottom?: number
+    zIndex?: number
+    animate?: boolean
+    animationStart?: number
+    animationEnd?: number
+    animationId?: string
+    animationDuration?: number
+    label?: null | string | JSX.Element
+    labelPosition?: 'bottom' | 'left' | 'right'
+    style?: Record<string, any>
+    labelStyle?: Record<string, any>
+    rootNode?: boolean
+    accumulatedRotation?: number
+    rotationFixer?: (usedRotation: number) => number
+}
+
 export function Circle({
     width,
     x,
@@ -28,14 +56,22 @@ export function Circle({
     accumulatedRotation = 0,
     rotationFixer = () => 0,
     ...props
-}) {
-    const useCoords = typeof x !== 'undefined' && typeof y !== 'undefined'
-    const usedDistance = useCoords ? Math.sqrt(x * x + y * y) * extensionPercentage : distance * extensionPercentage
-    let usedRotation = (useCoords ? Math.atan2(y, x) * (180 / Math.PI) : rotation) - accumulatedRotation
-    usedRotation = usedRotation + rotationFixer(usedRotation)
+}: CircleProps): JSX.Element {
+    let usedDistance = 0
+    let usedRotation = 0
+
+    if (typeof x !== 'undefined' && typeof y !== 'undefined') {
+        usedDistance = Math.sqrt(x * x + y * y) * extensionPercentage
+        usedRotation = Math.atan2(y, x) * (180 / Math.PI)
+    } else if (typeof distance !== 'undefined') {
+        usedDistance = distance * extensionPercentage
+        usedRotation = rotation
+    }
+    usedRotation -= accumulatedRotation
+    usedRotation += rotationFixer(usedRotation)
 
     const clonedChildren = React.Children.toArray(children).map((child) =>
-        React.cloneElement(child, {
+        React.cloneElement(child as React.ReactElement<any>, {
             accumulatedRotation: usedRotation + accumulatedRotation,
         })
     )
@@ -79,7 +115,7 @@ export function Circle({
                               willChange: 'transform',
                               animation: animate
                                   ? `circle-spin-${animationId} ${animationDuration}s linear infinite`
-                                  : null,
+                                  : '',
                           }
                 }
             >
@@ -95,7 +131,7 @@ export function Circle({
                                   willChange: 'transform',
                                   animation: animate
                                       ? `circle-spin-${animationId}-reverse ${animationDuration}s linear infinite`
-                                      : null,
+                                      : '',
                               }
                     }
                 >

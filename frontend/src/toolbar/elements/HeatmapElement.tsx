@@ -1,6 +1,27 @@
 import React from 'react'
 
-export function HeatmapElement({ rect, domPadding, domZoom, style = {}, onClick, onMouseOver, onMouseOut }) {
+interface HeatmapElementProps {
+    rect?: DOMRect
+    domPadding: number
+    domZoom: number
+    style: Record<string, any>
+    onClick: (event: React.MouseEvent) => void
+    onMouseOver: (event: React.MouseEvent) => void
+    onMouseOut: (event: React.MouseEvent) => void
+}
+
+export function HeatmapElement({
+    rect,
+    domPadding,
+    domZoom,
+    style = {},
+    onClick,
+    onMouseOver,
+    onMouseOut,
+}: HeatmapElementProps): JSX.Element | null {
+    if (!rect) {
+        return null
+    }
     return (
         <div
             style={{

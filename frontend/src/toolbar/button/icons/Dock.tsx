@@ -1,5 +1,6 @@
 import React from 'react'
-export function Dock(props) {
+
+export function Dock(props: React.PropsWithoutRef<JSX.IntrinsicElements['svg']>): JSX.Element {
     return (
         <svg width="223" height="202" viewBox="0 0 223 202" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path d="M31.127 1.18555H222.074V24.8042H31.127V1.18555Z" fill="white" />

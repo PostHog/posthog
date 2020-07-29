@@ -1,6 +1,10 @@
 import React from 'react'
 
-export function Stats({ engaged = false, ...props }) {
+interface StatsProps extends React.PropsWithoutRef<JSX.IntrinsicElements['svg']> {
+    engaged?: boolean
+}
+
+export function Stats({ engaged = false, ...props }: StatsProps): JSX.Element {
     const color1 = engaged ? '#FEF5E2' : '#FCB711'
     const color2 = engaged ? '#FEF5E2' : '#F1AA04'
     return (

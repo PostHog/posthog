@@ -1,5 +1,11 @@
 // Set transform and other style attributes on <body> and <html>
-export function applyDockBodyStyles(htmlStyle, bodyStyle, zoom, padding, deferTransform = false) {
+export function applyDockBodyStyles(
+    htmlStyle: CSSStyleDeclaration,
+    bodyStyle: CSSStyleDeclaration,
+    zoom: number,
+    padding: number,
+    deferTransform = false
+): void {
     // dark mode:
     // htmlStyle.background = 'hsl(231, 17%, 22%)'
     htmlStyle.background = 'linear-gradient(to right, hsla(234, 17%, 94%, 1) 71%, hsla(234, 17%, 99%, 1) 100%)'
@@ -22,10 +28,10 @@ export function applyDockBodyStyles(htmlStyle, bodyStyle, zoom, padding, deferTr
     }
 }
 
-let listener
-export function attachDockScrollListener(zoom, padding) {
+let listener: () => void
+export function attachDockScrollListener(zoom: number, padding: number): void {
     listener = function () {
-        const bodyElements = [...document.body.getElementsByTagName('*')]
+        const bodyElements = [...((document.body.getElementsByTagName('*') as unknown) as HTMLElement[])]
         bodyElements
             .filter((x) => getComputedStyle(x, null).getPropertyValue('position') === 'fixed')
             .forEach((e) => {
@@ -34,26 +40,33 @@ export function attachDockScrollListener(zoom, padding) {
                 e.setAttribute('data-posthog-fix-fixed', 'yes')
             })
 
-        const tweakedElements = [...document.querySelectorAll('[data-posthog-fix-fixed=yes]')]
+        const tweakedElements = [
+            ...((document.querySelectorAll('[data-posthog-fix-fixed=yes]') as unknown) as HTMLElement[]),
+        ]
         tweakedElements
             .filter((x) => getComputedStyle(x, null).getPropertyValue('position') !== 'fixed')
             .forEach((e) => {
-                e.style.marginTop = 0
+                e.style.marginTop = '0'
             })
     }
     window.addEventListener('scroll', listener)
 }
 
-export function removeDockScrollListener() {
+export function removeDockScrollListener(): void {
     window.removeEventListener('scroll', listener)
 }
 
 // Update CSS variables (--zoom, etc) in #dock-toolbar inside the shadow root
-export function updateDockToolbarVariables(shadowRef, zoom, padding, sidebarWidth) {
+export function updateDockToolbarVariables(
+    shadowRef: { current?: { shadowRoot: ShadowRoot } },
+    zoom: number,
+    padding: number,
+    sidebarWidth: number
+): void {
     if (shadowRef?.current) {
         const toolbarDiv = shadowRef.current.shadowRoot.getElementById('dock-toolbar')
         if (toolbarDiv) {
-            toolbarDiv.style.setProperty('--zoom', zoom)
+            toolbarDiv.style.setProperty('--zoom', `${zoom}`)
             toolbarDiv.style.setProperty('--padding', `${padding}px`)
             toolbarDiv.style.setProperty('--sidebar-width', `${sidebarWidth}px`)
         }

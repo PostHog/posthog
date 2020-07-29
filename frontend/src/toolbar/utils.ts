@@ -85,6 +85,10 @@ export function getShadowRoot(): ShadowRoot | null {
     return window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot || null
 }
 
+export function getShadowRootPopupContainer(): HTMLElement {
+    return (getShadowRoot() as unknown) as HTMLElement
+}
+
 export function hasCursorPointer(element: HTMLElement): boolean {
     return window.getComputedStyle(element)?.getPropertyValue('cursor') === 'pointer'
 }

@@ -1,7 +1,7 @@
 import React from 'react'
 import { FontSizeOutlined, LinkOutlined, FormOutlined, BranchesOutlined } from '@ant-design/icons'
 
-function SelectorString({ value }) {
+function SelectorString({ value }: { value: string }): JSX.Element {
     const [last, ...rest] = value.split(' ').reverse()
     return (
         <>
@@ -10,7 +10,7 @@ function SelectorString({ value }) {
     )
 }
 
-export function ActionAttribute({ attribute, value }) {
+export function ActionAttribute({ attribute, value }: { attribute: string; value?: string }): JSX.Element {
     const icon =
         attribute === 'text' ? (
             <FontSizeOutlined />
@@ -29,7 +29,7 @@ export function ActionAttribute({ attribute, value }) {
             </a>
         ) : attribute === 'selector' ? (
             <span style={{ fontFamily: 'monospace' }}>
-                <SelectorString value={value} />
+                <SelectorString value={value || ''} />
             </span>
         ) : (
             value

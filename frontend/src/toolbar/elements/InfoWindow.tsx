@@ -4,16 +4,16 @@ import { CloseOutlined } from '@ant-design/icons'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 
-export function InfoWindow() {
-    const { hoverElement, hoverElementMeta, selectedElement, selectedElementMeta, hoverElementHighlight } = useValues(
-        elementsLogic
-    )
+export function InfoWindow(): JSX.Element | null {
+    const { hoverElement, hoverElementMeta, selectedElement, selectedElementMeta } = useValues(elementsLogic)
     const { setSelectedElement } = useActions(elementsLogic)
-    const { rectUpdateCounter: __discardButReloadComponentOnChanges } = useValues(elementsLogic) // eslint-disable-line
+
+    // use rectUpdateCounter to reload component when it changes, but discard the output
+    useValues(elementsLogic).rectUpdateCounter
 
     const activeMeta = hoverElementMeta || selectedElementMeta
 
-    if (hoverElementHighlight || !activeMeta) {
+    if (!activeMeta || !activeMeta.rect) {
         return null
     }
 
@@ -37,10 +37,10 @@ export function InfoWindow() {
         }
     }
 
-    let top = Math.max(window.pageYOffset + 16, rect.top + rect.height + 10 + window.pageYOffset)
-    let bottom
-    let minHeight = 50
-    let maxHeight
+    let top: number | undefined = Math.max(window.pageYOffset + 16, rect.top + rect.height + 10 + window.pageYOffset)
+    let bottom: number | undefined
+    const minHeight: number | undefined = 50
+    let maxHeight: number | undefined
 
     const spaceAbove = Math.max(minHeight, rect.top - 20)
     const spaceBelow = Math.max(minHeight, windowHeight - top + window.pageYOffset - 10)

@@ -19,6 +19,7 @@ export interface ElementWithMetadata {
     element: HTMLElement
     rect?: DOMRect
     index?: number
+    count?: number
 }
 
 export interface ActionElementWithMetadata extends ElementWithMetadata {

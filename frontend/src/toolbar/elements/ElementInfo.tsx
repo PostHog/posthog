@@ -7,15 +7,15 @@ import { Button, Statistic, Row, Col } from 'antd'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 
-export function ElementInfo() {
+export function ElementInfo(): JSX.Element | null {
     const { clickCount } = useValues(heatmapLogic)
 
-    const { hoverElementMeta, selectedElementMeta, hoverElementHighlight } = useValues(elementsLogic)
+    const { hoverElementMeta, selectedElementMeta } = useValues(elementsLogic)
     const { createAction } = useActions(elementsLogic)
 
     const activeMeta = hoverElementMeta || selectedElementMeta
 
-    if (hoverElementHighlight || !activeMeta) {
+    if (!activeMeta) {
         return null
     }
 

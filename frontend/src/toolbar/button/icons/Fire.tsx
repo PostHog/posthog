@@ -6,7 +6,12 @@ const fireColors = {
     disengaged: ['#FF9770', '#FF6E37', '#FB4F0D'],
 }
 
-export function Fire({ engaged = false, animated = false, ...props }) {
+interface FireProps extends React.PropsWithoutRef<JSX.IntrinsicElements['svg']> {
+    engaged?: boolean
+    animated?: boolean
+}
+
+export function Fire({ engaged = false, animated = false, ...props }: FireProps): JSX.Element {
     const colors = fireColors[engaged ? 'engaged' : 'disengaged']
     return (
         <svg

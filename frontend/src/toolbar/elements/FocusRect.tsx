@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { dockLogic } from '~/toolbar/dockLogic'
 
 // draw a beam around an element
-export function FocusRect({ rect }) {
+export function FocusRect({ rect }: { rect: DOMRect }): JSX.Element {
     const { domZoom, domPadding } = useValues(dockLogic)
 
     const widths = [

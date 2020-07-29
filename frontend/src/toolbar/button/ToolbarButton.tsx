@@ -8,7 +8,7 @@ import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { getShadowRoot } from '~/toolbar/utils'
+import { getShadowRoot, getShadowRootPopupContainer } from '~/toolbar/utils'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { Stats } from '~/toolbar/button/icons/Stats'
@@ -21,7 +21,7 @@ import { Close } from '~/toolbar/button/icons/Close'
 import { Dock } from '~/toolbar/button/icons/Dock'
 import { Tooltip } from 'antd'
 
-export function ToolbarButton() {
+export function ToolbarButton(): JSX.Element {
     const {
         extensionPercentage,
         heatmapInfoVisible,
@@ -61,9 +61,12 @@ export function ToolbarButton() {
     const { isAuthenticated } = useValues(toolbarLogic)
     const { authenticate } = useActions(toolbarLogic)
 
-    const globalMouseMove = useRef(null)
+    const globalMouseMove = useRef((e: MouseEvent) => {
+        e
+    })
+
     useEffect(() => {
-        globalMouseMove.current = function (e) {
+        globalMouseMove.current = function (e: MouseEvent): void {
             const buttonDiv = getShadowRoot()?.getElementById('button-toolbar')
             if (buttonDiv) {
                 const rect = buttonDiv.getBoundingClientRect()
@@ -103,7 +106,7 @@ export function ToolbarButton() {
             }
         },
         {
-            ms: null,
+            ms: undefined,
             clickMs: 1,
             touch: true,
             click: true,
@@ -249,7 +252,7 @@ export function ToolbarButton() {
                                         visible={showHeatmapTooltip}
                                         title="Click for details"
                                         placement={side === 'left' ? 'right' : 'left'}
-                                        getPopupContainer={getShadowRoot}
+                                        getPopupContainer={getShadowRootPopupContainer}
                                     >
                                         <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
                                     </Tooltip>
@@ -312,7 +315,7 @@ export function ToolbarButton() {
                                         visible={showActionsTooltip}
                                         title="Click for details"
                                         placement={side === 'left' ? 'right' : 'left'}
-                                        getPopupContainer={getShadowRoot}
+                                        getPopupContainer={getShadowRootPopupContainer}
                                     >
                                         <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>
                                     </Tooltip>
