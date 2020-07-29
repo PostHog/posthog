@@ -48,7 +48,7 @@ function _Trends() {
     const { setFilters, setDisplay, setActiveView } = useActions(trendsLogic({ dashboardItemId: null }))
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
-    const { annotationsList } = useValues(annotationsLogic({ pageKey: fromItem }))
+    const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
 
     return (
         <div className="actions-graph">
@@ -171,7 +171,7 @@ function _Trends() {
                                 <SaveToDashboard
                                     filters={filters}
                                     type={filters.display || ACTIONS_LINE_GRAPH_LINEAR}
-                                    annotations={annotationsList}
+                                    annotations={annotationsToCreate}
                                 />
                             </div>
                         }
