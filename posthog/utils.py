@@ -219,7 +219,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         if personal_api_key:
             PersonalAPIKey = apps.get_model(app_label="posthog", model_name="PersonalAPIKey")
             try:
-                personal_api_key_object = PersonalAPIKey.objects.get(value=personal_api_key)
+                personal_api_key_object = PersonalAPIKey.objects.select_related("user").get(value=personal_api_key)
             except PersonalAPIKey.DoesNotExist:
                 raise AuthenticationFailed(detail="Personal API key invalid.")
             else:
