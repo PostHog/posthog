@@ -18,7 +18,8 @@
         "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-array",
         "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\"",
         "eslint": "eslint frontend/src",
-        "eslint:github-action": "yarn run eslint"
+        "eslint:github-action": "yarn run eslint",
+        "typegen:watch": "kea-typegen watch --path frontend/src"
     },
     "license": "MIT",
     "dependencies": {
@@ -84,7 +85,7 @@
         "html-webpack-harddisk-plugin": "^1.0.1",
         "html-webpack-plugin": "^4.3.0",
         "husky": ">=4",
-        "kea-typegen": "^0.0.29",
+        "kea-typegen": "^0.0.32",
         "lint-staged": ">=10",
         "mini-css-extract-plugin": "^0.9.0",
         "nodemon": "^2.0.4",

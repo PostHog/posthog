@@ -191,9 +191,18 @@ export interface toolbarButtonLogicType {
         statsVisible: boolean
         extensionPercentage: number
         lastDragPosition: null
-        heatmapPosition: { x: number; y: number }
-        actionsPosition: { x: number; y: number }
-        statsPosition: { x: number; y: number }
+        heatmapPosition: {
+            x: number
+            y: number
+        }
+        actionsPosition: {
+            x: number
+            y: number
+        }
+        statsPosition: {
+            x: number
+            y: number
+        }
     }
     reducerOptions: any
     reducers: {
@@ -202,9 +211,39 @@ export interface toolbarButtonLogicType {
         statsVisible: (state: boolean, action: any, fullState: any) => boolean
         extensionPercentage: (state: number, action: any, fullState: any) => number
         lastDragPosition: (state: null, action: any, fullState: any) => null
-        heatmapPosition: (state: { x: number; y: number }, action: any, fullState: any) => { x: number; y: number }
-        actionsPosition: (state: { x: number; y: number }, action: any, fullState: any) => { x: number; y: number }
-        statsPosition: (state: { x: number; y: number }, action: any, fullState: any) => { x: number; y: number }
+        heatmapPosition: (
+            state: {
+                x: number
+                y: number
+            },
+            action: any,
+            fullState: any
+        ) => {
+            x: number
+            y: number
+        }
+        actionsPosition: (
+            state: {
+                x: number
+                y: number
+            },
+            action: any,
+            fullState: any
+        ) => {
+            x: number
+            y: number
+        }
+        statsPosition: (
+            state: {
+                x: number
+                y: number
+            },
+            action: any,
+            fullState: any
+        ) => {
+            x: number
+            y: number
+        }
     }
     selector: (
         state: any
@@ -214,9 +253,18 @@ export interface toolbarButtonLogicType {
         statsVisible: boolean
         extensionPercentage: number
         lastDragPosition: null
-        heatmapPosition: { x: number; y: number }
-        actionsPosition: { x: number; y: number }
-        statsPosition: { x: number; y: number }
+        heatmapPosition: {
+            x: number
+            y: number
+        }
+        actionsPosition: {
+            x: number
+            y: number
+        }
+        statsPosition: {
+            x: number
+            y: number
+        }
     }
     selectors: {
         heatmapInfoVisible: (state: any, props: any) => boolean
@@ -224,9 +272,27 @@ export interface toolbarButtonLogicType {
         statsVisible: (state: any, props: any) => boolean
         extensionPercentage: (state: any, props: any) => number
         lastDragPosition: (state: any, props: any) => null
-        heatmapPosition: (state: any, props: any) => { x: number; y: number }
-        actionsPosition: (state: any, props: any) => { x: number; y: number }
-        statsPosition: (state: any, props: any) => { x: number; y: number }
+        heatmapPosition: (
+            state: any,
+            props: any
+        ) => {
+            x: number
+            y: number
+        }
+        actionsPosition: (
+            state: any,
+            props: any
+        ) => {
+            x: number
+            y: number
+        }
+        statsPosition: (
+            state: any,
+            props: any
+        ) => {
+            x: number
+            y: number
+        }
         dragPosition: (state: any, props: any) => { x: number; y: number }
         toolbarListVerticalPadding: (state: any, props: any) => number
         dockButtonOnTop: (state: any, props: any) => boolean
@@ -246,9 +312,18 @@ export interface toolbarButtonLogicType {
         statsVisible: boolean
         extensionPercentage: number
         lastDragPosition: null
-        heatmapPosition: { x: number; y: number }
-        actionsPosition: { x: number; y: number }
-        statsPosition: { x: number; y: number }
+        heatmapPosition: {
+            x: number
+            y: number
+        }
+        actionsPosition: {
+            x: number
+            y: number
+        }
+        statsPosition: {
+            x: number
+            y: number
+        }
         dragPosition: { x: number; y: number }
         toolbarListVerticalPadding: number
         dockButtonOnTop: boolean

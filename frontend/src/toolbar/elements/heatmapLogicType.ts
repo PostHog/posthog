@@ -26,11 +26,11 @@ export interface heatmapLogicType {
             payload: any
         }
         resetEventsSuccess: (
-            events: never[]
+            events: undefined[]
         ) => {
             type: 'reset events success (toolbar.elements.heatmapLogic)'
             payload: {
-                events: never[]
+                events: undefined[]
             }
         }
         resetEventsFailure: (
@@ -48,11 +48,11 @@ export interface heatmapLogicType {
             payload: any
         }
         getEventsSuccess: (
-            events: never[]
+            events: undefined[]
         ) => {
             type: 'get events success (toolbar.elements.heatmapLogic)'
             payload: {
-                events: never[]
+                events: undefined[]
             }
         }
         getEventsFailure: (
@@ -110,11 +110,11 @@ export interface heatmapLogicType {
             payload: any
         }
         resetEventsSuccess: (
-            events: never[]
+            events: undefined[]
         ) => {
             type: 'reset events success (toolbar.elements.heatmapLogic)'
             payload: {
-                events: never[]
+                events: undefined[]
             }
         }
         resetEventsFailure: (
@@ -132,11 +132,11 @@ export interface heatmapLogicType {
             payload: any
         }
         getEventsSuccess: (
-            events: never[]
+            events: undefined[]
         ) => {
             type: 'get events success (toolbar.elements.heatmapLogic)'
             payload: {
-                events: never[]
+                events: undefined[]
             }
         }
         getEventsFailure: (
@@ -165,7 +165,7 @@ export interface heatmapLogicType {
         heatmapEnabled: boolean
         heatmapLoading: boolean
         showHeatmapTooltip: boolean
-        events: never[]
+        events: undefined[]
         eventsLoading: boolean
     }
     reducerOptions: any
@@ -173,7 +173,7 @@ export interface heatmapLogicType {
         heatmapEnabled: (state: boolean, action: any, fullState: any) => boolean
         heatmapLoading: (state: boolean, action: any, fullState: any) => boolean
         showHeatmapTooltip: (state: boolean, action: any, fullState: any) => boolean
-        events: (state: never[], action: any, fullState: any) => never[]
+        events: (state: undefined[], action: any, fullState: any) => undefined[]
         eventsLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
@@ -182,14 +182,14 @@ export interface heatmapLogicType {
         heatmapEnabled: boolean
         heatmapLoading: boolean
         showHeatmapTooltip: boolean
-        events: never[]
+        events: undefined[]
         eventsLoading: boolean
     }
     selectors: {
         heatmapEnabled: (state: any, props: any) => boolean
         heatmapLoading: (state: any, props: any) => boolean
         showHeatmapTooltip: (state: any, props: any) => boolean
-        events: (state: any, props: any) => never[]
+        events: (state: any, props: any) => undefined[]
         eventsLoading: (state: any, props: any) => boolean
         elements: (state: any, props: any) => any
         countedElements: (state: any, props: any) => any[]
@@ -201,7 +201,7 @@ export interface heatmapLogicType {
         heatmapEnabled: boolean
         heatmapLoading: boolean
         showHeatmapTooltip: boolean
-        events: never[]
+        events: undefined[]
         eventsLoading: boolean
         elements: any
         countedElements: any[]

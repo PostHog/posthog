@@ -6076,12 +6076,13 @@ kea-router@^0.4.0:
   dependencies:
     url-pattern "^1.0.3"
 
-kea-typegen@^0.0.29:
-  version "0.0.29"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.0.29.tgz#c92ec771ad3e3d2e097a99d48703111e4e6d28f7"
-  integrity sha512-FoqfCASBF3XBtFgNQOAFjHIP6wlXX+lX8XUmTB9UZX9vyCzAv4483WxelVbmeNfwEUy2doLqWzlDtYtrem983A==
+kea-typegen@^0.0.32:
+  version "0.0.32"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.0.32.tgz#f2d5704f5a0eb78af318bbfdf29d8f1724575657"
+  integrity sha512-KXxoDuGwS7qMrvtP6dOFCfd5ynywDVPKgW7zyodZZ93Ieq6Z9avncxxG4YNmXoMRAo5VWeQlT01JG/Ckpi71cg==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.8"
+    prettier "^2.0.5"
     yargs "^15.4.0"
 
 kea-window-values@^0.0.1:

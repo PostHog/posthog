@@ -197,30 +197,30 @@ export interface eventsTableLogicType {
         fullState: any
     ) => {
         initialPathname: (state: any) => any
-        properties: never[]
+        properties: undefined[]
         eventFilter: boolean
         isLoading: boolean
         isLoadingNext: boolean
-        events: never[]
+        events: undefined[]
         hasNext: boolean
         orderBy: string
         selectedEvent: null
-        newEvents: never[]
+        newEvents: undefined[]
         highlightEvents: {}
         pollTimeout: null
     }
     reducerOptions: any
     reducers: {
         initialPathname: (state: (state: any) => any, action: any, fullState: any) => (state: any) => any
-        properties: (state: never[], action: any, fullState: any) => never[]
+        properties: (state: undefined[], action: any, fullState: any) => undefined[]
         eventFilter: (state: boolean, action: any, fullState: any) => boolean
         isLoading: (state: boolean, action: any, fullState: any) => boolean
         isLoadingNext: (state: boolean, action: any, fullState: any) => boolean
-        events: (state: never[], action: any, fullState: any) => never[]
+        events: (state: undefined[], action: any, fullState: any) => undefined[]
         hasNext: (state: boolean, action: any, fullState: any) => boolean
         orderBy: (state: string, action: any, fullState: any) => string
         selectedEvent: (state: null, action: any, fullState: any) => null
-        newEvents: (state: never[], action: any, fullState: any) => never[]
+        newEvents: (state: undefined[], action: any, fullState: any) => undefined[]
         highlightEvents: (state: {}, action: any, fullState: any) => {}
         pollTimeout: (state: null, action: any, fullState: any) => null
     }
@@ -228,29 +228,29 @@ export interface eventsTableLogicType {
         state: any
     ) => {
         initialPathname: (state: any) => any
-        properties: never[]
+        properties: undefined[]
         eventFilter: boolean
         isLoading: boolean
         isLoadingNext: boolean
-        events: never[]
+        events: undefined[]
         hasNext: boolean
         orderBy: string
         selectedEvent: null
-        newEvents: never[]
+        newEvents: undefined[]
         highlightEvents: {}
         pollTimeout: null
     }
     selectors: {
         initialPathname: (state: any, props: any) => (state: any) => any
-        properties: (state: any, props: any) => never[]
+        properties: (state: any, props: any) => undefined[]
         eventFilter: (state: any, props: any) => boolean
         isLoading: (state: any, props: any) => boolean
         isLoadingNext: (state: any, props: any) => boolean
-        events: (state: any, props: any) => never[]
+        events: (state: any, props: any) => undefined[]
         hasNext: (state: any, props: any) => boolean
         orderBy: (state: any, props: any) => string
         selectedEvent: (state: any, props: any) => null
-        newEvents: (state: any, props: any) => never[]
+        newEvents: (state: any, props: any) => undefined[]
         highlightEvents: (state: any, props: any) => {}
         pollTimeout: (state: any, props: any) => null
         propertiesForUrl: (state: any, props: any) => '' | { properties: any }
@@ -258,15 +258,15 @@ export interface eventsTableLogicType {
     }
     values: {
         initialPathname: (state: any) => any
-        properties: never[]
+        properties: undefined[]
         eventFilter: boolean
         isLoading: boolean
         isLoadingNext: boolean
-        events: never[]
+        events: undefined[]
         hasNext: boolean
         orderBy: string
         selectedEvent: null
-        newEvents: never[]
+        newEvents: undefined[]
         highlightEvents: {}
         pollTimeout: null
         propertiesForUrl: '' | { properties: any }

@@ -10,11 +10,11 @@ export interface sessionsTableLogicType {
             payload: any
         }
         loadSessionsSuccess: (
-            sessions: never[]
+            sessions: undefined[]
         ) => {
             type: 'load sessions success (scenes.sessions.sessionsTableLogic)'
             payload: {
-                sessions: never[]
+                sessions: undefined[]
             }
         }
         loadSessionsFailure: (
@@ -84,11 +84,11 @@ export interface sessionsTableLogicType {
             payload: any
         }
         loadSessionsSuccess: (
-            sessions: never[]
+            sessions: undefined[]
         ) => {
             type: 'load sessions success (scenes.sessions.sessionsTableLogic)'
             payload: {
-                sessions: never[]
+                sessions: undefined[]
             }
         }
         loadSessionsFailure: (
@@ -144,7 +144,7 @@ export interface sessionsTableLogicType {
         action: () => any,
         fullState: any
     ) => {
-        sessions: never[]
+        sessions: undefined[]
         sessionsLoading: boolean
         isLoadingNext: boolean
         offset: null
@@ -152,7 +152,7 @@ export interface sessionsTableLogicType {
     }
     reducerOptions: any
     reducers: {
-        sessions: (state: never[], action: any, fullState: any) => never[]
+        sessions: (state: undefined[], action: any, fullState: any) => undefined[]
         sessionsLoading: (state: boolean, action: any, fullState: any) => boolean
         isLoadingNext: (state: boolean, action: any, fullState: any) => boolean
         offset: (state: null, action: any, fullState: any) => null
@@ -161,25 +161,30 @@ export interface sessionsTableLogicType {
     selector: (
         state: any
     ) => {
-        sessions: never[]
+        sessions: undefined[]
         sessionsLoading: boolean
         isLoadingNext: boolean
         offset: null
         selectedDate: Moment
     }
     selectors: {
-        sessions: (state: any, props: any) => never[]
+        sessions: (state: any, props: any) => undefined[]
         sessionsLoading: (state: any, props: any) => boolean
         isLoadingNext: (state: any, props: any) => boolean
         offset: (state: any, props: any) => null
         selectedDate: (state: any, props: any) => Moment
+        selectedDateURLparam: (state: any, props: any) => any
     }
     values: {
-        sessions: never[]
+        sessions: undefined[]
         sessionsLoading: boolean
         isLoadingNext: boolean
         offset: null
         selectedDate: Moment
+        selectedDateURLparam: any
     }
     _isKea: true
+    __keaTypeGenInternalSelectorTypes: {
+        selectedDateURLparam: (arg1: any) => any
+    }
 }
