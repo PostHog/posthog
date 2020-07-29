@@ -25,7 +25,7 @@
         "experimentalDecorators": true, // Enables experimental support for ES decorators
         "incremental": true, // Enable incremental compilation by reading/writing information from prior compilations to a file on disk
         "noFallthroughCasesInSwitch": true, // Report errors for fallthrough cases in switch statement
-        "lib": ["dom", "simmerjs"]
+        "lib": ["dom", "simmerjs", "react-redux", "react-dom"]
     },
     "include": ["frontend/**/*"],
     "exclude": ["node_modules/**/*", "staticfiles/**/*", "frontend/dist/**/*"]

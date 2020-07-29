@@ -67,6 +67,8 @@
         "@babel/preset-typescript": "^7.10.4",
         "@hot-loader/react-dom": "^16.13.0",
         "@types/react": "^16.9.43",
+        "@types/react-dom": "^16.9.8",
+        "@types/react-redux": "^7.1.9",
         "@types/simmerjs": "^0.5.1",
         "@typescript-eslint/eslint-plugin": "^3.6.0",
         "@typescript-eslint/parser": "^3.6.0",
