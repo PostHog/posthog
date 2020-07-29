@@ -5,10 +5,10 @@ import { GlobalOutlined } from '@ant-design/icons'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { Comment } from 'antd'
 
-function getFavicon() {
-    var favicon = undefined
-    var nodeList = document.getElementsByTagName('link')
-    for (var i = 0; i < nodeList.length; i++) {
+function getFavicon(): string {
+    let favicon
+    const nodeList = document.getElementsByTagName('link')
+    for (let i = 0; i < nodeList.length; i++) {
         if (nodeList[i].getAttribute('rel') === 'icon' || nodeList[i].getAttribute('rel') === 'shortcut icon') {
             favicon = nodeList[i].getAttribute('href')
         }
@@ -17,7 +17,7 @@ function getFavicon() {
 }
 
 // make the url word-wrap at every "/"
-function addWBRToUrl(url) {
+function addWBRToUrl(url: string): JSX.Element {
     return (
         <>
             {url.split('/').map((part, index) => (
@@ -31,7 +31,7 @@ function addWBRToUrl(url) {
     )
 }
 
-export function CurrentPage() {
+export function CurrentPage(): JSX.Element {
     const { href } = useValues(currentPageLogic)
     const [showIcon, setShowIcon] = useState(true)
 

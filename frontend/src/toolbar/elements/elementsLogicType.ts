@@ -355,11 +355,11 @@ export interface elementsLogicType<
     }
     __keaTypeGenInternalReducerActions: {
         'set tab (toolbar.toolbarTabLogic)': (
-            tab: ToolbarTab
+            tab: ToolbarTab | string
         ) => {
             type: 'set tab (toolbar.toolbarTabLogic)'
             payload: {
-                tab: ToolbarTab
+                tab: string
             }
         }
         'disable heatmap (toolbar.elements.heatmapLogic)': () => {

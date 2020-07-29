@@ -5,7 +5,11 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { FireFilled, FireOutlined } from '@ant-design/icons'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 
-export function HeatmapStats({ buttonMode }) {
+interface HeatmapStatsProps {
+    buttonMode: boolean
+}
+
+export function HeatmapStats({ buttonMode = false }: HeatmapStatsProps): JSX.Element {
     const { countedElements, clickCount, heatmapEnabled, heatmapLoading } = useValues(heatmapLogic)
     const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
@@ -55,8 +59,8 @@ export function HeatmapStats({ buttonMode }) {
                                             >
                                                 {index + 1}.
                                             </span>
-                                            {actionStep.text ||
-                                                (actionStep.tag_name ? (
+                                            {actionStep?.text ||
+                                                (actionStep?.tag_name ? (
                                                     <code>&lt;{actionStep.tag_name}&gt;</code>
                                                 ) : (
                                                     <em>Element</em>

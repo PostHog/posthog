@@ -5,7 +5,7 @@ import { ToolbarTab } from '~/types'
 
 export const toolbarTabLogic = kea<toolbarTabLogicType<ToolbarTab>>({
     actions: () => ({
-        setTab: (tab: ToolbarTab) => ({ tab }),
+        setTab: (tab: ToolbarTab | string) => ({ tab }),
     }),
     reducers: () => ({
         tab: [

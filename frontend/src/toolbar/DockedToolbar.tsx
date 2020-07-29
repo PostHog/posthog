@@ -9,7 +9,11 @@ import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 import { Button } from 'antd'
 import { dockLogic } from '~/toolbar/dockLogic'
 
-export function DockedToolbar({ type }) {
+interface DockedToolbarProps {
+    type: string
+}
+
+export function DockedToolbar({ type }: DockedToolbarProps): JSX.Element {
     const { tab } = useValues(toolbarTabLogic)
     const { hoverElement, selectedElement, inspectEnabled, heatmapEnabled } = useValues(elementsLogic)
     const { setSelectedElement } = useActions(elementsLogic)
@@ -37,7 +41,7 @@ export function DockedToolbar({ type }) {
                 </>
             ) : (
                 <div>
-                    <ToolbarTabs type={type} />
+                    <ToolbarTabs />
                     {tab === 'stats' ? <StatsTab /> : null}
                     {tab === 'actions' ? <ActionsTab /> : null}
                 </div>

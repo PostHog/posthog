@@ -70,4 +70,6 @@ export type EditorProps = {
     temporaryToken?: string
     actionId?: number
     userIntent?: string
+    instrument?: boolean
+    userEmail?: boolean
 }

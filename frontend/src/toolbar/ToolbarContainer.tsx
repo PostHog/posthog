@@ -9,7 +9,7 @@ import { DraggableButton } from '~/toolbar/button/DraggableButton'
 import { hot } from 'react-hot-loader/root'
 
 export const ToolbarContainer = hot(_ToolbarContainer)
-function _ToolbarContainer() {
+function _ToolbarContainer(): JSX.Element {
     const { dockStatus, buttonStatus, windowWidth, isAnimating, mode } = useValues(dockLogic)
     const { button } = useActions(dockLogic)
     const { selectedElement } = useValues(elementsLogic)

@@ -4,10 +4,10 @@ export interface toolbarTabLogicType<ToolbarTab> {
     key: any
     actionCreators: {
         setTab: (
-            tab: ToolbarTab
+            tab: ToolbarTab | string
         ) => {
             type: 'set tab (toolbar.toolbarTabLogic)'
-            payload: { tab: ToolbarTab }
+            payload: { tab: string }
         }
     }
     actionKeys: {
@@ -18,10 +18,10 @@ export interface toolbarTabLogicType<ToolbarTab> {
     }
     actions: {
         setTab: (
-            tab: ToolbarTab
+            tab: ToolbarTab | string
         ) => {
             type: 'set tab (toolbar.toolbarTabLogic)'
-            payload: { tab: ToolbarTab }
+            payload: { tab: string }
         }
     }
     cache: Record<string, any>

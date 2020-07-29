@@ -7,13 +7,14 @@ import { getContext } from 'kea'
 import { Provider } from 'react-redux'
 import { initKea } from '~/initKea'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
+import { EditorProps } from '~/types'
 
 initKea()
 
-window.simmer = new Simmer(window, { depth: 8 })
+;(window as any)['simmer'] = new Simmer(window, { depth: 8 })
 
-window.ph_load_editor = function (editorParams) {
-    let container = document.createElement('div')
+;(window as any)['ph_load_editor'] = function (editorParams: EditorProps) {
+    const container = document.createElement('div')
     document.body.appendChild(container)
 
     ReactDOM.render(

@@ -6,7 +6,7 @@ import { elementsLogic } from '../elements/elementsLogic'
 import { ActionStep } from '~/toolbar/elements/ActionStep'
 import { dockLogic } from '~/toolbar/dockLogic'
 
-export function InspectElement() {
+export function InspectElement(): JSX.Element {
     const { disableInspect, enableInspect } = useActions(elementsLogic)
     const { inspectEnabled, selectedElementMeta } = useValues(elementsLogic)
 
@@ -16,7 +16,7 @@ export function InspectElement() {
         <div>
             <div>
                 <Button
-                    type={inspectEnabled ? 'primary' : 'secondary'}
+                    type={inspectEnabled ? 'primary' : 'ghost'}
                     onClick={inspectEnabled ? disableInspect : enableInspect}
                 >
                     <SearchOutlined /> Select an element
