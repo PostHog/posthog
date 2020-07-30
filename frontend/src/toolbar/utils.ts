@@ -73,10 +73,10 @@ export function elementToSelector(element: ElementType): string {
         selector += `[href="${cssEscape(element.href)}"]`
     }
     if (element.nth_child) {
-        selector += `:nth-child(${cssEscape(element.nth_child)})`
+        selector += `:nth-child(${parseInt(element.nth_child as any)})`
     }
     if (element.nth_of_type) {
-        selector += `:nth-of-type(${cssEscape(element.nth_of_type)})`
+        selector += `:nth-of-type(${parseInt(element.nth_of_type as any)})`
     }
     return selector
 }
