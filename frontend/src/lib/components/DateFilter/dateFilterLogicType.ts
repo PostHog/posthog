@@ -7,15 +7,15 @@ export interface dateFilterLogicType {
             dateFrom: any,
             dateTo: any
         ) => {
-            type: 'set dates (lib.components.DateFilter.dateFilterLogic)'
+            type: 'set dates (frontend.src.lib.components.DateFilter.dateFilterLogic)'
             payload: { dateFrom: any; dateTo: any }
         }
     }
     actionKeys: {
-        'set dates (lib.components.DateFilter.dateFilterLogic)': 'setDates'
+        'set dates (frontend.src.lib.components.DateFilter.dateFilterLogic)': 'setDates'
     }
     actionTypes: {
-        setDates: 'set dates (lib.components.DateFilter.dateFilterLogic)'
+        setDates: 'set dates (frontend.src.lib.components.DateFilter.dateFilterLogic)'
     }
     actions: {
         setDates: (dateFrom: any, dateTo: any) => void
@@ -25,8 +25,8 @@ export interface dateFilterLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['lib', 'components', 'DateFilter', 'dateFilterLogic']
-    pathString: 'lib.components.DateFilter.dateFilterLogic'
+    path: ['frontend', 'src', 'lib', 'components', 'DateFilter', 'dateFilterLogic']
+    pathString: 'frontend.src.lib.components.DateFilter.dateFilterLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

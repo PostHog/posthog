@@ -6,40 +6,40 @@ export interface insightLogicType {
         setActiveView: (
             type: any
         ) => {
-            type: 'set active view (scenes.insights.insightLogic)'
+            type: 'set active view (frontend.src.scenes.insights.insightLogic)'
             payload: { type: any }
         }
         updateActiveView: (
             type: any
         ) => {
-            type: 'update active view (scenes.insights.insightLogic)'
+            type: 'update active view (frontend.src.scenes.insights.insightLogic)'
             payload: { type: any }
         }
         setCachedUrl: (
             type: any,
             url: any
         ) => {
-            type: 'set cached url (scenes.insights.insightLogic)'
+            type: 'set cached url (frontend.src.scenes.insights.insightLogic)'
             payload: { type: any; url: any }
         }
         setAllFilters: (
             filters: any
         ) => {
-            type: 'set all filters (scenes.insights.insightLogic)'
+            type: 'set all filters (frontend.src.scenes.insights.insightLogic)'
             payload: { filters: any }
         }
     }
     actionKeys: {
-        'set active view (scenes.insights.insightLogic)': 'setActiveView'
-        'update active view (scenes.insights.insightLogic)': 'updateActiveView'
-        'set cached url (scenes.insights.insightLogic)': 'setCachedUrl'
-        'set all filters (scenes.insights.insightLogic)': 'setAllFilters'
+        'set active view (frontend.src.scenes.insights.insightLogic)': 'setActiveView'
+        'update active view (frontend.src.scenes.insights.insightLogic)': 'updateActiveView'
+        'set cached url (frontend.src.scenes.insights.insightLogic)': 'setCachedUrl'
+        'set all filters (frontend.src.scenes.insights.insightLogic)': 'setAllFilters'
     }
     actionTypes: {
-        setActiveView: 'set active view (scenes.insights.insightLogic)'
-        updateActiveView: 'update active view (scenes.insights.insightLogic)'
-        setCachedUrl: 'set cached url (scenes.insights.insightLogic)'
-        setAllFilters: 'set all filters (scenes.insights.insightLogic)'
+        setActiveView: 'set active view (frontend.src.scenes.insights.insightLogic)'
+        updateActiveView: 'update active view (frontend.src.scenes.insights.insightLogic)'
+        setCachedUrl: 'set cached url (frontend.src.scenes.insights.insightLogic)'
+        setAllFilters: 'set all filters (frontend.src.scenes.insights.insightLogic)'
     }
     actions: {
         setActiveView: (type: any) => void
@@ -52,8 +52,8 @@ export interface insightLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['scenes', 'insights', 'insightLogic']
-    pathString: 'scenes.insights.insightLogic'
+    path: ['frontend', 'src', 'scenes', 'insights', 'insightLogic']
+    pathString: 'frontend.src.scenes.insights.insightLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

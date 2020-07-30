@@ -4,13 +4,13 @@ export interface funnelsModelType {
     key: any
     actionCreators: {
         loadFunnels: () => {
-            type: 'load funnels (models.funnelsModel)'
+            type: 'load funnels (frontend.src.models.funnelsModel)'
             payload: any
         }
         loadFunnelsSuccess: (
             funnels: any
         ) => {
-            type: 'load funnels success (models.funnelsModel)'
+            type: 'load funnels success (frontend.src.models.funnelsModel)'
             payload: {
                 funnels: any
             }
@@ -18,21 +18,21 @@ export interface funnelsModelType {
         loadFunnelsFailure: (
             error: string
         ) => {
-            type: 'load funnels failure (models.funnelsModel)'
+            type: 'load funnels failure (frontend.src.models.funnelsModel)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'load funnels (models.funnelsModel)': 'loadFunnels'
-        'load funnels success (models.funnelsModel)': 'loadFunnelsSuccess'
-        'load funnels failure (models.funnelsModel)': 'loadFunnelsFailure'
+        'load funnels (frontend.src.models.funnelsModel)': 'loadFunnels'
+        'load funnels success (frontend.src.models.funnelsModel)': 'loadFunnelsSuccess'
+        'load funnels failure (frontend.src.models.funnelsModel)': 'loadFunnelsFailure'
     }
     actionTypes: {
-        loadFunnels: 'load funnels (models.funnelsModel)'
-        loadFunnelsSuccess: 'load funnels success (models.funnelsModel)'
-        loadFunnelsFailure: 'load funnels failure (models.funnelsModel)'
+        loadFunnels: 'load funnels (frontend.src.models.funnelsModel)'
+        loadFunnelsSuccess: 'load funnels success (frontend.src.models.funnelsModel)'
+        loadFunnelsFailure: 'load funnels failure (frontend.src.models.funnelsModel)'
     }
     actions: {
         loadFunnels: () => void
@@ -44,8 +44,8 @@ export interface funnelsModelType {
     constants: any
     defaults: any
     events: any
-    path: ['models', 'funnelsModel']
-    pathString: 'models.funnelsModel'
+    path: ['frontend', 'src', 'models', 'funnelsModel']
+    pathString: 'frontend.src.models.funnelsModel'
     propTypes: any
     props: Record<string, any>
     reducer: (

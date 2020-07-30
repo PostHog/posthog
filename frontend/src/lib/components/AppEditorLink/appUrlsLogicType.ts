@@ -6,36 +6,36 @@ export interface appUrlsLogicType {
         addUrl: (
             value: any
         ) => {
-            type: 'add url (lib.components.AppEditorLink.appUrlsLogic)'
+            type: 'add url (frontend.src.lib.components.AppEditorLink.appUrlsLogic)'
             payload: { value: any }
         }
         addUrlAndGo: (
             value: any
         ) => {
-            type: 'add url and go (lib.components.AppEditorLink.appUrlsLogic)'
+            type: 'add url and go (frontend.src.lib.components.AppEditorLink.appUrlsLogic)'
             payload: { value: any }
         }
         removeUrl: (
             index: any
         ) => {
-            type: 'remove url (lib.components.AppEditorLink.appUrlsLogic)'
+            type: 'remove url (frontend.src.lib.components.AppEditorLink.appUrlsLogic)'
             payload: { index: any }
         }
         updateUrl: (
             index: any,
             value: any
         ) => {
-            type: 'update url (lib.components.AppEditorLink.appUrlsLogic)'
+            type: 'update url (frontend.src.lib.components.AppEditorLink.appUrlsLogic)'
             payload: { index: any; value: any }
         }
         loadSuggestions: () => {
-            type: 'load suggestions (lib.components.AppEditorLink.appUrlsLogic)'
+            type: 'load suggestions (frontend.src.lib.components.AppEditorLink.appUrlsLogic)'
             payload: any
         }
         loadSuggestionsSuccess: (
             suggestions: never[]
         ) => {
-            type: 'load suggestions success (lib.components.AppEditorLink.appUrlsLogic)'
+            type: 'load suggestions success (frontend.src.lib.components.AppEditorLink.appUrlsLogic)'
             payload: {
                 suggestions: never[]
             }
@@ -43,29 +43,29 @@ export interface appUrlsLogicType {
         loadSuggestionsFailure: (
             error: string
         ) => {
-            type: 'load suggestions failure (lib.components.AppEditorLink.appUrlsLogic)'
+            type: 'load suggestions failure (frontend.src.lib.components.AppEditorLink.appUrlsLogic)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'add url (lib.components.AppEditorLink.appUrlsLogic)': 'addUrl'
-        'add url and go (lib.components.AppEditorLink.appUrlsLogic)': 'addUrlAndGo'
-        'remove url (lib.components.AppEditorLink.appUrlsLogic)': 'removeUrl'
-        'update url (lib.components.AppEditorLink.appUrlsLogic)': 'updateUrl'
-        'load suggestions (lib.components.AppEditorLink.appUrlsLogic)': 'loadSuggestions'
-        'load suggestions success (lib.components.AppEditorLink.appUrlsLogic)': 'loadSuggestionsSuccess'
-        'load suggestions failure (lib.components.AppEditorLink.appUrlsLogic)': 'loadSuggestionsFailure'
+        'add url (frontend.src.lib.components.AppEditorLink.appUrlsLogic)': 'addUrl'
+        'add url and go (frontend.src.lib.components.AppEditorLink.appUrlsLogic)': 'addUrlAndGo'
+        'remove url (frontend.src.lib.components.AppEditorLink.appUrlsLogic)': 'removeUrl'
+        'update url (frontend.src.lib.components.AppEditorLink.appUrlsLogic)': 'updateUrl'
+        'load suggestions (frontend.src.lib.components.AppEditorLink.appUrlsLogic)': 'loadSuggestions'
+        'load suggestions success (frontend.src.lib.components.AppEditorLink.appUrlsLogic)': 'loadSuggestionsSuccess'
+        'load suggestions failure (frontend.src.lib.components.AppEditorLink.appUrlsLogic)': 'loadSuggestionsFailure'
     }
     actionTypes: {
-        addUrl: 'add url (lib.components.AppEditorLink.appUrlsLogic)'
-        addUrlAndGo: 'add url and go (lib.components.AppEditorLink.appUrlsLogic)'
-        removeUrl: 'remove url (lib.components.AppEditorLink.appUrlsLogic)'
-        updateUrl: 'update url (lib.components.AppEditorLink.appUrlsLogic)'
-        loadSuggestions: 'load suggestions (lib.components.AppEditorLink.appUrlsLogic)'
-        loadSuggestionsSuccess: 'load suggestions success (lib.components.AppEditorLink.appUrlsLogic)'
-        loadSuggestionsFailure: 'load suggestions failure (lib.components.AppEditorLink.appUrlsLogic)'
+        addUrl: 'add url (frontend.src.lib.components.AppEditorLink.appUrlsLogic)'
+        addUrlAndGo: 'add url and go (frontend.src.lib.components.AppEditorLink.appUrlsLogic)'
+        removeUrl: 'remove url (frontend.src.lib.components.AppEditorLink.appUrlsLogic)'
+        updateUrl: 'update url (frontend.src.lib.components.AppEditorLink.appUrlsLogic)'
+        loadSuggestions: 'load suggestions (frontend.src.lib.components.AppEditorLink.appUrlsLogic)'
+        loadSuggestionsSuccess: 'load suggestions success (frontend.src.lib.components.AppEditorLink.appUrlsLogic)'
+        loadSuggestionsFailure: 'load suggestions failure (frontend.src.lib.components.AppEditorLink.appUrlsLogic)'
     }
     actions: {
         addUrl: (value: any) => void
@@ -81,8 +81,8 @@ export interface appUrlsLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['lib', 'components', 'AppEditorLink', 'appUrlsLogic']
-    pathString: 'lib.components.AppEditorLink.appUrlsLogic'
+    path: ['frontend', 'src', 'lib', 'components', 'AppEditorLink', 'appUrlsLogic']
+    pathString: 'frontend.src.lib.components.AppEditorLink.appUrlsLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

@@ -4,17 +4,17 @@ export interface dashboardsLogicType {
     key: any
     actionCreators: {
         addNewDashboard: () => {
-            type: 'add new dashboard (scenes.dashboard.dashboardsLogic)'
+            type: 'add new dashboard (frontend.src.scenes.dashboard.dashboardsLogic)'
             payload: {
                 value: boolean
             }
         }
     }
     actionKeys: {
-        'add new dashboard (scenes.dashboard.dashboardsLogic)': 'addNewDashboard'
+        'add new dashboard (frontend.src.scenes.dashboard.dashboardsLogic)': 'addNewDashboard'
     }
     actionTypes: {
-        addNewDashboard: 'add new dashboard (scenes.dashboard.dashboardsLogic)'
+        addNewDashboard: 'add new dashboard (frontend.src.scenes.dashboard.dashboardsLogic)'
     }
     actions: {
         addNewDashboard: () => void
@@ -24,8 +24,8 @@ export interface dashboardsLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['scenes', 'dashboard', 'dashboardsLogic']
-    pathString: 'scenes.dashboard.dashboardsLogic'
+    path: ['frontend', 'src', 'scenes', 'dashboard', 'dashboardsLogic']
+    pathString: 'frontend.src.scenes.dashboard.dashboardsLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (state: any, action: () => any, fullState: any) => {}
