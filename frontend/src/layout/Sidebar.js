@@ -5,7 +5,6 @@ import { TeamInvitationModal } from 'lib/components/TeamInvitation'
 import { Menu, Layout, Modal } from 'antd'
 import {
     UserOutlined,
-    ForkOutlined,
     FunnelPlotOutlined,
     SettingOutlined,
     RiseOutlined,
@@ -18,7 +17,6 @@ import {
     FundOutlined,
     ExperimentOutlined,
     ClockCircleOutlined,
-    RetweetOutlined,
     MessageOutlined,
     TeamOutlined,
 } from '@ant-design/icons'
@@ -60,7 +58,6 @@ const submenuOverride = {
     liveActions: 'events',
     sessions: 'events',
     cohorts: 'people',
-    retention: 'people',
     setup: 'settings',
     annotations: 'settings',
 }
@@ -147,10 +144,10 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
 
                     {pinnedDashboards.length > 0 ? <Menu.Divider /> : null}
 
-                    <Menu.Item key="trends" style={itemStyle} data-attr="menu-item-trends" title="">
+                    <Menu.Item key="insights" style={itemStyle} data-attr="menu-item-insights" title="">
                         <RiseOutlined />
-                        <span className="sidebar-label">{'Trends'}</span>
-                        <Link to={'/trends'} onClick={collapseSidebar} />
+                        <span className="sidebar-label">{'Insights'}</span>
+                        <Link to={'/insights?insight=TRENDS'} onClick={collapseSidebar} />
                     </Menu.Item>
 
                     <Menu.SubMenu
@@ -211,11 +208,6 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <span className="sidebar-label">{'Cohorts'}</span>
                             <Link to={'/people/cohorts'} onClick={collapseSidebar} />
                         </Menu.Item>
-                        <Menu.Item key="retention" style={itemStyle} data-attr="menu-item-retention">
-                            <RetweetOutlined />
-                            <span className="sidebar-label">{'Retention'}</span>
-                            <Link to={'/people/retention'} onClick={collapseSidebar} />
-                        </Menu.Item>
                     </Menu.SubMenu>
 
                     <Menu.Item key="funnels" style={itemStyle} data-attr="menu-item-funnels">
@@ -223,13 +215,6 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         <span className="sidebar-label">{'Funnels'}</span>
                         <Link to={'/funnel'} onClick={collapseSidebar} />
                     </Menu.Item>
-
-                    <Menu.Item key="paths" style={itemStyle} data-attr="menu-item-paths">
-                        <ForkOutlined />
-                        <span className="sidebar-label">{'Paths'}</span>
-                        <Link to={'/paths'} onClick={collapseSidebar} />
-                    </Menu.Item>
-
                     <Menu.Item key="experiments" style={itemStyle} data-attr="menu-item-feature-f">
                         <ExperimentOutlined />
                         <span className="sidebar-label">{'Experiments'}</span>

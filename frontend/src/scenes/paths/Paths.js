@@ -1,23 +1,12 @@
 import React, { useRef, useState, useEffect } from 'react'
 import api from 'lib/api'
-import { Card, Loading, stripHTTP } from 'lib/utils'
-import { DateFilter } from 'lib/components/DateFilter'
-import { Row, Modal, Button, Spin, Select } from 'antd'
+import { useValues } from 'kea'
+import { Loading, stripHTTP } from 'lib/utils'
+import { Modal, Button, Spin } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
-import { PropertyFilters, PropertyValue } from 'lib/components/PropertyFilters'
-import { useActions, useValues } from 'kea'
-import { hot } from 'react-hot-loader/root'
-import {
-    pathsLogic,
-    PAGEVIEW,
-    AUTOCAPTURE,
-    CUSTOM_EVENT,
-    pathOptionsToLabels,
-    pathOptionsToProperty,
-} from 'scenes/paths/pathsLogic'
-import { userLogic } from 'scenes/userLogic'
+import { AUTOCAPTURE, pathsLogic } from 'scenes/paths/pathsLogic'
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
@@ -63,12 +52,9 @@ function NoData() {
     )
 }
 
-export const Paths = hot(_Paths)
-function _Paths() {
+export function Paths() {
     const canvas = useRef(null)
     const { paths, filter, pathsLoading } = useValues(pathsLogic)
-    const { setFilter } = useActions(pathsLogic)
-    const { customEventNames } = useValues(userLogic)
 
     const [modalVisible, setModalVisible] = useState(false)
     const [eventelements, setEventelements] = useState(null)
@@ -224,82 +210,20 @@ function _Paths() {
 
     return (
         <div>
-            <h1 className="page-header">Paths</h1>
-            <PropertyFilters pageKey="Paths" />
-            <Card
-                title={
-                    <Row justify="space-between">
-                        <Row>
-                            <Row align="middle">
-                                Path Type:
-                                <Select
-                                    value={filter.type || PAGEVIEW}
-                                    bordered={false}
-                                    defaultValue={PAGEVIEW}
-                                    dropdownMatchSelectWidth={false}
-                                    onChange={(value) => setFilter({ type: value, start: null })}
-                                    style={{ paddingTop: 2 }}
-                                >
-                                    {Object.entries(pathOptionsToLabels).map(([value, name], index) => {
-                                        return (
-                                            <Select.Option key={index} value={value}>
-                                                {name}
-                                            </Select.Option>
-                                        )
-                                    })}
-                                </Select>
-                            </Row>
-
-                            <Row align="middle">
-                                Start:
-                                <PropertyValue
-                                    endpoint={filter.type === AUTOCAPTURE && 'api/paths/elements'}
-                                    outerOptions={
-                                        filter.type === CUSTOM_EVENT &&
-                                        customEventNames.map((name) => ({
-                                            name,
-                                        }))
-                                    }
-                                    onSet={(value) => setFilter({ start: value })}
-                                    propertyKey={pathOptionsToProperty[filter.type]}
-                                    type="event"
-                                    style={{ width: 200, paddingTop: 2 }}
-                                    bordered={false}
-                                    value={filter.start}
-                                    placeholder={'Select start element'}
-                                ></PropertyValue>
-                            </Row>
-                        </Row>
-                        <Row align="middle">
-                            <DateFilter
-                                onChange={(date_from, date_to) =>
-                                    setFilter({
-                                        date_from,
-                                        date_to,
-                                    })
-                                }
-                                dateFrom={filter.date_from}
-                                dateTo={filter.date_to}
-                            />
-                        </Row>
-                    </Row>
-                }
-            >
-                {filter.type == AUTOCAPTURE && <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>}
-                <div ref={canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
-                    {!pathsLoading && paths && paths.nodes.length === 0 ? (
-                        <NoData />
-                    ) : (
-                        pathsLoading && (
-                            <div className="loading-overlay mt-5">
-                                <div />
-                                <Loading />
-                                <br />
-                            </div>
-                        )
-                    )}
-                </div>
-            </Card>
+            {filter.type == AUTOCAPTURE && <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>}
+            <div ref={canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
+                {!pathsLoading && paths && paths.nodes.length === 0 ? (
+                    <NoData />
+                ) : (
+                    pathsLoading && (
+                        <div className="loading-overlay mt-5">
+                            <div />
+                            <Loading />
+                            <br />
+                        </div>
+                    )
+                )}
+            </div>
             <Modal
                 visible={modalVisible}
                 onOk={() => setModalVisible(false)}

@@ -3,6 +3,7 @@ import { toParams, objectsEqual } from 'lib/utils'
 import api from 'lib/api'
 import { router } from 'kea-router'
 import lo from 'lodash'
+import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 
 export const PAGEVIEW = '$pageview'
 export const SCREEN = '$screen'
@@ -29,6 +30,16 @@ function checkRoot(nodeToVerify, paths, start) {
         tempSource = paths.find((node) => node.target === tempSource.source)
     }
     return tempSource
+}
+
+function cleanPathParams(filters, properties) {
+    return {
+        start: filters.start,
+        type: filters.type,
+        date_from: filters.date_from,
+        date_to: filters.date_to,
+        properties: properties,
+    }
 }
 
 export const pathsLogic = kea({
@@ -61,6 +72,9 @@ export const pathsLogic = kea({
             },
         },
     }),
+    connect: {
+        actions: [insightLogic, ['setAllFilters']],
+    },
     reducers: () => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
         filter: [
@@ -85,6 +99,7 @@ export const pathsLogic = kea({
     listeners: ({ actions, values }) => ({
         setProperties: () => {
             actions.loadPaths()
+            actions.setAllFilters(cleanPathParams(values.filter, values.properties))
         },
         setFilter: () => {
             if (
@@ -92,19 +107,26 @@ export const pathsLogic = kea({
                 (values.filter.type === AUTOCAPTURE && !isNaN(values.filter.start))
             )
                 actions.loadPaths()
+
+            actions.setAllFilters(cleanPathParams(values.filter, values.properties))
         },
     }),
     selectors: ({ selectors }) => ({
         propertiesForUrl: [
             () => [selectors.properties, selectors.filter],
             (properties, filter) => {
-                let result = {}
+                let result = {
+                    insight: ViewType.PATHS,
+                }
                 if (!lo.isEmpty(properties)) {
                     result['properties'] = properties
                 }
 
                 if (!lo.isEmpty(filter)) {
-                    result['filter'] = filter
+                    result = {
+                        ...result,
+                        ...filter,
+                    }
                 }
 
                 if (lo.isEmpty(result)) return ''
@@ -121,29 +143,28 @@ export const pathsLogic = kea({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '*': (_, searchParams) => {
-            try {
-                // if the url changed, but we are not anymore on the page we were at when the logic was mounted
-                if (router.values.location.pathname !== values.initialPathname) {
+        '/insights': (_, searchParams) => {
+            if (searchParams.insight === ViewType.PATHS) {
+                try {
+                    // if the url changed, but we are not anymore on the page we were at when the logic was mounted
+                    if (router.values.location.pathname !== values.initialPathname) {
+                        return
+                    }
+                } catch (error) {
+                    // since this is a catch-all route, this code might run during or after the logic was unmounted
+                    // if we have an error accessing the filter value, the logic is gone and we should return
                     return
                 }
-            } catch (error) {
-                // since this is a catch-all route, this code might run during or after the logic was unmounted
-                // if we have an error accessing the filter value, the logic is gone and we should return
-                return
-            }
 
-            if (
-                !objectsEqual(
-                    (!lo.isEmpty(searchParams.properties) && searchParams.properties) || {},
-                    values.properties
-                )
-            ) {
-                actions.setProperties(searchParams.properties || {})
-            }
+                if (!objectsEqual(searchParams.properties, values.properties)) {
+                    actions.setProperties(searchParams.properties || {})
+                }
 
-            if (!objectsEqual(!lo.isEmpty(searchParams.filter) || {}, values.filter)) {
-                actions.setFilter(searchParams.filter || {})
+                const { insight: _, properties: __, ...restParams } = searchParams
+
+                if (!objectsEqual(restParams, values.filter)) {
+                    actions.setFilter(restParams)
+                }
             }
         },
     }),

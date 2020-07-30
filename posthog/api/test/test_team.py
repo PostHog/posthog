@@ -1,9 +1,12 @@
-from typing import List, Dict
+import random
+from typing import Dict, List
+
 from django.db.models import Q
 from rest_framework import status
+
+from posthog.models import Team, User
+
 from .base import BaseTest
-from posthog.models import User, Team
-import random
 
 
 class TestTeamUser(BaseTest):
