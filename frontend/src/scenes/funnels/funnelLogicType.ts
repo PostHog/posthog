@@ -10,6 +10,12 @@ export interface funnelLogicType {
             type: 'set funnel (scenes.funnels.funnelLogic)'
             payload: { funnel: any; update: any }
         }
+        clearFunnel: () => {
+            type: 'clear funnel (scenes.funnels.funnelLogic)'
+            payload: {
+                value: boolean
+            }
+        }
         loadFunnel: (
             id?: any
         ) => {
@@ -130,6 +136,7 @@ export interface funnelLogicType {
     }
     actionKeys: {
         'set funnel (scenes.funnels.funnelLogic)': 'setFunnel'
+        'clear funnel (scenes.funnels.funnelLogic)': 'clearFunnel'
         'load funnel (scenes.funnels.funnelLogic)': 'loadFunnel'
         'load funnel success (scenes.funnels.funnelLogic)': 'loadFunnelSuccess'
         'load funnel failure (scenes.funnels.funnelLogic)': 'loadFunnelFailure'
@@ -148,6 +155,7 @@ export interface funnelLogicType {
     }
     actionTypes: {
         setFunnel: 'set funnel (scenes.funnels.funnelLogic)'
+        clearFunnel: 'clear funnel (scenes.funnels.funnelLogic)'
         loadFunnel: 'load funnel (scenes.funnels.funnelLogic)'
         loadFunnelSuccess: 'load funnel success (scenes.funnels.funnelLogic)'
         loadFunnelFailure: 'load funnel failure (scenes.funnels.funnelLogic)'
@@ -166,6 +174,7 @@ export interface funnelLogicType {
     }
     actions: {
         setFunnel: (funnel: any, update: any) => void
+        clearFunnel: () => void
         loadFunnel: (id?: any) => void
         loadFunnelSuccess: (funnel: { filters: {} }) => void
         loadFunnelFailure: (error: string) => void
