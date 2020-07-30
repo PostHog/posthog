@@ -1,7 +1,5 @@
 import React, { useState } from 'react'
 import { Tabs, Table, Modal, Input, Button } from 'antd'
-import { useValues, useActions } from 'kea'
-import { insightsModel } from '~/models/insightsModel'
 import { humanFriendlyDetailedTime, toParams } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { PushpinOutlined } from '@ant-design/icons'
@@ -14,8 +12,13 @@ const InsightHistoryType = {
 const { TabPane } = Tabs
 
 export const InsightHistoryPanel: React.FC = () => {
-    const { insights, savedInsights, insightsLoading, savedInsightsLoading } = useValues(insightsModel)
-    const { saveInsight } = useActions(insightsModel)
+    const insights = []
+    const savedInsights = []
+    const insightsLoading = false
+    const savedInsightsLoading = false
+    const saveInsight = (id, text): void => {
+        console.log(id, text)
+    }
     const [visible, setVisible] = useState(false)
     const [activeTab, setActiveTab] = useState(InsightHistoryType.RECENT)
     const [selectedInsight, setSelectedInsight] = useState<number | null>(null)

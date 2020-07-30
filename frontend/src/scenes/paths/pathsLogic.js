@@ -4,7 +4,6 @@ import api from 'lib/api'
 import { router } from 'kea-router'
 import lo from 'lodash'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
-import { insightsModel } from '~/models/insightsModel'
 
 export const PAGEVIEW = '$pageview'
 export const SCREEN = '$screen'
@@ -75,7 +74,7 @@ export const pathsLogic = kea({
         },
     }),
     connect: {
-        actions: [insightLogic, ['setAllFilters'], insightsModel, ['createInsight']],
+        actions: [insightLogic, ['setAllFilters']],
     },
     reducers: () => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
@@ -111,7 +110,6 @@ export const pathsLogic = kea({
                 actions.loadPaths()
 
             actions.setAllFilters(cleanPathParams(values.filter, values.properties))
-            actions.createInsight(cleanPathParams(values.filter, values.properties))
         },
     }),
     selectors: ({ selectors }) => ({

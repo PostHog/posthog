@@ -11,7 +11,6 @@ from .event import Event
 from .feature_flag import FeatureFlag
 from .filter import Filter
 from .funnel import Funnel
-from .insight import Insight
 from .person import Person, PersonDistinctId
 from .property import Property
 from .team import Team
