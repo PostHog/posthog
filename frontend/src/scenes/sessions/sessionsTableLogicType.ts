@@ -10,11 +10,11 @@ export interface sessionsTableLogicType {
             payload: any
         }
         loadSessionsSuccess: (
-            sessions: undefined[]
+            sessions: never[]
         ) => {
             type: 'load sessions success (scenes.sessions.sessionsTableLogic)'
             payload: {
-                sessions: undefined[]
+                sessions: never[]
             }
         }
         loadSessionsFailure: (
@@ -77,58 +77,14 @@ export interface sessionsTableLogicType {
         setDate: 'set date (scenes.sessions.sessionsTableLogic)'
     }
     actions: {
-        loadSessions: (
-            selectedDate: any
-        ) => {
-            type: 'load sessions (scenes.sessions.sessionsTableLogic)'
-            payload: any
-        }
-        loadSessionsSuccess: (
-            sessions: undefined[]
-        ) => {
-            type: 'load sessions success (scenes.sessions.sessionsTableLogic)'
-            payload: {
-                sessions: undefined[]
-            }
-        }
-        loadSessionsFailure: (
-            error: string
-        ) => {
-            type: 'load sessions failure (scenes.sessions.sessionsTableLogic)'
-            payload: {
-                error: string
-            }
-        }
-        setOffset: (
-            offset: any
-        ) => {
-            type: 'set offset (scenes.sessions.sessionsTableLogic)'
-            payload: { offset: any }
-        }
-        fetchNextSessions: () => {
-            type: 'fetch next sessions (scenes.sessions.sessionsTableLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        appendNewSessions: (
-            sessions: any
-        ) => {
-            type: 'append new sessions (scenes.sessions.sessionsTableLogic)'
-            payload: { sessions: any }
-        }
-        dateChanged: (
-            date: any
-        ) => {
-            type: 'date changed (scenes.sessions.sessionsTableLogic)'
-            payload: { date: any }
-        }
-        setDate: (
-            date: any
-        ) => {
-            type: 'set date (scenes.sessions.sessionsTableLogic)'
-            payload: { date: any }
-        }
+        loadSessions: (selectedDate: any) => void
+        loadSessionsSuccess: (sessions: never[]) => void
+        loadSessionsFailure: (error: string) => void
+        setOffset: (offset: any) => void
+        fetchNextSessions: () => void
+        appendNewSessions: (sessions: any) => void
+        dateChanged: (date: any) => void
+        setDate: (date: any) => void
     }
     cache: Record<string, any>
     connections: any
@@ -144,7 +100,7 @@ export interface sessionsTableLogicType {
         action: () => any,
         fullState: any
     ) => {
-        sessions: undefined[]
+        sessions: never[]
         sessionsLoading: boolean
         isLoadingNext: boolean
         offset: null
@@ -152,7 +108,7 @@ export interface sessionsTableLogicType {
     }
     reducerOptions: any
     reducers: {
-        sessions: (state: undefined[], action: any, fullState: any) => undefined[]
+        sessions: (state: never[], action: any, fullState: any) => never[]
         sessionsLoading: (state: boolean, action: any, fullState: any) => boolean
         isLoadingNext: (state: boolean, action: any, fullState: any) => boolean
         offset: (state: null, action: any, fullState: any) => null
@@ -161,14 +117,14 @@ export interface sessionsTableLogicType {
     selector: (
         state: any
     ) => {
-        sessions: undefined[]
+        sessions: never[]
         sessionsLoading: boolean
         isLoadingNext: boolean
         offset: null
         selectedDate: Moment
     }
     selectors: {
-        sessions: (state: any, props: any) => undefined[]
+        sessions: (state: any, props: any) => never[]
         sessionsLoading: (state: any, props: any) => boolean
         isLoadingNext: (state: any, props: any) => boolean
         offset: (state: any, props: any) => null
@@ -176,7 +132,7 @@ export interface sessionsTableLogicType {
         selectedDateURLparam: (state: any, props: any) => any
     }
     values: {
-        sessions: undefined[]
+        sessions: never[]
         sessionsLoading: boolean
         isLoadingNext: boolean
         offset: null

@@ -50,6 +50,7 @@ const sceneOverride = {
     editFunnel: 'funnels',
     person: 'people',
     dashboard: 'dashboards',
+    featureFlags: 'experiments',
 }
 
 // to show the open submenu

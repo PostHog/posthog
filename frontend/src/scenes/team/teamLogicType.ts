@@ -59,44 +59,12 @@ export interface teamLogicType {
         deleteUserFailure: 'delete user failure (scenes.team.teamLogic)'
     }
     actions: {
-        loadUsers: () => {
-            type: 'load users (scenes.team.teamLogic)'
-            payload: any
-        }
-        loadUsersSuccess: (users: {}) => {
-            type: 'load users success (scenes.team.teamLogic)'
-            payload: {
-                users: {}
-            }
-        }
-        loadUsersFailure: (
-            error: string
-        ) => {
-            type: 'load users failure (scenes.team.teamLogic)'
-            payload: {
-                error: string
-            }
-        }
-        deleteUser: (
-            user: any
-        ) => {
-            type: 'delete user (scenes.team.teamLogic)'
-            payload: any
-        }
-        deleteUserSuccess: (users: {}) => {
-            type: 'delete user success (scenes.team.teamLogic)'
-            payload: {
-                users: {}
-            }
-        }
-        deleteUserFailure: (
-            error: string
-        ) => {
-            type: 'delete user failure (scenes.team.teamLogic)'
-            payload: {
-                error: string
-            }
-        }
+        loadUsers: () => void
+        loadUsersSuccess: (users: {}) => void
+        loadUsersFailure: (error: string) => void
+        deleteUser: (user: any) => void
+        deleteUserSuccess: (users: {}) => void
+        deleteUserFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

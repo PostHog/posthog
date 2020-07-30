@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0072_auto_20200729_1938"),
+        ("posthog", "0072_action_step_url_matching_regex"),
     ]
 
     operations = [

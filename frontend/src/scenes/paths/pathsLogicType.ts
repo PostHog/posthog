@@ -10,14 +10,14 @@ export interface pathsLogicType {
             payload: any
         }
         loadPathsSuccess: (paths: {
-            nodes: undefined[]
-            links: undefined[]
+            nodes: never[]
+            links: never[]
         }) => {
             type: 'load paths success (scenes.paths.pathsLogic)'
             payload: {
                 paths: {
-                    nodes: undefined[]
-                    links: undefined[]
+                    nodes: never[]
+                    links: never[]
                 }
             }
         }
@@ -57,44 +57,11 @@ export interface pathsLogicType {
         setFilter: 'set filter (scenes.paths.pathsLogic)'
     }
     actions: {
-        loadPaths: (
-            _: any
-        ) => {
-            type: 'load paths (scenes.paths.pathsLogic)'
-            payload: any
-        }
-        loadPathsSuccess: (paths: {
-            nodes: undefined[]
-            links: undefined[]
-        }) => {
-            type: 'load paths success (scenes.paths.pathsLogic)'
-            payload: {
-                paths: {
-                    nodes: undefined[]
-                    links: undefined[]
-                }
-            }
-        }
-        loadPathsFailure: (
-            error: string
-        ) => {
-            type: 'load paths failure (scenes.paths.pathsLogic)'
-            payload: {
-                error: string
-            }
-        }
-        setProperties: (
-            properties: any
-        ) => {
-            type: 'set properties (scenes.paths.pathsLogic)'
-            payload: { properties: any }
-        }
-        setFilter: (
-            filter: any
-        ) => {
-            type: 'set filter (scenes.paths.pathsLogic)'
-            payload: any
-        }
+        loadPaths: (_: any) => void
+        loadPathsSuccess: (paths: { nodes: never[]; links: never[] }) => void
+        loadPathsFailure: (error: string) => void
+        setProperties: (properties: any) => void
+        setFilter: (filter: any) => void
     }
     cache: Record<string, any>
     connections: any
@@ -111,8 +78,8 @@ export interface pathsLogicType {
         fullState: any
     ) => {
         paths: {
-            nodes: undefined[]
-            links: undefined[]
+            nodes: never[]
+            links: never[]
         }
         pathsLoading: boolean
         initialPathname: (state: any) => any
@@ -125,14 +92,14 @@ export interface pathsLogicType {
     reducers: {
         paths: (
             state: {
-                nodes: undefined[]
-                links: undefined[]
+                nodes: never[]
+                links: never[]
             },
             action: any,
             fullState: any
         ) => {
-            nodes: undefined[]
-            links: undefined[]
+            nodes: never[]
+            links: never[]
         }
         pathsLoading: (state: boolean, action: any, fullState: any) => boolean
         initialPathname: (state: (state: any) => any, action: any, fullState: any) => (state: any) => any
@@ -151,8 +118,8 @@ export interface pathsLogicType {
         state: any
     ) => {
         paths: {
-            nodes: undefined[]
-            links: undefined[]
+            nodes: never[]
+            links: never[]
         }
         pathsLoading: boolean
         initialPathname: (state: any) => any
@@ -166,8 +133,8 @@ export interface pathsLogicType {
             state: any,
             props: any
         ) => {
-            nodes: undefined[]
-            links: undefined[]
+            nodes: never[]
+            links: never[]
         }
         pathsLoading: (state: any, props: any) => boolean
         initialPathname: (state: any, props: any) => (state: any) => any
@@ -178,12 +145,12 @@ export interface pathsLogicType {
             type: string
         }
         properties: (state: any, props: any) => {}
-        propertiesForUrl: (state: any, props: any) => '' | { properties: any; filter: any }
+        propertiesForUrl: (state: any, props: any) => '' | { insight: string }
     }
     values: {
         paths: {
-            nodes: undefined[]
-            links: undefined[]
+            nodes: never[]
+            links: never[]
         }
         pathsLoading: boolean
         initialPathname: (state: any) => any
@@ -191,10 +158,10 @@ export interface pathsLogicType {
             type: string
         }
         properties: {}
-        propertiesForUrl: '' | { properties: any; filter: any }
+        propertiesForUrl: '' | { insight: string }
     }
     _isKea: true
     __keaTypeGenInternalSelectorTypes: {
-        propertiesForUrl: (arg1: any, arg2: any) => '' | { properties: any; filter: any }
+        propertiesForUrl: (arg1: any, arg2: any) => '' | { insight: string }
     }
 }

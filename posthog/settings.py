@@ -21,7 +21,7 @@ import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
 from sentry_sdk.integrations.django import DjangoIntegration
 
-VERSION = "1.11.0"
+VERSION = "1.12.0"
 
 
 def get_env(key):
@@ -332,7 +332,7 @@ if TEST:
     }
 
 
-if DEBUG:
+if DEBUG and not TEST:
     print("🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰")
     print("️🧰 🔧 Running PostHog in __development mode__! DEBUG=1 🔧 🧰")
     print("️🧰 ⚠️ Please update your config if this is a live site ⚠️ 🧰")

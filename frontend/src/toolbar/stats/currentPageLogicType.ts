@@ -4,10 +4,10 @@ export interface currentPageLogicType {
     key: any
     actionCreators: {
         setHref: (
-            href: any
+            href: string
         ) => {
             type: 'set href (toolbar.stats.currentPageLogic)'
-            payload: { href: any }
+            payload: { href: string }
         }
     }
     actionKeys: {
@@ -17,12 +17,7 @@ export interface currentPageLogicType {
         setHref: 'set href (toolbar.stats.currentPageLogic)'
     }
     actions: {
-        setHref: (
-            href: any
-        ) => {
-            type: 'set href (toolbar.stats.currentPageLogic)'
-            payload: { href: any }
-        }
+        setHref: (href: string) => void
     }
     cache: Record<string, any>
     connections: any
