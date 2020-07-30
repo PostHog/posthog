@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
 import { Tabs, Table, Modal, Input, Button } from 'antd'
-import { useValues } from 'kea'
-import { insightsModel } from '~/models/insightsModel'
 import { humanFriendlyDetailedTime, toParams } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { PushpinOutlined } from '@ant-design/icons'
+import { useValues, useActions } from 'kea'
+import { insightHistoryLogic, InsightHistory } from './insightHistoryLogic'
 
 const InsightHistoryType = {
     SAVED: 'SAVED',
@@ -14,27 +14,48 @@ const InsightHistoryType = {
 const { TabPane } = Tabs
 
 export const InsightHistoryPanel: React.FC = () => {
-    const { insights, insightsLoading } = useValues(insightsModel)
+    const { insights, insightsLoading, savedInsights, savedInsightsLoading } = useValues(insightHistoryLogic)
+    const { saveInsight } = useActions(insightHistoryLogic)
+
     const [visible, setVisible] = useState(false)
     const [activeTab, setActiveTab] = useState(InsightHistoryType.RECENT)
+    const [selectedInsight, setSelectedInsight] = useState<number | null>(null)
 
-    const columns = [
+    const savedColumns = [
+        {
+            title: 'Name',
+            key: 'id',
+            render: function RenderName(_, insight: InsightHistory) {
+                return <Link to={'/insights?' + toParams(insight.filters)}>{insight.name}</Link>
+            },
+        },
+    ]
+
+    const recentColumns = [
         {
             title: 'Type',
             key: 'id',
-            render: function RenderType(_, insight) {
-                return <Link to={'/insights?' + toParams(insight.filters)}>{insight.filters.insight}</Link>
+            render: function RenderType(_, insight: InsightHistory) {
+                return <Link to={'/insights?' + toParams(insight.filters)}>{insight.type}</Link>
             },
         },
         {
             title: 'Timestamp',
-            render: function RenderVolume(_, insight) {
-                return <span>{humanFriendlyDetailedTime(insight.created_at)}</span>
+            render: function RenderVolume(_, insight: InsightHistory) {
+                return <span>{humanFriendlyDetailedTime(insight.createdAt)}</span>
             },
         },
         {
-            render: function RenderAction() {
-                return <PushpinOutlined onClick={() => setVisible(true)} style={{ cursor: 'pointer' }} />
+            render: function RenderAction(_, insight: InsightHistory) {
+                return (
+                    <PushpinOutlined
+                        onClick={() => {
+                            setVisible(true)
+                            setSelectedInsight(insight.id)
+                        }}
+                        style={{ cursor: 'pointer' }}
+                    />
+                )
             },
         },
     ]
@@ -52,7 +73,16 @@ export const InsightHistoryPanel: React.FC = () => {
                 tab={<span data-attr="insight-saved-tab">Saved</span>}
                 key={InsightHistoryType.SAVED}
                 data-attr="insight-saved-pane"
-            ></TabPane>
+            >
+                <Table
+                    size="small"
+                    columns={savedColumns}
+                    loading={savedInsightsLoading}
+                    rowKey={(insight) => insight.id}
+                    pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                    dataSource={savedInsights}
+                />
+            </TabPane>
             <TabPane
                 tab={<span data-attr="insight-history-tab">Recent</span>}
                 key={InsightHistoryType.RECENT}
@@ -60,14 +90,27 @@ export const InsightHistoryPanel: React.FC = () => {
             >
                 <Table
                     size="small"
-                    columns={columns}
+                    columns={recentColumns}
                     loading={insightsLoading}
                     rowKey={(insight) => insight.id}
                     pagination={{ pageSize: 100, hideOnSinglePage: true }}
                     dataSource={insights}
                 />
             </TabPane>
-            <SaveChartModal visible={visible} onCancel={(): void => setVisible(false)} onSubmit={(): void => {}} />
+            <SaveChartModal
+                visible={visible}
+                onCancel={(): void => {
+                    setVisible(false)
+                    setSelectedInsight(null)
+                }}
+                onSubmit={(text): void => {
+                    if (selectedInsight) {
+                        saveInsight(selectedInsight, text)
+                    }
+                    setVisible(false)
+                    setSelectedInsight(null)
+                }}
+            />
         </Tabs>
     )
 }

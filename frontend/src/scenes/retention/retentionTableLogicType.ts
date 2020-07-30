@@ -4,11 +4,11 @@ export interface retentionTableLogicType {
     key: any
     actionCreators: {
         loadRetention: () => {
-            type: 'load retention (scenes.retention.retentionTableLogic)'
+            type: 'load retention (frontend.src.scenes.retention.retentionTableLogic)'
             payload: any
         }
         loadRetentionSuccess: (retention: {}) => {
-            type: 'load retention success (scenes.retention.retentionTableLogic)'
+            type: 'load retention success (frontend.src.scenes.retention.retentionTableLogic)'
             payload: {
                 retention: {}
             }
@@ -16,7 +16,7 @@ export interface retentionTableLogicType {
         loadRetentionFailure: (
             error: string
         ) => {
-            type: 'load retention failure (scenes.retention.retentionTableLogic)'
+            type: 'load retention failure (frontend.src.scenes.retention.retentionTableLogic)'
             payload: {
                 error: string
             }
@@ -24,11 +24,11 @@ export interface retentionTableLogicType {
         loadPeople: (
             rowIndex: any
         ) => {
-            type: 'load people (scenes.retention.retentionTableLogic)'
+            type: 'load people (frontend.src.scenes.retention.retentionTableLogic)'
             payload: any
         }
         loadPeopleSuccess: (people: {}) => {
-            type: 'load people success (scenes.retention.retentionTableLogic)'
+            type: 'load people success (frontend.src.scenes.retention.retentionTableLogic)'
             payload: {
                 people: {}
             }
@@ -36,77 +36,87 @@ export interface retentionTableLogicType {
         loadPeopleFailure: (
             error: string
         ) => {
-            type: 'load people failure (scenes.retention.retentionTableLogic)'
+            type: 'load people failure (frontend.src.scenes.retention.retentionTableLogic)'
             payload: {
                 error: string
+            }
+        }
+        createInsight: (
+            filters: Record<string, any>
+        ) => {
+            type: 'create insight (frontend.src.scenes.retention.retentionTableLogic)'
+            payload: {
+                filters: Record<string, any>
             }
         }
         setProperties: (
             properties: any
         ) => {
-            type: 'set properties (scenes.retention.retentionTableLogic)'
+            type: 'set properties (frontend.src.scenes.retention.retentionTableLogic)'
             payload: { properties: any }
         }
         setFilters: (
             filters: any
         ) => {
-            type: 'set filters (scenes.retention.retentionTableLogic)'
+            type: 'set filters (frontend.src.scenes.retention.retentionTableLogic)'
             payload: { filters: any }
         }
         loadMore: (
             selectedIndex: any
         ) => {
-            type: 'load more (scenes.retention.retentionTableLogic)'
+            type: 'load more (frontend.src.scenes.retention.retentionTableLogic)'
             payload: { selectedIndex: any }
         }
         loadMorePeople: (
             selectedIndex: any,
             peopleIds: any
         ) => {
-            type: 'load more people (scenes.retention.retentionTableLogic)'
+            type: 'load more people (frontend.src.scenes.retention.retentionTableLogic)'
             payload: { selectedIndex: any; peopleIds: any }
         }
         updatePeople: (
             selectedIndex: any,
             people: any
         ) => {
-            type: 'update people (scenes.retention.retentionTableLogic)'
+            type: 'update people (frontend.src.scenes.retention.retentionTableLogic)'
             payload: { selectedIndex: any; people: any }
         }
         updateRetention: (
             retention: any
         ) => {
-            type: 'update retention (scenes.retention.retentionTableLogic)'
+            type: 'update retention (frontend.src.scenes.retention.retentionTableLogic)'
             payload: { retention: any }
         }
     }
     actionKeys: {
-        'load retention (scenes.retention.retentionTableLogic)': 'loadRetention'
-        'load retention success (scenes.retention.retentionTableLogic)': 'loadRetentionSuccess'
-        'load retention failure (scenes.retention.retentionTableLogic)': 'loadRetentionFailure'
-        'load people (scenes.retention.retentionTableLogic)': 'loadPeople'
-        'load people success (scenes.retention.retentionTableLogic)': 'loadPeopleSuccess'
-        'load people failure (scenes.retention.retentionTableLogic)': 'loadPeopleFailure'
-        'set properties (scenes.retention.retentionTableLogic)': 'setProperties'
-        'set filters (scenes.retention.retentionTableLogic)': 'setFilters'
-        'load more (scenes.retention.retentionTableLogic)': 'loadMore'
-        'load more people (scenes.retention.retentionTableLogic)': 'loadMorePeople'
-        'update people (scenes.retention.retentionTableLogic)': 'updatePeople'
-        'update retention (scenes.retention.retentionTableLogic)': 'updateRetention'
+        'load retention (frontend.src.scenes.retention.retentionTableLogic)': 'loadRetention'
+        'load retention success (frontend.src.scenes.retention.retentionTableLogic)': 'loadRetentionSuccess'
+        'load retention failure (frontend.src.scenes.retention.retentionTableLogic)': 'loadRetentionFailure'
+        'load people (frontend.src.scenes.retention.retentionTableLogic)': 'loadPeople'
+        'load people success (frontend.src.scenes.retention.retentionTableLogic)': 'loadPeopleSuccess'
+        'load people failure (frontend.src.scenes.retention.retentionTableLogic)': 'loadPeopleFailure'
+        'create insight (frontend.src.scenes.retention.retentionTableLogic)': 'createInsight'
+        'set properties (frontend.src.scenes.retention.retentionTableLogic)': 'setProperties'
+        'set filters (frontend.src.scenes.retention.retentionTableLogic)': 'setFilters'
+        'load more (frontend.src.scenes.retention.retentionTableLogic)': 'loadMore'
+        'load more people (frontend.src.scenes.retention.retentionTableLogic)': 'loadMorePeople'
+        'update people (frontend.src.scenes.retention.retentionTableLogic)': 'updatePeople'
+        'update retention (frontend.src.scenes.retention.retentionTableLogic)': 'updateRetention'
     }
     actionTypes: {
-        loadRetention: 'load retention (scenes.retention.retentionTableLogic)'
-        loadRetentionSuccess: 'load retention success (scenes.retention.retentionTableLogic)'
-        loadRetentionFailure: 'load retention failure (scenes.retention.retentionTableLogic)'
-        loadPeople: 'load people (scenes.retention.retentionTableLogic)'
-        loadPeopleSuccess: 'load people success (scenes.retention.retentionTableLogic)'
-        loadPeopleFailure: 'load people failure (scenes.retention.retentionTableLogic)'
-        setProperties: 'set properties (scenes.retention.retentionTableLogic)'
-        setFilters: 'set filters (scenes.retention.retentionTableLogic)'
-        loadMore: 'load more (scenes.retention.retentionTableLogic)'
-        loadMorePeople: 'load more people (scenes.retention.retentionTableLogic)'
-        updatePeople: 'update people (scenes.retention.retentionTableLogic)'
-        updateRetention: 'update retention (scenes.retention.retentionTableLogic)'
+        loadRetention: 'load retention (frontend.src.scenes.retention.retentionTableLogic)'
+        loadRetentionSuccess: 'load retention success (frontend.src.scenes.retention.retentionTableLogic)'
+        loadRetentionFailure: 'load retention failure (frontend.src.scenes.retention.retentionTableLogic)'
+        loadPeople: 'load people (frontend.src.scenes.retention.retentionTableLogic)'
+        loadPeopleSuccess: 'load people success (frontend.src.scenes.retention.retentionTableLogic)'
+        loadPeopleFailure: 'load people failure (frontend.src.scenes.retention.retentionTableLogic)'
+        createInsight: 'create insight (frontend.src.scenes.retention.retentionTableLogic)'
+        setProperties: 'set properties (frontend.src.scenes.retention.retentionTableLogic)'
+        setFilters: 'set filters (frontend.src.scenes.retention.retentionTableLogic)'
+        loadMore: 'load more (frontend.src.scenes.retention.retentionTableLogic)'
+        loadMorePeople: 'load more people (frontend.src.scenes.retention.retentionTableLogic)'
+        updatePeople: 'update people (frontend.src.scenes.retention.retentionTableLogic)'
+        updateRetention: 'update retention (frontend.src.scenes.retention.retentionTableLogic)'
     }
     actions: {
         loadRetention: () => void
@@ -115,6 +125,7 @@ export interface retentionTableLogicType {
         loadPeople: (rowIndex: any) => void
         loadPeopleSuccess: (people: {}) => void
         loadPeopleFailure: (error: string) => void
+        createInsight: (filters: Record<string, any>) => void
         setProperties: (properties: any) => void
         setFilters: (filters: any) => void
         loadMore: (selectedIndex: any) => void
@@ -127,8 +138,8 @@ export interface retentionTableLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['scenes', 'retention', 'retentionTableLogic']
-    pathString: 'scenes.retention.retentionTableLogic'
+    path: ['frontend', 'src', 'scenes', 'retention', 'retentionTableLogic']
+    pathString: 'frontend.src.scenes.retention.retentionTableLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

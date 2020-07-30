@@ -6,42 +6,42 @@ export interface actionsTabLogicType<ActionType, ActionForm, FormInstance, AntdF
         setForm: (
             form: FormInstance
         ) => {
-            type: 'set form (toolbar.actions.actionsTabLogic)'
+            type: 'set form (frontend.src.toolbar.actions.actionsTabLogic)'
             payload: { form: FormInstance }
         }
         selectAction: (
             id: number | null
         ) => {
-            type: 'select action (toolbar.actions.actionsTabLogic)'
+            type: 'select action (frontend.src.toolbar.actions.actionsTabLogic)'
             payload: { id: number | null }
         }
         newAction: (
             element?: HTMLElement
         ) => {
-            type: 'new action (toolbar.actions.actionsTabLogic)'
+            type: 'new action (frontend.src.toolbar.actions.actionsTabLogic)'
             payload: { element: HTMLElement | null }
         }
         inspectForElementWithIndex: (
             index: number | null
         ) => {
-            type: 'inspect for element with index (toolbar.actions.actionsTabLogic)'
+            type: 'inspect for element with index (frontend.src.toolbar.actions.actionsTabLogic)'
             payload: { index: number | null }
         }
         inspectElementSelected: (
             element: HTMLElement,
             index: number | null
         ) => {
-            type: 'inspect element selected (toolbar.actions.actionsTabLogic)'
+            type: 'inspect element selected (frontend.src.toolbar.actions.actionsTabLogic)'
             payload: { element: HTMLElement; index: number | null }
         }
         setEditingFields: (
             editingFields: AntdFieldData[]
         ) => {
-            type: 'set editing fields (toolbar.actions.actionsTabLogic)'
+            type: 'set editing fields (frontend.src.toolbar.actions.actionsTabLogic)'
             payload: { editingFields: AntdFieldData[] }
         }
         incrementCounter: () => {
-            type: 'increment counter (toolbar.actions.actionsTabLogic)'
+            type: 'increment counter (frontend.src.toolbar.actions.actionsTabLogic)'
             payload: {
                 value: boolean
             }
@@ -49,23 +49,23 @@ export interface actionsTabLogicType<ActionType, ActionForm, FormInstance, AntdF
         saveAction: (
             formValues: ActionForm
         ) => {
-            type: 'save action (toolbar.actions.actionsTabLogic)'
+            type: 'save action (frontend.src.toolbar.actions.actionsTabLogic)'
             payload: { formValues: ActionForm }
         }
         deleteAction: () => {
-            type: 'delete action (toolbar.actions.actionsTabLogic)'
+            type: 'delete action (frontend.src.toolbar.actions.actionsTabLogic)'
             payload: {
                 value: boolean
             }
         }
         showButtonActions: () => {
-            type: 'show button actions (toolbar.actions.actionsTabLogic)'
+            type: 'show button actions (frontend.src.toolbar.actions.actionsTabLogic)'
             payload: {
                 value: boolean
             }
         }
         hideButtonActions: () => {
-            type: 'hide button actions (toolbar.actions.actionsTabLogic)'
+            type: 'hide button actions (frontend.src.toolbar.actions.actionsTabLogic)'
             payload: {
                 value: boolean
             }
@@ -73,37 +73,37 @@ export interface actionsTabLogicType<ActionType, ActionForm, FormInstance, AntdF
         setShowActionsTooltip: (
             showActionsTooltip: boolean
         ) => {
-            type: 'set show actions tooltip (toolbar.actions.actionsTabLogic)'
+            type: 'set show actions tooltip (frontend.src.toolbar.actions.actionsTabLogic)'
             payload: { showActionsTooltip: boolean }
         }
     }
     actionKeys: {
-        'set form (toolbar.actions.actionsTabLogic)': 'setForm'
-        'select action (toolbar.actions.actionsTabLogic)': 'selectAction'
-        'new action (toolbar.actions.actionsTabLogic)': 'newAction'
-        'inspect for element with index (toolbar.actions.actionsTabLogic)': 'inspectForElementWithIndex'
-        'inspect element selected (toolbar.actions.actionsTabLogic)': 'inspectElementSelected'
-        'set editing fields (toolbar.actions.actionsTabLogic)': 'setEditingFields'
-        'increment counter (toolbar.actions.actionsTabLogic)': 'incrementCounter'
-        'save action (toolbar.actions.actionsTabLogic)': 'saveAction'
-        'delete action (toolbar.actions.actionsTabLogic)': 'deleteAction'
-        'show button actions (toolbar.actions.actionsTabLogic)': 'showButtonActions'
-        'hide button actions (toolbar.actions.actionsTabLogic)': 'hideButtonActions'
-        'set show actions tooltip (toolbar.actions.actionsTabLogic)': 'setShowActionsTooltip'
+        'set form (frontend.src.toolbar.actions.actionsTabLogic)': 'setForm'
+        'select action (frontend.src.toolbar.actions.actionsTabLogic)': 'selectAction'
+        'new action (frontend.src.toolbar.actions.actionsTabLogic)': 'newAction'
+        'inspect for element with index (frontend.src.toolbar.actions.actionsTabLogic)': 'inspectForElementWithIndex'
+        'inspect element selected (frontend.src.toolbar.actions.actionsTabLogic)': 'inspectElementSelected'
+        'set editing fields (frontend.src.toolbar.actions.actionsTabLogic)': 'setEditingFields'
+        'increment counter (frontend.src.toolbar.actions.actionsTabLogic)': 'incrementCounter'
+        'save action (frontend.src.toolbar.actions.actionsTabLogic)': 'saveAction'
+        'delete action (frontend.src.toolbar.actions.actionsTabLogic)': 'deleteAction'
+        'show button actions (frontend.src.toolbar.actions.actionsTabLogic)': 'showButtonActions'
+        'hide button actions (frontend.src.toolbar.actions.actionsTabLogic)': 'hideButtonActions'
+        'set show actions tooltip (frontend.src.toolbar.actions.actionsTabLogic)': 'setShowActionsTooltip'
     }
     actionTypes: {
-        setForm: 'set form (toolbar.actions.actionsTabLogic)'
-        selectAction: 'select action (toolbar.actions.actionsTabLogic)'
-        newAction: 'new action (toolbar.actions.actionsTabLogic)'
-        inspectForElementWithIndex: 'inspect for element with index (toolbar.actions.actionsTabLogic)'
-        inspectElementSelected: 'inspect element selected (toolbar.actions.actionsTabLogic)'
-        setEditingFields: 'set editing fields (toolbar.actions.actionsTabLogic)'
-        incrementCounter: 'increment counter (toolbar.actions.actionsTabLogic)'
-        saveAction: 'save action (toolbar.actions.actionsTabLogic)'
-        deleteAction: 'delete action (toolbar.actions.actionsTabLogic)'
-        showButtonActions: 'show button actions (toolbar.actions.actionsTabLogic)'
-        hideButtonActions: 'hide button actions (toolbar.actions.actionsTabLogic)'
-        setShowActionsTooltip: 'set show actions tooltip (toolbar.actions.actionsTabLogic)'
+        setForm: 'set form (frontend.src.toolbar.actions.actionsTabLogic)'
+        selectAction: 'select action (frontend.src.toolbar.actions.actionsTabLogic)'
+        newAction: 'new action (frontend.src.toolbar.actions.actionsTabLogic)'
+        inspectForElementWithIndex: 'inspect for element with index (frontend.src.toolbar.actions.actionsTabLogic)'
+        inspectElementSelected: 'inspect element selected (frontend.src.toolbar.actions.actionsTabLogic)'
+        setEditingFields: 'set editing fields (frontend.src.toolbar.actions.actionsTabLogic)'
+        incrementCounter: 'increment counter (frontend.src.toolbar.actions.actionsTabLogic)'
+        saveAction: 'save action (frontend.src.toolbar.actions.actionsTabLogic)'
+        deleteAction: 'delete action (frontend.src.toolbar.actions.actionsTabLogic)'
+        showButtonActions: 'show button actions (frontend.src.toolbar.actions.actionsTabLogic)'
+        hideButtonActions: 'hide button actions (frontend.src.toolbar.actions.actionsTabLogic)'
+        setShowActionsTooltip: 'set show actions tooltip (frontend.src.toolbar.actions.actionsTabLogic)'
     }
     actions: {
         setForm: (form: FormInstance) => void
@@ -124,8 +124,8 @@ export interface actionsTabLogicType<ActionType, ActionForm, FormInstance, AntdF
     constants: any
     defaults: any
     events: any
-    path: ['toolbar', 'actions', 'actionsTabLogic']
-    pathString: 'toolbar.actions.actionsTabLogic'
+    path: ['frontend', 'src', 'toolbar', 'actions', 'actionsTabLogic']
+    pathString: 'frontend.src.toolbar.actions.actionsTabLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

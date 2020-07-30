@@ -4,13 +4,13 @@ export interface dashboardLogicType {
     key: any
     actionCreators: {
         addNewDashboard: () => {
-            type: 'add new dashboard (scenes.dashboard.dashboardLogic)'
+            type: 'add new dashboard (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: {
                 value: boolean
             }
         }
         renameDashboard: () => {
-            type: 'rename dashboard (scenes.dashboard.dashboardLogic)'
+            type: 'rename dashboard (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: {
                 value: boolean
             }
@@ -18,20 +18,20 @@ export interface dashboardLogicType {
         renameDashboardItem: (
             id: any
         ) => {
-            type: 'rename dashboard item (scenes.dashboard.dashboardLogic)'
+            type: 'rename dashboard item (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: { id: any }
         }
         renameDashboardItemSuccess: (
             item: any
         ) => {
-            type: 'rename dashboard item success (scenes.dashboard.dashboardLogic)'
+            type: 'rename dashboard item success (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: { item: any }
         }
         setIsSharedDashboard: (
             id: any,
             isShared: any
         ) => {
-            type: 'set is shared dashboard (scenes.dashboard.dashboardLogic)'
+            type: 'set is shared dashboard (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: { id: any; isShared: any }
         }
         duplicateDashboardItem: (
@@ -39,30 +39,30 @@ export interface dashboardLogicType {
             dashboardId: any,
             move?: any
         ) => {
-            type: 'duplicate dashboard item (scenes.dashboard.dashboardLogic)'
+            type: 'duplicate dashboard item (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: { id: any; dashboardId: any; move: boolean }
         }
         duplicateDashboardItemSuccess: (
             item: any
         ) => {
-            type: 'duplicate dashboard item success (scenes.dashboard.dashboardLogic)'
+            type: 'duplicate dashboard item success (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: { item: any }
         }
         updateLayouts: (
             layouts: any
         ) => {
-            type: 'update layouts (scenes.dashboard.dashboardLogic)'
+            type: 'update layouts (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: { layouts: any }
         }
         updateContainerWidth: (
             containerWidth: any,
             columns: any
         ) => {
-            type: 'update container width (scenes.dashboard.dashboardLogic)'
+            type: 'update container width (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: { containerWidth: any; columns: any }
         }
         saveLayouts: () => {
-            type: 'save layouts (scenes.dashboard.dashboardLogic)'
+            type: 'save layouts (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: {
                 value: boolean
             }
@@ -71,23 +71,23 @@ export interface dashboardLogicType {
             id: any,
             color: any
         ) => {
-            type: 'update item color (scenes.dashboard.dashboardLogic)'
+            type: 'update item color (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: { id: any; color: any }
         }
         enableDragging: () => {
-            type: 'enable dragging (scenes.dashboard.dashboardLogic)'
+            type: 'enable dragging (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: {
                 value: boolean
             }
         }
         enableWobblyDragging: () => {
-            type: 'enable wobbly dragging (scenes.dashboard.dashboardLogic)'
+            type: 'enable wobbly dragging (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: {
                 value: boolean
             }
         }
         disableDragging: () => {
-            type: 'disable dragging (scenes.dashboard.dashboardLogic)'
+            type: 'disable dragging (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: {
                 value: boolean
             }
@@ -95,17 +95,17 @@ export interface dashboardLogicType {
         refreshDashboardItem: (
             id: any
         ) => {
-            type: 'refresh dashboard item (scenes.dashboard.dashboardLogic)'
+            type: 'refresh dashboard item (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: { id: any }
         }
         loadDashboardItems: () => {
-            type: 'load dashboard items (scenes.dashboard.dashboardLogic)'
+            type: 'load dashboard items (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: any
         }
         loadDashboardItemsSuccess: (
             allItems: never[]
         ) => {
-            type: 'load dashboard items success (scenes.dashboard.dashboardLogic)'
+            type: 'load dashboard items success (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: {
                 allItems: never[]
             }
@@ -113,51 +113,51 @@ export interface dashboardLogicType {
         loadDashboardItemsFailure: (
             error: string
         ) => {
-            type: 'load dashboard items failure (scenes.dashboard.dashboardLogic)'
+            type: 'load dashboard items failure (frontend.src.scenes.dashboard.dashboardLogic)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'add new dashboard (scenes.dashboard.dashboardLogic)': 'addNewDashboard'
-        'rename dashboard (scenes.dashboard.dashboardLogic)': 'renameDashboard'
-        'rename dashboard item (scenes.dashboard.dashboardLogic)': 'renameDashboardItem'
-        'rename dashboard item success (scenes.dashboard.dashboardLogic)': 'renameDashboardItemSuccess'
-        'set is shared dashboard (scenes.dashboard.dashboardLogic)': 'setIsSharedDashboard'
-        'duplicate dashboard item (scenes.dashboard.dashboardLogic)': 'duplicateDashboardItem'
-        'duplicate dashboard item success (scenes.dashboard.dashboardLogic)': 'duplicateDashboardItemSuccess'
-        'update layouts (scenes.dashboard.dashboardLogic)': 'updateLayouts'
-        'update container width (scenes.dashboard.dashboardLogic)': 'updateContainerWidth'
-        'save layouts (scenes.dashboard.dashboardLogic)': 'saveLayouts'
-        'update item color (scenes.dashboard.dashboardLogic)': 'updateItemColor'
-        'enable dragging (scenes.dashboard.dashboardLogic)': 'enableDragging'
-        'enable wobbly dragging (scenes.dashboard.dashboardLogic)': 'enableWobblyDragging'
-        'disable dragging (scenes.dashboard.dashboardLogic)': 'disableDragging'
-        'refresh dashboard item (scenes.dashboard.dashboardLogic)': 'refreshDashboardItem'
-        'load dashboard items (scenes.dashboard.dashboardLogic)': 'loadDashboardItems'
-        'load dashboard items success (scenes.dashboard.dashboardLogic)': 'loadDashboardItemsSuccess'
-        'load dashboard items failure (scenes.dashboard.dashboardLogic)': 'loadDashboardItemsFailure'
+        'add new dashboard (frontend.src.scenes.dashboard.dashboardLogic)': 'addNewDashboard'
+        'rename dashboard (frontend.src.scenes.dashboard.dashboardLogic)': 'renameDashboard'
+        'rename dashboard item (frontend.src.scenes.dashboard.dashboardLogic)': 'renameDashboardItem'
+        'rename dashboard item success (frontend.src.scenes.dashboard.dashboardLogic)': 'renameDashboardItemSuccess'
+        'set is shared dashboard (frontend.src.scenes.dashboard.dashboardLogic)': 'setIsSharedDashboard'
+        'duplicate dashboard item (frontend.src.scenes.dashboard.dashboardLogic)': 'duplicateDashboardItem'
+        'duplicate dashboard item success (frontend.src.scenes.dashboard.dashboardLogic)': 'duplicateDashboardItemSuccess'
+        'update layouts (frontend.src.scenes.dashboard.dashboardLogic)': 'updateLayouts'
+        'update container width (frontend.src.scenes.dashboard.dashboardLogic)': 'updateContainerWidth'
+        'save layouts (frontend.src.scenes.dashboard.dashboardLogic)': 'saveLayouts'
+        'update item color (frontend.src.scenes.dashboard.dashboardLogic)': 'updateItemColor'
+        'enable dragging (frontend.src.scenes.dashboard.dashboardLogic)': 'enableDragging'
+        'enable wobbly dragging (frontend.src.scenes.dashboard.dashboardLogic)': 'enableWobblyDragging'
+        'disable dragging (frontend.src.scenes.dashboard.dashboardLogic)': 'disableDragging'
+        'refresh dashboard item (frontend.src.scenes.dashboard.dashboardLogic)': 'refreshDashboardItem'
+        'load dashboard items (frontend.src.scenes.dashboard.dashboardLogic)': 'loadDashboardItems'
+        'load dashboard items success (frontend.src.scenes.dashboard.dashboardLogic)': 'loadDashboardItemsSuccess'
+        'load dashboard items failure (frontend.src.scenes.dashboard.dashboardLogic)': 'loadDashboardItemsFailure'
     }
     actionTypes: {
-        addNewDashboard: 'add new dashboard (scenes.dashboard.dashboardLogic)'
-        renameDashboard: 'rename dashboard (scenes.dashboard.dashboardLogic)'
-        renameDashboardItem: 'rename dashboard item (scenes.dashboard.dashboardLogic)'
-        renameDashboardItemSuccess: 'rename dashboard item success (scenes.dashboard.dashboardLogic)'
-        setIsSharedDashboard: 'set is shared dashboard (scenes.dashboard.dashboardLogic)'
-        duplicateDashboardItem: 'duplicate dashboard item (scenes.dashboard.dashboardLogic)'
-        duplicateDashboardItemSuccess: 'duplicate dashboard item success (scenes.dashboard.dashboardLogic)'
-        updateLayouts: 'update layouts (scenes.dashboard.dashboardLogic)'
-        updateContainerWidth: 'update container width (scenes.dashboard.dashboardLogic)'
-        saveLayouts: 'save layouts (scenes.dashboard.dashboardLogic)'
-        updateItemColor: 'update item color (scenes.dashboard.dashboardLogic)'
-        enableDragging: 'enable dragging (scenes.dashboard.dashboardLogic)'
-        enableWobblyDragging: 'enable wobbly dragging (scenes.dashboard.dashboardLogic)'
-        disableDragging: 'disable dragging (scenes.dashboard.dashboardLogic)'
-        refreshDashboardItem: 'refresh dashboard item (scenes.dashboard.dashboardLogic)'
-        loadDashboardItems: 'load dashboard items (scenes.dashboard.dashboardLogic)'
-        loadDashboardItemsSuccess: 'load dashboard items success (scenes.dashboard.dashboardLogic)'
-        loadDashboardItemsFailure: 'load dashboard items failure (scenes.dashboard.dashboardLogic)'
+        addNewDashboard: 'add new dashboard (frontend.src.scenes.dashboard.dashboardLogic)'
+        renameDashboard: 'rename dashboard (frontend.src.scenes.dashboard.dashboardLogic)'
+        renameDashboardItem: 'rename dashboard item (frontend.src.scenes.dashboard.dashboardLogic)'
+        renameDashboardItemSuccess: 'rename dashboard item success (frontend.src.scenes.dashboard.dashboardLogic)'
+        setIsSharedDashboard: 'set is shared dashboard (frontend.src.scenes.dashboard.dashboardLogic)'
+        duplicateDashboardItem: 'duplicate dashboard item (frontend.src.scenes.dashboard.dashboardLogic)'
+        duplicateDashboardItemSuccess: 'duplicate dashboard item success (frontend.src.scenes.dashboard.dashboardLogic)'
+        updateLayouts: 'update layouts (frontend.src.scenes.dashboard.dashboardLogic)'
+        updateContainerWidth: 'update container width (frontend.src.scenes.dashboard.dashboardLogic)'
+        saveLayouts: 'save layouts (frontend.src.scenes.dashboard.dashboardLogic)'
+        updateItemColor: 'update item color (frontend.src.scenes.dashboard.dashboardLogic)'
+        enableDragging: 'enable dragging (frontend.src.scenes.dashboard.dashboardLogic)'
+        enableWobblyDragging: 'enable wobbly dragging (frontend.src.scenes.dashboard.dashboardLogic)'
+        disableDragging: 'disable dragging (frontend.src.scenes.dashboard.dashboardLogic)'
+        refreshDashboardItem: 'refresh dashboard item (frontend.src.scenes.dashboard.dashboardLogic)'
+        loadDashboardItems: 'load dashboard items (frontend.src.scenes.dashboard.dashboardLogic)'
+        loadDashboardItemsSuccess: 'load dashboard items success (frontend.src.scenes.dashboard.dashboardLogic)'
+        loadDashboardItemsFailure: 'load dashboard items failure (frontend.src.scenes.dashboard.dashboardLogic)'
     }
     actions: {
         addNewDashboard: () => void
@@ -184,8 +184,8 @@ export interface dashboardLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['scenes', 'dashboard', 'dashboardLogic']
-    pathString: 'scenes.dashboard.dashboardLogic'
+    path: ['frontend', 'src', 'scenes', 'dashboard', 'dashboardLogic']
+    pathString: 'frontend.src.scenes.dashboard.dashboardLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

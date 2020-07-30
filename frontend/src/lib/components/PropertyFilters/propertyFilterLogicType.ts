@@ -4,7 +4,7 @@ export interface propertyFilterLogicType {
     key: any
     actionCreators: {
         loadEventProperties: () => {
-            type: 'load event properties (lib.components.PropertyFilters.propertyFilterLogic)'
+            type: 'load event properties (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
             payload: {
                 value: boolean
             }
@@ -12,13 +12,13 @@ export interface propertyFilterLogicType {
         setProperties: (
             properties: any
         ) => {
-            type: 'set properties (lib.components.PropertyFilters.propertyFilterLogic)'
+            type: 'set properties (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
             payload: { properties: any }
         }
         update: (
             filters: any
         ) => {
-            type: 'update (lib.components.PropertyFilters.propertyFilterLogic)'
+            type: 'update (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
             payload: { filters: any }
         }
         setFilter: (
@@ -28,17 +28,17 @@ export interface propertyFilterLogicType {
             operator: any,
             type: any
         ) => {
-            type: 'set filter (lib.components.PropertyFilters.propertyFilterLogic)'
+            type: 'set filter (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
             payload: { index: any; key: any; value: any; operator: any; type: any }
         }
         setFilters: (
             filters: any
         ) => {
-            type: 'set filters (lib.components.PropertyFilters.propertyFilterLogic)'
+            type: 'set filters (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
             payload: { filters: any }
         }
         newFilter: () => {
-            type: 'new filter (lib.components.PropertyFilters.propertyFilterLogic)'
+            type: 'new filter (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
             payload: {
                 value: boolean
             }
@@ -46,17 +46,17 @@ export interface propertyFilterLogicType {
         remove: (
             index: any
         ) => {
-            type: 'remove (lib.components.PropertyFilters.propertyFilterLogic)'
+            type: 'remove (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
             payload: { index: any }
         }
         loadPersonProperties: () => {
-            type: 'load person properties (lib.components.PropertyFilters.propertyFilterLogic)'
+            type: 'load person properties (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
             payload: any
         }
         loadPersonPropertiesSuccess: (
             personProperties: any
         ) => {
-            type: 'load person properties success (lib.components.PropertyFilters.propertyFilterLogic)'
+            type: 'load person properties success (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
             payload: {
                 personProperties: any
             }
@@ -64,35 +64,35 @@ export interface propertyFilterLogicType {
         loadPersonPropertiesFailure: (
             error: string
         ) => {
-            type: 'load person properties failure (lib.components.PropertyFilters.propertyFilterLogic)'
+            type: 'load person properties failure (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'load event properties (lib.components.PropertyFilters.propertyFilterLogic)': 'loadEventProperties'
-        'set properties (lib.components.PropertyFilters.propertyFilterLogic)': 'setProperties'
-        'update (lib.components.PropertyFilters.propertyFilterLogic)': 'update'
-        'set filter (lib.components.PropertyFilters.propertyFilterLogic)': 'setFilter'
-        'set filters (lib.components.PropertyFilters.propertyFilterLogic)': 'setFilters'
-        'new filter (lib.components.PropertyFilters.propertyFilterLogic)': 'newFilter'
-        'remove (lib.components.PropertyFilters.propertyFilterLogic)': 'remove'
-        'load person properties (lib.components.PropertyFilters.propertyFilterLogic)': 'loadPersonProperties'
-        'load person properties success (lib.components.PropertyFilters.propertyFilterLogic)': 'loadPersonPropertiesSuccess'
-        'load person properties failure (lib.components.PropertyFilters.propertyFilterLogic)': 'loadPersonPropertiesFailure'
+        'load event properties (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)': 'loadEventProperties'
+        'set properties (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)': 'setProperties'
+        'update (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)': 'update'
+        'set filter (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)': 'setFilter'
+        'set filters (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)': 'setFilters'
+        'new filter (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)': 'newFilter'
+        'remove (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)': 'remove'
+        'load person properties (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)': 'loadPersonProperties'
+        'load person properties success (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)': 'loadPersonPropertiesSuccess'
+        'load person properties failure (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)': 'loadPersonPropertiesFailure'
     }
     actionTypes: {
-        loadEventProperties: 'load event properties (lib.components.PropertyFilters.propertyFilterLogic)'
-        setProperties: 'set properties (lib.components.PropertyFilters.propertyFilterLogic)'
-        update: 'update (lib.components.PropertyFilters.propertyFilterLogic)'
-        setFilter: 'set filter (lib.components.PropertyFilters.propertyFilterLogic)'
-        setFilters: 'set filters (lib.components.PropertyFilters.propertyFilterLogic)'
-        newFilter: 'new filter (lib.components.PropertyFilters.propertyFilterLogic)'
-        remove: 'remove (lib.components.PropertyFilters.propertyFilterLogic)'
-        loadPersonProperties: 'load person properties (lib.components.PropertyFilters.propertyFilterLogic)'
-        loadPersonPropertiesSuccess: 'load person properties success (lib.components.PropertyFilters.propertyFilterLogic)'
-        loadPersonPropertiesFailure: 'load person properties failure (lib.components.PropertyFilters.propertyFilterLogic)'
+        loadEventProperties: 'load event properties (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
+        setProperties: 'set properties (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
+        update: 'update (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
+        setFilter: 'set filter (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
+        setFilters: 'set filters (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
+        newFilter: 'new filter (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
+        remove: 'remove (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
+        loadPersonProperties: 'load person properties (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
+        loadPersonPropertiesSuccess: 'load person properties success (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
+        loadPersonPropertiesFailure: 'load person properties failure (frontend.src.lib.components.PropertyFilters.propertyFilterLogic)'
     }
     actions: {
         loadEventProperties: () => void
@@ -111,8 +111,8 @@ export interface propertyFilterLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['lib', 'components', 'PropertyFilters', 'propertyFilterLogic']
-    pathString: 'lib.components.PropertyFilters.propertyFilterLogic'
+    path: ['frontend', 'src', 'lib', 'components', 'PropertyFilters', 'propertyFilterLogic']
+    pathString: 'frontend.src.lib.components.PropertyFilters.propertyFilterLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

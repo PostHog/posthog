@@ -4,25 +4,25 @@ export interface deleteDemoDataLogicType {
     key: any
     actionCreators: {
         deleteDemoData: () => {
-            type: 'delete demo data (scenes.setup.DeleteDemoData)'
+            type: 'delete demo data (frontend.src.scenes.setup.DeleteDemoData)'
             payload: {
                 value: boolean
             }
         }
         demoDataDeleted: () => {
-            type: 'demo data deleted (scenes.setup.DeleteDemoData)'
+            type: 'demo data deleted (frontend.src.scenes.setup.DeleteDemoData)'
             payload: {
                 value: boolean
             }
         }
     }
     actionKeys: {
-        'delete demo data (scenes.setup.DeleteDemoData)': 'deleteDemoData'
-        'demo data deleted (scenes.setup.DeleteDemoData)': 'demoDataDeleted'
+        'delete demo data (frontend.src.scenes.setup.DeleteDemoData)': 'deleteDemoData'
+        'demo data deleted (frontend.src.scenes.setup.DeleteDemoData)': 'demoDataDeleted'
     }
     actionTypes: {
-        deleteDemoData: 'delete demo data (scenes.setup.DeleteDemoData)'
-        demoDataDeleted: 'demo data deleted (scenes.setup.DeleteDemoData)'
+        deleteDemoData: 'delete demo data (frontend.src.scenes.setup.DeleteDemoData)'
+        demoDataDeleted: 'demo data deleted (frontend.src.scenes.setup.DeleteDemoData)'
     }
     actions: {
         deleteDemoData: () => void
@@ -33,8 +33,8 @@ export interface deleteDemoDataLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['scenes', 'setup', 'DeleteDemoData']
-    pathString: 'scenes.setup.DeleteDemoData'
+    path: ['frontend', 'src', 'scenes', 'setup', 'DeleteDemoData']
+    pathString: 'frontend.src.scenes.setup.DeleteDemoData'
     propTypes: any
     props: Record<string, any>
     reducer: (

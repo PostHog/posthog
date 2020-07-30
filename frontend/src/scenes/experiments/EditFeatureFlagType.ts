@@ -6,23 +6,23 @@ export interface editLogicType {
         setRolloutPercentage: (
             rollout_percentage: any
         ) => {
-            type: 'set rollout percentage (scenes.experiments.EditFeatureFlag)'
+            type: 'set rollout percentage (frontend.src.scenes.experiments.EditFeatureFlag)'
             payload: { rollout_percentage: any }
         }
         setFilters: (
             filters: any
         ) => {
-            type: 'set filters (scenes.experiments.EditFeatureFlag)'
+            type: 'set filters (frontend.src.scenes.experiments.EditFeatureFlag)'
             payload: { filters: any }
         }
     }
     actionKeys: {
-        'set rollout percentage (scenes.experiments.EditFeatureFlag)': 'setRolloutPercentage'
-        'set filters (scenes.experiments.EditFeatureFlag)': 'setFilters'
+        'set rollout percentage (frontend.src.scenes.experiments.EditFeatureFlag)': 'setRolloutPercentage'
+        'set filters (frontend.src.scenes.experiments.EditFeatureFlag)': 'setFilters'
     }
     actionTypes: {
-        setRolloutPercentage: 'set rollout percentage (scenes.experiments.EditFeatureFlag)'
-        setFilters: 'set filters (scenes.experiments.EditFeatureFlag)'
+        setRolloutPercentage: 'set rollout percentage (frontend.src.scenes.experiments.EditFeatureFlag)'
+        setFilters: 'set filters (frontend.src.scenes.experiments.EditFeatureFlag)'
     }
     actions: {
         setRolloutPercentage: (rollout_percentage: any) => void
@@ -33,8 +33,8 @@ export interface editLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['scenes', 'experiments', 'EditFeatureFlag']
-    pathString: 'scenes.experiments.EditFeatureFlag'
+    path: ['frontend', 'src', 'scenes', 'experiments', 'EditFeatureFlag']
+    pathString: 'frontend.src.scenes.experiments.EditFeatureFlag'
     propTypes: any
     props: Record<string, any>
     reducer: (

@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
-import { insightsModel } from '~/models/insightsModel'
+import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 
 function cleanRetentionParams(filters, properties) {
     return {
@@ -43,7 +43,7 @@ export const retentionTableLogic = kea({
         },
     }),
     connect: {
-        actions: [insightLogic, ['setAllFilters'], insightsModel, ['createInsight']],
+        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
     },
     actions: () => ({
         setProperties: (properties) => ({ properties }),
