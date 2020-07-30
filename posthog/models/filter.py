@@ -80,6 +80,7 @@ class Filter(PropertyMixin):
             "breakdown": self.breakdown,
             "breakdown_type": self.breakdown_type,
             "compare": self.compare,
+            "display": self.display,
         }
 
     @property
