@@ -1,9 +1,10 @@
-import React from 'react'
-import { Tabs, Table } from 'antd'
+import React, { useState } from 'react'
+import { Tabs, Table, Modal, Input, Button } from 'antd'
 import { useValues } from 'kea'
 import { insightsModel } from '~/models/insightsModel'
 import { humanFriendlyDetailedTime, toParams } from 'lib/utils'
 import { Link } from 'lib/components/Link'
+import { PushpinOutlined } from '@ant-design/icons'
 
 const InsightHistoryType = {
     SAVED: 'SAVED',
@@ -14,6 +15,7 @@ const { TabPane } = Tabs
 
 export const InsightHistoryPanel: React.FC = () => {
     const { insights, insightsLoading } = useValues(insightsModel)
+    const [visible, setVisible] = useState(false)
 
     const columns = [
         {
@@ -27,6 +29,11 @@ export const InsightHistoryPanel: React.FC = () => {
             title: 'Timestamp',
             render: function RenderVolume(_, insight) {
                 return <span>{humanFriendlyDetailedTime(insight.created_at)}</span>
+            },
+        },
+        {
+            render: function RenderAction() {
+                return <PushpinOutlined onClick={() => setVisible(true)} style={{ cursor: 'pointer' }} />
             },
         },
     ]
@@ -59,6 +66,48 @@ export const InsightHistoryPanel: React.FC = () => {
                     dataSource={insights}
                 />
             </TabPane>
+            <SaveChartModal visible={visible} onCancel={(): void => setVisible(false)} onSubmit={(): void => {}} />
         </Tabs>
+    )
+}
+
+interface SaveChartModalProps {
+    visible: boolean
+    onCancel: () => void
+    onSubmit: (input: string) => void
+}
+
+const SaveChartModal: React.FC<SaveChartModalProps> = (props) => {
+    const { visible, onCancel, onSubmit } = props
+    const [input, setInput] = useState<string>('')
+
+    function _onCancel(): void {
+        setInput('')
+        onCancel()
+    }
+
+    return (
+        <Modal
+            visible={visible}
+            footer={
+                <Button type="primary" onClick={(): void => onSubmit(input)}>
+                    Save
+                </Button>
+            }
+            onCancel={_onCancel}
+        >
+            <div data-attr="invite-team-modal">
+                <h2>Save Chart</h2>
+                <label>Name of Chart</label>
+                <Input
+                    name="Name"
+                    required
+                    type="text"
+                    placeholder="DAUs Last 14 days"
+                    value={input}
+                    onChange={(e): void => setInput(e.target.value)}
+                />
+            </div>
+        </Modal>
     )
 }
