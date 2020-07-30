@@ -91,70 +91,15 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
         getEventsFailure: 'get events failure (toolbar.elements.heatmapLogic)'
     }
     actions: {
-        enableHeatmap: () => {
-            type: 'enable heatmap (toolbar.elements.heatmapLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        disableHeatmap: () => {
-            type: 'disable heatmap (toolbar.elements.heatmapLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        setShowHeatmapTooltip: (
-            showHeatmapTooltip: boolean
-        ) => {
-            type: 'set show heatmap tooltip (toolbar.elements.heatmapLogic)'
-            payload: { showHeatmapTooltip: boolean }
-        }
-        resetEvents: () => {
-            type: 'reset events (toolbar.elements.heatmapLogic)'
-            payload: any
-        }
-        resetEventsSuccess: (
-            events: ElementsEventType[]
-        ) => {
-            type: 'reset events success (toolbar.elements.heatmapLogic)'
-            payload: {
-                events: ElementsEventType[]
-            }
-        }
-        resetEventsFailure: (
-            error: string
-        ) => {
-            type: 'reset events failure (toolbar.elements.heatmapLogic)'
-            payload: {
-                error: string
-            }
-        }
-        getEvents: ({
-            $current_url,
-        }: {
-            $current_url: string
-        }) => {
-            type: 'get events (toolbar.elements.heatmapLogic)'
-            payload: {
-                $current_url: string
-            }
-        }
-        getEventsSuccess: (
-            events: ElementsEventType[]
-        ) => {
-            type: 'get events success (toolbar.elements.heatmapLogic)'
-            payload: {
-                events: ElementsEventType[]
-            }
-        }
-        getEventsFailure: (
-            error: string
-        ) => {
-            type: 'get events failure (toolbar.elements.heatmapLogic)'
-            payload: {
-                error: string
-            }
-        }
+        enableHeatmap: () => void
+        disableHeatmap: () => void
+        setShowHeatmapTooltip: (showHeatmapTooltip: boolean) => void
+        resetEvents: () => void
+        resetEventsSuccess: (events: ElementsEventType[]) => void
+        resetEventsFailure: (error: string) => void
+        getEvents: ({ $current_url }: { $current_url: string }) => void
+        getEventsSuccess: (events: ElementsEventType[]) => void
+        getEventsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

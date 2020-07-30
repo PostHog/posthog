@@ -17,12 +17,7 @@ export interface toolbarTabLogicType<ToolbarTab> {
         setTab: 'set tab (toolbar.toolbarTabLogic)'
     }
     actions: {
-        setTab: (
-            tab: ToolbarTab | string
-        ) => {
-            type: 'set tab (toolbar.toolbarTabLogic)'
-            payload: { tab: string }
-        }
+        setTab: (tab: ToolbarTab | string) => void
     }
     cache: Record<string, any>
     connections: any

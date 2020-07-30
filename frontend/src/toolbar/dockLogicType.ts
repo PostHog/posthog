@@ -90,67 +90,16 @@ export interface dockLogicType<ToolbarMode, ToolbarAnimationState> {
         setMode: 'set mode (toolbar.dockLogic)'
     }
     actions: {
-        button: () => {
-            type: 'button (toolbar.dockLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        dock: () => {
-            type: 'dock (toolbar.dockLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        hideButton: () => {
-            type: 'hide button (toolbar.dockLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        update: () => {
-            type: 'update (toolbar.dockLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        buttonAnimated: () => {
-            type: 'button animated (toolbar.dockLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        buttonFaded: () => {
-            type: 'button faded (toolbar.dockLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        dockAnimated: () => {
-            type: 'dock animated (toolbar.dockLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        dockFaded: () => {
-            type: 'dock faded (toolbar.dockLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        hideButtonAnimated: () => {
-            type: 'hide button animated (toolbar.dockLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        setMode: (
-            mode: ToolbarMode,
-            update?: boolean
-        ) => {
-            type: 'set mode (toolbar.dockLogic)'
-            payload: { mode: ToolbarMode; update: boolean; windowWidth: number; windowHeight: number }
-        }
+        button: () => void
+        dock: () => void
+        hideButton: () => void
+        update: () => void
+        buttonAnimated: () => void
+        buttonFaded: () => void
+        dockAnimated: () => void
+        dockFaded: () => void
+        hideButtonAnimated: () => void
+        setMode: (mode: ToolbarMode, update?: boolean) => void
     }
     cache: Record<string, any>
     connections: any

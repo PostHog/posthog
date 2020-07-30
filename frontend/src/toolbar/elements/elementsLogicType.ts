@@ -83,54 +83,14 @@ export interface elementsLogicType<
         setSelectedElement: 'set selected element (toolbar.elements.elementsLogic)'
     }
     actions: {
-        enableInspect: () => {
-            type: 'enable inspect (toolbar.elements.elementsLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        disableInspect: () => {
-            type: 'disable inspect (toolbar.elements.elementsLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        selectElement: (
-            element: HTMLElement | null
-        ) => {
-            type: 'select element (toolbar.elements.elementsLogic)'
-            payload: { element: HTMLElement | null }
-        }
-        createAction: (
-            element: HTMLElement
-        ) => {
-            type: 'create action (toolbar.elements.elementsLogic)'
-            payload: { element: HTMLElement }
-        }
-        updateRects: () => {
-            type: 'update rects (toolbar.elements.elementsLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        setHoverElement: (
-            element: HTMLElement | null
-        ) => {
-            type: 'set hover element (toolbar.elements.elementsLogic)'
-            payload: { element: HTMLElement | null }
-        }
-        setHighlightElement: (
-            element: HTMLElement | null
-        ) => {
-            type: 'set highlight element (toolbar.elements.elementsLogic)'
-            payload: { element: HTMLElement | null }
-        }
-        setSelectedElement: (
-            element: HTMLElement | null
-        ) => {
-            type: 'set selected element (toolbar.elements.elementsLogic)'
-            payload: { element: HTMLElement | null }
-        }
+        enableInspect: () => void
+        disableInspect: () => void
+        selectElement: (element: HTMLElement | null) => void
+        createAction: (element: HTMLElement) => void
+        updateRects: () => void
+        setHoverElement: (element: HTMLElement | null) => void
+        setHighlightElement: (element: HTMLElement | null) => void
+        setSelectedElement: (element: HTMLElement | null) => void
     }
     cache: Record<string, any>
     connections: any

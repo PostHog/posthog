@@ -101,76 +101,17 @@ export interface toolbarButtonLogicType {
         saveStatsPosition: 'save stats position (toolbar.button.toolbarButtonLogic)'
     }
     actions: {
-        showHeatmapInfo: () => {
-            type: 'show heatmap info (toolbar.button.toolbarButtonLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        hideHeatmapInfo: () => {
-            type: 'hide heatmap info (toolbar.button.toolbarButtonLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        showActionsInfo: () => {
-            type: 'show actions info (toolbar.button.toolbarButtonLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        hideActionsInfo: () => {
-            type: 'hide actions info (toolbar.button.toolbarButtonLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        showStats: () => {
-            type: 'show stats (toolbar.button.toolbarButtonLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        hideStats: () => {
-            type: 'hide stats (toolbar.button.toolbarButtonLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        setExtensionPercentage: (
-            percentage: number
-        ) => {
-            type: 'set extension percentage (toolbar.button.toolbarButtonLogic)'
-            payload: { percentage: number }
-        }
-        saveDragPosition: (
-            x: number,
-            y: number
-        ) => {
-            type: 'save drag position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: number; y: number }
-        }
-        saveHeatmapPosition: (
-            x: number,
-            y: number
-        ) => {
-            type: 'save heatmap position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: number; y: number }
-        }
-        saveActionsPosition: (
-            x: number,
-            y: number
-        ) => {
-            type: 'save actions position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: number; y: number }
-        }
-        saveStatsPosition: (
-            x: number,
-            y: number
-        ) => {
-            type: 'save stats position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: number; y: number }
-        }
+        showHeatmapInfo: () => void
+        hideHeatmapInfo: () => void
+        showActionsInfo: () => void
+        hideActionsInfo: () => void
+        showStats: () => void
+        hideStats: () => void
+        setExtensionPercentage: (percentage: number) => void
+        saveDragPosition: (x: number, y: number) => void
+        saveHeatmapPosition: (x: number, y: number) => void
+        saveActionsPosition: (x: number, y: number) => void
+        saveStatsPosition: (x: number, y: number) => void
     }
     cache: Record<string, any>
     connections: any
@@ -374,12 +315,49 @@ export interface toolbarButtonLogicType {
     }
     _isKea: true
     __keaTypeGenInternalSelectorTypes: {
-        dragPosition: (arg1: { x: number; y: number } | null, arg2: number, arg3: number) => { x: number; y: number }
-        toolbarListVerticalPadding: (arg1: { x: number; y: number }, arg2: number) => number
-        dockButtonOnTop: (arg1: { x: number; y: number }, arg2: number) => boolean
-        side: (arg1: { x: number; y: number }, arg2: number) => 'left' | 'right'
-        closeDistance: (arg1: { x: number; y: number }, arg2: number) => number
-        closeRotation: (arg1: { x: number; y: number }, arg2: number) => number
+        dragPosition: (
+            arg1: {
+                x: number
+                y: number
+            } | null,
+            arg2: number,
+            arg3: number
+        ) => { x: number; y: number }
+        toolbarListVerticalPadding: (
+            arg1: {
+                x: number
+                y: number
+            },
+            arg2: number
+        ) => number
+        dockButtonOnTop: (
+            arg1: {
+                x: number
+                y: number
+            },
+            arg2: number
+        ) => boolean
+        side: (
+            arg1: {
+                x: number
+                y: number
+            },
+            arg2: number
+        ) => 'left' | 'right'
+        closeDistance: (
+            arg1: {
+                x: number
+                y: number
+            },
+            arg2: number
+        ) => number
+        closeRotation: (
+            arg1: {
+                x: number
+                y: number
+            },
+            arg2: number
+        ) => number
         inspectExtensionPercentage: (arg1: boolean, arg2: number) => number
         heatmapExtensionPercentage: (arg1: boolean, arg2: number) => number
         heatmapWindowVisible: (arg1: boolean, arg2: boolean) => boolean

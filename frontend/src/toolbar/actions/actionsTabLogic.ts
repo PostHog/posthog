@@ -24,7 +24,7 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, A
         setForm: (form: FormInstance) => ({ form }),
         selectAction: (id: number | null) => ({ id: id || null }),
         newAction: (element?: HTMLElement) => ({ element }),
-        inspectForElementWithIndex: (index: number) => ({ index }),
+        inspectForElementWithIndex: (index: number | null) => ({ index }),
         inspectElementSelected: (element: HTMLElement, index: number | null) => ({ element, index }),
         setEditingFields: (editingFields: ActionStepForm) => ({ editingFields }),
         incrementCounter: true,

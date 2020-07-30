@@ -101,80 +101,15 @@ export interface actionsLogicType<ActionType> {
         deleteActionFailure: 'delete action failure (toolbar.actions.actionsLogic)'
     }
     actions: {
-        getActions: (
-            _?: any
-        ) => {
-            type: 'get actions (toolbar.actions.actionsLogic)'
-            payload: any
-        }
-        getActionsSuccess: (
-            allActions: ActionType[]
-        ) => {
-            type: 'get actions success (toolbar.actions.actionsLogic)'
-            payload: {
-                allActions: ActionType[]
-            }
-        }
-        getActionsFailure: (
-            error: string
-        ) => {
-            type: 'get actions failure (toolbar.actions.actionsLogic)'
-            payload: {
-                error: string
-            }
-        }
-        updateAction: ({
-            action,
-        }: {
-            action: ActionType
-        }) => {
-            type: 'update action (toolbar.actions.actionsLogic)'
-            payload: {
-                action: ActionType
-            }
-        }
-        updateActionSuccess: (
-            allActions: ActionType[]
-        ) => {
-            type: 'update action success (toolbar.actions.actionsLogic)'
-            payload: {
-                allActions: ActionType[]
-            }
-        }
-        updateActionFailure: (
-            error: string
-        ) => {
-            type: 'update action failure (toolbar.actions.actionsLogic)'
-            payload: {
-                error: string
-            }
-        }
-        deleteAction: ({
-            id,
-        }: {
-            id: number
-        }) => {
-            type: 'delete action (toolbar.actions.actionsLogic)'
-            payload: {
-                id: number
-            }
-        }
-        deleteActionSuccess: (
-            allActions: ActionType[]
-        ) => {
-            type: 'delete action success (toolbar.actions.actionsLogic)'
-            payload: {
-                allActions: ActionType[]
-            }
-        }
-        deleteActionFailure: (
-            error: string
-        ) => {
-            type: 'delete action failure (toolbar.actions.actionsLogic)'
-            payload: {
-                error: string
-            }
-        }
+        getActions: (_?: any) => void
+        getActionsSuccess: (allActions: ActionType[]) => void
+        getActionsFailure: (error: string) => void
+        updateAction: ({ action }: { action: ActionType }) => void
+        updateActionSuccess: (allActions: ActionType[]) => void
+        updateActionFailure: (error: string) => void
+        deleteAction: ({ id }: { id: number }) => void
+        deleteActionSuccess: (allActions: ActionType[]) => void
+        deleteActionFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

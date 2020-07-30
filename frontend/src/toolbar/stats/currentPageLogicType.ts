@@ -17,12 +17,7 @@ export interface currentPageLogicType {
         setHref: 'set href (toolbar.stats.currentPageLogic)'
     }
     actions: {
-        setHref: (
-            href: string
-        ) => {
-            type: 'set href (toolbar.stats.currentPageLogic)'
-            payload: { href: string }
-        }
+        setHref: (href: string) => void
     }
     cache: Record<string, any>
     connections: any

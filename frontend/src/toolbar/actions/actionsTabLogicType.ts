@@ -22,10 +22,10 @@ export interface actionsTabLogicType<ActionType, ActionForm, ActionStepForm, For
             payload: { element: HTMLElement | undefined }
         }
         inspectForElementWithIndex: (
-            index: number
+            index: number | null
         ) => {
             type: 'inspect for element with index (toolbar.actions.actionsTabLogic)'
-            payload: { index: number }
+            payload: { index: number | null }
         }
         inspectElementSelected: (
             element: HTMLElement,
@@ -106,79 +106,18 @@ export interface actionsTabLogicType<ActionType, ActionForm, ActionStepForm, For
         setShowActionsTooltip: 'set show actions tooltip (toolbar.actions.actionsTabLogic)'
     }
     actions: {
-        setForm: (
-            form: FormInstance
-        ) => {
-            type: 'set form (toolbar.actions.actionsTabLogic)'
-            payload: { form: FormInstance }
-        }
-        selectAction: (
-            id: number | null
-        ) => {
-            type: 'select action (toolbar.actions.actionsTabLogic)'
-            payload: { id: number | null }
-        }
-        newAction: (
-            element?: HTMLElement
-        ) => {
-            type: 'new action (toolbar.actions.actionsTabLogic)'
-            payload: { element: HTMLElement | undefined }
-        }
-        inspectForElementWithIndex: (
-            index: number
-        ) => {
-            type: 'inspect for element with index (toolbar.actions.actionsTabLogic)'
-            payload: { index: number }
-        }
-        inspectElementSelected: (
-            element: HTMLElement,
-            index: number | null
-        ) => {
-            type: 'inspect element selected (toolbar.actions.actionsTabLogic)'
-            payload: { element: HTMLElement; index: number | null }
-        }
-        setEditingFields: (
-            editingFields: ActionStepForm
-        ) => {
-            type: 'set editing fields (toolbar.actions.actionsTabLogic)'
-            payload: { editingFields: ActionStepForm }
-        }
-        incrementCounter: () => {
-            type: 'increment counter (toolbar.actions.actionsTabLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        saveAction: (
-            formValues: ActionForm
-        ) => {
-            type: 'save action (toolbar.actions.actionsTabLogic)'
-            payload: { formValues: ActionForm }
-        }
-        deleteAction: () => {
-            type: 'delete action (toolbar.actions.actionsTabLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        showButtonActions: () => {
-            type: 'show button actions (toolbar.actions.actionsTabLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        hideButtonActions: () => {
-            type: 'hide button actions (toolbar.actions.actionsTabLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        setShowActionsTooltip: (
-            showActionsTooltip: boolean
-        ) => {
-            type: 'set show actions tooltip (toolbar.actions.actionsTabLogic)'
-            payload: { showActionsTooltip: boolean }
-        }
+        setForm: (form: FormInstance) => void
+        selectAction: (id: number | null) => void
+        newAction: (element?: HTMLElement) => void
+        inspectForElementWithIndex: (index: number | null) => void
+        inspectElementSelected: (element: HTMLElement, index: number | null) => void
+        setEditingFields: (editingFields: ActionStepForm) => void
+        incrementCounter: () => void
+        saveAction: (formValues: ActionForm) => void
+        deleteAction: () => void
+        showButtonActions: () => void
+        hideButtonActions: () => void
+        setShowActionsTooltip: (showActionsTooltip: boolean) => void
     }
     cache: Record<string, any>
     connections: any

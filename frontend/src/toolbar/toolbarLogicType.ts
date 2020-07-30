@@ -17,12 +17,7 @@ export interface toolbarLogicType {
         authenticate: 'authenticate (toolbar.toolbarLogic)'
     }
     actions: {
-        authenticate: () => {
-            type: 'authenticate (toolbar.toolbarLogic)'
-            payload: {
-                value: boolean
-            }
-        }
+        authenticate: () => void
     }
     cache: Record<string, any>
     connections: any
