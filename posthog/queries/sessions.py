@@ -22,25 +22,20 @@ class Sessions(BaseQuery):
         session_type = kwargs.get("session_type", "avg")
         offset = kwargs.get("offset", 0)
 
-        if not filter.date_from:
-            filter._date_from = (
-                Event.objects.filter(team_id=team)
-                .order_by("timestamp")[0]
-                .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-                .isoformat()
-            )
         if not filter.date_to:
             filter._date_to = now().isoformat()
         calculated = []
 
         # get compared period
         if filter.compare and filter._date_from != "all" and session_type == "avg":
-            calculated = self.calculate_sessions(events.filter(filter.date_filter_Q), session_type, filter, team)
+            calculated = self.calculate_sessions(
+                events.filter(filter.date_filter_Q), session_type, filter, team, offset
+            )
             calculated = self._convert_to_comparison(calculated, "current")
 
             compare_filter = determine_compared_filter(filter)
             compared_calculated = self.calculate_sessions(
-                events.filter(compare_filter.date_filter_Q), session_type, compare_filter, team
+                events.filter(compare_filter.date_filter_Q), session_type, compare_filter, team, offset
             )
             converted_compared_calculated = self._convert_to_comparison(compared_calculated, "previous")
             calculated.extend(converted_compared_calculated)
@@ -59,12 +54,22 @@ class Sessions(BaseQuery):
         # format date filter for session view
         _date_gte = Q()
         if session_type is None:
-            if filter.date_from and filter.date_to:
+            # if _date_from is not explicitely set we only want to get the last day worth of data
+            # otherwise the query is very slow
+            if filter._date_from and filter.date_to:
                 _date_gte = Q(timestamp__gte=filter.date_from, timestamp__lte=filter.date_to + relativedelta(days=1),)
             else:
                 dt = now()
                 dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
                 _date_gte = Q(timestamp__gte=dt, timestamp__lte=dt + relativedelta(days=1))
+        else:
+            if not filter.date_from:
+                filter._date_from = (
+                    Event.objects.filter(team_id=team)
+                    .order_by("timestamp")[0]
+                    .timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+                    .isoformat()
+                )
 
         sessions = (
             events.filter(_date_gte)

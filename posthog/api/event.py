@@ -262,7 +262,7 @@ class EventViewSet(viewsets.ModelViewSet):
         session_type = self.request.GET.get("session")
 
         filter = Filter(request=request)
-        result = {
+        result: Dict[str, Any] = {
             "result": Sessions().run(
                 filter, team, session_type=self.request.GET.get("session"), offset=self.request.GET.get("offset")
             )
