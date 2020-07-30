@@ -7,6 +7,7 @@ import { useMountedLogic } from 'kea'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { posthog } from '~/toolbar/posthog'
 import { EditorProps } from '~/types'
+import { Slide, ToastContainer } from 'react-toastify'
 
 export function ToolbarApp(props: EditorProps = {}): JSX.Element {
     useMountedLogic(toolbarLogic(props))
@@ -41,14 +42,11 @@ export function ToolbarApp(props: EditorProps = {}): JSX.Element {
 
     return (
         <>
-            <TypedShadowDiv id="__POSTHOG_TOOLBAR__" ref={shadowRef}>
+            <root.div id="__POSTHOG_TOOLBAR__" ref={shadowRef}>
                 <div id="posthog-toolbar-styles" />
                 {didRender ? <ToolbarContainer /> : null}
-            </TypedShadowDiv>
+                <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
+            </root.div>
         </>
     )
-}
-
-function TypedShadowDiv(props: { id: string; ref: any; children: any }): JSX.Element {
-    return <root.div {...props} />
 }
