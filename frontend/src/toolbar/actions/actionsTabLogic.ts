@@ -23,7 +23,7 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, F
     actions: {
         setForm: (form: FormInstance) => ({ form }),
         selectAction: (id: number | null) => ({ id: id || null }),
-        newAction: (element?: HTMLElement) => ({ element }),
+        newAction: (element?: HTMLElement) => ({ element: element || null }),
         inspectForElementWithIndex: (index: number | null) => ({ index }),
         inspectElementSelected: (element: HTMLElement, index: number | null) => ({ element, index }),
         setEditingFields: (editingFields: AntdFieldData[]) => ({ editingFields }),

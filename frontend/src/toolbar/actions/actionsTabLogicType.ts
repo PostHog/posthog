@@ -19,7 +19,7 @@ export interface actionsTabLogicType<ActionType, ActionForm, FormInstance, AntdF
             element?: HTMLElement
         ) => {
             type: 'new action (toolbar.actions.actionsTabLogic)'
-            payload: { element: HTMLElement | undefined }
+            payload: { element: HTMLElement | null }
         }
         inspectForElementWithIndex: (
             index: number | null
