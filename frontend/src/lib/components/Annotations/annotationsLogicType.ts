@@ -8,7 +8,7 @@ export interface annotationsLogicType {
             date_marker: any,
             apply_all?: any
         ) => {
-            type: 'create annotation (lib.components.Annotations.annotationsLogic)'
+            type: 'create annotation (frontend.src.lib.components.Annotations.annotationsLogic)'
             payload: { content: any; date_marker: any; created_at: Moment; apply_all: boolean }
         }
         createAnnotationNow: (
@@ -16,17 +16,17 @@ export interface annotationsLogicType {
             date_marker: any,
             apply_all?: any
         ) => {
-            type: 'create annotation now (lib.components.Annotations.annotationsLogic)'
+            type: 'create annotation now (frontend.src.lib.components.Annotations.annotationsLogic)'
             payload: { content: any; date_marker: any; created_at: Moment; apply_all: boolean }
         }
         deleteAnnotation: (
             id: any
         ) => {
-            type: 'delete annotation (lib.components.Annotations.annotationsLogic)'
+            type: 'delete annotation (frontend.src.lib.components.Annotations.annotationsLogic)'
             payload: { id: any }
         }
         clearAnnotationsToCreate: () => {
-            type: 'clear annotations to create (lib.components.Annotations.annotationsLogic)'
+            type: 'clear annotations to create (frontend.src.lib.components.Annotations.annotationsLogic)'
             payload: {
                 value: boolean
             }
@@ -34,26 +34,26 @@ export interface annotationsLogicType {
         updateDiffType: (
             dates: any
         ) => {
-            type: 'update diff type (lib.components.Annotations.annotationsLogic)'
+            type: 'update diff type (frontend.src.lib.components.Annotations.annotationsLogic)'
             payload: { dates: any }
         }
         setDiffType: (
             type: any
         ) => {
-            type: 'set diff type (lib.components.Annotations.annotationsLogic)'
+            type: 'set diff type (frontend.src.lib.components.Annotations.annotationsLogic)'
             payload: { type: any }
         }
         loadAnnotations: ({
             before,
             after,
         }: any) => {
-            type: 'load annotations (lib.components.Annotations.annotationsLogic)'
+            type: 'load annotations (frontend.src.lib.components.Annotations.annotationsLogic)'
             payload: any
         }
         loadAnnotationsSuccess: (
             annotations: never[]
         ) => {
-            type: 'load annotations success (lib.components.Annotations.annotationsLogic)'
+            type: 'load annotations success (frontend.src.lib.components.Annotations.annotationsLogic)'
             payload: {
                 annotations: never[]
             }
@@ -61,33 +61,33 @@ export interface annotationsLogicType {
         loadAnnotationsFailure: (
             error: string
         ) => {
-            type: 'load annotations failure (lib.components.Annotations.annotationsLogic)'
+            type: 'load annotations failure (frontend.src.lib.components.Annotations.annotationsLogic)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'create annotation (lib.components.Annotations.annotationsLogic)': 'createAnnotation'
-        'create annotation now (lib.components.Annotations.annotationsLogic)': 'createAnnotationNow'
-        'delete annotation (lib.components.Annotations.annotationsLogic)': 'deleteAnnotation'
-        'clear annotations to create (lib.components.Annotations.annotationsLogic)': 'clearAnnotationsToCreate'
-        'update diff type (lib.components.Annotations.annotationsLogic)': 'updateDiffType'
-        'set diff type (lib.components.Annotations.annotationsLogic)': 'setDiffType'
-        'load annotations (lib.components.Annotations.annotationsLogic)': 'loadAnnotations'
-        'load annotations success (lib.components.Annotations.annotationsLogic)': 'loadAnnotationsSuccess'
-        'load annotations failure (lib.components.Annotations.annotationsLogic)': 'loadAnnotationsFailure'
+        'create annotation (frontend.src.lib.components.Annotations.annotationsLogic)': 'createAnnotation'
+        'create annotation now (frontend.src.lib.components.Annotations.annotationsLogic)': 'createAnnotationNow'
+        'delete annotation (frontend.src.lib.components.Annotations.annotationsLogic)': 'deleteAnnotation'
+        'clear annotations to create (frontend.src.lib.components.Annotations.annotationsLogic)': 'clearAnnotationsToCreate'
+        'update diff type (frontend.src.lib.components.Annotations.annotationsLogic)': 'updateDiffType'
+        'set diff type (frontend.src.lib.components.Annotations.annotationsLogic)': 'setDiffType'
+        'load annotations (frontend.src.lib.components.Annotations.annotationsLogic)': 'loadAnnotations'
+        'load annotations success (frontend.src.lib.components.Annotations.annotationsLogic)': 'loadAnnotationsSuccess'
+        'load annotations failure (frontend.src.lib.components.Annotations.annotationsLogic)': 'loadAnnotationsFailure'
     }
     actionTypes: {
-        createAnnotation: 'create annotation (lib.components.Annotations.annotationsLogic)'
-        createAnnotationNow: 'create annotation now (lib.components.Annotations.annotationsLogic)'
-        deleteAnnotation: 'delete annotation (lib.components.Annotations.annotationsLogic)'
-        clearAnnotationsToCreate: 'clear annotations to create (lib.components.Annotations.annotationsLogic)'
-        updateDiffType: 'update diff type (lib.components.Annotations.annotationsLogic)'
-        setDiffType: 'set diff type (lib.components.Annotations.annotationsLogic)'
-        loadAnnotations: 'load annotations (lib.components.Annotations.annotationsLogic)'
-        loadAnnotationsSuccess: 'load annotations success (lib.components.Annotations.annotationsLogic)'
-        loadAnnotationsFailure: 'load annotations failure (lib.components.Annotations.annotationsLogic)'
+        createAnnotation: 'create annotation (frontend.src.lib.components.Annotations.annotationsLogic)'
+        createAnnotationNow: 'create annotation now (frontend.src.lib.components.Annotations.annotationsLogic)'
+        deleteAnnotation: 'delete annotation (frontend.src.lib.components.Annotations.annotationsLogic)'
+        clearAnnotationsToCreate: 'clear annotations to create (frontend.src.lib.components.Annotations.annotationsLogic)'
+        updateDiffType: 'update diff type (frontend.src.lib.components.Annotations.annotationsLogic)'
+        setDiffType: 'set diff type (frontend.src.lib.components.Annotations.annotationsLogic)'
+        loadAnnotations: 'load annotations (frontend.src.lib.components.Annotations.annotationsLogic)'
+        loadAnnotationsSuccess: 'load annotations success (frontend.src.lib.components.Annotations.annotationsLogic)'
+        loadAnnotationsFailure: 'load annotations failure (frontend.src.lib.components.Annotations.annotationsLogic)'
     }
     actions: {
         createAnnotation: (content: any, date_marker: any, apply_all?: any) => void
@@ -105,8 +105,8 @@ export interface annotationsLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['lib', 'components', 'Annotations', 'annotationsLogic']
-    pathString: 'lib.components.Annotations.annotationsLogic'
+    path: ['frontend', 'src', 'lib', 'components', 'Annotations', 'annotationsLogic']
+    pathString: 'frontend.src.lib.components.Annotations.annotationsLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

@@ -6,15 +6,15 @@ export interface toolbarTabLogicType<ToolbarTab> {
         setTab: (
             tab: ToolbarTab | string
         ) => {
-            type: 'set tab (toolbar.toolbarTabLogic)'
+            type: 'set tab (frontend.src.toolbar.toolbarTabLogic)'
             payload: { tab: string }
         }
     }
     actionKeys: {
-        'set tab (toolbar.toolbarTabLogic)': 'setTab'
+        'set tab (frontend.src.toolbar.toolbarTabLogic)': 'setTab'
     }
     actionTypes: {
-        setTab: 'set tab (toolbar.toolbarTabLogic)'
+        setTab: 'set tab (frontend.src.toolbar.toolbarTabLogic)'
     }
     actions: {
         setTab: (tab: ToolbarTab | string) => void
@@ -24,8 +24,8 @@ export interface toolbarTabLogicType<ToolbarTab> {
     constants: any
     defaults: any
     events: any
-    path: ['toolbar', 'toolbarTabLogic']
-    pathString: 'toolbar.toolbarTabLogic'
+    path: ['frontend', 'src', 'toolbar', 'toolbarTabLogic']
+    pathString: 'frontend.src.toolbar.toolbarTabLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (
@@ -52,14 +52,14 @@ export interface toolbarTabLogicType<ToolbarTab> {
     }
     _isKea: true
     __keaTypeGenInternalReducerActions: {
-        'button (toolbar.dockLogic)': () => {
-            type: 'button (toolbar.dockLogic)'
+        'button (frontend.src.toolbar.dockLogic)': () => {
+            type: 'button (frontend.src.toolbar.dockLogic)'
             payload: {
                 value: boolean
             }
         }
-        'dock (toolbar.dockLogic)': () => {
-            type: 'dock (toolbar.dockLogic)'
+        'dock (frontend.src.toolbar.dockLogic)': () => {
+            type: 'dock (frontend.src.toolbar.dockLogic)'
             payload: {
                 value: boolean
             }

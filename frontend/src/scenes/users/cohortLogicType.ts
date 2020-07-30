@@ -6,41 +6,41 @@ export interface cohortLogicType {
         saveCohort: (
             cohort: any
         ) => {
-            type: 'save cohort (scenes.users.cohortLogic)'
+            type: 'save cohort (frontend.src.scenes.users.cohortLogic)'
             payload: { cohort: any }
         }
         setCohort: (
             cohort: any
         ) => {
-            type: 'set cohort (scenes.users.cohortLogic)'
+            type: 'set cohort (frontend.src.scenes.users.cohortLogic)'
             payload: { cohort: any }
         }
         checkIsFinished: (
             cohort: any
         ) => {
-            type: 'check is finished (scenes.users.cohortLogic)'
+            type: 'check is finished (frontend.src.scenes.users.cohortLogic)'
             payload: { cohort: any }
         }
         setToastId: (
             toastId: any
         ) => {
-            type: 'set toast id (scenes.users.cohortLogic)'
+            type: 'set toast id (frontend.src.scenes.users.cohortLogic)'
             payload: { toastId: any }
         }
         setPollTimeout: (
             pollTimeout: any
         ) => {
-            type: 'set poll timeout (scenes.users.cohortLogic)'
+            type: 'set poll timeout (frontend.src.scenes.users.cohortLogic)'
             payload: { pollTimeout: any }
         }
         loadPersonProperties: () => {
-            type: 'load person properties (scenes.users.cohortLogic)'
+            type: 'load person properties (frontend.src.scenes.users.cohortLogic)'
             payload: any
         }
         loadPersonPropertiesSuccess: (
             personProperties: any
         ) => {
-            type: 'load person properties success (scenes.users.cohortLogic)'
+            type: 'load person properties success (frontend.src.scenes.users.cohortLogic)'
             payload: {
                 personProperties: any
             }
@@ -48,31 +48,31 @@ export interface cohortLogicType {
         loadPersonPropertiesFailure: (
             error: string
         ) => {
-            type: 'load person properties failure (scenes.users.cohortLogic)'
+            type: 'load person properties failure (frontend.src.scenes.users.cohortLogic)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'save cohort (scenes.users.cohortLogic)': 'saveCohort'
-        'set cohort (scenes.users.cohortLogic)': 'setCohort'
-        'check is finished (scenes.users.cohortLogic)': 'checkIsFinished'
-        'set toast id (scenes.users.cohortLogic)': 'setToastId'
-        'set poll timeout (scenes.users.cohortLogic)': 'setPollTimeout'
-        'load person properties (scenes.users.cohortLogic)': 'loadPersonProperties'
-        'load person properties success (scenes.users.cohortLogic)': 'loadPersonPropertiesSuccess'
-        'load person properties failure (scenes.users.cohortLogic)': 'loadPersonPropertiesFailure'
+        'save cohort (frontend.src.scenes.users.cohortLogic)': 'saveCohort'
+        'set cohort (frontend.src.scenes.users.cohortLogic)': 'setCohort'
+        'check is finished (frontend.src.scenes.users.cohortLogic)': 'checkIsFinished'
+        'set toast id (frontend.src.scenes.users.cohortLogic)': 'setToastId'
+        'set poll timeout (frontend.src.scenes.users.cohortLogic)': 'setPollTimeout'
+        'load person properties (frontend.src.scenes.users.cohortLogic)': 'loadPersonProperties'
+        'load person properties success (frontend.src.scenes.users.cohortLogic)': 'loadPersonPropertiesSuccess'
+        'load person properties failure (frontend.src.scenes.users.cohortLogic)': 'loadPersonPropertiesFailure'
     }
     actionTypes: {
-        saveCohort: 'save cohort (scenes.users.cohortLogic)'
-        setCohort: 'set cohort (scenes.users.cohortLogic)'
-        checkIsFinished: 'check is finished (scenes.users.cohortLogic)'
-        setToastId: 'set toast id (scenes.users.cohortLogic)'
-        setPollTimeout: 'set poll timeout (scenes.users.cohortLogic)'
-        loadPersonProperties: 'load person properties (scenes.users.cohortLogic)'
-        loadPersonPropertiesSuccess: 'load person properties success (scenes.users.cohortLogic)'
-        loadPersonPropertiesFailure: 'load person properties failure (scenes.users.cohortLogic)'
+        saveCohort: 'save cohort (frontend.src.scenes.users.cohortLogic)'
+        setCohort: 'set cohort (frontend.src.scenes.users.cohortLogic)'
+        checkIsFinished: 'check is finished (frontend.src.scenes.users.cohortLogic)'
+        setToastId: 'set toast id (frontend.src.scenes.users.cohortLogic)'
+        setPollTimeout: 'set poll timeout (frontend.src.scenes.users.cohortLogic)'
+        loadPersonProperties: 'load person properties (frontend.src.scenes.users.cohortLogic)'
+        loadPersonPropertiesSuccess: 'load person properties success (frontend.src.scenes.users.cohortLogic)'
+        loadPersonPropertiesFailure: 'load person properties failure (frontend.src.scenes.users.cohortLogic)'
     }
     actions: {
         saveCohort: (cohort: any) => void
@@ -89,8 +89,8 @@ export interface cohortLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['scenes', 'users', 'cohortLogic']
-    pathString: 'scenes.users.cohortLogic'
+    path: ['frontend', 'src', 'scenes', 'users', 'cohortLogic']
+    pathString: 'frontend.src.scenes.users.cohortLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

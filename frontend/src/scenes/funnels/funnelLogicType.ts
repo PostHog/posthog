@@ -7,11 +7,11 @@ export interface funnelLogicType {
             funnel: any,
             update: any
         ) => {
-            type: 'set funnel (scenes.funnels.funnelLogic)'
+            type: 'set funnel (frontend.src.scenes.funnels.funnelLogic)'
             payload: { funnel: any; update: any }
         }
         clearFunnel: () => {
-            type: 'clear funnel (scenes.funnels.funnelLogic)'
+            type: 'clear funnel (frontend.src.scenes.funnels.funnelLogic)'
             payload: {
                 value: boolean
             }
@@ -19,13 +19,13 @@ export interface funnelLogicType {
         loadFunnel: (
             id?: any
         ) => {
-            type: 'load funnel (scenes.funnels.funnelLogic)'
+            type: 'load funnel (frontend.src.scenes.funnels.funnelLogic)'
             payload: any
         }
         loadFunnelSuccess: (funnel: {
             filters: {}
         }) => {
-            type: 'load funnel success (scenes.funnels.funnelLogic)'
+            type: 'load funnel success (frontend.src.scenes.funnels.funnelLogic)'
             payload: {
                 funnel: {
                     filters: {}
@@ -35,7 +35,7 @@ export interface funnelLogicType {
         loadFunnelFailure: (
             error: string
         ) => {
-            type: 'load funnel failure (scenes.funnels.funnelLogic)'
+            type: 'load funnel failure (frontend.src.scenes.funnels.funnelLogic)'
             payload: {
                 error: string
             }
@@ -43,13 +43,13 @@ export interface funnelLogicType {
         updateFunnel: (
             funnel: any
         ) => {
-            type: 'update funnel (scenes.funnels.funnelLogic)'
+            type: 'update funnel (frontend.src.scenes.funnels.funnelLogic)'
             payload: any
         }
         updateFunnelSuccess: (funnel: {
             filters: {}
         }) => {
-            type: 'update funnel success (scenes.funnels.funnelLogic)'
+            type: 'update funnel success (frontend.src.scenes.funnels.funnelLogic)'
             payload: {
                 funnel: {
                     filters: {}
@@ -59,7 +59,7 @@ export interface funnelLogicType {
         updateFunnelFailure: (
             error: string
         ) => {
-            type: 'update funnel failure (scenes.funnels.funnelLogic)'
+            type: 'update funnel failure (frontend.src.scenes.funnels.funnelLogic)'
             payload: {
                 error: string
             }
@@ -67,13 +67,13 @@ export interface funnelLogicType {
         createFunnel: (
             funnel: any
         ) => {
-            type: 'create funnel (scenes.funnels.funnelLogic)'
+            type: 'create funnel (frontend.src.scenes.funnels.funnelLogic)'
             payload: any
         }
         createFunnelSuccess: (funnel: {
             filters: {}
         }) => {
-            type: 'create funnel success (scenes.funnels.funnelLogic)'
+            type: 'create funnel success (frontend.src.scenes.funnels.funnelLogic)'
             payload: {
                 funnel: {
                     filters: {}
@@ -83,7 +83,7 @@ export interface funnelLogicType {
         createFunnelFailure: (
             error: string
         ) => {
-            type: 'create funnel failure (scenes.funnels.funnelLogic)'
+            type: 'create funnel failure (frontend.src.scenes.funnels.funnelLogic)'
             payload: {
                 error: string
             }
@@ -92,13 +92,13 @@ export interface funnelLogicType {
             id,
             refresh,
         }: any) => {
-            type: 'load steps with count (scenes.funnels.funnelLogic)'
+            type: 'load steps with count (frontend.src.scenes.funnels.funnelLogic)'
             payload: any
         }
         loadStepsWithCountSuccess: (
             stepsWithCount: any
         ) => {
-            type: 'load steps with count success (scenes.funnels.funnelLogic)'
+            type: 'load steps with count success (frontend.src.scenes.funnels.funnelLogic)'
             payload: {
                 stepsWithCount: any
             }
@@ -106,7 +106,7 @@ export interface funnelLogicType {
         loadStepsWithCountFailure: (
             error: string
         ) => {
-            type: 'load steps with count failure (scenes.funnels.funnelLogic)'
+            type: 'load steps with count failure (frontend.src.scenes.funnels.funnelLogic)'
             payload: {
                 error: string
             }
@@ -114,13 +114,13 @@ export interface funnelLogicType {
         loadPeople: (
             steps: any
         ) => {
-            type: 'load people (scenes.funnels.funnelLogic)'
+            type: 'load people (frontend.src.scenes.funnels.funnelLogic)'
             payload: any
         }
         loadPeopleSuccess: (
             people: any
         ) => {
-            type: 'load people success (scenes.funnels.funnelLogic)'
+            type: 'load people success (frontend.src.scenes.funnels.funnelLogic)'
             payload: {
                 people: any
             }
@@ -128,49 +128,49 @@ export interface funnelLogicType {
         loadPeopleFailure: (
             error: string
         ) => {
-            type: 'load people failure (scenes.funnels.funnelLogic)'
+            type: 'load people failure (frontend.src.scenes.funnels.funnelLogic)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'set funnel (scenes.funnels.funnelLogic)': 'setFunnel'
-        'clear funnel (scenes.funnels.funnelLogic)': 'clearFunnel'
-        'load funnel (scenes.funnels.funnelLogic)': 'loadFunnel'
-        'load funnel success (scenes.funnels.funnelLogic)': 'loadFunnelSuccess'
-        'load funnel failure (scenes.funnels.funnelLogic)': 'loadFunnelFailure'
-        'update funnel (scenes.funnels.funnelLogic)': 'updateFunnel'
-        'update funnel success (scenes.funnels.funnelLogic)': 'updateFunnelSuccess'
-        'update funnel failure (scenes.funnels.funnelLogic)': 'updateFunnelFailure'
-        'create funnel (scenes.funnels.funnelLogic)': 'createFunnel'
-        'create funnel success (scenes.funnels.funnelLogic)': 'createFunnelSuccess'
-        'create funnel failure (scenes.funnels.funnelLogic)': 'createFunnelFailure'
-        'load steps with count (scenes.funnels.funnelLogic)': 'loadStepsWithCount'
-        'load steps with count success (scenes.funnels.funnelLogic)': 'loadStepsWithCountSuccess'
-        'load steps with count failure (scenes.funnels.funnelLogic)': 'loadStepsWithCountFailure'
-        'load people (scenes.funnels.funnelLogic)': 'loadPeople'
-        'load people success (scenes.funnels.funnelLogic)': 'loadPeopleSuccess'
-        'load people failure (scenes.funnels.funnelLogic)': 'loadPeopleFailure'
+        'set funnel (frontend.src.scenes.funnels.funnelLogic)': 'setFunnel'
+        'clear funnel (frontend.src.scenes.funnels.funnelLogic)': 'clearFunnel'
+        'load funnel (frontend.src.scenes.funnels.funnelLogic)': 'loadFunnel'
+        'load funnel success (frontend.src.scenes.funnels.funnelLogic)': 'loadFunnelSuccess'
+        'load funnel failure (frontend.src.scenes.funnels.funnelLogic)': 'loadFunnelFailure'
+        'update funnel (frontend.src.scenes.funnels.funnelLogic)': 'updateFunnel'
+        'update funnel success (frontend.src.scenes.funnels.funnelLogic)': 'updateFunnelSuccess'
+        'update funnel failure (frontend.src.scenes.funnels.funnelLogic)': 'updateFunnelFailure'
+        'create funnel (frontend.src.scenes.funnels.funnelLogic)': 'createFunnel'
+        'create funnel success (frontend.src.scenes.funnels.funnelLogic)': 'createFunnelSuccess'
+        'create funnel failure (frontend.src.scenes.funnels.funnelLogic)': 'createFunnelFailure'
+        'load steps with count (frontend.src.scenes.funnels.funnelLogic)': 'loadStepsWithCount'
+        'load steps with count success (frontend.src.scenes.funnels.funnelLogic)': 'loadStepsWithCountSuccess'
+        'load steps with count failure (frontend.src.scenes.funnels.funnelLogic)': 'loadStepsWithCountFailure'
+        'load people (frontend.src.scenes.funnels.funnelLogic)': 'loadPeople'
+        'load people success (frontend.src.scenes.funnels.funnelLogic)': 'loadPeopleSuccess'
+        'load people failure (frontend.src.scenes.funnels.funnelLogic)': 'loadPeopleFailure'
     }
     actionTypes: {
-        setFunnel: 'set funnel (scenes.funnels.funnelLogic)'
-        clearFunnel: 'clear funnel (scenes.funnels.funnelLogic)'
-        loadFunnel: 'load funnel (scenes.funnels.funnelLogic)'
-        loadFunnelSuccess: 'load funnel success (scenes.funnels.funnelLogic)'
-        loadFunnelFailure: 'load funnel failure (scenes.funnels.funnelLogic)'
-        updateFunnel: 'update funnel (scenes.funnels.funnelLogic)'
-        updateFunnelSuccess: 'update funnel success (scenes.funnels.funnelLogic)'
-        updateFunnelFailure: 'update funnel failure (scenes.funnels.funnelLogic)'
-        createFunnel: 'create funnel (scenes.funnels.funnelLogic)'
-        createFunnelSuccess: 'create funnel success (scenes.funnels.funnelLogic)'
-        createFunnelFailure: 'create funnel failure (scenes.funnels.funnelLogic)'
-        loadStepsWithCount: 'load steps with count (scenes.funnels.funnelLogic)'
-        loadStepsWithCountSuccess: 'load steps with count success (scenes.funnels.funnelLogic)'
-        loadStepsWithCountFailure: 'load steps with count failure (scenes.funnels.funnelLogic)'
-        loadPeople: 'load people (scenes.funnels.funnelLogic)'
-        loadPeopleSuccess: 'load people success (scenes.funnels.funnelLogic)'
-        loadPeopleFailure: 'load people failure (scenes.funnels.funnelLogic)'
+        setFunnel: 'set funnel (frontend.src.scenes.funnels.funnelLogic)'
+        clearFunnel: 'clear funnel (frontend.src.scenes.funnels.funnelLogic)'
+        loadFunnel: 'load funnel (frontend.src.scenes.funnels.funnelLogic)'
+        loadFunnelSuccess: 'load funnel success (frontend.src.scenes.funnels.funnelLogic)'
+        loadFunnelFailure: 'load funnel failure (frontend.src.scenes.funnels.funnelLogic)'
+        updateFunnel: 'update funnel (frontend.src.scenes.funnels.funnelLogic)'
+        updateFunnelSuccess: 'update funnel success (frontend.src.scenes.funnels.funnelLogic)'
+        updateFunnelFailure: 'update funnel failure (frontend.src.scenes.funnels.funnelLogic)'
+        createFunnel: 'create funnel (frontend.src.scenes.funnels.funnelLogic)'
+        createFunnelSuccess: 'create funnel success (frontend.src.scenes.funnels.funnelLogic)'
+        createFunnelFailure: 'create funnel failure (frontend.src.scenes.funnels.funnelLogic)'
+        loadStepsWithCount: 'load steps with count (frontend.src.scenes.funnels.funnelLogic)'
+        loadStepsWithCountSuccess: 'load steps with count success (frontend.src.scenes.funnels.funnelLogic)'
+        loadStepsWithCountFailure: 'load steps with count failure (frontend.src.scenes.funnels.funnelLogic)'
+        loadPeople: 'load people (frontend.src.scenes.funnels.funnelLogic)'
+        loadPeopleSuccess: 'load people success (frontend.src.scenes.funnels.funnelLogic)'
+        loadPeopleFailure: 'load people failure (frontend.src.scenes.funnels.funnelLogic)'
     }
     actions: {
         setFunnel: (funnel: any, update: any) => void
@@ -196,8 +196,8 @@ export interface funnelLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['scenes', 'funnels', 'funnelLogic']
-    pathString: 'scenes.funnels.funnelLogic'
+    path: ['frontend', 'src', 'scenes', 'funnels', 'funnelLogic']
+    pathString: 'frontend.src.scenes.funnels.funnelLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

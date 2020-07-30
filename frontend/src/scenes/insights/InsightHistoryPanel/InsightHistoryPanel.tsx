@@ -19,6 +19,7 @@ export const InsightHistoryPanel: React.FC = () => {
     const saveInsight = (id, text): void => {
         console.log(id, text)
     }
+
     const [visible, setVisible] = useState(false)
     const [activeTab, setActiveTab] = useState(InsightHistoryType.RECENT)
     const [selectedInsight, setSelectedInsight] = useState<number | null>(null)

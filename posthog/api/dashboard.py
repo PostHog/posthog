@@ -121,6 +121,8 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "refreshing",
             "result",
             "funnel",
+            "created_at",
+            "saved",
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:

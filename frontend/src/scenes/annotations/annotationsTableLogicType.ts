@@ -4,13 +4,13 @@ export interface annotationsTableLogicType {
     key: any
     actionCreators: {
         loadAnnotations: () => {
-            type: 'load annotations (scenes.annotations.annotationsTableLogic)'
+            type: 'load annotations (frontend.src.scenes.annotations.annotationsTableLogic)'
             payload: any
         }
         loadAnnotationsSuccess: (
             annotations: never[]
         ) => {
-            type: 'load annotations success (scenes.annotations.annotationsTableLogic)'
+            type: 'load annotations success (frontend.src.scenes.annotations.annotationsTableLogic)'
             payload: {
                 annotations: never[]
             }
@@ -18,7 +18,7 @@ export interface annotationsTableLogicType {
         loadAnnotationsFailure: (
             error: string
         ) => {
-            type: 'load annotations failure (scenes.annotations.annotationsTableLogic)'
+            type: 'load annotations failure (frontend.src.scenes.annotations.annotationsTableLogic)'
             payload: {
                 error: string
             }
@@ -27,59 +27,59 @@ export interface annotationsTableLogicType {
             id: any,
             content: any
         ) => {
-            type: 'update annotation (scenes.annotations.annotationsTableLogic)'
+            type: 'update annotation (frontend.src.scenes.annotations.annotationsTableLogic)'
             payload: { id: any; content: any }
         }
         deleteAnnotation: (
             id: any
         ) => {
-            type: 'delete annotation (scenes.annotations.annotationsTableLogic)'
+            type: 'delete annotation (frontend.src.scenes.annotations.annotationsTableLogic)'
             payload: { id: any }
         }
         restoreAnnotation: (
             id: any
         ) => {
-            type: 'restore annotation (scenes.annotations.annotationsTableLogic)'
+            type: 'restore annotation (frontend.src.scenes.annotations.annotationsTableLogic)'
             payload: { id: any }
         }
         loadAnnotationsNext: () => {
-            type: 'load annotations next (scenes.annotations.annotationsTableLogic)'
+            type: 'load annotations next (frontend.src.scenes.annotations.annotationsTableLogic)'
             payload: boolean
         }
         setNext: (
             next: any
         ) => {
-            type: 'set next (scenes.annotations.annotationsTableLogic)'
+            type: 'set next (frontend.src.scenes.annotations.annotationsTableLogic)'
             payload: { next: any }
         }
         appendAnnotations: (
             annotations: any
         ) => {
-            type: 'append annotations (scenes.annotations.annotationsTableLogic)'
+            type: 'append annotations (frontend.src.scenes.annotations.annotationsTableLogic)'
             payload: { annotations: any }
         }
     }
     actionKeys: {
-        'load annotations (scenes.annotations.annotationsTableLogic)': 'loadAnnotations'
-        'load annotations success (scenes.annotations.annotationsTableLogic)': 'loadAnnotationsSuccess'
-        'load annotations failure (scenes.annotations.annotationsTableLogic)': 'loadAnnotationsFailure'
-        'update annotation (scenes.annotations.annotationsTableLogic)': 'updateAnnotation'
-        'delete annotation (scenes.annotations.annotationsTableLogic)': 'deleteAnnotation'
-        'restore annotation (scenes.annotations.annotationsTableLogic)': 'restoreAnnotation'
-        'load annotations next (scenes.annotations.annotationsTableLogic)': 'loadAnnotationsNext'
-        'set next (scenes.annotations.annotationsTableLogic)': 'setNext'
-        'append annotations (scenes.annotations.annotationsTableLogic)': 'appendAnnotations'
+        'load annotations (frontend.src.scenes.annotations.annotationsTableLogic)': 'loadAnnotations'
+        'load annotations success (frontend.src.scenes.annotations.annotationsTableLogic)': 'loadAnnotationsSuccess'
+        'load annotations failure (frontend.src.scenes.annotations.annotationsTableLogic)': 'loadAnnotationsFailure'
+        'update annotation (frontend.src.scenes.annotations.annotationsTableLogic)': 'updateAnnotation'
+        'delete annotation (frontend.src.scenes.annotations.annotationsTableLogic)': 'deleteAnnotation'
+        'restore annotation (frontend.src.scenes.annotations.annotationsTableLogic)': 'restoreAnnotation'
+        'load annotations next (frontend.src.scenes.annotations.annotationsTableLogic)': 'loadAnnotationsNext'
+        'set next (frontend.src.scenes.annotations.annotationsTableLogic)': 'setNext'
+        'append annotations (frontend.src.scenes.annotations.annotationsTableLogic)': 'appendAnnotations'
     }
     actionTypes: {
-        loadAnnotations: 'load annotations (scenes.annotations.annotationsTableLogic)'
-        loadAnnotationsSuccess: 'load annotations success (scenes.annotations.annotationsTableLogic)'
-        loadAnnotationsFailure: 'load annotations failure (scenes.annotations.annotationsTableLogic)'
-        updateAnnotation: 'update annotation (scenes.annotations.annotationsTableLogic)'
-        deleteAnnotation: 'delete annotation (scenes.annotations.annotationsTableLogic)'
-        restoreAnnotation: 'restore annotation (scenes.annotations.annotationsTableLogic)'
-        loadAnnotationsNext: 'load annotations next (scenes.annotations.annotationsTableLogic)'
-        setNext: 'set next (scenes.annotations.annotationsTableLogic)'
-        appendAnnotations: 'append annotations (scenes.annotations.annotationsTableLogic)'
+        loadAnnotations: 'load annotations (frontend.src.scenes.annotations.annotationsTableLogic)'
+        loadAnnotationsSuccess: 'load annotations success (frontend.src.scenes.annotations.annotationsTableLogic)'
+        loadAnnotationsFailure: 'load annotations failure (frontend.src.scenes.annotations.annotationsTableLogic)'
+        updateAnnotation: 'update annotation (frontend.src.scenes.annotations.annotationsTableLogic)'
+        deleteAnnotation: 'delete annotation (frontend.src.scenes.annotations.annotationsTableLogic)'
+        restoreAnnotation: 'restore annotation (frontend.src.scenes.annotations.annotationsTableLogic)'
+        loadAnnotationsNext: 'load annotations next (frontend.src.scenes.annotations.annotationsTableLogic)'
+        setNext: 'set next (frontend.src.scenes.annotations.annotationsTableLogic)'
+        appendAnnotations: 'append annotations (frontend.src.scenes.annotations.annotationsTableLogic)'
     }
     actions: {
         loadAnnotations: () => void
@@ -97,8 +97,8 @@ export interface annotationsTableLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['scenes', 'annotations', 'annotationsTableLogic']
-    pathString: 'scenes.annotations.annotationsTableLogic'
+    path: ['frontend', 'src', 'scenes', 'annotations', 'annotationsTableLogic']
+    pathString: 'frontend.src.scenes.annotations.annotationsTableLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

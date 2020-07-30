@@ -4,55 +4,55 @@ export interface dockLogicType<ToolbarMode, ToolbarAnimationState> {
     key: any
     actionCreators: {
         button: () => {
-            type: 'button (toolbar.dockLogic)'
+            type: 'button (frontend.src.toolbar.dockLogic)'
             payload: {
                 value: boolean
             }
         }
         dock: () => {
-            type: 'dock (toolbar.dockLogic)'
+            type: 'dock (frontend.src.toolbar.dockLogic)'
             payload: {
                 value: boolean
             }
         }
         hideButton: () => {
-            type: 'hide button (toolbar.dockLogic)'
+            type: 'hide button (frontend.src.toolbar.dockLogic)'
             payload: {
                 value: boolean
             }
         }
         update: () => {
-            type: 'update (toolbar.dockLogic)'
+            type: 'update (frontend.src.toolbar.dockLogic)'
             payload: {
                 value: boolean
             }
         }
         buttonAnimated: () => {
-            type: 'button animated (toolbar.dockLogic)'
+            type: 'button animated (frontend.src.toolbar.dockLogic)'
             payload: {
                 value: boolean
             }
         }
         buttonFaded: () => {
-            type: 'button faded (toolbar.dockLogic)'
+            type: 'button faded (frontend.src.toolbar.dockLogic)'
             payload: {
                 value: boolean
             }
         }
         dockAnimated: () => {
-            type: 'dock animated (toolbar.dockLogic)'
+            type: 'dock animated (frontend.src.toolbar.dockLogic)'
             payload: {
                 value: boolean
             }
         }
         dockFaded: () => {
-            type: 'dock faded (toolbar.dockLogic)'
+            type: 'dock faded (frontend.src.toolbar.dockLogic)'
             payload: {
                 value: boolean
             }
         }
         hideButtonAnimated: () => {
-            type: 'hide button animated (toolbar.dockLogic)'
+            type: 'hide button animated (frontend.src.toolbar.dockLogic)'
             payload: {
                 value: boolean
             }
@@ -61,33 +61,33 @@ export interface dockLogicType<ToolbarMode, ToolbarAnimationState> {
             mode: ToolbarMode,
             update?: boolean
         ) => {
-            type: 'set mode (toolbar.dockLogic)'
+            type: 'set mode (frontend.src.toolbar.dockLogic)'
             payload: { mode: ToolbarMode; update: boolean; windowWidth: number; windowHeight: number }
         }
     }
     actionKeys: {
-        'button (toolbar.dockLogic)': 'button'
-        'dock (toolbar.dockLogic)': 'dock'
-        'hide button (toolbar.dockLogic)': 'hideButton'
-        'update (toolbar.dockLogic)': 'update'
-        'button animated (toolbar.dockLogic)': 'buttonAnimated'
-        'button faded (toolbar.dockLogic)': 'buttonFaded'
-        'dock animated (toolbar.dockLogic)': 'dockAnimated'
-        'dock faded (toolbar.dockLogic)': 'dockFaded'
-        'hide button animated (toolbar.dockLogic)': 'hideButtonAnimated'
-        'set mode (toolbar.dockLogic)': 'setMode'
+        'button (frontend.src.toolbar.dockLogic)': 'button'
+        'dock (frontend.src.toolbar.dockLogic)': 'dock'
+        'hide button (frontend.src.toolbar.dockLogic)': 'hideButton'
+        'update (frontend.src.toolbar.dockLogic)': 'update'
+        'button animated (frontend.src.toolbar.dockLogic)': 'buttonAnimated'
+        'button faded (frontend.src.toolbar.dockLogic)': 'buttonFaded'
+        'dock animated (frontend.src.toolbar.dockLogic)': 'dockAnimated'
+        'dock faded (frontend.src.toolbar.dockLogic)': 'dockFaded'
+        'hide button animated (frontend.src.toolbar.dockLogic)': 'hideButtonAnimated'
+        'set mode (frontend.src.toolbar.dockLogic)': 'setMode'
     }
     actionTypes: {
-        button: 'button (toolbar.dockLogic)'
-        dock: 'dock (toolbar.dockLogic)'
-        hideButton: 'hide button (toolbar.dockLogic)'
-        update: 'update (toolbar.dockLogic)'
-        buttonAnimated: 'button animated (toolbar.dockLogic)'
-        buttonFaded: 'button faded (toolbar.dockLogic)'
-        dockAnimated: 'dock animated (toolbar.dockLogic)'
-        dockFaded: 'dock faded (toolbar.dockLogic)'
-        hideButtonAnimated: 'hide button animated (toolbar.dockLogic)'
-        setMode: 'set mode (toolbar.dockLogic)'
+        button: 'button (frontend.src.toolbar.dockLogic)'
+        dock: 'dock (frontend.src.toolbar.dockLogic)'
+        hideButton: 'hide button (frontend.src.toolbar.dockLogic)'
+        update: 'update (frontend.src.toolbar.dockLogic)'
+        buttonAnimated: 'button animated (frontend.src.toolbar.dockLogic)'
+        buttonFaded: 'button faded (frontend.src.toolbar.dockLogic)'
+        dockAnimated: 'dock animated (frontend.src.toolbar.dockLogic)'
+        dockFaded: 'dock faded (frontend.src.toolbar.dockLogic)'
+        hideButtonAnimated: 'hide button animated (frontend.src.toolbar.dockLogic)'
+        setMode: 'set mode (frontend.src.toolbar.dockLogic)'
     }
     actions: {
         button: () => void
@@ -106,8 +106,8 @@ export interface dockLogicType<ToolbarMode, ToolbarAnimationState> {
     constants: any
     defaults: any
     events: any
-    path: ['toolbar', 'dockLogic']
-    pathString: 'toolbar.dockLogic'
+    path: ['frontend', 'src', 'toolbar', 'dockLogic']
+    pathString: 'frontend.src.toolbar.dockLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

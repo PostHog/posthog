@@ -6,17 +6,17 @@ export interface logicType {
         setEditedWebhook: (
             webhook: any
         ) => {
-            type: 'set edited webhook (scenes.setup.SlackIntegration)'
+            type: 'set edited webhook (frontend.src.scenes.setup.SlackIntegration)'
             payload: { webhook: any }
         }
         saveWebhook: () => {
-            type: 'save webhook (scenes.setup.SlackIntegration)'
+            type: 'save webhook (frontend.src.scenes.setup.SlackIntegration)'
             payload: {
                 value: boolean
             }
         }
         testAndSaveWebhook: () => {
-            type: 'test and save webhook (scenes.setup.SlackIntegration)'
+            type: 'test and save webhook (frontend.src.scenes.setup.SlackIntegration)'
             payload: {
                 value: boolean
             }
@@ -24,21 +24,21 @@ export interface logicType {
         setError: (
             error: any
         ) => {
-            type: 'set error (scenes.setup.SlackIntegration)'
+            type: 'set error (frontend.src.scenes.setup.SlackIntegration)'
             payload: { error: any }
         }
     }
     actionKeys: {
-        'set edited webhook (scenes.setup.SlackIntegration)': 'setEditedWebhook'
-        'save webhook (scenes.setup.SlackIntegration)': 'saveWebhook'
-        'test and save webhook (scenes.setup.SlackIntegration)': 'testAndSaveWebhook'
-        'set error (scenes.setup.SlackIntegration)': 'setError'
+        'set edited webhook (frontend.src.scenes.setup.SlackIntegration)': 'setEditedWebhook'
+        'save webhook (frontend.src.scenes.setup.SlackIntegration)': 'saveWebhook'
+        'test and save webhook (frontend.src.scenes.setup.SlackIntegration)': 'testAndSaveWebhook'
+        'set error (frontend.src.scenes.setup.SlackIntegration)': 'setError'
     }
     actionTypes: {
-        setEditedWebhook: 'set edited webhook (scenes.setup.SlackIntegration)'
-        saveWebhook: 'save webhook (scenes.setup.SlackIntegration)'
-        testAndSaveWebhook: 'test and save webhook (scenes.setup.SlackIntegration)'
-        setError: 'set error (scenes.setup.SlackIntegration)'
+        setEditedWebhook: 'set edited webhook (frontend.src.scenes.setup.SlackIntegration)'
+        saveWebhook: 'save webhook (frontend.src.scenes.setup.SlackIntegration)'
+        testAndSaveWebhook: 'test and save webhook (frontend.src.scenes.setup.SlackIntegration)'
+        setError: 'set error (frontend.src.scenes.setup.SlackIntegration)'
     }
     actions: {
         setEditedWebhook: (webhook: any) => void
@@ -51,8 +51,8 @@ export interface logicType {
     constants: any
     defaults: any
     events: any
-    path: ['scenes', 'setup', 'SlackIntegration']
-    pathString: 'scenes.setup.SlackIntegration'
+    path: ['frontend', 'src', 'scenes', 'setup', 'SlackIntegration']
+    pathString: 'frontend.src.scenes.setup.SlackIntegration'
     propTypes: any
     props: Record<string, any>
     reducer: (
@@ -102,7 +102,7 @@ export interface logicType {
             user: UserType,
             updateKey?: string
         ) => {
-            type: 'user update success (scenes.userLogic)'
+            type: 'user update success (frontend.src.scenes.userLogic)'
             payload: {
                 user: UserType
                 updateKey: string | undefined

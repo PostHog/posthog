@@ -7,33 +7,33 @@ export interface sceneLogicType {
             scene: any,
             params: any
         ) => {
-            type: 'load scene (scenes.sceneLogic)'
+            type: 'load scene (frontend.src.scenes.sceneLogic)'
             payload: { scene: any; params: any }
         }
         setScene: (
             scene: any,
             params: any
         ) => {
-            type: 'set scene (scenes.sceneLogic)'
+            type: 'set scene (frontend.src.scenes.sceneLogic)'
             payload: { scene: any; params: any }
         }
         setLoadedScene: (
             scene: any,
             loadedScene: any
         ) => {
-            type: 'set loaded scene (scenes.sceneLogic)'
+            type: 'set loaded scene (frontend.src.scenes.sceneLogic)'
             payload: { scene: any; loadedScene: any }
         }
     }
     actionKeys: {
-        'load scene (scenes.sceneLogic)': 'loadScene'
-        'set scene (scenes.sceneLogic)': 'setScene'
-        'set loaded scene (scenes.sceneLogic)': 'setLoadedScene'
+        'load scene (frontend.src.scenes.sceneLogic)': 'loadScene'
+        'set scene (frontend.src.scenes.sceneLogic)': 'setScene'
+        'set loaded scene (frontend.src.scenes.sceneLogic)': 'setLoadedScene'
     }
     actionTypes: {
-        loadScene: 'load scene (scenes.sceneLogic)'
-        setScene: 'set scene (scenes.sceneLogic)'
-        setLoadedScene: 'set loaded scene (scenes.sceneLogic)'
+        loadScene: 'load scene (frontend.src.scenes.sceneLogic)'
+        setScene: 'set scene (frontend.src.scenes.sceneLogic)'
+        setLoadedScene: 'set loaded scene (frontend.src.scenes.sceneLogic)'
     }
     actions: {
         loadScene: (scene: any, params: any) => void
@@ -45,8 +45,8 @@ export interface sceneLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['scenes', 'sceneLogic']
-    pathString: 'scenes.sceneLogic'
+    path: ['frontend', 'src', 'scenes', 'sceneLogic']
+    pathString: 'frontend.src.scenes.sceneLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

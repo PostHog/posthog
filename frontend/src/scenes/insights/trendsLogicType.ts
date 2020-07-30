@@ -6,13 +6,13 @@ export interface trendsLogicType {
         loadResults: (
             refresh?: any
         ) => {
-            type: 'load results (scenes.insights.trendsLogic)'
+            type: 'load results (frontend.src.scenes.insights.trendsLogic)'
             payload: any
         }
         loadResultsSuccess: (
             results: never[]
         ) => {
-            type: 'load results success (scenes.insights.trendsLogic)'
+            type: 'load results success (frontend.src.scenes.insights.trendsLogic)'
             payload: {
                 results: never[]
             }
@@ -20,7 +20,7 @@ export interface trendsLogicType {
         loadResultsFailure: (
             error: string
         ) => {
-            type: 'load results failure (scenes.insights.trendsLogic)'
+            type: 'load results failure (frontend.src.scenes.insights.trendsLogic)'
             payload: {
                 error: string
             }
@@ -30,13 +30,13 @@ export interface trendsLogicType {
             mergeFilters?: any,
             fromUrl?: any
         ) => {
-            type: 'set filters (scenes.insights.trendsLogic)'
+            type: 'set filters (frontend.src.scenes.insights.trendsLogic)'
             payload: { filters: any; mergeFilters: boolean; fromUrl: boolean }
         }
         setDisplay: (
             display: any
         ) => {
-            type: 'set display (scenes.insights.trendsLogic)'
+            type: 'set display (frontend.src.scenes.insights.trendsLogic)'
             payload: { display: any }
         }
         loadPeople: (
@@ -45,11 +45,11 @@ export interface trendsLogicType {
             day: any,
             breakdown_value: any
         ) => {
-            type: 'load people (scenes.insights.trendsLogic)'
+            type: 'load people (frontend.src.scenes.insights.trendsLogic)'
             payload: { action: any; label: any; day: any; breakdown_value: any }
         }
         loadMorePeople: () => {
-            type: 'load more people (scenes.insights.trendsLogic)'
+            type: 'load more people (frontend.src.scenes.insights.trendsLogic)'
             payload: {
                 value: boolean
             }
@@ -57,13 +57,13 @@ export interface trendsLogicType {
         setLoadingMorePeople: (
             status: any
         ) => {
-            type: 'set loading more people (scenes.insights.trendsLogic)'
+            type: 'set loading more people (frontend.src.scenes.insights.trendsLogic)'
             payload: { status: any }
         }
         setShowingPeople: (
             isShowing: any
         ) => {
-            type: 'set showing people (scenes.insights.trendsLogic)'
+            type: 'set showing people (frontend.src.scenes.insights.trendsLogic)'
             payload: { isShowing: any }
         }
         setPeople: (
@@ -75,33 +75,33 @@ export interface trendsLogicType {
             breakdown_value: any,
             next: any
         ) => {
-            type: 'set people (scenes.insights.trendsLogic)'
+            type: 'set people (frontend.src.scenes.insights.trendsLogic)'
             payload: { people: any; count: any; action: any; label: any; day: any; breakdown_value: any; next: any }
         }
     }
     actionKeys: {
-        'load results (scenes.insights.trendsLogic)': 'loadResults'
-        'load results success (scenes.insights.trendsLogic)': 'loadResultsSuccess'
-        'load results failure (scenes.insights.trendsLogic)': 'loadResultsFailure'
-        'set filters (scenes.insights.trendsLogic)': 'setFilters'
-        'set display (scenes.insights.trendsLogic)': 'setDisplay'
-        'load people (scenes.insights.trendsLogic)': 'loadPeople'
-        'load more people (scenes.insights.trendsLogic)': 'loadMorePeople'
-        'set loading more people (scenes.insights.trendsLogic)': 'setLoadingMorePeople'
-        'set showing people (scenes.insights.trendsLogic)': 'setShowingPeople'
-        'set people (scenes.insights.trendsLogic)': 'setPeople'
+        'load results (frontend.src.scenes.insights.trendsLogic)': 'loadResults'
+        'load results success (frontend.src.scenes.insights.trendsLogic)': 'loadResultsSuccess'
+        'load results failure (frontend.src.scenes.insights.trendsLogic)': 'loadResultsFailure'
+        'set filters (frontend.src.scenes.insights.trendsLogic)': 'setFilters'
+        'set display (frontend.src.scenes.insights.trendsLogic)': 'setDisplay'
+        'load people (frontend.src.scenes.insights.trendsLogic)': 'loadPeople'
+        'load more people (frontend.src.scenes.insights.trendsLogic)': 'loadMorePeople'
+        'set loading more people (frontend.src.scenes.insights.trendsLogic)': 'setLoadingMorePeople'
+        'set showing people (frontend.src.scenes.insights.trendsLogic)': 'setShowingPeople'
+        'set people (frontend.src.scenes.insights.trendsLogic)': 'setPeople'
     }
     actionTypes: {
-        loadResults: 'load results (scenes.insights.trendsLogic)'
-        loadResultsSuccess: 'load results success (scenes.insights.trendsLogic)'
-        loadResultsFailure: 'load results failure (scenes.insights.trendsLogic)'
-        setFilters: 'set filters (scenes.insights.trendsLogic)'
-        setDisplay: 'set display (scenes.insights.trendsLogic)'
-        loadPeople: 'load people (scenes.insights.trendsLogic)'
-        loadMorePeople: 'load more people (scenes.insights.trendsLogic)'
-        setLoadingMorePeople: 'set loading more people (scenes.insights.trendsLogic)'
-        setShowingPeople: 'set showing people (scenes.insights.trendsLogic)'
-        setPeople: 'set people (scenes.insights.trendsLogic)'
+        loadResults: 'load results (frontend.src.scenes.insights.trendsLogic)'
+        loadResultsSuccess: 'load results success (frontend.src.scenes.insights.trendsLogic)'
+        loadResultsFailure: 'load results failure (frontend.src.scenes.insights.trendsLogic)'
+        setFilters: 'set filters (frontend.src.scenes.insights.trendsLogic)'
+        setDisplay: 'set display (frontend.src.scenes.insights.trendsLogic)'
+        loadPeople: 'load people (frontend.src.scenes.insights.trendsLogic)'
+        loadMorePeople: 'load more people (frontend.src.scenes.insights.trendsLogic)'
+        setLoadingMorePeople: 'set loading more people (frontend.src.scenes.insights.trendsLogic)'
+        setShowingPeople: 'set showing people (frontend.src.scenes.insights.trendsLogic)'
+        setPeople: 'set people (frontend.src.scenes.insights.trendsLogic)'
     }
     actions: {
         loadResults: (refresh?: any) => void
@@ -120,8 +120,8 @@ export interface trendsLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['scenes', 'insights', 'trendsLogic']
-    pathString: 'scenes.insights.trendsLogic'
+    path: ['frontend', 'src', 'scenes', 'insights', 'trendsLogic']
+    pathString: 'frontend.src.scenes.insights.trendsLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

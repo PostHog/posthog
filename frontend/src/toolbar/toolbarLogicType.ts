@@ -4,17 +4,17 @@ export interface toolbarLogicType {
     key: any
     actionCreators: {
         authenticate: () => {
-            type: 'authenticate (toolbar.toolbarLogic)'
+            type: 'authenticate (frontend.src.toolbar.toolbarLogic)'
             payload: {
                 value: boolean
             }
         }
     }
     actionKeys: {
-        'authenticate (toolbar.toolbarLogic)': 'authenticate'
+        'authenticate (frontend.src.toolbar.toolbarLogic)': 'authenticate'
     }
     actionTypes: {
-        authenticate: 'authenticate (toolbar.toolbarLogic)'
+        authenticate: 'authenticate (frontend.src.toolbar.toolbarLogic)'
     }
     actions: {
         authenticate: () => void
@@ -24,8 +24,8 @@ export interface toolbarLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['toolbar', 'toolbarLogic']
-    pathString: 'toolbar.toolbarLogic'
+    path: ['frontend', 'src', 'toolbar', 'toolbarLogic']
+    pathString: 'frontend.src.toolbar.toolbarLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

@@ -4,37 +4,37 @@ export interface toolbarButtonLogicType {
     key: any
     actionCreators: {
         showHeatmapInfo: () => {
-            type: 'show heatmap info (toolbar.button.toolbarButtonLogic)'
+            type: 'show heatmap info (frontend.src.toolbar.button.toolbarButtonLogic)'
             payload: {
                 value: boolean
             }
         }
         hideHeatmapInfo: () => {
-            type: 'hide heatmap info (toolbar.button.toolbarButtonLogic)'
+            type: 'hide heatmap info (frontend.src.toolbar.button.toolbarButtonLogic)'
             payload: {
                 value: boolean
             }
         }
         showActionsInfo: () => {
-            type: 'show actions info (toolbar.button.toolbarButtonLogic)'
+            type: 'show actions info (frontend.src.toolbar.button.toolbarButtonLogic)'
             payload: {
                 value: boolean
             }
         }
         hideActionsInfo: () => {
-            type: 'hide actions info (toolbar.button.toolbarButtonLogic)'
+            type: 'hide actions info (frontend.src.toolbar.button.toolbarButtonLogic)'
             payload: {
                 value: boolean
             }
         }
         showStats: () => {
-            type: 'show stats (toolbar.button.toolbarButtonLogic)'
+            type: 'show stats (frontend.src.toolbar.button.toolbarButtonLogic)'
             payload: {
                 value: boolean
             }
         }
         hideStats: () => {
-            type: 'hide stats (toolbar.button.toolbarButtonLogic)'
+            type: 'hide stats (frontend.src.toolbar.button.toolbarButtonLogic)'
             payload: {
                 value: boolean
             }
@@ -42,63 +42,63 @@ export interface toolbarButtonLogicType {
         setExtensionPercentage: (
             percentage: number
         ) => {
-            type: 'set extension percentage (toolbar.button.toolbarButtonLogic)'
+            type: 'set extension percentage (frontend.src.toolbar.button.toolbarButtonLogic)'
             payload: { percentage: number }
         }
         saveDragPosition: (
             x: number,
             y: number
         ) => {
-            type: 'save drag position (toolbar.button.toolbarButtonLogic)'
+            type: 'save drag position (frontend.src.toolbar.button.toolbarButtonLogic)'
             payload: { x: number; y: number }
         }
         saveHeatmapPosition: (
             x: number,
             y: number
         ) => {
-            type: 'save heatmap position (toolbar.button.toolbarButtonLogic)'
+            type: 'save heatmap position (frontend.src.toolbar.button.toolbarButtonLogic)'
             payload: { x: number; y: number }
         }
         saveActionsPosition: (
             x: number,
             y: number
         ) => {
-            type: 'save actions position (toolbar.button.toolbarButtonLogic)'
+            type: 'save actions position (frontend.src.toolbar.button.toolbarButtonLogic)'
             payload: { x: number; y: number }
         }
         saveStatsPosition: (
             x: number,
             y: number
         ) => {
-            type: 'save stats position (toolbar.button.toolbarButtonLogic)'
+            type: 'save stats position (frontend.src.toolbar.button.toolbarButtonLogic)'
             payload: { x: number; y: number }
         }
     }
     actionKeys: {
-        'show heatmap info (toolbar.button.toolbarButtonLogic)': 'showHeatmapInfo'
-        'hide heatmap info (toolbar.button.toolbarButtonLogic)': 'hideHeatmapInfo'
-        'show actions info (toolbar.button.toolbarButtonLogic)': 'showActionsInfo'
-        'hide actions info (toolbar.button.toolbarButtonLogic)': 'hideActionsInfo'
-        'show stats (toolbar.button.toolbarButtonLogic)': 'showStats'
-        'hide stats (toolbar.button.toolbarButtonLogic)': 'hideStats'
-        'set extension percentage (toolbar.button.toolbarButtonLogic)': 'setExtensionPercentage'
-        'save drag position (toolbar.button.toolbarButtonLogic)': 'saveDragPosition'
-        'save heatmap position (toolbar.button.toolbarButtonLogic)': 'saveHeatmapPosition'
-        'save actions position (toolbar.button.toolbarButtonLogic)': 'saveActionsPosition'
-        'save stats position (toolbar.button.toolbarButtonLogic)': 'saveStatsPosition'
+        'show heatmap info (frontend.src.toolbar.button.toolbarButtonLogic)': 'showHeatmapInfo'
+        'hide heatmap info (frontend.src.toolbar.button.toolbarButtonLogic)': 'hideHeatmapInfo'
+        'show actions info (frontend.src.toolbar.button.toolbarButtonLogic)': 'showActionsInfo'
+        'hide actions info (frontend.src.toolbar.button.toolbarButtonLogic)': 'hideActionsInfo'
+        'show stats (frontend.src.toolbar.button.toolbarButtonLogic)': 'showStats'
+        'hide stats (frontend.src.toolbar.button.toolbarButtonLogic)': 'hideStats'
+        'set extension percentage (frontend.src.toolbar.button.toolbarButtonLogic)': 'setExtensionPercentage'
+        'save drag position (frontend.src.toolbar.button.toolbarButtonLogic)': 'saveDragPosition'
+        'save heatmap position (frontend.src.toolbar.button.toolbarButtonLogic)': 'saveHeatmapPosition'
+        'save actions position (frontend.src.toolbar.button.toolbarButtonLogic)': 'saveActionsPosition'
+        'save stats position (frontend.src.toolbar.button.toolbarButtonLogic)': 'saveStatsPosition'
     }
     actionTypes: {
-        showHeatmapInfo: 'show heatmap info (toolbar.button.toolbarButtonLogic)'
-        hideHeatmapInfo: 'hide heatmap info (toolbar.button.toolbarButtonLogic)'
-        showActionsInfo: 'show actions info (toolbar.button.toolbarButtonLogic)'
-        hideActionsInfo: 'hide actions info (toolbar.button.toolbarButtonLogic)'
-        showStats: 'show stats (toolbar.button.toolbarButtonLogic)'
-        hideStats: 'hide stats (toolbar.button.toolbarButtonLogic)'
-        setExtensionPercentage: 'set extension percentage (toolbar.button.toolbarButtonLogic)'
-        saveDragPosition: 'save drag position (toolbar.button.toolbarButtonLogic)'
-        saveHeatmapPosition: 'save heatmap position (toolbar.button.toolbarButtonLogic)'
-        saveActionsPosition: 'save actions position (toolbar.button.toolbarButtonLogic)'
-        saveStatsPosition: 'save stats position (toolbar.button.toolbarButtonLogic)'
+        showHeatmapInfo: 'show heatmap info (frontend.src.toolbar.button.toolbarButtonLogic)'
+        hideHeatmapInfo: 'hide heatmap info (frontend.src.toolbar.button.toolbarButtonLogic)'
+        showActionsInfo: 'show actions info (frontend.src.toolbar.button.toolbarButtonLogic)'
+        hideActionsInfo: 'hide actions info (frontend.src.toolbar.button.toolbarButtonLogic)'
+        showStats: 'show stats (frontend.src.toolbar.button.toolbarButtonLogic)'
+        hideStats: 'hide stats (frontend.src.toolbar.button.toolbarButtonLogic)'
+        setExtensionPercentage: 'set extension percentage (frontend.src.toolbar.button.toolbarButtonLogic)'
+        saveDragPosition: 'save drag position (frontend.src.toolbar.button.toolbarButtonLogic)'
+        saveHeatmapPosition: 'save heatmap position (frontend.src.toolbar.button.toolbarButtonLogic)'
+        saveActionsPosition: 'save actions position (frontend.src.toolbar.button.toolbarButtonLogic)'
+        saveStatsPosition: 'save stats position (frontend.src.toolbar.button.toolbarButtonLogic)'
     }
     actions: {
         showHeatmapInfo: () => void
@@ -118,8 +118,8 @@ export interface toolbarButtonLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['toolbar', 'button', 'toolbarButtonLogic']
-    pathString: 'toolbar.button.toolbarButtonLogic'
+    path: ['frontend', 'src', 'toolbar', 'button', 'toolbarButtonLogic']
+    pathString: 'frontend.src.toolbar.button.toolbarButtonLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (
@@ -366,26 +366,26 @@ export interface toolbarButtonLogicType {
         statsExtensionPercentage: (arg1: boolean, arg2: number) => number
     }
     __keaTypeGenInternalReducerActions: {
-        'disable heatmap (toolbar.elements.heatmapLogic)': () => {
-            type: 'disable heatmap (toolbar.elements.heatmapLogic)'
+        'disable heatmap (frontend.src.toolbar.elements.heatmapLogic)': () => {
+            type: 'disable heatmap (frontend.src.toolbar.elements.heatmapLogic)'
             payload: {
                 value: boolean
             }
         }
-        'enable heatmap (toolbar.elements.heatmapLogic)': () => {
-            type: 'enable heatmap (toolbar.elements.heatmapLogic)'
+        'enable heatmap (frontend.src.toolbar.elements.heatmapLogic)': () => {
+            type: 'enable heatmap (frontend.src.toolbar.elements.heatmapLogic)'
             payload: {
                 value: boolean
             }
         }
-        'show button actions (toolbar.actions.actionsTabLogic)': () => {
-            type: 'show button actions (toolbar.actions.actionsTabLogic)'
+        'show button actions (frontend.src.toolbar.actions.actionsTabLogic)': () => {
+            type: 'show button actions (frontend.src.toolbar.actions.actionsTabLogic)'
             payload: {
                 value: boolean
             }
         }
-        'hide button actions (toolbar.actions.actionsTabLogic)': () => {
-            type: 'hide button actions (toolbar.actions.actionsTabLogic)'
+        'hide button actions (frontend.src.toolbar.actions.actionsTabLogic)': () => {
+            type: 'hide button actions (frontend.src.toolbar.actions.actionsTabLogic)'
             payload: {
                 value: boolean
             }
