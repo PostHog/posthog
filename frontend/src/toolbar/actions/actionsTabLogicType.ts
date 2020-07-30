@@ -1,6 +1,6 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface actionsTabLogicType<ActionType, ActionForm, ActionStepForm, FormInstance> {
+export interface actionsTabLogicType<ActionType, ActionForm, FormInstance, AntdFieldData> {
     key: any
     actionCreators: {
         setForm: (
@@ -35,10 +35,10 @@ export interface actionsTabLogicType<ActionType, ActionForm, ActionStepForm, For
             payload: { element: HTMLElement; index: number | null }
         }
         setEditingFields: (
-            editingFields: ActionStepForm
+            editingFields: AntdFieldData[]
         ) => {
             type: 'set editing fields (toolbar.actions.actionsTabLogic)'
-            payload: { editingFields: ActionStepForm }
+            payload: { editingFields: AntdFieldData[] }
         }
         incrementCounter: () => {
             type: 'increment counter (toolbar.actions.actionsTabLogic)'
@@ -111,7 +111,7 @@ export interface actionsTabLogicType<ActionType, ActionForm, ActionStepForm, For
         newAction: (element?: HTMLElement) => void
         inspectForElementWithIndex: (index: number | null) => void
         inspectElementSelected: (element: HTMLElement, index: number | null) => void
-        setEditingFields: (editingFields: ActionStepForm) => void
+        setEditingFields: (editingFields: AntdFieldData[]) => void
         incrementCounter: () => void
         saveAction: (formValues: ActionForm) => void
         deleteAction: () => void
@@ -137,7 +137,7 @@ export interface actionsTabLogicType<ActionType, ActionForm, ActionStepForm, For
         selectedActionId: number | 'new' | null
         newActionForElement: HTMLElement | null
         inspectingElement: number | null
-        editingFields: ActionStepForm | null
+        editingFields: AntdFieldData[] | null
         form: FormInstance | null
         counter: number
         showActionsTooltip: boolean
@@ -148,7 +148,7 @@ export interface actionsTabLogicType<ActionType, ActionForm, ActionStepForm, For
         selectedActionId: (state: number | 'new' | null, action: any, fullState: any) => number | 'new' | null
         newActionForElement: (state: HTMLElement | null, action: any, fullState: any) => HTMLElement | null
         inspectingElement: (state: number | null, action: any, fullState: any) => number | null
-        editingFields: (state: ActionStepForm | null, action: any, fullState: any) => ActionStepForm | null
+        editingFields: (state: AntdFieldData[] | null, action: any, fullState: any) => AntdFieldData[] | null
         form: (state: FormInstance | null, action: any, fullState: any) => FormInstance | null
         counter: (state: number, action: any, fullState: any) => number
         showActionsTooltip: (state: boolean, action: any, fullState: any) => boolean
@@ -160,7 +160,7 @@ export interface actionsTabLogicType<ActionType, ActionForm, ActionStepForm, For
         selectedActionId: number | 'new' | null
         newActionForElement: HTMLElement | null
         inspectingElement: number | null
-        editingFields: ActionStepForm | null
+        editingFields: AntdFieldData[] | null
         form: FormInstance | null
         counter: number
         showActionsTooltip: boolean
@@ -170,7 +170,7 @@ export interface actionsTabLogicType<ActionType, ActionForm, ActionStepForm, For
         selectedActionId: (state: any, props: any) => number | 'new' | null
         newActionForElement: (state: any, props: any) => HTMLElement | null
         inspectingElement: (state: any, props: any) => number | null
-        editingFields: (state: any, props: any) => ActionStepForm | null
+        editingFields: (state: any, props: any) => AntdFieldData[] | null
         form: (state: any, props: any) => FormInstance | null
         counter: (state: any, props: any) => number
         showActionsTooltip: (state: any, props: any) => boolean
@@ -183,7 +183,7 @@ export interface actionsTabLogicType<ActionType, ActionForm, ActionStepForm, For
         selectedActionId: number | 'new' | null
         newActionForElement: HTMLElement | null
         inspectingElement: number | null
-        editingFields: ActionStepForm | null
+        editingFields: AntdFieldData[] | null
         form: FormInstance | null
         counter: number
         showActionsTooltip: boolean
@@ -199,7 +199,7 @@ export interface actionsTabLogicType<ActionType, ActionForm, ActionStepForm, For
             arg1: ActionType | null,
             arg2: ActionForm,
             arg3: FormInstance | null,
-            arg4: ActionStepForm | null,
+            arg4: AntdFieldData[] | null,
             arg5: number | null,
             arg6: number
         ) => ActionForm

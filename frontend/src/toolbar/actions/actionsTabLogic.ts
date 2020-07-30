@@ -9,7 +9,7 @@ import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { actionsTabLogicType } from '~/toolbar/actions/actionsTabLogicType'
 import { ActionType, ToolbarTab } from '~/types'
-import { ActionForm, ActionStepForm } from '~/toolbar/types'
+import { ActionForm, AntdFieldData } from '~/toolbar/types'
 import { FormInstance } from 'antd/es/form'
 
 function newAction(element: HTMLElement | null): Partial<ActionType> {
@@ -19,14 +19,14 @@ function newAction(element: HTMLElement | null): Partial<ActionType> {
     }
 }
 
-export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, ActionStepForm, FormInstance>>({
+export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, FormInstance, AntdFieldData>>({
     actions: {
         setForm: (form: FormInstance) => ({ form }),
         selectAction: (id: number | null) => ({ id: id || null }),
         newAction: (element?: HTMLElement) => ({ element }),
         inspectForElementWithIndex: (index: number | null) => ({ index }),
         inspectElementSelected: (element: HTMLElement, index: number | null) => ({ element, index }),
-        setEditingFields: (editingFields: ActionStepForm) => ({ editingFields }),
+        setEditingFields: (editingFields: AntdFieldData[]) => ({ editingFields }),
         incrementCounter: true,
         saveAction: (formValues: ActionForm) => ({ formValues }),
         deleteAction: true,
@@ -67,7 +67,7 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, A
             },
         ],
         editingFields: [
-            null as ActionStepForm | null,
+            null as AntdFieldData[] | null,
             {
                 setEditingFields: (_, { editingFields }) => editingFields,
                 selectAction: () => null,

@@ -11,7 +11,7 @@ import {
     DeleteOutlined,
 } from '@ant-design/icons'
 
-export function EditAction() {
+export function EditAction(): JSX.Element {
     const [form] = Form.useForm()
 
     const { initialValuesForForm, selectedActionId, inspectingElement, editingFields } = useValues(actionsTabLogic)
@@ -43,7 +43,7 @@ export function EditAction() {
 
     return (
         <div>
-            <Button type="outline" size="small" onClick={() => selectAction(null)} style={{ float: 'right' }}>
+            <Button type="default" size="small" onClick={() => selectAction(null)} style={{ float: 'right' }}>
                 Cancel <CloseOutlined />
             </Button>
             <h1 className="section-title" style={{ paddingTop: 4 }}>
@@ -55,8 +55,8 @@ export function EditAction() {
                 form={form}
                 initialValues={initialValuesForForm}
                 onFinish={saveAction}
-                fields={editingFields}
-                onFieldsChange={(changedFields, allFields) => {
+                fields={editingFields || undefined}
+                onFieldsChange={(_, allFields) => {
                     setEditingFields(allFields)
                 }}
             >
@@ -95,7 +95,7 @@ export function EditAction() {
                                         <div className="action-inspect">
                                             <Button
                                                 size="small"
-                                                type={inspectingElement === index ? 'primary' : 'outline'}
+                                                type={inspectingElement === index ? 'primary' : 'default'}
                                                 onClick={() =>
                                                     inspectForElementWithIndex(
                                                         inspectingElement === index ? null : index
