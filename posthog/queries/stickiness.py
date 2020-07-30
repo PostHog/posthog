@@ -1,11 +1,14 @@
-from typing import List, Dict, Any
-from .base import filter_events, handle_compare, process_entity_for_events, BaseQuery
-from posthog.models import Entity, Filter, Team, Event, Action
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from django.db.models import QuerySet, Count, functions
-from django.utils.timezone import now
-from django.db import connection
 import copy
+from typing import Any, Dict, List
+
+from django.db import connection
+from django.db.models import Count, QuerySet, functions
+from django.utils.timezone import now
+
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.models import Action, Entity, Event, Filter, Team
+
+from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
 
 
 def execute_custom_sql(query, params):

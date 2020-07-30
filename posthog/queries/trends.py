@@ -1,60 +1,53 @@
-from django.db.models.expressions import Subquery
-from .base import filter_events, process_entity_for_events, handle_compare, BaseQuery
-from posthog.models import (
-    Event,
-    Team,
-    Action,
-    ActionStep,
-    DashboardItem,
-    User,
-    Person,
-    Filter,
-    Entity,
-    Cohort,
-    CohortPeople,
-)
-from posthog.utils import (
-    append_data,
-    TemporaryTokenAuthentication,
-)
-from posthog.constants import (
-    TREND_FILTER_TYPE_ACTIONS,
-    TREND_FILTER_TYPE_EVENTS,
-    TRENDS_CUMULATIVE,
-    TRENDS_STICKINESS,
-)
-from posthog.tasks.calculate_action import calculate_action
-from rest_framework import request, serializers, viewsets, authentication
-from rest_framework.response import Response
-from rest_framework.decorators import action
-from django.db.models import (
-    Q,
-    Count,
-    Sum,
-    Avg,
-    Min,
-    Max,
-    Prefetch,
-    functions,
-    QuerySet,
-    OuterRef,
-    Exists,
-    Value,
-    BooleanField,
-    FloatField,
-)
-from django.db.models.expressions import RawSQL
-from django.db.models.functions import Cast
-from django.utils.timezone import now
-from typing import Any, List, Dict, Optional, Tuple, Union
-from datetime import timedelta
-import pandas as pd
+import copy
 import datetime
 import json
-import copy
-import numpy as np
-from posthog.decorators import cached_function, TRENDS_ENDPOINT
+from datetime import timedelta
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import numpy as np
+import pandas as pd
+from django.db.models import (
+    Avg,
+    BooleanField,
+    Count,
+    Exists,
+    FloatField,
+    Max,
+    Min,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Sum,
+    Value,
+    functions,
+)
+from django.db.models.expressions import RawSQL, Subquery
+from django.db.models.functions import Cast
+from django.utils.timezone import now
+from rest_framework import authentication, request, serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
+
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_STICKINESS
+from posthog.decorators import TRENDS_ENDPOINT, cached_function
+from posthog.models import (
+    Action,
+    ActionStep,
+    Cohort,
+    CohortPeople,
+    DashboardItem,
+    Entity,
+    Event,
+    Filter,
+    Person,
+    Team,
+    User,
+)
+from posthog.tasks.calculate_action import calculate_action
+from posthog.utils import TemporaryTokenAuthentication, append_data
+
+from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
 
 FREQ_MAP = {"minute": "60S", "hour": "H", "day": "D", "week": "W", "month": "M"}
 

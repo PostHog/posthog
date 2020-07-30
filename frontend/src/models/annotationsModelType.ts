@@ -22,11 +22,11 @@ export interface annotationsModelType {
             payload: any
         }
         loadGlobalAnnotationsSuccess: (
-            globalAnnotations: undefined[]
+            globalAnnotations: never[]
         ) => {
             type: 'load global annotations success (models.annotationsModel)'
             payload: {
-                globalAnnotations: undefined[]
+                globalAnnotations: never[]
             }
         }
         loadGlobalAnnotationsFailure: (
@@ -53,40 +53,11 @@ export interface annotationsModelType {
         loadGlobalAnnotationsFailure: 'load global annotations failure (models.annotationsModel)'
     }
     actions: {
-        createGlobalAnnotation: (
-            content: any,
-            date_marker: any,
-            dashboard_item: any
-        ) => {
-            type: 'create global annotation (models.annotationsModel)'
-            payload: { content: any; date_marker: any; created_at: Moment; dashboard_item: any }
-        }
-        deleteGlobalAnnotation: (
-            id: any
-        ) => {
-            type: 'delete global annotation (models.annotationsModel)'
-            payload: { id: any }
-        }
-        loadGlobalAnnotations: () => {
-            type: 'load global annotations (models.annotationsModel)'
-            payload: any
-        }
-        loadGlobalAnnotationsSuccess: (
-            globalAnnotations: undefined[]
-        ) => {
-            type: 'load global annotations success (models.annotationsModel)'
-            payload: {
-                globalAnnotations: undefined[]
-            }
-        }
-        loadGlobalAnnotationsFailure: (
-            error: string
-        ) => {
-            type: 'load global annotations failure (models.annotationsModel)'
-            payload: {
-                error: string
-            }
-        }
+        createGlobalAnnotation: (content: any, date_marker: any, dashboard_item: any) => void
+        deleteGlobalAnnotation: (id: any) => void
+        loadGlobalAnnotations: () => void
+        loadGlobalAnnotationsSuccess: (globalAnnotations: never[]) => void
+        loadGlobalAnnotationsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any
@@ -102,27 +73,27 @@ export interface annotationsModelType {
         action: () => any,
         fullState: any
     ) => {
-        globalAnnotations: undefined[]
+        globalAnnotations: never[]
         globalAnnotationsLoading: boolean
     }
     reducerOptions: any
     reducers: {
-        globalAnnotations: (state: undefined[], action: any, fullState: any) => undefined[]
+        globalAnnotations: (state: never[], action: any, fullState: any) => never[]
         globalAnnotationsLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
         state: any
     ) => {
-        globalAnnotations: undefined[]
+        globalAnnotations: never[]
         globalAnnotationsLoading: boolean
     }
     selectors: {
-        globalAnnotations: (state: any, props: any) => undefined[]
+        globalAnnotations: (state: any, props: any) => never[]
         globalAnnotationsLoading: (state: any, props: any) => boolean
         activeGlobalAnnotations: (state: any, props: any) => any
     }
     values: {
-        globalAnnotations: undefined[]
+        globalAnnotations: never[]
         globalAnnotationsLoading: boolean
         activeGlobalAnnotations: any
     }

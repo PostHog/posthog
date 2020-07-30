@@ -51,11 +51,11 @@ export interface annotationsLogicType {
             payload: any
         }
         loadAnnotationsSuccess: (
-            annotations: undefined[]
+            annotations: never[]
         ) => {
             type: 'load annotations success (lib.components.Annotations.annotationsLogic)'
             payload: {
-                annotations: undefined[]
+                annotations: never[]
             }
         }
         loadAnnotationsFailure: (
@@ -90,69 +90,15 @@ export interface annotationsLogicType {
         loadAnnotationsFailure: 'load annotations failure (lib.components.Annotations.annotationsLogic)'
     }
     actions: {
-        createAnnotation: (
-            content: any,
-            date_marker: any,
-            apply_all?: any
-        ) => {
-            type: 'create annotation (lib.components.Annotations.annotationsLogic)'
-            payload: { content: any; date_marker: any; created_at: Moment; apply_all: boolean }
-        }
-        createAnnotationNow: (
-            content: any,
-            date_marker: any,
-            apply_all?: any
-        ) => {
-            type: 'create annotation now (lib.components.Annotations.annotationsLogic)'
-            payload: { content: any; date_marker: any; created_at: Moment; apply_all: boolean }
-        }
-        deleteAnnotation: (
-            id: any
-        ) => {
-            type: 'delete annotation (lib.components.Annotations.annotationsLogic)'
-            payload: { id: any }
-        }
-        clearAnnotationsToCreate: () => {
-            type: 'clear annotations to create (lib.components.Annotations.annotationsLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        updateDiffType: (
-            dates: any
-        ) => {
-            type: 'update diff type (lib.components.Annotations.annotationsLogic)'
-            payload: { dates: any }
-        }
-        setDiffType: (
-            type: any
-        ) => {
-            type: 'set diff type (lib.components.Annotations.annotationsLogic)'
-            payload: { type: any }
-        }
-        loadAnnotations: ({
-            before,
-            after,
-        }: any) => {
-            type: 'load annotations (lib.components.Annotations.annotationsLogic)'
-            payload: any
-        }
-        loadAnnotationsSuccess: (
-            annotations: undefined[]
-        ) => {
-            type: 'load annotations success (lib.components.Annotations.annotationsLogic)'
-            payload: {
-                annotations: undefined[]
-            }
-        }
-        loadAnnotationsFailure: (
-            error: string
-        ) => {
-            type: 'load annotations failure (lib.components.Annotations.annotationsLogic)'
-            payload: {
-                error: string
-            }
-        }
+        createAnnotation: (content: any, date_marker: any, apply_all?: any) => void
+        createAnnotationNow: (content: any, date_marker: any, apply_all?: any) => void
+        deleteAnnotation: (id: any) => void
+        clearAnnotationsToCreate: () => void
+        updateDiffType: (dates: any) => void
+        setDiffType: (type: any) => void
+        loadAnnotations: ({ before, after }: any) => void
+        loadAnnotationsSuccess: (annotations: never[]) => void
+        loadAnnotationsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any
@@ -168,38 +114,38 @@ export interface annotationsLogicType {
         action: () => any,
         fullState: any
     ) => {
-        annotations: undefined[]
+        annotations: never[]
         annotationsLoading: boolean
-        annotationsToCreate: undefined[]
+        annotationsToCreate: never[]
         diffType: string
     }
     reducerOptions: any
     reducers: {
-        annotations: (state: undefined[], action: any, fullState: any) => undefined[]
+        annotations: (state: never[], action: any, fullState: any) => never[]
         annotationsLoading: (state: boolean, action: any, fullState: any) => boolean
-        annotationsToCreate: (state: undefined[], action: any, fullState: any) => undefined[]
+        annotationsToCreate: (state: never[], action: any, fullState: any) => never[]
         diffType: (state: string, action: any, fullState: any) => string
     }
     selector: (
         state: any
     ) => {
-        annotations: undefined[]
+        annotations: never[]
         annotationsLoading: boolean
-        annotationsToCreate: undefined[]
+        annotationsToCreate: never[]
         diffType: string
     }
     selectors: {
-        annotations: (state: any, props: any) => undefined[]
+        annotations: (state: any, props: any) => never[]
         annotationsLoading: (state: any, props: any) => boolean
-        annotationsToCreate: (state: any, props: any) => undefined[]
+        annotationsToCreate: (state: any, props: any) => never[]
         diffType: (state: any, props: any) => string
         annotationsList: (state: any, props: any) => any[]
         groupedAnnotations: (state: any, props: any) => Dictionary<any[]>
     }
     values: {
-        annotations: undefined[]
+        annotations: never[]
         annotationsLoading: boolean
-        annotationsToCreate: undefined[]
+        annotationsToCreate: never[]
         diffType: string
         annotationsList: any[]
         groupedAnnotations: Dictionary<any[]>

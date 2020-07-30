@@ -17,12 +17,7 @@ export interface dashboardsLogicType {
         addNewDashboard: 'add new dashboard (scenes.dashboard.dashboardsLogic)'
     }
     actions: {
-        addNewDashboard: () => {
-            type: 'add new dashboard (scenes.dashboard.dashboardsLogic)'
-            payload: {
-                value: boolean
-            }
-        }
+        addNewDashboard: () => void
     }
     cache: Record<string, any>
     connections: any

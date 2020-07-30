@@ -67,50 +67,13 @@ export interface actionEditLogicType {
         loadActionFailure: 'load action failure (scenes.actions.actionEditLogic)'
     }
     actions: {
-        saveAction: () => {
-            type: 'save action (scenes.actions.actionEditLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        setAction: (
-            action: any
-        ) => {
-            type: 'set action (scenes.actions.actionEditLogic)'
-            payload: { action: any }
-        }
-        setCreateNew: (
-            createNew: any
-        ) => {
-            type: 'set create new (scenes.actions.actionEditLogic)'
-            payload: { createNew: any }
-        }
-        actionAlreadyExists: (
-            actionId: any
-        ) => {
-            type: 'action already exists (scenes.actions.actionEditLogic)'
-            payload: { actionId: any }
-        }
-        loadAction: () => {
-            type: 'load action (scenes.actions.actionEditLogic)'
-            payload: any
-        }
-        loadActionSuccess: (
-            action: any
-        ) => {
-            type: 'load action success (scenes.actions.actionEditLogic)'
-            payload: {
-                action: any
-            }
-        }
-        loadActionFailure: (
-            error: string
-        ) => {
-            type: 'load action failure (scenes.actions.actionEditLogic)'
-            payload: {
-                error: string
-            }
-        }
+        saveAction: () => void
+        setAction: (action: any) => void
+        setCreateNew: (createNew: any) => void
+        actionAlreadyExists: (actionId: any) => void
+        loadAction: () => void
+        loadActionSuccess: (action: any) => void
+        loadActionFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

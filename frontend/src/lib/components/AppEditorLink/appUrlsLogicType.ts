@@ -33,11 +33,11 @@ export interface appUrlsLogicType {
             payload: any
         }
         loadSuggestionsSuccess: (
-            suggestions: undefined[]
+            suggestions: never[]
         ) => {
             type: 'load suggestions success (lib.components.AppEditorLink.appUrlsLogic)'
             payload: {
-                suggestions: undefined[]
+                suggestions: never[]
             }
         }
         loadSuggestionsFailure: (
@@ -68,51 +68,13 @@ export interface appUrlsLogicType {
         loadSuggestionsFailure: 'load suggestions failure (lib.components.AppEditorLink.appUrlsLogic)'
     }
     actions: {
-        addUrl: (
-            value: any
-        ) => {
-            type: 'add url (lib.components.AppEditorLink.appUrlsLogic)'
-            payload: { value: any }
-        }
-        addUrlAndGo: (
-            value: any
-        ) => {
-            type: 'add url and go (lib.components.AppEditorLink.appUrlsLogic)'
-            payload: { value: any }
-        }
-        removeUrl: (
-            index: any
-        ) => {
-            type: 'remove url (lib.components.AppEditorLink.appUrlsLogic)'
-            payload: { index: any }
-        }
-        updateUrl: (
-            index: any,
-            value: any
-        ) => {
-            type: 'update url (lib.components.AppEditorLink.appUrlsLogic)'
-            payload: { index: any; value: any }
-        }
-        loadSuggestions: () => {
-            type: 'load suggestions (lib.components.AppEditorLink.appUrlsLogic)'
-            payload: any
-        }
-        loadSuggestionsSuccess: (
-            suggestions: undefined[]
-        ) => {
-            type: 'load suggestions success (lib.components.AppEditorLink.appUrlsLogic)'
-            payload: {
-                suggestions: undefined[]
-            }
-        }
-        loadSuggestionsFailure: (
-            error: string
-        ) => {
-            type: 'load suggestions failure (lib.components.AppEditorLink.appUrlsLogic)'
-            payload: {
-                error: string
-            }
-        }
+        addUrl: (value: any) => void
+        addUrlAndGo: (value: any) => void
+        removeUrl: (index: any) => void
+        updateUrl: (index: any, value: any) => void
+        loadSuggestions: () => void
+        loadSuggestionsSuccess: (suggestions: never[]) => void
+        loadSuggestionsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any
@@ -128,30 +90,30 @@ export interface appUrlsLogicType {
         action: () => any,
         fullState: any
     ) => {
-        suggestions: undefined[]
+        suggestions: never[]
         suggestionsLoading: boolean
         appUrls: string[]
     }
     reducerOptions: any
     reducers: {
-        suggestions: (state: undefined[], action: any, fullState: any) => undefined[]
+        suggestions: (state: never[], action: any, fullState: any) => never[]
         suggestionsLoading: (state: boolean, action: any, fullState: any) => boolean
         appUrls: (state: string[], action: any, fullState: any) => string[]
     }
     selector: (
         state: any
     ) => {
-        suggestions: undefined[]
+        suggestions: never[]
         suggestionsLoading: boolean
         appUrls: string[]
     }
     selectors: {
-        suggestions: (state: any, props: any) => undefined[]
+        suggestions: (state: any, props: any) => never[]
         suggestionsLoading: (state: any, props: any) => boolean
         appUrls: (state: any, props: any) => string[]
     }
     values: {
-        suggestions: undefined[]
+        suggestions: never[]
         suggestionsLoading: boolean
         appUrls: string[]
     }

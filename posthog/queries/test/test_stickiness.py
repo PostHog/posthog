@@ -1,7 +1,8 @@
-from posthog.queries.stickiness import Stickiness
-from posthog.api.test.base import BaseTest
-from posthog.models import Action, Person, Event, ActionStep, Team, Filter
 from freezegun import freeze_time
+
+from posthog.api.test.base import BaseTest
+from posthog.models import Action, ActionStep, Event, Filter, Person, Team
+from posthog.queries.stickiness import Stickiness
 
 
 class TestStickiness(BaseTest):

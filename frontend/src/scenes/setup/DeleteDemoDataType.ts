@@ -25,18 +25,8 @@ export interface deleteDemoDataLogicType {
         demoDataDeleted: 'demo data deleted (scenes.setup.DeleteDemoData)'
     }
     actions: {
-        deleteDemoData: () => {
-            type: 'delete demo data (scenes.setup.DeleteDemoData)'
-            payload: {
-                value: boolean
-            }
-        }
-        demoDataDeleted: () => {
-            type: 'demo data deleted (scenes.setup.DeleteDemoData)'
-            payload: {
-                value: boolean
-            }
-        }
+        deleteDemoData: () => void
+        demoDataDeleted: () => void
     }
     cache: Record<string, any>
     connections: any

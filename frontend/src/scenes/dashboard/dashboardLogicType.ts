@@ -103,11 +103,11 @@ export interface dashboardLogicType {
             payload: any
         }
         loadDashboardItemsSuccess: (
-            allItems: undefined[]
+            allItems: never[]
         ) => {
             type: 'load dashboard items success (scenes.dashboard.dashboardLogic)'
             payload: {
-                allItems: undefined[]
+                allItems: never[]
             }
         }
         loadDashboardItemsFailure: (
@@ -160,121 +160,24 @@ export interface dashboardLogicType {
         loadDashboardItemsFailure: 'load dashboard items failure (scenes.dashboard.dashboardLogic)'
     }
     actions: {
-        addNewDashboard: () => {
-            type: 'add new dashboard (scenes.dashboard.dashboardLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        renameDashboard: () => {
-            type: 'rename dashboard (scenes.dashboard.dashboardLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        renameDashboardItem: (
-            id: any
-        ) => {
-            type: 'rename dashboard item (scenes.dashboard.dashboardLogic)'
-            payload: { id: any }
-        }
-        renameDashboardItemSuccess: (
-            item: any
-        ) => {
-            type: 'rename dashboard item success (scenes.dashboard.dashboardLogic)'
-            payload: { item: any }
-        }
-        setIsSharedDashboard: (
-            id: any,
-            isShared: any
-        ) => {
-            type: 'set is shared dashboard (scenes.dashboard.dashboardLogic)'
-            payload: { id: any; isShared: any }
-        }
-        duplicateDashboardItem: (
-            id: any,
-            dashboardId: any,
-            move?: any
-        ) => {
-            type: 'duplicate dashboard item (scenes.dashboard.dashboardLogic)'
-            payload: { id: any; dashboardId: any; move: boolean }
-        }
-        duplicateDashboardItemSuccess: (
-            item: any
-        ) => {
-            type: 'duplicate dashboard item success (scenes.dashboard.dashboardLogic)'
-            payload: { item: any }
-        }
-        updateLayouts: (
-            layouts: any
-        ) => {
-            type: 'update layouts (scenes.dashboard.dashboardLogic)'
-            payload: { layouts: any }
-        }
-        updateContainerWidth: (
-            containerWidth: any,
-            columns: any
-        ) => {
-            type: 'update container width (scenes.dashboard.dashboardLogic)'
-            payload: { containerWidth: any; columns: any }
-        }
-        saveLayouts: () => {
-            type: 'save layouts (scenes.dashboard.dashboardLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        updateItemColor: (
-            id: any,
-            color: any
-        ) => {
-            type: 'update item color (scenes.dashboard.dashboardLogic)'
-            payload: { id: any; color: any }
-        }
-        enableDragging: () => {
-            type: 'enable dragging (scenes.dashboard.dashboardLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        enableWobblyDragging: () => {
-            type: 'enable wobbly dragging (scenes.dashboard.dashboardLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        disableDragging: () => {
-            type: 'disable dragging (scenes.dashboard.dashboardLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        refreshDashboardItem: (
-            id: any
-        ) => {
-            type: 'refresh dashboard item (scenes.dashboard.dashboardLogic)'
-            payload: { id: any }
-        }
-        loadDashboardItems: () => {
-            type: 'load dashboard items (scenes.dashboard.dashboardLogic)'
-            payload: any
-        }
-        loadDashboardItemsSuccess: (
-            allItems: undefined[]
-        ) => {
-            type: 'load dashboard items success (scenes.dashboard.dashboardLogic)'
-            payload: {
-                allItems: undefined[]
-            }
-        }
-        loadDashboardItemsFailure: (
-            error: string
-        ) => {
-            type: 'load dashboard items failure (scenes.dashboard.dashboardLogic)'
-            payload: {
-                error: string
-            }
-        }
+        addNewDashboard: () => void
+        renameDashboard: () => void
+        renameDashboardItem: (id: any) => void
+        renameDashboardItemSuccess: (item: any) => void
+        setIsSharedDashboard: (id: any, isShared: any) => void
+        duplicateDashboardItem: (id: any, dashboardId: any, move?: any) => void
+        duplicateDashboardItemSuccess: (item: any) => void
+        updateLayouts: (layouts: any) => void
+        updateContainerWidth: (containerWidth: any, columns: any) => void
+        saveLayouts: () => void
+        updateItemColor: (id: any, color: any) => void
+        enableDragging: () => void
+        enableWobblyDragging: () => void
+        disableDragging: () => void
+        refreshDashboardItem: (id: any) => void
+        loadDashboardItems: () => void
+        loadDashboardItemsSuccess: (allItems: never[]) => void
+        loadDashboardItemsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any
@@ -290,33 +193,33 @@ export interface dashboardLogicType {
         action: () => any,
         fullState: any
     ) => {
-        allItems: undefined[]
+        allItems: never[]
         allItemsLoading: boolean
-        draggingEnabled: () => 'on' | 'off'
+        draggingEnabled: () => 'off' | 'on'
         containerWidth: null
         columns: null
     }
     reducerOptions: any
     reducers: {
-        allItems: (state: undefined[], action: any, fullState: any) => undefined[]
+        allItems: (state: never[], action: any, fullState: any) => never[]
         allItemsLoading: (state: boolean, action: any, fullState: any) => boolean
-        draggingEnabled: (state: () => 'on' | 'off', action: any, fullState: any) => () => 'on' | 'off'
+        draggingEnabled: (state: () => 'off' | 'on', action: any, fullState: any) => () => 'off' | 'on'
         containerWidth: (state: null, action: any, fullState: any) => null
         columns: (state: null, action: any, fullState: any) => null
     }
     selector: (
         state: any
     ) => {
-        allItems: undefined[]
+        allItems: never[]
         allItemsLoading: boolean
-        draggingEnabled: () => 'on' | 'off'
+        draggingEnabled: () => 'off' | 'on'
         containerWidth: null
         columns: null
     }
     selectors: {
-        allItems: (state: any, props: any) => undefined[]
+        allItems: (state: any, props: any) => never[]
         allItemsLoading: (state: any, props: any) => boolean
-        draggingEnabled: (state: any, props: any) => () => 'on' | 'off'
+        draggingEnabled: (state: any, props: any) => () => 'off' | 'on'
         containerWidth: (state: any, props: any) => null
         columns: (state: any, props: any) => null
         items: (state: any, props: any) => any
@@ -324,15 +227,15 @@ export interface dashboardLogicType {
         dashboard: (state: any, props: any) => any
         breakpoints: (state: any, props: any) => { lg: number; sm: number; xs: number; xxs: number }
         cols: (state: any, props: any) => { lg: number; sm: number; xs: number; xxs: number }
-        sizeKey: (state: any, props: any) => string
+        sizeKey: (state: any, props: any) => string | undefined
         layouts: (state: any, props: any) => {}
         layout: (state: any, props: any) => any
         layoutForItem: (state: any, props: any) => {}
     }
     values: {
-        allItems: undefined[]
+        allItems: never[]
         allItemsLoading: boolean
-        draggingEnabled: () => 'on' | 'off'
+        draggingEnabled: () => 'off' | 'on'
         containerWidth: null
         columns: null
         items: any
@@ -340,7 +243,7 @@ export interface dashboardLogicType {
         dashboard: any
         breakpoints: { lg: number; sm: number; xs: number; xxs: number }
         cols: { lg: number; sm: number; xs: number; xxs: number }
-        sizeKey: string
+        sizeKey: string | undefined
         layouts: {}
         layout: any
         layoutForItem: {}
@@ -350,7 +253,7 @@ export interface dashboardLogicType {
         items: (arg1: any) => any
         itemsLoading: (arg1: any) => any
         dashboard: (arg1: any, arg2: any) => any
-        sizeKey: (arg1: any, arg2: any) => string
+        sizeKey: (arg1: any, arg2: any) => string | undefined
         layouts: (arg1: any, arg2: any) => {}
         layout: (arg1: any, arg2: any) => any
         layoutForItem: (arg1: any) => {}

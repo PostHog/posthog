@@ -25,18 +25,8 @@ export interface editLogicType {
         setFilters: 'set filters (scenes.experiments.EditFeatureFlag)'
     }
     actions: {
-        setRolloutPercentage: (
-            rollout_percentage: any
-        ) => {
-            type: 'set rollout percentage (scenes.experiments.EditFeatureFlag)'
-            payload: { rollout_percentage: any }
-        }
-        setFilters: (
-            filters: any
-        ) => {
-            type: 'set filters (scenes.experiments.EditFeatureFlag)'
-            payload: { filters: any }
-        }
+        setRolloutPercentage: (rollout_percentage: any) => void
+        setFilters: (filters: any) => void
     }
     cache: Record<string, any>
     connections: any

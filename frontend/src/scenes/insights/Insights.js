@@ -109,7 +109,7 @@ export const Insights = hot(_Insights)
 function _Insights() {
     const [{ fromItem }] = useState(router.values.hashParams)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
-    const { annotationsList } = useValues(annotationsLogic({ pageKey: fromItem }))
+    const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
 
     const { activeView, allFilters } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
@@ -201,7 +201,7 @@ function _Insights() {
                                                 ? allFilters
                                                 : {
                                                       filters: allFilters,
-                                                      annotations: annotationsList,
+                                                      annotations: annotationsToCreate,
                                                   },
                                     }}
                                 />

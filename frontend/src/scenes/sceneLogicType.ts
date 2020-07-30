@@ -36,27 +36,9 @@ export interface sceneLogicType {
         setLoadedScene: 'set loaded scene (scenes.sceneLogic)'
     }
     actions: {
-        loadScene: (
-            scene: any,
-            params: any
-        ) => {
-            type: 'load scene (scenes.sceneLogic)'
-            payload: { scene: any; params: any }
-        }
-        setScene: (
-            scene: any,
-            params: any
-        ) => {
-            type: 'set scene (scenes.sceneLogic)'
-            payload: { scene: any; params: any }
-        }
-        setLoadedScene: (
-            scene: any,
-            loadedScene: any
-        ) => {
-            type: 'set loaded scene (scenes.sceneLogic)'
-            payload: { scene: any; loadedScene: any }
-        }
+        loadScene: (scene: any, params: any) => void
+        setScene: (scene: any, params: any) => void
+        setLoadedScene: (scene: any, loadedScene: any) => void
     }
     cache: Record<string, any>
     connections: any

@@ -5,6 +5,6 @@
 
 ## Checklist
 
-- [ ] All querysets/queries filter by Team (if applicable)
-- [ ] Backend tests (if applicable)
-- [ ] Cypress E2E tests (if applicable)
+- [ ] All querysets/queries filter by Team (if this PR affects any querysets/queries)
+- [ ] Backend tests (if this PR affects the backend)
+- [ ] Cypress E2E tests (if this PR affects the front and/or backend)

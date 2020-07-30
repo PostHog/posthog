@@ -1,5 +1,5 @@
 import React from 'react'
-import { ActionsLineGraph } from 'scenes/insights/ActionsLineGraph'
+import { ActionsLineGraph } from 'scenes/trends/ActionsLineGraph'
 import { useValues } from 'kea'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 

@@ -6,29 +6,29 @@ export interface entityFilterLogicType {
         selectFilter: (
             filter: any
         ) => {
-            type: 'select filter (scenes.trends.ActionFilter.entityFilterLogic)'
+            type: 'select filter (scenes.insights.ActionFilter.entityFilterLogic)'
             payload: { filter: any }
         }
         updateFilterMath: (
             filter: any
         ) => {
-            type: 'update filter math (scenes.trends.ActionFilter.entityFilterLogic)'
+            type: 'update filter math (scenes.insights.ActionFilter.entityFilterLogic)'
             payload: { type: any; value: any; math: any; math_property: any; index: any }
         }
         updateFilter: (
             filter: any
         ) => {
-            type: 'update filter (scenes.trends.ActionFilter.entityFilterLogic)'
+            type: 'update filter (scenes.insights.ActionFilter.entityFilterLogic)'
             payload: { type: any; index: any; value: any; name: any }
         }
         removeLocalFilter: (
             filter: any
         ) => {
-            type: 'remove local filter (scenes.trends.ActionFilter.entityFilterLogic)'
+            type: 'remove local filter (scenes.insights.ActionFilter.entityFilterLogic)'
             payload: { value: any; type: any; index: any }
         }
         addFilter: () => {
-            type: 'add filter (scenes.trends.ActionFilter.entityFilterLogic)'
+            type: 'add filter (scenes.insights.ActionFilter.entityFilterLogic)'
             payload: {
                 value: boolean
             }
@@ -36,99 +36,59 @@ export interface entityFilterLogicType {
         updateFilterProperty: (
             filter: any
         ) => {
-            type: 'update filter property (scenes.trends.ActionFilter.entityFilterLogic)'
+            type: 'update filter property (scenes.insights.ActionFilter.entityFilterLogic)'
             payload: { properties: any; index: any }
         }
         setFilters: (
             filters: any
         ) => {
-            type: 'set filters (scenes.trends.ActionFilter.entityFilterLogic)'
+            type: 'set filters (scenes.insights.ActionFilter.entityFilterLogic)'
             payload: { filters: any }
         }
         setLocalFilters: (
             filters: any
         ) => {
-            type: 'set local filters (scenes.trends.ActionFilter.entityFilterLogic)'
+            type: 'set local filters (scenes.insights.ActionFilter.entityFilterLogic)'
             payload: { filters: any }
         }
     }
     actionKeys: {
-        'select filter (scenes.trends.ActionFilter.entityFilterLogic)': 'selectFilter'
-        'update filter math (scenes.trends.ActionFilter.entityFilterLogic)': 'updateFilterMath'
-        'update filter (scenes.trends.ActionFilter.entityFilterLogic)': 'updateFilter'
-        'remove local filter (scenes.trends.ActionFilter.entityFilterLogic)': 'removeLocalFilter'
-        'add filter (scenes.trends.ActionFilter.entityFilterLogic)': 'addFilter'
-        'update filter property (scenes.trends.ActionFilter.entityFilterLogic)': 'updateFilterProperty'
-        'set filters (scenes.trends.ActionFilter.entityFilterLogic)': 'setFilters'
-        'set local filters (scenes.trends.ActionFilter.entityFilterLogic)': 'setLocalFilters'
+        'select filter (scenes.insights.ActionFilter.entityFilterLogic)': 'selectFilter'
+        'update filter math (scenes.insights.ActionFilter.entityFilterLogic)': 'updateFilterMath'
+        'update filter (scenes.insights.ActionFilter.entityFilterLogic)': 'updateFilter'
+        'remove local filter (scenes.insights.ActionFilter.entityFilterLogic)': 'removeLocalFilter'
+        'add filter (scenes.insights.ActionFilter.entityFilterLogic)': 'addFilter'
+        'update filter property (scenes.insights.ActionFilter.entityFilterLogic)': 'updateFilterProperty'
+        'set filters (scenes.insights.ActionFilter.entityFilterLogic)': 'setFilters'
+        'set local filters (scenes.insights.ActionFilter.entityFilterLogic)': 'setLocalFilters'
     }
     actionTypes: {
-        selectFilter: 'select filter (scenes.trends.ActionFilter.entityFilterLogic)'
-        updateFilterMath: 'update filter math (scenes.trends.ActionFilter.entityFilterLogic)'
-        updateFilter: 'update filter (scenes.trends.ActionFilter.entityFilterLogic)'
-        removeLocalFilter: 'remove local filter (scenes.trends.ActionFilter.entityFilterLogic)'
-        addFilter: 'add filter (scenes.trends.ActionFilter.entityFilterLogic)'
-        updateFilterProperty: 'update filter property (scenes.trends.ActionFilter.entityFilterLogic)'
-        setFilters: 'set filters (scenes.trends.ActionFilter.entityFilterLogic)'
-        setLocalFilters: 'set local filters (scenes.trends.ActionFilter.entityFilterLogic)'
+        selectFilter: 'select filter (scenes.insights.ActionFilter.entityFilterLogic)'
+        updateFilterMath: 'update filter math (scenes.insights.ActionFilter.entityFilterLogic)'
+        updateFilter: 'update filter (scenes.insights.ActionFilter.entityFilterLogic)'
+        removeLocalFilter: 'remove local filter (scenes.insights.ActionFilter.entityFilterLogic)'
+        addFilter: 'add filter (scenes.insights.ActionFilter.entityFilterLogic)'
+        updateFilterProperty: 'update filter property (scenes.insights.ActionFilter.entityFilterLogic)'
+        setFilters: 'set filters (scenes.insights.ActionFilter.entityFilterLogic)'
+        setLocalFilters: 'set local filters (scenes.insights.ActionFilter.entityFilterLogic)'
     }
     actions: {
-        selectFilter: (
-            filter: any
-        ) => {
-            type: 'select filter (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: { filter: any }
-        }
-        updateFilterMath: (
-            filter: any
-        ) => {
-            type: 'update filter math (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: { type: any; value: any; math: any; math_property: any; index: any }
-        }
-        updateFilter: (
-            filter: any
-        ) => {
-            type: 'update filter (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: { type: any; index: any; value: any; name: any }
-        }
-        removeLocalFilter: (
-            filter: any
-        ) => {
-            type: 'remove local filter (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: { value: any; type: any; index: any }
-        }
-        addFilter: () => {
-            type: 'add filter (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        updateFilterProperty: (
-            filter: any
-        ) => {
-            type: 'update filter property (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: { properties: any; index: any }
-        }
-        setFilters: (
-            filters: any
-        ) => {
-            type: 'set filters (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: { filters: any }
-        }
-        setLocalFilters: (
-            filters: any
-        ) => {
-            type: 'set local filters (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: { filters: any }
-        }
+        selectFilter: (filter: any) => void
+        updateFilterMath: (filter: any) => void
+        updateFilter: (filter: any) => void
+        removeLocalFilter: (filter: any) => void
+        addFilter: () => void
+        updateFilterProperty: (filter: any) => void
+        setFilters: (filters: any) => void
+        setLocalFilters: (filters: any) => void
     }
     cache: Record<string, any>
     connections: any
     constants: any
     defaults: any
     events: any
-    path: ['scenes', 'trends', 'ActionFilter', 'entityFilterLogic']
-    pathString: 'scenes.trends.ActionFilter.entityFilterLogic'
+    path: ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic']
+    pathString: 'scenes.insights.ActionFilter.entityFilterLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (
