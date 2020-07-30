@@ -124,7 +124,7 @@ class Sessions(BaseQuery):
                                         FROM ({}) as count GROUP BY 1) as sessions\
                                         LEFT OUTER JOIN posthog_persondistinctid ON posthog_persondistinctid.distinct_id = sessions.distinct_id\
                                         LEFT OUTER JOIN posthog_person ON posthog_person.id = posthog_persondistinctid.person_id\
-                                        ORDER BY start_time DESC) as ordered_sessions OFFSET %s LIMIT 50".format(
+                                        ORDER BY start_time DESC) as ordered_sessions ORDER BY start_time DESC OFFSET %s LIMIT 50".format(
             base_query
         )
 
