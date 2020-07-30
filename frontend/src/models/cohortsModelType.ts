@@ -43,32 +43,10 @@ export interface cohortsModelType {
         loadCohortsFailure: 'load cohorts failure (models.cohortsModel)'
     }
     actions: {
-        setPollTimeout: (
-            pollTimeout: any
-        ) => {
-            type: 'set poll timeout (models.cohortsModel)'
-            payload: { pollTimeout: any }
-        }
-        loadCohorts: () => {
-            type: 'load cohorts (models.cohortsModel)'
-            payload: any
-        }
-        loadCohortsSuccess: (
-            cohorts: any
-        ) => {
-            type: 'load cohorts success (models.cohortsModel)'
-            payload: {
-                cohorts: any
-            }
-        }
-        loadCohortsFailure: (
-            error: string
-        ) => {
-            type: 'load cohorts failure (models.cohortsModel)'
-            payload: {
-                error: string
-            }
-        }
+        setPollTimeout: (pollTimeout: any) => void
+        loadCohorts: () => void
+        loadCohortsSuccess: (cohorts: any) => void
+        loadCohortsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

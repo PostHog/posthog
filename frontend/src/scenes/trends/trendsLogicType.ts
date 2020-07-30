@@ -147,114 +147,21 @@ export interface trendsLogicType {
         setCachedUrl: 'set cached url (scenes.trends.trendsLogic)'
     }
     actions: {
-        setActiveView: () => {
-            type: 'set active view (scenes.trends.trendsLogic)'
-            payload: any
-        }
-        setActiveViewSuccess: (
-            results: never[]
-        ) => {
-            type: 'set active view success (scenes.trends.trendsLogic)'
-            payload: {
-                results: never[]
-            }
-        }
-        setActiveViewFailure: (
-            error: string
-        ) => {
-            type: 'set active view failure (scenes.trends.trendsLogic)'
-            payload: {
-                error: string
-            }
-        }
-        loadResults: (
-            refresh?: any
-        ) => {
-            type: 'load results (scenes.trends.trendsLogic)'
-            payload: any
-        }
-        loadResultsSuccess: (
-            results: never[]
-        ) => {
-            type: 'load results success (scenes.trends.trendsLogic)'
-            payload: {
-                results: never[]
-            }
-        }
-        loadResultsFailure: (
-            error: string
-        ) => {
-            type: 'load results failure (scenes.trends.trendsLogic)'
-            payload: {
-                error: string
-            }
-        }
-        setFilters: (
-            filters: any,
-            mergeFilters?: any,
-            fromUrl?: any
-        ) => {
-            type: 'set filters (scenes.trends.trendsLogic)'
-            payload: { filters: any; mergeFilters: boolean; fromUrl: boolean }
-        }
-        setDisplay: (
-            display: any
-        ) => {
-            type: 'set display (scenes.trends.trendsLogic)'
-            payload: { display: any }
-        }
-        loadPeople: (
-            action: any,
-            label: any,
-            day: any,
-            breakdown_value: any
-        ) => {
-            type: 'load people (scenes.trends.trendsLogic)'
-            payload: { action: any; label: any; day: any; breakdown_value: any }
-        }
-        loadMorePeople: () => {
-            type: 'load more people (scenes.trends.trendsLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        setLoadingMorePeople: (
-            status: any
-        ) => {
-            type: 'set loading more people (scenes.trends.trendsLogic)'
-            payload: { status: any }
-        }
-        setShowingPeople: (
-            isShowing: any
-        ) => {
-            type: 'set showing people (scenes.trends.trendsLogic)'
-            payload: { isShowing: any }
-        }
-        setPeople: (
-            people: any,
-            count: any,
-            action: any,
-            label: any,
-            day: any,
-            breakdown_value: any,
-            next: any
-        ) => {
-            type: 'set people (scenes.trends.trendsLogic)'
-            payload: { people: any; count: any; action: any; label: any; day: any; breakdown_value: any; next: any }
-        }
-        setActiveView: (
-            type: any
-        ) => {
-            type: 'set active view (scenes.trends.trendsLogic)'
-            payload: { type: any }
-        }
-        setCachedUrl: (
-            type: any,
-            url: any
-        ) => {
-            type: 'set cached url (scenes.trends.trendsLogic)'
-            payload: { type: any; url: any }
-        }
+        setActiveView: () => void
+        setActiveViewSuccess: (results: never[]) => void
+        setActiveViewFailure: (error: string) => void
+        loadResults: (refresh?: any) => void
+        loadResultsSuccess: (results: never[]) => void
+        loadResultsFailure: (error: string) => void
+        setFilters: (filters: any, mergeFilters?: any, fromUrl?: any) => void
+        setDisplay: (display: any) => void
+        loadPeople: (action: any, label: any, day: any, breakdown_value: any) => void
+        loadMorePeople: () => void
+        setLoadingMorePeople: (status: any) => void
+        setShowingPeople: (isShowing: any) => void
+        setPeople: (people: any, count: any, action: any, label: any, day: any, breakdown_value: any, next: any) => void
+        setActiveView: (type: any) => void
+        setCachedUrl: (type: any, url: any) => void
     }
     cache: Record<string, any>
     connections: any

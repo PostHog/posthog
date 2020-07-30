@@ -35,26 +35,9 @@ export interface funnelsModelType {
         loadFunnelsFailure: 'load funnels failure (models.funnelsModel)'
     }
     actions: {
-        loadFunnels: () => {
-            type: 'load funnels (models.funnelsModel)'
-            payload: any
-        }
-        loadFunnelsSuccess: (
-            funnels: any
-        ) => {
-            type: 'load funnels success (models.funnelsModel)'
-            payload: {
-                funnels: any
-            }
-        }
-        loadFunnelsFailure: (
-            error: string
-        ) => {
-            type: 'load funnels failure (models.funnelsModel)'
-            payload: {
-                error: string
-            }
-        }
+        loadFunnels: () => void
+        loadFunnelsSuccess: (funnels: any) => void
+        loadFunnelsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

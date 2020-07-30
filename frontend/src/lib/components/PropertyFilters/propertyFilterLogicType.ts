@@ -95,72 +95,16 @@ export interface propertyFilterLogicType {
         loadPersonPropertiesFailure: 'load person properties failure (lib.components.PropertyFilters.propertyFilterLogic)'
     }
     actions: {
-        loadEventProperties: () => {
-            type: 'load event properties (lib.components.PropertyFilters.propertyFilterLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        setProperties: (
-            properties: any
-        ) => {
-            type: 'set properties (lib.components.PropertyFilters.propertyFilterLogic)'
-            payload: { properties: any }
-        }
-        update: (
-            filters: any
-        ) => {
-            type: 'update (lib.components.PropertyFilters.propertyFilterLogic)'
-            payload: { filters: any }
-        }
-        setFilter: (
-            index: any,
-            key: any,
-            value: any,
-            operator: any,
-            type: any
-        ) => {
-            type: 'set filter (lib.components.PropertyFilters.propertyFilterLogic)'
-            payload: { index: any; key: any; value: any; operator: any; type: any }
-        }
-        setFilters: (
-            filters: any
-        ) => {
-            type: 'set filters (lib.components.PropertyFilters.propertyFilterLogic)'
-            payload: { filters: any }
-        }
-        newFilter: () => {
-            type: 'new filter (lib.components.PropertyFilters.propertyFilterLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        remove: (
-            index: any
-        ) => {
-            type: 'remove (lib.components.PropertyFilters.propertyFilterLogic)'
-            payload: { index: any }
-        }
-        loadPersonProperties: () => {
-            type: 'load person properties (lib.components.PropertyFilters.propertyFilterLogic)'
-            payload: any
-        }
-        loadPersonPropertiesSuccess: (
-            personProperties: any
-        ) => {
-            type: 'load person properties success (lib.components.PropertyFilters.propertyFilterLogic)'
-            payload: {
-                personProperties: any
-            }
-        }
-        loadPersonPropertiesFailure: (
-            error: string
-        ) => {
-            type: 'load person properties failure (lib.components.PropertyFilters.propertyFilterLogic)'
-            payload: {
-                error: string
-            }
-        }
+        loadEventProperties: () => void
+        setProperties: (properties: any) => void
+        update: (filters: any) => void
+        setFilter: (index: any, key: any, value: any, operator: any, type: any) => void
+        setFilters: (filters: any) => void
+        newFilter: () => void
+        remove: (index: any) => void
+        loadPersonProperties: () => void
+        loadPersonPropertiesSuccess: (personProperties: any) => void
+        loadPersonPropertiesFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

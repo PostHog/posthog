@@ -109,82 +109,18 @@ export interface retentionTableLogicType {
         updateRetention: 'update retention (scenes.retention.retentionTableLogic)'
     }
     actions: {
-        loadRetention: () => {
-            type: 'load retention (scenes.retention.retentionTableLogic)'
-            payload: any
-        }
-        loadRetentionSuccess: (retention: {}) => {
-            type: 'load retention success (scenes.retention.retentionTableLogic)'
-            payload: {
-                retention: {}
-            }
-        }
-        loadRetentionFailure: (
-            error: string
-        ) => {
-            type: 'load retention failure (scenes.retention.retentionTableLogic)'
-            payload: {
-                error: string
-            }
-        }
-        loadPeople: (
-            rowIndex: any
-        ) => {
-            type: 'load people (scenes.retention.retentionTableLogic)'
-            payload: any
-        }
-        loadPeopleSuccess: (people: {}) => {
-            type: 'load people success (scenes.retention.retentionTableLogic)'
-            payload: {
-                people: {}
-            }
-        }
-        loadPeopleFailure: (
-            error: string
-        ) => {
-            type: 'load people failure (scenes.retention.retentionTableLogic)'
-            payload: {
-                error: string
-            }
-        }
-        setProperties: (
-            properties: any
-        ) => {
-            type: 'set properties (scenes.retention.retentionTableLogic)'
-            payload: { properties: any }
-        }
-        setFilters: (
-            filters: any
-        ) => {
-            type: 'set filters (scenes.retention.retentionTableLogic)'
-            payload: { filters: any }
-        }
-        loadMore: (
-            selectedIndex: any
-        ) => {
-            type: 'load more (scenes.retention.retentionTableLogic)'
-            payload: { selectedIndex: any }
-        }
-        loadMorePeople: (
-            selectedIndex: any,
-            peopleIds: any
-        ) => {
-            type: 'load more people (scenes.retention.retentionTableLogic)'
-            payload: { selectedIndex: any; peopleIds: any }
-        }
-        updatePeople: (
-            selectedIndex: any,
-            people: any
-        ) => {
-            type: 'update people (scenes.retention.retentionTableLogic)'
-            payload: { selectedIndex: any; people: any }
-        }
-        updateRetention: (
-            retention: any
-        ) => {
-            type: 'update retention (scenes.retention.retentionTableLogic)'
-            payload: { retention: any }
-        }
+        loadRetention: () => void
+        loadRetentionSuccess: (retention: {}) => void
+        loadRetentionFailure: (error: string) => void
+        loadPeople: (rowIndex: any) => void
+        loadPeopleSuccess: (people: {}) => void
+        loadPeopleFailure: (error: string) => void
+        setProperties: (properties: any) => void
+        setFilters: (filters: any) => void
+        loadMore: (selectedIndex: any) => void
+        loadMorePeople: (selectedIndex: any, peopleIds: any) => void
+        updatePeople: (selectedIndex: any, people: any) => void
+        updateRetention: (retention: any) => void
     }
     cache: Record<string, any>
     connections: any

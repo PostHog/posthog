@@ -77,58 +77,14 @@ export interface sessionsTableLogicType {
         setDate: 'set date (scenes.sessions.sessionsTableLogic)'
     }
     actions: {
-        loadSessions: (
-            selectedDate: any
-        ) => {
-            type: 'load sessions (scenes.sessions.sessionsTableLogic)'
-            payload: any
-        }
-        loadSessionsSuccess: (
-            sessions: never[]
-        ) => {
-            type: 'load sessions success (scenes.sessions.sessionsTableLogic)'
-            payload: {
-                sessions: never[]
-            }
-        }
-        loadSessionsFailure: (
-            error: string
-        ) => {
-            type: 'load sessions failure (scenes.sessions.sessionsTableLogic)'
-            payload: {
-                error: string
-            }
-        }
-        setOffset: (
-            offset: any
-        ) => {
-            type: 'set offset (scenes.sessions.sessionsTableLogic)'
-            payload: { offset: any }
-        }
-        fetchNextSessions: () => {
-            type: 'fetch next sessions (scenes.sessions.sessionsTableLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        appendNewSessions: (
-            sessions: any
-        ) => {
-            type: 'append new sessions (scenes.sessions.sessionsTableLogic)'
-            payload: { sessions: any }
-        }
-        dateChanged: (
-            date: any
-        ) => {
-            type: 'date changed (scenes.sessions.sessionsTableLogic)'
-            payload: { date: any }
-        }
-        setDate: (
-            date: any
-        ) => {
-            type: 'set date (scenes.sessions.sessionsTableLogic)'
-            payload: { date: any }
-        }
+        loadSessions: (selectedDate: any) => void
+        loadSessionsSuccess: (sessions: never[]) => void
+        loadSessionsFailure: (error: string) => void
+        setOffset: (offset: any) => void
+        fetchNextSessions: () => void
+        appendNewSessions: (sessions: any) => void
+        dateChanged: (date: any) => void
+        setDate: (date: any) => void
     }
     cache: Record<string, any>
     connections: any

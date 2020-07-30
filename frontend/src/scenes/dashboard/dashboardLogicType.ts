@@ -160,121 +160,24 @@ export interface dashboardLogicType {
         loadDashboardItemsFailure: 'load dashboard items failure (scenes.dashboard.dashboardLogic)'
     }
     actions: {
-        addNewDashboard: () => {
-            type: 'add new dashboard (scenes.dashboard.dashboardLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        renameDashboard: () => {
-            type: 'rename dashboard (scenes.dashboard.dashboardLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        renameDashboardItem: (
-            id: any
-        ) => {
-            type: 'rename dashboard item (scenes.dashboard.dashboardLogic)'
-            payload: { id: any }
-        }
-        renameDashboardItemSuccess: (
-            item: any
-        ) => {
-            type: 'rename dashboard item success (scenes.dashboard.dashboardLogic)'
-            payload: { item: any }
-        }
-        setIsSharedDashboard: (
-            id: any,
-            isShared: any
-        ) => {
-            type: 'set is shared dashboard (scenes.dashboard.dashboardLogic)'
-            payload: { id: any; isShared: any }
-        }
-        duplicateDashboardItem: (
-            id: any,
-            dashboardId: any,
-            move?: any
-        ) => {
-            type: 'duplicate dashboard item (scenes.dashboard.dashboardLogic)'
-            payload: { id: any; dashboardId: any; move: boolean }
-        }
-        duplicateDashboardItemSuccess: (
-            item: any
-        ) => {
-            type: 'duplicate dashboard item success (scenes.dashboard.dashboardLogic)'
-            payload: { item: any }
-        }
-        updateLayouts: (
-            layouts: any
-        ) => {
-            type: 'update layouts (scenes.dashboard.dashboardLogic)'
-            payload: { layouts: any }
-        }
-        updateContainerWidth: (
-            containerWidth: any,
-            columns: any
-        ) => {
-            type: 'update container width (scenes.dashboard.dashboardLogic)'
-            payload: { containerWidth: any; columns: any }
-        }
-        saveLayouts: () => {
-            type: 'save layouts (scenes.dashboard.dashboardLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        updateItemColor: (
-            id: any,
-            color: any
-        ) => {
-            type: 'update item color (scenes.dashboard.dashboardLogic)'
-            payload: { id: any; color: any }
-        }
-        enableDragging: () => {
-            type: 'enable dragging (scenes.dashboard.dashboardLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        enableWobblyDragging: () => {
-            type: 'enable wobbly dragging (scenes.dashboard.dashboardLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        disableDragging: () => {
-            type: 'disable dragging (scenes.dashboard.dashboardLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        refreshDashboardItem: (
-            id: any
-        ) => {
-            type: 'refresh dashboard item (scenes.dashboard.dashboardLogic)'
-            payload: { id: any }
-        }
-        loadDashboardItems: () => {
-            type: 'load dashboard items (scenes.dashboard.dashboardLogic)'
-            payload: any
-        }
-        loadDashboardItemsSuccess: (
-            allItems: never[]
-        ) => {
-            type: 'load dashboard items success (scenes.dashboard.dashboardLogic)'
-            payload: {
-                allItems: never[]
-            }
-        }
-        loadDashboardItemsFailure: (
-            error: string
-        ) => {
-            type: 'load dashboard items failure (scenes.dashboard.dashboardLogic)'
-            payload: {
-                error: string
-            }
-        }
+        addNewDashboard: () => void
+        renameDashboard: () => void
+        renameDashboardItem: (id: any) => void
+        renameDashboardItemSuccess: (item: any) => void
+        setIsSharedDashboard: (id: any, isShared: any) => void
+        duplicateDashboardItem: (id: any, dashboardId: any, move?: any) => void
+        duplicateDashboardItemSuccess: (item: any) => void
+        updateLayouts: (layouts: any) => void
+        updateContainerWidth: (containerWidth: any, columns: any) => void
+        saveLayouts: () => void
+        updateItemColor: (id: any, color: any) => void
+        enableDragging: () => void
+        enableWobblyDragging: () => void
+        disableDragging: () => void
+        refreshDashboardItem: (id: any) => void
+        loadDashboardItems: () => void
+        loadDashboardItemsSuccess: (allItems: never[]) => void
+        loadDashboardItemsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

@@ -90,69 +90,15 @@ export interface annotationsLogicType {
         loadAnnotationsFailure: 'load annotations failure (lib.components.Annotations.annotationsLogic)'
     }
     actions: {
-        createAnnotation: (
-            content: any,
-            date_marker: any,
-            apply_all?: any
-        ) => {
-            type: 'create annotation (lib.components.Annotations.annotationsLogic)'
-            payload: { content: any; date_marker: any; created_at: Moment; apply_all: boolean }
-        }
-        createAnnotationNow: (
-            content: any,
-            date_marker: any,
-            apply_all?: any
-        ) => {
-            type: 'create annotation now (lib.components.Annotations.annotationsLogic)'
-            payload: { content: any; date_marker: any; created_at: Moment; apply_all: boolean }
-        }
-        deleteAnnotation: (
-            id: any
-        ) => {
-            type: 'delete annotation (lib.components.Annotations.annotationsLogic)'
-            payload: { id: any }
-        }
-        clearAnnotationsToCreate: () => {
-            type: 'clear annotations to create (lib.components.Annotations.annotationsLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        updateDiffType: (
-            dates: any
-        ) => {
-            type: 'update diff type (lib.components.Annotations.annotationsLogic)'
-            payload: { dates: any }
-        }
-        setDiffType: (
-            type: any
-        ) => {
-            type: 'set diff type (lib.components.Annotations.annotationsLogic)'
-            payload: { type: any }
-        }
-        loadAnnotations: ({
-            before,
-            after,
-        }: any) => {
-            type: 'load annotations (lib.components.Annotations.annotationsLogic)'
-            payload: any
-        }
-        loadAnnotationsSuccess: (
-            annotations: never[]
-        ) => {
-            type: 'load annotations success (lib.components.Annotations.annotationsLogic)'
-            payload: {
-                annotations: never[]
-            }
-        }
-        loadAnnotationsFailure: (
-            error: string
-        ) => {
-            type: 'load annotations failure (lib.components.Annotations.annotationsLogic)'
-            payload: {
-                error: string
-            }
-        }
+        createAnnotation: (content: any, date_marker: any, apply_all?: any) => void
+        createAnnotationNow: (content: any, date_marker: any, apply_all?: any) => void
+        deleteAnnotation: (id: any) => void
+        clearAnnotationsToCreate: () => void
+        updateDiffType: (dates: any) => void
+        setDiffType: (type: any) => void
+        loadAnnotations: ({ before, after }: any) => void
+        loadAnnotationsSuccess: (annotations: never[]) => void
+        loadAnnotationsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

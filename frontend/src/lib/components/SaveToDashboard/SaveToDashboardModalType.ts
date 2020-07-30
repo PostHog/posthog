@@ -17,12 +17,7 @@ export interface saveToDashboardModalLogicType {
         addNewDashboard: 'add new dashboard (lib.components.SaveToDashboard.SaveToDashboardModal)'
     }
     actions: {
-        addNewDashboard: () => {
-            type: 'add new dashboard (lib.components.SaveToDashboard.SaveToDashboardModal)'
-            payload: {
-                value: boolean
-            }
-        }
+        addNewDashboard: () => void
     }
     cache: Record<string, any>
     connections: any

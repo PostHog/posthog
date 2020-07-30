@@ -37,28 +37,9 @@ export interface funnelVizLogicType {
         loadResultsFailure: 'load results failure (scenes.funnels.funnelVizLogic)'
     }
     actions: {
-        loadResults: (
-            refresh?: any
-        ) => {
-            type: 'load results (scenes.funnels.funnelVizLogic)'
-            payload: any
-        }
-        loadResultsSuccess: (
-            results: any
-        ) => {
-            type: 'load results success (scenes.funnels.funnelVizLogic)'
-            payload: {
-                results: any
-            }
-        }
-        loadResultsFailure: (
-            error: string
-        ) => {
-            type: 'load results failure (scenes.funnels.funnelVizLogic)'
-            payload: {
-                error: string
-            }
-        }
+        loadResults: (refresh?: any) => void
+        loadResultsSuccess: (results: any) => void
+        loadResultsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

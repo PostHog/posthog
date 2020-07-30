@@ -41,30 +41,10 @@ export interface logicType {
         setError: 'set error (scenes.setup.SlackIntegration)'
     }
     actions: {
-        setEditedWebhook: (
-            webhook: any
-        ) => {
-            type: 'set edited webhook (scenes.setup.SlackIntegration)'
-            payload: { webhook: any }
-        }
-        saveWebhook: () => {
-            type: 'save webhook (scenes.setup.SlackIntegration)'
-            payload: {
-                value: boolean
-            }
-        }
-        testAndSaveWebhook: () => {
-            type: 'test and save webhook (scenes.setup.SlackIntegration)'
-            payload: {
-                value: boolean
-            }
-        }
-        setError: (
-            error: any
-        ) => {
-            type: 'set error (scenes.setup.SlackIntegration)'
-            payload: { error: any }
-        }
+        setEditedWebhook: (webhook: any) => void
+        saveWebhook: () => void
+        testAndSaveWebhook: () => void
+        setError: (error: any) => void
     }
     cache: Record<string, any>
     connections: any

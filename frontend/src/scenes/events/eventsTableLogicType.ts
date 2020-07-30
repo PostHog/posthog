@@ -107,80 +107,18 @@ export interface eventsTableLogicType {
         setEventFilter: 'set event filter (scenes.events.eventsTableLogic)'
     }
     actions: {
-        setProperties: (
-            properties: any
-        ) => {
-            type: 'set properties (scenes.events.eventsTableLogic)'
-            payload: { properties: any }
-        }
-        fetchEvents: (
-            nextParams?: any
-        ) => {
-            type: 'fetch events (scenes.events.eventsTableLogic)'
-            payload: { nextParams: any }
-        }
-        fetchEventsSuccess: (
-            events: any,
-            hasNext?: any,
-            isNext?: any
-        ) => {
-            type: 'fetch events success (scenes.events.eventsTableLogic)'
-            payload: { events: any; hasNext: boolean; isNext: boolean }
-        }
-        fetchNextEvents: () => {
-            type: 'fetch next events (scenes.events.eventsTableLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        flipSort: () => {
-            type: 'flip sort (scenes.events.eventsTableLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        pollEvents: () => {
-            type: 'poll events (scenes.events.eventsTableLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        pollEventsSuccess: (
-            events: any
-        ) => {
-            type: 'poll events success (scenes.events.eventsTableLogic)'
-            payload: { events: any }
-        }
-        prependNewEvents: (
-            events: any
-        ) => {
-            type: 'prepend new events (scenes.events.eventsTableLogic)'
-            payload: { events: any }
-        }
-        setSelectedEvent: (
-            selectedEvent: any
-        ) => {
-            type: 'set selected event (scenes.events.eventsTableLogic)'
-            payload: { selectedEvent: any }
-        }
-        setPollTimeout: (
-            pollTimeout: any
-        ) => {
-            type: 'set poll timeout (scenes.events.eventsTableLogic)'
-            payload: { pollTimeout: any }
-        }
-        setDelayedLoading: () => {
-            type: 'set delayed loading (scenes.events.eventsTableLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        setEventFilter: (
-            event: any
-        ) => {
-            type: 'set event filter (scenes.events.eventsTableLogic)'
-            payload: { event: any }
-        }
+        setProperties: (properties: any) => void
+        fetchEvents: (nextParams?: any) => void
+        fetchEventsSuccess: (events: any, hasNext?: any, isNext?: any) => void
+        fetchNextEvents: () => void
+        flipSort: () => void
+        pollEvents: () => void
+        pollEventsSuccess: (events: any) => void
+        prependNewEvents: (events: any) => void
+        setSelectedEvent: (selectedEvent: any) => void
+        setPollTimeout: (pollTimeout: any) => void
+        setDelayedLoading: () => void
+        setEventFilter: (event: any) => void
     }
     cache: Record<string, any>
     connections: any

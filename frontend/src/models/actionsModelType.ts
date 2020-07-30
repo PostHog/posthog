@@ -35,26 +35,9 @@ export interface actionsModelType {
         loadActionsFailure: 'load actions failure (models.actionsModel)'
     }
     actions: {
-        loadActions: () => {
-            type: 'load actions (models.actionsModel)'
-            payload: any
-        }
-        loadActionsSuccess: (
-            actions: never[]
-        ) => {
-            type: 'load actions success (models.actionsModel)'
-            payload: {
-                actions: never[]
-            }
-        }
-        loadActionsFailure: (
-            error: string
-        ) => {
-            type: 'load actions failure (models.actionsModel)'
-            payload: {
-                error: string
-            }
-        }
+        loadActions: () => void
+        loadActionsSuccess: (actions: never[]) => void
+        loadActionsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

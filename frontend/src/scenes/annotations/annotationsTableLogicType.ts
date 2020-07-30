@@ -82,61 +82,15 @@ export interface annotationsTableLogicType {
         appendAnnotations: 'append annotations (scenes.annotations.annotationsTableLogic)'
     }
     actions: {
-        loadAnnotations: () => {
-            type: 'load annotations (scenes.annotations.annotationsTableLogic)'
-            payload: any
-        }
-        loadAnnotationsSuccess: (
-            annotations: never[]
-        ) => {
-            type: 'load annotations success (scenes.annotations.annotationsTableLogic)'
-            payload: {
-                annotations: never[]
-            }
-        }
-        loadAnnotationsFailure: (
-            error: string
-        ) => {
-            type: 'load annotations failure (scenes.annotations.annotationsTableLogic)'
-            payload: {
-                error: string
-            }
-        }
-        updateAnnotation: (
-            id: any,
-            content: any
-        ) => {
-            type: 'update annotation (scenes.annotations.annotationsTableLogic)'
-            payload: { id: any; content: any }
-        }
-        deleteAnnotation: (
-            id: any
-        ) => {
-            type: 'delete annotation (scenes.annotations.annotationsTableLogic)'
-            payload: { id: any }
-        }
-        restoreAnnotation: (
-            id: any
-        ) => {
-            type: 'restore annotation (scenes.annotations.annotationsTableLogic)'
-            payload: { id: any }
-        }
-        loadAnnotationsNext: () => {
-            type: 'load annotations next (scenes.annotations.annotationsTableLogic)'
-            payload: boolean
-        }
-        setNext: (
-            next: any
-        ) => {
-            type: 'set next (scenes.annotations.annotationsTableLogic)'
-            payload: { next: any }
-        }
-        appendAnnotations: (
-            annotations: any
-        ) => {
-            type: 'append annotations (scenes.annotations.annotationsTableLogic)'
-            payload: { annotations: any }
-        }
+        loadAnnotations: () => void
+        loadAnnotationsSuccess: (annotations: never[]) => void
+        loadAnnotationsFailure: (error: string) => void
+        updateAnnotation: (id: any, content: any) => void
+        deleteAnnotation: (id: any) => void
+        restoreAnnotation: (id: any) => void
+        loadAnnotationsNext: () => void
+        setNext: (next: any) => void
+        appendAnnotations: (annotations: any) => void
     }
     cache: Record<string, any>
     connections: any

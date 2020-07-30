@@ -22,17 +22,7 @@ export interface promptType {
         prompt: 'prompt (lib.logic.prompt)'
     }
     actions: {
-        prompt: ({
-            title,
-            placeholder,
-            value,
-            error,
-            success,
-            failure,
-        }: any) => {
-            type: 'prompt (lib.logic.prompt)'
-            payload: { title: any; placeholder: any; value: any; error: any; success: any; failure: any }
-        }
+        prompt: ({ title, placeholder, value, error, success, failure }: any) => void
     }
     cache: Record<string, any>
     connections: any

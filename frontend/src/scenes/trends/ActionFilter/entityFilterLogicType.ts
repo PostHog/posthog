@@ -73,54 +73,14 @@ export interface entityFilterLogicType {
         setLocalFilters: 'set local filters (scenes.trends.ActionFilter.entityFilterLogic)'
     }
     actions: {
-        selectFilter: (
-            filter: any
-        ) => {
-            type: 'select filter (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: { filter: any }
-        }
-        updateFilterMath: (
-            filter: any
-        ) => {
-            type: 'update filter math (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: { type: any; value: any; math: any; math_property: any; index: any }
-        }
-        updateFilter: (
-            filter: any
-        ) => {
-            type: 'update filter (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: { type: any; index: any; value: any; name: any }
-        }
-        removeLocalFilter: (
-            filter: any
-        ) => {
-            type: 'remove local filter (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: { value: any; type: any; index: any }
-        }
-        addFilter: () => {
-            type: 'add filter (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        updateFilterProperty: (
-            filter: any
-        ) => {
-            type: 'update filter property (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: { properties: any; index: any }
-        }
-        setFilters: (
-            filters: any
-        ) => {
-            type: 'set filters (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: { filters: any }
-        }
-        setLocalFilters: (
-            filters: any
-        ) => {
-            type: 'set local filters (scenes.trends.ActionFilter.entityFilterLogic)'
-            payload: { filters: any }
-        }
+        selectFilter: (filter: any) => void
+        updateFilterMath: (filter: any) => void
+        updateFilter: (filter: any) => void
+        removeLocalFilter: (filter: any) => void
+        addFilter: () => void
+        updateFilterProperty: (filter: any) => void
+        setFilters: (filters: any) => void
+        setLocalFilters: (filters: any) => void
     }
     cache: Record<string, any>
     connections: any

@@ -53,40 +53,11 @@ export interface annotationsModelType {
         loadGlobalAnnotationsFailure: 'load global annotations failure (models.annotationsModel)'
     }
     actions: {
-        createGlobalAnnotation: (
-            content: any,
-            date_marker: any,
-            dashboard_item: any
-        ) => {
-            type: 'create global annotation (models.annotationsModel)'
-            payload: { content: any; date_marker: any; created_at: Moment; dashboard_item: any }
-        }
-        deleteGlobalAnnotation: (
-            id: any
-        ) => {
-            type: 'delete global annotation (models.annotationsModel)'
-            payload: { id: any }
-        }
-        loadGlobalAnnotations: () => {
-            type: 'load global annotations (models.annotationsModel)'
-            payload: any
-        }
-        loadGlobalAnnotationsSuccess: (
-            globalAnnotations: never[]
-        ) => {
-            type: 'load global annotations success (models.annotationsModel)'
-            payload: {
-                globalAnnotations: never[]
-            }
-        }
-        loadGlobalAnnotationsFailure: (
-            error: string
-        ) => {
-            type: 'load global annotations failure (models.annotationsModel)'
-            payload: {
-                error: string
-            }
-        }
+        createGlobalAnnotation: (content: any, date_marker: any, dashboard_item: any) => void
+        deleteGlobalAnnotation: (id: any) => void
+        loadGlobalAnnotations: () => void
+        loadGlobalAnnotationsSuccess: (globalAnnotations: never[]) => void
+        loadGlobalAnnotationsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

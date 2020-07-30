@@ -57,44 +57,11 @@ export interface pathsLogicType {
         setFilter: 'set filter (scenes.paths.pathsLogic)'
     }
     actions: {
-        loadPaths: (
-            _: any
-        ) => {
-            type: 'load paths (scenes.paths.pathsLogic)'
-            payload: any
-        }
-        loadPathsSuccess: (paths: {
-            nodes: never[]
-            links: never[]
-        }) => {
-            type: 'load paths success (scenes.paths.pathsLogic)'
-            payload: {
-                paths: {
-                    nodes: never[]
-                    links: never[]
-                }
-            }
-        }
-        loadPathsFailure: (
-            error: string
-        ) => {
-            type: 'load paths failure (scenes.paths.pathsLogic)'
-            payload: {
-                error: string
-            }
-        }
-        setProperties: (
-            properties: any
-        ) => {
-            type: 'set properties (scenes.paths.pathsLogic)'
-            payload: { properties: any }
-        }
-        setFilter: (
-            filter: any
-        ) => {
-            type: 'set filter (scenes.paths.pathsLogic)'
-            payload: any
-        }
+        loadPaths: (_: any) => void
+        loadPathsSuccess: (paths: { nodes: never[]; links: never[] }) => void
+        loadPathsFailure: (error: string) => void
+        setProperties: (properties: any) => void
+        setFilter: (filter: any) => void
     }
     cache: Record<string, any>
     connections: any
