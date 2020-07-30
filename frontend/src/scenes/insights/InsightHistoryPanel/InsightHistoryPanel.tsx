@@ -16,6 +16,7 @@ const { TabPane } = Tabs
 export const InsightHistoryPanel: React.FC = () => {
     const { insights, insightsLoading } = useValues(insightsModel)
     const [visible, setVisible] = useState(false)
+    const [activeTab, setActiveTab] = useState(InsightHistoryType.RECENT)
 
     const columns = [
         {
@@ -44,8 +45,8 @@ export const InsightHistoryPanel: React.FC = () => {
                 overflow: 'visible',
             }}
             animated={false}
-            activeKey={InsightHistoryType.RECENT}
-            onChange={(): void => {}}
+            activeKey={activeTab}
+            onChange={(activeKey: string): void => setActiveTab(activeKey)}
         >
             <TabPane
                 tab={<span data-attr="insight-saved-tab">Saved</span>}
