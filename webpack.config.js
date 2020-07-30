@@ -29,7 +29,7 @@ function createEntry(entry) {
                 entry === 'main'
                     ? './frontend/src/index.tsx'
                     : entry === 'toolbar'
-                    ? './frontend/src/toolbar/index.js'
+                    ? './frontend/src/toolbar/index.tsx'
                     : entry === 'editor'
                     ? './frontend/src/editor/index.js'
                     : entry === 'shared_dashboard'

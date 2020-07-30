@@ -1,7 +1,8 @@
 from django.db.models import QuerySet
-from rest_framework import viewsets, mixins, exceptions, response, status
-from posthog.models import User, Team
+from rest_framework import exceptions, mixins, response, status, viewsets
+
 from posthog.api.user import UserSerializer
+from posthog.models import Team, User
 
 
 class TeamUserViewSet(mixins.DestroyModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):

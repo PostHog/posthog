@@ -10,6 +10,12 @@ export interface funnelLogicType {
             type: 'set funnel (scenes.funnels.funnelLogic)'
             payload: { funnel: any; update: any }
         }
+        clearFunnel: () => {
+            type: 'clear funnel (scenes.funnels.funnelLogic)'
+            payload: {
+                value: boolean
+            }
+        }
         loadFunnel: (
             id?: any
         ) => {
@@ -130,6 +136,7 @@ export interface funnelLogicType {
     }
     actionKeys: {
         'set funnel (scenes.funnels.funnelLogic)': 'setFunnel'
+        'clear funnel (scenes.funnels.funnelLogic)': 'clearFunnel'
         'load funnel (scenes.funnels.funnelLogic)': 'loadFunnel'
         'load funnel success (scenes.funnels.funnelLogic)': 'loadFunnelSuccess'
         'load funnel failure (scenes.funnels.funnelLogic)': 'loadFunnelFailure'
@@ -148,6 +155,7 @@ export interface funnelLogicType {
     }
     actionTypes: {
         setFunnel: 'set funnel (scenes.funnels.funnelLogic)'
+        clearFunnel: 'clear funnel (scenes.funnels.funnelLogic)'
         loadFunnel: 'load funnel (scenes.funnels.funnelLogic)'
         loadFunnelSuccess: 'load funnel success (scenes.funnels.funnelLogic)'
         loadFunnelFailure: 'load funnel failure (scenes.funnels.funnelLogic)'
@@ -165,130 +173,23 @@ export interface funnelLogicType {
         loadPeopleFailure: 'load people failure (scenes.funnels.funnelLogic)'
     }
     actions: {
-        setFunnel: (
-            funnel: any,
-            update: any
-        ) => {
-            type: 'set funnel (scenes.funnels.funnelLogic)'
-            payload: { funnel: any; update: any }
-        }
-        loadFunnel: (
-            id?: any
-        ) => {
-            type: 'load funnel (scenes.funnels.funnelLogic)'
-            payload: any
-        }
-        loadFunnelSuccess: (funnel: {
-            filters: {}
-        }) => {
-            type: 'load funnel success (scenes.funnels.funnelLogic)'
-            payload: {
-                funnel: {
-                    filters: {}
-                }
-            }
-        }
-        loadFunnelFailure: (
-            error: string
-        ) => {
-            type: 'load funnel failure (scenes.funnels.funnelLogic)'
-            payload: {
-                error: string
-            }
-        }
-        updateFunnel: (
-            funnel: any
-        ) => {
-            type: 'update funnel (scenes.funnels.funnelLogic)'
-            payload: any
-        }
-        updateFunnelSuccess: (funnel: {
-            filters: {}
-        }) => {
-            type: 'update funnel success (scenes.funnels.funnelLogic)'
-            payload: {
-                funnel: {
-                    filters: {}
-                }
-            }
-        }
-        updateFunnelFailure: (
-            error: string
-        ) => {
-            type: 'update funnel failure (scenes.funnels.funnelLogic)'
-            payload: {
-                error: string
-            }
-        }
-        createFunnel: (
-            funnel: any
-        ) => {
-            type: 'create funnel (scenes.funnels.funnelLogic)'
-            payload: any
-        }
-        createFunnelSuccess: (funnel: {
-            filters: {}
-        }) => {
-            type: 'create funnel success (scenes.funnels.funnelLogic)'
-            payload: {
-                funnel: {
-                    filters: {}
-                }
-            }
-        }
-        createFunnelFailure: (
-            error: string
-        ) => {
-            type: 'create funnel failure (scenes.funnels.funnelLogic)'
-            payload: {
-                error: string
-            }
-        }
-        loadStepsWithCount: ({
-            id,
-            refresh,
-        }: any) => {
-            type: 'load steps with count (scenes.funnels.funnelLogic)'
-            payload: any
-        }
-        loadStepsWithCountSuccess: (
-            stepsWithCount: any
-        ) => {
-            type: 'load steps with count success (scenes.funnels.funnelLogic)'
-            payload: {
-                stepsWithCount: any
-            }
-        }
-        loadStepsWithCountFailure: (
-            error: string
-        ) => {
-            type: 'load steps with count failure (scenes.funnels.funnelLogic)'
-            payload: {
-                error: string
-            }
-        }
-        loadPeople: (
-            steps: any
-        ) => {
-            type: 'load people (scenes.funnels.funnelLogic)'
-            payload: any
-        }
-        loadPeopleSuccess: (
-            people: any
-        ) => {
-            type: 'load people success (scenes.funnels.funnelLogic)'
-            payload: {
-                people: any
-            }
-        }
-        loadPeopleFailure: (
-            error: string
-        ) => {
-            type: 'load people failure (scenes.funnels.funnelLogic)'
-            payload: {
-                error: string
-            }
-        }
+        setFunnel: (funnel: any, update: any) => void
+        clearFunnel: () => void
+        loadFunnel: (id?: any) => void
+        loadFunnelSuccess: (funnel: { filters: {} }) => void
+        loadFunnelFailure: (error: string) => void
+        updateFunnel: (funnel: any) => void
+        updateFunnelSuccess: (funnel: { filters: {} }) => void
+        updateFunnelFailure: (error: string) => void
+        createFunnel: (funnel: any) => void
+        createFunnelSuccess: (funnel: { filters: {} }) => void
+        createFunnelFailure: (error: string) => void
+        loadStepsWithCount: ({ id, refresh }: any) => void
+        loadStepsWithCountSuccess: (stepsWithCount: any) => void
+        loadStepsWithCountFailure: (error: string) => void
+        loadPeople: (steps: any) => void
+        loadPeopleSuccess: (people: any) => void
+        loadPeopleFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

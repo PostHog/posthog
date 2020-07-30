@@ -1321,6 +1321,14 @@
     "@types/minimatch" "*"
     "@types/node" "*"
 
+"@types/hoist-non-react-statics@^3.3.0":
+  version "3.3.1"
+  resolved "https://registry.yarnpkg.com/@types/hoist-non-react-statics/-/hoist-non-react-statics-3.3.1.tgz#1124aafe5118cb591977aeb1ceaaed1070eb039f"
+  integrity sha512-iMIqiko6ooLrTh1joXodJK5X9xeEALT1kM5G3ZLhD3hszxBdIEd5C75U834D9mLcINgD4OyZf5uQXjkuYydWvA==
+  dependencies:
+    "@types/react" "*"
+    hoist-non-react-statics "^3.3.0"
+
 "@types/html-minifier-terser@^5.0.0":
   version "5.1.0"
   resolved "https://registry.yarnpkg.com/@types/html-minifier-terser/-/html-minifier-terser-5.1.0.tgz#551a4589b6ee2cc9c1dff08056128aec29b94880"
@@ -1385,13 +1393,35 @@
   resolved "https://registry.yarnpkg.com/@types/q/-/q-1.5.2.tgz#690a1475b84f2a884fd07cd797c00f5f31356ea8"
   integrity sha512-ce5d3q03Ex0sy4R14722Rmt6MT07Ua+k4FwDfdcToYJcMKNtRVQvJ6JCAPdAmAnbRb6CsX6aYb9m96NGod9uTw==
 
-"@types/react@^16.9.43":
+"@types/react-dom@^16.9.8":
+  version "16.9.8"
+  resolved "https://registry.yarnpkg.com/@types/react-dom/-/react-dom-16.9.8.tgz#fe4c1e11dfc67155733dfa6aa65108b4971cb423"
+  integrity sha512-ykkPQ+5nFknnlU6lDd947WbQ6TE3NNzbQAkInC2EKY1qeYdTKp7onFusmYZb+ityzx2YviqT6BXSu+LyWWJwcA==
+  dependencies:
+    "@types/react" "*"
+
+"@types/react-redux@^7.1.9":
+  version "7.1.9"
+  resolved "https://registry.yarnpkg.com/@types/react-redux/-/react-redux-7.1.9.tgz#280c13565c9f13ceb727ec21e767abe0e9b4aec3"
+  integrity sha512-mpC0jqxhP4mhmOl3P4ipRsgTgbNofMRXJb08Ms6gekViLj61v1hOZEKWDCyWsdONr6EjEA6ZHXC446wdywDe0w==
+  dependencies:
+    "@types/hoist-non-react-statics" "^3.3.0"
+    "@types/react" "*"
+    hoist-non-react-statics "^3.3.0"
+    redux "^4.0.0"
+
+"@types/react@*", "@types/react@^16.9.43":
   version "16.9.43"
   resolved "https://registry.yarnpkg.com/@types/react/-/react-16.9.43.tgz#c287f23f6189666ee3bebc2eb8d0f84bcb6cdb6b"
   integrity sha512-PxshAFcnJqIWYpJbLPriClH53Z2WlJcVZE+NP2etUtWQs2s7yIMj3/LDKZT/5CHJ/F62iyjVCDu2H3jHEXIxSg==
   dependencies:
     "@types/prop-types" "*"
     csstype "^2.2.0"
+
+"@types/simmerjs@^0.5.1":
+  version "0.5.1"
+  resolved "https://registry.yarnpkg.com/@types/simmerjs/-/simmerjs-0.5.1.tgz#74ff8f8614ddf995c135eebc6348fb5d42cadaa1"
+  integrity sha512-246t3U8Y3zVaUPwI5kDlOah0eL3rc2tZ1dX72SYBs0he6GyINOhZMP8qXEdgxbl4q/ARQkrYHZl9fLgDmBpo9w==
 
 "@types/sinon-chai@3.2.3":
   version "3.2.3"
@@ -6076,10 +6106,10 @@ kea-router@^0.4.0:
   dependencies:
     url-pattern "^1.0.3"
 
-kea-typegen@^0.0.32:
-  version "0.0.32"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.0.32.tgz#f2d5704f5a0eb78af318bbfdf29d8f1724575657"
-  integrity sha512-KXxoDuGwS7qMrvtP6dOFCfd5ynywDVPKgW7zyodZZ93Ieq6Z9avncxxG4YNmXoMRAo5VWeQlT01JG/Ckpi71cg==
+kea-typegen@^0.0.35:
+  version "0.0.35"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.0.35.tgz#a481e56280a7f8d9a2cdd1945e68b76dba938b49"
+  integrity sha512-TXSRppYBHo8WcoyYr780GZ3Y3BWkAApBYITYbc+6Q96mrGS/FSmPWxM/Elk9vLZ+3rcpiAN1fF1Gcnunzl2nPg==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.8"
     prettier "^2.0.5"
@@ -6090,10 +6120,10 @@ kea-window-values@^0.0.1:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.0.1.tgz#918eee6647507e2d3d5d19466b9561261e7bc8d7"
   integrity sha512-60SfOqHrmnCC8hSD2LALMJemYcohQ8tGcTHlA5u4rQy0l0wFFE4gqH1WbKd+73j9m4f6zdoOk07rwJf+P8maiQ==
 
-kea@^2.2.0-beta.3:
-  version "2.2.0-beta.3"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.2.0-beta.3.tgz#a7ffddeaf2fd609f92e6c3ee75c3c4b89f071046"
-  integrity sha512-5Q3yNJ8I4olOEDd4weISfJaU4dqz1sNAGSNLdPAzh7JdKZmJzu84vatDdQskk9rASlM1xW3whXYkteGRDpLmwg==
+kea@^2.2.0-beta.5:
+  version "2.2.0-beta.5"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.2.0-beta.5.tgz#eafcb561cc8fcd70f0958dc691068cbee8ca6312"
+  integrity sha512-Y/djOgBMdKhcSKE9GG75LfrAi5cYRnzh/6OBi4C8RKeAnsgpWY7q57A+M6Gwqwz3BrhNy0xDr9ESz8Ij0W0oaQ==
 
 keyv@^3.0.0:
   version "3.1.0"
@@ -8602,7 +8632,7 @@ readdirp@~3.4.0:
   dependencies:
     picomatch "^2.2.1"
 
-redux@^4.0.5:
+redux@^4.0.0, redux@^4.0.5:
   version "4.0.5"
   resolved "https://registry.yarnpkg.com/redux/-/redux-4.0.5.tgz#4db5de5816e17891de8a80c424232d06f051d93f"
   integrity sha512-VSz1uMAH24DM6MF72vcojpYPtrTUu3ByVWfPL1nPfVRb5mZVTve5GnNCUV53QM/BZ66xfWrm0CTWoM+Xlz8V1w==
