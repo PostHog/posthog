@@ -36,7 +36,7 @@
         "editor": "^1.0.0",
         "eslint-plugin-cypress": "^2.11.1",
         "funnel-graph-js": "^1.4.1",
-        "kea": "^2.2.0-beta.4",
+        "kea": "^2.2.0-beta.5",
         "kea-loaders": "^0.3.0",
         "kea-localstorage": "^1.0.2",
         "kea-router": "^0.4.0",
