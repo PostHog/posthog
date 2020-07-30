@@ -19,7 +19,7 @@ class Sessions(BaseQuery):
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         events = Event.objects.filter(team=team).add_person_id(team.pk).order_by("-timestamp")
 
-        session_type = kwargs.get("session_type", "avg")
+        session_type = kwargs.get("session_type", None)
         offset = kwargs.get("offset", 0)
 
         if not filter.date_to:
