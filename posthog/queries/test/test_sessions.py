@@ -22,6 +22,7 @@ class TestSessions(BaseTest):
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
             response = Sessions().run(Filter(data={"events": []}), self.team, session_type=None)
+        print(response)
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["global_session_id"], 1)
 
