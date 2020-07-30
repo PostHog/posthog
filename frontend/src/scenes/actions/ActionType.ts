@@ -59,44 +59,12 @@ export interface actionLogicType {
         loadActionFailure: 'load action failure (scenes.actions.Action)'
     }
     actions: {
-        checkIsFinished: (
-            action: any
-        ) => {
-            type: 'check is finished (scenes.actions.Action)'
-            payload: { action: any }
-        }
-        setPollTimeout: (
-            pollTimeout: any
-        ) => {
-            type: 'set poll timeout (scenes.actions.Action)'
-            payload: { pollTimeout: any }
-        }
-        setIsComplete: (
-            isComplete: any
-        ) => {
-            type: 'set is complete (scenes.actions.Action)'
-            payload: { isComplete: any }
-        }
-        loadAction: () => {
-            type: 'load action (scenes.actions.Action)'
-            payload: any
-        }
-        loadActionSuccess: (
-            action: any
-        ) => {
-            type: 'load action success (scenes.actions.Action)'
-            payload: {
-                action: any
-            }
-        }
-        loadActionFailure: (
-            error: string
-        ) => {
-            type: 'load action failure (scenes.actions.Action)'
-            payload: {
-                error: string
-            }
-        }
+        checkIsFinished: (action: any) => void
+        setPollTimeout: (pollTimeout: any) => void
+        setIsComplete: (isComplete: any) => void
+        loadAction: () => void
+        loadActionSuccess: (action: any) => void
+        loadActionFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

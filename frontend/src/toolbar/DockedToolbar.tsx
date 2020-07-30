@@ -1,0 +1,51 @@
+import React from 'react'
+import { useActions, useValues } from 'kea'
+import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
+import { ToolbarTabs } from '~/toolbar/ToolbarTabs'
+import { StatsTab } from '~/toolbar/stats/StatsTab'
+import { ActionsTab } from '~/toolbar/actions/ActionsTab'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { ElementInfo } from '~/toolbar/elements/ElementInfo'
+import { Button } from 'antd'
+import { dockLogic } from '~/toolbar/dockLogic'
+
+interface DockedToolbarProps {
+    type: string
+}
+
+export function DockedToolbar({ type }: DockedToolbarProps): JSX.Element {
+    const { tab } = useValues(toolbarTabLogic)
+    const { hoverElement, selectedElement, inspectEnabled, heatmapEnabled } = useValues(elementsLogic)
+    const { setSelectedElement } = useActions(elementsLogic)
+    const { dockTopMargin } = useValues(dockLogic)
+
+    const showElementInsteadOfTabs =
+        type === 'dock' && tab === 'stats' && (inspectEnabled || heatmapEnabled) && (hoverElement || selectedElement)
+
+    return (
+        <div style={{ transform: `translate(0, ${dockTopMargin}px)`, transition: 'transform 0.3s' }}>
+            {showElementInsteadOfTabs ? (
+                <>
+                    <div style={{ height: 66, lineHeight: '56px' }}>
+                        {selectedElement && (!hoverElement || hoverElement === selectedElement) ? (
+                            <div>
+                                <Button type="link" onClick={() => setSelectedElement(null)}>
+                                    Select a different element
+                                </Button>
+                            </div>
+                        ) : hoverElement ? (
+                            <div>Click on an element to select it!</div>
+                        ) : null}
+                    </div>
+                    <ElementInfo />
+                </>
+            ) : (
+                <div>
+                    <ToolbarTabs />
+                    {tab === 'stats' ? <StatsTab /> : null}
+                    {tab === 'actions' ? <ActionsTab /> : null}
+                </div>
+            )}
+        </div>
+    )
+}

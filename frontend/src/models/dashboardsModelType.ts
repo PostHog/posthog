@@ -255,198 +255,33 @@ export interface dashboardsModelType {
         unpinDashboardFailure: 'unpin dashboard failure (models.dashboardsModel)'
     }
     actions: {
-        delayedDeleteDashboard: (
-            id: any
-        ) => {
-            type: 'delayed delete dashboard (models.dashboardsModel)'
-            payload: { id: any }
-        }
-        setLastVisitedDashboardId: (
-            id: any
-        ) => {
-            type: 'set last visited dashboard id (models.dashboardsModel)'
-            payload: { id: any }
-        }
-        updateDashboardItem: (
-            item: any
-        ) => {
-            type: 'update dashboard item (models.dashboardsModel)'
-            payload: { item: any }
-        }
-        loadDashboards: () => {
-            type: 'load dashboards (models.dashboardsModel)'
-            payload: any
-        }
-        loadDashboardsSuccess: (rawDashboards: {}) => {
-            type: 'load dashboards success (models.dashboardsModel)'
-            payload: {
-                rawDashboards: {}
-            }
-        }
-        loadDashboardsFailure: (
-            error: string
-        ) => {
-            type: 'load dashboards failure (models.dashboardsModel)'
-            payload: {
-                error: string
-            }
-        }
-        addDashboard: ({
-            name,
-        }: any) => {
-            type: 'add dashboard (models.dashboardsModel)'
-            payload: any
-        }
-        addDashboardSuccess: (
-            dashboard: any
-        ) => {
-            type: 'add dashboard success (models.dashboardsModel)'
-            payload: {
-                dashboard: any
-            }
-        }
-        addDashboardFailure: (
-            error: string
-        ) => {
-            type: 'add dashboard failure (models.dashboardsModel)'
-            payload: {
-                error: string
-            }
-        }
-        renameDashboard: ({
-            id,
-            name,
-        }: any) => {
-            type: 'rename dashboard (models.dashboardsModel)'
-            payload: any
-        }
-        renameDashboardSuccess: (
-            dashboard: any
-        ) => {
-            type: 'rename dashboard success (models.dashboardsModel)'
-            payload: {
-                dashboard: any
-            }
-        }
-        renameDashboardFailure: (
-            error: string
-        ) => {
-            type: 'rename dashboard failure (models.dashboardsModel)'
-            payload: {
-                error: string
-            }
-        }
-        setIsSharedDashboard: ({
-            id,
-            isShared,
-        }: any) => {
-            type: 'set is shared dashboard (models.dashboardsModel)'
-            payload: any
-        }
-        setIsSharedDashboardSuccess: (
-            dashboard: any
-        ) => {
-            type: 'set is shared dashboard success (models.dashboardsModel)'
-            payload: {
-                dashboard: any
-            }
-        }
-        setIsSharedDashboardFailure: (
-            error: string
-        ) => {
-            type: 'set is shared dashboard failure (models.dashboardsModel)'
-            payload: {
-                error: string
-            }
-        }
-        deleteDashboard: ({
-            id,
-        }: any) => {
-            type: 'delete dashboard (models.dashboardsModel)'
-            payload: any
-        }
-        deleteDashboardSuccess: (
-            dashboard: any
-        ) => {
-            type: 'delete dashboard success (models.dashboardsModel)'
-            payload: {
-                dashboard: any
-            }
-        }
-        deleteDashboardFailure: (
-            error: string
-        ) => {
-            type: 'delete dashboard failure (models.dashboardsModel)'
-            payload: {
-                error: string
-            }
-        }
-        restoreDashboard: ({
-            id,
-        }: any) => {
-            type: 'restore dashboard (models.dashboardsModel)'
-            payload: any
-        }
-        restoreDashboardSuccess: (
-            dashboard: any
-        ) => {
-            type: 'restore dashboard success (models.dashboardsModel)'
-            payload: {
-                dashboard: any
-            }
-        }
-        restoreDashboardFailure: (
-            error: string
-        ) => {
-            type: 'restore dashboard failure (models.dashboardsModel)'
-            payload: {
-                error: string
-            }
-        }
-        pinDashboard: (
-            id: any
-        ) => {
-            type: 'pin dashboard (models.dashboardsModel)'
-            payload: any
-        }
-        pinDashboardSuccess: (
-            dashboard: any
-        ) => {
-            type: 'pin dashboard success (models.dashboardsModel)'
-            payload: {
-                dashboard: any
-            }
-        }
-        pinDashboardFailure: (
-            error: string
-        ) => {
-            type: 'pin dashboard failure (models.dashboardsModel)'
-            payload: {
-                error: string
-            }
-        }
-        unpinDashboard: (
-            id: any
-        ) => {
-            type: 'unpin dashboard (models.dashboardsModel)'
-            payload: any
-        }
-        unpinDashboardSuccess: (
-            dashboard: any
-        ) => {
-            type: 'unpin dashboard success (models.dashboardsModel)'
-            payload: {
-                dashboard: any
-            }
-        }
-        unpinDashboardFailure: (
-            error: string
-        ) => {
-            type: 'unpin dashboard failure (models.dashboardsModel)'
-            payload: {
-                error: string
-            }
-        }
+        delayedDeleteDashboard: (id: any) => void
+        setLastVisitedDashboardId: (id: any) => void
+        updateDashboardItem: (item: any) => void
+        loadDashboards: () => void
+        loadDashboardsSuccess: (rawDashboards: {}) => void
+        loadDashboardsFailure: (error: string) => void
+        addDashboard: ({ name }: any) => void
+        addDashboardSuccess: (dashboard: any) => void
+        addDashboardFailure: (error: string) => void
+        renameDashboard: ({ id, name }: any) => void
+        renameDashboardSuccess: (dashboard: any) => void
+        renameDashboardFailure: (error: string) => void
+        setIsSharedDashboard: ({ id, isShared }: any) => void
+        setIsSharedDashboardSuccess: (dashboard: any) => void
+        setIsSharedDashboardFailure: (error: string) => void
+        deleteDashboard: ({ id }: any) => void
+        deleteDashboardSuccess: (dashboard: any) => void
+        deleteDashboardFailure: (error: string) => void
+        restoreDashboard: ({ id }: any) => void
+        restoreDashboardSuccess: (dashboard: any) => void
+        restoreDashboardFailure: (error: string) => void
+        pinDashboard: (id: any) => void
+        pinDashboardSuccess: (dashboard: any) => void
+        pinDashboardFailure: (error: string) => void
+        unpinDashboard: (id: any) => void
+        unpinDashboardSuccess: (dashboard: any) => void
+        unpinDashboardFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

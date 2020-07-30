@@ -1,6 +1,6 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface heatmapLogicType {
+export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionStepType> {
     key: any
     actionCreators: {
         enableHeatmap: () => {
@@ -16,21 +16,21 @@ export interface heatmapLogicType {
             }
         }
         setShowHeatmapTooltip: (
-            showHeatmapTooltip: any
+            showHeatmapTooltip: boolean
         ) => {
             type: 'set show heatmap tooltip (toolbar.elements.heatmapLogic)'
-            payload: { showHeatmapTooltip: any }
+            payload: { showHeatmapTooltip: boolean }
         }
         resetEvents: () => {
             type: 'reset events (toolbar.elements.heatmapLogic)'
             payload: any
         }
         resetEventsSuccess: (
-            events: undefined[]
+            events: ElementsEventType[]
         ) => {
             type: 'reset events success (toolbar.elements.heatmapLogic)'
             payload: {
-                events: undefined[]
+                events: ElementsEventType[]
             }
         }
         resetEventsFailure: (
@@ -43,16 +43,20 @@ export interface heatmapLogicType {
         }
         getEvents: ({
             $current_url,
-        }: any) => {
+        }: {
+            $current_url: string
+        }) => {
             type: 'get events (toolbar.elements.heatmapLogic)'
-            payload: any
+            payload: {
+                $current_url: string
+            }
         }
         getEventsSuccess: (
-            events: undefined[]
+            events: ElementsEventType[]
         ) => {
             type: 'get events success (toolbar.elements.heatmapLogic)'
             payload: {
-                events: undefined[]
+                events: ElementsEventType[]
             }
         }
         getEventsFailure: (
@@ -87,66 +91,15 @@ export interface heatmapLogicType {
         getEventsFailure: 'get events failure (toolbar.elements.heatmapLogic)'
     }
     actions: {
-        enableHeatmap: () => {
-            type: 'enable heatmap (toolbar.elements.heatmapLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        disableHeatmap: () => {
-            type: 'disable heatmap (toolbar.elements.heatmapLogic)'
-            payload: {
-                value: boolean
-            }
-        }
-        setShowHeatmapTooltip: (
-            showHeatmapTooltip: any
-        ) => {
-            type: 'set show heatmap tooltip (toolbar.elements.heatmapLogic)'
-            payload: { showHeatmapTooltip: any }
-        }
-        resetEvents: () => {
-            type: 'reset events (toolbar.elements.heatmapLogic)'
-            payload: any
-        }
-        resetEventsSuccess: (
-            events: undefined[]
-        ) => {
-            type: 'reset events success (toolbar.elements.heatmapLogic)'
-            payload: {
-                events: undefined[]
-            }
-        }
-        resetEventsFailure: (
-            error: string
-        ) => {
-            type: 'reset events failure (toolbar.elements.heatmapLogic)'
-            payload: {
-                error: string
-            }
-        }
-        getEvents: ({
-            $current_url,
-        }: any) => {
-            type: 'get events (toolbar.elements.heatmapLogic)'
-            payload: any
-        }
-        getEventsSuccess: (
-            events: undefined[]
-        ) => {
-            type: 'get events success (toolbar.elements.heatmapLogic)'
-            payload: {
-                events: undefined[]
-            }
-        }
-        getEventsFailure: (
-            error: string
-        ) => {
-            type: 'get events failure (toolbar.elements.heatmapLogic)'
-            payload: {
-                error: string
-            }
-        }
+        enableHeatmap: () => void
+        disableHeatmap: () => void
+        setShowHeatmapTooltip: (showHeatmapTooltip: boolean) => void
+        resetEvents: () => void
+        resetEventsSuccess: (events: ElementsEventType[]) => void
+        resetEventsFailure: (error: string) => void
+        getEvents: ({ $current_url }: { $current_url: string }) => void
+        getEventsSuccess: (events: ElementsEventType[]) => void
+        getEventsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any
@@ -165,7 +118,7 @@ export interface heatmapLogicType {
         heatmapEnabled: boolean
         heatmapLoading: boolean
         showHeatmapTooltip: boolean
-        events: undefined[]
+        events: ElementsEventType[]
         eventsLoading: boolean
     }
     reducerOptions: any
@@ -173,7 +126,7 @@ export interface heatmapLogicType {
         heatmapEnabled: (state: boolean, action: any, fullState: any) => boolean
         heatmapLoading: (state: boolean, action: any, fullState: any) => boolean
         showHeatmapTooltip: (state: boolean, action: any, fullState: any) => boolean
-        events: (state: undefined[], action: any, fullState: any) => undefined[]
+        events: (state: ElementsEventType[], action: any, fullState: any) => ElementsEventType[]
         eventsLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
@@ -182,39 +135,92 @@ export interface heatmapLogicType {
         heatmapEnabled: boolean
         heatmapLoading: boolean
         showHeatmapTooltip: boolean
-        events: undefined[]
+        events: ElementsEventType[]
         eventsLoading: boolean
     }
     selectors: {
         heatmapEnabled: (state: any, props: any) => boolean
         heatmapLoading: (state: any, props: any) => boolean
         showHeatmapTooltip: (state: any, props: any) => boolean
-        events: (state: any, props: any) => undefined[]
+        events: (state: any, props: any) => ElementsEventType[]
         eventsLoading: (state: any, props: any) => boolean
-        elements: (state: any, props: any) => any
-        countedElements: (state: any, props: any) => any[]
-        elementCount: (state: any, props: any) => any
-        clickCount: (state: any, props: any) => any
-        highestClickCount: (state: any, props: any) => any
+        elements: (state: any, props: any) => CountedHTMLElement[]
+        countedElements: (
+            state: any,
+            props: any
+        ) => {
+            position: number
+            count: number
+            element: HTMLElement
+            hash: string
+            selector: string
+            actionStep?: ActionStepType | undefined
+        }[]
+        elementCount: (state: any, props: any) => number
+        clickCount: (state: any, props: any) => number
+        highestClickCount: (state: any, props: any) => number
     }
     values: {
         heatmapEnabled: boolean
         heatmapLoading: boolean
         showHeatmapTooltip: boolean
-        events: undefined[]
+        events: ElementsEventType[]
         eventsLoading: boolean
-        elements: any
-        countedElements: any[]
-        elementCount: any
-        clickCount: any
-        highestClickCount: any
+        elements: CountedHTMLElement[]
+        countedElements: {
+            position: number
+            count: number
+            element: HTMLElement
+            hash: string
+            selector: string
+            actionStep?: ActionStepType | undefined
+        }[]
+        elementCount: number
+        clickCount: number
+        highestClickCount: number
     }
     _isKea: true
     __keaTypeGenInternalSelectorTypes: {
-        elements: (arg1: any) => any
-        countedElements: (arg1: any) => any[]
-        elementCount: (arg1: any) => any
-        clickCount: (arg1: any) => any
-        highestClickCount: (arg1: any) => any
+        elements: (arg1: ElementsEventType[]) => CountedHTMLElement[]
+        countedElements: (
+            arg1: CountedHTMLElement[]
+        ) => {
+            position: number
+            count: number
+            element: HTMLElement
+            hash: string
+            selector: string
+            actionStep?: ActionStepType | undefined
+        }[]
+        elementCount: (
+            arg1: {
+                position: number
+                count: number
+                element: HTMLElement
+                hash: string
+                selector: string
+                actionStep?: ActionStepType | undefined
+            }[]
+        ) => number
+        clickCount: (
+            arg1: {
+                position: number
+                count: number
+                element: HTMLElement
+                hash: string
+                selector: string
+                actionStep?: ActionStepType | undefined
+            }[]
+        ) => number
+        highestClickCount: (
+            arg1: {
+                position: number
+                count: number
+                element: HTMLElement
+                hash: string
+                selector: string
+                actionStep?: ActionStepType | undefined
+            }[]
+        ) => number
     }
 }

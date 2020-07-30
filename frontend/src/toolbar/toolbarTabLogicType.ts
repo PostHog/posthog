@@ -1,13 +1,13 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface toolbarTabLogicType {
+export interface toolbarTabLogicType<ToolbarTab> {
     key: any
     actionCreators: {
         setTab: (
-            tab: any
+            tab: ToolbarTab | string
         ) => {
             type: 'set tab (toolbar.toolbarTabLogic)'
-            payload: { tab: any }
+            payload: { tab: string }
         }
     }
     actionKeys: {
@@ -17,12 +17,7 @@ export interface toolbarTabLogicType {
         setTab: 'set tab (toolbar.toolbarTabLogic)'
     }
     actions: {
-        setTab: (
-            tab: any
-        ) => {
-            type: 'set tab (toolbar.toolbarTabLogic)'
-            payload: { tab: any }
-        }
+        setTab: (tab: ToolbarTab | string) => void
     }
     cache: Record<string, any>
     connections: any
@@ -38,22 +33,36 @@ export interface toolbarTabLogicType {
         action: () => any,
         fullState: any
     ) => {
-        tab: string
+        tab: ToolbarTab
     }
     reducerOptions: any
     reducers: {
-        tab: (state: string, action: any, fullState: any) => string
+        tab: (state: ToolbarTab, action: any, fullState: any) => ToolbarTab
     }
     selector: (
         state: any
     ) => {
-        tab: string
+        tab: ToolbarTab
     }
     selectors: {
-        tab: (state: any, props: any) => string
+        tab: (state: any, props: any) => ToolbarTab
     }
     values: {
-        tab: string
+        tab: ToolbarTab
     }
     _isKea: true
+    __keaTypeGenInternalReducerActions: {
+        'button (toolbar.dockLogic)': () => {
+            type: 'button (toolbar.dockLogic)'
+            payload: {
+                value: boolean
+            }
+        }
+        'dock (toolbar.dockLogic)': () => {
+            type: 'dock (toolbar.dockLogic)'
+            payload: {
+                value: boolean
+            }
+        }
+    }
 }

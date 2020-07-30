@@ -75,56 +75,14 @@ export interface cohortLogicType {
         loadPersonPropertiesFailure: 'load person properties failure (scenes.users.cohortLogic)'
     }
     actions: {
-        saveCohort: (
-            cohort: any
-        ) => {
-            type: 'save cohort (scenes.users.cohortLogic)'
-            payload: { cohort: any }
-        }
-        setCohort: (
-            cohort: any
-        ) => {
-            type: 'set cohort (scenes.users.cohortLogic)'
-            payload: { cohort: any }
-        }
-        checkIsFinished: (
-            cohort: any
-        ) => {
-            type: 'check is finished (scenes.users.cohortLogic)'
-            payload: { cohort: any }
-        }
-        setToastId: (
-            toastId: any
-        ) => {
-            type: 'set toast id (scenes.users.cohortLogic)'
-            payload: { toastId: any }
-        }
-        setPollTimeout: (
-            pollTimeout: any
-        ) => {
-            type: 'set poll timeout (scenes.users.cohortLogic)'
-            payload: { pollTimeout: any }
-        }
-        loadPersonProperties: () => {
-            type: 'load person properties (scenes.users.cohortLogic)'
-            payload: any
-        }
-        loadPersonPropertiesSuccess: (
-            personProperties: any
-        ) => {
-            type: 'load person properties success (scenes.users.cohortLogic)'
-            payload: {
-                personProperties: any
-            }
-        }
-        loadPersonPropertiesFailure: (
-            error: string
-        ) => {
-            type: 'load person properties failure (scenes.users.cohortLogic)'
-            payload: {
-                error: string
-            }
-        }
+        saveCohort: (cohort: any) => void
+        setCohort: (cohort: any) => void
+        checkIsFinished: (cohort: any) => void
+        setToastId: (toastId: any) => void
+        setPollTimeout: (pollTimeout: any) => void
+        loadPersonProperties: () => void
+        loadPersonPropertiesSuccess: (personProperties: any) => void
+        loadPersonPropertiesFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any

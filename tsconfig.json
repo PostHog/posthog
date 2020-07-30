@@ -11,7 +11,7 @@
         "skipLibCheck": true, // Skip type checking of all declaration files
         "esModuleInterop": true, // Disables namespace imports (import * as fs from "fs") and enables CJS/AMD/UMD style imports (import fs from "fs")
         "allowSyntheticDefaultImports": true, // Allow default imports from modules with no default export
-        "strict": false, // Enable all strict type checking options
+        "strict": true, // Enable all strict type checking options
         "forceConsistentCasingInFileNames": true, // Disallow inconsistently-cased references to the same file.
         "module": "esnext", // Specify module code generation
         "moduleResolution": "node", // Resolve modules using Node.js style
@@ -24,7 +24,8 @@
         "noUnusedParameters": true, // Report errors on unused parameters
         "experimentalDecorators": true, // Enables experimental support for ES decorators
         "incremental": true, // Enable incremental compilation by reading/writing information from prior compilations to a file on disk
-        "noFallthroughCasesInSwitch": true // Report errors for fallthrough cases in switch statement
+        "noFallthroughCasesInSwitch": true, // Report errors for fallthrough cases in switch statement
+        "lib": ["dom", "simmerjs", "react-redux", "react-dom"]
     },
     "include": ["frontend/**/*"],
     "exclude": ["node_modules/**/*", "staticfiles/**/*", "frontend/dist/**/*"]
