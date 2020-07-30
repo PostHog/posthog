@@ -4,7 +4,7 @@ export interface actionEditLogicType {
     key: any
     actionCreators: {
         saveAction: () => {
-            type: 'save action (frontend.src.scenes.actions.actionEditLogic)'
+            type: 'save action (scenes.actions.actionEditLogic)'
             payload: {
                 value: boolean
             }
@@ -12,29 +12,29 @@ export interface actionEditLogicType {
         setAction: (
             action: any
         ) => {
-            type: 'set action (frontend.src.scenes.actions.actionEditLogic)'
+            type: 'set action (scenes.actions.actionEditLogic)'
             payload: { action: any }
         }
         setCreateNew: (
             createNew: any
         ) => {
-            type: 'set create new (frontend.src.scenes.actions.actionEditLogic)'
+            type: 'set create new (scenes.actions.actionEditLogic)'
             payload: { createNew: any }
         }
         actionAlreadyExists: (
             actionId: any
         ) => {
-            type: 'action already exists (frontend.src.scenes.actions.actionEditLogic)'
+            type: 'action already exists (scenes.actions.actionEditLogic)'
             payload: { actionId: any }
         }
         loadAction: () => {
-            type: 'load action (frontend.src.scenes.actions.actionEditLogic)'
+            type: 'load action (scenes.actions.actionEditLogic)'
             payload: any
         }
         loadActionSuccess: (
             action: any
         ) => {
-            type: 'load action success (frontend.src.scenes.actions.actionEditLogic)'
+            type: 'load action success (scenes.actions.actionEditLogic)'
             payload: {
                 action: any
             }
@@ -42,29 +42,29 @@ export interface actionEditLogicType {
         loadActionFailure: (
             error: string
         ) => {
-            type: 'load action failure (frontend.src.scenes.actions.actionEditLogic)'
+            type: 'load action failure (scenes.actions.actionEditLogic)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'save action (frontend.src.scenes.actions.actionEditLogic)': 'saveAction'
-        'set action (frontend.src.scenes.actions.actionEditLogic)': 'setAction'
-        'set create new (frontend.src.scenes.actions.actionEditLogic)': 'setCreateNew'
-        'action already exists (frontend.src.scenes.actions.actionEditLogic)': 'actionAlreadyExists'
-        'load action (frontend.src.scenes.actions.actionEditLogic)': 'loadAction'
-        'load action success (frontend.src.scenes.actions.actionEditLogic)': 'loadActionSuccess'
-        'load action failure (frontend.src.scenes.actions.actionEditLogic)': 'loadActionFailure'
+        'save action (scenes.actions.actionEditLogic)': 'saveAction'
+        'set action (scenes.actions.actionEditLogic)': 'setAction'
+        'set create new (scenes.actions.actionEditLogic)': 'setCreateNew'
+        'action already exists (scenes.actions.actionEditLogic)': 'actionAlreadyExists'
+        'load action (scenes.actions.actionEditLogic)': 'loadAction'
+        'load action success (scenes.actions.actionEditLogic)': 'loadActionSuccess'
+        'load action failure (scenes.actions.actionEditLogic)': 'loadActionFailure'
     }
     actionTypes: {
-        saveAction: 'save action (frontend.src.scenes.actions.actionEditLogic)'
-        setAction: 'set action (frontend.src.scenes.actions.actionEditLogic)'
-        setCreateNew: 'set create new (frontend.src.scenes.actions.actionEditLogic)'
-        actionAlreadyExists: 'action already exists (frontend.src.scenes.actions.actionEditLogic)'
-        loadAction: 'load action (frontend.src.scenes.actions.actionEditLogic)'
-        loadActionSuccess: 'load action success (frontend.src.scenes.actions.actionEditLogic)'
-        loadActionFailure: 'load action failure (frontend.src.scenes.actions.actionEditLogic)'
+        saveAction: 'save action (scenes.actions.actionEditLogic)'
+        setAction: 'set action (scenes.actions.actionEditLogic)'
+        setCreateNew: 'set create new (scenes.actions.actionEditLogic)'
+        actionAlreadyExists: 'action already exists (scenes.actions.actionEditLogic)'
+        loadAction: 'load action (scenes.actions.actionEditLogic)'
+        loadActionSuccess: 'load action success (scenes.actions.actionEditLogic)'
+        loadActionFailure: 'load action failure (scenes.actions.actionEditLogic)'
     }
     actions: {
         saveAction: () => void
@@ -80,8 +80,8 @@ export interface actionEditLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'scenes', 'actions', 'actionEditLogic']
-    pathString: 'frontend.src.scenes.actions.actionEditLogic'
+    path: ['scenes', 'actions', 'actionEditLogic']
+    pathString: 'scenes.actions.actionEditLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

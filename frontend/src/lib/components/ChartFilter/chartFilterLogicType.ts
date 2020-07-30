@@ -6,15 +6,15 @@ export interface chartFilterLogicType {
         setChartFilter: (
             filter: any
         ) => {
-            type: 'set chart filter (frontend.src.lib.components.ChartFilter.chartFilterLogic)'
+            type: 'set chart filter (lib.components.ChartFilter.chartFilterLogic)'
             payload: { filter: any }
         }
     }
     actionKeys: {
-        'set chart filter (frontend.src.lib.components.ChartFilter.chartFilterLogic)': 'setChartFilter'
+        'set chart filter (lib.components.ChartFilter.chartFilterLogic)': 'setChartFilter'
     }
     actionTypes: {
-        setChartFilter: 'set chart filter (frontend.src.lib.components.ChartFilter.chartFilterLogic)'
+        setChartFilter: 'set chart filter (lib.components.ChartFilter.chartFilterLogic)'
     }
     actions: {
         setChartFilter: (filter: any) => void
@@ -24,8 +24,8 @@ export interface chartFilterLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'lib', 'components', 'ChartFilter', 'chartFilterLogic']
-    pathString: 'frontend.src.lib.components.ChartFilter.chartFilterLogic'
+    path: ['lib', 'components', 'ChartFilter', 'chartFilterLogic']
+    pathString: 'lib.components.ChartFilter.chartFilterLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

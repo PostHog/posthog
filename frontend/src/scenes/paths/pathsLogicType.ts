@@ -6,14 +6,14 @@ export interface pathsLogicType {
         loadPaths: (
             _: any
         ) => {
-            type: 'load paths (frontend.src.scenes.paths.pathsLogic)'
+            type: 'load paths (scenes.paths.pathsLogic)'
             payload: any
         }
         loadPathsSuccess: (paths: {
             nodes: never[]
             links: never[]
         }) => {
-            type: 'load paths success (frontend.src.scenes.paths.pathsLogic)'
+            type: 'load paths success (scenes.paths.pathsLogic)'
             payload: {
                 paths: {
                     nodes: never[]
@@ -24,7 +24,7 @@ export interface pathsLogicType {
         loadPathsFailure: (
             error: string
         ) => {
-            type: 'load paths failure (frontend.src.scenes.paths.pathsLogic)'
+            type: 'load paths failure (scenes.paths.pathsLogic)'
             payload: {
                 error: string
             }
@@ -32,7 +32,7 @@ export interface pathsLogicType {
         createInsight: (
             filters: Record<string, any>
         ) => {
-            type: 'create insight (frontend.src.scenes.paths.pathsLogic)'
+            type: 'create insight (scenes.paths.pathsLogic)'
             payload: {
                 filters: Record<string, any>
             }
@@ -40,31 +40,31 @@ export interface pathsLogicType {
         setProperties: (
             properties: any
         ) => {
-            type: 'set properties (frontend.src.scenes.paths.pathsLogic)'
+            type: 'set properties (scenes.paths.pathsLogic)'
             payload: { properties: any }
         }
         setFilter: (
             filter: any
         ) => {
-            type: 'set filter (frontend.src.scenes.paths.pathsLogic)'
+            type: 'set filter (scenes.paths.pathsLogic)'
             payload: any
         }
     }
     actionKeys: {
-        'load paths (frontend.src.scenes.paths.pathsLogic)': 'loadPaths'
-        'load paths success (frontend.src.scenes.paths.pathsLogic)': 'loadPathsSuccess'
-        'load paths failure (frontend.src.scenes.paths.pathsLogic)': 'loadPathsFailure'
-        'create insight (frontend.src.scenes.paths.pathsLogic)': 'createInsight'
-        'set properties (frontend.src.scenes.paths.pathsLogic)': 'setProperties'
-        'set filter (frontend.src.scenes.paths.pathsLogic)': 'setFilter'
+        'load paths (scenes.paths.pathsLogic)': 'loadPaths'
+        'load paths success (scenes.paths.pathsLogic)': 'loadPathsSuccess'
+        'load paths failure (scenes.paths.pathsLogic)': 'loadPathsFailure'
+        'create insight (scenes.paths.pathsLogic)': 'createInsight'
+        'set properties (scenes.paths.pathsLogic)': 'setProperties'
+        'set filter (scenes.paths.pathsLogic)': 'setFilter'
     }
     actionTypes: {
-        loadPaths: 'load paths (frontend.src.scenes.paths.pathsLogic)'
-        loadPathsSuccess: 'load paths success (frontend.src.scenes.paths.pathsLogic)'
-        loadPathsFailure: 'load paths failure (frontend.src.scenes.paths.pathsLogic)'
-        createInsight: 'create insight (frontend.src.scenes.paths.pathsLogic)'
-        setProperties: 'set properties (frontend.src.scenes.paths.pathsLogic)'
-        setFilter: 'set filter (frontend.src.scenes.paths.pathsLogic)'
+        loadPaths: 'load paths (scenes.paths.pathsLogic)'
+        loadPathsSuccess: 'load paths success (scenes.paths.pathsLogic)'
+        loadPathsFailure: 'load paths failure (scenes.paths.pathsLogic)'
+        createInsight: 'create insight (scenes.paths.pathsLogic)'
+        setProperties: 'set properties (scenes.paths.pathsLogic)'
+        setFilter: 'set filter (scenes.paths.pathsLogic)'
     }
     actions: {
         loadPaths: (_: any) => void
@@ -79,8 +79,8 @@ export interface pathsLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'scenes', 'paths', 'pathsLogic']
-    pathString: 'frontend.src.scenes.paths.pathsLogic'
+    path: ['scenes', 'paths', 'pathsLogic']
+    pathString: 'scenes.paths.pathsLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

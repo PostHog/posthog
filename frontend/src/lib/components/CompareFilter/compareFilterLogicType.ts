@@ -6,15 +6,15 @@ export interface compareFilterLogicType {
         setCompare: (
             compare: any
         ) => {
-            type: 'set compare (frontend.src.lib.components.CompareFilter.compareFilterLogic)'
+            type: 'set compare (lib.components.CompareFilter.compareFilterLogic)'
             payload: { compare: any }
         }
     }
     actionKeys: {
-        'set compare (frontend.src.lib.components.CompareFilter.compareFilterLogic)': 'setCompare'
+        'set compare (lib.components.CompareFilter.compareFilterLogic)': 'setCompare'
     }
     actionTypes: {
-        setCompare: 'set compare (frontend.src.lib.components.CompareFilter.compareFilterLogic)'
+        setCompare: 'set compare (lib.components.CompareFilter.compareFilterLogic)'
     }
     actions: {
         setCompare: (compare: any) => void
@@ -24,8 +24,8 @@ export interface compareFilterLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'lib', 'components', 'CompareFilter', 'compareFilterLogic']
-    pathString: 'frontend.src.lib.components.CompareFilter.compareFilterLogic'
+    path: ['lib', 'components', 'CompareFilter', 'compareFilterLogic']
+    pathString: 'lib.components.CompareFilter.compareFilterLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

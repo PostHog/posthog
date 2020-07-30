@@ -4,13 +4,13 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
     key: any
     actionCreators: {
         enableHeatmap: () => {
-            type: 'enable heatmap (frontend.src.toolbar.elements.heatmapLogic)'
+            type: 'enable heatmap (toolbar.elements.heatmapLogic)'
             payload: {
                 value: boolean
             }
         }
         disableHeatmap: () => {
-            type: 'disable heatmap (frontend.src.toolbar.elements.heatmapLogic)'
+            type: 'disable heatmap (toolbar.elements.heatmapLogic)'
             payload: {
                 value: boolean
             }
@@ -18,17 +18,17 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
         setShowHeatmapTooltip: (
             showHeatmapTooltip: boolean
         ) => {
-            type: 'set show heatmap tooltip (frontend.src.toolbar.elements.heatmapLogic)'
+            type: 'set show heatmap tooltip (toolbar.elements.heatmapLogic)'
             payload: { showHeatmapTooltip: boolean }
         }
         resetEvents: () => {
-            type: 'reset events (frontend.src.toolbar.elements.heatmapLogic)'
+            type: 'reset events (toolbar.elements.heatmapLogic)'
             payload: any
         }
         resetEventsSuccess: (
             events: ElementsEventType[]
         ) => {
-            type: 'reset events success (frontend.src.toolbar.elements.heatmapLogic)'
+            type: 'reset events success (toolbar.elements.heatmapLogic)'
             payload: {
                 events: ElementsEventType[]
             }
@@ -36,7 +36,7 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
         resetEventsFailure: (
             error: string
         ) => {
-            type: 'reset events failure (frontend.src.toolbar.elements.heatmapLogic)'
+            type: 'reset events failure (toolbar.elements.heatmapLogic)'
             payload: {
                 error: string
             }
@@ -46,7 +46,7 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
         }: {
             $current_url: string
         }) => {
-            type: 'get events (frontend.src.toolbar.elements.heatmapLogic)'
+            type: 'get events (toolbar.elements.heatmapLogic)'
             payload: {
                 $current_url: string
             }
@@ -54,7 +54,7 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
         getEventsSuccess: (
             events: ElementsEventType[]
         ) => {
-            type: 'get events success (frontend.src.toolbar.elements.heatmapLogic)'
+            type: 'get events success (toolbar.elements.heatmapLogic)'
             payload: {
                 events: ElementsEventType[]
             }
@@ -62,33 +62,33 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
         getEventsFailure: (
             error: string
         ) => {
-            type: 'get events failure (frontend.src.toolbar.elements.heatmapLogic)'
+            type: 'get events failure (toolbar.elements.heatmapLogic)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'enable heatmap (frontend.src.toolbar.elements.heatmapLogic)': 'enableHeatmap'
-        'disable heatmap (frontend.src.toolbar.elements.heatmapLogic)': 'disableHeatmap'
-        'set show heatmap tooltip (frontend.src.toolbar.elements.heatmapLogic)': 'setShowHeatmapTooltip'
-        'reset events (frontend.src.toolbar.elements.heatmapLogic)': 'resetEvents'
-        'reset events success (frontend.src.toolbar.elements.heatmapLogic)': 'resetEventsSuccess'
-        'reset events failure (frontend.src.toolbar.elements.heatmapLogic)': 'resetEventsFailure'
-        'get events (frontend.src.toolbar.elements.heatmapLogic)': 'getEvents'
-        'get events success (frontend.src.toolbar.elements.heatmapLogic)': 'getEventsSuccess'
-        'get events failure (frontend.src.toolbar.elements.heatmapLogic)': 'getEventsFailure'
+        'enable heatmap (toolbar.elements.heatmapLogic)': 'enableHeatmap'
+        'disable heatmap (toolbar.elements.heatmapLogic)': 'disableHeatmap'
+        'set show heatmap tooltip (toolbar.elements.heatmapLogic)': 'setShowHeatmapTooltip'
+        'reset events (toolbar.elements.heatmapLogic)': 'resetEvents'
+        'reset events success (toolbar.elements.heatmapLogic)': 'resetEventsSuccess'
+        'reset events failure (toolbar.elements.heatmapLogic)': 'resetEventsFailure'
+        'get events (toolbar.elements.heatmapLogic)': 'getEvents'
+        'get events success (toolbar.elements.heatmapLogic)': 'getEventsSuccess'
+        'get events failure (toolbar.elements.heatmapLogic)': 'getEventsFailure'
     }
     actionTypes: {
-        enableHeatmap: 'enable heatmap (frontend.src.toolbar.elements.heatmapLogic)'
-        disableHeatmap: 'disable heatmap (frontend.src.toolbar.elements.heatmapLogic)'
-        setShowHeatmapTooltip: 'set show heatmap tooltip (frontend.src.toolbar.elements.heatmapLogic)'
-        resetEvents: 'reset events (frontend.src.toolbar.elements.heatmapLogic)'
-        resetEventsSuccess: 'reset events success (frontend.src.toolbar.elements.heatmapLogic)'
-        resetEventsFailure: 'reset events failure (frontend.src.toolbar.elements.heatmapLogic)'
-        getEvents: 'get events (frontend.src.toolbar.elements.heatmapLogic)'
-        getEventsSuccess: 'get events success (frontend.src.toolbar.elements.heatmapLogic)'
-        getEventsFailure: 'get events failure (frontend.src.toolbar.elements.heatmapLogic)'
+        enableHeatmap: 'enable heatmap (toolbar.elements.heatmapLogic)'
+        disableHeatmap: 'disable heatmap (toolbar.elements.heatmapLogic)'
+        setShowHeatmapTooltip: 'set show heatmap tooltip (toolbar.elements.heatmapLogic)'
+        resetEvents: 'reset events (toolbar.elements.heatmapLogic)'
+        resetEventsSuccess: 'reset events success (toolbar.elements.heatmapLogic)'
+        resetEventsFailure: 'reset events failure (toolbar.elements.heatmapLogic)'
+        getEvents: 'get events (toolbar.elements.heatmapLogic)'
+        getEventsSuccess: 'get events success (toolbar.elements.heatmapLogic)'
+        getEventsFailure: 'get events failure (toolbar.elements.heatmapLogic)'
     }
     actions: {
         enableHeatmap: () => void
@@ -106,8 +106,8 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'toolbar', 'elements', 'heatmapLogic']
-    pathString: 'frontend.src.toolbar.elements.heatmapLogic'
+    path: ['toolbar', 'elements', 'heatmapLogic']
+    pathString: 'toolbar.elements.heatmapLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

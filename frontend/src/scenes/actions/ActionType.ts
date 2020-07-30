@@ -6,29 +6,29 @@ export interface actionLogicType {
         checkIsFinished: (
             action: any
         ) => {
-            type: 'check is finished (frontend.src.scenes.actions.Action)'
+            type: 'check is finished (scenes.actions.Action)'
             payload: { action: any }
         }
         setPollTimeout: (
             pollTimeout: any
         ) => {
-            type: 'set poll timeout (frontend.src.scenes.actions.Action)'
+            type: 'set poll timeout (scenes.actions.Action)'
             payload: { pollTimeout: any }
         }
         setIsComplete: (
             isComplete: any
         ) => {
-            type: 'set is complete (frontend.src.scenes.actions.Action)'
+            type: 'set is complete (scenes.actions.Action)'
             payload: { isComplete: any }
         }
         loadAction: () => {
-            type: 'load action (frontend.src.scenes.actions.Action)'
+            type: 'load action (scenes.actions.Action)'
             payload: any
         }
         loadActionSuccess: (
             action: any
         ) => {
-            type: 'load action success (frontend.src.scenes.actions.Action)'
+            type: 'load action success (scenes.actions.Action)'
             payload: {
                 action: any
             }
@@ -36,27 +36,27 @@ export interface actionLogicType {
         loadActionFailure: (
             error: string
         ) => {
-            type: 'load action failure (frontend.src.scenes.actions.Action)'
+            type: 'load action failure (scenes.actions.Action)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'check is finished (frontend.src.scenes.actions.Action)': 'checkIsFinished'
-        'set poll timeout (frontend.src.scenes.actions.Action)': 'setPollTimeout'
-        'set is complete (frontend.src.scenes.actions.Action)': 'setIsComplete'
-        'load action (frontend.src.scenes.actions.Action)': 'loadAction'
-        'load action success (frontend.src.scenes.actions.Action)': 'loadActionSuccess'
-        'load action failure (frontend.src.scenes.actions.Action)': 'loadActionFailure'
+        'check is finished (scenes.actions.Action)': 'checkIsFinished'
+        'set poll timeout (scenes.actions.Action)': 'setPollTimeout'
+        'set is complete (scenes.actions.Action)': 'setIsComplete'
+        'load action (scenes.actions.Action)': 'loadAction'
+        'load action success (scenes.actions.Action)': 'loadActionSuccess'
+        'load action failure (scenes.actions.Action)': 'loadActionFailure'
     }
     actionTypes: {
-        checkIsFinished: 'check is finished (frontend.src.scenes.actions.Action)'
-        setPollTimeout: 'set poll timeout (frontend.src.scenes.actions.Action)'
-        setIsComplete: 'set is complete (frontend.src.scenes.actions.Action)'
-        loadAction: 'load action (frontend.src.scenes.actions.Action)'
-        loadActionSuccess: 'load action success (frontend.src.scenes.actions.Action)'
-        loadActionFailure: 'load action failure (frontend.src.scenes.actions.Action)'
+        checkIsFinished: 'check is finished (scenes.actions.Action)'
+        setPollTimeout: 'set poll timeout (scenes.actions.Action)'
+        setIsComplete: 'set is complete (scenes.actions.Action)'
+        loadAction: 'load action (scenes.actions.Action)'
+        loadActionSuccess: 'load action success (scenes.actions.Action)'
+        loadActionFailure: 'load action failure (scenes.actions.Action)'
     }
     actions: {
         checkIsFinished: (action: any) => void
@@ -71,8 +71,8 @@ export interface actionLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'scenes', 'actions', 'Action']
-    pathString: 'frontend.src.scenes.actions.Action'
+    path: ['scenes', 'actions', 'Action']
+    pathString: 'scenes.actions.Action'
     propTypes: any
     props: Record<string, any>
     reducer: (

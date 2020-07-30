@@ -6,23 +6,23 @@ export interface intervalFilterLogicType {
         setIntervalFilter: (
             filter: any
         ) => {
-            type: 'set interval filter (frontend.src.lib.components.IntervalFilter.intervalFilterLogic)'
+            type: 'set interval filter (lib.components.IntervalFilter.intervalFilterLogic)'
             payload: { filter: any }
         }
         setDateFrom: (
             dateFrom: any
         ) => {
-            type: 'set date from (frontend.src.lib.components.IntervalFilter.intervalFilterLogic)'
+            type: 'set date from (lib.components.IntervalFilter.intervalFilterLogic)'
             payload: { dateFrom: any }
         }
     }
     actionKeys: {
-        'set interval filter (frontend.src.lib.components.IntervalFilter.intervalFilterLogic)': 'setIntervalFilter'
-        'set date from (frontend.src.lib.components.IntervalFilter.intervalFilterLogic)': 'setDateFrom'
+        'set interval filter (lib.components.IntervalFilter.intervalFilterLogic)': 'setIntervalFilter'
+        'set date from (lib.components.IntervalFilter.intervalFilterLogic)': 'setDateFrom'
     }
     actionTypes: {
-        setIntervalFilter: 'set interval filter (frontend.src.lib.components.IntervalFilter.intervalFilterLogic)'
-        setDateFrom: 'set date from (frontend.src.lib.components.IntervalFilter.intervalFilterLogic)'
+        setIntervalFilter: 'set interval filter (lib.components.IntervalFilter.intervalFilterLogic)'
+        setDateFrom: 'set date from (lib.components.IntervalFilter.intervalFilterLogic)'
     }
     actions: {
         setIntervalFilter: (filter: any) => void
@@ -33,8 +33,8 @@ export interface intervalFilterLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'lib', 'components', 'IntervalFilter', 'intervalFilterLogic']
-    pathString: 'frontend.src.lib.components.IntervalFilter.intervalFilterLogic'
+    path: ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic']
+    pathString: 'lib.components.IntervalFilter.intervalFilterLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

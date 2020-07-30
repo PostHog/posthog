@@ -4,17 +4,17 @@ export interface saveToDashboardModalLogicType {
     key: any
     actionCreators: {
         addNewDashboard: () => {
-            type: 'add new dashboard (frontend.src.lib.components.SaveToDashboard.SaveToDashboardModal)'
+            type: 'add new dashboard (lib.components.SaveToDashboard.SaveToDashboardModal)'
             payload: {
                 value: boolean
             }
         }
     }
     actionKeys: {
-        'add new dashboard (frontend.src.lib.components.SaveToDashboard.SaveToDashboardModal)': 'addNewDashboard'
+        'add new dashboard (lib.components.SaveToDashboard.SaveToDashboardModal)': 'addNewDashboard'
     }
     actionTypes: {
-        addNewDashboard: 'add new dashboard (frontend.src.lib.components.SaveToDashboard.SaveToDashboardModal)'
+        addNewDashboard: 'add new dashboard (lib.components.SaveToDashboard.SaveToDashboardModal)'
     }
     actions: {
         addNewDashboard: () => void
@@ -24,8 +24,8 @@ export interface saveToDashboardModalLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'lib', 'components', 'SaveToDashboard', 'SaveToDashboardModal']
-    pathString: 'frontend.src.lib.components.SaveToDashboard.SaveToDashboardModal'
+    path: ['lib', 'components', 'SaveToDashboard', 'SaveToDashboardModal']
+    pathString: 'lib.components.SaveToDashboard.SaveToDashboardModal'
     propTypes: any
     props: Record<string, any>
     reducer: (state: any, action: () => any, fullState: any) => {}

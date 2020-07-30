@@ -6,13 +6,13 @@ export interface eventsTableLogicType {
         setProperties: (
             properties: any
         ) => {
-            type: 'set properties (frontend.src.scenes.events.eventsTableLogic)'
+            type: 'set properties (scenes.events.eventsTableLogic)'
             payload: { properties: any }
         }
         fetchEvents: (
             nextParams?: any
         ) => {
-            type: 'fetch events (frontend.src.scenes.events.eventsTableLogic)'
+            type: 'fetch events (scenes.events.eventsTableLogic)'
             payload: { nextParams: any }
         }
         fetchEventsSuccess: (
@@ -20,23 +20,23 @@ export interface eventsTableLogicType {
             hasNext?: any,
             isNext?: any
         ) => {
-            type: 'fetch events success (frontend.src.scenes.events.eventsTableLogic)'
+            type: 'fetch events success (scenes.events.eventsTableLogic)'
             payload: { events: any; hasNext: boolean; isNext: boolean }
         }
         fetchNextEvents: () => {
-            type: 'fetch next events (frontend.src.scenes.events.eventsTableLogic)'
+            type: 'fetch next events (scenes.events.eventsTableLogic)'
             payload: {
                 value: boolean
             }
         }
         flipSort: () => {
-            type: 'flip sort (frontend.src.scenes.events.eventsTableLogic)'
+            type: 'flip sort (scenes.events.eventsTableLogic)'
             payload: {
                 value: boolean
             }
         }
         pollEvents: () => {
-            type: 'poll events (frontend.src.scenes.events.eventsTableLogic)'
+            type: 'poll events (scenes.events.eventsTableLogic)'
             payload: {
                 value: boolean
             }
@@ -44,29 +44,29 @@ export interface eventsTableLogicType {
         pollEventsSuccess: (
             events: any
         ) => {
-            type: 'poll events success (frontend.src.scenes.events.eventsTableLogic)'
+            type: 'poll events success (scenes.events.eventsTableLogic)'
             payload: { events: any }
         }
         prependNewEvents: (
             events: any
         ) => {
-            type: 'prepend new events (frontend.src.scenes.events.eventsTableLogic)'
+            type: 'prepend new events (scenes.events.eventsTableLogic)'
             payload: { events: any }
         }
         setSelectedEvent: (
             selectedEvent: any
         ) => {
-            type: 'set selected event (frontend.src.scenes.events.eventsTableLogic)'
+            type: 'set selected event (scenes.events.eventsTableLogic)'
             payload: { selectedEvent: any }
         }
         setPollTimeout: (
             pollTimeout: any
         ) => {
-            type: 'set poll timeout (frontend.src.scenes.events.eventsTableLogic)'
+            type: 'set poll timeout (scenes.events.eventsTableLogic)'
             payload: { pollTimeout: any }
         }
         setDelayedLoading: () => {
-            type: 'set delayed loading (frontend.src.scenes.events.eventsTableLogic)'
+            type: 'set delayed loading (scenes.events.eventsTableLogic)'
             payload: {
                 value: boolean
             }
@@ -74,37 +74,37 @@ export interface eventsTableLogicType {
         setEventFilter: (
             event: any
         ) => {
-            type: 'set event filter (frontend.src.scenes.events.eventsTableLogic)'
+            type: 'set event filter (scenes.events.eventsTableLogic)'
             payload: { event: any }
         }
     }
     actionKeys: {
-        'set properties (frontend.src.scenes.events.eventsTableLogic)': 'setProperties'
-        'fetch events (frontend.src.scenes.events.eventsTableLogic)': 'fetchEvents'
-        'fetch events success (frontend.src.scenes.events.eventsTableLogic)': 'fetchEventsSuccess'
-        'fetch next events (frontend.src.scenes.events.eventsTableLogic)': 'fetchNextEvents'
-        'flip sort (frontend.src.scenes.events.eventsTableLogic)': 'flipSort'
-        'poll events (frontend.src.scenes.events.eventsTableLogic)': 'pollEvents'
-        'poll events success (frontend.src.scenes.events.eventsTableLogic)': 'pollEventsSuccess'
-        'prepend new events (frontend.src.scenes.events.eventsTableLogic)': 'prependNewEvents'
-        'set selected event (frontend.src.scenes.events.eventsTableLogic)': 'setSelectedEvent'
-        'set poll timeout (frontend.src.scenes.events.eventsTableLogic)': 'setPollTimeout'
-        'set delayed loading (frontend.src.scenes.events.eventsTableLogic)': 'setDelayedLoading'
-        'set event filter (frontend.src.scenes.events.eventsTableLogic)': 'setEventFilter'
+        'set properties (scenes.events.eventsTableLogic)': 'setProperties'
+        'fetch events (scenes.events.eventsTableLogic)': 'fetchEvents'
+        'fetch events success (scenes.events.eventsTableLogic)': 'fetchEventsSuccess'
+        'fetch next events (scenes.events.eventsTableLogic)': 'fetchNextEvents'
+        'flip sort (scenes.events.eventsTableLogic)': 'flipSort'
+        'poll events (scenes.events.eventsTableLogic)': 'pollEvents'
+        'poll events success (scenes.events.eventsTableLogic)': 'pollEventsSuccess'
+        'prepend new events (scenes.events.eventsTableLogic)': 'prependNewEvents'
+        'set selected event (scenes.events.eventsTableLogic)': 'setSelectedEvent'
+        'set poll timeout (scenes.events.eventsTableLogic)': 'setPollTimeout'
+        'set delayed loading (scenes.events.eventsTableLogic)': 'setDelayedLoading'
+        'set event filter (scenes.events.eventsTableLogic)': 'setEventFilter'
     }
     actionTypes: {
-        setProperties: 'set properties (frontend.src.scenes.events.eventsTableLogic)'
-        fetchEvents: 'fetch events (frontend.src.scenes.events.eventsTableLogic)'
-        fetchEventsSuccess: 'fetch events success (frontend.src.scenes.events.eventsTableLogic)'
-        fetchNextEvents: 'fetch next events (frontend.src.scenes.events.eventsTableLogic)'
-        flipSort: 'flip sort (frontend.src.scenes.events.eventsTableLogic)'
-        pollEvents: 'poll events (frontend.src.scenes.events.eventsTableLogic)'
-        pollEventsSuccess: 'poll events success (frontend.src.scenes.events.eventsTableLogic)'
-        prependNewEvents: 'prepend new events (frontend.src.scenes.events.eventsTableLogic)'
-        setSelectedEvent: 'set selected event (frontend.src.scenes.events.eventsTableLogic)'
-        setPollTimeout: 'set poll timeout (frontend.src.scenes.events.eventsTableLogic)'
-        setDelayedLoading: 'set delayed loading (frontend.src.scenes.events.eventsTableLogic)'
-        setEventFilter: 'set event filter (frontend.src.scenes.events.eventsTableLogic)'
+        setProperties: 'set properties (scenes.events.eventsTableLogic)'
+        fetchEvents: 'fetch events (scenes.events.eventsTableLogic)'
+        fetchEventsSuccess: 'fetch events success (scenes.events.eventsTableLogic)'
+        fetchNextEvents: 'fetch next events (scenes.events.eventsTableLogic)'
+        flipSort: 'flip sort (scenes.events.eventsTableLogic)'
+        pollEvents: 'poll events (scenes.events.eventsTableLogic)'
+        pollEventsSuccess: 'poll events success (scenes.events.eventsTableLogic)'
+        prependNewEvents: 'prepend new events (scenes.events.eventsTableLogic)'
+        setSelectedEvent: 'set selected event (scenes.events.eventsTableLogic)'
+        setPollTimeout: 'set poll timeout (scenes.events.eventsTableLogic)'
+        setDelayedLoading: 'set delayed loading (scenes.events.eventsTableLogic)'
+        setEventFilter: 'set event filter (scenes.events.eventsTableLogic)'
     }
     actions: {
         setProperties: (properties: any) => void
@@ -125,8 +125,8 @@ export interface eventsTableLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'scenes', 'events', 'eventsTableLogic']
-    pathString: 'frontend.src.scenes.events.eventsTableLogic'
+    path: ['scenes', 'events', 'eventsTableLogic']
+    pathString: 'scenes.events.eventsTableLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

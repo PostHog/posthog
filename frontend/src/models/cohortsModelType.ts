@@ -6,17 +6,17 @@ export interface cohortsModelType {
         setPollTimeout: (
             pollTimeout: any
         ) => {
-            type: 'set poll timeout (frontend.src.models.cohortsModel)'
+            type: 'set poll timeout (models.cohortsModel)'
             payload: { pollTimeout: any }
         }
         loadCohorts: () => {
-            type: 'load cohorts (frontend.src.models.cohortsModel)'
+            type: 'load cohorts (models.cohortsModel)'
             payload: any
         }
         loadCohortsSuccess: (
             cohorts: any
         ) => {
-            type: 'load cohorts success (frontend.src.models.cohortsModel)'
+            type: 'load cohorts success (models.cohortsModel)'
             payload: {
                 cohorts: any
             }
@@ -24,23 +24,23 @@ export interface cohortsModelType {
         loadCohortsFailure: (
             error: string
         ) => {
-            type: 'load cohorts failure (frontend.src.models.cohortsModel)'
+            type: 'load cohorts failure (models.cohortsModel)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'set poll timeout (frontend.src.models.cohortsModel)': 'setPollTimeout'
-        'load cohorts (frontend.src.models.cohortsModel)': 'loadCohorts'
-        'load cohorts success (frontend.src.models.cohortsModel)': 'loadCohortsSuccess'
-        'load cohorts failure (frontend.src.models.cohortsModel)': 'loadCohortsFailure'
+        'set poll timeout (models.cohortsModel)': 'setPollTimeout'
+        'load cohorts (models.cohortsModel)': 'loadCohorts'
+        'load cohorts success (models.cohortsModel)': 'loadCohortsSuccess'
+        'load cohorts failure (models.cohortsModel)': 'loadCohortsFailure'
     }
     actionTypes: {
-        setPollTimeout: 'set poll timeout (frontend.src.models.cohortsModel)'
-        loadCohorts: 'load cohorts (frontend.src.models.cohortsModel)'
-        loadCohortsSuccess: 'load cohorts success (frontend.src.models.cohortsModel)'
-        loadCohortsFailure: 'load cohorts failure (frontend.src.models.cohortsModel)'
+        setPollTimeout: 'set poll timeout (models.cohortsModel)'
+        loadCohorts: 'load cohorts (models.cohortsModel)'
+        loadCohortsSuccess: 'load cohorts success (models.cohortsModel)'
+        loadCohortsFailure: 'load cohorts failure (models.cohortsModel)'
     }
     actions: {
         setPollTimeout: (pollTimeout: any) => void
@@ -53,8 +53,8 @@ export interface cohortsModelType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'models', 'cohortsModel']
-    pathString: 'frontend.src.models.cohortsModel'
+    path: ['models', 'cohortsModel']
+    pathString: 'models.cohortsModel'
     propTypes: any
     props: Record<string, any>
     reducer: (

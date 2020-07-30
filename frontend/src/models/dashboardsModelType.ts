@@ -6,27 +6,27 @@ export interface dashboardsModelType {
         delayedDeleteDashboard: (
             id: any
         ) => {
-            type: 'delayed delete dashboard (frontend.src.models.dashboardsModel)'
+            type: 'delayed delete dashboard (models.dashboardsModel)'
             payload: { id: any }
         }
         setLastVisitedDashboardId: (
             id: any
         ) => {
-            type: 'set last visited dashboard id (frontend.src.models.dashboardsModel)'
+            type: 'set last visited dashboard id (models.dashboardsModel)'
             payload: { id: any }
         }
         updateDashboardItem: (
             item: any
         ) => {
-            type: 'update dashboard item (frontend.src.models.dashboardsModel)'
+            type: 'update dashboard item (models.dashboardsModel)'
             payload: { item: any }
         }
         loadDashboards: () => {
-            type: 'load dashboards (frontend.src.models.dashboardsModel)'
+            type: 'load dashboards (models.dashboardsModel)'
             payload: any
         }
         loadDashboardsSuccess: (rawDashboards: {}) => {
-            type: 'load dashboards success (frontend.src.models.dashboardsModel)'
+            type: 'load dashboards success (models.dashboardsModel)'
             payload: {
                 rawDashboards: {}
             }
@@ -34,7 +34,7 @@ export interface dashboardsModelType {
         loadDashboardsFailure: (
             error: string
         ) => {
-            type: 'load dashboards failure (frontend.src.models.dashboardsModel)'
+            type: 'load dashboards failure (models.dashboardsModel)'
             payload: {
                 error: string
             }
@@ -42,13 +42,13 @@ export interface dashboardsModelType {
         addDashboard: ({
             name,
         }: any) => {
-            type: 'add dashboard (frontend.src.models.dashboardsModel)'
+            type: 'add dashboard (models.dashboardsModel)'
             payload: any
         }
         addDashboardSuccess: (
             dashboard: any
         ) => {
-            type: 'add dashboard success (frontend.src.models.dashboardsModel)'
+            type: 'add dashboard success (models.dashboardsModel)'
             payload: {
                 dashboard: any
             }
@@ -56,7 +56,7 @@ export interface dashboardsModelType {
         addDashboardFailure: (
             error: string
         ) => {
-            type: 'add dashboard failure (frontend.src.models.dashboardsModel)'
+            type: 'add dashboard failure (models.dashboardsModel)'
             payload: {
                 error: string
             }
@@ -65,13 +65,13 @@ export interface dashboardsModelType {
             id,
             name,
         }: any) => {
-            type: 'rename dashboard (frontend.src.models.dashboardsModel)'
+            type: 'rename dashboard (models.dashboardsModel)'
             payload: any
         }
         renameDashboardSuccess: (
             dashboard: any
         ) => {
-            type: 'rename dashboard success (frontend.src.models.dashboardsModel)'
+            type: 'rename dashboard success (models.dashboardsModel)'
             payload: {
                 dashboard: any
             }
@@ -79,7 +79,7 @@ export interface dashboardsModelType {
         renameDashboardFailure: (
             error: string
         ) => {
-            type: 'rename dashboard failure (frontend.src.models.dashboardsModel)'
+            type: 'rename dashboard failure (models.dashboardsModel)'
             payload: {
                 error: string
             }
@@ -88,13 +88,13 @@ export interface dashboardsModelType {
             id,
             isShared,
         }: any) => {
-            type: 'set is shared dashboard (frontend.src.models.dashboardsModel)'
+            type: 'set is shared dashboard (models.dashboardsModel)'
             payload: any
         }
         setIsSharedDashboardSuccess: (
             dashboard: any
         ) => {
-            type: 'set is shared dashboard success (frontend.src.models.dashboardsModel)'
+            type: 'set is shared dashboard success (models.dashboardsModel)'
             payload: {
                 dashboard: any
             }
@@ -102,7 +102,7 @@ export interface dashboardsModelType {
         setIsSharedDashboardFailure: (
             error: string
         ) => {
-            type: 'set is shared dashboard failure (frontend.src.models.dashboardsModel)'
+            type: 'set is shared dashboard failure (models.dashboardsModel)'
             payload: {
                 error: string
             }
@@ -110,13 +110,13 @@ export interface dashboardsModelType {
         deleteDashboard: ({
             id,
         }: any) => {
-            type: 'delete dashboard (frontend.src.models.dashboardsModel)'
+            type: 'delete dashboard (models.dashboardsModel)'
             payload: any
         }
         deleteDashboardSuccess: (
             dashboard: any
         ) => {
-            type: 'delete dashboard success (frontend.src.models.dashboardsModel)'
+            type: 'delete dashboard success (models.dashboardsModel)'
             payload: {
                 dashboard: any
             }
@@ -124,7 +124,7 @@ export interface dashboardsModelType {
         deleteDashboardFailure: (
             error: string
         ) => {
-            type: 'delete dashboard failure (frontend.src.models.dashboardsModel)'
+            type: 'delete dashboard failure (models.dashboardsModel)'
             payload: {
                 error: string
             }
@@ -132,13 +132,13 @@ export interface dashboardsModelType {
         restoreDashboard: ({
             id,
         }: any) => {
-            type: 'restore dashboard (frontend.src.models.dashboardsModel)'
+            type: 'restore dashboard (models.dashboardsModel)'
             payload: any
         }
         restoreDashboardSuccess: (
             dashboard: any
         ) => {
-            type: 'restore dashboard success (frontend.src.models.dashboardsModel)'
+            type: 'restore dashboard success (models.dashboardsModel)'
             payload: {
                 dashboard: any
             }
@@ -146,7 +146,7 @@ export interface dashboardsModelType {
         restoreDashboardFailure: (
             error: string
         ) => {
-            type: 'restore dashboard failure (frontend.src.models.dashboardsModel)'
+            type: 'restore dashboard failure (models.dashboardsModel)'
             payload: {
                 error: string
             }
@@ -154,13 +154,13 @@ export interface dashboardsModelType {
         pinDashboard: (
             id: any
         ) => {
-            type: 'pin dashboard (frontend.src.models.dashboardsModel)'
+            type: 'pin dashboard (models.dashboardsModel)'
             payload: any
         }
         pinDashboardSuccess: (
             dashboard: any
         ) => {
-            type: 'pin dashboard success (frontend.src.models.dashboardsModel)'
+            type: 'pin dashboard success (models.dashboardsModel)'
             payload: {
                 dashboard: any
             }
@@ -168,7 +168,7 @@ export interface dashboardsModelType {
         pinDashboardFailure: (
             error: string
         ) => {
-            type: 'pin dashboard failure (frontend.src.models.dashboardsModel)'
+            type: 'pin dashboard failure (models.dashboardsModel)'
             payload: {
                 error: string
             }
@@ -176,13 +176,13 @@ export interface dashboardsModelType {
         unpinDashboard: (
             id: any
         ) => {
-            type: 'unpin dashboard (frontend.src.models.dashboardsModel)'
+            type: 'unpin dashboard (models.dashboardsModel)'
             payload: any
         }
         unpinDashboardSuccess: (
             dashboard: any
         ) => {
-            type: 'unpin dashboard success (frontend.src.models.dashboardsModel)'
+            type: 'unpin dashboard success (models.dashboardsModel)'
             payload: {
                 dashboard: any
             }
@@ -190,69 +190,69 @@ export interface dashboardsModelType {
         unpinDashboardFailure: (
             error: string
         ) => {
-            type: 'unpin dashboard failure (frontend.src.models.dashboardsModel)'
+            type: 'unpin dashboard failure (models.dashboardsModel)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'delayed delete dashboard (frontend.src.models.dashboardsModel)': 'delayedDeleteDashboard'
-        'set last visited dashboard id (frontend.src.models.dashboardsModel)': 'setLastVisitedDashboardId'
-        'update dashboard item (frontend.src.models.dashboardsModel)': 'updateDashboardItem'
-        'load dashboards (frontend.src.models.dashboardsModel)': 'loadDashboards'
-        'load dashboards success (frontend.src.models.dashboardsModel)': 'loadDashboardsSuccess'
-        'load dashboards failure (frontend.src.models.dashboardsModel)': 'loadDashboardsFailure'
-        'add dashboard (frontend.src.models.dashboardsModel)': 'addDashboard'
-        'add dashboard success (frontend.src.models.dashboardsModel)': 'addDashboardSuccess'
-        'add dashboard failure (frontend.src.models.dashboardsModel)': 'addDashboardFailure'
-        'rename dashboard (frontend.src.models.dashboardsModel)': 'renameDashboard'
-        'rename dashboard success (frontend.src.models.dashboardsModel)': 'renameDashboardSuccess'
-        'rename dashboard failure (frontend.src.models.dashboardsModel)': 'renameDashboardFailure'
-        'set is shared dashboard (frontend.src.models.dashboardsModel)': 'setIsSharedDashboard'
-        'set is shared dashboard success (frontend.src.models.dashboardsModel)': 'setIsSharedDashboardSuccess'
-        'set is shared dashboard failure (frontend.src.models.dashboardsModel)': 'setIsSharedDashboardFailure'
-        'delete dashboard (frontend.src.models.dashboardsModel)': 'deleteDashboard'
-        'delete dashboard success (frontend.src.models.dashboardsModel)': 'deleteDashboardSuccess'
-        'delete dashboard failure (frontend.src.models.dashboardsModel)': 'deleteDashboardFailure'
-        'restore dashboard (frontend.src.models.dashboardsModel)': 'restoreDashboard'
-        'restore dashboard success (frontend.src.models.dashboardsModel)': 'restoreDashboardSuccess'
-        'restore dashboard failure (frontend.src.models.dashboardsModel)': 'restoreDashboardFailure'
-        'pin dashboard (frontend.src.models.dashboardsModel)': 'pinDashboard'
-        'pin dashboard success (frontend.src.models.dashboardsModel)': 'pinDashboardSuccess'
-        'pin dashboard failure (frontend.src.models.dashboardsModel)': 'pinDashboardFailure'
-        'unpin dashboard (frontend.src.models.dashboardsModel)': 'unpinDashboard'
-        'unpin dashboard success (frontend.src.models.dashboardsModel)': 'unpinDashboardSuccess'
-        'unpin dashboard failure (frontend.src.models.dashboardsModel)': 'unpinDashboardFailure'
+        'delayed delete dashboard (models.dashboardsModel)': 'delayedDeleteDashboard'
+        'set last visited dashboard id (models.dashboardsModel)': 'setLastVisitedDashboardId'
+        'update dashboard item (models.dashboardsModel)': 'updateDashboardItem'
+        'load dashboards (models.dashboardsModel)': 'loadDashboards'
+        'load dashboards success (models.dashboardsModel)': 'loadDashboardsSuccess'
+        'load dashboards failure (models.dashboardsModel)': 'loadDashboardsFailure'
+        'add dashboard (models.dashboardsModel)': 'addDashboard'
+        'add dashboard success (models.dashboardsModel)': 'addDashboardSuccess'
+        'add dashboard failure (models.dashboardsModel)': 'addDashboardFailure'
+        'rename dashboard (models.dashboardsModel)': 'renameDashboard'
+        'rename dashboard success (models.dashboardsModel)': 'renameDashboardSuccess'
+        'rename dashboard failure (models.dashboardsModel)': 'renameDashboardFailure'
+        'set is shared dashboard (models.dashboardsModel)': 'setIsSharedDashboard'
+        'set is shared dashboard success (models.dashboardsModel)': 'setIsSharedDashboardSuccess'
+        'set is shared dashboard failure (models.dashboardsModel)': 'setIsSharedDashboardFailure'
+        'delete dashboard (models.dashboardsModel)': 'deleteDashboard'
+        'delete dashboard success (models.dashboardsModel)': 'deleteDashboardSuccess'
+        'delete dashboard failure (models.dashboardsModel)': 'deleteDashboardFailure'
+        'restore dashboard (models.dashboardsModel)': 'restoreDashboard'
+        'restore dashboard success (models.dashboardsModel)': 'restoreDashboardSuccess'
+        'restore dashboard failure (models.dashboardsModel)': 'restoreDashboardFailure'
+        'pin dashboard (models.dashboardsModel)': 'pinDashboard'
+        'pin dashboard success (models.dashboardsModel)': 'pinDashboardSuccess'
+        'pin dashboard failure (models.dashboardsModel)': 'pinDashboardFailure'
+        'unpin dashboard (models.dashboardsModel)': 'unpinDashboard'
+        'unpin dashboard success (models.dashboardsModel)': 'unpinDashboardSuccess'
+        'unpin dashboard failure (models.dashboardsModel)': 'unpinDashboardFailure'
     }
     actionTypes: {
-        delayedDeleteDashboard: 'delayed delete dashboard (frontend.src.models.dashboardsModel)'
-        setLastVisitedDashboardId: 'set last visited dashboard id (frontend.src.models.dashboardsModel)'
-        updateDashboardItem: 'update dashboard item (frontend.src.models.dashboardsModel)'
-        loadDashboards: 'load dashboards (frontend.src.models.dashboardsModel)'
-        loadDashboardsSuccess: 'load dashboards success (frontend.src.models.dashboardsModel)'
-        loadDashboardsFailure: 'load dashboards failure (frontend.src.models.dashboardsModel)'
-        addDashboard: 'add dashboard (frontend.src.models.dashboardsModel)'
-        addDashboardSuccess: 'add dashboard success (frontend.src.models.dashboardsModel)'
-        addDashboardFailure: 'add dashboard failure (frontend.src.models.dashboardsModel)'
-        renameDashboard: 'rename dashboard (frontend.src.models.dashboardsModel)'
-        renameDashboardSuccess: 'rename dashboard success (frontend.src.models.dashboardsModel)'
-        renameDashboardFailure: 'rename dashboard failure (frontend.src.models.dashboardsModel)'
-        setIsSharedDashboard: 'set is shared dashboard (frontend.src.models.dashboardsModel)'
-        setIsSharedDashboardSuccess: 'set is shared dashboard success (frontend.src.models.dashboardsModel)'
-        setIsSharedDashboardFailure: 'set is shared dashboard failure (frontend.src.models.dashboardsModel)'
-        deleteDashboard: 'delete dashboard (frontend.src.models.dashboardsModel)'
-        deleteDashboardSuccess: 'delete dashboard success (frontend.src.models.dashboardsModel)'
-        deleteDashboardFailure: 'delete dashboard failure (frontend.src.models.dashboardsModel)'
-        restoreDashboard: 'restore dashboard (frontend.src.models.dashboardsModel)'
-        restoreDashboardSuccess: 'restore dashboard success (frontend.src.models.dashboardsModel)'
-        restoreDashboardFailure: 'restore dashboard failure (frontend.src.models.dashboardsModel)'
-        pinDashboard: 'pin dashboard (frontend.src.models.dashboardsModel)'
-        pinDashboardSuccess: 'pin dashboard success (frontend.src.models.dashboardsModel)'
-        pinDashboardFailure: 'pin dashboard failure (frontend.src.models.dashboardsModel)'
-        unpinDashboard: 'unpin dashboard (frontend.src.models.dashboardsModel)'
-        unpinDashboardSuccess: 'unpin dashboard success (frontend.src.models.dashboardsModel)'
-        unpinDashboardFailure: 'unpin dashboard failure (frontend.src.models.dashboardsModel)'
+        delayedDeleteDashboard: 'delayed delete dashboard (models.dashboardsModel)'
+        setLastVisitedDashboardId: 'set last visited dashboard id (models.dashboardsModel)'
+        updateDashboardItem: 'update dashboard item (models.dashboardsModel)'
+        loadDashboards: 'load dashboards (models.dashboardsModel)'
+        loadDashboardsSuccess: 'load dashboards success (models.dashboardsModel)'
+        loadDashboardsFailure: 'load dashboards failure (models.dashboardsModel)'
+        addDashboard: 'add dashboard (models.dashboardsModel)'
+        addDashboardSuccess: 'add dashboard success (models.dashboardsModel)'
+        addDashboardFailure: 'add dashboard failure (models.dashboardsModel)'
+        renameDashboard: 'rename dashboard (models.dashboardsModel)'
+        renameDashboardSuccess: 'rename dashboard success (models.dashboardsModel)'
+        renameDashboardFailure: 'rename dashboard failure (models.dashboardsModel)'
+        setIsSharedDashboard: 'set is shared dashboard (models.dashboardsModel)'
+        setIsSharedDashboardSuccess: 'set is shared dashboard success (models.dashboardsModel)'
+        setIsSharedDashboardFailure: 'set is shared dashboard failure (models.dashboardsModel)'
+        deleteDashboard: 'delete dashboard (models.dashboardsModel)'
+        deleteDashboardSuccess: 'delete dashboard success (models.dashboardsModel)'
+        deleteDashboardFailure: 'delete dashboard failure (models.dashboardsModel)'
+        restoreDashboard: 'restore dashboard (models.dashboardsModel)'
+        restoreDashboardSuccess: 'restore dashboard success (models.dashboardsModel)'
+        restoreDashboardFailure: 'restore dashboard failure (models.dashboardsModel)'
+        pinDashboard: 'pin dashboard (models.dashboardsModel)'
+        pinDashboardSuccess: 'pin dashboard success (models.dashboardsModel)'
+        pinDashboardFailure: 'pin dashboard failure (models.dashboardsModel)'
+        unpinDashboard: 'unpin dashboard (models.dashboardsModel)'
+        unpinDashboardSuccess: 'unpin dashboard success (models.dashboardsModel)'
+        unpinDashboardFailure: 'unpin dashboard failure (models.dashboardsModel)'
     }
     actions: {
         delayedDeleteDashboard: (id: any) => void
@@ -288,8 +288,8 @@ export interface dashboardsModelType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'models', 'dashboardsModel']
-    pathString: 'frontend.src.models.dashboardsModel'
+    path: ['models', 'dashboardsModel']
+    pathString: 'models.dashboardsModel'
     propTypes: any
     props: Record<string, any>
     reducer: (

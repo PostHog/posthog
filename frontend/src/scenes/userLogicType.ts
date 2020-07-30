@@ -4,7 +4,7 @@ export interface userLogicType<UserType, EventProperty> {
     key: any
     actionCreators: {
         loadUser: () => {
-            type: 'load user (frontend.src.scenes.userLogic)'
+            type: 'load user (scenes.userLogic)'
             payload: {
                 value: boolean
             }
@@ -13,44 +13,44 @@ export interface userLogicType<UserType, EventProperty> {
             user: UserType | null,
             updateKey?: string
         ) => {
-            type: 'set user (frontend.src.scenes.userLogic)'
+            type: 'set user (scenes.userLogic)'
             payload: { user: UserType | null; updateKey: string | undefined }
         }
         userUpdateRequest: (
             update: Partial<UserType>,
             updateKey?: string
         ) => {
-            type: 'user update request (frontend.src.scenes.userLogic)'
+            type: 'user update request (scenes.userLogic)'
             payload: { update: Partial<UserType>; updateKey: string | undefined }
         }
         userUpdateSuccess: (
             user: UserType,
             updateKey?: string
         ) => {
-            type: 'user update success (frontend.src.scenes.userLogic)'
+            type: 'user update success (scenes.userLogic)'
             payload: { user: UserType; updateKey: string | undefined }
         }
         userUpdateFailure: (
             error: string,
             updateKey?: string
         ) => {
-            type: 'user update failure (frontend.src.scenes.userLogic)'
+            type: 'user update failure (scenes.userLogic)'
             payload: { updateKey: string | undefined; error: string }
         }
     }
     actionKeys: {
-        'load user (frontend.src.scenes.userLogic)': 'loadUser'
-        'set user (frontend.src.scenes.userLogic)': 'setUser'
-        'user update request (frontend.src.scenes.userLogic)': 'userUpdateRequest'
-        'user update success (frontend.src.scenes.userLogic)': 'userUpdateSuccess'
-        'user update failure (frontend.src.scenes.userLogic)': 'userUpdateFailure'
+        'load user (scenes.userLogic)': 'loadUser'
+        'set user (scenes.userLogic)': 'setUser'
+        'user update request (scenes.userLogic)': 'userUpdateRequest'
+        'user update success (scenes.userLogic)': 'userUpdateSuccess'
+        'user update failure (scenes.userLogic)': 'userUpdateFailure'
     }
     actionTypes: {
-        loadUser: 'load user (frontend.src.scenes.userLogic)'
-        setUser: 'set user (frontend.src.scenes.userLogic)'
-        userUpdateRequest: 'user update request (frontend.src.scenes.userLogic)'
-        userUpdateSuccess: 'user update success (frontend.src.scenes.userLogic)'
-        userUpdateFailure: 'user update failure (frontend.src.scenes.userLogic)'
+        loadUser: 'load user (scenes.userLogic)'
+        setUser: 'set user (scenes.userLogic)'
+        userUpdateRequest: 'user update request (scenes.userLogic)'
+        userUpdateSuccess: 'user update success (scenes.userLogic)'
+        userUpdateFailure: 'user update failure (scenes.userLogic)'
     }
     actions: {
         loadUser: () => void
@@ -64,8 +64,8 @@ export interface userLogicType<UserType, EventProperty> {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'scenes', 'userLogic']
-    pathString: 'frontend.src.scenes.userLogic'
+    path: ['scenes', 'userLogic']
+    pathString: 'scenes.userLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

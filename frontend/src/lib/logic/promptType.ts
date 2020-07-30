@@ -11,15 +11,15 @@ export interface promptType {
             success,
             failure,
         }: any) => {
-            type: 'prompt (frontend.src.lib.logic.prompt)'
+            type: 'prompt (lib.logic.prompt)'
             payload: { title: any; placeholder: any; value: any; error: any; success: any; failure: any }
         }
     }
     actionKeys: {
-        'prompt (frontend.src.lib.logic.prompt)': 'prompt'
+        'prompt (lib.logic.prompt)': 'prompt'
     }
     actionTypes: {
-        prompt: 'prompt (frontend.src.lib.logic.prompt)'
+        prompt: 'prompt (lib.logic.prompt)'
     }
     actions: {
         prompt: ({ title, placeholder, value, error, success, failure }: any) => void
@@ -29,8 +29,8 @@ export interface promptType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'lib', 'logic', 'prompt']
-    pathString: 'frontend.src.lib.logic.prompt'
+    path: ['lib', 'logic', 'prompt']
+    pathString: 'lib.logic.prompt'
     propTypes: any
     props: Record<string, any>
     reducer: (state: any, action: () => any, fullState: any) => {}

@@ -8,23 +8,23 @@ export interface annotationsModelType {
             date_marker: any,
             dashboard_item: any
         ) => {
-            type: 'create global annotation (frontend.src.models.annotationsModel)'
+            type: 'create global annotation (models.annotationsModel)'
             payload: { content: any; date_marker: any; created_at: Moment; dashboard_item: any }
         }
         deleteGlobalAnnotation: (
             id: any
         ) => {
-            type: 'delete global annotation (frontend.src.models.annotationsModel)'
+            type: 'delete global annotation (models.annotationsModel)'
             payload: { id: any }
         }
         loadGlobalAnnotations: () => {
-            type: 'load global annotations (frontend.src.models.annotationsModel)'
+            type: 'load global annotations (models.annotationsModel)'
             payload: any
         }
         loadGlobalAnnotationsSuccess: (
             globalAnnotations: never[]
         ) => {
-            type: 'load global annotations success (frontend.src.models.annotationsModel)'
+            type: 'load global annotations success (models.annotationsModel)'
             payload: {
                 globalAnnotations: never[]
             }
@@ -32,25 +32,25 @@ export interface annotationsModelType {
         loadGlobalAnnotationsFailure: (
             error: string
         ) => {
-            type: 'load global annotations failure (frontend.src.models.annotationsModel)'
+            type: 'load global annotations failure (models.annotationsModel)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'create global annotation (frontend.src.models.annotationsModel)': 'createGlobalAnnotation'
-        'delete global annotation (frontend.src.models.annotationsModel)': 'deleteGlobalAnnotation'
-        'load global annotations (frontend.src.models.annotationsModel)': 'loadGlobalAnnotations'
-        'load global annotations success (frontend.src.models.annotationsModel)': 'loadGlobalAnnotationsSuccess'
-        'load global annotations failure (frontend.src.models.annotationsModel)': 'loadGlobalAnnotationsFailure'
+        'create global annotation (models.annotationsModel)': 'createGlobalAnnotation'
+        'delete global annotation (models.annotationsModel)': 'deleteGlobalAnnotation'
+        'load global annotations (models.annotationsModel)': 'loadGlobalAnnotations'
+        'load global annotations success (models.annotationsModel)': 'loadGlobalAnnotationsSuccess'
+        'load global annotations failure (models.annotationsModel)': 'loadGlobalAnnotationsFailure'
     }
     actionTypes: {
-        createGlobalAnnotation: 'create global annotation (frontend.src.models.annotationsModel)'
-        deleteGlobalAnnotation: 'delete global annotation (frontend.src.models.annotationsModel)'
-        loadGlobalAnnotations: 'load global annotations (frontend.src.models.annotationsModel)'
-        loadGlobalAnnotationsSuccess: 'load global annotations success (frontend.src.models.annotationsModel)'
-        loadGlobalAnnotationsFailure: 'load global annotations failure (frontend.src.models.annotationsModel)'
+        createGlobalAnnotation: 'create global annotation (models.annotationsModel)'
+        deleteGlobalAnnotation: 'delete global annotation (models.annotationsModel)'
+        loadGlobalAnnotations: 'load global annotations (models.annotationsModel)'
+        loadGlobalAnnotationsSuccess: 'load global annotations success (models.annotationsModel)'
+        loadGlobalAnnotationsFailure: 'load global annotations failure (models.annotationsModel)'
     }
     actions: {
         createGlobalAnnotation: (content: any, date_marker: any, dashboard_item: any) => void
@@ -64,8 +64,8 @@ export interface annotationsModelType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'models', 'annotationsModel']
-    pathString: 'frontend.src.models.annotationsModel'
+    path: ['models', 'annotationsModel']
+    pathString: 'models.annotationsModel'
     propTypes: any
     props: Record<string, any>
     reducer: (

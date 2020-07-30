@@ -14,13 +14,13 @@ export interface elementsLogicType<
     key: any
     actionCreators: {
         enableInspect: () => {
-            type: 'enable inspect (frontend.src.toolbar.elements.elementsLogic)'
+            type: 'enable inspect (toolbar.elements.elementsLogic)'
             payload: {
                 value: boolean
             }
         }
         disableInspect: () => {
-            type: 'disable inspect (frontend.src.toolbar.elements.elementsLogic)'
+            type: 'disable inspect (toolbar.elements.elementsLogic)'
             payload: {
                 value: boolean
             }
@@ -28,17 +28,17 @@ export interface elementsLogicType<
         selectElement: (
             element: HTMLElement | null
         ) => {
-            type: 'select element (frontend.src.toolbar.elements.elementsLogic)'
+            type: 'select element (toolbar.elements.elementsLogic)'
             payload: { element: HTMLElement | null }
         }
         createAction: (
             element: HTMLElement
         ) => {
-            type: 'create action (frontend.src.toolbar.elements.elementsLogic)'
+            type: 'create action (toolbar.elements.elementsLogic)'
             payload: { element: HTMLElement }
         }
         updateRects: () => {
-            type: 'update rects (frontend.src.toolbar.elements.elementsLogic)'
+            type: 'update rects (toolbar.elements.elementsLogic)'
             payload: {
                 value: boolean
             }
@@ -46,41 +46,41 @@ export interface elementsLogicType<
         setHoverElement: (
             element: HTMLElement | null
         ) => {
-            type: 'set hover element (frontend.src.toolbar.elements.elementsLogic)'
+            type: 'set hover element (toolbar.elements.elementsLogic)'
             payload: { element: HTMLElement | null }
         }
         setHighlightElement: (
             element: HTMLElement | null
         ) => {
-            type: 'set highlight element (frontend.src.toolbar.elements.elementsLogic)'
+            type: 'set highlight element (toolbar.elements.elementsLogic)'
             payload: { element: HTMLElement | null }
         }
         setSelectedElement: (
             element: HTMLElement | null
         ) => {
-            type: 'set selected element (frontend.src.toolbar.elements.elementsLogic)'
+            type: 'set selected element (toolbar.elements.elementsLogic)'
             payload: { element: HTMLElement | null }
         }
     }
     actionKeys: {
-        'enable inspect (frontend.src.toolbar.elements.elementsLogic)': 'enableInspect'
-        'disable inspect (frontend.src.toolbar.elements.elementsLogic)': 'disableInspect'
-        'select element (frontend.src.toolbar.elements.elementsLogic)': 'selectElement'
-        'create action (frontend.src.toolbar.elements.elementsLogic)': 'createAction'
-        'update rects (frontend.src.toolbar.elements.elementsLogic)': 'updateRects'
-        'set hover element (frontend.src.toolbar.elements.elementsLogic)': 'setHoverElement'
-        'set highlight element (frontend.src.toolbar.elements.elementsLogic)': 'setHighlightElement'
-        'set selected element (frontend.src.toolbar.elements.elementsLogic)': 'setSelectedElement'
+        'enable inspect (toolbar.elements.elementsLogic)': 'enableInspect'
+        'disable inspect (toolbar.elements.elementsLogic)': 'disableInspect'
+        'select element (toolbar.elements.elementsLogic)': 'selectElement'
+        'create action (toolbar.elements.elementsLogic)': 'createAction'
+        'update rects (toolbar.elements.elementsLogic)': 'updateRects'
+        'set hover element (toolbar.elements.elementsLogic)': 'setHoverElement'
+        'set highlight element (toolbar.elements.elementsLogic)': 'setHighlightElement'
+        'set selected element (toolbar.elements.elementsLogic)': 'setSelectedElement'
     }
     actionTypes: {
-        enableInspect: 'enable inspect (frontend.src.toolbar.elements.elementsLogic)'
-        disableInspect: 'disable inspect (frontend.src.toolbar.elements.elementsLogic)'
-        selectElement: 'select element (frontend.src.toolbar.elements.elementsLogic)'
-        createAction: 'create action (frontend.src.toolbar.elements.elementsLogic)'
-        updateRects: 'update rects (frontend.src.toolbar.elements.elementsLogic)'
-        setHoverElement: 'set hover element (frontend.src.toolbar.elements.elementsLogic)'
-        setHighlightElement: 'set highlight element (frontend.src.toolbar.elements.elementsLogic)'
-        setSelectedElement: 'set selected element (frontend.src.toolbar.elements.elementsLogic)'
+        enableInspect: 'enable inspect (toolbar.elements.elementsLogic)'
+        disableInspect: 'disable inspect (toolbar.elements.elementsLogic)'
+        selectElement: 'select element (toolbar.elements.elementsLogic)'
+        createAction: 'create action (toolbar.elements.elementsLogic)'
+        updateRects: 'update rects (toolbar.elements.elementsLogic)'
+        setHoverElement: 'set hover element (toolbar.elements.elementsLogic)'
+        setHighlightElement: 'set highlight element (toolbar.elements.elementsLogic)'
+        setSelectedElement: 'set selected element (toolbar.elements.elementsLogic)'
     }
     actions: {
         enableInspect: () => void
@@ -97,8 +97,8 @@ export interface elementsLogicType<
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'toolbar', 'elements', 'elementsLogic']
-    pathString: 'frontend.src.toolbar.elements.elementsLogic'
+    path: ['toolbar', 'elements', 'elementsLogic']
+    pathString: 'toolbar.elements.elementsLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (
@@ -323,30 +323,30 @@ export interface elementsLogicType<
         } | null
     }
     __keaTypeGenInternalReducerActions: {
-        'set tab (frontend.src.toolbar.toolbarTabLogic)': (
+        'set tab (toolbar.toolbarTabLogic)': (
             tab: ToolbarTab | string
         ) => {
-            type: 'set tab (frontend.src.toolbar.toolbarTabLogic)'
+            type: 'set tab (toolbar.toolbarTabLogic)'
             payload: {
                 tab: string
             }
         }
-        'disable heatmap (frontend.src.toolbar.elements.heatmapLogic)': () => {
-            type: 'disable heatmap (frontend.src.toolbar.elements.heatmapLogic)'
+        'disable heatmap (toolbar.elements.heatmapLogic)': () => {
+            type: 'disable heatmap (toolbar.elements.heatmapLogic)'
             payload: {
                 value: boolean
             }
         }
-        'select action (frontend.src.toolbar.actions.actionsTabLogic)': (
+        'select action (toolbar.actions.actionsTabLogic)': (
             id: number | null
         ) => {
-            type: 'select action (frontend.src.toolbar.actions.actionsTabLogic)'
+            type: 'select action (toolbar.actions.actionsTabLogic)'
             payload: {
                 id: number | null
             }
         }
-        'enable heatmap (frontend.src.toolbar.elements.heatmapLogic)': () => {
-            type: 'enable heatmap (frontend.src.toolbar.elements.heatmapLogic)'
+        'enable heatmap (toolbar.elements.heatmapLogic)': () => {
+            type: 'enable heatmap (toolbar.elements.heatmapLogic)'
             payload: {
                 value: boolean
             }

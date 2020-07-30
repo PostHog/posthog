@@ -4,13 +4,13 @@ export interface actionsModelType {
     key: any
     actionCreators: {
         loadActions: () => {
-            type: 'load actions (frontend.src.models.actionsModel)'
+            type: 'load actions (models.actionsModel)'
             payload: any
         }
         loadActionsSuccess: (
             actions: never[]
         ) => {
-            type: 'load actions success (frontend.src.models.actionsModel)'
+            type: 'load actions success (models.actionsModel)'
             payload: {
                 actions: never[]
             }
@@ -18,21 +18,21 @@ export interface actionsModelType {
         loadActionsFailure: (
             error: string
         ) => {
-            type: 'load actions failure (frontend.src.models.actionsModel)'
+            type: 'load actions failure (models.actionsModel)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'load actions (frontend.src.models.actionsModel)': 'loadActions'
-        'load actions success (frontend.src.models.actionsModel)': 'loadActionsSuccess'
-        'load actions failure (frontend.src.models.actionsModel)': 'loadActionsFailure'
+        'load actions (models.actionsModel)': 'loadActions'
+        'load actions success (models.actionsModel)': 'loadActionsSuccess'
+        'load actions failure (models.actionsModel)': 'loadActionsFailure'
     }
     actionTypes: {
-        loadActions: 'load actions (frontend.src.models.actionsModel)'
-        loadActionsSuccess: 'load actions success (frontend.src.models.actionsModel)'
-        loadActionsFailure: 'load actions failure (frontend.src.models.actionsModel)'
+        loadActions: 'load actions (models.actionsModel)'
+        loadActionsSuccess: 'load actions success (models.actionsModel)'
+        loadActionsFailure: 'load actions failure (models.actionsModel)'
     }
     actions: {
         loadActions: () => void
@@ -44,8 +44,8 @@ export interface actionsModelType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'models', 'actionsModel']
-    pathString: 'frontend.src.models.actionsModel'
+    path: ['models', 'actionsModel']
+    pathString: 'models.actionsModel'
     propTypes: any
     props: Record<string, any>
     reducer: (

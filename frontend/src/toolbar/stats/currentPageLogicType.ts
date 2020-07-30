@@ -6,15 +6,15 @@ export interface currentPageLogicType {
         setHref: (
             href: string
         ) => {
-            type: 'set href (frontend.src.toolbar.stats.currentPageLogic)'
+            type: 'set href (toolbar.stats.currentPageLogic)'
             payload: { href: string }
         }
     }
     actionKeys: {
-        'set href (frontend.src.toolbar.stats.currentPageLogic)': 'setHref'
+        'set href (toolbar.stats.currentPageLogic)': 'setHref'
     }
     actionTypes: {
-        setHref: 'set href (frontend.src.toolbar.stats.currentPageLogic)'
+        setHref: 'set href (toolbar.stats.currentPageLogic)'
     }
     actions: {
         setHref: (href: string) => void
@@ -24,8 +24,8 @@ export interface currentPageLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'toolbar', 'stats', 'currentPageLogic']
-    pathString: 'frontend.src.toolbar.stats.currentPageLogic'
+    path: ['toolbar', 'stats', 'currentPageLogic']
+    pathString: 'toolbar.stats.currentPageLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

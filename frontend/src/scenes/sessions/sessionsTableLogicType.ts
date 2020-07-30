@@ -6,13 +6,13 @@ export interface sessionsTableLogicType {
         loadSessions: (
             selectedDate: any
         ) => {
-            type: 'load sessions (frontend.src.scenes.sessions.sessionsTableLogic)'
+            type: 'load sessions (scenes.sessions.sessionsTableLogic)'
             payload: any
         }
         loadSessionsSuccess: (
             sessions: never[]
         ) => {
-            type: 'load sessions success (frontend.src.scenes.sessions.sessionsTableLogic)'
+            type: 'load sessions success (scenes.sessions.sessionsTableLogic)'
             payload: {
                 sessions: never[]
             }
@@ -20,7 +20,7 @@ export interface sessionsTableLogicType {
         loadSessionsFailure: (
             error: string
         ) => {
-            type: 'load sessions failure (frontend.src.scenes.sessions.sessionsTableLogic)'
+            type: 'load sessions failure (scenes.sessions.sessionsTableLogic)'
             payload: {
                 error: string
             }
@@ -28,11 +28,11 @@ export interface sessionsTableLogicType {
         setOffset: (
             offset: any
         ) => {
-            type: 'set offset (frontend.src.scenes.sessions.sessionsTableLogic)'
+            type: 'set offset (scenes.sessions.sessionsTableLogic)'
             payload: { offset: any }
         }
         fetchNextSessions: () => {
-            type: 'fetch next sessions (frontend.src.scenes.sessions.sessionsTableLogic)'
+            type: 'fetch next sessions (scenes.sessions.sessionsTableLogic)'
             payload: {
                 value: boolean
             }
@@ -40,41 +40,41 @@ export interface sessionsTableLogicType {
         appendNewSessions: (
             sessions: any
         ) => {
-            type: 'append new sessions (frontend.src.scenes.sessions.sessionsTableLogic)'
+            type: 'append new sessions (scenes.sessions.sessionsTableLogic)'
             payload: { sessions: any }
         }
         dateChanged: (
             date: any
         ) => {
-            type: 'date changed (frontend.src.scenes.sessions.sessionsTableLogic)'
+            type: 'date changed (scenes.sessions.sessionsTableLogic)'
             payload: { date: any }
         }
         setDate: (
             date: any
         ) => {
-            type: 'set date (frontend.src.scenes.sessions.sessionsTableLogic)'
+            type: 'set date (scenes.sessions.sessionsTableLogic)'
             payload: { date: any }
         }
     }
     actionKeys: {
-        'load sessions (frontend.src.scenes.sessions.sessionsTableLogic)': 'loadSessions'
-        'load sessions success (frontend.src.scenes.sessions.sessionsTableLogic)': 'loadSessionsSuccess'
-        'load sessions failure (frontend.src.scenes.sessions.sessionsTableLogic)': 'loadSessionsFailure'
-        'set offset (frontend.src.scenes.sessions.sessionsTableLogic)': 'setOffset'
-        'fetch next sessions (frontend.src.scenes.sessions.sessionsTableLogic)': 'fetchNextSessions'
-        'append new sessions (frontend.src.scenes.sessions.sessionsTableLogic)': 'appendNewSessions'
-        'date changed (frontend.src.scenes.sessions.sessionsTableLogic)': 'dateChanged'
-        'set date (frontend.src.scenes.sessions.sessionsTableLogic)': 'setDate'
+        'load sessions (scenes.sessions.sessionsTableLogic)': 'loadSessions'
+        'load sessions success (scenes.sessions.sessionsTableLogic)': 'loadSessionsSuccess'
+        'load sessions failure (scenes.sessions.sessionsTableLogic)': 'loadSessionsFailure'
+        'set offset (scenes.sessions.sessionsTableLogic)': 'setOffset'
+        'fetch next sessions (scenes.sessions.sessionsTableLogic)': 'fetchNextSessions'
+        'append new sessions (scenes.sessions.sessionsTableLogic)': 'appendNewSessions'
+        'date changed (scenes.sessions.sessionsTableLogic)': 'dateChanged'
+        'set date (scenes.sessions.sessionsTableLogic)': 'setDate'
     }
     actionTypes: {
-        loadSessions: 'load sessions (frontend.src.scenes.sessions.sessionsTableLogic)'
-        loadSessionsSuccess: 'load sessions success (frontend.src.scenes.sessions.sessionsTableLogic)'
-        loadSessionsFailure: 'load sessions failure (frontend.src.scenes.sessions.sessionsTableLogic)'
-        setOffset: 'set offset (frontend.src.scenes.sessions.sessionsTableLogic)'
-        fetchNextSessions: 'fetch next sessions (frontend.src.scenes.sessions.sessionsTableLogic)'
-        appendNewSessions: 'append new sessions (frontend.src.scenes.sessions.sessionsTableLogic)'
-        dateChanged: 'date changed (frontend.src.scenes.sessions.sessionsTableLogic)'
-        setDate: 'set date (frontend.src.scenes.sessions.sessionsTableLogic)'
+        loadSessions: 'load sessions (scenes.sessions.sessionsTableLogic)'
+        loadSessionsSuccess: 'load sessions success (scenes.sessions.sessionsTableLogic)'
+        loadSessionsFailure: 'load sessions failure (scenes.sessions.sessionsTableLogic)'
+        setOffset: 'set offset (scenes.sessions.sessionsTableLogic)'
+        fetchNextSessions: 'fetch next sessions (scenes.sessions.sessionsTableLogic)'
+        appendNewSessions: 'append new sessions (scenes.sessions.sessionsTableLogic)'
+        dateChanged: 'date changed (scenes.sessions.sessionsTableLogic)'
+        setDate: 'set date (scenes.sessions.sessionsTableLogic)'
     }
     actions: {
         loadSessions: (selectedDate: any) => void
@@ -91,8 +91,8 @@ export interface sessionsTableLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'scenes', 'sessions', 'sessionsTableLogic']
-    pathString: 'frontend.src.scenes.sessions.sessionsTableLogic'
+    path: ['scenes', 'sessions', 'sessionsTableLogic']
+    pathString: 'scenes.sessions.sessionsTableLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

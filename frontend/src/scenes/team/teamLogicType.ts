@@ -4,11 +4,11 @@ export interface teamLogicType {
     key: any
     actionCreators: {
         loadUsers: () => {
-            type: 'load users (frontend.src.scenes.team.teamLogic)'
+            type: 'load users (scenes.team.teamLogic)'
             payload: any
         }
         loadUsersSuccess: (users: {}) => {
-            type: 'load users success (frontend.src.scenes.team.teamLogic)'
+            type: 'load users success (scenes.team.teamLogic)'
             payload: {
                 users: {}
             }
@@ -16,7 +16,7 @@ export interface teamLogicType {
         loadUsersFailure: (
             error: string
         ) => {
-            type: 'load users failure (frontend.src.scenes.team.teamLogic)'
+            type: 'load users failure (scenes.team.teamLogic)'
             payload: {
                 error: string
             }
@@ -24,11 +24,11 @@ export interface teamLogicType {
         deleteUser: (
             user: any
         ) => {
-            type: 'delete user (frontend.src.scenes.team.teamLogic)'
+            type: 'delete user (scenes.team.teamLogic)'
             payload: any
         }
         deleteUserSuccess: (users: {}) => {
-            type: 'delete user success (frontend.src.scenes.team.teamLogic)'
+            type: 'delete user success (scenes.team.teamLogic)'
             payload: {
                 users: {}
             }
@@ -36,27 +36,27 @@ export interface teamLogicType {
         deleteUserFailure: (
             error: string
         ) => {
-            type: 'delete user failure (frontend.src.scenes.team.teamLogic)'
+            type: 'delete user failure (scenes.team.teamLogic)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'load users (frontend.src.scenes.team.teamLogic)': 'loadUsers'
-        'load users success (frontend.src.scenes.team.teamLogic)': 'loadUsersSuccess'
-        'load users failure (frontend.src.scenes.team.teamLogic)': 'loadUsersFailure'
-        'delete user (frontend.src.scenes.team.teamLogic)': 'deleteUser'
-        'delete user success (frontend.src.scenes.team.teamLogic)': 'deleteUserSuccess'
-        'delete user failure (frontend.src.scenes.team.teamLogic)': 'deleteUserFailure'
+        'load users (scenes.team.teamLogic)': 'loadUsers'
+        'load users success (scenes.team.teamLogic)': 'loadUsersSuccess'
+        'load users failure (scenes.team.teamLogic)': 'loadUsersFailure'
+        'delete user (scenes.team.teamLogic)': 'deleteUser'
+        'delete user success (scenes.team.teamLogic)': 'deleteUserSuccess'
+        'delete user failure (scenes.team.teamLogic)': 'deleteUserFailure'
     }
     actionTypes: {
-        loadUsers: 'load users (frontend.src.scenes.team.teamLogic)'
-        loadUsersSuccess: 'load users success (frontend.src.scenes.team.teamLogic)'
-        loadUsersFailure: 'load users failure (frontend.src.scenes.team.teamLogic)'
-        deleteUser: 'delete user (frontend.src.scenes.team.teamLogic)'
-        deleteUserSuccess: 'delete user success (frontend.src.scenes.team.teamLogic)'
-        deleteUserFailure: 'delete user failure (frontend.src.scenes.team.teamLogic)'
+        loadUsers: 'load users (scenes.team.teamLogic)'
+        loadUsersSuccess: 'load users success (scenes.team.teamLogic)'
+        loadUsersFailure: 'load users failure (scenes.team.teamLogic)'
+        deleteUser: 'delete user (scenes.team.teamLogic)'
+        deleteUserSuccess: 'delete user success (scenes.team.teamLogic)'
+        deleteUserFailure: 'delete user failure (scenes.team.teamLogic)'
     }
     actions: {
         loadUsers: () => void
@@ -71,8 +71,8 @@ export interface teamLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'scenes', 'team', 'teamLogic']
-    pathString: 'frontend.src.scenes.team.teamLogic'
+    path: ['scenes', 'team', 'teamLogic']
+    pathString: 'scenes.team.teamLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

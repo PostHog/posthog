@@ -4,13 +4,13 @@ export interface insightHistoryLogicType<InsightHistory> {
     key: any
     actionCreators: {
         loadInsights: () => {
-            type: 'load insights (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+            type: 'load insights (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
             payload: any
         }
         loadInsightsSuccess: (
             insights: InsightHistory[]
         ) => {
-            type: 'load insights success (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+            type: 'load insights success (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
             payload: {
                 insights: InsightHistory[]
             }
@@ -18,19 +18,19 @@ export interface insightHistoryLogicType<InsightHistory> {
         loadInsightsFailure: (
             error: string
         ) => {
-            type: 'load insights failure (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+            type: 'load insights failure (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
             payload: {
                 error: string
             }
         }
         loadSavedInsights: () => {
-            type: 'load saved insights (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+            type: 'load saved insights (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
             payload: any
         }
         loadSavedInsightsSuccess: (
             savedInsights: InsightHistory[]
         ) => {
-            type: 'load saved insights success (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+            type: 'load saved insights success (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
             payload: {
                 savedInsights: InsightHistory[]
             }
@@ -38,7 +38,7 @@ export interface insightHistoryLogicType<InsightHistory> {
         loadSavedInsightsFailure: (
             error: string
         ) => {
-            type: 'load saved insights failure (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+            type: 'load saved insights failure (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
             payload: {
                 error: string
             }
@@ -46,36 +46,36 @@ export interface insightHistoryLogicType<InsightHistory> {
         createInsight: (
             filters: Record<string, any>
         ) => {
-            type: 'create insight (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+            type: 'create insight (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
             payload: { filters: Record<string, any> }
         }
         saveInsight: (
             id: number,
             name: string
         ) => {
-            type: 'save insight (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+            type: 'save insight (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
             payload: { id: number; name: string }
         }
     }
     actionKeys: {
-        'load insights (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'loadInsights'
-        'load insights success (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'loadInsightsSuccess'
-        'load insights failure (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'loadInsightsFailure'
-        'load saved insights (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'loadSavedInsights'
-        'load saved insights success (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'loadSavedInsightsSuccess'
-        'load saved insights failure (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'loadSavedInsightsFailure'
-        'create insight (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'createInsight'
-        'save insight (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'saveInsight'
+        'load insights (scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'loadInsights'
+        'load insights success (scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'loadInsightsSuccess'
+        'load insights failure (scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'loadInsightsFailure'
+        'load saved insights (scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'loadSavedInsights'
+        'load saved insights success (scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'loadSavedInsightsSuccess'
+        'load saved insights failure (scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'loadSavedInsightsFailure'
+        'create insight (scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'createInsight'
+        'save insight (scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'saveInsight'
     }
     actionTypes: {
-        loadInsights: 'load insights (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
-        loadInsightsSuccess: 'load insights success (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
-        loadInsightsFailure: 'load insights failure (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
-        loadSavedInsights: 'load saved insights (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
-        loadSavedInsightsSuccess: 'load saved insights success (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
-        loadSavedInsightsFailure: 'load saved insights failure (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
-        createInsight: 'create insight (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
-        saveInsight: 'save insight (frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+        loadInsights: 'load insights (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+        loadInsightsSuccess: 'load insights success (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+        loadInsightsFailure: 'load insights failure (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+        loadSavedInsights: 'load saved insights (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+        loadSavedInsightsSuccess: 'load saved insights success (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+        loadSavedInsightsFailure: 'load saved insights failure (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+        createInsight: 'create insight (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+        saveInsight: 'save insight (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
     }
     actions: {
         loadInsights: () => void
@@ -92,8 +92,8 @@ export interface insightHistoryLogicType<InsightHistory> {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'scenes', 'insights', 'InsightHistoryPanel', 'insightHistoryLogic']
-    pathString: 'frontend.src.scenes.insights.InsightHistoryPanel.insightHistoryLogic'
+    path: ['scenes', 'insights', 'InsightHistoryPanel', 'insightHistoryLogic']
+    pathString: 'scenes.insights.InsightHistoryPanel.insightHistoryLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (

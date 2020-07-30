@@ -7,17 +7,17 @@ export interface featureFlagLogicType {
             funnel: any,
             update: any
         ) => {
-            type: 'set funnel (frontend.src.scenes.experiments.featureFlagLogic)'
+            type: 'set funnel (scenes.experiments.featureFlagLogic)'
             payload: { funnel: any; update: any }
         }
         loadFeatureFlags: () => {
-            type: 'load feature flags (frontend.src.scenes.experiments.featureFlagLogic)'
+            type: 'load feature flags (scenes.experiments.featureFlagLogic)'
             payload: any
         }
         loadFeatureFlagsSuccess: (
             featureFlags: never[]
         ) => {
-            type: 'load feature flags success (frontend.src.scenes.experiments.featureFlagLogic)'
+            type: 'load feature flags success (scenes.experiments.featureFlagLogic)'
             payload: {
                 featureFlags: never[]
             }
@@ -25,7 +25,7 @@ export interface featureFlagLogicType {
         loadFeatureFlagsFailure: (
             error: string
         ) => {
-            type: 'load feature flags failure (frontend.src.scenes.experiments.featureFlagLogic)'
+            type: 'load feature flags failure (scenes.experiments.featureFlagLogic)'
             payload: {
                 error: string
             }
@@ -33,13 +33,13 @@ export interface featureFlagLogicType {
         updateFeatureFlag: (
             featureFlag: any
         ) => {
-            type: 'update feature flag (frontend.src.scenes.experiments.featureFlagLogic)'
+            type: 'update feature flag (scenes.experiments.featureFlagLogic)'
             payload: any
         }
         updateFeatureFlagSuccess: (
             featureFlags: never[]
         ) => {
-            type: 'update feature flag success (frontend.src.scenes.experiments.featureFlagLogic)'
+            type: 'update feature flag success (scenes.experiments.featureFlagLogic)'
             payload: {
                 featureFlags: never[]
             }
@@ -47,7 +47,7 @@ export interface featureFlagLogicType {
         updateFeatureFlagFailure: (
             error: string
         ) => {
-            type: 'update feature flag failure (frontend.src.scenes.experiments.featureFlagLogic)'
+            type: 'update feature flag failure (scenes.experiments.featureFlagLogic)'
             payload: {
                 error: string
             }
@@ -55,13 +55,13 @@ export interface featureFlagLogicType {
         createFeatureFlag: (
             featureFlag: any
         ) => {
-            type: 'create feature flag (frontend.src.scenes.experiments.featureFlagLogic)'
+            type: 'create feature flag (scenes.experiments.featureFlagLogic)'
             payload: any
         }
         createFeatureFlagSuccess: (
             featureFlags: never[]
         ) => {
-            type: 'create feature flag success (frontend.src.scenes.experiments.featureFlagLogic)'
+            type: 'create feature flag success (scenes.experiments.featureFlagLogic)'
             payload: {
                 featureFlags: never[]
             }
@@ -69,35 +69,35 @@ export interface featureFlagLogicType {
         createFeatureFlagFailure: (
             error: string
         ) => {
-            type: 'create feature flag failure (frontend.src.scenes.experiments.featureFlagLogic)'
+            type: 'create feature flag failure (scenes.experiments.featureFlagLogic)'
             payload: {
                 error: string
             }
         }
     }
     actionKeys: {
-        'set funnel (frontend.src.scenes.experiments.featureFlagLogic)': 'setFunnel'
-        'load feature flags (frontend.src.scenes.experiments.featureFlagLogic)': 'loadFeatureFlags'
-        'load feature flags success (frontend.src.scenes.experiments.featureFlagLogic)': 'loadFeatureFlagsSuccess'
-        'load feature flags failure (frontend.src.scenes.experiments.featureFlagLogic)': 'loadFeatureFlagsFailure'
-        'update feature flag (frontend.src.scenes.experiments.featureFlagLogic)': 'updateFeatureFlag'
-        'update feature flag success (frontend.src.scenes.experiments.featureFlagLogic)': 'updateFeatureFlagSuccess'
-        'update feature flag failure (frontend.src.scenes.experiments.featureFlagLogic)': 'updateFeatureFlagFailure'
-        'create feature flag (frontend.src.scenes.experiments.featureFlagLogic)': 'createFeatureFlag'
-        'create feature flag success (frontend.src.scenes.experiments.featureFlagLogic)': 'createFeatureFlagSuccess'
-        'create feature flag failure (frontend.src.scenes.experiments.featureFlagLogic)': 'createFeatureFlagFailure'
+        'set funnel (scenes.experiments.featureFlagLogic)': 'setFunnel'
+        'load feature flags (scenes.experiments.featureFlagLogic)': 'loadFeatureFlags'
+        'load feature flags success (scenes.experiments.featureFlagLogic)': 'loadFeatureFlagsSuccess'
+        'load feature flags failure (scenes.experiments.featureFlagLogic)': 'loadFeatureFlagsFailure'
+        'update feature flag (scenes.experiments.featureFlagLogic)': 'updateFeatureFlag'
+        'update feature flag success (scenes.experiments.featureFlagLogic)': 'updateFeatureFlagSuccess'
+        'update feature flag failure (scenes.experiments.featureFlagLogic)': 'updateFeatureFlagFailure'
+        'create feature flag (scenes.experiments.featureFlagLogic)': 'createFeatureFlag'
+        'create feature flag success (scenes.experiments.featureFlagLogic)': 'createFeatureFlagSuccess'
+        'create feature flag failure (scenes.experiments.featureFlagLogic)': 'createFeatureFlagFailure'
     }
     actionTypes: {
-        setFunnel: 'set funnel (frontend.src.scenes.experiments.featureFlagLogic)'
-        loadFeatureFlags: 'load feature flags (frontend.src.scenes.experiments.featureFlagLogic)'
-        loadFeatureFlagsSuccess: 'load feature flags success (frontend.src.scenes.experiments.featureFlagLogic)'
-        loadFeatureFlagsFailure: 'load feature flags failure (frontend.src.scenes.experiments.featureFlagLogic)'
-        updateFeatureFlag: 'update feature flag (frontend.src.scenes.experiments.featureFlagLogic)'
-        updateFeatureFlagSuccess: 'update feature flag success (frontend.src.scenes.experiments.featureFlagLogic)'
-        updateFeatureFlagFailure: 'update feature flag failure (frontend.src.scenes.experiments.featureFlagLogic)'
-        createFeatureFlag: 'create feature flag (frontend.src.scenes.experiments.featureFlagLogic)'
-        createFeatureFlagSuccess: 'create feature flag success (frontend.src.scenes.experiments.featureFlagLogic)'
-        createFeatureFlagFailure: 'create feature flag failure (frontend.src.scenes.experiments.featureFlagLogic)'
+        setFunnel: 'set funnel (scenes.experiments.featureFlagLogic)'
+        loadFeatureFlags: 'load feature flags (scenes.experiments.featureFlagLogic)'
+        loadFeatureFlagsSuccess: 'load feature flags success (scenes.experiments.featureFlagLogic)'
+        loadFeatureFlagsFailure: 'load feature flags failure (scenes.experiments.featureFlagLogic)'
+        updateFeatureFlag: 'update feature flag (scenes.experiments.featureFlagLogic)'
+        updateFeatureFlagSuccess: 'update feature flag success (scenes.experiments.featureFlagLogic)'
+        updateFeatureFlagFailure: 'update feature flag failure (scenes.experiments.featureFlagLogic)'
+        createFeatureFlag: 'create feature flag (scenes.experiments.featureFlagLogic)'
+        createFeatureFlagSuccess: 'create feature flag success (scenes.experiments.featureFlagLogic)'
+        createFeatureFlagFailure: 'create feature flag failure (scenes.experiments.featureFlagLogic)'
     }
     actions: {
         setFunnel: (funnel: any, update: any) => void
@@ -116,8 +116,8 @@ export interface featureFlagLogicType {
     constants: any
     defaults: any
     events: any
-    path: ['frontend', 'src', 'scenes', 'experiments', 'featureFlagLogic']
-    pathString: 'frontend.src.scenes.experiments.featureFlagLogic'
+    path: ['scenes', 'experiments', 'featureFlagLogic']
+    pathString: 'scenes.experiments.featureFlagLogic'
     propTypes: any
     props: Record<string, any>
     reducer: (
