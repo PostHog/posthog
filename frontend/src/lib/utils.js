@@ -18,7 +18,7 @@ export let toParams = (obj) => {
         return encodeURIComponent(val)
     }
     return Object.entries(obj)
-        .filter((item) => item[1])
+        .filter((item) => item[1] != undefined && item[1] != null)
         .map(([key, val]) => `${key}=${handleVal(val)}`)
         .join('&')
 }

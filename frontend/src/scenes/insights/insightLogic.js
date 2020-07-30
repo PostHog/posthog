@@ -1,4 +1,5 @@
 import { kea } from 'kea'
+import { toParams, fromParams } from 'lib/utils'
 
 export const ViewType = {
     TRENDS: 'TRENDS',
@@ -44,15 +45,20 @@ export const insightLogic = kea({
     }),
     actionToUrl: ({ actions, values }) => ({
         [actions.setActiveView]: ({ type }) => {
-            actions.setCachedUrl(values.activeView, window.location.pathname + window.location.search)
+            const params = fromParams(window.location.search)
+            const { properties, ...restParams } = params
+
+            actions.setCachedUrl(values.activeView, window.location.pathname + '?' + toParams(restParams))
             const cachedUrl = values.cachedUrls[type]
             actions.updateActiveView(type)
 
             if (cachedUrl) {
-                return cachedUrl
+                return cachedUrl + '&' + toParams({ properties })
             }
+
             const urlParams = {
                 insight: type,
+                properties: values.allFilters.properties,
             }
             return ['/insights', urlParams]
         },

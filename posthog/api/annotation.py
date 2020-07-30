@@ -63,6 +63,6 @@ class AnnotationsViewSet(viewsets.ModelViewSet):
             elif key == "apply_all":
                 queryset = queryset.filter(apply_all=bool(strtobool(str(request.GET["apply_all"]))))
             elif key == "deleted":
-                queryset = queryset.filter(apply_all=bool(strtobool(str(request.GET["deleted"]))))
+                queryset = queryset.filter(deleted=bool(strtobool(str(request.GET["deleted"]))))
 
         return queryset
