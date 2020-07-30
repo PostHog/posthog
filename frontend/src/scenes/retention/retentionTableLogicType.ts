@@ -41,6 +41,14 @@ export interface retentionTableLogicType {
                 error: string
             }
         }
+        createInsight: (
+            filters: Record<string, any>
+        ) => {
+            type: 'create insight (frontend.src.scenes.retention.retentionTableLogic)'
+            payload: {
+                filters: Record<string, any>
+            }
+        }
         setProperties: (
             properties: any
         ) => {
@@ -87,6 +95,7 @@ export interface retentionTableLogicType {
         'load people (frontend.src.scenes.retention.retentionTableLogic)': 'loadPeople'
         'load people success (frontend.src.scenes.retention.retentionTableLogic)': 'loadPeopleSuccess'
         'load people failure (frontend.src.scenes.retention.retentionTableLogic)': 'loadPeopleFailure'
+        'create insight (frontend.src.scenes.retention.retentionTableLogic)': 'createInsight'
         'set properties (frontend.src.scenes.retention.retentionTableLogic)': 'setProperties'
         'set filters (frontend.src.scenes.retention.retentionTableLogic)': 'setFilters'
         'load more (frontend.src.scenes.retention.retentionTableLogic)': 'loadMore'
@@ -101,6 +110,7 @@ export interface retentionTableLogicType {
         loadPeople: 'load people (frontend.src.scenes.retention.retentionTableLogic)'
         loadPeopleSuccess: 'load people success (frontend.src.scenes.retention.retentionTableLogic)'
         loadPeopleFailure: 'load people failure (frontend.src.scenes.retention.retentionTableLogic)'
+        createInsight: 'create insight (frontend.src.scenes.retention.retentionTableLogic)'
         setProperties: 'set properties (frontend.src.scenes.retention.retentionTableLogic)'
         setFilters: 'set filters (frontend.src.scenes.retention.retentionTableLogic)'
         loadMore: 'load more (frontend.src.scenes.retention.retentionTableLogic)'
@@ -115,6 +125,7 @@ export interface retentionTableLogicType {
         loadPeople: (rowIndex: any) => void
         loadPeopleSuccess: (people: {}) => void
         loadPeopleFailure: (error: string) => void
+        createInsight: (filters: Record<string, any>) => void
         setProperties: (properties: any) => void
         setFilters: (filters: any) => void
         loadMore: (selectedIndex: any) => void

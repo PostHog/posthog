@@ -3,6 +3,8 @@ import { Tabs, Table, Modal, Input, Button } from 'antd'
 import { humanFriendlyDetailedTime, toParams } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { PushpinOutlined } from '@ant-design/icons'
+import { useValues, useActions } from 'kea'
+import { insightHistoryLogic, InsightHistory } from './insightHistoryLogic'
 
 const InsightHistoryType = {
     SAVED: 'SAVED',
@@ -12,13 +14,8 @@ const InsightHistoryType = {
 const { TabPane } = Tabs
 
 export const InsightHistoryPanel: React.FC = () => {
-    const insights = []
-    const savedInsights = []
-    const insightsLoading = false
-    const savedInsightsLoading = false
-    const saveInsight = (id, text): void => {
-        console.log(id, text)
-    }
+    const { insights, insightsLoading, savedInsights, savedInsightsLoading } = useValues(insightHistoryLogic)
+    const { saveInsight } = useActions(insightHistoryLogic)
 
     const [visible, setVisible] = useState(false)
     const [activeTab, setActiveTab] = useState(InsightHistoryType.RECENT)
@@ -28,7 +25,7 @@ export const InsightHistoryPanel: React.FC = () => {
         {
             title: 'Name',
             key: 'id',
-            render: function RenderName(_, insight) {
+            render: function RenderName(_, insight: InsightHistory) {
                 return <Link to={'/insights?' + toParams(insight.filters)}>{insight.name}</Link>
             },
         },
@@ -38,18 +35,18 @@ export const InsightHistoryPanel: React.FC = () => {
         {
             title: 'Type',
             key: 'id',
-            render: function RenderType(_, insight) {
-                return <Link to={'/insights?' + toParams(insight.filters)}>{insight.filters.insight}</Link>
+            render: function RenderType(_, insight: InsightHistory) {
+                return <Link to={'/insights?' + toParams(insight.filters)}>{insight.type}</Link>
             },
         },
         {
             title: 'Timestamp',
-            render: function RenderVolume(_, insight) {
-                return <span>{humanFriendlyDetailedTime(insight.created_at)}</span>
+            render: function RenderVolume(_, insight: InsightHistory) {
+                return <span>{humanFriendlyDetailedTime(insight.createdAt)}</span>
             },
         },
         {
-            render: function RenderAction(_, insight) {
+            render: function RenderAction(_, insight: InsightHistory) {
                 return (
                     <PushpinOutlined
                         onClick={() => {

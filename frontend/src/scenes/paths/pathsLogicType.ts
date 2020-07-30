@@ -29,6 +29,14 @@ export interface pathsLogicType {
                 error: string
             }
         }
+        createInsight: (
+            filters: Record<string, any>
+        ) => {
+            type: 'create insight (frontend.src.scenes.paths.pathsLogic)'
+            payload: {
+                filters: Record<string, any>
+            }
+        }
         setProperties: (
             properties: any
         ) => {
@@ -46,6 +54,7 @@ export interface pathsLogicType {
         'load paths (frontend.src.scenes.paths.pathsLogic)': 'loadPaths'
         'load paths success (frontend.src.scenes.paths.pathsLogic)': 'loadPathsSuccess'
         'load paths failure (frontend.src.scenes.paths.pathsLogic)': 'loadPathsFailure'
+        'create insight (frontend.src.scenes.paths.pathsLogic)': 'createInsight'
         'set properties (frontend.src.scenes.paths.pathsLogic)': 'setProperties'
         'set filter (frontend.src.scenes.paths.pathsLogic)': 'setFilter'
     }
@@ -53,6 +62,7 @@ export interface pathsLogicType {
         loadPaths: 'load paths (frontend.src.scenes.paths.pathsLogic)'
         loadPathsSuccess: 'load paths success (frontend.src.scenes.paths.pathsLogic)'
         loadPathsFailure: 'load paths failure (frontend.src.scenes.paths.pathsLogic)'
+        createInsight: 'create insight (frontend.src.scenes.paths.pathsLogic)'
         setProperties: 'set properties (frontend.src.scenes.paths.pathsLogic)'
         setFilter: 'set filter (frontend.src.scenes.paths.pathsLogic)'
     }
@@ -60,6 +70,7 @@ export interface pathsLogicType {
         loadPaths: (_: any) => void
         loadPathsSuccess: (paths: { nodes: never[]; links: never[] }) => void
         loadPathsFailure: (error: string) => void
+        createInsight: (filters: Record<string, any>) => void
         setProperties: (properties: any) => void
         setFilter: (filter: any) => void
     }

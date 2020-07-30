@@ -1,5 +1,6 @@
 import secrets
 from datetime import datetime
+from distutils.util import strtobool
 from typing import Any, Dict, List
 
 from django.contrib.auth.models import AnonymousUser
@@ -131,7 +132,10 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         team = request.user.team_set.get()
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
-        if validated_data["dashboard"].team == team:
+        if not validated_data.get("dashboard", None):
+            dashboard_item = DashboardItem.objects.create(team=team, **validated_data)
+            return dashboard_item
+        elif validated_data["dashboard"].team == team:
             validated_data.pop("last_refresh", None)
             dashboard_item = DashboardItem.objects.create(team=team, last_refresh=now(), **validated_data)
             return dashboard_item
@@ -157,7 +161,17 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
-        return queryset.filter(team=self.request.user.team_set.get()).order_by("order")
+            saved = self.request.GET.get("saved", None)
+            if saved:
+                queryset = queryset.filter(saved=bool(strtobool(saved)))
+
+        order = self.request.GET.get("order", None)
+        if order:
+            queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("order")
+
+        return queryset.filter(team=self.request.user.team_set.get())
 
     @action(methods=["patch"], detail=False)
     def layouts(self, request):

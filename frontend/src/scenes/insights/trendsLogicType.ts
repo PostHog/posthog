@@ -3,6 +3,14 @@
 export interface trendsLogicType {
     key: any
     actionCreators: {
+        createInsight: (
+            filters: Record<string, any>
+        ) => {
+            type: 'create insight (frontend.src.scenes.insights.trendsLogic)'
+            payload: {
+                filters: Record<string, any>
+            }
+        }
         loadResults: (
             refresh?: any
         ) => {
@@ -80,6 +88,7 @@ export interface trendsLogicType {
         }
     }
     actionKeys: {
+        'create insight (frontend.src.scenes.insights.trendsLogic)': 'createInsight'
         'load results (frontend.src.scenes.insights.trendsLogic)': 'loadResults'
         'load results success (frontend.src.scenes.insights.trendsLogic)': 'loadResultsSuccess'
         'load results failure (frontend.src.scenes.insights.trendsLogic)': 'loadResultsFailure'
@@ -92,6 +101,7 @@ export interface trendsLogicType {
         'set people (frontend.src.scenes.insights.trendsLogic)': 'setPeople'
     }
     actionTypes: {
+        createInsight: 'create insight (frontend.src.scenes.insights.trendsLogic)'
         loadResults: 'load results (frontend.src.scenes.insights.trendsLogic)'
         loadResultsSuccess: 'load results success (frontend.src.scenes.insights.trendsLogic)'
         loadResultsFailure: 'load results failure (frontend.src.scenes.insights.trendsLogic)'
@@ -104,6 +114,7 @@ export interface trendsLogicType {
         setPeople: 'set people (frontend.src.scenes.insights.trendsLogic)'
     }
     actions: {
+        createInsight: (filters: Record<string, any>) => void
         loadResults: (refresh?: any) => void
         loadResultsSuccess: (results: never[]) => void
         loadResultsFailure: (error: string) => void
