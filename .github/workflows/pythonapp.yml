@@ -48,6 +48,7 @@ jobs:
       - name: Check for missing migrations
         env:
           DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+          REDIS_URL: 'redis://localhost'
         run: python manage.py makemigrations --check --dry-run
       - name: Run tests
         env:
