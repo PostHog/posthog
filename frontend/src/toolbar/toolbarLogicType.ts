@@ -9,15 +9,24 @@ export interface toolbarLogicType {
                 value: boolean
             }
         }
+        logout: () => {
+            type: 'logout (toolbar.toolbarLogic)'
+            payload: {
+                value: boolean
+            }
+        }
     }
     actionKeys: {
         'authenticate (toolbar.toolbarLogic)': 'authenticate'
+        'logout (toolbar.toolbarLogic)': 'logout'
     }
     actionTypes: {
         authenticate: 'authenticate (toolbar.toolbarLogic)'
+        logout: 'logout (toolbar.toolbarLogic)'
     }
     actions: {
         authenticate: () => void
+        logout: () => void
     }
     cache: Record<string, any>
     connections: any
