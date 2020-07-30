@@ -332,7 +332,7 @@ if TEST:
     }
 
 
-if DEBUG:
+if DEBUG and not TEST:
     print("🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰")
     print("️🧰 🔧 Running PostHog in __development mode__! DEBUG=1 🔧 🧰")
     print("️🧰 ⚠️ Please update your config if this is a live site ⚠️ 🧰")
