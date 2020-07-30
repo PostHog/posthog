@@ -18,7 +18,17 @@ export const insightsModel = kea({
             },
         },
     }),
-
+    actions: () => ({
+        createInsight: (filters) => ({ filters }),
+    }),
+    listeners: ({ actions }) => ({
+        createInsight: async ({ filters }) => {
+            await api.create('api/insight', {
+                filters,
+            })
+            actions.loadInsights()
+        },
+    }),
     events: ({ actions }) => ({
         afterMount: actions.loadInsights,
     }),

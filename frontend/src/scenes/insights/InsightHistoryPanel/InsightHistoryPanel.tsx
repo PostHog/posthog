@@ -2,7 +2,8 @@ import React from 'react'
 import { Tabs, Table } from 'antd'
 import { useValues } from 'kea'
 import { insightsModel } from '~/models/insightsModel'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime, toParams } from 'lib/utils'
+import { Link } from 'lib/components/Link'
 
 const InsightHistoryType = {
     SAVED: 'SAVED',
@@ -16,17 +17,10 @@ export const InsightHistoryPanel: React.FC = () => {
 
     const columns = [
         {
-            title: 'Id',
-            dataIndex: 'id',
-            key: 'id',
-            render: function Renderid(_, insight) {
-                return <span>{insight.id}</span>
-            },
-        },
-        {
             title: 'Type',
+            key: 'id',
             render: function RenderType(_, insight) {
-                return <span>{insight.filters.insight}</span>
+                return <Link to={'/insights?' + toParams(insight.filters)}>{insight.filters.insight}</Link>
             },
         },
         {
