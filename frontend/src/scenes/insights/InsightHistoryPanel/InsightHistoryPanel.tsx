@@ -126,44 +126,46 @@ export const InsightHistoryPanel: React.FC = () => {
     ]
 
     return (
-        <Tabs
-            style={{
-                overflow: 'visible',
-            }}
-            animated={false}
-            activeKey={activeTab}
-            onChange={(activeKey: string): void => setActiveTab(activeKey)}
-        >
-            <TabPane
-                tab={<span data-attr="insight-history-tab">Recent</span>}
-                key={InsightHistoryType.RECENT}
-                data-attr="insight-history-pane"
+        <div>
+            <Tabs
+                style={{
+                    overflow: 'visible',
+                }}
+                animated={false}
+                activeKey={activeTab}
+                onChange={(activeKey: string): void => setActiveTab(activeKey)}
             >
-                <Table
-                    style={{ whiteSpace: 'pre-line' }}
-                    size="small"
-                    columns={recentColumns}
-                    loading={insightsLoading}
-                    rowKey={(insight) => insight.id}
-                    pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                    dataSource={insights}
-                />
-            </TabPane>
-            <TabPane
-                tab={<span data-attr="insight-saved-tab">Saved</span>}
-                key={InsightHistoryType.SAVED}
-                data-attr="insight-saved-pane"
-            >
-                <Table
-                    style={{ whiteSpace: 'pre-line' }}
-                    size="small"
-                    columns={savedColumns}
-                    loading={savedInsightsLoading}
-                    rowKey={(insight) => insight.id}
-                    pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                    dataSource={savedInsights}
-                />
-            </TabPane>
+                <TabPane
+                    tab={<span data-attr="insight-history-tab">Recent</span>}
+                    key={InsightHistoryType.RECENT}
+                    data-attr="insight-history-pane"
+                >
+                    <Table
+                        style={{ whiteSpace: 'pre-line' }}
+                        size="small"
+                        columns={recentColumns}
+                        loading={insightsLoading}
+                        rowKey={(insight) => insight.id}
+                        pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                        dataSource={insights}
+                    />
+                </TabPane>
+                <TabPane
+                    tab={<span data-attr="insight-saved-tab">Saved</span>}
+                    key={InsightHistoryType.SAVED}
+                    data-attr="insight-saved-pane"
+                >
+                    <Table
+                        style={{ whiteSpace: 'pre-line' }}
+                        size="small"
+                        columns={savedColumns}
+                        loading={savedInsightsLoading}
+                        rowKey={(insight) => insight.id}
+                        pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                        dataSource={savedInsights}
+                    />
+                </TabPane>
+            </Tabs>
             <SaveChartModal
                 visible={visible}
                 onCancel={(): void => {
@@ -178,7 +180,7 @@ export const InsightHistoryPanel: React.FC = () => {
                     setSelectedInsight(null)
                 }}
             />
-        </Tabs>
+        </div>
     )
 }
 
