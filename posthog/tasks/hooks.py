@@ -1,22 +1,28 @@
-from typing import Any, Optional
+from typing import Optional
 import requests
 import json
-from celery import shared_task
-from django.apps import apps
-from django.conf import settings
-from django.db.models import Model
-from rest_hooks.models import Hook
+from celery.task import Task
+from django.core.serializers.json import DjangoJSONEncoder
+from rest_hooks.utils import get_hook_model
 
 
-@shared_task
-def deliver_hook(url: str, payload: Any, instance_id: Optional[int] = None, hook_id: Optional[int] = None):
-    response = requests.post(url=url, data=json.dumps(payload), headers={"Content-Type": "application/json"})
-    if response.status_code >= 500:
-        response.raise_for_status()
+class DeliverHook(Task):
+    max_retries = 3
 
-
-def deliver_hook_wrapper(target: str, payload: Any, instance: Optional[Model], hook: Hook):
-    # Instance is None if using custom event, not built-in
-    instance_id = instance.id if instance is not None else None
-    # Pass IDs not objects because using pickle for objects is a bad thing
-    deliver_hook.delay(target=target, payload=payload, instance_id=instance_id, hook_id=hook.id)
+    def run(self, target, payload, instance_id=None, hook_id=None, **kwargs):
+        try:
+            response = requests.post(
+                url=target,
+                data=json.dumps(payload, cls=DjangoJSONEncoder),
+                headers={"Content-Type": "application/json"},
+            )
+            if response.status_code == 410 and hook_id:
+                # Delete hook on our side if it's gone on Zapier's
+                Hook = get_hook_model()
+                Hook.objects.filter(id=hook_id).delete()
+                return
+            if response.status_code >= 500:
+                response.raise_for_status()
+        except requests.ConnectionError:
+            delay_in_seconds = 2 ** self.request.retries
+            self.retry(countdown=delay_in_seconds)
