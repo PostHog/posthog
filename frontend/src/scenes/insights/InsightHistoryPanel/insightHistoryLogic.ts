@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { insightHistoryLogicType } from './insightHistoryLogicType'
-import { toParams } from 'lib/utils'
+import { toParams, deleteWithUndo } from 'lib/utils'
 import { ViewType } from '../insightLogic'
 import { toast } from 'react-toastify'
 
@@ -75,6 +75,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
     actions: () => ({
         createInsight: (filters: Record<string, any>) => ({ filters }),
         saveInsight: (id: number, name: string) => ({ id, name }),
+        deleteInsight: (insight: InsightHistory) => ({ insight }),
     }),
     listeners: ({ actions }) => ({
         createInsight: async ({ filters }) => {
@@ -91,6 +92,13 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             actions.loadInsights()
             actions.loadSavedInsights()
             toast('Saved Insight')
+        },
+        deleteInsight: ({ insight }) => {
+            deleteWithUndo({
+                endpoint: 'dashboard_item',
+                object: { name: insight.name, id: insight.id },
+                callback: () => actions.loadSavedInsights(),
+            })
         },
     }),
     events: ({ actions }) => ({

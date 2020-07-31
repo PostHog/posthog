@@ -56,6 +56,12 @@ export interface insightHistoryLogicType<InsightHistory> {
             type: 'save insight (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
             payload: { id: number; name: string }
         }
+        deleteInsight: (
+            insight: InsightHistory
+        ) => {
+            type: 'delete insight (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+            payload: { insight: InsightHistory }
+        }
     }
     actionKeys: {
         'load insights (scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'loadInsights'
@@ -66,6 +72,7 @@ export interface insightHistoryLogicType<InsightHistory> {
         'load saved insights failure (scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'loadSavedInsightsFailure'
         'create insight (scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'createInsight'
         'save insight (scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'saveInsight'
+        'delete insight (scenes.insights.InsightHistoryPanel.insightHistoryLogic)': 'deleteInsight'
     }
     actionTypes: {
         loadInsights: 'load insights (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
@@ -76,6 +83,7 @@ export interface insightHistoryLogicType<InsightHistory> {
         loadSavedInsightsFailure: 'load saved insights failure (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
         createInsight: 'create insight (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
         saveInsight: 'save insight (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
+        deleteInsight: 'delete insight (scenes.insights.InsightHistoryPanel.insightHistoryLogic)'
     }
     actions: {
         loadInsights: () => void
@@ -86,6 +94,7 @@ export interface insightHistoryLogicType<InsightHistory> {
         loadSavedInsightsFailure: (error: string) => void
         createInsight: (filters: Record<string, any>) => void
         saveInsight: (id: number, name: string) => void
+        deleteInsight: (insight: InsightHistory) => void
     }
     cache: Record<string, any>
     connections: any

@@ -97,7 +97,7 @@ export interface pathsLogicType {
         filter: {
             type: string
         }
-        properties: {}
+        properties: never[]
     }
     reducerOptions: any
     reducers: {
@@ -123,7 +123,7 @@ export interface pathsLogicType {
         ) => {
             type: string
         }
-        properties: (state: {}, action: any, fullState: any) => {}
+        properties: (state: never[], action: any, fullState: any) => never[]
     }
     selector: (
         state: any
@@ -137,7 +137,7 @@ export interface pathsLogicType {
         filter: {
             type: string
         }
-        properties: {}
+        properties: never[]
     }
     selectors: {
         paths: (
@@ -155,7 +155,7 @@ export interface pathsLogicType {
         ) => {
             type: string
         }
-        properties: (state: any, props: any) => {}
+        properties: (state: any, props: any) => never[]
         propertiesForUrl: (state: any, props: any) => '' | { insight: string }
     }
     values: {
@@ -168,7 +168,7 @@ export interface pathsLogicType {
         filter: {
             type: string
         }
-        properties: {}
+        properties: never[]
         propertiesForUrl: '' | { insight: string }
     }
     _isKea: true

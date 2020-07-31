@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Tabs, Table, Modal, Input, Button } from 'antd'
 import { toParams } from 'lib/utils'
 import { Link } from 'lib/components/Link'
-import { PushpinOutlined, PushpinFilled } from '@ant-design/icons'
+import { PushpinOutlined, PushpinFilled, DeleteOutlined } from '@ant-design/icons'
 import { useValues, useActions } from 'kea'
 import { insightHistoryLogic, InsightHistory } from './insightHistoryLogic'
 import { ViewType } from '../insightLogic'
@@ -14,36 +14,41 @@ const InsightHistoryType = {
 
 const { TabPane } = Tabs
 
-const determineFilters = (viewType: string, filters: Record<string, any>): string => {
-    let result = ''
+const determineFilters = (viewType: string, filters: Record<string, any>): JSX.Element => {
+    const result = []
     if (viewType === ViewType.TRENDS) {
         let count = 0
         if (filters.events) count += filters.events.length
         if (filters.actions) count += filters.actions.length
-        result += `Entities: ${count}\n`
-        if (filters.interval) result += `Interval: ${filters.interval}\n`
-        if (filters.shown_as) result += `Shown as: ${filters.shown_as}\n`
-        if (filters.breakdown) result += `Breakdown: ${filters.breakdown}\n`
-        if (filters.compare) result += `Compare: ${filters.compare}\n`
-        if (filters.properties) result += `Properties: ${filters.properties.length}\n`
+        result.push([<b key="trend-entities">Entities:</b>, ` ${count}\n`])
+        if (filters.interval) result.push([<b key="trend-interval">Interval:</b>, ` ${filters.interval}\n`])
+        if (filters.shown_as) result.push([<b key="trend-shownas">Shown as:</b>, ` ${filters.shown_as}\n`])
+        if (filters.breakdown) result.push([<b key="trend-breakdown">Breakdown:</b>, ` ${filters.breakdown}\n`])
+        if (filters.compare) result.push([<b key="trend-compare">Compare:</b>, ` ${filters.compare}\n`])
+        if (filters.properties)
+            result.push([<b key="trend-properties">Properties:</b>, ` ${filters.properties.length}\n`])
     } else if (viewType === ViewType.SESSIONS) {
-        if (filters.session) result += `Session: ${filters.session}\n`
-        if (filters.interval) result += `Interval: ${filters.interval}\n`
-        if (filters.properties) result += `Properties: ${filters.properties.length}\n`
+        if (filters.session) result.push([<b key="sessions-session">Session</b>, ` ${filters.session}\n`])
+        if (filters.interval) result.push([<b key="sessions-interval">Interval:</b>, ` ${filters.interval}\n`])
+        if (filters.compare) result.push([<b key="sessions-compare">Compare:</b>, ` ${filters.compare}\n`])
+        if (filters.properties)
+            result.push([<b key="sessions-properties">Properties:</b>, ` ${filters.properties.length}\n`])
     } else if (viewType === ViewType.RETENTION) {
-        if (filters.target) result += `Target: ${filters.target.name}\n`
-        if (filters.properties) result += `Properties: ${filters.properties.length}\n`
+        if (filters.target) result.push([<b key="retention-target">Target:</b>, ` ${filters.target.name}\n`])
+        if (filters.properties)
+            result.push([<b key="retention-properties">Properties:</b>, ` ${filters.properties.length}\n`])
     } else if (viewType === ViewType.PATHS) {
-        if (filters.type) result += `Path Type: ${filters.type}\n`
-        if (filters.start) result += `Start Point: Specified\n`
-        if (filters.properties) result += `Properties: ${filters.properties.length}\n`
+        if (filters.type) result.push([<b key="paths-type">Path Type:</b>, ` ${filters.type}\n`])
+        if (filters.start) result.push([<b key="paths-start">Start Point:</b>, ` Specified\n`])
+        if (filters.properties)
+            result.push([<b key="paths-properties">Properties:</b>, ` ${filters.properties.length}\n`])
     }
-    return result
+    return <span>{result}</span>
 }
 
 export const InsightHistoryPanel: React.FC = () => {
     const { insights, insightsLoading, savedInsights, savedInsightsLoading } = useValues(insightHistoryLogic)
-    const { saveInsight } = useActions(insightHistoryLogic)
+    const { saveInsight, deleteInsight } = useActions(insightHistoryLogic)
 
     const [visible, setVisible] = useState(false)
     const [activeTab, setActiveTab] = useState(InsightHistoryType.RECENT)
@@ -55,6 +60,24 @@ export const InsightHistoryPanel: React.FC = () => {
             key: 'id',
             render: function RenderName(_: unknown, insight: InsightHistory) {
                 return <Link to={'/insights?' + toParams(insight.filters)}>{insight.name}</Link>
+            },
+        },
+        {
+            title: 'Details',
+            render: function RenderDetails(_: unknown, insight: InsightHistory) {
+                return determineFilters(insight.type, insight.filters)
+            },
+        },
+        {
+            render: function RenderAction(_: unknown, insight: InsightHistory) {
+                return (
+                    <DeleteOutlined
+                        onClick={() => {
+                            deleteInsight(insight)
+                        }}
+                        style={{ cursor: 'pointer' }}
+                    />
+                )
             },
         },
     ]
@@ -74,7 +97,7 @@ export const InsightHistoryPanel: React.FC = () => {
         {
             title: 'Details',
             render: function RenderDetails(_: unknown, insight: InsightHistory) {
-                return <span>{determineFilters(insight.type, insight.filters)}</span>
+                return determineFilters(insight.type, insight.filters)
             },
         },
         {
@@ -130,6 +153,7 @@ export const InsightHistoryPanel: React.FC = () => {
                 data-attr="insight-saved-pane"
             >
                 <Table
+                    style={{ whiteSpace: 'pre' }}
                     size="small"
                     columns={savedColumns}
                     loading={savedInsightsLoading}
