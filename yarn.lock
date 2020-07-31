@@ -6106,10 +6106,10 @@ kea-router@^0.4.0:
   dependencies:
     url-pattern "^1.0.3"
 
-kea-typegen@^0.0.35:
-  version "0.0.35"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.0.35.tgz#a481e56280a7f8d9a2cdd1945e68b76dba938b49"
-  integrity sha512-TXSRppYBHo8WcoyYr780GZ3Y3BWkAApBYITYbc+6Q96mrGS/FSmPWxM/Elk9vLZ+3rcpiAN1fF1Gcnunzl2nPg==
+kea-typegen@^0.0.36:
+  version "0.0.36"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.0.36.tgz#bec19de483464e034f1ea63f624e7e8f65f47f1f"
+  integrity sha512-D4bbGQRZ4LjIY5JJ+uvIsDu7QZ+iqwyzKSOTXumBrEt10x4Ov2RX89VAJvx6gM/Is2IRdCyNzULVsuZM7tv2pA==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.8"
     prettier "^2.0.5"
@@ -6120,10 +6120,10 @@ kea-window-values@^0.0.1:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.0.1.tgz#918eee6647507e2d3d5d19466b9561261e7bc8d7"
   integrity sha512-60SfOqHrmnCC8hSD2LALMJemYcohQ8tGcTHlA5u4rQy0l0wFFE4gqH1WbKd+73j9m4f6zdoOk07rwJf+P8maiQ==
 
-kea@^2.2.0-beta.5:
-  version "2.2.0-beta.5"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.2.0-beta.5.tgz#eafcb561cc8fcd70f0958dc691068cbee8ca6312"
-  integrity sha512-Y/djOgBMdKhcSKE9GG75LfrAi5cYRnzh/6OBi4C8RKeAnsgpWY7q57A+M6Gwqwz3BrhNy0xDr9ESz8Ij0W0oaQ==
+kea@^2.2.0-beta.6:
+  version "2.2.0-beta.6"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.2.0-beta.6.tgz#5fd285cc2c8dd2416c911624be84b76ce15ba2db"
+  integrity sha512-IX/eIyxFUp4Yo+pV+ML6KqIKiO8wYU+cCOn24qW6Am0pum9ORbAESb4dLRoueEUmlZkgOI4RmagG2HU3WjSJZg==
 
 keyv@^3.0.0:
   version "3.1.0"
