@@ -130,7 +130,7 @@ export const InsightHistoryPanel: React.FC = () => {
     ]
 
     return (
-        <div>
+        <div data-attr="insight-history-panel">
             <Tabs
                 style={{
                     overflow: 'visible',
