@@ -131,7 +131,8 @@ class EventViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(filter.properties_to_Q(team_id=team.pk))
         return queryset
 
-    def _serialize_actions(self, event: Event) -> Dict:
+    @staticmethod
+    def serialize_actions(event: Event) -> Dict:
         return {
             "id": "{}-{}".format(event.action.pk, event.id),  # type: ignore
             "event": EventSerializer(event).data,
@@ -201,25 +202,35 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def actions(self, request: request.Request) -> response.Response:
+        try:
+            action_id = request.data.get("action_id")
+        except AttributeError:
+            action_id = None
+        extra_event_filters, extra_action_filters = {}, {}
+        if action_id is not None:
+            extra_event_filters["action__id"] = action_id
+            extra_action_filters["id"] = action_id
         events = (
             self.get_queryset()
-            .filter(action__deleted=False, action__isnull=False)
-            .prefetch_related(Prefetch("action_set", queryset=Action.objects.filter(deleted=False).order_by("id")))[
-                0:101
-            ]
+            .filter(action__deleted=False, action__isnull=False, **extra_event_filters)
+            .prefetch_related(
+                Prefetch(
+                    "action_set", queryset=Action.objects.filter(deleted=False, **extra_action_filters).order_by("id")
+                )
+            )[0:101]
         )
         matches = []
-        ids_seen: List[int] = []
+        ids_seen: Set[int] = set()
         for event in events:
             if event.pk in ids_seen:
                 continue
-            ids_seen.append(event.pk)
-            for action in event.action_set.all():
-                event.action = action
+            ids_seen.add(event.pk)
+            for this_action in event.action_set.all():
+                event.action = this_action
                 matches.append(event)
         prefetched_events = self._prefetch_events(matches)
         return response.Response(
-            {"next": len(events) > 100, "results": [self._serialize_actions(event) for event in prefetched_events],}
+            {"next": len(events) > 100, "results": [self.serialize_actions(event) for event in prefetched_events],}
         )
 
     @action(methods=["GET"], detail=False)

@@ -306,7 +306,7 @@ class EventManager(models.QuerySet):
                 relations = []
                 for action in event.actions:
                     relations.append(action.events.through(action_id=action.pk, event_id=event.pk))
-                    action.on_perform()
+                    action.on_perform(event)
                     if action.post_to_slack:
                         should_post_to_slack = True
 
