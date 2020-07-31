@@ -17,9 +17,11 @@ function CreateKeyModal({ visible, setVisible }) {
             onOk={() => {
                 createPersonalAPIKeyRequest(inputRef.current.state.value.trim())
                 setVisible(false)
+                inputRef.current.state.value = ''
             }}
             onCancel={() => {
                 setVisible(false)
+                inputRef.current.state.value = ''
             }}
             visible={visible}
         >
@@ -48,8 +50,8 @@ function PersonalAPIKeysTable({ keys }) {
             confirm({
                 title: `Delete personal API key "${personalAPIKey.label}"?`,
                 icon: <ExclamationCircleOutlined />,
-                content: 'This key will be permanently invalidated.',
-                okText: 'Delete',
+                content: 'It will be permanently invalidated.',
+                okText: 'Delete Key',
                 okType: 'danger',
                 cancelText: 'Cancel',
                 onOk() {
