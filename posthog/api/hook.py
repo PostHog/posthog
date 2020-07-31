@@ -1,6 +1,6 @@
 from django.conf import settings
 from rest_framework import serializers, viewsets, exceptions
-from rest_hooks.models import Hook
+from posthog.models.hook import Hook
 
 
 class HookSerializer(serializers.ModelSerializer):
@@ -13,7 +13,7 @@ class HookSerializer(serializers.ModelSerializer):
     class Meta:
         model = Hook
         fields = "__all__"
-        read_only_fields = ("user",)
+        read_only_fields = ("team",)
 
 
 class HookViewSet(viewsets.ModelViewSet):
@@ -26,4 +26,4 @@ class HookViewSet(viewsets.ModelViewSet):
     serializer_class = HookSerializer
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        serializer.save(team=self.request.user.team_set.get())

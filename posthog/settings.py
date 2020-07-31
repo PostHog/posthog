@@ -315,11 +315,13 @@ REST_FRAMEWORK = {
 # Zapier
 
 HOOK_EVENTS = {
-    # 'any.event.name': 'App.Model.Action' (created/updated/deleted)
+    # "event_name": "App.Model.Action" (created/updated/deleted)
     "action_defined": "posthog.Action.created",
     "action_performed": "posthog.Action.performed",
+    "annotation_created": "posthog.Annotation.created",
 }
-HOOK_DELIVERER = "posthog.tasks.hooks.deliver_hook_wrapper"
+HOOK_FINDER = "posthog.models.find_and_fire_hook"
+HOOK_DELIVERER = "posthog.models.hook.deliver_hook_wrapper"
 
 # Email
 EMAIL_HOST = os.environ.get("EMAIL_HOST")

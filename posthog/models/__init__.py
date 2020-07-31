@@ -17,3 +17,4 @@ from .team import Team
 from .user import User, UserManager
 from .personal_api_key import PersonalAPIKey
 from .annotation import Annotation
+from .hook import Hook, find_and_fire_hook
