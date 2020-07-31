@@ -331,6 +331,7 @@ CACHES = {
 # Metrics - StatsD
 STATSD_HOST = os.environ.get("STATSD_HOST", "127.0.0.1")
 STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
+STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "debug")
 
 if TEST:
     CACHES["default"] = {
