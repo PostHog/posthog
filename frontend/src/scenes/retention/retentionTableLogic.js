@@ -141,11 +141,12 @@ export const retentionTableLogic = kea({
         setProperties: () => {
             actions.loadRetention()
             actions.setAllFilters(cleanRetentionParams({ target: values.startEntity }, values.properties))
-            actions.createInsight(cleanRetentionParams({ target: values.startEntity }, values.properties))
         },
         setFilters: () => {
             actions.loadRetention()
             actions.setAllFilters(cleanRetentionParams({ target: values.startEntity }, values.properties))
+        },
+        loadRetentionSuccess: () => {
             actions.createInsight(cleanRetentionParams({ target: values.startEntity }, values.properties))
         },
         loadMore: async ({ selectedIndex }) => {

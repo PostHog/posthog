@@ -237,8 +237,9 @@ export const trendsLogic = kea({
         },
         [actions.setFilters]: async () => {
             actions.setAllFilters(values.filters)
-            if (values.filters.insight === ViewType.TRENDS || values.filters.insight === ViewType.SESSIONS)
-                actions.createInsight(values.filters)
+        },
+        loadResultsSuccess: () => {
+            actions.createInsight(values.filters)
         },
     }),
 
