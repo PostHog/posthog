@@ -1,8 +1,10 @@
 import { kea } from 'kea'
+import React from 'react'
+import { toast } from 'react-toastify'
 import api from '../lib/api'
 import { posthogEvents } from 'lib/utils'
 import { userLogicType } from 'scenes/userLogicType'
-import { UserType } from '~/types'
+import { UserType, PersonalAPIKeyType } from '~/types'
 
 type EventProperty = { value: string; label: string }
 
@@ -16,6 +18,12 @@ export const userLogic = kea<userLogicType<UserType, EventProperty>>({
         userUpdateRequest: (update: Partial<UserType>, updateKey?: string) => ({ update, updateKey }),
         userUpdateSuccess: (user: UserType, updateKey?: string) => ({ user, updateKey }),
         userUpdateFailure: (error: string, updateKey?: string) => ({ updateKey, error }),
+        createPersonalAPIKeyRequest: (label: string) => ({ label }),
+        createPersonalAPIKeySuccess: (user: UserType, key: PersonalAPIKeyType) => ({ user, key }),
+        createPersonalAPIKeyFailure: (label: string) => ({ label }),
+        deletePersonalAPIKeyRequest: (key: PersonalAPIKeyType) => ({ key }),
+        deletePersonalAPIKeySuccess: (user: UserType, key: PersonalAPIKeyType) => ({ user, key }),
+        deletePersonalAPIKeyFailure: (key: PersonalAPIKeyType) => ({ key }),
     }),
 
     reducers: {
@@ -24,6 +32,18 @@ export const userLogic = kea<userLogicType<UserType, EventProperty>>({
             {
                 setUser: (_, payload) => payload.user,
                 userUpdateSuccess: (_, payload) => payload.user,
+                createPersonalAPIKeySuccess: (_, payload) => {
+                    const newUser = { ...payload.user }
+                    newUser.personal_api_keys = [payload.key, ...payload.user.personal_api_keys]
+                    return newUser
+                },
+                deletePersonalAPIKeySuccess: (_, payload) => {
+                    const newUser = { ...payload.user }
+                    newUser.personal_api_keys = payload.user.personal_api_keys.filter(
+                        (current_key: PersonalAPIKeyType) => current_key.id !== payload.key.id
+                    )
+                    return newUser
+                },
             },
         ],
     },
@@ -64,7 +84,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty>>({
         ],
     }),
 
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, selectors }) => ({
         loadUser: async () => {
             try {
                 const user = await api.get('api/user')
@@ -97,6 +117,39 @@ export const userLogic = kea<userLogicType<UserType, EventProperty>>({
             } catch (error) {
                 actions.userUpdateFailure(error, updateKey)
             }
+        },
+        createPersonalAPIKeyRequest: async ({ label }) => {
+            let newKey
+            try {
+                newKey = await api.create('api/personal_api_key/', { label })
+            } catch (e) {
+                actions.createPersonalAPIKeyFailure(label)
+                return
+            }
+            const user = selectors.user()
+            actions.createPersonalAPIKeySuccess(user, newKey)
+        },
+        createPersonalAPIKeySuccess: ({ key }) => {
+            toast(<div className="text-success">Personal API key "{key.label}" successfully created</div>)
+        },
+        createPersonalAPIKeyFailure: ({ label }: { label: string }) => {
+            toast(<div className="text-danger">Could not create personal API key "{label}"</div>)
+        },
+        deletePersonalAPIKeyRequest: async ({ key }: { key: PersonalAPIKeyType }) => {
+            try {
+                await api.delete(`api/personal_api_key/${key.id}/`)
+            } catch (e) {
+                actions.deletePersonalAPIKeyFailure(key)
+                return
+            }
+            const user = selectors.user()
+            actions.deletePersonalAPIKeySuccess(user, key)
+        },
+        deletePersonalAPIKeySuccess: ({ key }) => {
+            toast(<div className="text-success">Personal API key "{key.label}" successfully deleted</div>)
+        },
+        deletePersonalAPIKeyFailure: ({ key }) => {
+            toast(<div className="text-danger">Could not delete personal API key "{key.label}"</div>)
         },
     }),
 })
