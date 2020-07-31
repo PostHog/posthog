@@ -42,6 +42,8 @@ const determineFilters = (viewType: string, filters: Record<string, any>): JSX.E
         if (filters.start) result.push([<b key="paths-start">Start Point:</b>, ` Specified\n`])
         if (filters.properties)
             result.push([<b key="paths-properties">Properties:</b>, ` ${filters.properties.length}\n`])
+    } else if (viewType === ViewType.FUNNELS) {
+        if (filters.name) result.push([<b key="funnel-name">Name:</b>, ` ${filters.name}\n`])
     }
     return <span>{result}</span>
 }
@@ -138,7 +140,7 @@ export const InsightHistoryPanel: React.FC = () => {
                 data-attr="insight-history-pane"
             >
                 <Table
-                    style={{ whiteSpace: 'pre' }}
+                    style={{ whiteSpace: 'pre-line' }}
                     size="small"
                     columns={recentColumns}
                     loading={insightsLoading}
@@ -153,7 +155,7 @@ export const InsightHistoryPanel: React.FC = () => {
                 data-attr="insight-saved-pane"
             >
                 <Table
-                    style={{ whiteSpace: 'pre' }}
+                    style={{ whiteSpace: 'pre-line' }}
                     size="small"
                     columns={savedColumns}
                     loading={savedInsightsLoading}

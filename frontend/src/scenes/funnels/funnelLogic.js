@@ -92,17 +92,18 @@ export const funnelLogic = kea({
         },
         loadFunnelSuccess: ({ funnel }) => {
             actions.setAllFilters({ funnelId: funnel.id, name: funnel.name, date_from: funnel.filters.date_from })
+            actions.createInsight({ id: funnel.id, name: funnel.name, insight: ViewType.FUNNELS })
         },
         updateFunnelSuccess: async ({ funnel }) => {
             actions.loadStepsWithCount({ id: funnel.id, refresh: true })
             actions.setAllFilters({ funnelId: funnel.id, name: funnel.name, date_from: funnel.filters.date_from })
-            actions.createInsight({ id: funnel.id, insight: ViewType.FUNNELS })
+            actions.createInsight({ id: funnel.id, name: funnel.name, insight: ViewType.FUNNELS })
             toast('Funnel saved!')
         },
         createFunnelSuccess: ({ funnel }) => {
             actions.loadStepsWithCount({ id: funnel.id, refresh: true })
             actions.setAllFilters({ funnelId: funnel.id, name: funnel.name, date_from: funnel.filters.date_from })
-            actions.createInsight({ id: funnel.id, insight: ViewType.FUNNELS })
+            actions.createInsight({ id: funnel.id, name: funnel.name, insight: ViewType.FUNNELS })
             toast('Funnel saved!')
         },
     }),
