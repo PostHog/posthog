@@ -3,23 +3,16 @@ from typing import Dict, List, Optional
 
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.db import models
-<<<<<<< HEAD
+from django.utils import timezone
 
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 
-=======
-from django.contrib.postgres.fields import JSONField, ArrayField
-from django.utils import timezone
->>>>>>> 893e701... Add personal API key support to capture endpoint, get_cached_from_token
 from .action import Action
 from .action_step import ActionStep
 from .dashboard import Dashboard
 from .dashboard_item import DashboardItem
-from .user import User
 from .personal_api_key import PersonalAPIKey
-from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
-from typing import Optional, List, Dict
-from datetime import datetime
+from .user import User
 from .utils import generate_random_token
 
 TEAM_CACHE: Dict[str, "Team"] = {}
