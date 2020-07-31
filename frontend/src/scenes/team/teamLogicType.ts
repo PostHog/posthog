@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface teamLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         loadUsers: () => {
             type: 'load users (scenes.team.teamLogic)'
@@ -69,12 +69,14 @@ export interface teamLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        users: {}
+        usersLoading: boolean
+    }
     events: any
     path: ['scenes', 'team', 'teamLogic']
     pathString: 'scenes.team.teamLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

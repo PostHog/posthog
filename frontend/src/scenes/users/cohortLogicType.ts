@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface cohortLogicType {
-    key: any
+    key: unknown
     actionCreators: {
         saveCohort: (
             cohort: any
@@ -87,12 +87,17 @@ export interface cohortLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        personProperties: any
+        personPropertiesLoading: boolean
+        pollTimeout: null
+        cohort: null
+        toastId: null
+    }
     events: any
     path: ['scenes', 'users', 'cohortLogic']
     pathString: 'scenes.users.cohortLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

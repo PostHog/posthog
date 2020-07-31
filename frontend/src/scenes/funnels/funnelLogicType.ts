@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface funnelLogicType {
-    key: any
+    key: unknown
     actionCreators: {
         setFunnel: (
             funnel: any,
@@ -194,12 +194,20 @@ export interface funnelLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        funnel: {
+            filters: {}
+        }
+        funnelLoading: boolean
+        stepsWithCount: any
+        stepsWithCountLoading: boolean
+        people: any
+        peopleLoading: boolean
+    }
     events: any
     path: ['scenes', 'funnels', 'funnelLogic']
     pathString: 'scenes.funnels.funnelLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

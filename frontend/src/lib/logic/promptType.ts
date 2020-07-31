@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface promptType {
-    key: any
+    key: unknown
     actionCreators: {
         prompt: ({
             title,
@@ -27,12 +27,11 @@ export interface promptType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {}
     events: any
     path: ['lib', 'logic', 'prompt']
     pathString: 'lib.logic.prompt'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (state: any, action: () => any, fullState: any) => {}
     reducerOptions: any
     reducers: {}

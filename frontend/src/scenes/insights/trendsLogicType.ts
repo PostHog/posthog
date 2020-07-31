@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface trendsLogicType {
-    key: any
+    key: unknown
     actionCreators: {
         loadResults: (
             refresh?: any
@@ -118,12 +118,17 @@ export interface trendsLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        results: never[]
+        resultsLoading: boolean
+        filters: unknown
+        people: null
+        showingPeople: boolean
+    }
     events: any
     path: ['scenes', 'insights', 'trendsLogic']
     pathString: 'scenes.insights.trendsLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -131,7 +136,7 @@ export interface trendsLogicType {
     ) => {
         results: never[]
         resultsLoading: boolean
-        filters: any
+        filters: unknown
         people: null
         showingPeople: boolean
     }
@@ -139,7 +144,7 @@ export interface trendsLogicType {
     reducers: {
         results: (state: never[], action: any, fullState: any) => never[]
         resultsLoading: (state: boolean, action: any, fullState: any) => boolean
-        filters: (state: any, action: any, fullState: any) => any
+        filters: (state: unknown, action: any, fullState: any) => unknown
         people: (state: null, action: any, fullState: any) => null
         showingPeople: (state: boolean, action: any, fullState: any) => boolean
     }
@@ -148,14 +153,14 @@ export interface trendsLogicType {
     ) => {
         results: never[]
         resultsLoading: boolean
-        filters: any
+        filters: unknown
         people: null
         showingPeople: boolean
     }
     selectors: {
         results: (state: any, props: any) => never[]
         resultsLoading: (state: any, props: any) => boolean
-        filters: (state: any, props: any) => any
+        filters: (state: any, props: any) => unknown
         people: (state: any, props: any) => null
         showingPeople: (state: any, props: any) => boolean
         eventNames: (state: any, props: any) => string[]
@@ -165,7 +170,7 @@ export interface trendsLogicType {
     values: {
         results: never[]
         resultsLoading: boolean
-        filters: any
+        filters: unknown
         people: null
         showingPeople: boolean
         eventNames: string[]

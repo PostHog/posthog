@@ -11,7 +11,7 @@ export interface elementsLogicType<
     ActionElementMap,
     ElementMap
 > {
-    key: any
+    key: undefined
     actionCreators: {
         enableInspect: () => {
             type: 'enable inspect (toolbar.elements.elementsLogic)'
@@ -95,12 +95,18 @@ export interface elementsLogicType<
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        inspectEnabledRaw: boolean
+        rectUpdateCounter: number
+        hoverElement: HTMLElement | null
+        highlightElement: HTMLElement | null
+        selectedElement: HTMLElement | null
+        enabledLast: null | 'inspect' | 'heatmap'
+    }
     events: any
     path: ['toolbar', 'elements', 'elementsLogic']
     pathString: 'toolbar.elements.elementsLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

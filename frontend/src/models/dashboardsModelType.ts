@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface dashboardsModelType {
-    key: any
+    key: undefined
     actionCreators: {
         delayedDeleteDashboard: (
             id: any
@@ -286,12 +286,18 @@ export interface dashboardsModelType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        rawDashboards: {}
+        rawDashboardsLoading: boolean
+        dashboard: any
+        dashboardLoading: boolean
+        redirect: boolean
+        lastVisitedDashboardId: null
+    }
     events: any
     path: ['models', 'dashboardsModel']
     pathString: 'models.dashboardsModel'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

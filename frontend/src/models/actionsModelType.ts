@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface actionsModelType {
-    key: any
+    key: undefined
     actionCreators: {
         loadActions: () => {
             type: 'load actions (models.actionsModel)'
@@ -42,12 +42,14 @@ export interface actionsModelType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        actions: never[]
+        actionsLoading: boolean
+    }
     events: any
     path: ['models', 'actionsModel']
     pathString: 'models.actionsModel'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface actionEditLogicType {
-    key: any
+    key: unknown
     actionCreators: {
         saveAction: () => {
             type: 'save action (scenes.actions.actionEditLogic)'
@@ -78,12 +78,16 @@ export interface actionEditLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        action: any
+        actionLoading: boolean
+        errorActionId: null
+        createNew: boolean
+    }
     events: any
     path: ['scenes', 'actions', 'actionEditLogic']
     pathString: 'scenes.actions.actionEditLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

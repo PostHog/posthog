@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface toolbarTabLogicType<ToolbarTab> {
-    key: any
+    key: undefined
     actionCreators: {
         setTab: (
             tab: ToolbarTab | string
@@ -22,12 +22,13 @@ export interface toolbarTabLogicType<ToolbarTab> {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        tab: ToolbarTab
+    }
     events: any
     path: ['toolbar', 'toolbarTabLogic']
     pathString: 'toolbar.toolbarTabLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

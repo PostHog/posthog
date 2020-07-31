@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface propertyFilterLogicType {
-    key: any
+    key: unknown
     actionCreators: {
         loadEventProperties: () => {
             type: 'load event properties (lib.components.PropertyFilters.propertyFilterLogic)'
@@ -109,12 +109,16 @@ export interface propertyFilterLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        personProperties: any
+        personPropertiesLoading: boolean
+        eventProperties: never[]
+        filters: any
+    }
     events: any
     path: ['lib', 'components', 'PropertyFilters', 'propertyFilterLogic']
     pathString: 'lib.components.PropertyFilters.propertyFilterLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

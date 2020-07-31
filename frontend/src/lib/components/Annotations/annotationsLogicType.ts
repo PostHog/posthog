@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface annotationsLogicType {
-    key: any
+    key: string
     actionCreators: {
         createAnnotation: (
             content: any,
@@ -103,12 +103,16 @@ export interface annotationsLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        annotations: never[]
+        annotationsLoading: boolean
+        annotationsToCreate: never[]
+        diffType: string
+    }
     events: any
     path: ['lib', 'components', 'Annotations', 'annotationsLogic']
     pathString: 'lib.components.Annotations.annotationsLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

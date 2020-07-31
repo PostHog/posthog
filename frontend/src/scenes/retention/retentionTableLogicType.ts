@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface retentionTableLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         loadRetention: () => {
             type: 'load retention (scenes.retention.retentionTableLogic)'
@@ -125,12 +125,20 @@ export interface retentionTableLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        retention: {}
+        retentionLoading: boolean
+        people: {}
+        peopleLoading: boolean
+        initialPathname: (state: any) => any
+        properties: never[]
+        filters: {}
+        loadingMore: boolean
+    }
     events: any
     path: ['scenes', 'retention', 'retentionTableLogic']
     pathString: 'scenes.retention.retentionTableLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

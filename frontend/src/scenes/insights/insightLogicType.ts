@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface insightLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         setActiveView: (
             type: any
@@ -50,12 +50,15 @@ export interface insightLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        cachedUrls: {}
+        activeView: string
+        allFilters: {}
+    }
     events: any
     path: ['scenes', 'insights', 'insightLogic']
     pathString: 'scenes.insights.insightLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

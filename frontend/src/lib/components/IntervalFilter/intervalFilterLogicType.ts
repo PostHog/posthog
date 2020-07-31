@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface intervalFilterLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         setIntervalFilter: (
             filter: any
@@ -31,12 +31,14 @@ export interface intervalFilterLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        interval: null
+        dateFrom: null
+    }
     events: any
     path: ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic']
     pathString: 'lib.components.IntervalFilter.intervalFilterLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

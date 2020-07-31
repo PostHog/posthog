@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface cohortsModelType {
-    key: any
+    key: undefined
     actionCreators: {
         setPollTimeout: (
             pollTimeout: any
@@ -51,12 +51,15 @@ export interface cohortsModelType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        cohorts: any
+        cohortsLoading: boolean
+        pollTimeout: null
+    }
     events: any
     path: ['models', 'cohortsModel']
     pathString: 'models.cohortsModel'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

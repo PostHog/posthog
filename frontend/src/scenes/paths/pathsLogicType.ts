@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface pathsLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         loadPaths: (
             _: any
@@ -66,12 +66,22 @@ export interface pathsLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        paths: {
+            nodes: never[]
+            links: never[]
+        }
+        pathsLoading: boolean
+        initialPathname: (state: any) => any
+        filter: {
+            type: string
+        }
+        properties: {}
+    }
     events: any
     path: ['scenes', 'paths', 'pathsLogic']
     pathString: 'scenes.paths.pathsLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

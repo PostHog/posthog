@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface toolbarLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         authenticate: () => {
             type: 'authenticate (toolbar.toolbarLogic)'
@@ -22,12 +22,17 @@ export interface toolbarLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        rawApiURL: string
+        rawJsURL: string
+        temporaryToken: string | null
+        actionId: number | null
+        userIntent: string | null
+    }
     events: any
     path: ['toolbar', 'toolbarLogic']
     pathString: 'toolbar.toolbarLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

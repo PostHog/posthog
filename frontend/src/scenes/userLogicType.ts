@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface userLogicType<UserType, EventProperty> {
-    key: any
+    key: undefined
     actionCreators: {
         loadUser: () => {
             type: 'load user (scenes.userLogic)'
@@ -62,12 +62,13 @@ export interface userLogicType<UserType, EventProperty> {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        user: UserType | null
+    }
     events: any
     path: ['scenes', 'userLogic']
     pathString: 'scenes.userLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

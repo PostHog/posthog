@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface sceneLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         loadScene: (
             scene: any,
@@ -43,12 +43,20 @@ export interface sceneLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        scene: null
+        params: {}
+        loadedScenes: {
+            404: {
+                component: () => Element
+            }
+        }
+        loadingScene: null
+    }
     events: any
     path: ['scenes', 'sceneLogic']
     pathString: 'scenes.sceneLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

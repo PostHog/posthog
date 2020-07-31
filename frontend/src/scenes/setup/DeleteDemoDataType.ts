@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface deleteDemoDataLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         deleteDemoData: () => {
             type: 'delete demo data (scenes.setup.DeleteDemoData)'
@@ -31,12 +31,13 @@ export interface deleteDemoDataLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        isDeleted: boolean
+    }
     events: any
     path: ['scenes', 'setup', 'DeleteDemoData']
     pathString: 'scenes.setup.DeleteDemoData'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

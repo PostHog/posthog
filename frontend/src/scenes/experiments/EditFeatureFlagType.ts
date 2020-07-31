@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface editLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         setRolloutPercentage: (
             rollout_percentage: any
@@ -31,12 +31,14 @@ export interface editLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        filters: any
+        rollout_percentage: any
+    }
     events: any
     path: ['scenes', 'experiments', 'EditFeatureFlag']
     pathString: 'scenes.experiments.EditFeatureFlag'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

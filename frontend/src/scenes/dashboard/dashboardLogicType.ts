@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface dashboardLogicType {
-    key: any
+    key: unknown
     actionCreators: {
         addNewDashboard: () => {
             type: 'add new dashboard (scenes.dashboard.dashboardLogic)'
@@ -182,12 +182,17 @@ export interface dashboardLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        allItems: never[]
+        allItemsLoading: boolean
+        draggingEnabled: () => 'off' | 'on'
+        containerWidth: null
+        columns: null
+    }
     events: any
     path: ['scenes', 'dashboard', 'dashboardLogic']
     pathString: 'scenes.dashboard.dashboardLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

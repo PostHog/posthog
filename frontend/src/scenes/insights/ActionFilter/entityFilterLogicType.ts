@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface entityFilterLogicType {
-    key: any
+    key: unknown
     actionCreators: {
         selectFilter: (
             filter: any
@@ -85,12 +85,14 @@ export interface entityFilterLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        selectedFilter: null
+        localFilters: any[]
+    }
     events: any
     path: ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic']
     pathString: 'scenes.insights.ActionFilter.entityFilterLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

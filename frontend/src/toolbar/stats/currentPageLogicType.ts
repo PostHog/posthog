@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface currentPageLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         setHref: (
             href: string
@@ -22,12 +22,13 @@ export interface currentPageLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        href: string
+    }
     events: any
     path: ['toolbar', 'stats', 'currentPageLogic']
     pathString: 'toolbar.stats.currentPageLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

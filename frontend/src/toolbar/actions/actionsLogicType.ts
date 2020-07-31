@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface actionsLogicType<ActionType> {
-    key: any
+    key: undefined
     actionCreators: {
         getActions: (
             _?: any
@@ -114,12 +114,14 @@ export interface actionsLogicType<ActionType> {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        allActions: ActionType[]
+        allActionsLoading: boolean
+    }
     events: any
     path: ['toolbar', 'actions', 'actionsLogic']
     pathString: 'toolbar.actions.actionsLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface appUrlsLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         addUrl: (
             value: any
@@ -79,12 +79,15 @@ export interface appUrlsLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        suggestions: never[]
+        suggestionsLoading: boolean
+        appUrls: string[]
+    }
     events: any
     path: ['lib', 'components', 'AppEditorLink', 'appUrlsLogic']
     pathString: 'lib.components.AppEditorLink.appUrlsLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

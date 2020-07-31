@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface annotationsTableLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         loadAnnotations: () => {
             type: 'load annotations (scenes.annotations.annotationsTableLogic)'
@@ -95,12 +95,16 @@ export interface annotationsTableLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        annotations: never[]
+        annotationsLoading: boolean
+        next: null
+        loadingNext: boolean
+    }
     events: any
     path: ['scenes', 'annotations', 'annotationsTableLogic']
     pathString: 'scenes.annotations.annotationsTableLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

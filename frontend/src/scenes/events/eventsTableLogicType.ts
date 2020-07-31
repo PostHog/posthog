@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface eventsTableLogicType {
-    key: any
+    key: string
     actionCreators: {
         setProperties: (
             properties: any
@@ -123,12 +123,24 @@ export interface eventsTableLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        initialPathname: (state: any) => any
+        properties: never[]
+        eventFilter: boolean
+        isLoading: boolean
+        isLoadingNext: boolean
+        events: never[]
+        hasNext: boolean
+        orderBy: string
+        selectedEvent: null
+        newEvents: never[]
+        highlightEvents: {}
+        pollTimeout: null
+    }
     events: any
     path: ['scenes', 'events', 'eventsTableLogic']
     pathString: 'scenes.events.eventsTableLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

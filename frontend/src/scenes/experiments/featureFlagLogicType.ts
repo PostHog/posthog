@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface featureFlagLogicType {
-    key: any
+    key: unknown
     actionCreators: {
         setFunnel: (
             funnel: any,
@@ -114,12 +114,14 @@ export interface featureFlagLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        featureFlags: never[]
+        featureFlagsLoading: boolean
+    }
     events: any
     path: ['scenes', 'experiments', 'featureFlagLogic']
     pathString: 'scenes.experiments.featureFlagLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

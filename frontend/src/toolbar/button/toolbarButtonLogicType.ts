@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface toolbarButtonLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         showHeatmapInfo: () => {
             type: 'show heatmap info (toolbar.button.toolbarButtonLogic)'
@@ -116,12 +116,34 @@ export interface toolbarButtonLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        windowHeight: number
+        windowWidth: number
+        heatmapInfoVisible: boolean
+        actionsInfoVisible: boolean
+        statsVisible: boolean
+        extensionPercentage: number
+        lastDragPosition: null | {
+            x: number
+            y: number
+        }
+        heatmapPosition: {
+            x: number
+            y: number
+        }
+        actionsPosition: {
+            x: number
+            y: number
+        }
+        statsPosition: {
+            x: number
+            y: number
+        }
+    }
     events: any
     path: ['toolbar', 'button', 'toolbarButtonLogic']
     pathString: 'toolbar.button.toolbarButtonLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

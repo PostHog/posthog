@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface funnelsModelType {
-    key: any
+    key: undefined
     actionCreators: {
         loadFunnels: () => {
             type: 'load funnels (models.funnelsModel)'
@@ -42,12 +42,14 @@ export interface funnelsModelType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        funnels: any
+        funnelsLoading: boolean
+    }
     events: any
     path: ['models', 'funnelsModel']
     pathString: 'models.funnelsModel'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

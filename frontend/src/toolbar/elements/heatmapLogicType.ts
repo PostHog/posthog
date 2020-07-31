@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionStepType> {
-    key: any
+    key: undefined
     actionCreators: {
         enableHeatmap: () => {
             type: 'enable heatmap (toolbar.elements.heatmapLogic)'
@@ -104,12 +104,17 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        heatmapEnabled: boolean
+        heatmapLoading: boolean
+        showHeatmapTooltip: boolean
+        events: ElementsEventType[]
+        eventsLoading: boolean
+    }
     events: any
     path: ['toolbar', 'elements', 'heatmapLogic']
     pathString: 'toolbar.elements.heatmapLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -222,5 +227,15 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
                 actionStep?: ActionStepType | undefined
             }[]
         ) => number
+    }
+    __keaTypeGenInternalReducerActions: {
+        'set href (toolbar.stats.currentPageLogic)': (
+            href: string
+        ) => {
+            type: 'set href (toolbar.stats.currentPageLogic)'
+            payload: {
+                href: string
+            }
+        }
     }
 }

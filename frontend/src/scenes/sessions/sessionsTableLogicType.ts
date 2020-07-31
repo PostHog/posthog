@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface sessionsTableLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         loadSessions: (
             selectedDate: any
@@ -89,12 +89,17 @@ export interface sessionsTableLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        sessions: never[]
+        sessionsLoading: boolean
+        isLoadingNext: boolean
+        offset: null
+        selectedDate: Moment
+    }
     events: any
     path: ['scenes', 'sessions', 'sessionsTableLogic']
     pathString: 'scenes.sessions.sessionsTableLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

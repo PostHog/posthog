@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface actionsTabLogicType<ActionType, ActionForm, FormInstance, AntdFieldData> {
-    key: any
+    key: undefined
     actionCreators: {
         setForm: (
             form: FormInstance
@@ -122,12 +122,20 @@ export interface actionsTabLogicType<ActionType, ActionForm, FormInstance, AntdF
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        buttonActionsVisible: boolean
+        selectedActionId: number | 'new' | null
+        newActionForElement: HTMLElement | null
+        inspectingElement: number | null
+        editingFields: AntdFieldData[] | null
+        form: FormInstance | null
+        counter: number
+        showActionsTooltip: boolean
+    }
     events: any
     path: ['toolbar', 'actions', 'actionsTabLogic']
     pathString: 'toolbar.actions.actionsTabLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -203,5 +211,23 @@ export interface actionsTabLogicType<ActionType, ActionForm, FormInstance, AntdF
             arg5: number | null,
             arg6: number
         ) => ActionForm
+    }
+    __keaTypeGenInternalReducerActions: {
+        'get actions success (toolbar.actions.actionsLogic)': (
+            allActions: ActionType[]
+        ) => {
+            type: 'get actions success (toolbar.actions.actionsLogic)'
+            payload: {
+                allActions: ActionType[]
+            }
+        }
+        'set tab (toolbar.toolbarTabLogic)': (
+            tab: ToolbarTab | string
+        ) => {
+            type: 'set tab (toolbar.toolbarTabLogic)'
+            payload: {
+                tab: string
+            }
+        }
     }
 }

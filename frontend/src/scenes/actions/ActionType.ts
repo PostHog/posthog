@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface actionLogicType {
-    key: any
+    key: unknown
     actionCreators: {
         checkIsFinished: (
             action: any
@@ -69,12 +69,16 @@ export interface actionLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        pollTimeout: null
+        isComplete: boolean
+        action: any
+        actionLoading: boolean
+    }
     events: any
     path: ['scenes', 'actions', 'Action']
     pathString: 'scenes.actions.Action'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

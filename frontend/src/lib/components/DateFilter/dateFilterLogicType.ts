@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface dateFilterLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         setDates: (
             dateFrom: any,
@@ -23,12 +23,13 @@ export interface dateFilterLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        dates: {}
+    }
     events: any
     path: ['lib', 'components', 'DateFilter', 'dateFilterLogic']
     pathString: 'lib.components.DateFilter.dateFilterLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface logicType {
-    key: any
+    key: undefined
     actionCreators: {
         setEditedWebhook: (
             webhook: any
@@ -49,12 +49,16 @@ export interface logicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        editedWebhook: (state: any) => string | undefined
+        isSaving: boolean
+        isSaved: boolean
+        error: null
+    }
     events: any
     path: ['scenes', 'setup', 'SlackIntegration']
     pathString: 'scenes.setup.SlackIntegration'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

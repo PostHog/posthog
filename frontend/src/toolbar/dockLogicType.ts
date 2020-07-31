@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface dockLogicType<ToolbarMode, ToolbarAnimationState> {
-    key: any
+    key: undefined
     actionCreators: {
         button: () => {
             type: 'button (toolbar.dockLogic)'
@@ -104,12 +104,22 @@ export interface dockLogicType<ToolbarMode, ToolbarAnimationState> {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        windowWidth: number
+        windowHeight: number
+        windowScroll: number
+        mode: ToolbarMode
+        lastMode: ToolbarMode
+        dockStatus: ToolbarAnimationState
+        buttonStatus: ToolbarAnimationState
+    }
     events: any
     path: ['toolbar', 'dockLogic']
     pathString: 'toolbar.dockLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: {
+        shadowRef: string
+        padding: string
+    }
     reducer: (
         state: any,
         action: () => any,

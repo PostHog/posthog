@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface compareFilterLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         setCompare: (
             compare: any
@@ -22,12 +22,13 @@ export interface compareFilterLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        compare: boolean
+    }
     events: any
     path: ['lib', 'components', 'CompareFilter', 'compareFilterLogic']
     pathString: 'lib.components.CompareFilter.compareFilterLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,

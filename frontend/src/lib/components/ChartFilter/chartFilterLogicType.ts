@@ -1,7 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
 export interface chartFilterLogicType {
-    key: any
+    key: undefined
     actionCreators: {
         setChartFilter: (
             filter: any
@@ -22,12 +22,13 @@ export interface chartFilterLogicType {
     cache: Record<string, any>
     connections: any
     constants: any
-    defaults: any
+    defaults: {
+        chartFilter: 'ActionsLineGraph'
+    }
     events: any
     path: ['lib', 'components', 'ChartFilter', 'chartFilterLogic']
     pathString: 'lib.components.ChartFilter.chartFilterLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
