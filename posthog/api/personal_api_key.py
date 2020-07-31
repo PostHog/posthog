@@ -1,4 +1,5 @@
-from rest_framework import viewsets, mixins, response, status, serializers
+from rest_framework import mixins, response, serializers, status, viewsets
+
 from posthog.models import PersonalAPIKey
 
 
@@ -6,14 +7,14 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     class Meta:
         model = PersonalAPIKey
         fields = ["id", "label", "created_at", "last_used_at"]
-        read_only_fields = ["id", "created_at", "last_used_at"]
+        read_only_fields = ["id", "created_at", "last_used_at", "team_id", "user_id"]
 
 
 class PersonalAPIKeySerializerCreateOnly(PersonalAPIKeySerializer):
     class Meta:
         model = PersonalAPIKey
         fields = ["id", "label", "value", "created_at", "last_used_at"]
-        read_only_fields = ["id", "value", "created_at", "last_used_at"]
+        read_only_fields = ["id", "value", "created_at", "last_used_at", "team_id", "user_id"]
 
     def create(self, validated_data: dict) -> PersonalAPIKey:
         user = self.context["request"].user
