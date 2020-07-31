@@ -103,11 +103,11 @@ export interface dashboardLogicType {
             payload: any
         }
         loadDashboardItemsSuccess: (
-            allItems: never[]
+            allItems: any[]
         ) => {
             type: 'load dashboard items success (scenes.dashboard.dashboardLogic)'
             payload: {
-                allItems: never[]
+                allItems: any[]
             }
         }
         loadDashboardItemsFailure: (
@@ -176,14 +176,14 @@ export interface dashboardLogicType {
         disableDragging: () => void
         refreshDashboardItem: (id: any) => void
         loadDashboardItems: () => void
-        loadDashboardItemsSuccess: (allItems: never[]) => void
+        loadDashboardItemsSuccess: (allItems: any[]) => void
         loadDashboardItemsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any
     constants: any
     defaults: {
-        allItems: never[]
+        allItems: any[]
         allItemsLoading: boolean
         draggingEnabled: () => 'off' | 'on'
         containerWidth: null
@@ -198,7 +198,7 @@ export interface dashboardLogicType {
         action: () => any,
         fullState: any
     ) => {
-        allItems: never[]
+        allItems: any[]
         allItemsLoading: boolean
         draggingEnabled: () => 'off' | 'on'
         containerWidth: null
@@ -206,7 +206,7 @@ export interface dashboardLogicType {
     }
     reducerOptions: any
     reducers: {
-        allItems: (state: never[], action: any, fullState: any) => never[]
+        allItems: (state: any[], action: any, fullState: any) => any[]
         allItemsLoading: (state: boolean, action: any, fullState: any) => boolean
         draggingEnabled: (state: () => 'off' | 'on', action: any, fullState: any) => () => 'off' | 'on'
         containerWidth: (state: null, action: any, fullState: any) => null
@@ -215,14 +215,14 @@ export interface dashboardLogicType {
     selector: (
         state: any
     ) => {
-        allItems: never[]
+        allItems: any[]
         allItemsLoading: boolean
         draggingEnabled: () => 'off' | 'on'
         containerWidth: null
         columns: null
     }
     selectors: {
-        allItems: (state: any, props: any) => never[]
+        allItems: (state: any, props: any) => any[]
         allItemsLoading: (state: any, props: any) => boolean
         draggingEnabled: (state: any, props: any) => () => 'off' | 'on'
         containerWidth: (state: any, props: any) => null
@@ -238,7 +238,7 @@ export interface dashboardLogicType {
         layoutForItem: (state: any, props: any) => {}
     }
     values: {
-        allItems: never[]
+        allItems: any[]
         allItemsLoading: boolean
         draggingEnabled: () => 'off' | 'on'
         containerWidth: null

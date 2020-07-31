@@ -8,11 +8,11 @@ export interface annotationsTableLogicType {
             payload: any
         }
         loadAnnotationsSuccess: (
-            annotations: never[]
+            annotations: any[]
         ) => {
             type: 'load annotations success (scenes.annotations.annotationsTableLogic)'
             payload: {
-                annotations: never[]
+                annotations: any[]
             }
         }
         loadAnnotationsFailure: (
@@ -83,7 +83,7 @@ export interface annotationsTableLogicType {
     }
     actions: {
         loadAnnotations: () => void
-        loadAnnotationsSuccess: (annotations: never[]) => void
+        loadAnnotationsSuccess: (annotations: any[]) => void
         loadAnnotationsFailure: (error: string) => void
         updateAnnotation: (id: any, content: any) => void
         deleteAnnotation: (id: any) => void
@@ -96,7 +96,7 @@ export interface annotationsTableLogicType {
     connections: any
     constants: any
     defaults: {
-        annotations: never[]
+        annotations: any[]
         annotationsLoading: boolean
         next: null
         loadingNext: boolean
@@ -110,14 +110,14 @@ export interface annotationsTableLogicType {
         action: () => any,
         fullState: any
     ) => {
-        annotations: never[]
+        annotations: any[]
         annotationsLoading: boolean
         next: null
         loadingNext: boolean
     }
     reducerOptions: any
     reducers: {
-        annotations: (state: never[], action: any, fullState: any) => never[]
+        annotations: (state: any[], action: any, fullState: any) => any[]
         annotationsLoading: (state: boolean, action: any, fullState: any) => boolean
         next: (state: null, action: any, fullState: any) => null
         loadingNext: (state: boolean, action: any, fullState: any) => boolean
@@ -125,19 +125,19 @@ export interface annotationsTableLogicType {
     selector: (
         state: any
     ) => {
-        annotations: never[]
+        annotations: any[]
         annotationsLoading: boolean
         next: null
         loadingNext: boolean
     }
     selectors: {
-        annotations: (state: any, props: any) => never[]
+        annotations: (state: any, props: any) => any[]
         annotationsLoading: (state: any, props: any) => boolean
         next: (state: any, props: any) => null
         loadingNext: (state: any, props: any) => boolean
     }
     values: {
-        annotations: never[]
+        annotations: any[]
         annotationsLoading: boolean
         next: null
         loadingNext: boolean

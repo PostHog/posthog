@@ -131,7 +131,7 @@ export interface retentionTableLogicType {
         people: {}
         peopleLoading: boolean
         initialPathname: (state: any) => any
-        properties: never[]
+        properties: any[]
         filters: {}
         loadingMore: boolean
     }
@@ -149,7 +149,7 @@ export interface retentionTableLogicType {
         people: {}
         peopleLoading: boolean
         initialPathname: (state: any) => any
-        properties: never[]
+        properties: any[]
         filters: {}
         loadingMore: boolean
     }
@@ -160,7 +160,7 @@ export interface retentionTableLogicType {
         people: (state: {}, action: any, fullState: any) => {}
         peopleLoading: (state: boolean, action: any, fullState: any) => boolean
         initialPathname: (state: (state: any) => any, action: any, fullState: any) => (state: any) => any
-        properties: (state: never[], action: any, fullState: any) => never[]
+        properties: (state: any[], action: any, fullState: any) => any[]
         filters: (state: {}, action: any, fullState: any) => {}
         loadingMore: (state: boolean, action: any, fullState: any) => boolean
     }
@@ -172,7 +172,7 @@ export interface retentionTableLogicType {
         people: {}
         peopleLoading: boolean
         initialPathname: (state: any) => any
-        properties: never[]
+        properties: any[]
         filters: {}
         loadingMore: boolean
     }
@@ -182,7 +182,7 @@ export interface retentionTableLogicType {
         people: (state: any, props: any) => {}
         peopleLoading: (state: any, props: any) => boolean
         initialPathname: (state: any, props: any) => (state: any) => any
-        properties: (state: any, props: any) => never[]
+        properties: (state: any, props: any) => any[]
         filters: (state: any, props: any) => {}
         loadingMore: (state: any, props: any) => boolean
         propertiesForUrl: (state: any, props: any) => '' | { properties: any }
@@ -194,7 +194,7 @@ export interface retentionTableLogicType {
         people: {}
         peopleLoading: boolean
         initialPathname: (state: any) => any
-        properties: never[]
+        properties: any[]
         filters: {}
         loadingMore: boolean
         propertiesForUrl: '' | { properties: any }

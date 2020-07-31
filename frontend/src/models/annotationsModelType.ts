@@ -22,11 +22,11 @@ export interface annotationsModelType {
             payload: any
         }
         loadGlobalAnnotationsSuccess: (
-            globalAnnotations: never[]
+            globalAnnotations: any[]
         ) => {
             type: 'load global annotations success (models.annotationsModel)'
             payload: {
-                globalAnnotations: never[]
+                globalAnnotations: any[]
             }
         }
         loadGlobalAnnotationsFailure: (
@@ -56,14 +56,14 @@ export interface annotationsModelType {
         createGlobalAnnotation: (content: any, date_marker: any, dashboard_item: any) => void
         deleteGlobalAnnotation: (id: any) => void
         loadGlobalAnnotations: () => void
-        loadGlobalAnnotationsSuccess: (globalAnnotations: never[]) => void
+        loadGlobalAnnotationsSuccess: (globalAnnotations: any[]) => void
         loadGlobalAnnotationsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any
     constants: any
     defaults: {
-        globalAnnotations: never[]
+        globalAnnotations: any[]
         globalAnnotationsLoading: boolean
     }
     events: any
@@ -75,27 +75,27 @@ export interface annotationsModelType {
         action: () => any,
         fullState: any
     ) => {
-        globalAnnotations: never[]
+        globalAnnotations: any[]
         globalAnnotationsLoading: boolean
     }
     reducerOptions: any
     reducers: {
-        globalAnnotations: (state: never[], action: any, fullState: any) => never[]
+        globalAnnotations: (state: any[], action: any, fullState: any) => any[]
         globalAnnotationsLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
         state: any
     ) => {
-        globalAnnotations: never[]
+        globalAnnotations: any[]
         globalAnnotationsLoading: boolean
     }
     selectors: {
-        globalAnnotations: (state: any, props: any) => never[]
+        globalAnnotations: (state: any, props: any) => any[]
         globalAnnotationsLoading: (state: any, props: any) => boolean
         activeGlobalAnnotations: (state: any, props: any) => any
     }
     values: {
-        globalAnnotations: never[]
+        globalAnnotations: any[]
         globalAnnotationsLoading: boolean
         activeGlobalAnnotations: any
     }

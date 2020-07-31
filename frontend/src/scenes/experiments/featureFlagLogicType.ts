@@ -15,11 +15,11 @@ export interface featureFlagLogicType {
             payload: any
         }
         loadFeatureFlagsSuccess: (
-            featureFlags: never[]
+            featureFlags: any[]
         ) => {
             type: 'load feature flags success (scenes.experiments.featureFlagLogic)'
             payload: {
-                featureFlags: never[]
+                featureFlags: any[]
             }
         }
         loadFeatureFlagsFailure: (
@@ -37,11 +37,11 @@ export interface featureFlagLogicType {
             payload: any
         }
         updateFeatureFlagSuccess: (
-            featureFlags: never[]
+            featureFlags: any[]
         ) => {
             type: 'update feature flag success (scenes.experiments.featureFlagLogic)'
             payload: {
-                featureFlags: never[]
+                featureFlags: any[]
             }
         }
         updateFeatureFlagFailure: (
@@ -59,11 +59,11 @@ export interface featureFlagLogicType {
             payload: any
         }
         createFeatureFlagSuccess: (
-            featureFlags: never[]
+            featureFlags: any[]
         ) => {
             type: 'create feature flag success (scenes.experiments.featureFlagLogic)'
             payload: {
-                featureFlags: never[]
+                featureFlags: any[]
             }
         }
         createFeatureFlagFailure: (
@@ -102,20 +102,20 @@ export interface featureFlagLogicType {
     actions: {
         setFunnel: (funnel: any, update: any) => void
         loadFeatureFlags: () => void
-        loadFeatureFlagsSuccess: (featureFlags: never[]) => void
+        loadFeatureFlagsSuccess: (featureFlags: any[]) => void
         loadFeatureFlagsFailure: (error: string) => void
         updateFeatureFlag: (featureFlag: any) => void
-        updateFeatureFlagSuccess: (featureFlags: never[]) => void
+        updateFeatureFlagSuccess: (featureFlags: any[]) => void
         updateFeatureFlagFailure: (error: string) => void
         createFeatureFlag: (featureFlag: any) => void
-        createFeatureFlagSuccess: (featureFlags: never[]) => void
+        createFeatureFlagSuccess: (featureFlags: any[]) => void
         createFeatureFlagFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any
     constants: any
     defaults: {
-        featureFlags: never[]
+        featureFlags: any[]
         featureFlagsLoading: boolean
     }
     events: any
@@ -127,26 +127,26 @@ export interface featureFlagLogicType {
         action: () => any,
         fullState: any
     ) => {
-        featureFlags: never[]
+        featureFlags: any[]
         featureFlagsLoading: boolean
     }
     reducerOptions: any
     reducers: {
-        featureFlags: (state: never[], action: any, fullState: any) => never[]
+        featureFlags: (state: any[], action: any, fullState: any) => any[]
         featureFlagsLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
         state: any
     ) => {
-        featureFlags: never[]
+        featureFlags: any[]
         featureFlagsLoading: boolean
     }
     selectors: {
-        featureFlags: (state: any, props: any) => never[]
+        featureFlags: (state: any, props: any) => any[]
         featureFlagsLoading: (state: any, props: any) => boolean
     }
     values: {
-        featureFlags: never[]
+        featureFlags: any[]
         featureFlagsLoading: boolean
     }
     _isKea: true

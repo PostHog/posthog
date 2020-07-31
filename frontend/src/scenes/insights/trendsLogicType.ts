@@ -10,11 +10,11 @@ export interface trendsLogicType {
             payload: any
         }
         loadResultsSuccess: (
-            results: never[]
+            results: any[]
         ) => {
             type: 'load results success (scenes.insights.trendsLogic)'
             payload: {
-                results: never[]
+                results: any[]
             }
         }
         loadResultsFailure: (
@@ -105,7 +105,7 @@ export interface trendsLogicType {
     }
     actions: {
         loadResults: (refresh?: any) => void
-        loadResultsSuccess: (results: never[]) => void
+        loadResultsSuccess: (results: any[]) => void
         loadResultsFailure: (error: string) => void
         setFilters: (filters: any, mergeFilters?: any, fromUrl?: any) => void
         setDisplay: (display: any) => void
@@ -119,7 +119,7 @@ export interface trendsLogicType {
     connections: any
     constants: any
     defaults: {
-        results: never[]
+        results: any[]
         resultsLoading: boolean
         filters: unknown
         people: null
@@ -134,7 +134,7 @@ export interface trendsLogicType {
         action: () => any,
         fullState: any
     ) => {
-        results: never[]
+        results: any[]
         resultsLoading: boolean
         filters: unknown
         people: null
@@ -142,7 +142,7 @@ export interface trendsLogicType {
     }
     reducerOptions: any
     reducers: {
-        results: (state: never[], action: any, fullState: any) => never[]
+        results: (state: any[], action: any, fullState: any) => any[]
         resultsLoading: (state: boolean, action: any, fullState: any) => boolean
         filters: (state: unknown, action: any, fullState: any) => unknown
         people: (state: null, action: any, fullState: any) => null
@@ -151,14 +151,14 @@ export interface trendsLogicType {
     selector: (
         state: any
     ) => {
-        results: never[]
+        results: any[]
         resultsLoading: boolean
         filters: unknown
         people: null
         showingPeople: boolean
     }
     selectors: {
-        results: (state: any, props: any) => never[]
+        results: (state: any, props: any) => any[]
         resultsLoading: (state: any, props: any) => boolean
         filters: (state: any, props: any) => unknown
         people: (state: any, props: any) => null
@@ -168,7 +168,7 @@ export interface trendsLogicType {
         peopleDay: (state: any, props: any) => any
     }
     values: {
-        results: never[]
+        results: any[]
         resultsLoading: boolean
         filters: unknown
         people: null

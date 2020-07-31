@@ -51,11 +51,11 @@ export interface annotationsLogicType {
             payload: any
         }
         loadAnnotationsSuccess: (
-            annotations: never[]
+            annotations: any[]
         ) => {
             type: 'load annotations success (lib.components.Annotations.annotationsLogic)'
             payload: {
-                annotations: never[]
+                annotations: any[]
             }
         }
         loadAnnotationsFailure: (
@@ -97,16 +97,16 @@ export interface annotationsLogicType {
         updateDiffType: (dates: any) => void
         setDiffType: (type: any) => void
         loadAnnotations: ({ before, after }: any) => void
-        loadAnnotationsSuccess: (annotations: never[]) => void
+        loadAnnotationsSuccess: (annotations: any[]) => void
         loadAnnotationsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any
     constants: any
     defaults: {
-        annotations: never[]
+        annotations: any[]
         annotationsLoading: boolean
-        annotationsToCreate: never[]
+        annotationsToCreate: any[]
         diffType: string
     }
     events: any
@@ -118,38 +118,38 @@ export interface annotationsLogicType {
         action: () => any,
         fullState: any
     ) => {
-        annotations: never[]
+        annotations: any[]
         annotationsLoading: boolean
-        annotationsToCreate: never[]
+        annotationsToCreate: any[]
         diffType: string
     }
     reducerOptions: any
     reducers: {
-        annotations: (state: never[], action: any, fullState: any) => never[]
+        annotations: (state: any[], action: any, fullState: any) => any[]
         annotationsLoading: (state: boolean, action: any, fullState: any) => boolean
-        annotationsToCreate: (state: never[], action: any, fullState: any) => never[]
+        annotationsToCreate: (state: any[], action: any, fullState: any) => any[]
         diffType: (state: string, action: any, fullState: any) => string
     }
     selector: (
         state: any
     ) => {
-        annotations: never[]
+        annotations: any[]
         annotationsLoading: boolean
-        annotationsToCreate: never[]
+        annotationsToCreate: any[]
         diffType: string
     }
     selectors: {
-        annotations: (state: any, props: any) => never[]
+        annotations: (state: any, props: any) => any[]
         annotationsLoading: (state: any, props: any) => boolean
-        annotationsToCreate: (state: any, props: any) => never[]
+        annotationsToCreate: (state: any, props: any) => any[]
         diffType: (state: any, props: any) => string
         annotationsList: (state: any, props: any) => any[]
         groupedAnnotations: (state: any, props: any) => Dictionary<any[]>
     }
     values: {
-        annotations: never[]
+        annotations: any[]
         annotationsLoading: boolean
-        annotationsToCreate: never[]
+        annotationsToCreate: any[]
         diffType: string
         annotationsList: any[]
         groupedAnnotations: Dictionary<any[]>

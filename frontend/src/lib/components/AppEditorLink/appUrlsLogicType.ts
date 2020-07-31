@@ -33,11 +33,11 @@ export interface appUrlsLogicType {
             payload: any
         }
         loadSuggestionsSuccess: (
-            suggestions: never[]
+            suggestions: any[]
         ) => {
             type: 'load suggestions success (lib.components.AppEditorLink.appUrlsLogic)'
             payload: {
-                suggestions: never[]
+                suggestions: any[]
             }
         }
         loadSuggestionsFailure: (
@@ -73,14 +73,14 @@ export interface appUrlsLogicType {
         removeUrl: (index: any) => void
         updateUrl: (index: any, value: any) => void
         loadSuggestions: () => void
-        loadSuggestionsSuccess: (suggestions: never[]) => void
+        loadSuggestionsSuccess: (suggestions: any[]) => void
         loadSuggestionsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any
     constants: any
     defaults: {
-        suggestions: never[]
+        suggestions: any[]
         suggestionsLoading: boolean
         appUrls: string[]
     }
@@ -93,30 +93,30 @@ export interface appUrlsLogicType {
         action: () => any,
         fullState: any
     ) => {
-        suggestions: never[]
+        suggestions: any[]
         suggestionsLoading: boolean
         appUrls: string[]
     }
     reducerOptions: any
     reducers: {
-        suggestions: (state: never[], action: any, fullState: any) => never[]
+        suggestions: (state: any[], action: any, fullState: any) => any[]
         suggestionsLoading: (state: boolean, action: any, fullState: any) => boolean
         appUrls: (state: string[], action: any, fullState: any) => string[]
     }
     selector: (
         state: any
     ) => {
-        suggestions: never[]
+        suggestions: any[]
         suggestionsLoading: boolean
         appUrls: string[]
     }
     selectors: {
-        suggestions: (state: any, props: any) => never[]
+        suggestions: (state: any, props: any) => any[]
         suggestionsLoading: (state: any, props: any) => boolean
         appUrls: (state: any, props: any) => string[]
     }
     values: {
-        suggestions: never[]
+        suggestions: any[]
         suggestionsLoading: boolean
         appUrls: string[]
     }

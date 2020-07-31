@@ -10,11 +10,11 @@ export interface sessionsTableLogicType {
             payload: any
         }
         loadSessionsSuccess: (
-            sessions: never[]
+            sessions: any[]
         ) => {
             type: 'load sessions success (scenes.sessions.sessionsTableLogic)'
             payload: {
-                sessions: never[]
+                sessions: any[]
             }
         }
         loadSessionsFailure: (
@@ -78,7 +78,7 @@ export interface sessionsTableLogicType {
     }
     actions: {
         loadSessions: (selectedDate: any) => void
-        loadSessionsSuccess: (sessions: never[]) => void
+        loadSessionsSuccess: (sessions: any[]) => void
         loadSessionsFailure: (error: string) => void
         setOffset: (offset: any) => void
         fetchNextSessions: () => void
@@ -90,7 +90,7 @@ export interface sessionsTableLogicType {
     connections: any
     constants: any
     defaults: {
-        sessions: never[]
+        sessions: any[]
         sessionsLoading: boolean
         isLoadingNext: boolean
         offset: null
@@ -105,7 +105,7 @@ export interface sessionsTableLogicType {
         action: () => any,
         fullState: any
     ) => {
-        sessions: never[]
+        sessions: any[]
         sessionsLoading: boolean
         isLoadingNext: boolean
         offset: null
@@ -113,7 +113,7 @@ export interface sessionsTableLogicType {
     }
     reducerOptions: any
     reducers: {
-        sessions: (state: never[], action: any, fullState: any) => never[]
+        sessions: (state: any[], action: any, fullState: any) => any[]
         sessionsLoading: (state: boolean, action: any, fullState: any) => boolean
         isLoadingNext: (state: boolean, action: any, fullState: any) => boolean
         offset: (state: null, action: any, fullState: any) => null
@@ -122,14 +122,14 @@ export interface sessionsTableLogicType {
     selector: (
         state: any
     ) => {
-        sessions: never[]
+        sessions: any[]
         sessionsLoading: boolean
         isLoadingNext: boolean
         offset: null
         selectedDate: Moment
     }
     selectors: {
-        sessions: (state: any, props: any) => never[]
+        sessions: (state: any, props: any) => any[]
         sessionsLoading: (state: any, props: any) => boolean
         isLoadingNext: (state: any, props: any) => boolean
         offset: (state: any, props: any) => null
@@ -137,7 +137,7 @@ export interface sessionsTableLogicType {
         selectedDateURLparam: (state: any, props: any) => any
     }
     values: {
-        sessions: never[]
+        sessions: any[]
         sessionsLoading: boolean
         isLoadingNext: boolean
         offset: null

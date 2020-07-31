@@ -8,11 +8,11 @@ export interface actionsModelType {
             payload: any
         }
         loadActionsSuccess: (
-            actions: never[]
+            actions: any[]
         ) => {
             type: 'load actions success (models.actionsModel)'
             payload: {
-                actions: never[]
+                actions: any[]
             }
         }
         loadActionsFailure: (
@@ -36,14 +36,14 @@ export interface actionsModelType {
     }
     actions: {
         loadActions: () => void
-        loadActionsSuccess: (actions: never[]) => void
+        loadActionsSuccess: (actions: any[]) => void
         loadActionsFailure: (error: string) => void
     }
     cache: Record<string, any>
     connections: any
     constants: any
     defaults: {
-        actions: never[]
+        actions: any[]
         actionsLoading: boolean
     }
     events: any
@@ -55,27 +55,27 @@ export interface actionsModelType {
         action: () => any,
         fullState: any
     ) => {
-        actions: never[]
+        actions: any[]
         actionsLoading: boolean
     }
     reducerOptions: any
     reducers: {
-        actions: (state: never[], action: any, fullState: any) => never[]
+        actions: (state: any[], action: any, fullState: any) => any[]
         actionsLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
         state: any
     ) => {
-        actions: never[]
+        actions: any[]
         actionsLoading: boolean
     }
     selectors: {
-        actions: (state: any, props: any) => never[]
+        actions: (state: any, props: any) => any[]
         actionsLoading: (state: any, props: any) => boolean
         actionsGrouped: (state: any, props: any) => { label: string; options: never[] }[]
     }
     values: {
-        actions: never[]
+        actions: any[]
         actionsLoading: boolean
         actionsGrouped: { label: string; options: never[] }[]
     }
