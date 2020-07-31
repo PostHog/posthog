@@ -89,11 +89,15 @@ export const InsightHistoryPanel: React.FC = () => {
             title: 'Type',
             key: 'id',
             render: function RenderType(_: unknown, insight: InsightHistory) {
-                return (
-                    <Link to={'/insights?' + toParams(insight.filters)}>
-                        {insight.type.charAt(0).toUpperCase() + insight.type.slice(1).toLowerCase()}
-                    </Link>
-                )
+                if (insight.type) {
+                    return (
+                        <Link to={'/insights?' + toParams(insight.filters)}>
+                            {insight.type.charAt(0).toUpperCase() + insight.type.slice(1).toLowerCase()}
+                        </Link>
+                    )
+                } else {
+                    return null
+                }
             },
         },
         {

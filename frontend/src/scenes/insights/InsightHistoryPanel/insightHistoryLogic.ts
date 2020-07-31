@@ -58,7 +58,6 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                             user: true,
                         })
                 )
-                console.log(response)
 
                 const parsed = response.results.map((result: any) => ({
                     filters: result.filters,
