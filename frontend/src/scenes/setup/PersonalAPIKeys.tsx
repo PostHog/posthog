@@ -3,8 +3,9 @@ import { Table, Modal, Button, Input } from 'antd'
 import { useActions } from 'kea'
 import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
+import { UserType } from '~/types'
 
-function CreateKeyModal({ visible, setVisible }) {
+function CreateKeyModal({ visible, setVisible }): JSX.Element {
     const { createPersonalAPIKeyRequest } = useActions(userLogic)
 
     const inputRef = useRef()
@@ -15,13 +16,16 @@ function CreateKeyModal({ visible, setVisible }) {
             okText="Create Key"
             cancelText="Cancel"
             onOk={() => {
-                createPersonalAPIKeyRequest(inputRef.current.state.value.trim())
-                setVisible(false)
-                inputRef.current.state.value = ''
+                const label = inputRef.current.state.value?.trim()
+                if (label) {
+                    createPersonalAPIKeyRequest(inputRef.current.state.value.trim())
+                    setVisible(false)
+                    inputRef.current.state.value = undefined
+                }
             }}
             onCancel={() => {
                 setVisible(false)
-                inputRef.current.state.value = ''
+                inputRef.current.state.value = undefined
             }}
             visible={visible}
         >
@@ -41,12 +45,12 @@ function CreateKeyModal({ visible, setVisible }) {
     )
 }
 
-function PersonalAPIKeysTable({ keys }) {
+function PersonalAPIKeysTable({ keys }): JSX.Element {
     const { confirm } = Modal
     const { deletePersonalAPIKeyRequest } = useActions(userLogic)
 
-    function RowActions(_text, personalAPIKey) {
-        const handleClick = () => {
+    function RowActions(_text, personalAPIKey): JSX.Element {
+        function handleClick(): void {
             confirm({
                 title: `Delete personal API key "${personalAPIKey.label}"?`,
                 icon: <ExclamationCircleOutlined />,
@@ -119,7 +123,7 @@ function PersonalAPIKeysTable({ keys }) {
     )
 }
 
-export function PersonalAPIKeys({ user }) {
+export function PersonalAPIKeys({ user }: { user: UserType }): JSX.Element {
     const [isCreateKeyModalOpen, setIsCreateKeyModalOpen] = useState(false)
 
     return (
