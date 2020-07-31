@@ -129,8 +129,8 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
 def get_event(request):
     now = timezone.now()
     try:
-        data = _load_data(request
-    except:
+        data = _load_data(request)
+    except json.JSONDecodeError:
         return cors_response(
             request, JsonResponse({"code": "validation", "message": "Malformed request data.",}, status=400,),
         )

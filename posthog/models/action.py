@@ -3,9 +3,8 @@ import datetime
 from django.core.exceptions import EmptyResultSet
 from django.db import connection, models, transaction
 from django.utils import timezone
-from sentry_sdk import capture_exception
 from rest_hooks.signals import raw_hook_event
-from .user import User
+from sentry_sdk import capture_exception
 
 from .user import User
 
@@ -81,7 +80,7 @@ class Action(models.Model):
         self.last_calculated_at = calculated_at
         self.save()
 
-    def on_perform(self, event: "posthog.Event"):
+    def on_perform(self, event):
         from posthog.api.event import EventViewSet
 
         event.action = self
