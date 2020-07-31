@@ -1,11 +1,10 @@
-import React, { useRef, useEffect } from 'react'
+import React, { useRef } from 'react'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { useSecondRender } from 'lib/hooks/useSecondRender'
 import root from 'react-shadow'
 import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
 import { useMountedLogic } from 'kea'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { posthog } from '~/toolbar/posthog'
 import { EditorProps } from '~/types'
 
 export function ToolbarApp(props: EditorProps = {}): JSX.Element {
@@ -13,13 +12,6 @@ export function ToolbarApp(props: EditorProps = {}): JSX.Element {
 
     const shadowRef = useRef(null as null | { shadowRoot: ShadowRoot })
     useMountedLogic(dockLogic({ shadowRef }))
-
-    useEffect(() => {
-        if (props.instrument) {
-            posthog.identify((null as unknown) as string, { email: props.userEmail })
-            posthog.optIn()
-        }
-    }, [])
 
     // this runs after the shadow root has been added to the dom
     const didRender = useSecondRender(() => {

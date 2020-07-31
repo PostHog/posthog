@@ -4,6 +4,7 @@ import { EditorProps } from '~/types'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+import { posthog } from '~/toolbar/posthog'
 
 // input: props = all editorProps
 export const toolbarLogic = kea<toolbarLogicType>({
@@ -44,8 +45,13 @@ export const toolbarLogic = kea<toolbarLogicType>({
         },
     }),
 
-    events: ({ actions }) => ({
-        afterMount() {
+    events: ({ actions, props }) => ({
+        async afterMount() {
+            if (props.instrument) {
+                posthog.identify(props.distinctId, { email: props.userEmail })
+                posthog.optIn()
+            }
+
             actions.processUserIntent()
         },
     }),
