@@ -384,3 +384,9 @@ class TestCapture(BaseTest):
         timediff = arguments["sent_at"].timestamp() - tomorrow_sent_at.timestamp()
         self.assertLess(abs(timediff), 1)
         self.assertEqual(arguments["data"]["timestamp"], tomorrow.isoformat())
+
+    def test_incorrect_json(self):
+        response = self.client.post(
+            "/capture/", '{"event": "incorrect json with trailing comma",}', content_type="application/json"
+        )
+        self.assertEqual(response.json()["code"], "validation")

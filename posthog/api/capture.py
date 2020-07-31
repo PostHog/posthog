@@ -113,7 +113,16 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
 @csrf_exempt
 def get_event(request):
     now = timezone.now()
-    data = _load_data(request)
+    try:
+        data = _load_data(request)
+    except TypeError:
+        return cors_response(
+            request,
+            JsonResponse(
+                {"code": "validation", "message": "Invalid formatting. Make sure you're passing correct JSON.",},
+                status=400,
+            ),
+        )
     if not data:
         return cors_response(request, HttpResponse("1"))
     sent_at = _get_sent_at(data, request)
