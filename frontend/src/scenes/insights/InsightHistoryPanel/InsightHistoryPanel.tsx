@@ -146,7 +146,7 @@ export const InsightHistoryPanel: React.FC = () => {
                         columns={recentColumns}
                         loading={insightsLoading}
                         rowKey={(insight) => insight.id}
-                        pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                        pagination={{ pageSize: 5, hideOnSinglePage: true }}
                         dataSource={insights}
                     />
                 </TabPane>
@@ -161,7 +161,7 @@ export const InsightHistoryPanel: React.FC = () => {
                         columns={savedColumns}
                         loading={savedInsightsLoading}
                         rowKey={(insight) => insight.id}
-                        pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                        pagination={{ pageSize: 5, hideOnSinglePage: true }}
                         dataSource={savedInsights}
                     />
                 </TabPane>
@@ -199,11 +199,16 @@ const SaveChartModal: React.FC<SaveChartModalProps> = (props) => {
         onCancel()
     }
 
+    function _onSubmit(input: string): void {
+        setInput('')
+        onSubmit(input)
+    }
+
     return (
         <Modal
             visible={visible}
             footer={
-                <Button type="primary" onClick={(): void => onSubmit(input)}>
+                <Button type="primary" onClick={(): void => _onSubmit(input)}>
                     Save
                 </Button>
             }

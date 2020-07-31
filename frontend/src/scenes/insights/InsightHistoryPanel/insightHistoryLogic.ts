@@ -30,7 +30,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                     'api/dashboard_item/?' +
                         toParams({
                             order: '-created_at',
-                            limit: 5,
+                            limit: 30,
                             user: true,
                         })
                 )
@@ -54,10 +54,11 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                         toParams({
                             order: '-created_at',
                             saved: true,
-                            limit: 5,
+                            limit: 100,
                             user: true,
                         })
                 )
+                console.log(response)
 
                 const parsed = response.results.map((result: any) => ({
                     filters: result.filters,
