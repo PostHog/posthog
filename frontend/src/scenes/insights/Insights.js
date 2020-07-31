@@ -150,8 +150,8 @@ function _Insights() {
             </Tabs>
             <Row gutter={16}>
                 <Col xs={24} xl={7}>
-                    <Card>
-                        <div className="card-body px-4">
+                    <Card className="mb-3">
+                        <div className="card-body px-4 mb-0">
                             {/* 
                             These are insight specific filters. 
                             They each have insight specific logics

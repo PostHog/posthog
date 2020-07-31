@@ -88,7 +88,7 @@ export const pathsLogic = kea({
             },
         ],
         properties: [
-            {},
+            [],
             {
                 setProperties: (_, { properties }) => properties,
             },
@@ -160,8 +160,8 @@ export const pathsLogic = kea({
                     return
                 }
 
-                if (!objectsEqual(searchParams.properties, values.properties)) {
-                    actions.setProperties(searchParams.properties || {})
+                if (!objectsEqual(searchParams.properties || [], values.properties)) {
+                    actions.setProperties(searchParams.properties || [])
                 }
 
                 const { insight: _, properties: __, ...restParams } = searchParams

@@ -88,6 +88,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                 name,
                 saved: true,
             })
+            actions.loadInsights()
             actions.loadSavedInsights()
             toast('Saved Insight')
         },

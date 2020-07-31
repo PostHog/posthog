@@ -127,8 +127,8 @@ export const retentionTableLogic = kea({
                 return
             }
 
-            if (!objectsEqual(searchParams.properties || {}, values.properties)) {
-                actions.setProperties(searchParams.properties || {})
+            if (!objectsEqual(searchParams.properties || [], values.properties)) {
+                actions.setProperties(searchParams.properties || [])
             }
             if (searchParams.target && values.startEntity.id !== searchParams.target?.id) {
                 actions.setFilters({
