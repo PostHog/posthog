@@ -11,6 +11,7 @@ export interface InsightHistory {
     filters: Record<string, any>
     name?: string
     createdAt: string
+    saved: boolean
 }
 
 const typeToInsightMap: Record<string, string> = {
@@ -30,6 +31,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                         toParams({
                             order: '-created_at',
                             limit: 5,
+                            user: true,
                         })
                 )
 
@@ -38,6 +40,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                     type: result.filters.insight || typeToInsightMap[result.type],
                     id: result.id,
                     createdAt: result.created_at,
+                    saved: result.saved,
                 }))
 
                 return parsed
@@ -52,6 +55,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                             order: '-created_at',
                             saved: true,
                             limit: 5,
+                            user: true,
                         })
                 )
 
@@ -61,6 +65,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                     id: result.id,
                     createdAt: result.created_at,
                     name: result.name,
+                    saved: result.saved,
                 }))
 
                 return parsed

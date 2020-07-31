@@ -19,3 +19,4 @@ class DashboardItem(models.Model):
     last_refresh: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     refreshing: models.BooleanField = models.BooleanField(default=False)
     funnel: models.ForeignKey = models.ForeignKey("Funnel", on_delete=models.CASCADE, null=True, blank=True)
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)

@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Tabs, Table, Modal, Input, Button } from 'antd'
 import { humanFriendlyDetailedTime, toParams } from 'lib/utils'
 import { Link } from 'lib/components/Link'
-import { PushpinOutlined } from '@ant-design/icons'
+import { PushpinOutlined, PushpinFilled } from '@ant-design/icons'
 import { useValues, useActions } from 'kea'
 import { insightHistoryLogic, InsightHistory } from './insightHistoryLogic'
 
@@ -25,7 +25,7 @@ export const InsightHistoryPanel: React.FC = () => {
         {
             title: 'Name',
             key: 'id',
-            render: function RenderName(_, insight: InsightHistory) {
+            render: function RenderName(_: unknown, insight: InsightHistory) {
                 return <Link to={'/insights?' + toParams(insight.filters)}>{insight.name}</Link>
             },
         },
@@ -35,19 +35,27 @@ export const InsightHistoryPanel: React.FC = () => {
         {
             title: 'Type',
             key: 'id',
-            render: function RenderType(_, insight: InsightHistory) {
+            render: function RenderType(_: unknown, insight: InsightHistory) {
                 return <Link to={'/insights?' + toParams(insight.filters)}>{insight.type}</Link>
             },
         },
         {
             title: 'Timestamp',
-            render: function RenderVolume(_, insight: InsightHistory) {
+            render: function RenderVolume(_: unknown, insight: InsightHistory) {
                 return <span>{humanFriendlyDetailedTime(insight.createdAt)}</span>
             },
         },
         {
-            render: function RenderAction(_, insight: InsightHistory) {
-                return (
+            render: function RenderAction(_: unknown, insight: InsightHistory) {
+                return insight.saved ? (
+                    <PushpinFilled
+                        onClick={() => {
+                            setVisible(true)
+                            setSelectedInsight(insight.id)
+                        }}
+                        style={{ cursor: 'pointer' }}
+                    />
+                ) : (
                     <PushpinOutlined
                         onClick={() => {
                             setVisible(true)
