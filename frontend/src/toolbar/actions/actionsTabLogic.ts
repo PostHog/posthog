@@ -204,8 +204,12 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, F
             actions.setShowActionsTooltip(false)
         },
         [actionsLogic.actionTypes.getActionsSuccess]: () => {
-            if (toolbarLogic.values.userIntent === 'edit-action') {
-                actionsTabLogic.actions.selectAction(toolbarLogic.values.actionId)
+            const { userIntent } = toolbarLogic.values
+            if (userIntent === 'edit-action') {
+                actions.selectAction(toolbarLogic.values.actionId)
+                toolbarLogic.actions.clearUserIntent()
+            } else if (userIntent === 'add-action') {
+                actions.newAction()
                 toolbarLogic.actions.clearUserIntent()
             } else {
                 actions.setShowActionsTooltip(true)
