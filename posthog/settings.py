@@ -124,6 +124,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "django_statsd.middleware.StatsdMiddleware",
     "posthog.middleware.SameSiteSessionMiddleware",  # keep this at the top
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.AllowIP",
@@ -135,6 +136,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    "django_statsd.middleware.StatsdMiddlewareTimer",
 ]
 
 # Load debug_toolbar if we can (DEBUG and Dev modes)
@@ -329,6 +331,10 @@ CACHES = {
         "KEY_PREFIX": "posthog",
     }
 }
+
+# Metrics - StatsD
+STATSD_HOST = os.environ.get("STATSD_HOST", "127.0.0.1")
+STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
 
 if TEST:
     CACHES["default"] = {
