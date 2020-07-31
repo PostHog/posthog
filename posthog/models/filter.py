@@ -29,7 +29,7 @@ class Filter(PropertyMixin):
     display: Optional[str] = None
     selector: Optional[str] = None
     shown_as: Optional[str] = None
-    breakdown: Optional[str] = None
+    breakdown: Optional[Union[str, List[Union[str, int]]]] = None
     breakdown_type: Optional[str] = None
     compare: Optional[bool] = None
     funnel_id: Optional[int] = None
@@ -53,7 +53,7 @@ class Filter(PropertyMixin):
         self.display = data.get("display")
         self.selector = data.get("selector")
         self.shown_as = data.get("shown_as")
-        self.breakdown = data.get("breakdown")
+        self.breakdown = self._parse_breakdown(data)
         self.breakdown_type = data.get("breakdown_type")
         self.compare = data.get("compare")
 
@@ -66,6 +66,15 @@ class Filter(PropertyMixin):
                 [Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in data.get("events", [])]
             )
         self.entities = sorted(self.entities, key=lambda entity: entity.order if entity.order else -1)
+
+    def _parse_breakdown(self, data: Dict[str, Any]) -> Optional[Union[str, List[Union[str, int]]]]:
+        breakdown = data.get("breakdown")
+        if not isinstance(breakdown, str):
+            return breakdown
+        try:
+            return json.loads(breakdown)
+        except (TypeError, json.decoder.JSONDecodeError):
+            return breakdown
 
     def to_dict(self) -> Dict[str, Any]:
         return {
