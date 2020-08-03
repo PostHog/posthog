@@ -77,18 +77,24 @@ class Filter(PropertyMixin):
             return breakdown
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        full_dict = {
             "date_from": self._date_from,
             "date_to": self._date_to,
             "properties": [prop.to_dict() for prop in self.properties],
             "interval": self.interval,
             "events": [entity.to_dict() for entity in self.events],
             "actions": [entity.to_dict() for entity in self.actions],
+            "display": self.display,
             "selector": self.selector,
             "shown_as": self.shown_as,
             "breakdown": self.breakdown,
             "breakdown_type": self.breakdown_type,
             "compare": self.compare,
+        }
+        return {
+            key: value
+            for key, value in full_dict.items()
+            if (isinstance(value, list) and len(value) > 0) or (not isinstance(value, list) and value)
         }
 
     @property
