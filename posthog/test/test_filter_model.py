@@ -21,7 +21,13 @@ class TestFilter(BaseTest):
 
     def test_to_dict(self):
         filter = Filter(
-            data={"events": [{"id": "$pageview"}], "display": "ActionsLineGraph", "compare": True}
+            data={
+                "events": [{"id": "$pageview"}],
+                "display": "ActionsLineGraph",
+                "compare": True,
+                "interval": "",
+                "actions": [],
+            }
         ).to_dict()
         self.assertEqual(list(filter.keys()), ["events", "display", "compare"])
 
