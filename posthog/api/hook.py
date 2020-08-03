@@ -1,13 +1,13 @@
 from django.conf import settings
-from rest_framework import serializers, viewsets, exceptions
+from rest_framework import exceptions, serializers, viewsets
+
 from posthog.models.hook import Hook
 
 
 class HookSerializer(serializers.ModelSerializer):
     def validate_event(self, event):
         if event not in settings.HOOK_EVENTS:
-            err_msg = "Unexpected event {}".format(event)
-            raise exceptions.ValidationError(detail=err_msg, code=400)
+            raise exceptions.ValidationError(detail=f"Unexpected event {event}")
         return event
 
     class Meta:
