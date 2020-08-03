@@ -236,7 +236,7 @@ export function AnnotationMarker({
                     {label}
                 </Row>
             }
-            visible={focused}
+            visible={focused || (!dynamic && hovered)}
         >
             <div
                 style={{
