@@ -1,5 +1,4 @@
 import React from 'react'
-import { HedgehogOverlay } from 'lib/components/HedgehogOverlay/HedgehogOverlay'
 import { Button } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 
@@ -13,7 +12,6 @@ export function ErrorNetwork(): JSX.Element {
                     <ReloadOutlined /> Reload the page!
                 </Button>
             </p>
-            <HedgehogOverlay type="sad" />
         </div>
     )
 }
