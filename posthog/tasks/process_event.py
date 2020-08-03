@@ -177,14 +177,7 @@ def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[dat
 
 @shared_task
 def process_event(
-    distinct_id: str,
-    ip: str,
-    site_url: str,
-    data: dict,
-    team_id: int,
-    now: str,
-    sent_at: Optional[str],
-    extra_properties: Optional[dict] = None,
+    distinct_id: str, ip: str, site_url: str, data: dict, team_id: int, now: str, sent_at: Optional[str],
 ) -> None:
     if data["event"] == "$create_alias":
         _alias(
@@ -200,8 +193,9 @@ def process_event(
         _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
 
     properties = data.get("properties", data.get("$set", {}))
-    if extra_properties:
-        properties.update(extra_properties)
+    if data.get("extra_properties"):
+        # merge properties parsed from JSON string with the object
+        properties.update(data["extra_properties"])
 
     _capture(
         ip=ip,

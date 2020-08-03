@@ -236,7 +236,7 @@ class TestCapture(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             response.json()["message"],
-            "API key is incorrect. You can find your API key in the /setup page in PostHog.",
+            "Team or personal API key invalid. You can find your team API key in the /setup page in PostHog.",
         )
 
     def test_batch_token_not_set(self):
@@ -248,7 +248,8 @@ class TestCapture(BaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
-            response.json()["message"], "No api_key set. You can find your API key in the /setup page in posthog",
+            response.json()["message"],
+            "Neither api_key nor personal_api_key set. You can find your API key in the /setup page in PostHog.",
         )
 
     def test_batch_distinct_id_not_set(self):
@@ -259,7 +260,7 @@ class TestCapture(BaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["message"], "You need to set a distinct_id.")
+        self.assertEqual(response.json()["message"], "You need to set user distinct ID field `distinct_id`.")
 
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")

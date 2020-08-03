@@ -130,9 +130,9 @@ def get_event(request):
     now = timezone.now()
     try:
         data = _load_data(request)
-    except json.JSONDecodeError:
+    except TypeError:
         return cors_response(
-            request, JsonResponse({"code": "validation", "message": "Malformed request data.",}, status=400,),
+            request, JsonResponse({"code": "validation", "message": "Malformed request data."}, status=400),
         )
     if not data:
         return cors_response(request, HttpResponse("1"))
@@ -162,7 +162,7 @@ def get_event(request):
             JsonResponse(
                 {
                     "code": "validation",
-                    "message": "API key or personal API key invalid. You can find your API key in the /setup page in PostHog.",
+                    "message": "Team or personal API key invalid. You can find your team API key in the /setup page in PostHog.",
                 },
                 status=400,
             ),
@@ -206,22 +206,37 @@ def get_event(request):
 
         extra_properties_json = event.get("extra_properties_json")
         extra_properties = None
-        are_extra_properties_set_and_malformed = False
         if extra_properties_json:
             try:
                 extra_properties = json.loads(extra_properties_json)
             except json.JSONDecodeError:
-                are_extra_properties_set_and_malformed = True
-        if extra_properties is not None and not isinstance(extra_properties, dict):
-            are_extra_properties_set_and_malformed = True
-        if are_extra_properties_set_and_malformed:
-            return cors_response(
-                request,
-                JsonResponse(
-                    {"code": "validation", "message": "Field `extra_properties_json` is malformed!", "item": event,},
-                    status=400,
-                ),
-            )
+                return cors_response(
+                    request,
+                    JsonResponse(
+                        {
+                            "code": "validation",
+                            "message": "Field `extra_properties_json` is malformed!",
+                            "item": event,
+                        },
+                        status=400,
+                    ),
+                )
+        if extra_properties is not None:
+            if isinstance(extra_properties, dict):
+                event["extra_properties"] = extra_properties
+            else:
+                return cors_response(
+                    request,
+                    JsonResponse(
+                        {
+                            "code": "validation",
+                            "message": "Field `extra_properties_json` must contain an object!",
+                            "item": event,
+                        },
+                        status=400,
+                    ),
+                )
+
         process_event.delay(
             distinct_id=distinct_id,
             ip=get_ip_address(request),
@@ -230,7 +245,6 @@ def get_event(request):
             team_id=team.id,
             now=now,
             sent_at=sent_at,
-            extra_properties=extra_properties,
         )
 
     return cors_response(request, JsonResponse({"status": 1}))
