@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Tabs, Modal, Input, Button, List, Col, Spin } from 'antd'
-import { toParams } from 'lib/utils'
+import { toParams, dateFilterToText } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { PushpinOutlined, PushpinFilled, DeleteOutlined } from '@ant-design/icons'
 import { useValues, useActions } from 'kea'
@@ -46,11 +46,13 @@ const determineFilters = (viewType: string, filters: Record<string, any>, cohort
         if (filters.name) result.push([<b key="funnel-name">Name:</b>, ` ${filters.name}\n`])
     }
     if (filters.properties && filters.properties.length > 0) {
-        result.push([<b key="paths-properties">Properties:</b>, `\n`])
+        result.push([<b key="insight-history-properties">Properties:</b>, `\n`])
         filters.properties.forEach((prop: PropertyFilter) =>
             result.push(`${formatPropertyLabel(prop, cohorts, keyMapping)}\n`)
         )
     }
+
+    result.push([<b key="insight-history-date">Date: </b>, `${dateFilterToText(filters.date_from, filters.date_to)}\n`])
     return <span>{result}</span>
 }
 

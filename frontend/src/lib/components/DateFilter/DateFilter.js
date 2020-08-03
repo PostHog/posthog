@@ -4,34 +4,7 @@ import { useValues, useActions } from 'kea'
 import moment from 'moment'
 import { dateFilterLogic } from './dateFilterLogic'
 import { ViewType } from 'scenes/insights/insightLogic'
-
-let dateMapping = {
-    Today: ['dStart'],
-    Yesterday: ['-1d', 'dStart'],
-    'Last 24 hours': ['-24h'],
-    'Last 48 hours': ['-48h'],
-    'Last week': ['-7d'],
-    'Last 2 weeks': ['-14d'],
-    'Last 30 days': ['-30d'],
-    'Last 90 days': ['-90d'],
-    'This month': ['mStart'],
-    'Previous month': ['-1mStart', '-1mEnd'],
-    'Year to date': ['yStart'],
-    'All time': ['all'],
-}
-
-let isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
-
-function dateFilterToText(date_from, date_to) {
-    if (isDate.test(date_from)) return `${date_from} - ${date_to}`
-    if (moment.isMoment(date_from)) return `${date_from.format('YYYY-MM-DD')} - ${date_to.format('YYYY-MM-DD')}`
-    if (date_from === 'dStart') return 'Today' // Changed to "last 24 hours" but this is backwards compatibility
-    let name = 'Last 7 days'
-    Object.entries(dateMapping).map(([key, value]) => {
-        if (value[0] === date_from && value[1] === date_to) name = key
-    })[0]
-    return name
-}
+import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
 
 export function DateFilter({ style, filters, view }) {
     const {
