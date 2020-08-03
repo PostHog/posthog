@@ -128,30 +128,23 @@ INSTALLED_APPS = [
     "social_django",
 ]
 
-if STATSD_HOST:
-    MIDDLEWARE = [
-        "django_statsd.middleware.StatsdMiddleware",
-    ]
-else:
-    MIDDLEWARE = []
 
-MIDDLEWARE.extend(
-    [
-        "posthog.middleware.SameSiteSessionMiddleware",  # keep this at the top
-        "django.middleware.security.SecurityMiddleware",
-        "posthog.middleware.AllowIP",
-        "django.contrib.sessions.middleware.SessionMiddleware",
-        "corsheaders.middleware.CorsMiddleware",
-        "django.middleware.common.CommonMiddleware",
-        "django.middleware.csrf.CsrfViewMiddleware",
-        "django.contrib.auth.middleware.AuthenticationMiddleware",
-        "django.contrib.messages.middleware.MessageMiddleware",
-        "django.middleware.clickjacking.XFrameOptionsMiddleware",
-        "whitenoise.middleware.WhiteNoiseMiddleware",
-    ]
-)
+MIDDLEWARE = [
+    "posthog.middleware.SameSiteSessionMiddleware",  # keep this at the top
+    "django.middleware.security.SecurityMiddleware",
+    "posthog.middleware.AllowIP",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+]
 
 if STATSD_HOST:
+    MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
 # Load debug_toolbar if we can (DEBUG and Dev modes)
