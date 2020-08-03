@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Tabs, Modal, Input, Button, List, Col } from 'antd'
+import { Tabs, Modal, Input, Button, List, Col, Spin } from 'antd'
 import { toParams } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { PushpinOutlined, PushpinFilled, DeleteOutlined } from '@ant-design/icons'
@@ -55,13 +55,48 @@ const determineFilters = (viewType: string, filters: Record<string, any>, cohort
 }
 
 export const InsightHistoryPanel: React.FC = () => {
-    const { insights, insightsLoading, savedInsights, savedInsightsLoading } = useValues(insightHistoryLogic)
-    const { saveInsight, deleteInsight } = useActions(insightHistoryLogic)
+    const {
+        insights,
+        insightsLoading,
+        savedInsights,
+        savedInsightsLoading,
+        insightsNext,
+        savedInsightsNext,
+        loadingMoreInsights,
+        loadingMoreSavedInsights,
+    } = useValues(insightHistoryLogic)
+    const { saveInsight, deleteInsight, loadNextInsights, loadNextSavedInsights } = useActions(insightHistoryLogic)
     const { cohorts } = useValues(cohortsModel)
 
     const [visible, setVisible] = useState(false)
     const [activeTab, setActiveTab] = useState(InsightHistoryType.RECENT)
     const [selectedInsight, setSelectedInsight] = useState<number | null>(null)
+
+    const loadMoreInsights = insightsNext ? (
+        <div
+            style={{
+                textAlign: 'center',
+                marginTop: 12,
+                height: 32,
+                lineHeight: '32px',
+            }}
+        >
+            {loadingMoreInsights ? <Spin /> : <Button onClick={loadNextInsights}>Load more</Button>}
+        </div>
+    ) : null
+
+    const loadMoreSavedInsights = savedInsightsNext ? (
+        <div
+            style={{
+                textAlign: 'center',
+                marginTop: 12,
+                height: 32,
+                lineHeight: '32px',
+            }}
+        >
+            {loadingMoreSavedInsights ? <Spin /> : <Button onClick={loadNextSavedInsights}>Load more</Button>}
+        </div>
+    ) : null
 
     return (
         <div data-attr="insight-history-panel">
@@ -81,6 +116,7 @@ export const InsightHistoryPanel: React.FC = () => {
                     <List
                         loading={insightsLoading}
                         dataSource={insights}
+                        loadMore={loadMoreInsights}
                         renderItem={(insight) => {
                             return (
                                 <List.Item
@@ -127,6 +163,7 @@ export const InsightHistoryPanel: React.FC = () => {
                     <List
                         loading={savedInsightsLoading}
                         dataSource={savedInsights}
+                        loadMore={loadMoreSavedInsights}
                         renderItem={(insight) => {
                             return (
                                 <List.Item
