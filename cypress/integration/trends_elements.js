@@ -5,6 +5,7 @@ describe('Trends actions & events', () => {
     })
 
     it('Insight History Panel Rendered', () => {
+        cy.get('[data-attr=insight-history-button]').click()
         cy.get('[data-attr=insight-history-panel]').should('exist')
     })
 
