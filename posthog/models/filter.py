@@ -32,7 +32,7 @@ class Filter(PropertyMixin):
     shown_as: Optional[str] = None
     breakdown: Optional[str] = None
     breakdown_type: Optional[str] = None
-    _compare: Optional[bool] = None
+    _compare: Optional[Union[bool, str]] = None
     funnel_id: Optional[int] = None
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None,) -> None:
