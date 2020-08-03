@@ -1,12 +1,17 @@
-from typing import Optional
 import json
+from typing import Optional
+
 from django.db import models
 from rest_hooks.models import AbstractHook
+
+from posthog.models.utils import generate_random_token
 from posthog.tasks.hooks import DeliverHook
+
 from .team import Team
 
 
 class Hook(AbstractHook):
+    id = models.CharField(primary_key=True, max_length=50, default=generate_random_token)
     # Replacing the default rest_hooks' user field with team, as our data is per team
     user = None
     team = models.ForeignKey(Team, related_name="%(class)ss", on_delete=models.CASCADE)
