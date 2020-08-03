@@ -1,5 +1,6 @@
 import datetime
 import json
+from distutils.util import strtobool
 from typing import Any, Dict, List, Optional, Union
 
 from dateutil.relativedelta import relativedelta
@@ -55,7 +56,7 @@ class Filter(PropertyMixin):
         self.shown_as = data.get("shown_as")
         self.breakdown = data.get("breakdown")
         self.breakdown_type = data.get("breakdown_type")
-        self.compare = data.get("compare")
+        self.compare = bool(strtobool(data.get("compare", "false")))
 
         if data.get("actions"):
             self.entities.extend(
