@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import { delay } from 'lib/utils'
 import { Error404 } from '~/layout/Error404'
+import { ErrorNetwork } from '~/layout/ErrorNetwork'
 
 export const scenes = {
     // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
@@ -76,6 +77,9 @@ export const sceneLogic = kea({
                 '404': {
                     component: Error404,
                 },
+                '4xx': {
+                    component: ErrorNetwork,
+                },
             },
             {
                 [actions.setLoadedScene]: (state, { scene, loadedScene }) => ({ ...state, [scene]: loadedScene }),
@@ -126,7 +130,26 @@ export const sceneLogic = kea({
             let loadedScene = values.loadedScenes[scene]
 
             if (!loadedScene) {
-                const importedScene = await scenes[scene]()
+                let importedScene
+                try {
+                    importedScene = await scenes[scene]()
+                } catch (error) {
+                    if (error.name === 'ChunkLoadError') {
+                        console.error('Error loading webpack chunk!')
+
+                        if (scene !== null) {
+                            // we were on another page (not the first loaded scene)
+                            console.error('Reloading!')
+                            window.location.reload()
+                        } else {
+                            // first scene, show an error page
+                            console.error("Redirecting to the 'Network Error' page!")
+                            actions.setScene('4xx', {})
+                            return
+                        }
+                    }
+                    throw error
+                }
                 breakpoint()
                 const { default: defaultExport, logic, ...others } = importedScene
 
