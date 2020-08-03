@@ -107,6 +107,11 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-
 
 ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
 
+# Metrics - StatsD
+STATSD_HOST = os.environ.get("STATSD_HOST", None)
+STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
+STATSD_PREFIX = os.environ.get("STATSD_PREFIX", None)
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -123,21 +128,31 @@ INSTALLED_APPS = [
     "social_django",
 ]
 
-MIDDLEWARE = [
-    "django_statsd.middleware.StatsdMiddleware",
-    "posthog.middleware.SameSiteSessionMiddleware",  # keep this at the top
-    "django.middleware.security.SecurityMiddleware",
-    "posthog.middleware.AllowIP",
-    "django.contrib.sessions.middleware.SessionMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
-    "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.messages.middleware.MessageMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",
-    "django_statsd.middleware.StatsdMiddlewareTimer",
-]
+if STATSD_HOST:
+    MIDDLEWARE = [
+        "django_statsd.middleware.StatsdMiddleware",
+    ]
+else:
+    MIDDLEWARE = []
+
+MIDDLEWARE.extend(
+    [
+        "posthog.middleware.SameSiteSessionMiddleware",  # keep this at the top
+        "django.middleware.security.SecurityMiddleware",
+        "posthog.middleware.AllowIP",
+        "django.contrib.sessions.middleware.SessionMiddleware",
+        "corsheaders.middleware.CorsMiddleware",
+        "django.middleware.common.CommonMiddleware",
+        "django.middleware.csrf.CsrfViewMiddleware",
+        "django.contrib.auth.middleware.AuthenticationMiddleware",
+        "django.contrib.messages.middleware.MessageMiddleware",
+        "django.middleware.clickjacking.XFrameOptionsMiddleware",
+        "whitenoise.middleware.WhiteNoiseMiddleware",
+    ]
+)
+
+if STATSD_HOST:
+    MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
 # Load debug_toolbar if we can (DEBUG and Dev modes)
 try:
@@ -331,11 +346,6 @@ CACHES = {
         "KEY_PREFIX": "posthog",
     }
 }
-
-# Metrics - StatsD
-STATSD_HOST = os.environ.get("STATSD_HOST", "127.0.0.1")
-STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
-STATSD_PREFIX = os.environ.get("STATSD_PREFIX", "debug")
 
 if TEST:
     CACHES["default"] = {
