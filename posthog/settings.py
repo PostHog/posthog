@@ -338,7 +338,7 @@ if TEST:
 if DEBUG and not TEST:
     print_warning(
         (
-            "️Environment variable DEBUG is set - PostHog is running in development mode!",
-            "Absolutely unset DEBUG if this is supposed to be a production environment!",
+            "️Environment variable DEBUG is set - PostHog is running in DEVELOPMENT mode!",
+            "Be sure to unset DEBUG if this is supposed to be a PRODUCTION environment!",
         )
     )
