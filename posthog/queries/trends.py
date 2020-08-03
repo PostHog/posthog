@@ -171,14 +171,14 @@ def aggregate_by_interval(
     if breakdown:
         if filter.breakdown_type == "cohort":
             cohort_annotations = add_cohort_annotations(
-                team_id, json.loads(filter.breakdown) if filter.breakdown else []
+                team_id, filter.breakdown if filter.breakdown and isinstance(filter.breakdown, list) else []
             )
             values.extend(cohort_annotations.keys())
             filtered_events = filtered_events.annotate(**cohort_annotations)
             breakdown = "cohorts"
         elif filter.breakdown_type == "person":
             person_annotations = add_person_properties_annotations(
-                team_id, filter.breakdown if filter.breakdown else ""
+                team_id, filter.breakdown if filter.breakdown and isinstance(filter.breakdown, str) else ""
             )
             filtered_events = filtered_events.annotate(**person_annotations)
             values.append(breakdown)

@@ -19,6 +19,18 @@ class TestFilter(BaseTest):
         self.assertEqual(filter.properties[1].operator, None)
         self.assertEqual(filter.properties[1].value, "Mac")
 
+    def test_to_dict(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "$pageview"}],
+                "display": "ActionsLineGraph",
+                "compare": True,
+                "interval": "",
+                "actions": [],
+            }
+        ).to_dict()
+        self.assertEqual(list(filter.keys()), ["events", "display", "compare"])
+
 
 class TestSelectors(BaseTest):
     def test_selectors(self):
