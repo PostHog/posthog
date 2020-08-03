@@ -250,7 +250,7 @@ function _Insights() {
                 </Col>
             </Row>
             <Drawer title={'Insights History'} width={500} onClose={() => setOpenHistory(false)} visible={openHistory}>
-                <InsightHistoryPanel />
+                <InsightHistoryPanel onChange={() => setOpenHistory(false)} />
             </Drawer>
         </div>
     )

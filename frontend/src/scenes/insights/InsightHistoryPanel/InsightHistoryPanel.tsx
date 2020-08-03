@@ -56,7 +56,11 @@ const determineFilters = (viewType: string, filters: Record<string, any>, cohort
     return <span>{result}</span>
 }
 
-export const InsightHistoryPanel: React.FC = () => {
+interface InsightHistoryPanelProps {
+    onChange: () => void
+}
+
+export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChange }: InsightHistoryPanelProps) => {
     const {
         insights,
         insightsLoading,
@@ -144,7 +148,7 @@ export const InsightHistoryPanel: React.FC = () => {
                                 >
                                     <Col style={{ whiteSpace: 'pre-line' }}>
                                         {insight.type && (
-                                            <Link to={'/insights?' + toParams(insight.filters)}>
+                                            <Link onClick={onChange} to={'/insights?' + toParams(insight.filters)}>
                                                 {insight.type.charAt(0).toUpperCase() +
                                                     insight.type.slice(1).toLowerCase()}
                                             </Link>
@@ -182,7 +186,9 @@ export const InsightHistoryPanel: React.FC = () => {
                                 >
                                     <Col style={{ whiteSpace: 'pre-line' }}>
                                         {insight.type && (
-                                            <Link to={'/insights?' + toParams(insight.filters)}>{insight.name}</Link>
+                                            <Link onClick={onChange} to={'/insights?' + toParams(insight.filters)}>
+                                                {insight.name}
+                                            </Link>
                                         )}
                                         <br></br>
                                         <span>{determineFilters(insight.type, insight.filters, cohorts)}</span>
