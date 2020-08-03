@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0072_action_step_url_matching_regex"),
+        ("posthog", "0073_update_dashboard_item_filters"),
     ]
 
     operations = [

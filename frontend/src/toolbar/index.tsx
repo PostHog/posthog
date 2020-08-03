@@ -1,3 +1,4 @@
+import 'react-toastify/dist/ReactToastify.css'
 import '~/toolbar/styles.scss'
 
 import React from 'react'

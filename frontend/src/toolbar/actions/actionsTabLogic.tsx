@@ -1,3 +1,4 @@
+import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
@@ -176,7 +177,31 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, F
 
             actionsLogic.actions.updateAction({ action: response })
             actions.selectAction(null)
-            toast('Action saved!')
+
+            const insightsUrl = `insights?insight=TRENDS&interval=day&actions=${JSON.stringify([
+                { type: 'actions', id: response.id, order: 0, name: response.name },
+            ])}`
+
+            toast(
+                <>
+                    Action saved! Open it in PostHog:{' '}
+                    <a
+                        href={`${apiURL}${apiURL.endsWith('/') ? '' : '/'}${insightsUrl}`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                    >
+                        Insights
+                    </a>{' '}
+                    -{' '}
+                    <a
+                        href={`${apiURL}${apiURL.endsWith('/') ? '' : '/'}action/${response.id}`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                    >
+                        Actions
+                    </a>
+                </>
+            )
         },
         deleteAction: async () => {
             const { apiURL, temporaryToken } = toolbarLogic.values
