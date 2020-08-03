@@ -73,3 +73,29 @@ export type EditorProps = {
     instrument?: boolean
     userEmail?: boolean
 }
+
+export interface PropertyFilter {
+    key: string
+    operator: string | null
+    type: string
+    value: string | number
+}
+
+export interface Entity {
+    id: string | number
+    name: string
+    order: number
+    type: string
+}
+
+export interface CohortType {
+    count?: number
+    created_by?: Record<string, any>
+    created_at?: string
+    deleted?: boolean
+    id: number
+    is_calculating?: boolean
+    last_calculation?: string
+    name?: string
+    groups?: Record<string, any>[]
+}

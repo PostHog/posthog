@@ -1,15 +1,18 @@
 import { kea } from 'kea'
 import api from 'lib/api'
+import { cohortsModelType } from './cohortsModelType'
+import { CohortType } from '~/types'
 
 const POLL_TIMEOUT = 5000
 
-export const cohortsModel = kea({
+export const cohortsModel = kea<cohortsModelType<CohortType>>({
     actions: () => ({
-        setPollTimeout: (pollTimeout) => ({ pollTimeout }),
+        setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
     }),
 
     loaders: () => ({
         cohorts: {
+            __default: [] as CohortType[],
             loadCohorts: async () => {
                 const response = await api.get('api/cohort')
                 return response.results
@@ -37,7 +40,7 @@ export const cohortsModel = kea({
     events: ({ actions, values }) => ({
         afterMount: actions.loadCohorts,
         beforeUnmount: () => {
-            clearTimeout(values.pollTimeout)
+            clearTimeout(values.pollTimeout || undefined)
         },
     }),
 })

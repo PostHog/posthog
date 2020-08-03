@@ -208,6 +208,16 @@ export function isOperatorFlag(operator) {
     return ['is_set', 'is_not_set'].includes(operator)
 }
 
+export function formatPropertyLabel(item, cohorts, keyMapping) {
+    const { value, key, operator, type } = item
+    return type === 'cohort'
+        ? cohorts?.find((cohort) => cohort.id === value)?.name || value
+        : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
+              (isOperatorFlag(operator)
+                  ? ` ${operatorMap[operator]}`
+                  : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${value || ''}`)
+}
+
 export const formatProperty = (property) => {
     return property.key + ` ${operatorMap[property.operator || 'exact'].split(' ')[0]} ` + property.value
 }

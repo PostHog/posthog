@@ -1,11 +1,15 @@
 import React, { useState } from 'react'
-import { Tabs, Table, Modal, Input, Button } from 'antd'
+import { Tabs, Modal, Input, Button, List, Col } from 'antd'
 import { toParams } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { PushpinOutlined, PushpinFilled, DeleteOutlined } from '@ant-design/icons'
 import { useValues, useActions } from 'kea'
-import { insightHistoryLogic, InsightHistory } from './insightHistoryLogic'
+import { insightHistoryLogic } from './insightHistoryLogic'
 import { ViewType } from '../insightLogic'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { formatPropertyLabel } from 'lib/utils'
+import { cohortsModel } from '~/models'
+import { PropertyFilter, Entity, CohortType } from '~/types'
 
 const InsightHistoryType = {
     SAVED: 'SAVED',
@@ -14,36 +18,38 @@ const InsightHistoryType = {
 
 const { TabPane } = Tabs
 
-const determineFilters = (viewType: string, filters: Record<string, any>): JSX.Element => {
+const determineFilters = (viewType: string, filters: Record<string, any>, cohorts: CohortType[]): JSX.Element => {
     const result = []
     if (viewType === ViewType.TRENDS) {
         let count = 0
         if (filters.events) count += filters.events.length
         if (filters.actions) count += filters.actions.length
-        result.push([<b key="trend-entities">Entities:</b>, ` ${count}\n`])
+        if (count > 0) {
+            result.push([<b key="trend-entities">Entities:</b>, `\n`])
+            if (filters.events) filters.events.forEach((event: Entity) => result.push(`- ${event.name}\n`))
+            if (filters.actions) filters.actions.forEach((action: Entity) => result.push(`- ${action.name}\n`))
+        }
         if (filters.interval) result.push([<b key="trend-interval">Interval:</b>, ` ${filters.interval}\n`])
         if (filters.shown_as) result.push([<b key="trend-shownas">Shown as:</b>, ` ${filters.shown_as}\n`])
         if (filters.breakdown) result.push([<b key="trend-breakdown">Breakdown:</b>, ` ${filters.breakdown}\n`])
         if (filters.compare) result.push([<b key="trend-compare">Compare:</b>, ` ${filters.compare}\n`])
-        if (filters.properties)
-            result.push([<b key="trend-properties">Properties:</b>, ` ${filters.properties.length}\n`])
     } else if (viewType === ViewType.SESSIONS) {
         if (filters.session) result.push([<b key="sessions-session">Session</b>, ` ${filters.session}\n`])
         if (filters.interval) result.push([<b key="sessions-interval">Interval:</b>, ` ${filters.interval}\n`])
         if (filters.compare) result.push([<b key="sessions-compare">Compare:</b>, ` ${filters.compare}\n`])
-        if (filters.properties)
-            result.push([<b key="sessions-properties">Properties:</b>, ` ${filters.properties.length}\n`])
     } else if (viewType === ViewType.RETENTION) {
         if (filters.target) result.push([<b key="retention-target">Target:</b>, ` ${filters.target.name}\n`])
-        if (filters.properties)
-            result.push([<b key="retention-properties">Properties:</b>, ` ${filters.properties.length}\n`])
     } else if (viewType === ViewType.PATHS) {
         if (filters.type) result.push([<b key="paths-type">Path Type:</b>, ` ${filters.type}\n`])
         if (filters.start) result.push([<b key="paths-start">Start Point:</b>, ` Specified\n`])
-        if (filters.properties)
-            result.push([<b key="paths-properties">Properties:</b>, ` ${filters.properties.length}\n`])
     } else if (viewType === ViewType.FUNNELS) {
         if (filters.name) result.push([<b key="funnel-name">Name:</b>, ` ${filters.name}\n`])
+    }
+    if (filters.properties && filters.properties.length > 0) {
+        result.push([<b key="paths-properties">Properties:</b>, `\n`])
+        filters.properties.forEach((prop: PropertyFilter) =>
+            result.push(`${formatPropertyLabel(prop, cohorts, keyMapping)}\n`)
+        )
     }
     return <span>{result}</span>
 }
@@ -51,83 +57,11 @@ const determineFilters = (viewType: string, filters: Record<string, any>): JSX.E
 export const InsightHistoryPanel: React.FC = () => {
     const { insights, insightsLoading, savedInsights, savedInsightsLoading } = useValues(insightHistoryLogic)
     const { saveInsight, deleteInsight } = useActions(insightHistoryLogic)
+    const { cohorts } = useValues(cohortsModel)
 
     const [visible, setVisible] = useState(false)
     const [activeTab, setActiveTab] = useState(InsightHistoryType.RECENT)
     const [selectedInsight, setSelectedInsight] = useState<number | null>(null)
-
-    const savedColumns = [
-        {
-            title: 'Name',
-            key: 'id',
-            render: function RenderName(_: unknown, insight: InsightHistory) {
-                return <Link to={'/insights?' + toParams(insight.filters)}>{insight.name}</Link>
-            },
-        },
-        {
-            title: 'Details',
-            render: function RenderDetails(_: unknown, insight: InsightHistory) {
-                return determineFilters(insight.type, insight.filters)
-            },
-        },
-        {
-            render: function RenderAction(_: unknown, insight: InsightHistory) {
-                return (
-                    <DeleteOutlined
-                        onClick={() => {
-                            deleteInsight(insight)
-                        }}
-                        style={{ cursor: 'pointer' }}
-                    />
-                )
-            },
-        },
-    ]
-
-    const recentColumns = [
-        {
-            title: 'Type',
-            key: 'id',
-            render: function RenderType(_: unknown, insight: InsightHistory) {
-                if (insight.type) {
-                    return (
-                        <Link to={'/insights?' + toParams(insight.filters)}>
-                            {insight.type.charAt(0).toUpperCase() + insight.type.slice(1).toLowerCase()}
-                        </Link>
-                    )
-                } else {
-                    return null
-                }
-            },
-        },
-        {
-            title: 'Details',
-            render: function RenderDetails(_: unknown, insight: InsightHistory) {
-                return determineFilters(insight.type, insight.filters)
-            },
-        },
-        {
-            render: function RenderAction(_: unknown, insight: InsightHistory) {
-                return insight.saved ? (
-                    <PushpinFilled
-                        onClick={() => {
-                            setVisible(true)
-                            setSelectedInsight(insight.id)
-                        }}
-                        style={{ cursor: 'pointer' }}
-                    />
-                ) : (
-                    <PushpinOutlined
-                        onClick={() => {
-                            setVisible(true)
-                            setSelectedInsight(insight.id)
-                        }}
-                        style={{ cursor: 'pointer' }}
-                    />
-                )
-            },
-        },
-    ]
 
     return (
         <div data-attr="insight-history-panel">
@@ -144,14 +78,45 @@ export const InsightHistoryPanel: React.FC = () => {
                     key={InsightHistoryType.RECENT}
                     data-attr="insight-history-pane"
                 >
-                    <Table
-                        style={{ whiteSpace: 'pre-line' }}
-                        size="small"
-                        columns={recentColumns}
+                    <List
                         loading={insightsLoading}
-                        rowKey={(insight) => insight.id}
-                        pagination={{ pageSize: 5, hideOnSinglePage: true }}
                         dataSource={insights}
+                        renderItem={(insight) => {
+                            return (
+                                <List.Item
+                                    actions={[
+                                        insight.saved ? (
+                                            <PushpinFilled
+                                                onClick={() => {
+                                                    setVisible(true)
+                                                    setSelectedInsight(insight.id)
+                                                }}
+                                                style={{ cursor: 'pointer' }}
+                                            />
+                                        ) : (
+                                            <PushpinOutlined
+                                                onClick={() => {
+                                                    setVisible(true)
+                                                    setSelectedInsight(insight.id)
+                                                }}
+                                                style={{ cursor: 'pointer' }}
+                                            />
+                                        ),
+                                    ]}
+                                >
+                                    <Col style={{ whiteSpace: 'pre-line' }}>
+                                        {insight.type && (
+                                            <Link to={'/insights?' + toParams(insight.filters)}>
+                                                {insight.type.charAt(0).toUpperCase() +
+                                                    insight.type.slice(1).toLowerCase()}
+                                            </Link>
+                                        )}
+                                        <br></br>
+                                        <span>{determineFilters(insight.type, insight.filters, cohorts)}</span>
+                                    </Col>
+                                </List.Item>
+                            )
+                        }}
                     />
                 </TabPane>
                 <TabPane
@@ -159,14 +124,33 @@ export const InsightHistoryPanel: React.FC = () => {
                     key={InsightHistoryType.SAVED}
                     data-attr="insight-saved-pane"
                 >
-                    <Table
-                        style={{ whiteSpace: 'pre-line' }}
-                        size="small"
-                        columns={savedColumns}
+                    <List
                         loading={savedInsightsLoading}
-                        rowKey={(insight) => insight.id}
-                        pagination={{ pageSize: 5, hideOnSinglePage: true }}
                         dataSource={savedInsights}
+                        renderItem={(insight) => {
+                            return (
+                                <List.Item
+                                    key={insight.id}
+                                    actions={[
+                                        <DeleteOutlined
+                                            key="insight-action-delete"
+                                            onClick={() => {
+                                                deleteInsight(insight)
+                                            }}
+                                            style={{ cursor: 'pointer' }}
+                                        />,
+                                    ]}
+                                >
+                                    <Col style={{ whiteSpace: 'pre-line' }}>
+                                        {insight.type && (
+                                            <Link to={'/insights?' + toParams(insight.filters)}>{insight.name}</Link>
+                                        )}
+                                        <br></br>
+                                        <span>{determineFilters(insight.type, insight.filters, cohorts)}</span>
+                                    </Col>
+                                </List.Item>
+                            )
+                        }}
                     />
                 </TabPane>
             </Tabs>
