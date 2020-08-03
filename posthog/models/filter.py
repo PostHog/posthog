@@ -56,7 +56,7 @@ class Filter(PropertyMixin):
         self.shown_as = data.get("shown_as")
         self.breakdown = data.get("breakdown")
         self.breakdown_type = data.get("breakdown_type")
-        self.compare = bool(strtobool(data.get("compare", "false")))
+        self._compare = data.get("compare", "false")
 
         if data.get("actions"):
             self.entities.extend(
@@ -82,6 +82,15 @@ class Filter(PropertyMixin):
             "breakdown_type": self.breakdown_type,
             "compare": self.compare,
         }
+
+    @property
+    def compare(self) -> bool:
+        if isinstance(self._compare, bool):
+            return self._compare
+        elif isinstance(self._compare, str):
+            return bool(strtobool(self._compare))
+        else:
+            return False
 
     @property
     def actions(self) -> List[Entity]:
