@@ -9,7 +9,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0073_personalapikey"),
+        ("posthog", "0074_personalapikey"),
     ]
 
     operations = [
