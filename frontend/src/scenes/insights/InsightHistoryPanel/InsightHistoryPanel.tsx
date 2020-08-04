@@ -21,7 +21,7 @@ const { TabPane } = Tabs
 const columns = [
     {
         render: function renderKey(item) {
-            return <b>{item.key}</b>
+            return <b style={{ marginLeft: -8 }}>{item.key}</b>
         },
     },
     {
@@ -67,7 +67,7 @@ const determineFilters = (viewType: string, filters: Record<string, any>, cohort
         result.push({ key: 'Properties:', value: properties })
     }
     if (filters.date_from || filters.date_to)
-        result.push({ key: 'Date:', value: `${dateFilterToText(filters.date_from, filters.date_to)}\n` })
+        result.push({ key: 'Date Range:', value: `${dateFilterToText(filters.date_from, filters.date_to)}\n` })
     return (
         <Table
             showHeader={false}
