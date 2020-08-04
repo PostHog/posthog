@@ -44,21 +44,21 @@ const determineFilters = (viewType: string, filters: Record<string, any>, cohort
             if (filters.actions) filters.actions.forEach((action: Entity) => entity.push(`- ${action.name}\n`))
             result.push({ key: 'Entities:', value: entity })
         }
-        if (filters.interval) result.push({ key: 'Interval:', value: ` ${filters.interval}\n` })
-        if (filters.shown_as) result.push({ key: 'Shown As:', value: ` ${filters.shown_as}\n` })
-        if (filters.breakdown) result.push({ key: 'Breakdown: ', value: ` ${filters.breakdown}\n` })
-        if (filters.compare) result.push({ key: 'Compare', value: ` ${filters.compare}\n` })
+        if (filters.interval) result.push({ key: 'Interval:', value: `${filters.interval}\n` })
+        if (filters.shown_as) result.push({ key: 'Shown As:', value: `${filters.shown_as}\n` })
+        if (filters.breakdown) result.push({ key: 'Breakdown:', value: `${filters.breakdown}\n` })
+        if (filters.compare) result.push({ key: 'Compare:', value: `${filters.compare}\n` })
     } else if (viewType === ViewType.SESSIONS) {
-        if (filters.session) result.push({ key: 'Session: ', value: ` ${filters.session}\n` })
-        if (filters.interval) result.push({ key: 'Interval:', value: ` ${filters.interval}\n` })
-        if (filters.compare) result.push({ key: 'Compare', value: ` ${filters.compare}\n` })
+        if (filters.session) result.push({ key: 'Session:', value: `${filters.session}\n` })
+        if (filters.interval) result.push({ key: 'Interval:', value: `${filters.interval}\n` })
+        if (filters.compare) result.push({ key: 'Compare', value: `${filters.compare}\n` })
     } else if (viewType === ViewType.RETENTION) {
-        if (filters.target) result.push({ key: 'Target:', value: ` ${filters.target.name}\n` })
+        if (filters.target) result.push({ key: 'Target:', value: `${filters.target.name}\n` })
     } else if (viewType === ViewType.PATHS) {
-        if (filters.type) result.push({ key: 'Path Type:', value: ` ${filters.type}\n` })
-        if (filters.start) result.push({ key: 'Start Point', value: ` Specified\n` })
+        if (filters.type) result.push({ key: 'Path Type:', value: `${filters.type}\n` })
+        if (filters.start) result.push({ key: 'Start Point:', value: `Specified\n` })
     } else if (viewType === ViewType.FUNNELS) {
-        if (filters.name) result.push({ key: 'Name', value: ` ${filters.name}\n` })
+        if (filters.name) result.push({ key: 'Name:', value: `${filters.name}\n` })
     }
     if (filters.properties && filters.properties.length > 0) {
         const properties: string[] = []
