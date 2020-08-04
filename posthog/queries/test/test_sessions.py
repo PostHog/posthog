@@ -121,6 +121,37 @@ class TestSessions(BaseTest):
         self.assertEqual(hour_response[0]["days"][0], "2012-03-14 00:00:00")
         self.assertEqual(hour_response[0]["days"][1], "2012-03-14 01:00:00")
 
+    def test_no_events(self):
+        response = Sessions().run(
+            Filter(data={"date_from": "2012-01-20", "date_to": "2012-01-30", "interval": "day"}),
+            self.team,
+            session_type="avg",
+        )
+        self.assertEqual(response, [])
+
+    def test_compare(self):
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            Event.objects.create(team=self.team, event="1st action", distinct_id="1")
+            Event.objects.create(team=self.team, event="1st action", distinct_id="2")
+        with freeze_time("2012-01-14T03:25:34.000Z"):
+            Event.objects.create(team=self.team, event="2nd action", distinct_id="1")
+            Event.objects.create(team=self.team, event="2nd action", distinct_id="2")
+        with freeze_time("2012-01-25T03:59:34.000Z"):
+            Event.objects.create(team=self.team, event="3rd action", distinct_id="1")
+            Event.objects.create(team=self.team, event="3rd action", distinct_id="2")
+        with freeze_time("2012-01-25T04:01:34.000Z"):
+            Event.objects.create(team=self.team, event="4th action", distinct_id="1")
+            Event.objects.create(team=self.team, event="4th action", distinct_id="2")
+
+        # Run without anything to compare to
+        compare_response = Sessions().run(
+            Filter(data={"date_from": "2012-01-20", "date_to": "2012-01-30", "interval": "day", "compare": True}),
+            self.team,
+            session_type="avg",
+        )
+        self.assertEqual(compare_response[0]["data"][5], 120.0)
+        self.assertEqual(compare_response[1]["data"][4], 240.0)
+
     def test_sessions_count_buckets(self):
 
         # 0 seconds

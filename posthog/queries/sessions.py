@@ -194,6 +194,8 @@ class Sessions(BaseQuery):
         cursor = connection.cursor()
         cursor.execute(average_length_time, params)
         time_series_avg = cursor.fetchall()
+        if len(time_series_avg) == 0:
+            return []
 
         date_range = pd.date_range(filter.date_from, filter.date_to, freq=interval_freq,)
         df = pd.DataFrame([{"date": a[0], "count": a[1], "breakdown": "Total"} for a in time_series_avg])
