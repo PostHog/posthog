@@ -2,9 +2,12 @@ import { kea } from 'kea'
 import { toolbarLogicType } from '~/toolbar/toolbarLogicType'
 import { EditorProps } from '~/types'
 import { clearSessionToolbarToken } from '~/toolbar/utils'
+import { posthog } from '~/toolbar/posthog'
 
 // input: props = all editorProps
 export const toolbarLogic = kea<toolbarLogicType>({
+    props: {} as EditorProps,
+
     actions: () => ({
         authenticate: true,
         logout: true,
@@ -32,6 +35,15 @@ export const toolbarLogic = kea<toolbarLogicType>({
         },
         logout: () => {
             clearSessionToolbarToken()
+        },
+    }),
+
+    events: ({ props }) => ({
+        async afterMount() {
+            if (props.instrument) {
+                posthog.identify(props.distinctId, { email: props.userEmail })
+                posthog.optIn()
+            }
         },
     }),
 })
