@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { TeamInvitationModal } from 'lib/components/TeamInvitation'
 import { Menu, Layout, Modal } from 'antd'
 import {
-    RocketOutlined,
+    RocketFilled,
     UserOutlined,
     FunnelPlotOutlined,
     SettingOutlined,
@@ -120,7 +120,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         onClick={() => setToolbarModalOpen(true)}
                         data-attr="menu-item-toolbar"
                     >
-                        <RocketOutlined />
+                        <RocketFilled />
                         <span className="sidebar-label">Launch Toolbar!</span>
                     </Menu.Item>
 
