@@ -38,7 +38,6 @@ const determineFilters = (viewType: string, filters: Record<string, any>, cohort
         if (filters.events) count += filters.events.length
         if (filters.actions) count += filters.actions.length
         if (count > 0) {
-            result.push([<b key="trend-entities">Entities:</b>, `\n`])
             const entity: string[] = []
             if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name}\n`))
             if (filters.actions) filters.actions.forEach((action: Entity) => entity.push(`- ${action.name}\n`))
@@ -67,8 +66,8 @@ const determineFilters = (viewType: string, filters: Record<string, any>, cohort
         )
         result.push({ key: 'Properties:', value: properties })
     }
-
-    result.push([<b key="insight-history-date">Date: </b>, `${dateFilterToText(filters.date_from, filters.date_to)}\n`])
+    if (filters.date_from || filters.date_to)
+        result.push({ key: 'Date:', value: `${dateFilterToText(filters.date_from, filters.date_to)}\n` })
     return (
         <Table
             showHeader={false}
