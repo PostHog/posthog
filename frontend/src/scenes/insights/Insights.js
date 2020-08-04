@@ -161,7 +161,7 @@ function _Insights() {
                     <TabPane
                         tab={
                             <Button onClick={() => setOpenHistory(true)} data-attr="insight-history-button">
-                                {'Saved & Recents'}
+                                {'History'}
                             </Button>
                         }
                         key={'HISTORY'}

@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Tabs, Modal, Input, Button, List, Col, Spin } from 'antd'
+import { Tabs, Modal, Input, Button, List, Col, Spin, Table } from 'antd'
 import { toParams, dateFilterToText } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { PushpinOutlined, PushpinFilled, DeleteOutlined } from '@ant-design/icons'
@@ -18,6 +18,19 @@ const InsightHistoryType = {
 
 const { TabPane } = Tabs
 
+const columns = [
+    {
+        render: function renderKey(item) {
+            return <b>{item.key}</b>
+        },
+    },
+    {
+        render: function renderValue(item) {
+            return <span>{item.value}</span>
+        },
+    },
+]
+
 const determineFilters = (viewType: string, filters: Record<string, any>, cohorts: CohortType[]): JSX.Element => {
     const result = []
     if (viewType === ViewType.TRENDS) {
@@ -26,34 +39,45 @@ const determineFilters = (viewType: string, filters: Record<string, any>, cohort
         if (filters.actions) count += filters.actions.length
         if (count > 0) {
             result.push([<b key="trend-entities">Entities:</b>, `\n`])
-            if (filters.events) filters.events.forEach((event: Entity) => result.push(`- ${event.name}\n`))
-            if (filters.actions) filters.actions.forEach((action: Entity) => result.push(`- ${action.name}\n`))
+            const entity: string[] = []
+            if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name}\n`))
+            if (filters.actions) filters.actions.forEach((action: Entity) => entity.push(`- ${action.name}\n`))
+            result.push({ key: 'Entities:', value: entity })
         }
-        if (filters.interval) result.push([<b key="trend-interval">Interval:</b>, ` ${filters.interval}\n`])
-        if (filters.shown_as) result.push([<b key="trend-shownas">Shown as:</b>, ` ${filters.shown_as}\n`])
-        if (filters.breakdown) result.push([<b key="trend-breakdown">Breakdown:</b>, ` ${filters.breakdown}\n`])
-        if (filters.compare) result.push([<b key="trend-compare">Compare:</b>, ` ${filters.compare}\n`])
+        if (filters.interval) result.push({ key: 'Interval:', value: ` ${filters.interval}\n` })
+        if (filters.shown_as) result.push({ key: 'Shown As:', value: ` ${filters.shown_as}\n` })
+        if (filters.breakdown) result.push({ key: 'Breakdown: ', value: ` ${filters.breakdown}\n` })
+        if (filters.compare) result.push({ key: 'Compare', value: ` ${filters.compare}\n` })
     } else if (viewType === ViewType.SESSIONS) {
-        if (filters.session) result.push([<b key="sessions-session">Session</b>, ` ${filters.session}\n`])
-        if (filters.interval) result.push([<b key="sessions-interval">Interval:</b>, ` ${filters.interval}\n`])
-        if (filters.compare) result.push([<b key="sessions-compare">Compare:</b>, ` ${filters.compare}\n`])
+        if (filters.session) result.push({ key: 'Session: ', value: ` ${filters.session}\n` })
+        if (filters.interval) result.push({ key: 'Interval:', value: ` ${filters.interval}\n` })
+        if (filters.compare) result.push({ key: 'Compare', value: ` ${filters.compare}\n` })
     } else if (viewType === ViewType.RETENTION) {
-        if (filters.target) result.push([<b key="retention-target">Target:</b>, ` ${filters.target.name}\n`])
+        if (filters.target) result.push({ key: 'Target:', value: ` ${filters.target.name}\n` })
     } else if (viewType === ViewType.PATHS) {
-        if (filters.type) result.push([<b key="paths-type">Path Type:</b>, ` ${filters.type}\n`])
-        if (filters.start) result.push([<b key="paths-start">Start Point:</b>, ` Specified\n`])
+        if (filters.type) result.push({ key: 'Path Type:', value: ` ${filters.type}\n` })
+        if (filters.start) result.push({ key: 'Start Point', value: ` Specified\n` })
     } else if (viewType === ViewType.FUNNELS) {
-        if (filters.name) result.push([<b key="funnel-name">Name:</b>, ` ${filters.name}\n`])
+        if (filters.name) result.push({ key: 'Name', value: ` ${filters.name}\n` })
     }
     if (filters.properties && filters.properties.length > 0) {
-        result.push([<b key="insight-history-properties">Properties:</b>, `\n`])
+        const properties: string[] = []
         filters.properties.forEach((prop: PropertyFilter) =>
-            result.push(`${formatPropertyLabel(prop, cohorts, keyMapping)}\n`)
+            properties.push(`${formatPropertyLabel(prop, cohorts, keyMapping)}\n`)
         )
+        result.push({ key: 'Properties:', value: properties })
     }
 
     result.push([<b key="insight-history-date">Date: </b>, `${dateFilterToText(filters.date_from, filters.date_to)}\n`])
-    return <span>{result}</span>
+    return (
+        <Table
+            showHeader={false}
+            size={'small'}
+            dataSource={result}
+            columns={columns}
+            pagination={{ pageSize: 100, hideOnSinglePage: true }}
+        />
+    )
 }
 
 interface InsightHistoryPanelProps {
