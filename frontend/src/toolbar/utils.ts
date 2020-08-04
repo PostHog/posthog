@@ -303,3 +303,8 @@ export function stepToDatabaseFormat(step: ActionStepForm): ActionStepType {
     }
     return newStep
 }
+
+export function clearSessionToolbarToken(): void {
+    window.sessionStorage?.removeItem('_postHogEditorParams')
+    window.localStorage?.removeItem('_postHogEditorParams')
+}

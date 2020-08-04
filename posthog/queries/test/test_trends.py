@@ -123,7 +123,7 @@ class TestTrends(BaseTest):
     def test_trends_compare(self):
         self._create_events()
         with freeze_time("2020-01-04T13:00:01Z"):
-            response = Trends().run(Filter(data={"compare": True}), self.team)
+            response = Trends().run(Filter(data={"compare": "true"}), self.team)
 
         self.assertEqual(response[0]["label"], "sign up - current")
         self.assertEqual(response[0]["labels"][4], "day 4")
@@ -136,6 +136,15 @@ class TestTrends(BaseTest):
         self.assertEqual(response[1]["data"][4], 1.0)
         self.assertEqual(response[1]["labels"][5], "day 5")
         self.assertEqual(response[1]["data"][5], 0.0)
+
+        with freeze_time("2020-01-04T13:00:01Z"):
+            no_compare_response = Trends().run(Filter(data={"compare": "false"}), self.team)
+
+        self.assertEqual(no_compare_response[0]["label"], "sign up")
+        self.assertEqual(no_compare_response[0]["labels"][4], "Wed. 1 January")
+        self.assertEqual(no_compare_response[0]["data"][4], 3.0)
+        self.assertEqual(no_compare_response[0]["labels"][5], "Thu. 2 January")
+        self.assertEqual(no_compare_response[0]["data"][5], 1.0)
 
     def test_property_filtering(self):
         self._create_events()

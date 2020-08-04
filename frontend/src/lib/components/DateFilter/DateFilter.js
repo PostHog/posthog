@@ -53,7 +53,7 @@ export function DateFilter({ style, filters, view }) {
 
     function onApplyClick() {
         onClickOutside()
-        onChange(moment(rangeDateFrom).format('YYYY-MM-DD'), moment(rangeDateTo).format('YYYY-MM-DD'))
+        setDate(moment(rangeDateFrom).format('YYYY-MM-DD'), moment(rangeDateTo).format('YYYY-MM-DD'))
     }
 
     return (

@@ -67,7 +67,7 @@ class PersonViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(
                 Q(properties__icontains=" ".join(contains))
                 | Q(persondistinctid__distinct_id__icontains=" ".join(contains))
-            )
+            ).distinct("id")
         if request.GET.get("cohort"):
             queryset = queryset.filter(cohort__id=request.GET["cohort"])
         if request.GET.get("properties"):
