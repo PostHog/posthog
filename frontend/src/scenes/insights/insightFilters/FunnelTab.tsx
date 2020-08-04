@@ -30,7 +30,7 @@ export function FunnelTab(): JSX.Element {
                 <h4 className="secondary">Funnel Name</h4>
                 <input
                     required
-                    placeholder="Name of Funnel: (e.g. User drop off through signup)"
+                    placeholder='e.g. "User drop off through signup"'
                     type="text"
                     autoFocus
                     onChange={(e): void => setFunnel({ name: e.target.value })}

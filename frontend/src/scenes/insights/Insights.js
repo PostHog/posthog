@@ -34,7 +34,7 @@ import { RetentionTable } from 'scenes/retention/RetentionTable'
 
 import { Paths } from 'scenes/paths/Paths'
 
-import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
+import { insightFilters } from './insightFilters'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { People } from 'scenes/funnels/People'
@@ -105,132 +105,6 @@ function determineInsightType(activeView, display) {
     }
 }
 
-export const Insights = hot(_Insights)
-function _Insights() {
-    const [{ fromItem }] = useState(router.values.hashParams)
-    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
-    const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-
-    const { activeView, allFilters } = useValues(insightLogic)
-    const { setActiveView } = useActions(insightLogic)
-
-    return (
-        <div className="actions-graph">
-            <h1 className="page-header">Insights</h1>
-            <Tabs
-                size="large"
-                activeKey={activeView}
-                style={{
-                    overflow: 'visible',
-                }}
-                onChange={(key) => setActiveView(key)}
-                animated={false}
-            >
-                <TabPane
-                    tab={<span data-attr="insight-trends-tab">Trends</span>}
-                    key={ViewType.TRENDS}
-                    data-attr="insight-trend-tab"
-                ></TabPane>
-                <TabPane
-                    tab={<span data-attr="insight-sessions-tab">Sessions</span>}
-                    key={ViewType.SESSIONS}
-                    data-attr="insight-sessions-tab"
-                ></TabPane>
-                <TabPane
-                    tab={<span data-attr="insight-funnels-tab">Funnels</span>}
-                    key={ViewType.FUNNELS}
-                    data-attr="insight-funnels-tab"
-                ></TabPane>
-                <TabPane
-                    tab={<span data-attr="insight-retention-tab">Retention</span>}
-                    key={ViewType.RETENTION}
-                ></TabPane>
-                <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS}></TabPane>
-            </Tabs>
-            <Row gutter={16}>
-                <Col xs={24} xl={7}>
-                    <Card>
-                        <div className="card-body px-4">
-                            {/* 
-                            These are insight specific filters. 
-                            They each have insight specific logics
-                            */}
-                            {
-                                {
-                                    [`${ViewType.TRENDS}`]: <TrendTab></TrendTab>,
-                                    [`${ViewType.SESSIONS}`]: <SessionTab />,
-                                    [`${ViewType.FUNNELS}`]: <FunnelTab></FunnelTab>,
-                                    [`${ViewType.RETENTION}`]: <RetentionTab></RetentionTab>,
-                                    [`${ViewType.PATHS}`]: <PathTab></PathTab>,
-                                }[activeView]
-                            }
-                        </div>
-                    </Card>
-                </Col>
-                <Col xs={24} xl={17}>
-                    {/* 
-                    These are filters that are reused between insight features. 
-                    They each have generic logic that updates the url
-                    */}
-                    <Card
-                        title={
-                            <div className="float-right pt-1 pb-1">
-                                {showIntervalFilter[activeView] && (
-                                    <IntervalFilter filters={allFilters} view={activeView} />
-                                )}
-                                {showChartFilter[activeView] && (
-                                    <ChartFilter
-                                        onChange={(display) => {
-                                            if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART)
-                                                clearAnnotationsToCreate()
-                                        }}
-                                        displayMap={displayMap}
-                                        filters={allFilters}
-                                    />
-                                )}
-
-                                {showDateFilter[activeView] && <DateFilter view={activeView} filters={allFilters} />}
-
-                                {showComparePrevious[activeView] && <CompareFilter />}
-                                <SaveToDashboard
-                                    disabled={disableSaveToDashboard[activeView]}
-                                    item={{
-                                        type: determineInsightType(activeView, allFilters.display),
-                                        entity:
-                                            activeView === ViewType.FUNNELS
-                                                ? allFilters
-                                                : {
-                                                      filters: allFilters,
-                                                      annotations: annotationsToCreate,
-                                                  },
-                                    }}
-                                />
-                            </div>
-                        }
-                    >
-                        <div className="card-body card-body-graph">
-                            {
-                                {
-                                    [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS}></TrendInsight>,
-                                    [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS}></TrendInsight>,
-                                    [`${ViewType.FUNNELS}`]: <FunnelInsight></FunnelInsight>,
-                                    [`${ViewType.RETENTION}`]: <RetentionTable />,
-                                    [`${ViewType.PATHS}`]: <Paths />,
-                                }[activeView]
-                            }
-                        </div>
-                    </Card>
-                    {activeView === ViewType.FUNNELS && (
-                        <Card>
-                            <FunnelPeople></FunnelPeople>
-                        </Card>
-                    )}
-                </Col>
-            </Row>
-        </div>
-    )
-}
-
 function TrendInsight({ view }) {
     const { filters, loading, showingPeople } = useValues(trendsLogic({ dashboardItemId: null, view, filters: null }))
 
@@ -287,4 +161,120 @@ function FunnelPeople() {
         )
     }
     return <></>
+}
+
+const insightGraphs = {
+    [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS}></TrendInsight>,
+    [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS}></TrendInsight>,
+    [`${ViewType.FUNNELS}`]: <FunnelInsight></FunnelInsight>,
+    [`${ViewType.RETENTION}`]: <RetentionTable />,
+    [`${ViewType.PATHS}`]: <Paths />,
+}
+
+export const Insights = hot(_Insights)
+function _Insights() {
+    const [{ fromItem }] = useState(router.values.hashParams)
+    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
+    const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
+
+    const { activeView, allFilters } = useValues(insightLogic)
+    const { setActiveView } = useActions(insightLogic)
+
+    return (
+        <div className="actions-graph">
+            <h1 className="page-header">Insights</h1>
+            <Tabs
+                size="large"
+                activeKey={activeView}
+                style={{
+                    overflow: 'visible',
+                }}
+                onChange={(key) => setActiveView(key)}
+                animated={false}
+            >
+                <TabPane
+                    tab={<span data-attr="insight-trends-tab">Trends</span>}
+                    key={ViewType.TRENDS}
+                    data-attr="insight-trend-tab"
+                ></TabPane>
+                <TabPane
+                    tab={<span data-attr="insight-sessions-tab">Sessions</span>}
+                    key={ViewType.SESSIONS}
+                    data-attr="insight-sessions-tab"
+                ></TabPane>
+                <TabPane
+                    tab={<span data-attr="insight-funnels-tab">Funnels</span>}
+                    key={ViewType.FUNNELS}
+                    data-attr="insight-funnels-tab"
+                ></TabPane>
+                <TabPane
+                    tab={<span data-attr="insight-retention-tab">Retention</span>}
+                    key={ViewType.RETENTION}
+                ></TabPane>
+                <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS}></TabPane>
+            </Tabs>
+            <Row gutter={16}>
+                <Col xs={24} xl={7}>
+                    <Card>
+                        <div className="card-body px-4">
+                            {/* 
+                            These are insight specific filters. 
+                            They each have insight specific logics
+                            */}
+                            {insightFilters[activeView]}
+                        </div>
+                    </Card>
+                </Col>
+                <Col xs={24} xl={17}>
+                    {/* 
+                    These are filters that are reused between insight features. 
+                    They each have generic logic that updates the url
+                    */}
+                    <Card
+                        title={
+                            <div className="float-right pt-1 pb-1">
+                                {showIntervalFilter[activeView] && (
+                                    <IntervalFilter filters={allFilters} view={activeView} />
+                                )}
+                                {showChartFilter[activeView] && (
+                                    <ChartFilter
+                                        onChange={(display) => {
+                                            if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART)
+                                                clearAnnotationsToCreate()
+                                        }}
+                                        displayMap={displayMap}
+                                        filters={allFilters}
+                                    />
+                                )}
+
+                                {showDateFilter[activeView] && <DateFilter view={activeView} filters={allFilters} />}
+
+                                {showComparePrevious[activeView] && <CompareFilter />}
+                                <SaveToDashboard
+                                    disabled={disableSaveToDashboard[activeView]}
+                                    item={{
+                                        type: determineInsightType(activeView, allFilters.display),
+                                        entity:
+                                            activeView === ViewType.FUNNELS
+                                                ? allFilters
+                                                : {
+                                                      filters: allFilters,
+                                                      annotations: annotationsToCreate,
+                                                  },
+                                    }}
+                                />
+                            </div>
+                        }
+                    >
+                        <div className="card-body card-body-graph">{insightGraphs[activeView]}</div>
+                    </Card>
+                    {activeView === ViewType.FUNNELS && (
+                        <Card>
+                            <FunnelPeople></FunnelPeople>
+                        </Card>
+                    )}
+                </Col>
+            </Row>
+        </div>
+    )
 }
