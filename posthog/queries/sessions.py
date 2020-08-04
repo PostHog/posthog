@@ -17,7 +17,12 @@ from posthog.utils import append_data, dict_from_cursor_fetchall, friendly_time
 
 class Sessions(BaseQuery):
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        events = Event.objects.filter(team=team).add_person_id(team.pk).order_by("-timestamp")
+        events = (
+            Event.objects.filter(team=team)
+            .filter(filter.properties_to_Q(team_id=team.pk))
+            .add_person_id(team.pk)
+            .order_by("-timestamp")
+        )
 
         session_type = kwargs.get("session_type", None)
         offset = kwargs.get("offset", 0)
