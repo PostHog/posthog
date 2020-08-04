@@ -107,6 +107,11 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-
 
 ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
 
+# Metrics - StatsD
+STATSD_HOST = os.environ.get("STATSD_HOST", None)
+STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
+STATSD_PREFIX = os.environ.get("STATSD_PREFIX", None)
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -123,6 +128,7 @@ INSTALLED_APPS = [
     "social_django",
 ]
 
+
 MIDDLEWARE = [
     "posthog.middleware.SameSiteSessionMiddleware",  # keep this at the top
     "django.middleware.security.SecurityMiddleware",
@@ -136,6 +142,10 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
 ]
+
+if STATSD_HOST:
+    MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
+    MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
 # Load debug_toolbar if we can (DEBUG and Dev modes)
 try:
