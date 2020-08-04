@@ -1,21 +1,18 @@
-import json
-from datetime import datetime
-
 from django.core.cache import cache
 
-from posthog.models import DashboardItem, Filter
+from posthog.models import Filter
 from posthog.utils import generate_cache_key
 
 from .utils import generate_cache_key
 
 TRENDS_ENDPOINT = "Trends"
 FUNNEL_ENDPOINT = "Funnel"
+RETENTION_ENDPOINT = "Retention"
 
 
 def cached_function(cache_type: str, expiry=30):
     def inner_decorator(f):
         def wrapper(*args, **kw):
-            from posthog.celery import update_cache_item_task
 
             cache_key = ""
 
@@ -23,10 +20,9 @@ def cached_function(cache_type: str, expiry=30):
             request = args[1]
             team = request.user.team_set.get()
             payload = None
-            dashboard_item_id = None
             refresh = request.GET.get("refresh", None)
 
-            if cache_type == TRENDS_ENDPOINT:
+            if cache_type == TRENDS_ENDPOINT or cache_type == RETENTION_ENDPOINT:
                 filter = Filter(request=request)
                 cache_key = generate_cache_key(filter.toJSON() + "_" + str(team.pk))
                 payload = {"filter": filter.toJSON(), "team_id": team.pk}

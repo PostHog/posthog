@@ -10,7 +10,7 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 export function RetentionTab(): JSX.Element {
     const node = useRef()
     const [open, setOpen] = useState<boolean>(false)
-    const { filters, startEntity } = useValues(retentionTableLogic)
+    const { filters, targetEntity } = useValues(retentionTableLogic)
     const { setFilters } = useActions(retentionTableLogic)
 
     const entityLogic = entityFilterLogic({
@@ -35,7 +35,7 @@ export function RetentionTab(): JSX.Element {
                     fontWeight: 500,
                 }}
             >
-                {startEntity?.name || 'Select action'}
+                {targetEntity?.name || 'Select action'}
                 <DownOutlined style={{ marginLeft: '3px', color: 'rgba(0, 0, 0, 0.25)' }} />
             </button>
             {open && (

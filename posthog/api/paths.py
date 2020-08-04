@@ -106,7 +106,7 @@ class PathsViewSet(viewsets.ViewSet):
         date_query = request_to_date_query(request.GET, exact=False)
         event, path_type, event_filter, start_comparator = self._determine_path_type(request)
         properties = request.GET.get("properties")
-        start_point = request.GET.get("start")
+        start_point = request.GET.get("start_entity")
 
         sessions = (
             Event.objects.add_person_id(team.pk)

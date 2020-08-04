@@ -209,16 +209,20 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def query_retention(self, filters, team, start_entity: Optional[Entity] = None) -> dict:
+    def query_retention(self, filter: Filter, team) -> dict:
 
         events: QuerySet = QuerySet()
-        entity = Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}) if not start_entity else start_entity
+        entity = (
+            Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
+            if not filter.target_entity
+            else filter.target_entity
+        )
         if entity.type == TREND_FILTER_TYPE_EVENTS:
             events = Event.objects.filter_by_event_with_people(event=entity.id, team_id=team.id)
         elif entity.type == TREND_FILTER_TYPE_ACTIONS:
             events = Event.objects.filter(action__pk=entity.id).add_person_id(team.id)
 
-        filtered_events = events.filter(filters.date_filter_Q).filter(filters.properties_to_Q(team_id=team.pk))
+        filtered_events = events.filter(filter.date_filter_Q).filter(filter.properties_to_Q(team_id=team.pk))
 
         first_date = (
             filtered_events.annotate(first_date=TruncDay("timestamp")).values("first_date", "person_id").distinct()
@@ -246,7 +250,7 @@ class EventManager(models.QuerySet):
 
         with connection.cursor() as cursor:
             cursor.execute(
-                full_query, (filters.date_from,) + events_query_params + first_date_params,
+                full_query, (filter.date_from,) + events_query_params + first_date_params,
             )
             data = namedtuplefetchall(cursor)
 

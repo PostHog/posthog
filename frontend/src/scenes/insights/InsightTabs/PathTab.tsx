@@ -25,7 +25,7 @@ export function PathTab(): JSX.Element {
                 value={filter?.type || PAGEVIEW}
                 defaultValue={PAGEVIEW}
                 dropdownMatchSelectWidth={false}
-                onChange={(value): void => setFilter({ type: value, start: null })}
+                onChange={(value): void => setFilter({ type: value, start_entity: null })}
                 style={{ paddingTop: 2 }}
             >
                 {Object.entries(pathOptionsToLabels).map(([value, name], index) => {
@@ -46,11 +46,11 @@ export function PathTab(): JSX.Element {
                         name,
                     }))
                 }
-                onSet={(value): void => setFilter({ start: value })}
+                onSet={(value): void => setFilter({ start_entity: value })}
                 propertyKey={pathOptionsToProperty[filter.type]}
                 type="event"
                 style={{ width: 200, paddingTop: 2 }}
-                value={filter.start}
+                value={filter.start_entity}
                 placeholder={'Select start element'}
             ></PropertyValue>
             <hr />

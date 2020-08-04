@@ -18,7 +18,7 @@ export const retentionTableLogic = kea({
             loadRetention: async () => {
                 let params = {}
                 params['properties'] = values.properties
-                if (values.startEntity) params['start_entity'] = values.startEntity
+                if (values.targetEntity) params['target_entity'] = values.targetEntity
                 const urlParams = toParams(params)
                 return await api.get(`api/action/retention/?${urlParams}`)
             },
@@ -93,7 +93,7 @@ export const retentionTableLogic = kea({
                 }
             },
         ],
-        startEntity: [
+        targetEntity: [
             () => [selectors.filters],
             (filters) => {
                 const result = Object.keys(filters).reduce(function (r, k) {
@@ -109,7 +109,7 @@ export const retentionTableLogic = kea({
     }),
     actionToUrl: ({ actions, values }) => ({
         [actions.setFilters]: () => {
-            return ['/insights', { target: values.startEntity, insight: ViewType.RETENTION }]
+            return ['/insights', { target: values.targetEntity, insight: ViewType.RETENTION }]
         },
     }),
     urlToAction: ({ actions, values }) => ({
@@ -128,7 +128,7 @@ export const retentionTableLogic = kea({
             if (!objectsEqual(searchParams.properties || {}, values.properties)) {
                 actions.setProperties(searchParams.properties || {})
             }
-            if (searchParams.target && values.startEntity.id !== searchParams.target?.id) {
+            if (searchParams.target && values.targetEntity.id !== searchParams.target?.id) {
                 actions.setFilters({
                     [`${searchParams.target.type}`]: [searchParams.target],
                 })
@@ -138,11 +138,11 @@ export const retentionTableLogic = kea({
     listeners: ({ actions, values }) => ({
         setProperties: () => {
             actions.loadRetention()
-            actions.setAllFilters(cleanRetentionParams({ target: values.startEntity }, values.properties))
+            actions.setAllFilters(cleanRetentionParams({ target: values.targetEntity }, values.properties))
         },
         setFilters: () => {
             actions.loadRetention()
-            actions.setAllFilters(cleanRetentionParams({ target: values.startEntity }, values.properties))
+            actions.setAllFilters(cleanRetentionParams({ target: values.targetEntity }, values.properties))
         },
         loadMore: async ({ selectedIndex }) => {
             let peopleToAdd = []

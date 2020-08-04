@@ -34,6 +34,7 @@ class Filter(PropertyMixin):
     breakdown_type: Optional[str] = None
     _compare: Optional[Union[bool, str]] = None
     funnel_id: Optional[int] = None
+    start_entity: Optional[Entity] = None
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None,) -> None:
         if request:
@@ -56,6 +57,7 @@ class Filter(PropertyMixin):
         self.shown_as = data.get("shown_as")
         self.breakdown = self._parse_breakdown(data)
         self.breakdown_type = data.get("breakdown_type")
+        self.target_entity = self._parse_target_entity(data.get("target_entity"))
         self._compare = data.get("compare", "false")
 
         if data.get("actions"):
@@ -67,6 +69,12 @@ class Filter(PropertyMixin):
                 [Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in data.get("events", [])]
             )
         self.entities = sorted(self.entities, key=lambda entity: entity.order if entity.order else -1)
+
+    def _parse_target_entity(self, entity: Optional[str]) -> Optional[Entity]:
+        if entity:
+            return Entity({**json.loads(entity)})
+        else:
+            return None
 
     def _parse_breakdown(self, data: Dict[str, Any]) -> Optional[Union[str, List[Union[str, int]]]]:
         breakdown = data.get("breakdown")
@@ -91,6 +99,7 @@ class Filter(PropertyMixin):
             "breakdown": self.breakdown,
             "breakdown_type": self.breakdown_type,
             "compare": self.compare,
+            "target_entity": self.target_entity,
         }
         return {
             key: value

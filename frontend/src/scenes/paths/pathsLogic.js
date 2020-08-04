@@ -34,7 +34,7 @@ function checkRoot(nodeToVerify, paths, start) {
 
 function cleanPathParams(filters, properties) {
     return {
-        start: filters.start,
+        start_entity: filters.start_entity,
         type: filters.type,
         date_from: filters.date_from,
         date_to: filters.date_to,
@@ -52,11 +52,11 @@ export const pathsLogic = kea({
             loadPaths: async (_, breakpoint) => {
                 const params = toParams({ ...values.filter, properties: values.properties })
                 let paths = await api.get(`api/paths${params ? `/?${params}` : ''}`)
-                if (values.filter.start) {
+                if (values.filter.start_entity) {
                     paths = paths.filter((checkingNode) => {
                         return (
-                            checkingNode.source.includes(values.filter.start) ||
-                            checkRoot(checkingNode, paths, values.filter.start)
+                            checkingNode.source.includes(values.filter.start_entity) ||
+                            checkRoot(checkingNode, paths, values.filter.start_entity)
                         )
                     })
                 }
@@ -104,7 +104,7 @@ export const pathsLogic = kea({
         setFilter: () => {
             if (
                 values.filter.type !== AUTOCAPTURE ||
-                (values.filter.type === AUTOCAPTURE && !isNaN(values.filter.start))
+                (values.filter.type === AUTOCAPTURE && !isNaN(values.filter.start_entity))
             )
                 actions.loadPaths()
 

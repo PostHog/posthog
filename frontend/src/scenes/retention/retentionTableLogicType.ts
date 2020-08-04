@@ -178,7 +178,7 @@ export interface retentionTableLogicType {
         filters: (state: any, props: any) => {}
         loadingMore: (state: any, props: any) => boolean
         propertiesForUrl: (state: any, props: any) => '' | { properties: any }
-        startEntity: (state: any, props: any) => any
+        targetEntity: (state: any, props: any) => any
     }
     values: {
         retention: {}
@@ -190,11 +190,11 @@ export interface retentionTableLogicType {
         filters: {}
         loadingMore: boolean
         propertiesForUrl: '' | { properties: any }
-        startEntity: any
+        targetEntity: any
     }
     _isKea: true
     __keaTypeGenInternalSelectorTypes: {
         propertiesForUrl: (arg1: any) => '' | { properties: any }
-        startEntity: (arg1: any) => any
+        targetEntity: (arg1: any) => any
     }
 }
