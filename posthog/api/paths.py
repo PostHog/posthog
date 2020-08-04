@@ -105,18 +105,15 @@ class PathsViewSet(viewsets.ViewSet):
         resp = []
         date_query = request_to_date_query(request.GET, exact=False)
         event, path_type, event_filter, start_comparator = self._determine_path_type(request)
-        properties = request.GET.get("properties")
-        start_point = request.GET.get("start_entity")
+        filter = Filter(request=request)
+        properties = filter.properties
+        start_point = filter.start_entity
 
         sessions = (
             Event.objects.add_person_id(team.pk)
             .filter(team=team, **(event_filter), **date_query)
             .filter(~Q(event__in=["$autocapture", "$pageview", "$identify", "$pageleave"]) if event is None else Q())
-            .filter(
-                Filter(data={"properties": json.loads(properties)}).properties_to_Q(team_id=team.pk)
-                if properties
-                else Q()
-            )
+            .filter(Filter(data={"properties": properties}).properties_to_Q(team_id=team.pk) if properties else Q())
             .annotate(
                 previous_timestamp=Window(
                     expression=Lag("timestamp", default=None),

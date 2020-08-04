@@ -122,7 +122,7 @@ class PropertyMixin:
 
     def _parse_properties(self, properties: Optional[Any]) -> List[Property]:
         if isinstance(properties, list):
-            return [Property(**property) for property in properties]
+            return [Property(**property) if not isinstance(property, Property) else property for property in properties]
         if not properties:
             return []
 
