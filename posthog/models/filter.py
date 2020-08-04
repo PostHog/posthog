@@ -34,7 +34,8 @@ class Filter(PropertyMixin):
     breakdown_type: Optional[str] = None
     _compare: Optional[Union[bool, str]] = None
     funnel_id: Optional[int] = None
-    start_entity: Optional[Entity] = None
+    target_entity: Optional[Entity] = None
+    start_entity: Optional[str] = None
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None,) -> None:
         if request:
@@ -58,6 +59,7 @@ class Filter(PropertyMixin):
         self.breakdown = self._parse_breakdown(data)
         self.breakdown_type = data.get("breakdown_type")
         self.target_entity = self._parse_target_entity(data.get("target_entity"))
+        self.start_entity = data.get("start_entity")
         self._compare = data.get("compare", "false")
 
         if data.get("actions"):
