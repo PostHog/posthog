@@ -38,7 +38,7 @@ class Command(BaseCommand):
                 email = row[0]
                 print("Merging email: {}".format(email))
 
-                people = Person.objects.filter(team=team, properties__email=email)
+                people = Person.objects.filter(team=team, properties__email=email).order_by("pk")
                 first_person = people[0]
                 other_people = people[1:]
 
