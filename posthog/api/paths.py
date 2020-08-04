@@ -1,4 +1,3 @@
-import json
 from typing import Optional
 
 from django.db import connection
@@ -9,6 +8,7 @@ from rest_framework import request, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from posthog.decorators import PATHS_ENDPOINT, cached_function
 from posthog.models import Event, Filter
 from posthog.utils import dict_from_cursor_fetchall, request_to_date_query
 
@@ -101,6 +101,11 @@ class PathsViewSet(viewsets.ViewSet):
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
     # To avoid unexpected results should convert date range to timestamps with timezone.
     def list(self, request):
+        result = self._calculate_paths(request)
+        return Response(result)
+
+    @cached_function(cache_type=PATHS_ENDPOINT)
+    def _calculate_paths(self, request: request.Request):
         team = request.user.team_set.get()
         resp = []
         date_query = request_to_date_query(request.GET, exact=False)
@@ -192,4 +197,4 @@ class PathsViewSet(viewsets.ViewSet):
             )
 
         resp = sorted(resp, key=lambda x: x["value"], reverse=True)
-        return Response(resp)
+        return resp
