@@ -349,3 +349,8 @@ export function determineDifferenceType(firstDate, secondDate) {
     else if (first.diff(second, 'hours') !== 0) return 'hour'
     else return 'minute'
 }
+
+export function cleanDict(dict) {
+    Object.keys(dict).forEach((key) => (dict[key] === undefined || dict[key] === null) && delete dict[key])
+    return dict
+}

@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { toParams, objectsEqual } from 'lib/utils'
+import { toParams, objectsEqual, cleanDict } from 'lib/utils'
 import api from 'lib/api'
 import { router } from 'kea-router'
 import lo from 'lodash'
@@ -82,7 +82,7 @@ export const pathsLogic = kea({
                 type: '$pageview',
             },
             {
-                setFilter: (state, filter) => ({ ...state, ...filter }),
+                setFilter: (state, filter) => cleanDict({ ...state, ...filter }),
             },
         ],
         properties: [
