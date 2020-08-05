@@ -1,10 +1,10 @@
-name: CI
+name: Backend CI
 
-on: [pull_request]
+on:
+  - pull_request
 
 jobs:
-
-  test:
+  backend-code-quality:
     runs-on: ubuntu-latest
 
     services:
@@ -33,11 +33,13 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
-      - name: Install dependencies
+
+      - name: Install requirements.txt dependencies with pip
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
         if: steps.cache.outputs.cache-hit != 'true'
+
       - name: Lint with flake8
         run: |
           pip install -r requirements/dev.txt
@@ -45,12 +47,58 @@ jobs:
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
           # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-      - name: Check for missing migrations
+
+      - name: Typecheck
+        env:
+          SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+          DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+          REDIS_URL: 'redis://localhost'
+        run: |
+          mypy posthog
+
+  backend-functionality:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:12
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v1
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.7
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.7
+
+      - uses: actions/cache@v1
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install requirements.txt dependencies with pip
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+        if: steps.cache.outputs.cache-hit != 'true'
+
+      - name: Check migrations
         env:
           SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
           DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
           REDIS_URL: 'redis://localhost'
         run: python manage.py makemigrations --check --dry-run
+
       - name: Run tests
         env:
           SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
@@ -61,10 +109,3 @@ jobs:
           touch frontend/dist/layout.html
           touch frontend/dist/shared_dashboard.html
           python manage.py test --keepdb -v 2
-      - name: Typechecking
-        env:
-          SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-          DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-          REDIS_URL: 'redis://localhost'
-        run: |
-          mypy posthog
