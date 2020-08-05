@@ -113,7 +113,7 @@ export function DashboardItem({
         dashboardItemId: item.id,
         filters: filters,
         cachedResults: item.result,
-        funnelId: item.funnel || item.filters.funnel_id,
+        funnelId: item.funnel,
     }
     const { loadResults } = useActions(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
     const { resultsLoading } = useValues(className === 'funnel' ? funnelVizLogic(logicProps) : trendsLogic(logicProps))
