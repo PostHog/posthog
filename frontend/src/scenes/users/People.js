@@ -4,9 +4,11 @@ import { fromParams } from 'lib/utils'
 import { Cohort } from './Cohort'
 import { PeopleTable } from './PeopleTable'
 
-import { Button } from 'antd'
+import { Button, Tabs } from 'antd'
 import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
+
+const { TabPane } = Tabs
 
 export const People = hot(_People)
 function _People() {
@@ -15,6 +17,7 @@ function _People() {
     const [search, setSearch] = useState('')
     const [cohortId, setCohortId] = useState(fromParams()['cohort'])
     const [pagination, setPagination] = useState({})
+    const [usersType, setUsersType] = useState('all')
 
     function fetchPeople({ url, scrollTop, search }) {
         setLoading(true)
@@ -24,9 +27,44 @@ function _People() {
             url ? url : `api/person/?${search ? 'search=' + search : ''}${cohortId ? '&cohort=' + cohortId : ''}`
         ).then((data) => {
             setPeople(data.results)
+            filterUsersByType(usersType, data)
+        })
+    }
+
+    function filterUsersByType(selection, data) {
+        setLoading(true)
+        setUsersType(selection)
+        function setPeopleAccordingToType(data) {
+            if (selection === 'all') {
+                setPeople(data.results)
+            } else if (selection === 'identified') {
+                setPeople(
+                    data.results.filter(
+                        (person) =>
+                            Object.keys(person.properties).length !== 0 && person.properties.constructor === Object
+                    )
+                )
+            } else {
+                setPeople(
+                    data.results.filter(
+                        (person) =>
+                            Object.keys(person.properties).length === 0 && person.properties.constructor === Object
+                    )
+                )
+            }
             setLoading(false)
             setPagination({ next: data.next, previous: data.previous })
-        })
+        }
+
+        if (data === undefined) {
+            api.get(`api/person/?${search ? 'search=' + search : ''}${cohortId ? '&cohort=' + cohortId : ''}`).then(
+                (data) => {
+                    setPeopleAccordingToType(data)
+                }
+            )
+        } else {
+            setPeopleAccordingToType(data)
+        }
     }
 
     useEffect(() => {
@@ -59,6 +97,11 @@ function _People() {
                 style={{ maxWidth: 400 }}
             />
             <br />
+            <Tabs defaultActiveKey="all" onChange={(key) => filterUsersByType(key)} type="card">
+                <TabPane tab={<span data-attr="insight-trends-tab">All Users</span>} key="all"></TabPane>
+                <TabPane tab={<span data-attr="insight-trends-tab">Identified Users</span>} key="identified"></TabPane>
+                <TabPane tab={<span data-attr="insight-trends-tab">Anonymous Users</span>} key="anonymous"></TabPane>
+            </Tabs>
             <PeopleTable people={people} loading={loading} actions={true} onChange={() => fetchPeople({ search })} />
 
             <div style={{ margin: '3rem auto 10rem', width: 200 }}>
