@@ -12,7 +12,7 @@ import { ActionsLineGraph } from './ActionsLineGraph'
 import { PeopleModal } from './PeopleModal'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col } from 'antd'
+import { Tabs, Row, Col, Button, Drawer } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -41,6 +41,7 @@ import { People } from 'scenes/funnels/People'
 import { insightLogic, ViewType } from './insightLogic'
 import { trendsLogic } from './trendsLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
+import { InsightHistoryPanel } from './InsightHistoryPanel'
 
 const { TabPane } = Tabs
 
@@ -113,44 +114,65 @@ function _Insights() {
 
     const { activeView, allFilters } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
+    const [openHistory, setOpenHistory] = useState(false)
 
     return (
         <div className="actions-graph">
             <h1 className="page-header">Insights</h1>
-            <Tabs
-                size="large"
-                activeKey={activeView}
-                style={{
-                    overflow: 'visible',
-                }}
-                onChange={(key) => setActiveView(key)}
-                animated={false}
-            >
-                <TabPane
-                    tab={<span data-attr="insight-trends-tab">Trends</span>}
-                    key={ViewType.TRENDS}
-                    data-attr="insight-trend-tab"
-                ></TabPane>
-                <TabPane
-                    tab={<span data-attr="insight-sessions-tab">Sessions</span>}
-                    key={ViewType.SESSIONS}
-                    data-attr="insight-sessions-tab"
-                ></TabPane>
-                <TabPane
-                    tab={<span data-attr="insight-funnels-tab">Funnels</span>}
-                    key={ViewType.FUNNELS}
-                    data-attr="insight-funnels-tab"
-                ></TabPane>
-                <TabPane
-                    tab={<span data-attr="insight-retention-tab">Retention</span>}
-                    key={ViewType.RETENTION}
-                ></TabPane>
-                <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS}></TabPane>
-            </Tabs>
+            <Row justify="space-between" align="middle">
+                <Tabs
+                    size="large"
+                    activeKey={activeView}
+                    style={{
+                        overflow: 'visible',
+                    }}
+                    onChange={(key) => setActiveView(key)}
+                    animated={false}
+                >
+                    <TabPane
+                        tab={<span data-attr="insight-trends-tab">Trends</span>}
+                        key={ViewType.TRENDS}
+                        data-attr="insight-trend-tab"
+                    ></TabPane>
+                    <TabPane
+                        tab={<span data-attr="insight-sessions-tab">Sessions</span>}
+                        key={ViewType.SESSIONS}
+                        data-attr="insight-sessions-tab"
+                    ></TabPane>
+                    <TabPane
+                        tab={<span data-attr="insight-funnels-tab">Funnels</span>}
+                        key={ViewType.FUNNELS}
+                        data-attr="insight-funnels-tab"
+                    ></TabPane>
+                    <TabPane
+                        tab={<span data-attr="insight-retention-tab">Retention</span>}
+                        key={ViewType.RETENTION}
+                    ></TabPane>
+                    <TabPane tab={<span data-attr="insight-path-tab">User Paths</span>} key={ViewType.PATHS}></TabPane>
+                </Tabs>
+                <Tabs
+                    size="large"
+                    activeKey={null}
+                    style={{
+                        overflow: 'visible',
+                    }}
+                    animated={false}
+                >
+                    <TabPane
+                        tab={
+                            <Button onClick={() => setOpenHistory(true)} data-attr="insight-history-button">
+                                {'History'}
+                            </Button>
+                        }
+                        key={'HISTORY'}
+                        data-attr="insight-trend-tab"
+                    ></TabPane>
+                </Tabs>
+            </Row>
             <Row gutter={16}>
                 <Col xs={24} xl={7}>
-                    <Card>
-                        <div className="card-body px-4">
+                    <Card className="mb-3">
+                        <div className="card-body px-4 mb-0">
                             {/* 
                             These are insight specific filters. 
                             They each have insight specific logics
@@ -227,6 +249,9 @@ function _Insights() {
                     )}
                 </Col>
             </Row>
+            <Drawer title={'Insights History'} width={350} onClose={() => setOpenHistory(false)} visible={openHistory}>
+                <InsightHistoryPanel onChange={() => setOpenHistory(false)} />
+            </Drawer>
         </div>
     )
 }

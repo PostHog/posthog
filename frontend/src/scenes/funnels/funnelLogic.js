@@ -3,6 +3,7 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { objectsEqual } from 'lib/utils'
+import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 
 export const funnelLogic = kea({
     key: (props) => props.id || 'new',
@@ -13,7 +14,7 @@ export const funnelLogic = kea({
     }),
 
     connect: {
-        actions: [insightLogic, ['setAllFilters']],
+        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
     },
 
     loaders: ({ props }) => ({
@@ -96,6 +97,7 @@ export const funnelLogic = kea({
                 date_from: funnel.filters.date_from,
                 date_to: funnel.filters.date_to,
             })
+            actions.createInsight({ id: funnel.id, name: funnel.name, insight: ViewType.FUNNELS })
         },
         updateFunnelSuccess: async ({ funnel }) => {
             actions.loadStepsWithCount({ id: funnel.id, refresh: true })
@@ -105,6 +107,7 @@ export const funnelLogic = kea({
                 date_from: funnel.filters.date_from,
                 date_to: funnel.filters.date_to,
             })
+            actions.createInsight({ id: funnel.id, name: funnel.name, insight: ViewType.FUNNELS })
             toast('Funnel saved!')
         },
         createFunnelSuccess: ({ funnel }) => {
@@ -115,6 +118,7 @@ export const funnelLogic = kea({
                 date_from: funnel.filters.date_from,
                 date_to: funnel.filters.date_to,
             })
+            actions.createInsight({ id: funnel.id, name: funnel.name, insight: ViewType.FUNNELS })
             toast('Funnel saved!')
         },
     }),

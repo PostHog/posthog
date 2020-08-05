@@ -312,3 +312,16 @@ label.disabled {
 .Toastify__progress-bar--default {
     background: var(--success) !important;
 }
+
+.button-border {
+    padding: 8px;
+    border-radius: 4px;
+}
+
+.clickable {
+    cursor: pointer;
+}
+
+.clickable:hover {
+    background-color: gainsboro;
+}

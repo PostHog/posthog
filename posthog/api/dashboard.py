@@ -1,5 +1,6 @@
 import secrets
 from datetime import datetime
+from distutils.util import strtobool
 from typing import Any, Dict, List
 
 from django.contrib.auth.models import AnonymousUser
@@ -121,6 +122,8 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "refreshing",
             "result",
             "funnel",
+            "created_at",
+            "saved",
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
@@ -129,9 +132,14 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         team = request.user.team_set.get()
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
-        if validated_data["dashboard"].team == team:
+        if not validated_data.get("dashboard", None):
+            dashboard_item = DashboardItem.objects.create(team=team, created_by=request.user, **validated_data)
+            return dashboard_item
+        elif validated_data["dashboard"].team == team:
             validated_data.pop("last_refresh", None)
-            dashboard_item = DashboardItem.objects.create(team=team, last_refresh=now(), **validated_data)
+            dashboard_item = DashboardItem.objects.create(
+                team=team, created_by=request.user, last_refresh=now(), **validated_data
+            )
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
@@ -155,7 +163,26 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
-        return queryset.filter(team=self.request.user.team_set.get()).order_by("order")
+            queryset = self._filter_request(self.request, queryset)
+
+        order = self.request.GET.get("order", None)
+        if order:
+            queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("order")
+
+        return queryset.filter(team=self.request.user.team_set.get())
+
+    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
+        filters = request.GET.dict()
+
+        for key in filters:
+            if key == "saved":
+                queryset = queryset.filter(saved=bool(strtobool(str(request.GET["saved"]))))
+            elif key == "user":
+                queryset = queryset.filter(created_by=request.user)
+
+        return queryset
 
     @action(methods=["patch"], detail=False)
     def layouts(self, request):

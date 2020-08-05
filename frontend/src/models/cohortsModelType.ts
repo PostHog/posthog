@@ -1,24 +1,24 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface cohortsModelType {
+export interface cohortsModelType<CohortType> {
     key: any
     actionCreators: {
         setPollTimeout: (
-            pollTimeout: any
+            pollTimeout: NodeJS.Timeout | null
         ) => {
             type: 'set poll timeout (models.cohortsModel)'
-            payload: { pollTimeout: any }
+            payload: { pollTimeout: Timeout | null }
         }
         loadCohorts: () => {
             type: 'load cohorts (models.cohortsModel)'
             payload: any
         }
         loadCohortsSuccess: (
-            cohorts: any
+            cohorts: CohortType[]
         ) => {
             type: 'load cohorts success (models.cohortsModel)'
             payload: {
-                cohorts: any
+                cohorts: CohortType[]
             }
         }
         loadCohortsFailure: (
@@ -43,9 +43,9 @@ export interface cohortsModelType {
         loadCohortsFailure: 'load cohorts failure (models.cohortsModel)'
     }
     actions: {
-        setPollTimeout: (pollTimeout: any) => void
+        setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => void
         loadCohorts: () => void
-        loadCohortsSuccess: (cohorts: any) => void
+        loadCohortsSuccess: (cohorts: CohortType[]) => void
         loadCohortsFailure: (error: string) => void
     }
     cache: Record<string, any>
@@ -62,30 +62,30 @@ export interface cohortsModelType {
         action: () => any,
         fullState: any
     ) => {
-        cohorts: any
+        cohorts: CohortType[]
         cohortsLoading: boolean
         pollTimeout: null
     }
     reducerOptions: any
     reducers: {
-        cohorts: (state: any, action: any, fullState: any) => any
+        cohorts: (state: CohortType[], action: any, fullState: any) => CohortType[]
         cohortsLoading: (state: boolean, action: any, fullState: any) => boolean
         pollTimeout: (state: null, action: any, fullState: any) => null
     }
     selector: (
         state: any
     ) => {
-        cohorts: any
+        cohorts: CohortType[]
         cohortsLoading: boolean
         pollTimeout: null
     }
     selectors: {
-        cohorts: (state: any, props: any) => any
+        cohorts: (state: any, props: any) => CohortType[]
         cohortsLoading: (state: any, props: any) => boolean
         pollTimeout: (state: any, props: any) => null
     }
     values: {
-        cohorts: any
+        cohorts: CohortType[]
         cohortsLoading: boolean
         pollTimeout: null
     }

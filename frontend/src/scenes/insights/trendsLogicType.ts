@@ -3,6 +3,14 @@
 export interface trendsLogicType {
     key: any
     actionCreators: {
+        createInsight: (
+            filters: Record<string, any>
+        ) => {
+            type: 'create insight (scenes.insights.trendsLogic)'
+            payload: {
+                filters: Record<string, any>
+            }
+        }
         loadResults: (
             refresh?: any
         ) => {
@@ -80,6 +88,7 @@ export interface trendsLogicType {
         }
     }
     actionKeys: {
+        'create insight (scenes.insights.trendsLogic)': 'createInsight'
         'load results (scenes.insights.trendsLogic)': 'loadResults'
         'load results success (scenes.insights.trendsLogic)': 'loadResultsSuccess'
         'load results failure (scenes.insights.trendsLogic)': 'loadResultsFailure'
@@ -92,6 +101,7 @@ export interface trendsLogicType {
         'set people (scenes.insights.trendsLogic)': 'setPeople'
     }
     actionTypes: {
+        createInsight: 'create insight (scenes.insights.trendsLogic)'
         loadResults: 'load results (scenes.insights.trendsLogic)'
         loadResultsSuccess: 'load results success (scenes.insights.trendsLogic)'
         loadResultsFailure: 'load results failure (scenes.insights.trendsLogic)'
@@ -104,6 +114,7 @@ export interface trendsLogicType {
         setPeople: 'set people (scenes.insights.trendsLogic)'
     }
     actions: {
+        createInsight: (filters: Record<string, any>) => void
         loadResults: (refresh?: any) => void
         loadResultsSuccess: (results: never[]) => void
         loadResultsFailure: (error: string) => void
