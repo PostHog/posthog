@@ -16,14 +16,6 @@ export interface funnelLogicType {
                 value: boolean
             }
         }
-        createInsight: (
-            filters: Record<string, any>
-        ) => {
-            type: 'create insight (scenes.funnels.funnelLogic)'
-            payload: {
-                filters: Record<string, any>
-            }
-        }
         loadFunnel: (
             id?: any
         ) => {
@@ -145,7 +137,6 @@ export interface funnelLogicType {
     actionKeys: {
         'set funnel (scenes.funnels.funnelLogic)': 'setFunnel'
         'clear funnel (scenes.funnels.funnelLogic)': 'clearFunnel'
-        'create insight (scenes.funnels.funnelLogic)': 'createInsight'
         'load funnel (scenes.funnels.funnelLogic)': 'loadFunnel'
         'load funnel success (scenes.funnels.funnelLogic)': 'loadFunnelSuccess'
         'load funnel failure (scenes.funnels.funnelLogic)': 'loadFunnelFailure'
@@ -165,7 +156,6 @@ export interface funnelLogicType {
     actionTypes: {
         setFunnel: 'set funnel (scenes.funnels.funnelLogic)'
         clearFunnel: 'clear funnel (scenes.funnels.funnelLogic)'
-        createInsight: 'create insight (scenes.funnels.funnelLogic)'
         loadFunnel: 'load funnel (scenes.funnels.funnelLogic)'
         loadFunnelSuccess: 'load funnel success (scenes.funnels.funnelLogic)'
         loadFunnelFailure: 'load funnel failure (scenes.funnels.funnelLogic)'
@@ -185,7 +175,6 @@ export interface funnelLogicType {
     actions: {
         setFunnel: (funnel: any, update: any) => void
         clearFunnel: () => void
-        createInsight: (filters: Record<string, any>) => void
         loadFunnel: (id?: any) => void
         loadFunnelSuccess: (funnel: { filters: {} }) => void
         loadFunnelFailure: (error: string) => void

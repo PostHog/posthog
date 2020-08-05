@@ -4,11 +4,6 @@ describe('Trends actions & events', () => {
         cy.visit('/')
     })
 
-    it('Insight History Panel Rendered', () => {
-        cy.get('[data-attr=insight-history-button]').click()
-        cy.get('[data-attr=insight-history-panel]').should('exist')
-    })
-
     it('Add a pageview action filter', () => {
         // when
         cy.contains('Add action/event').click()

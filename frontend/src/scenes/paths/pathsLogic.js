@@ -4,7 +4,6 @@ import api from 'lib/api'
 import { router } from 'kea-router'
 import lo from 'lodash'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
-import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 
 export const PAGEVIEW = '$pageview'
 export const SCREEN = '$screen'
@@ -40,7 +39,6 @@ function cleanPathParams(filters, properties) {
         date_from: filters.date_from,
         date_to: filters.date_to,
         properties: properties,
-        insight: ViewType.PATHS,
     }
 }
 
@@ -75,7 +73,7 @@ export const pathsLogic = kea({
         },
     }),
     connect: {
-        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
+        actions: [insightLogic, ['setAllFilters']],
     },
     reducers: () => ({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
@@ -88,7 +86,7 @@ export const pathsLogic = kea({
             },
         ],
         properties: [
-            [],
+            {},
             {
                 setProperties: (_, { properties }) => properties,
             },
@@ -102,7 +100,6 @@ export const pathsLogic = kea({
         setProperties: () => {
             actions.loadPaths()
             actions.setAllFilters(cleanPathParams(values.filter, values.properties))
-            actions.createInsight(cleanPathParams(values.filter, values.properties))
         },
         setFilter: () => {
             if (
@@ -112,7 +109,6 @@ export const pathsLogic = kea({
                 actions.loadPaths()
 
             actions.setAllFilters(cleanPathParams(values.filter, values.properties))
-            actions.createInsight(cleanPathParams(values.filter, values.properties))
         },
     }),
     selectors: ({ selectors }) => ({
@@ -160,8 +156,8 @@ export const pathsLogic = kea({
                     return
                 }
 
-                if (!objectsEqual(searchParams.properties || [], values.properties)) {
-                    actions.setProperties(searchParams.properties || [])
+                if (!objectsEqual(searchParams.properties, values.properties)) {
+                    actions.setProperties(searchParams.properties || {})
                 }
 
                 const { insight: _, properties: __, ...restParams } = searchParams

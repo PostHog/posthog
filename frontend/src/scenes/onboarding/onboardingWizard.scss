@@ -2,6 +2,17 @@
     background-color: hsla(210, 6%, 95%, 1);
 }
 
+.clickable {
+    cursor: pointer;
+    margin-right: 10px;
+    padding: 8px;
+    border-radius: 4px;
+}
+
+.clickable:hover {
+    background-color: gainsboro;
+}
+
 .prompt-text {
     font-size: 16px;
     font-weight: 600;

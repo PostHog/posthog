@@ -6,13 +6,13 @@ import { propertyFilterLogic } from './propertyFilterLogic'
 import { cohortsModel } from '../../../models/cohortsModel'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { Popover, Row } from 'antd'
-import { CloseButton, formatPropertyLabel } from 'lib/utils'
+import { CloseButton, operatorMap, isOperatorFlag } from 'lib/utils'
 import _ from 'lodash'
 
 const FilterRow = React.memo(function FilterRow({ item, index, filters, cohorts, logic, pageKey }) {
     const { remove } = useActions(logic)
     let [open, setOpen] = useState(false)
-    const { key } = item
+    const { key, value, operator, type } = item
 
     let handleVisibleChange = (visible) => {
         if (!visible && Object.keys(item).length >= 0 && !item[Object.keys(item)[0]]) {
@@ -34,7 +34,12 @@ const FilterRow = React.memo(function FilterRow({ item, index, filters, cohorts,
                 {key ? (
                     <Button type="primary" shape="round" style={{ maxWidth: '85%' }}>
                         <span style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {formatPropertyLabel(item, cohorts, keyMapping)}
+                            {type === 'cohort'
+                                ? cohorts?.find((cohort) => cohort.id === value)?.name || value
+                                : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
+                                  (isOperatorFlag(operator)
+                                      ? ` ${operatorMap[operator]}`
+                                      : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${value || ''}`)}
                         </span>
                     </Button>
                 ) : (

@@ -7,7 +7,6 @@ import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 import { STICKINESS, ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
 import { ViewType, insightLogic } from './insightLogic'
-import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
 
 export const EntityTypes = {
     ACTIONS: 'actions',
@@ -114,7 +113,7 @@ export const trendsLogic = kea({
 
     connect: {
         values: [userLogic, ['eventNames'], actionsModel, ['actions']],
-        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
+        actions: [insightLogic, ['setAllFilters']],
     },
 
     loaders: ({ values, props }) => ({
@@ -235,14 +234,8 @@ export const trendsLogic = kea({
                 people.next
             )
         },
-        [actions.setFilters]: async () => {
+        [actions.setFilters]: () => {
             actions.setAllFilters(values.filters)
-        },
-        loadResultsSuccess: () => {
-            actions.createInsight({
-                ...values.filters,
-                insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
-            })
         },
     }),
 

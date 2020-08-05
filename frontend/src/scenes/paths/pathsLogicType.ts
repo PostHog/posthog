@@ -29,14 +29,6 @@ export interface pathsLogicType {
                 error: string
             }
         }
-        createInsight: (
-            filters: Record<string, any>
-        ) => {
-            type: 'create insight (scenes.paths.pathsLogic)'
-            payload: {
-                filters: Record<string, any>
-            }
-        }
         setProperties: (
             properties: any
         ) => {
@@ -54,7 +46,6 @@ export interface pathsLogicType {
         'load paths (scenes.paths.pathsLogic)': 'loadPaths'
         'load paths success (scenes.paths.pathsLogic)': 'loadPathsSuccess'
         'load paths failure (scenes.paths.pathsLogic)': 'loadPathsFailure'
-        'create insight (scenes.paths.pathsLogic)': 'createInsight'
         'set properties (scenes.paths.pathsLogic)': 'setProperties'
         'set filter (scenes.paths.pathsLogic)': 'setFilter'
     }
@@ -62,7 +53,6 @@ export interface pathsLogicType {
         loadPaths: 'load paths (scenes.paths.pathsLogic)'
         loadPathsSuccess: 'load paths success (scenes.paths.pathsLogic)'
         loadPathsFailure: 'load paths failure (scenes.paths.pathsLogic)'
-        createInsight: 'create insight (scenes.paths.pathsLogic)'
         setProperties: 'set properties (scenes.paths.pathsLogic)'
         setFilter: 'set filter (scenes.paths.pathsLogic)'
     }
@@ -70,7 +60,6 @@ export interface pathsLogicType {
         loadPaths: (_: any) => void
         loadPathsSuccess: (paths: { nodes: never[]; links: never[] }) => void
         loadPathsFailure: (error: string) => void
-        createInsight: (filters: Record<string, any>) => void
         setProperties: (properties: any) => void
         setFilter: (filter: any) => void
     }
@@ -97,7 +86,7 @@ export interface pathsLogicType {
         filter: {
             type: string
         }
-        properties: never[]
+        properties: {}
     }
     reducerOptions: any
     reducers: {
@@ -123,7 +112,7 @@ export interface pathsLogicType {
         ) => {
             type: string
         }
-        properties: (state: never[], action: any, fullState: any) => never[]
+        properties: (state: {}, action: any, fullState: any) => {}
     }
     selector: (
         state: any
@@ -137,7 +126,7 @@ export interface pathsLogicType {
         filter: {
             type: string
         }
-        properties: never[]
+        properties: {}
     }
     selectors: {
         paths: (
@@ -155,7 +144,7 @@ export interface pathsLogicType {
         ) => {
             type: string
         }
-        properties: (state: any, props: any) => never[]
+        properties: (state: any, props: any) => {}
         propertiesForUrl: (state: any, props: any) => '' | { insight: string }
     }
     values: {
@@ -168,7 +157,7 @@ export interface pathsLogicType {
         filter: {
             type: string
         }
-        properties: never[]
+        properties: {}
         propertiesForUrl: '' | { insight: string }
     }
     _isKea: true

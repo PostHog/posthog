@@ -60,9 +60,6 @@ export interface sceneLogicType {
             404: {
                 component: () => Element
             }
-            '4xx': {
-                component: () => Element
-            }
         }
         loadingScene: null
     }
@@ -75,17 +72,11 @@ export interface sceneLogicType {
                 404: {
                     component: () => Element
                 }
-                '4xx': {
-                    component: () => Element
-                }
             },
             action: any,
             fullState: any
         ) => {
             404: {
-                component: () => Element
-            }
-            '4xx': {
                 component: () => Element
             }
         }
@@ -98,9 +89,6 @@ export interface sceneLogicType {
         params: {}
         loadedScenes: {
             404: {
-                component: () => Element
-            }
-            '4xx': {
                 component: () => Element
             }
         }
@@ -116,9 +104,6 @@ export interface sceneLogicType {
             404: {
                 component: () => Element
             }
-            '4xx': {
-                component: () => Element
-            }
         }
         loadingScene: (state: any, props: any) => null
     }
@@ -127,9 +112,6 @@ export interface sceneLogicType {
         params: {}
         loadedScenes: {
             404: {
-                component: () => Element
-            }
-            '4xx': {
                 component: () => Element
             }
         }
