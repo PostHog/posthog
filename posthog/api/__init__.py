@@ -1,19 +1,20 @@
+from rest_framework import routers
+
 from . import (
-    event,
-    person,
     action,
-    funnel,
-    dashboard,
-    paths,
-    cohort,
-    element,
-    feature_flag,
     annotation,
+    cohort,
+    dashboard,
+    element,
+    event,
+    feature_flag,
+    funnel,
+    hook,
+    paths,
+    person,
     personal_api_key,
     team_user,
-    hook,
 )
-from rest_framework import routers
 
 router = routers.DefaultRouter()
 router.register(r"annotation", annotation.AnnotationsViewSet)
@@ -29,4 +30,4 @@ router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"paths", paths.PathsViewSet, basename="paths")
 router.register(r"personal_api_key", personal_api_key.PersonalAPIKeyViewSet)
 router.register(r"team/user", team_user.TeamUserViewSet)
-router.register(r"hook", hook.HookViewSet)
+router.register(r"hooks", hook.HookViewSet)
