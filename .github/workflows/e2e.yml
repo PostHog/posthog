@@ -1,11 +1,11 @@
-name: E2E Tests
+name: E2E
 
 on:
     - pull_request
 
 jobs:
     cypress:
-        name: Cypress
+        name: Cypress tests
         runs-on: ubuntu-18.04
         strategy:
             # when one test fails, DO NOT cancel the other
