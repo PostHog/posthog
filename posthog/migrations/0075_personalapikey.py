@@ -11,7 +11,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0073_update_dashboard_item_filters"),
+        ("posthog", "0074_toolbar_default_on"),
     ]
 
     operations = [
