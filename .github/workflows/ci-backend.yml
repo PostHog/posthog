@@ -5,7 +5,7 @@ on:
 
 jobs:
     code-quality:
-        name: Code quality checks
+        name: Code quality
         runs-on: ubuntu-latest
 
         services:
@@ -57,7 +57,7 @@ jobs:
                   mypy posthog
 
     functionality:
-        name: Functionality checks
+        name: Functionality
         runs-on: ubuntu-latest
 
         services:

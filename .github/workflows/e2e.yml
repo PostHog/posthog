@@ -5,7 +5,7 @@ on:
 
 jobs:
     cypress:
-        name: Cypress tests
+        name: Cypress
         runs-on: ubuntu-18.04
         strategy:
             # when one test fails, DO NOT cancel the other
