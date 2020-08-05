@@ -1,3 +1,5 @@
+from typing import Type
+
 from rest_framework import mixins, response, serializers, status, viewsets
 
 from posthog.models import PersonalAPIKey
@@ -29,7 +31,7 @@ class PersonalAPIKeyViewSet(
     queryset = PersonalAPIKey.objects.all()
     lookup_field = "id"
 
-    def get_serializer_class(self) -> serializers.ModelSerializer:
+    def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
         if self.request.method == "POST":
             serializer_class = PersonalAPIKeySerializerCreateOnly

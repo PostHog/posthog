@@ -63,7 +63,7 @@ class TeamManager(models.Manager):
         )
         return team
 
-    def get_cached_from_token(self, token: str, is_personal_api_key: bool = False) -> Optional["posthog.Team"]:
+    def get_cached_from_token(self, token: str, is_personal_api_key: bool = False) -> Optional["Team"]:
         team_from_cache = TEAM_CACHE.get(token)
         if team_from_cache:
             return team_from_cache

@@ -1,15 +1,16 @@
-from typing import Optional
-import requests
 import json
+from typing import Optional
+
+import requests
 from celery.task import Task
 from django.core.serializers.json import DjangoJSONEncoder
-from rest_hooks.utils import get_hook_model
+from rest_hooks.utils import get_hook_model  # type: ignore
 
 
 class DeliverHook(Task):
     max_retries = 3
 
-    def run(self, target, payload, instance_id=None, hook_id=None, **kwargs):
+    def run(self, target: str, payload: dict, hook_id: str, instance_id: Optional[int] = None) -> None:
         try:
             response = requests.post(
                 url=target,

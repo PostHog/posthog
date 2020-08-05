@@ -9,7 +9,7 @@ from . import (
     event,
     feature_flag,
     funnel,
-    hook,
+    hooks,
     paths,
     person,
     personal_api_key,
@@ -30,4 +30,4 @@ router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"paths", paths.PathsViewSet, basename="paths")
 router.register(r"personal_api_key", personal_api_key.PersonalAPIKeyViewSet)
 router.register(r"team/user", team_user.TeamUserViewSet)
-router.register(r"hooks", hook.HookViewSet)
+router.register(r"hooks", hooks.HookViewSet)

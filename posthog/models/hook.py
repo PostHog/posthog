@@ -2,7 +2,7 @@ import json
 from typing import Optional
 
 from django.db import models
-from rest_hooks.models import AbstractHook
+from rest_hooks.models import AbstractHook  # type: ignore
 
 from posthog.models.utils import generate_random_token
 from posthog.tasks.hooks import DeliverHook
@@ -26,17 +26,13 @@ def find_and_fire_hook(
 ):
     hooks = Hook.objects.filter(event=event_name, team=user_override)
     if event_name == "action_performed":
-        hooks = hooks.filter(models.Q(resource_id=instance.id) | models.Q(resource_id__isnull=True))
+        hooks = hooks.filter(models.Q(resource_id=instance.pk) | models.Q(resource_id__isnull=True))
     for hook in hooks:
         hook.deliver_hook(instance, payload_override)
 
 
 def deliver_hook_wrapper(target, payload, instance, hook):
-    # instance is None if using custom event, not built-in
-    if instance is not None:
-        instance_id = instance.id
-    else:
-        instance_id = None
+    # instance is None if using custom event
+    instance_id = instance.id if instance is not None else None
     # pass ID's not objects because using pickle for objects is a bad thing
-    kwargs = dict(target=target, payload=payload, instance_id=instance_id, hook_id=hook.id)
-    DeliverHook.apply_async(kwargs=kwargs)
+    DeliverHook.apply_async(dict(target=target, payload=payload, hook_id=hook.id, instance_id=instance_id))
