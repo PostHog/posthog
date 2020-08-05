@@ -35,4 +35,4 @@ def deliver_hook_wrapper(target, payload, instance, hook):
     # instance is None if using custom event
     instance_id = instance.id if instance is not None else None
     # pass ID's not objects because using pickle for objects is a bad thing
-    DeliverHook.apply_async(dict(target=target, payload=payload, hook_id=hook.id, instance_id=instance_id))
+    DeliverHook.apply_async(kwargs=dict(target=target, payload=payload, hook_id=hook.id, instance_id=instance_id))
