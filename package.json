@@ -20,7 +20,7 @@
         "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\"",
         "eslint": "eslint frontend/src",
         "eslint:ci": "yarn run eslint",
-        "prettier:ci": "prettier --check ./**.{js,ts,tsx,json,css,scss}",
+        "prettier:ci": "prettier --check ./**.{js,ts,tsx,json,yml,css,scss}",
         "typegen:watch": "kea-typegen watch"
     },
     "license": "MIT",
@@ -112,7 +112,7 @@
         }
     },
     "lint-staged": {
-        "*.{js,ts,tsx,json,css,scss}": "prettier --write",
+        "*.{js,ts,tsx,json,yml,css,scss}": "prettier --write",
         "*.{js,ts,tsx}": "eslint",
         "*.py": [
             "./env/bin/black -l 120",
