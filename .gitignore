@@ -24,3 +24,4 @@ yarn-error.log
 .yalc
 yalc.lock
 cypress/screenshots/*
+.key

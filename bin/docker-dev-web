@@ -1,6 +1,18 @@
 #!/bin/bash
 
 set -e
+
+KEY_FILE="$(pwd)/.key"
+key="$(openssl rand -hex 32)"
+
+if test -f "$KEY_FILE"; then
+    key="$(cat $KEY_FILE)"
+else
+    echo $key > $KEY_FILE
+fi
+
+export SECRET_KEY=$key
+
 python manage.py migrate
 
 python manage.py runserver 0.0.0.0:8000 & ./bin/start-frontend 0.0.0.0
