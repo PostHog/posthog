@@ -2,8 +2,31 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual, toParams } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
+
+function wait(ms = 1000) {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms)
+    })
+}
+
+const SECONDS_TO_POLL = 120
+
+export async function pollFunnel(id, params = {}) {
+    let result = await api.get('api/funnel/' + id + '/?' + toParams(params))
+    let count = 0
+    while (result.loading && count < SECONDS_TO_POLL) {
+        await wait()
+        result = await api.get('api/funnel/' + id)
+        count += 1
+    }
+    // if endpoint is still loading after 2 minutes just return default
+    if (result.loading) {
+        result = { filters: {} }
+    }
+    return result
+}
 
 export const funnelLogic = kea({
     key: (props) => props.id || 'new',
@@ -22,22 +45,19 @@ export const funnelLogic = kea({
             { filters: {} },
             {
                 loadFunnel: async (id = props.id) => {
-                    const funnel = await api.get('api/funnel/' + id + '/?exclude_count=1')
-                    return funnel
+                    return await pollFunnel(id)
                 },
                 updateFunnel: async (funnel) => {
-                    return await api.update('api/funnel/' + funnel.id, funnel)
+                    await api.update('api/funnel/' + funnel.id, funnel)
+
+                    return await pollFunnel(funnel.id, { refresh: true })
                 },
                 createFunnel: async (funnel) => {
-                    return await api.create('api/funnel', funnel)
+                    const newFunnel = await api.create('api/funnel', funnel)
+                    return await pollFunnel(newFunnel.id, { refresh: true })
                 },
             },
         ],
-        stepsWithCount: {
-            loadStepsWithCount: async ({ id, refresh }) => {
-                return (await api.get('api/funnel/' + id + (refresh ? '/?refresh=true' : ''))).steps
-            },
-        },
         people: {
             loadPeople: async (steps) => {
                 return (await api.get('api/person/?id=' + steps[0].people.join(','))).results
@@ -54,15 +74,13 @@ export const funnelLogic = kea({
             }),
             clearFunnel: () => ({ filters: {} }),
         },
-        stepsWithCount: {
-            clearFunnel: () => null,
-        },
         people: {
             clearFunnel: () => null,
         },
     }),
 
     selectors: ({ selectors }) => ({
+        stepsWithCount: [() => [selectors.funnel], (funnel) => funnel.steps],
         peopleSorted: [
             () => [selectors.stepsWithCount, selectors.people],
             (steps, people) => {
@@ -82,15 +100,13 @@ export const funnelLogic = kea({
     }),
 
     listeners: ({ actions, values }) => ({
-        loadStepsWithCountSuccess: async () => {
-            if (values.stepsWithCount[0]?.people.length > 0) {
-                actions.loadPeople(values.stepsWithCount)
-            }
-        },
         setFunnel: ({ update }) => {
             if (update) actions.updateFunnel(values.funnel)
         },
         loadFunnelSuccess: ({ funnel }) => {
+            if (values.stepsWithCount[0]?.people.length > 0) {
+                actions.loadPeople(values.stepsWithCount)
+            }
             actions.setAllFilters({
                 funnelId: funnel.id,
                 name: funnel.name,
@@ -100,7 +116,9 @@ export const funnelLogic = kea({
             actions.createInsight({ id: funnel.id, name: funnel.name, insight: ViewType.FUNNELS })
         },
         updateFunnelSuccess: async ({ funnel }) => {
-            actions.loadStepsWithCount({ id: funnel.id, refresh: true })
+            if (values.stepsWithCount[0]?.people.length > 0) {
+                actions.loadPeople(values.stepsWithCount)
+            }
             actions.setAllFilters({
                 funnelId: funnel.id,
                 name: funnel.name,
@@ -111,7 +129,9 @@ export const funnelLogic = kea({
             toast('Funnel saved!')
         },
         createFunnelSuccess: ({ funnel }) => {
-            actions.loadStepsWithCount({ id: funnel.id, refresh: true })
+            if (values.stepsWithCount[0]?.people.length > 0) {
+                actions.loadPeople(values.stepsWithCount)
+            }
             actions.setAllFilters({
                 funnelId: funnel.id,
                 name: funnel.name,
@@ -137,7 +157,6 @@ export const funnelLogic = kea({
                 const id = searchParams.id
                 if (id != values.funnel.id) {
                     actions.loadFunnel(id)
-                    actions.loadStepsWithCount({ id })
                 }
 
                 const paramsToCheck = {
@@ -156,14 +175,13 @@ export const funnelLogic = kea({
             }
         },
     }),
-    events: ({ actions, key, props }) => ({
+    events: ({ actions, key }) => ({
         afterMount: () => {
             if (key === 'new') {
                 return
             }
 
             actions.loadFunnel()
-            actions.loadStepsWithCount({ id: props.id })
         },
     }),
 })

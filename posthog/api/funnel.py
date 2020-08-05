@@ -2,12 +2,15 @@ import datetime
 import json
 from typing import Any, Dict, List
 
+from django.core.cache import cache
 from django.db.models import QuerySet
 from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
 
+from posthog.celery import update_cache_item_task
 from posthog.decorators import FUNNEL_ENDPOINT, cached_function
 from posthog.models import DashboardItem, Funnel
+from posthog.utils import generate_cache_key
 
 
 class FunnelSerializer(serializers.HyperlinkedModelSerializer):
@@ -51,11 +54,25 @@ class FunnelViewSet(viewsets.ModelViewSet):
         data = self._retrieve(request, pk)
         return Response(data)
 
-    @cached_function(cache_type=FUNNEL_ENDPOINT)
     def _retrieve(self, request, pk=None) -> dict:
-        instance = self.get_object()
-        serializer = self.get_serializer(instance)
+        team = request.user.team_set.get()
+        refresh = request.GET.get("refresh", None)
         dashboard_id = request.GET.get("from_dashboard", None)
+
+        cache_key = generate_cache_key("funnel_{}_{}".format(pk, team.pk))
+        payload = {"funnel_id": pk, "team_id": team.pk}
+        result = {"loading": True}
+
+        if refresh:
+            cache.delete(cache_key)
+        else:
+            cached_result = cache.get(cache_key)
+            if cached_result:
+                return cached_result["result"]
+
+        update_cache_item_task.delay(cache_key, FUNNEL_ENDPOINT, payload)
+
         if dashboard_id:
             DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.datetime.now())
-        return serializer.data
+
+        return result
