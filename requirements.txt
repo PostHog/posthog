@@ -23,6 +23,7 @@ django-redis==4.12.1
 django-statsd==2.5.2
 djangorestframework==3.11.0
 djangorestframework-csv==2.1.0
+freezegun==0.3.15
 future==0.18.2
 gunicorn==20.0.4
 idna==2.8
