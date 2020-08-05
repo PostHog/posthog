@@ -19,7 +19,7 @@ jobs:
               run: yarn
 
             - name: Check formatting with prettier
-              run: yarn prettier:ci
+              run: yarn prettier:check
 
             - name: Lint with ESLint
-              run: yarn eslint:ci
+              run: yarn eslint
