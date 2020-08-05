@@ -41,14 +41,6 @@ export interface retentionTableLogicType {
                 error: string
             }
         }
-        createInsight: (
-            filters: Record<string, any>
-        ) => {
-            type: 'create insight (scenes.retention.retentionTableLogic)'
-            payload: {
-                filters: Record<string, any>
-            }
-        }
         setProperties: (
             properties: any
         ) => {
@@ -95,7 +87,6 @@ export interface retentionTableLogicType {
         'load people (scenes.retention.retentionTableLogic)': 'loadPeople'
         'load people success (scenes.retention.retentionTableLogic)': 'loadPeopleSuccess'
         'load people failure (scenes.retention.retentionTableLogic)': 'loadPeopleFailure'
-        'create insight (scenes.retention.retentionTableLogic)': 'createInsight'
         'set properties (scenes.retention.retentionTableLogic)': 'setProperties'
         'set filters (scenes.retention.retentionTableLogic)': 'setFilters'
         'load more (scenes.retention.retentionTableLogic)': 'loadMore'
@@ -110,7 +101,6 @@ export interface retentionTableLogicType {
         loadPeople: 'load people (scenes.retention.retentionTableLogic)'
         loadPeopleSuccess: 'load people success (scenes.retention.retentionTableLogic)'
         loadPeopleFailure: 'load people failure (scenes.retention.retentionTableLogic)'
-        createInsight: 'create insight (scenes.retention.retentionTableLogic)'
         setProperties: 'set properties (scenes.retention.retentionTableLogic)'
         setFilters: 'set filters (scenes.retention.retentionTableLogic)'
         loadMore: 'load more (scenes.retention.retentionTableLogic)'
@@ -125,7 +115,6 @@ export interface retentionTableLogicType {
         loadPeople: (rowIndex: any) => void
         loadPeopleSuccess: (people: {}) => void
         loadPeopleFailure: (error: string) => void
-        createInsight: (filters: Record<string, any>) => void
         setProperties: (properties: any) => void
         setFilters: (filters: any) => void
         loadMore: (selectedIndex: any) => void

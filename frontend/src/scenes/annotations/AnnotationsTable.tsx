@@ -2,6 +2,7 @@ import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
 import { Table, Tag, Button, Modal, Input, DatePicker, Row, Spin } from 'antd'
 import { Link } from 'lib/components/Link'
+import 'lib/components/Annotations/AnnotationMarker.scss'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import moment from 'moment'
 import { annotationsModel } from '~/models/annotationsModel'
@@ -220,14 +221,14 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                     <span>Change existing annotation text</span>
                     {!props.annotation?.deleted ? (
                         <DeleteOutlined
-                            className="button-border clickable"
+                            className="clickable"
                             onClick={(): void => {
                                 props.onDelete()
                             }}
                         />
                     ) : (
                         <RedoOutlined
-                            className="button-border clickable"
+                            className="clickable"
                             onClick={(): void => {
                                 props.onRestore()
                             }}
