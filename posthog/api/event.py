@@ -9,7 +9,7 @@ from django.db.models import F, Prefetch, Q, QuerySet
 from django.db.models.expressions import Window
 from django.db.models.functions import Lag
 from django.utils.timezone import now
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
 from posthog.models import (
@@ -202,22 +202,21 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def actions(self, request: request.Request) -> response.Response:
-        try:
-            action_id = request.data.get("action_id")
-        except AttributeError:
-            action_id = None
-        extra_event_filters, extra_action_filters = {}, {}
+        action_id, action_id_raw = None, request.query_params.get("id")
+        if action_id_raw is not None:
+            try:
+                action_id = int(action_id_raw)
+            except (TypeError, ValueError):
+                raise exceptions.ValidationError(detail="Invalid query param `id`.")
+        extra_event_filters = {}
         if action_id is not None:
             extra_event_filters["action__id"] = action_id
-            extra_action_filters["id"] = action_id
         events = (
             self.get_queryset()
             .filter(action__deleted=False, action__isnull=False, **extra_event_filters)
-            .prefetch_related(
-                Prefetch(
-                    "action_set", queryset=Action.objects.filter(deleted=False, **extra_action_filters).order_by("id")
-                )
-            )[0:101]
+            .prefetch_related(Prefetch("action_set", queryset=Action.objects.filter(deleted=False).order_by("id")))[
+                0:101
+            ]
         )
         matches = []
         ids_seen: Set[int] = set()
