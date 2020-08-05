@@ -12,9 +12,10 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 
 import ast
 import os
+import shutil
 import sys
 from distutils.util import strtobool
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 import dj_database_url
 import sentry_sdk
@@ -45,6 +46,11 @@ def get_bool_from_env(name: str, default_value: bool) -> bool:
         except ValueError as e:
             raise ValueError(f"{value} is an invalid value for {name}, expected boolean") from e
     return default_value
+
+
+def print_warning(warning_lines: Sequence[str]):
+    highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
+    print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)))
 
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
@@ -99,9 +105,12 @@ TRUST_ALL_PROXIES = os.environ.get("TRUST_ALL_PROXIES", False)
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get("SECRET_KEY", "6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-_y7c_c^l5c0m$")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-
 ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
+
+# Metrics - StatsD
+STATSD_HOST = os.environ.get("STATSD_HOST", None)
+STATSD_PORT = os.environ.get("STATSD_PORT", 8125)
+STATSD_PREFIX = os.environ.get("STATSD_PREFIX", None)
 
 # Application definition
 
@@ -120,6 +129,7 @@ INSTALLED_APPS = [
     "rest_hooks",
 ]
 
+
 MIDDLEWARE = [
     "posthog.middleware.SameSiteSessionMiddleware",  # keep this at the top
     "django.middleware.security.SecurityMiddleware",
@@ -133,6 +143,10 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
 ]
+
+if STATSD_HOST:
+    MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
+    MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
 # Load debug_toolbar if we can (DEBUG and Dev modes)
 try:
@@ -350,9 +364,10 @@ if TEST:
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
 
-
 if DEBUG and not TEST:
-    print("🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰")
-    print("️🧰 🔧 Running PostHog in __development mode__! DEBUG=1 🔧 🧰")
-    print("️🧰 ⚠️ Please update your config if this is a live site ⚠️ 🧰")
-    print("🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰🧰")
+    print_warning(
+        (
+            "️Environment variable DEBUG is set - PostHog is running in DEVELOPMENT mode!",
+            "Be sure to unset DEBUG if this is supposed to be a PRODUCTION environment!",
+        )
+    )

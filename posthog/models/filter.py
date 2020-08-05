@@ -1,5 +1,6 @@
 import datetime
 import json
+from distutils.util import strtobool
 from typing import Any, Dict, List, Optional, Union
 
 from dateutil.relativedelta import relativedelta
@@ -31,7 +32,7 @@ class Filter(PropertyMixin):
     shown_as: Optional[str] = None
     breakdown: Optional[Union[str, List[Union[str, int]]]] = None
     breakdown_type: Optional[str] = None
-    compare: Optional[bool] = None
+    _compare: Optional[Union[bool, str]] = None
     funnel_id: Optional[int] = None
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None,) -> None:
@@ -55,7 +56,7 @@ class Filter(PropertyMixin):
         self.shown_as = data.get("shown_as")
         self.breakdown = self._parse_breakdown(data)
         self.breakdown_type = data.get("breakdown_type")
-        self.compare = data.get("compare")
+        self._compare = data.get("compare", "false")
 
         if data.get("actions"):
             self.entities.extend(
@@ -96,6 +97,15 @@ class Filter(PropertyMixin):
             for key, value in full_dict.items()
             if (isinstance(value, list) and len(value) > 0) or (not isinstance(value, list) and value)
         }
+
+    @property
+    def compare(self) -> bool:
+        if isinstance(self._compare, bool):
+            return self._compare
+        elif isinstance(self._compare, str):
+            return bool(strtobool(self._compare))
+        else:
+            return False
 
     @property
     def actions(self) -> List[Entity]:

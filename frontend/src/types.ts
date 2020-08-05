@@ -81,5 +81,6 @@ export type EditorProps = {
     actionId?: number
     userIntent?: string
     instrument?: boolean
+    distinctId?: boolean
     userEmail?: boolean
 }

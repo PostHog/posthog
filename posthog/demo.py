@@ -180,6 +180,7 @@ def _create_funnel(team: Team, base_url: str) -> None:
         dashboard=dashboard,
         name="HogFlix signup -> watching movie",
         type="FunnelViz",
+        funnel_id=funnel.pk,
         filters={"funnel_id": funnel.pk},
     )
 

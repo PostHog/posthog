@@ -192,6 +192,10 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
 
 @csrf_protect
 def logout(request):
+    if request.user.is_authenticated:
+        request.user.temporary_token = None
+        request.user.save()
+
     return auth_views.logout_then_login(request)
 
 

@@ -121,6 +121,7 @@ def redirect_to_site(request):
     if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
         params["instrument"] = True
         params["userEmail"] = request.user.email
+        params["distinctId"] = request.user.distinct_id
 
     state = urllib.parse.quote(json.dumps(params))
 

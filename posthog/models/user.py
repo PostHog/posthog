@@ -80,7 +80,7 @@ class User(AbstractUser):
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     anonymize_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     toolbar_mode: models.CharField = models.CharField(
-        max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=DEFAULT
+        max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR
     )
 
     USERNAME_FIELD = "email"
