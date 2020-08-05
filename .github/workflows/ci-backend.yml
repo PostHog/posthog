@@ -1,7 +1,7 @@
 name: Backend CI
 
 on:
-  - pull_request
+    - pull_request
 
 jobs:
   backend-code-quality:

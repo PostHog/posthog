@@ -1,7 +1,7 @@
 on:
-  push:
-    tags:
-      - '*.*.*'
+    push:
+        tags:
+            - '*.*.*'
 
 name: Create DigitalOcean Image
 
