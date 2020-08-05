@@ -177,8 +177,6 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                                                 </Tooltip>
                                             )}
                                         </Row>
-
-                                        <br></br>
                                         <span>{determineFilters(insight.type, insight.filters, cohorts)}</span>
                                     </Col>
                                 </List.Item>
@@ -214,7 +212,6 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                                                 style={{ cursor: 'pointer' }}
                                             />
                                         </Row>
-                                        <br></br>
                                         <span>{determineFilters(insight.type, insight.filters, cohorts)}</span>
                                     </Col>
                                 </List.Item>
