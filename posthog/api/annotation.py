@@ -5,7 +5,7 @@ from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from rest_framework import request, serializers, viewsets
-from rest_hooks.signals import raw_hook_event  # type: ignore
+from rest_hooks.signals import raw_hook_event
 
 from posthog.api.user import UserSerializer
 from posthog.models import Annotation

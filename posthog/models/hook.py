@@ -2,7 +2,7 @@ import json
 from typing import Optional
 
 from django.db import models
-from rest_hooks.models import AbstractHook  # type: ignore
+from rest_hooks.models import AbstractHook
 
 from posthog.models.utils import generate_random_token
 from posthog.tasks.hooks import DeliverHook
