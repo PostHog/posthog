@@ -31,7 +31,7 @@ jobs:
             - uses: actions/cache@v1
               with:
                   path: ~/.cache/pip
-                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt', '**/requirements/dev.txt') }}
                   restore-keys: |
                       ${{ runner.os }}-pip-
 
@@ -39,11 +39,15 @@ jobs:
               run: |
                   python -m pip install -U pip
                   python -m pip install -r requirements.txt
+                  python -m pip install -r requirements/dev.txt
               if: steps.cache.outputs.cache-hit != 'true'
+
+            - name: Check formatting with black
+              run: |
+                  black -l 120 --check .
 
             - name: Lint with flake8
               run: |
-                  pip install -r requirements/dev.txt
                   # stop the build if there are Python syntax errors or undefined names
                   flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
                   # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
@@ -56,7 +60,7 @@ jobs:
               run: |
                   mypy posthog
 
-    functionality:
+    django:
         name: Django tests
         runs-on: ubuntu-latest
 
