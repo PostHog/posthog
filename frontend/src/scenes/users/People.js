@@ -19,52 +19,36 @@ function _People() {
     const [pagination, setPagination] = useState({})
     const [usersType, setUsersType] = useState('all')
 
-    function fetchPeople({ url, scrollTop, search }) {
+    function fetchPeople({ url, scrollTop, search, selection }) {
         setLoading(true)
         if (scrollTop)
             document.querySelector('section.ant-layout > .content').parentNode.scrollTo({ top: 0, behavior: 'smooth' })
         api.get(
             url ? url : `api/person/?${search ? 'search=' + search : ''}${cohortId ? '&cohort=' + cohortId : ''}`
         ).then((data) => {
-            setPeople(data.results)
-            filterUsersByType(usersType, data)
+            filterUsersByType(selection ? selection : usersType, data)
         })
     }
 
     function filterUsersByType(selection, data) {
-        setLoading(true)
         setUsersType(selection)
-        function setPeopleAccordingToType(data) {
-            if (selection === 'all') {
-                setPeople(data.results)
-            } else if (selection === 'identified') {
-                setPeople(
-                    data.results.filter(
-                        (person) =>
-                            Object.keys(person.properties).length !== 0 && person.properties.constructor === Object
-                    )
+        if (selection === 'all') {
+            setPeople(data.results)
+        } else if (selection === 'identified') {
+            setPeople(
+                data.results.filter(
+                    (person) => Object.keys(person.properties).length !== 0 && person.properties.constructor === Object
                 )
-            } else {
-                setPeople(
-                    data.results.filter(
-                        (person) =>
-                            Object.keys(person.properties).length === 0 && person.properties.constructor === Object
-                    )
-                )
-            }
-            setLoading(false)
-            setPagination({ next: data.next, previous: data.previous })
-        }
-
-        if (data === undefined) {
-            api.get(`api/person/?${search ? 'search=' + search : ''}${cohortId ? '&cohort=' + cohortId : ''}`).then(
-                (data) => {
-                    setPeopleAccordingToType(data)
-                }
             )
         } else {
-            setPeopleAccordingToType(data)
+            setPeople(
+                data.results.filter(
+                    (person) => Object.keys(person.properties).length === 0 && person.properties.constructor === Object
+                )
+            )
         }
+        setLoading(false)
+        setPagination({ next: data.next, previous: data.previous })
     }
 
     useEffect(() => {
@@ -97,7 +81,11 @@ function _People() {
                 style={{ maxWidth: 400 }}
             />
             <br />
-            <Tabs defaultActiveKey="all" onChange={(key) => filterUsersByType(key)} type="card">
+            <Tabs
+                defaultActiveKey="all"
+                onChange={(key) => fetchPeople({ selection: key, search: search })}
+                type="card"
+            >
                 <TabPane tab={<span data-attr="insight-trends-tab">All Users</span>} key="all"></TabPane>
                 <TabPane tab={<span data-attr="insight-trends-tab">Identified Users</span>} key="identified"></TabPane>
                 <TabPane tab={<span data-attr="insight-trends-tab">Anonymous Users</span>} key="anonymous"></TabPane>
