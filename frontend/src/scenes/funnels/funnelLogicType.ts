@@ -268,6 +268,7 @@ export interface funnelLogicType {
         peopleLoading: (state: any, props: any) => boolean
         peopleSorted: (state: any, props: any) => any
         isStepsEmpty: (state: any, props: any) => boolean
+        propertiesForUrl: (state: any, props: any) => any
     }
     values: {
         funnel: {
@@ -280,10 +281,12 @@ export interface funnelLogicType {
         peopleLoading: boolean
         peopleSorted: any
         isStepsEmpty: boolean
+        propertiesForUrl: any
     }
     _isKea: true
     __keaTypeGenInternalSelectorTypes: {
         peopleSorted: (arg1: any, arg2: any) => any
         isStepsEmpty: (arg1: any) => boolean
+        propertiesForUrl: (arg1: any) => any
     }
 }

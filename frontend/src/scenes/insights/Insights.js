@@ -211,7 +211,7 @@ function _Insights() {
                                     />
                                 )}
 
-                                {showDateFilter[activeView] && <DateFilter view={activeView} filters={allFilters} />}
+                                {showDateFilter[activeView] && <DateFilter />}
 
                                 {showComparePrevious[activeView] && <CompareFilter />}
                                 <SaveToDashboard
@@ -282,8 +282,8 @@ function TrendInsight({ view }) {
 }
 
 function FunnelInsight() {
-    const { funnel, funnelLoading, stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic({ id: null }))
-    if (!funnel && funnelLoading) return <Loading />
+    const { stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic)
+
     return (
         <div style={{ height: 300 }}>
             {stepsWithCountLoading && <Loading />}
@@ -303,8 +303,8 @@ function FunnelInsight() {
 }
 
 function FunnelPeople() {
-    const { funnel } = useValues(funnelLogic({ id: null }))
-    if (funnel.id) {
+    const { stepsWithCount } = useValues(funnelLogic)
+    if (stepsWithCount) {
         return (
             <div className="funnel">
                 <People />

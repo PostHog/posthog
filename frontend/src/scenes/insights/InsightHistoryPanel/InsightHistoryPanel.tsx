@@ -57,7 +57,15 @@ const determineFilters = (viewType: string, filters: Record<string, any>, cohort
         if (filters.type) result.push({ key: 'Path Type', value: `${filters.type}\n` })
         if (filters.start) result.push({ key: 'Start Point', value: `Specified\n` })
     } else if (viewType === ViewType.FUNNELS) {
-        if (filters.name) result.push({ key: 'Name', value: `${filters.name}\n` })
+        let count = 0
+        if (filters.events) count += filters.events.length
+        if (filters.actions) count += filters.actions.length
+        if (count > 0) {
+            const entity: string[] = []
+            if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name}\n`))
+            if (filters.actions) filters.actions.forEach((action: Entity) => entity.push(`- ${action.name}\n`))
+            result.push({ key: 'Entities', value: entity })
+        }
     }
     if (filters.properties && filters.properties.length > 0) {
         const properties: string[] = []
