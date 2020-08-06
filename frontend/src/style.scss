@@ -315,14 +315,38 @@ label.disabled {
 
 .debug-bar {
     z-index: 1000000000;
-    opacity: 0.5;
-    width: 100%;
+    display: flex;
+    flex-direction: column;
     position: fixed;
-    top: 0;
+    width: 100%;
+    bottom: 0;
     left: 0;
-    padding: 0 1.5rem;
-    background: red;
-    color: white;
-    height: 2rem;
-    line-height: 2rem;
+    background: #000;
+    color: #fff;
+    div {
+        flex-basis: 0;
+        flex-grow: 1;
+        height: 1.5rem;
+        padding: 0 0.75rem;
+        text-align: center;
+        font-size: 0.75rem;
+        line-height: 1.5rem;
+        @media screen and (min-width: 750px) {
+            height: 2rem;
+            font-size: 1rem;
+            line-height: 2rem;
+        }
+    }
+    div:nth-child(1) {
+        background: #1d4aff;
+    }
+    div:nth-child(2) {
+        background: #f54e00;
+    }
+    div:nth-child(3) {
+        background: #f9bd2b;
+    }
+    @media screen and (min-width: 750px) {
+        flex-direction: row;
+    }
 }
