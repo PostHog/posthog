@@ -121,7 +121,6 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "last_refresh",
             "refreshing",
             "result",
-            "funnel",
             "created_at",
             "saved",
         ]

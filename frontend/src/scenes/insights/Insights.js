@@ -218,13 +218,10 @@ function _Insights() {
                                     disabled={disableSaveToDashboard[activeView]}
                                     item={{
                                         type: determineInsightType(activeView, allFilters.display),
-                                        entity:
-                                            activeView === ViewType.FUNNELS
-                                                ? allFilters
-                                                : {
-                                                      filters: allFilters,
-                                                      annotations: annotationsToCreate,
-                                                  },
+                                        entity: {
+                                            filters: allFilters,
+                                            annotations: annotationsToCreate,
+                                        },
                                     }}
                                 />
                             </div>

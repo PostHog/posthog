@@ -102,7 +102,7 @@ export const funnelLogic = kea({
         loadFunnel: async () => {
             const cleanedParams = cleanFunnelParams(values.filters)
 
-            actions.setAllFilters(cleanFunnelParams)
+            actions.setAllFilters(cleanedParams)
             actions.createInsight({ ...cleanedParams, insight: ViewType.FUNNELS })
 
             const urlParams = toParams(cleanedParams)

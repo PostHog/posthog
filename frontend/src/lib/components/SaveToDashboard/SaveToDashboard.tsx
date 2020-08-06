@@ -19,7 +19,6 @@ interface TrendPayload {
 }
 
 interface FunnelPayload {
-    funnelId: string
     name: string
 }
 
@@ -30,7 +29,6 @@ export function SaveToDashboard(props: Props): JSX.Element {
 
     let _name: string
     let _filters: Record<string, any> | null = null
-    let _funnelId: string | null = null
     let _annotations: Array<Record<string, any>> | null = null
 
     const _type: string = item.type
@@ -39,7 +37,6 @@ export function SaveToDashboard(props: Props): JSX.Element {
         _filters = item.entity.filters
         _annotations = item.entity.annotations
     } else {
-        _funnelId = item.entity.funnelId
         _name = item.entity.name
     }
 
@@ -51,7 +48,6 @@ export function SaveToDashboard(props: Props): JSX.Element {
                     name={_name}
                     type={_type}
                     filters={_filters}
-                    funnelId={_funnelId}
                     fromItem={fromItem}
                     fromDashboard={fromDashboard}
                     fromItemName={fromItemName}
@@ -64,7 +60,7 @@ export function SaveToDashboard(props: Props): JSX.Element {
                 type="primary"
                 data-attr="save-to-dashboard-button"
             >
-                {fromItem && _type !== 'FunnelViz' ? 'Update Dashboard' : 'Add to dashboard'}
+                {fromItem ? 'Update Dashboard' : 'Add to dashboard'}
             </Button>
         </span>
     )
