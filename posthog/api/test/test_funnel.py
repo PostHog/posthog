@@ -131,10 +131,10 @@ class TestGetFunnel(BaseTest):
         funnel = Funnel.objects.create(team=self.team, name="funnel", filters=filters)
         return funnel
 
-    def _poll_funnel(self, url: str, refresh=False) -> Optional[dict]:
+    def _poll_funnel(self, url: str, refresh=False) -> dict:
         loading = True
         timeout = time.time() + 10  # stop in 10 seconds
-        response = None
+        response = {}
 
         if refresh:
             response = self.client.get(url + "?refresh=true").json()
