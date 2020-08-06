@@ -314,6 +314,7 @@ label.disabled {
 }
 
 .debug-bar {
+    z-index: 1000000000;
     opacity: 0.5;
     width: 100%;
     position: fixed;
