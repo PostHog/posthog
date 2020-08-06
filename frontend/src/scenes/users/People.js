@@ -30,7 +30,8 @@ function _People() {
         if (selection) setUsersType(selection)
         if (scrollTop)
             document.querySelector('section.ant-layout > .content').parentNode.scrollTo({ top: 0, behavior: 'smooth' })
-        let hasProps = currentTab === 'all' ? '' : currentTab === 'identified' ? '&hasProps=1' : '&hasProps=0'
+        let hasProps =
+            currentTab === 'all' ? '' : currentTab === 'identified' ? '&onlyIdentified=1' : '&onlyIdentified=0'
         api.get(
             url
                 ? url

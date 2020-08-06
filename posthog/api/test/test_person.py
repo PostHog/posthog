@@ -88,6 +88,18 @@ class TestPerson(BaseTest):
         response = self.client.get("/api/person/?cohort=%s" % cohort.pk).json()
         self.assertEqual(len(response["results"]), 1, response)
 
+    # Filters users by the existence or not of properties (i.e. Identified vs Anonymous)
+    def test_filter_anonymous_people(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
+        )
+        Person.objects.create(team=self.team, distinct_ids=["person_2"])
+
+        cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os": "Chrome"}}])
+        cohort.calculate_people()
+        response = self.client.get("/api/person/?cohort=%s" % cohort.pk).json()
+        self.assertEqual(len(response["results"]), 1, response)
+
     def test_delete_person(self):
         person = Person.objects.create(
             team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},

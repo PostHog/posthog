@@ -74,8 +74,8 @@ class PersonViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(
                 Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(team_id=team.pk)
             )
-        if request.GET.get("hasProps"):
-            if int(request.GET["hasProps"]):
+        if request.GET.get("onlyIdentified"):
+            if int(request.GET["onlyIdentified"]):
                 queryset = queryset.exclude(properties__exact={})
             else:
                 queryset = queryset.filter(properties__exact={})
