@@ -24,7 +24,7 @@ function _People() {
     const [usersType, setUsersType] = useState('all')
     const [pagination, setPagination] = useState({ ...defaultPaginationObj })
 
-    function fetchPeople({ url, scrollTop, search, selection }) {
+    function fetchPeople({ url, scrollTop, selection }) {
         setLoading(true)
         let currentTab = selection ? selection : usersType
         if (selection) setUsersType(selection)
@@ -77,7 +77,7 @@ function _People() {
                 autoFocus
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.keyCode === 13 && fetchPeople({ search })}
+                onKeyDown={(e) => e.keyCode === 13 && fetchPeople({})}
                 placeholder={people && 'Try ' + exampleEmail + ' or has:email'}
                 style={{ maxWidth: 400 }}
             />
@@ -87,7 +87,7 @@ function _People() {
                 <TabPane tab={<span data-attr="insight-trends-tab">Identified Users</span>} key="identified"></TabPane>
                 <TabPane tab={<span data-attr="insight-trends-tab">Anonymous Users</span>} key="anonymous"></TabPane>
             </Tabs>
-            <PeopleTable people={people} loading={loading} actions={true} onChange={() => fetchPeople({ search })} />
+            <PeopleTable people={people} loading={loading} actions={true} onChange={() => fetchPeople({})} />
 
             <div style={{ margin: '3rem auto 10rem', width: 200 }}>
                 <Button
