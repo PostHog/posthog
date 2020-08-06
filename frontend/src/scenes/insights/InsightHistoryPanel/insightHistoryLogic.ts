@@ -79,6 +79,24 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                 return parsed
             },
         },
+        teamInsights: {
+            __default: [] as InsightHistory[],
+            loadTeamInsights: async () => {
+                const response = await api.get(
+                    'api/dashboard_item/?' +
+                        toParams({
+                            order: '-created_at',
+                            saved: true,
+                            limit: 100,
+                        })
+                )
+
+                const parsed = response.results.map((result: any) => parseSavedInsight(result))
+                actions.setTeamInsightsNext(response.next)
+
+                return parsed
+            },
+        },
     }),
     reducers: () => ({
         insights: {
@@ -86,6 +104,9 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
         },
         savedInsights: {
             updateSavedInsights: (state, { insights }) => [...state, ...insights],
+        },
+        teamInsights: {
+            updateTeamInsights: (state, { insights }) => [...state, ...insights],
         },
         insightsNext: [
             null,
@@ -100,6 +121,12 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                 setInsightsNext: () => false,
             },
         ],
+        savedInsightsNext: [
+            null,
+            {
+                setSavedInsightsNext: (_, { next }) => next,
+            },
+        ],
         loadingMoreSavedInsights: [
             false,
             {
@@ -107,10 +134,17 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
                 setSavedInsightsNext: () => false,
             },
         ],
-        savedInsightsNext: [
+        teamInsightsNext: [
             null,
             {
-                setSavedInsightsNext: (_, { next }) => next,
+                setTeamInsightsNext: (_, { next }) => next,
+            },
+        ],
+        loadingMoreTeamInsights: [
+            false,
+            {
+                loadNextTeamInsights: () => true,
+                setTeamInsightsNext: () => false,
             },
         ],
     }),
@@ -120,10 +154,13 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
         deleteInsight: (insight: InsightHistory) => ({ insight }),
         loadNextInsights: true,
         loadNextSavedInsights: true,
+        loadNextTeamInsights: true,
         setInsightsNext: (next: string) => ({ next }),
         setSavedInsightsNext: (next: string) => ({ next }),
+        setTeamInsightsNext: (next: string) => ({ next }),
         updateInsights: (insights: InsightHistory[]) => ({ insights }),
         updateSavedInsights: (insights: InsightHistory[]) => ({ insights }),
+        updateTeamInsights: (insights: InsightHistory[]) => ({ insights }),
     }),
     listeners: ({ actions, values }) => ({
         createInsight: async ({ filters }) => {
@@ -160,11 +197,18 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             actions.setSavedInsightsNext(response.next)
             actions.updateSavedInsights(parsed)
         },
+        loadNextTeamInsights: async () => {
+            const response = await api.get(values.teamInsightsNext)
+            const parsed = response.results.map((result: any) => parseSavedInsight(result))
+            actions.setTeamInsightsNext(response.next)
+            actions.updateTeamInsights(parsed)
+        },
     }),
     events: ({ actions }) => ({
         afterMount: () => {
             actions.loadInsights()
             actions.loadSavedInsights()
+            actions.loadTeamInsights()
         },
     }),
 })

@@ -7,11 +7,13 @@ def forward(apps, schema_editor):
     Funnel = apps.get_model("posthog", "Funnel")
     DashboardItem = apps.get_model("posthog", "DashboardItem")
     for item in Funnel.objects.all():
+        filters = item.filters
+        filters["insight"] = "FUNNELS"
         DashboardItem.objects.create(
             team=item.team,
             name=item.name,
             deleted=item.deleted,
-            filters=item.filters,
+            filters=filters,
             created_by=item.created_by,
             saved=True,
         )

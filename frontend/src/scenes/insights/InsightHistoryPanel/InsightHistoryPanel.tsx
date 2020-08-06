@@ -14,6 +14,7 @@ import { PropertyFilter, Entity, CohortType } from '~/types'
 const InsightHistoryType = {
     SAVED: 'SAVED',
     RECENT: 'RECENT',
+    TEAM: 'TEAM',
 }
 
 const { TabPane } = Tabs
@@ -62,8 +63,11 @@ const determineFilters = (viewType: string, filters: Record<string, any>, cohort
         if (filters.actions) count += filters.actions.length
         if (count > 0) {
             const entity: string[] = []
-            if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name}\n`))
-            if (filters.actions) filters.actions.forEach((action: Entity) => entity.push(`- ${action.name}\n`))
+            if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name || event.id}\n`))
+            if (filters.actions)
+                filters.actions.forEach((action: Entity) =>
+                    entity.push(`- ${action.name || '(action: ' + action.id + ')'}\n`)
+                )
             result.push({ key: 'Entities', value: entity })
         }
     }
@@ -97,12 +101,18 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
         insightsLoading,
         savedInsights,
         savedInsightsLoading,
+        teamInsights,
+        teamInsightsLoading,
         insightsNext,
         savedInsightsNext,
+        teamInsightsNext,
         loadingMoreInsights,
         loadingMoreSavedInsights,
+        loadingMoreTeamInsights,
     } = useValues(insightHistoryLogic)
-    const { saveInsight, deleteInsight, loadNextInsights, loadNextSavedInsights } = useActions(insightHistoryLogic)
+    const { saveInsight, deleteInsight, loadNextInsights, loadNextSavedInsights, loadNextTeamInsights } = useActions(
+        insightHistoryLogic
+    )
     const { cohorts } = useValues(cohortsModel)
 
     const [visible, setVisible] = useState(false)
@@ -132,6 +142,19 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
             }}
         >
             {loadingMoreSavedInsights ? <Spin /> : <Button onClick={loadNextSavedInsights}>Load more</Button>}
+        </div>
+    ) : null
+
+    const loadMoreTeamInsights = teamInsightsNext ? (
+        <div
+            style={{
+                textAlign: 'center',
+                marginTop: 12,
+                height: 32,
+                lineHeight: '32px',
+            }}
+        >
+            {loadingMoreTeamInsights ? <Spin /> : <Button onClick={loadNextTeamInsights}>Load more</Button>}
         </div>
     ) : null
 
@@ -219,6 +242,33 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                                                 }}
                                                 style={{ cursor: 'pointer' }}
                                             />
+                                        </Row>
+                                        <span>{determineFilters(insight.type, insight.filters, cohorts)}</span>
+                                    </Col>
+                                </List.Item>
+                            )
+                        }}
+                    />
+                </TabPane>
+                <TabPane
+                    tab={<span data-attr="insight-saved-tab">Team</span>}
+                    key={InsightHistoryType.TEAM}
+                    data-attr="insight-team-pane"
+                >
+                    <List
+                        loading={teamInsightsLoading}
+                        dataSource={teamInsights}
+                        loadMore={loadMoreTeamInsights}
+                        renderItem={(insight) => {
+                            return (
+                                <List.Item key={insight.id}>
+                                    <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
+                                        <Row justify="space-between" align="middle">
+                                            {insight.type && (
+                                                <Link onClick={onChange} to={'/insights?' + toParams(insight.filters)}>
+                                                    {insight.name}
+                                                </Link>
+                                            )}
                                         </Row>
                                         <span>{determineFilters(insight.type, insight.filters, cohorts)}</span>
                                     </Col>
