@@ -1,20 +1,16 @@
 import { kea } from 'kea'
 import api from 'lib/api'
+import { cleanFunnelParams } from './funnelLogic'
+import { toParams } from 'lib/utils'
 
 export const funnelVizLogic = kea({
     key: (props) => props.dashboardItemId || 'some_funnel',
     loaders: ({ props }) => ({
         results: {
-            loadResults: async (refresh = false) => {
-                const { from_dashboard } = props.filters
-                let response = await api.get(
-                    'api/funnel/' +
-                        props.funnelId +
-                        '/?' +
-                        (refresh ? 'refresh=true' : '') +
-                        (from_dashboard ? '&from_dashboard=' + from_dashboard : '')
-                )
-                return response
+            __default: [],
+            loadResults: async () => {
+                const urlParams = toParams(cleanFunnelParams(props.filters))
+                return await api.get('api/action/funnel/?' + urlParams)
             },
         },
     }),

@@ -4,7 +4,7 @@ import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { objectsEqual, toParams } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 
-const cleanFunnelParams = (filters) => {
+export const cleanFunnelParams = (filters) => {
     return {
         ...(filters.date_from ? { date_from: filters.date_from } : {}),
         ...(filters.date_to ? { date_to: filters.date_to } : {}),
@@ -43,9 +43,9 @@ export const funnelLogic = kea({
             },
         ],
         stepsWithCount: [
-            null,
+            [],
             {
-                clearFunnel: () => null,
+                clearFunnel: () => [],
                 setSteps: (_, { steps }) => steps,
             },
         ],
