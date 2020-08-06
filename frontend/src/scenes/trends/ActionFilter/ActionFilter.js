@@ -24,17 +24,14 @@ export function ActionFilter({ setFilters, filters, typeKey, hideMathSelector, d
 
     const renderLocalFilters = () =>
         localFilters.map((filter, index) => (
-            <div
-                key={filter.id ? filter.id.toString() : filter.id}
-                data-grid={layouts.find((layout) => layout.i === filter.id)}
-            >
+            <div key={filter.layoutId} data-grid={layouts.find((layout) => layout.i === filter.layoutId)}>
                 <ActionFilterRow
                     logic={logic}
                     filter={filter}
                     index={index}
                     key={index}
                     hideMathSelector={hideMathSelector}
-                    dragging={draggedRow === filter.id}
+                    dragging={draggedRow === filter.layoutId}
                     dragIconPosition={dragIconPosition}
                 />
             </div>

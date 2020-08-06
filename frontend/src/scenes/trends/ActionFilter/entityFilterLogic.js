@@ -10,7 +10,11 @@ function toLocalFilters(filters) {
         ...(filters[EntityTypes.NEW_ENTITY] || []),
     ]
         .sort((a, b) => a.order - b.order)
-        .map((filter, order) => ({ ...filter, order }))
+        .map((filter, order) => ({
+            ...filter,
+            order,
+            layoutId: filter.id ? `${filter.id}` + order : filter.id,
+        }))
 }
 
 function toFilters(localFilters) {
@@ -36,11 +40,11 @@ function getHeight(id, heights) {
 
 function toLayouts(localFilters, heights) {
     return localFilters.map((filter) => ({
-        i: filter.id ? filter.id.toString() : filter.id,
+        i: filter.layoutId,
         x: 1,
         y: filter.order,
         w: 1,
-        h: getHeight(filter.id, heights),
+        h: getHeight(filter.layoutId, heights),
         isDraggable: true,
     }))
 }
@@ -57,7 +61,7 @@ function toHeights(layouts) {
 
 function orderFilters(filters, filterPositions) {
     return filters
-        .map((filter) => ({ ...filter, order: filterPositions[filter.id] }))
+        .map((filter) => ({ ...filter, order: filterPositions[filter.layoutId] }))
         .sort((a, b) => a.order - b.order)
         .map((filter, order) => ({ ...filter, order }))
 }
@@ -148,7 +152,7 @@ export const entityFilterLogic = kea({
         addFilter: () => {
             actions.setFilters([
                 ...values.localFilters,
-                { id: null, type: EntityTypes.NEW_ENTITY, order: values.localFilters.length },
+                { id: null, type: EntityTypes.NEW_ENTITY, order: values.localFilters.length, layoutId: null },
             ])
         },
         orderFilters: ({ filterPositions }) => {
