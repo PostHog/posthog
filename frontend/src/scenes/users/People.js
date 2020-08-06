@@ -9,6 +9,11 @@ import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 
 const { TabPane } = Tabs
+const defaultPaginationObj = {
+    all: {},
+    identified: {},
+    anonymous: {},
+}
 
 export const People = hot(_People)
 function _People() {
@@ -16,39 +21,35 @@ function _People() {
     const [people, setPeople] = useState(null)
     const [search, setSearch] = useState('')
     const [cohortId, setCohortId] = useState(fromParams()['cohort'])
-    const [pagination, setPagination] = useState({})
     const [usersType, setUsersType] = useState('all')
+    const [pagination, setPagination] = useState({ ...defaultPaginationObj })
 
     function fetchPeople({ url, scrollTop, search, selection }) {
         setLoading(true)
+        let currentTab = selection ? selection : usersType
+        if (selection) setUsersType(selection)
         if (scrollTop)
             document.querySelector('section.ant-layout > .content').parentNode.scrollTo({ top: 0, behavior: 'smooth' })
+        let hasProps = currentTab === 'all' ? '' : currentTab === 'identified' ? '&hasProps=1' : '&hasProps=0'
         api.get(
-            url ? url : `api/person/?${search ? 'search=' + search : ''}${cohortId ? '&cohort=' + cohortId : ''}`
+            url
+                ? url
+                : `api/person/?${search ? 'search=' + search : ''}${cohortId ? '&cohort=' + cohortId : ''}${hasProps}`
         ).then((data) => {
-            filterUsersByType(selection ? selection : usersType, data)
+            let newPagination = { ...pagination }
+            newPagination[currentTab].next = data.next
+            newPagination[currentTab].previous = data.previous
+            setPagination(newPagination)
+            setPeople(data.results)
+            setLoading(false)
         })
     }
 
-    function filterUsersByType(selection, data) {
-        setUsersType(selection)
-        if (selection === 'all') {
-            setPeople(data.results)
-        } else if (selection === 'identified') {
-            setPeople(
-                data.results.filter(
-                    (person) => Object.keys(person.properties).length !== 0 && person.properties.constructor === Object
-                )
-            )
-        } else {
-            setPeople(
-                data.results.filter(
-                    (person) => Object.keys(person.properties).length === 0 && person.properties.constructor === Object
-                )
-            )
+    function tabHasPagination(direction) {
+        if (usersType === undefined) {
+            return direction === 'next' ? pagination['all'].next : pagination['all'].previous
         }
-        setLoading(false)
-        setPagination({ next: data.next, previous: data.previous })
+        return direction === 'next' ? pagination[usersType].next : pagination[usersType].previous
     }
 
     useEffect(() => {
@@ -81,11 +82,7 @@ function _People() {
                 style={{ maxWidth: 400 }}
             />
             <br />
-            <Tabs
-                defaultActiveKey="all"
-                onChange={(key) => fetchPeople({ selection: key, search: search })}
-                type="card"
-            >
+            <Tabs defaultActiveKey="all" onChange={(key) => fetchPeople({ selection: key })} type="card">
                 <TabPane tab={<span data-attr="insight-trends-tab">All Users</span>} key="all"></TabPane>
                 <TabPane tab={<span data-attr="insight-trends-tab">Identified Users</span>} key="identified"></TabPane>
                 <TabPane tab={<span data-attr="insight-trends-tab">Anonymous Users</span>} key="anonymous"></TabPane>
@@ -95,15 +92,15 @@ function _People() {
             <div style={{ margin: '3rem auto 10rem', width: 200 }}>
                 <Button
                     type="link"
-                    disabled={!pagination.previous}
-                    onClick={() => fetchPeople({ url: pagination.previous, scrollTop: true })}
+                    disabled={!tabHasPagination('previous')}
+                    onClick={() => fetchPeople({ url: pagination[usersType].previous, scrollTop: true })}
                 >
                     <LeftOutlined style={{ verticalAlign: 'initial' }} /> Previous
                 </Button>
                 <Button
                     type="link"
-                    disabled={!pagination.next}
-                    onClick={() => fetchPeople({ url: pagination.next, scrollTop: true })}
+                    disabled={!tabHasPagination('next')}
+                    onClick={() => fetchPeople({ url: pagination[usersType].next, scrollTop: true })}
                 >
                     Next <RightOutlined style={{ verticalAlign: 'initial' }} />
                 </Button>

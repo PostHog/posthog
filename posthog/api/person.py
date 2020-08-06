@@ -74,7 +74,11 @@ class PersonViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(
                 Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(team_id=team.pk)
             )
-
+        if request.GET.get("hasProps"):
+            if int(request.GET["hasProps"]):
+                queryset = queryset.exclude(properties__exact={})
+            else:
+                queryset = queryset.filter(properties__exact={})
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset
 
