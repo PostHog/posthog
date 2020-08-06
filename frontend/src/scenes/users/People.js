@@ -84,9 +84,21 @@ function _People() {
             />
             <br />
             <Tabs defaultActiveKey="all" onChange={(key) => fetchPeople({ selection: key })} type="card">
-                <TabPane tab={<span data-attr="insight-trends-tab">All Users</span>} key="all"></TabPane>
-                <TabPane tab={<span data-attr="insight-trends-tab">Identified Users</span>} key="identified"></TabPane>
-                <TabPane tab={<span data-attr="insight-trends-tab">Anonymous Users</span>} key="anonymous"></TabPane>
+                <TabPane
+                    tab={<span data-attr="people-types-tab">All Users</span>}
+                    key="all"
+                    data-attr="people-types-tab"
+                ></TabPane>
+                <TabPane
+                    tab={<span data-attr="people-types-tab">Identified Users</span>}
+                    key="identified"
+                    data-attr="people-types-tab"
+                ></TabPane>
+                <TabPane
+                    tab={<span data-attr="people-types-tab">Anonymous Users</span>}
+                    key="anonymous"
+                    data-attr="people-types-tab"
+                ></TabPane>
             </Tabs>
             <PeopleTable people={people} loading={loading} actions={true} onChange={() => fetchPeople({})} />
 

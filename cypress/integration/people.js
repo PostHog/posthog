@@ -12,6 +12,16 @@ describe('People', () => {
         cy.get('span').should('contain', 'New Cohort')
     })
 
+    it('All tabs work', () => {
+        cy.get('.form-control').type('has:email').type('{enter}').should('have.value', 'has:email')
+        cy.wait(1000)
+        cy.get('#tab-identified > span').click()
+        cy.get('[data-row-key="100"] > :nth-child(2) > .ph-no-capture').should('contain', '@')
+        cy.get('#tab-anonymous > span').click()
+        cy.wait(1000)
+        cy.get('.ant-empty-img-simple').should('exist')
+    })
+
     it('All people route works', () => {
         cy.get('[data-attr=menu-item-cohorts]').click()
         cy.get('[data-attr=menu-item-all-people]').click()
