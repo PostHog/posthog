@@ -50,7 +50,9 @@ function createEntry(entry) {
                     ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
                     : process.env.IS_PORTER
                     ? `https://${process.env.PORTER_WEBPACK_HOST}/static/`
-                    : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerHost}:8234/static/`,
+                    : `http${
+                          process.env.DISABLE_SECURE_SSL_REDIRECT ? 's' : ''
+                      }://${webpackDevServerHost}:8234/static/`,
         },
         resolve: {
             extensions: ['.js', '.ts', '.tsx'],
@@ -164,7 +166,7 @@ function createEntry(entry) {
             port: 8234,
             noInfo: true,
             stats: 'minimal',
-            disableHostCheck: !!process.env.LOCAL_HTTPS,
+            disableHostCheck: !!process.env.DISABLE_SECURE_SSL_REDIRECT,
             public: process.env.JS_URL
                 ? new URL(process.env.JS_URL).host
                 : process.env.IS_PORTER
