@@ -76,9 +76,16 @@ class PersonViewSet(viewsets.ModelViewSet):
             )
         if request.GET.get("onlyIdentified"):
             if int(request.GET["onlyIdentified"]):
-                queryset = queryset.exclude(properties__exact={})
+                queryset = queryset.exclude(
+                    Q(persondistinctid__distinct_id__regex=r'^[a-zA-Z0-9]{14}-*')
+                    & Q(properties__exact={})
+                )
             else:
-                queryset = queryset.filter(properties__exact={})
+                queryset = queryset.filter(
+                    Q(persondistinctid__distinct_id__regex=r'^[a-zA-Z0-9]{14}-*')
+                    & Q(properties__exact={})
+                )
+                
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset
 

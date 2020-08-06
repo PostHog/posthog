@@ -88,16 +88,23 @@ class TestPerson(BaseTest):
         response = self.client.get("/api/person/?cohort=%s" % cohort.pk).json()
         self.assertEqual(len(response["results"]), 1, response)
 
-    # Filters users by the existence or not of properties (i.e. Identified vs Anonymous)
+    # Filters users by Identified vs Anonymous
+    # Identified users have properties set OR a distinct ID 
     def test_filter_anonymous_people(self):
+        # Identified
         Person.objects.create(
             team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
         )
+        # Identified
         Person.objects.create(team=self.team, distinct_ids=["person_2"])
-        response_anon = self.client.get("/api/person/?onlyIdentified=1").json()
-        response_id = self.client.get("/api/person/?onlyIdentified=0").json()
-        self.assertEqual(len(response_anon["results"]), 1, response_anon)
-        self.assertEqual(len(response_id["results"]), 1, response_id)
+        # Anonymous
+        Person.objects.create(
+            team=self.team, distinct_ids=["173c1341f28981-001e61951ee35f-31677305-13c680-173c1341f29bf8"]
+        )
+        response_anon = self.client.get("/api/person/?onlyIdentified=0").json()
+        response_id = self.client.get("/api/person/?onlyIdentified=1").json()
+        self.assertEqual(len(response_anon["results"]), 1, response_anon["results"])
+        self.assertEqual(len(response_id["results"]), 2, response_id["results"])
 
     def test_delete_person(self):
         person = Person.objects.create(
