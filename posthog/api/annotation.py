@@ -72,8 +72,8 @@ class AnnotationsViewSet(viewsets.ModelViewSet):
 
 
 @receiver(post_save, dispatch_uid="hook-annotation-created")
-def model_saved(sender, instance, created, raw, using, **kwargs):
-    """Trigger action_defined hook on Annotation creation."""
+def annotation_created(sender, instance, created, raw, using, **kwargs):
+    """Trigger action_defined hooks on Annotation creation."""
     if isinstance(instance, Annotation) and created:
         raw_hook_event.send(
             sender=None,
