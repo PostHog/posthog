@@ -1,0 +1,5 @@
+{% if debug %}
+    <div class="debug-bar">
+    PostHog running in <b>DEBUG</b> mode. Current git revision: <code>{{ git_rev|default:"unknown" }}</code>.
+    </div>
+{% endif %}
