@@ -134,7 +134,7 @@ function FunnelInsight() {
     const { funnel, funnelLoading, stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic({ id: null }))
     if (!funnel && funnelLoading) return <Loading />
     return (
-        <div style={{ height: 300 }}>
+        <div style={{ height: 300, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
             {stepsWithCountLoading && <Loading />}
             {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 ? (
                 <FunnelViz funnel={{ steps: stepsWithCount }} />
@@ -144,7 +144,7 @@ function FunnelInsight() {
                         textAlign: 'center',
                     }}
                 >
-                    <span>Enter the details to your funnel and click 'save' to create a funnel visualization</span>
+                    <h3>Describe your funnel and click "Save funnel" to create a funnel visualization.</h3>
                 </div>
             )}
         </div>

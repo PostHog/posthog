@@ -7,14 +7,14 @@ const BillingToolbar = (props) => {
     return (
         <>
             {billingUrl && (
-                <div className="card">
+                <div className="card" style={{ marginBottom: '2rem' }}>
                     <div className="card-body">
                         <WarningOutlined className="text-danger" /> Hey! You have reached your usage limit for the Free
-                        Plan.{' '}
+                        plan.{' '}
                         <a href={billingUrl} className="text-primary">
                             <b>Upgrade now</b>
                         </a>{' '}
-                        to the Growth Plan for $29/month and receive up to 500,000 events/month.
+                        to the Growth plan for $29/month and receive up to 500,000 events/month.
                     </div>
                 </div>
             )}
