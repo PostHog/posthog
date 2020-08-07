@@ -313,7 +313,7 @@ label.disabled {
     background: var(--success) !important;
 }
 
-.debug-bar {
+#debug-bar {
     z-index: 1000000000;
     display: flex;
     flex-direction: column;
@@ -323,18 +323,29 @@ label.disabled {
     left: 0;
     background: #000;
     color: #fff;
+    font-size: 0.75rem;
+    line-height: 1.5rem;
+    button {
+        border: none;
+        background: transparent;
+        height: 1.5rem;
+        padding: 0;
+        font-size: 1rem;
+        font-weight: bold;
+        @media screen and (min-width: 750px) {
+            height: 2rem;
+            width: 2rem;
+            font-size: 1.25rem;
+        }
+    }
     div {
         flex-basis: 0;
         flex-grow: 1;
         height: 1.5rem;
         padding: 0 0.75rem;
         text-align: center;
-        font-size: 0.75rem;
-        line-height: 1.5rem;
         @media screen and (min-width: 750px) {
             height: 2rem;
-            font-size: 1rem;
-            line-height: 2rem;
         }
     }
     div:nth-child(1) {
@@ -348,5 +359,7 @@ label.disabled {
     }
     @media screen and (min-width: 750px) {
         flex-direction: row;
+        font-size: 1rem;
+        line-height: 2rem;
     }
 }

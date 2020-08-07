@@ -119,6 +119,14 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
             )
         except:
             context["git_rev"] = None
+        try:
+            context["git_branch"] = (
+                subprocess.check_output(["git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"])
+                .decode("ascii")
+                .strip()
+            )
+        except:
+            context["git_branch"] = None
 
     html = template.render(context, request=request)
     return HttpResponse(html)

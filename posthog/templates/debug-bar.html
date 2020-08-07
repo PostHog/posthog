@@ -1,7 +1,10 @@
 {% if debug %}
-    <div class="debug-bar">
+    <div id="debug-bar">
         <div>PostHog running in <b><code>DEBUG</code></b> mode.</div>
-        <div>Last git revision: <b><code>{{ git_rev|default:"unknown" }}</code></b>.</div>
-        <div>Last release: <b><code>{{ version|default:"unknown" }}</code></b>.</div>
+        <div>Current branch: <b><code>{{ git_branch|default:"unknown" }}</code></b>.</div>
+        <div>Current revision: <b><code>{{ git_rev|default:"unknown" }}</code></b>.</div>
+        <button title="Close debug bar" onclick="document.getElementById('debug-bar').remove()">
+            <code>×</code>
+        </button>
     </div>
 {% endif %}
