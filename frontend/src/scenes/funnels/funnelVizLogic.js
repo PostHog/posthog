@@ -1,7 +1,6 @@
 import { kea } from 'kea'
-import api from 'lib/api'
 import { cleanFunnelParams } from './funnelLogic'
-import { toParams } from 'lib/utils'
+import { pollFunnel } from './funnelLogic'
 
 export const funnelVizLogic = kea({
     key: (props) => props.dashboardItemId || 'some_funnel',
@@ -9,8 +8,8 @@ export const funnelVizLogic = kea({
         results: {
             __default: [],
             loadResults: async () => {
-                const urlParams = toParams(cleanFunnelParams(props.filters))
-                return await api.get('api/action/funnel/?' + urlParams)
+                const cleanedParams = cleanFunnelParams(props.filters)
+                return await pollFunnel(cleanedParams)
             },
         },
     }),

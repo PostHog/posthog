@@ -13,6 +13,7 @@ from posthog.api.funnel import FunnelSerializer
 from posthog.celery import app, update_cache_item_task
 from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT
 from posthog.models import Action, ActionStep, DashboardItem, Entity, Filter, Funnel, Team
+from posthog.queries.funnel import Funnel
 from posthog.queries.trends import Trends
 from posthog.utils import generate_cache_key
 
@@ -26,7 +27,9 @@ def update_cache_item(key: str, cache_type: str, payload: dict) -> None:
         filter = Filter(data=filter_dict)
         result = _calculate_trends(filter, int(payload["team_id"]))
     elif cache_type == FUNNEL_ENDPOINT:
-        result = _calculate_funnel(payload["funnel_id"], int(payload["team_id"]))
+        filter_dict = json.loads(payload["filter"])
+        filter = Filter(data=filter_dict)
+        result = _calculate_funnel(filter, int(payload["team_id"]))
 
     if result:
         cache.set(key, {"result": result, "details": payload, "type": cache_type}, 25 * 60)
@@ -69,10 +72,9 @@ def _calculate_trends(filter: Filter, team_id: int) -> List[Dict[str, Any]]:
     return result
 
 
-def _calculate_funnel(pk: int, team_id: int) -> dict:
-    funnel = Funnel.objects.get(pk=pk, team_id=team_id)
-    dashboard_items = DashboardItem.objects.filter(team_id=team_id, funnel_id=pk)
+def _calculate_funnel(filter: Filter, team_id: int) -> List[Dict[str, Any]]:
+    dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters=filter.to_dict())
     dashboard_items.update(refreshing=True)
-    result = FunnelSerializer(funnel, context={"cache": True}).data
+    result = Funnel(filter=filter, team=Team(pk=team_id)).run()
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result

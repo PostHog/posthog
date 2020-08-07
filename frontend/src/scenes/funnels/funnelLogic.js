@@ -4,6 +4,29 @@ import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { objectsEqual, toParams } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 
+function wait(ms = 1000) {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms)
+    })
+}
+const SECONDS_TO_POLL = 120
+
+export async function pollFunnel(params = {}) {
+    let result = await api.get('api/action/funnel/?' + toParams(params))
+    let count = 0
+    while (result.loading && count < SECONDS_TO_POLL) {
+        await wait()
+        const { refresh: _, ...restParams } = params
+        result = await api.get('api/action/funnel/?' + toParams(restParams))
+        count += 1
+    }
+    // if endpoint is still loading after 2 minutes just return default
+    if (result.loading) {
+        result = { filters: {} }
+    }
+    return result
+}
+
 export const cleanFunnelParams = (filters) => {
     return {
         ...(filters.date_from ? { date_from: filters.date_from } : {}),
@@ -109,8 +132,7 @@ export const funnelLogic = kea({
             actions.setAllFilters(cleanedParams)
             actions.createInsight({ ...cleanedParams, insight: ViewType.FUNNELS })
 
-            const urlParams = toParams(cleanedParams)
-            const result = await api.get('api/action/funnel/?' + urlParams)
+            const result = await pollFunnel(cleanedParams)
             actions.setSteps(result)
         },
         clearFunnel: async () => {
@@ -140,6 +162,7 @@ export const funnelLogic = kea({
                 }
 
                 if (!objectsEqual(_filters, paramsToCheck)) {
+                    actions.clearFunnel()
                     actions.setFilters(cleanFunnelParams(paramsToCheck), !isStepsEmpty(paramsToCheck))
                 }
             }

@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 from dateutil.relativedelta import relativedelta
+from django.core.cache import cache
 from django.db import connection
 from django.db.models import (
     Avg,
@@ -31,8 +32,9 @@ from rest_framework import authentication, request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from posthog.celery import update_cache_item_task
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_STICKINESS
-from posthog.decorators import TRENDS_ENDPOINT, cached_function
+from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT, cached_function
 from posthog.models import (
     Action,
     ActionStep,
@@ -48,7 +50,7 @@ from posthog.models import (
 )
 from posthog.queries import base, funnel, retention, stickiness, trends
 from posthog.tasks.calculate_action import calculate_action
-from posthog.utils import TemporaryTokenAuthentication, append_data, get_compare_period_dates
+from posthog.utils import TemporaryTokenAuthentication, append_data, generate_cache_key, get_compare_period_dates
 
 from .person import PersonSerializer
 
@@ -212,9 +214,25 @@ class ActionViewSet(viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.team_set.get()
-        filter = Filter(request=request)
+        refresh = request.GET.get("refresh", None)
+        dashboard_id = request.GET.get("from_dashboard", None)
 
-        result = funnel.Funnel(filter=filter, team=team).run()
+        filter = Filter(request=request)
+        cache_key = generate_cache_key("funnel_{}_{}".format(filter.toJSON(), team.pk))
+        payload = {"filter": filter.toJSON(), "team_id": team.pk}
+        result = {"loading": True}
+
+        if refresh:
+            cache.delete(cache_key)
+        else:
+            cached_result = cache.get(cache_key)
+            if cached_result:
+                return Response(cached_result["result"])
+
+        update_cache_item_task.delay(cache_key, FUNNEL_ENDPOINT, payload)
+        if dashboard_id:
+            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.datetime.now())
+
         return Response(result)
 
     @action(methods=["GET"], detail=False)
