@@ -4,9 +4,9 @@ import { useValues } from 'kea'
 import { useLatestVersion } from 'lib/hooks/useLatestVersion'
 import { userLogic } from 'scenes/userLogic'
 
-export function ChangelogModal({ onDismiss }) {
+export function ChangelogModal({ onDismiss }: { onDismiss: () => void }): JSX.Element {
     const { user } = useValues(userLogic)
-    const latestVersion = useLatestVersion(user.posthog_version)
+    const latestVersion = useLatestVersion(user?.posthog_version)
 
     return (
         <Modal
@@ -18,13 +18,13 @@ export function ChangelogModal({ onDismiss }) {
         >
             {!window.location.href.includes('app.posthog.com') ? (
                 <span>
-                    You're on version <b>{user.posthog_version}</b> of PostHog.{' '}
+                    You're on version <b>{user?.posthog_version}</b> of PostHog.{' '}
                     {latestVersion &&
-                        (latestVersion !== user.posthog_version ? (
-                            'This is the latest one.'
+                        (latestVersion !== user?.posthog_version ? (
+                            'This is the newest version.'
                         ) : (
                             <>
-                                The latest one is <b>{latestVersion}</b>.
+                                The newest version is <b>{latestVersion}</b>.
                             </>
                         ))}
                 </span>
