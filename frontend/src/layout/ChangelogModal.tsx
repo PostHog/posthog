@@ -29,7 +29,7 @@ export function ChangelogModal({ onDismiss }: { onDismiss: () => void }): JSX.El
                         ))}
                 </span>
             ) : (
-                <span>You're on the latest version of PostHog.</span>
+                <span>You're on the newest version of PostHog.</span>
             )}
             <iframe
                 data-attr="changelog-modal"
