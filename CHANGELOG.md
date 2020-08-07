@@ -1,5 +1,9 @@
 # Changelog
 
+### 1.12.1 - Thursday 6 August 
+
+* Bugfix 🐛 for [#1376 Unable to login after upgrade chrome to 84](https://github.com/PostHog/posthog/issues/1376) with PR [#1384 Remove samesite middleware](https://github.com/PostHog/posthog/pull/1384)
+
 ### 1.12.0 - Friday 29 July
 
 - Shared Dashboards
