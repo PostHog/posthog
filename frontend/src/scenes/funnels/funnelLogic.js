@@ -14,6 +14,8 @@ export const cleanFunnelParams = (filters) => {
     }
 }
 
+const isStepsEmpty = (filters) => [...(filters.actions || []), ...(filters.events || [])].length === 0
+
 export const funnelLogic = kea({
     actions: () => ({
         setSteps: (steps) => ({ steps }),
@@ -75,7 +77,7 @@ export const funnelLogic = kea({
         isStepsEmpty: [
             () => [selectors.filters],
             (filters) => {
-                return [...(filters.actions || []), ...(filters.events || [])].length === 0
+                return isStepsEmpty(filters)
             },
         ],
         propertiesForUrl: [
@@ -136,8 +138,9 @@ export const funnelLogic = kea({
                     events: values.filters.events,
                     properties: values.filters.properties,
                 }
+
                 if (!objectsEqual(_filters, paramsToCheck)) {
-                    actions.setFilters(cleanFunnelParams(paramsToCheck), !values.isStepsEmpty)
+                    actions.setFilters(cleanFunnelParams(paramsToCheck), !isStepsEmpty(paramsToCheck))
                 }
             }
         },

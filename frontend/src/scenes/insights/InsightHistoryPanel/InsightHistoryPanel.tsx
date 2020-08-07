@@ -32,7 +32,11 @@ const columns = [
     },
 ]
 
-const determineFilters = (viewType: string, filters: Record<string, any>, cohorts: CohortType[]): JSX.Element => {
+export const determineFilters = (
+    viewType: string,
+    filters: Record<string, any>,
+    cohorts: CohortType[]
+): JSX.Element => {
     const result = []
     if (viewType === ViewType.TRENDS) {
         let count = 0

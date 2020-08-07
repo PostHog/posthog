@@ -12,7 +12,7 @@ import { ActionsLineGraph } from './ActionsLineGraph'
 import { PeopleModal } from './PeopleModal'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Button, Drawer } from 'antd'
+import { Tabs, Row, Col, Button, Drawer, Tooltip } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -42,6 +42,8 @@ import { insightLogic, ViewType } from './insightLogic'
 import { trendsLogic } from './trendsLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
+import { SavedFunnels } from './SavedCard'
+import { InfoCircleOutlined } from '@ant-design/icons'
 
 const { TabPane } = Tabs
 
@@ -182,6 +184,30 @@ function _Insights() {
                             }
                         </div>
                     </Card>
+                    {activeView === ViewType.FUNNELS && (
+                        <Card
+                            title={
+                                <Row align="middle">
+                                    <span>Saved Funnels</span>
+                                    <Tooltip
+                                        key="1"
+                                        getPopupContainer={(trigger) => trigger.parentElement}
+                                        placement="right"
+                                        title="These consist of funnels by you and the rest of the team"
+                                    >
+                                        <InfoCircleOutlined
+                                            className="info"
+                                            style={{ color: '#007bff' }}
+                                        ></InfoCircleOutlined>
+                                    </Tooltip>
+                                </Row>
+                            }
+                        >
+                            <div className="card-body px-4 mb-0">
+                                <SavedFunnels></SavedFunnels>
+                            </div>
+                        </Card>
+                    )}
                 </Col>
                 <Col xs={24} xl={17}>
                     {/* 
@@ -306,7 +332,7 @@ function FunnelInsight() {
 
 function FunnelPeople() {
     const { stepsWithCount } = useValues(funnelLogic)
-    if (stepsWithCount) {
+    if (stepsWithCount && stepsWithCount.length > 0) {
         return (
             <div className="funnel">
                 <People />

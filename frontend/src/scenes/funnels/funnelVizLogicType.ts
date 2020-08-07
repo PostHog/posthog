@@ -3,18 +3,16 @@
 export interface funnelVizLogicType {
     key: any
     actionCreators: {
-        loadResults: (
-            refresh?: any
-        ) => {
+        loadResults: () => {
             type: 'load results (scenes.funnels.funnelVizLogic)'
             payload: any
         }
         loadResultsSuccess: (
-            results: any
+            results: never[]
         ) => {
             type: 'load results success (scenes.funnels.funnelVizLogic)'
             payload: {
-                results: any
+                results: never[]
             }
         }
         loadResultsFailure: (
@@ -37,8 +35,8 @@ export interface funnelVizLogicType {
         loadResultsFailure: 'load results failure (scenes.funnels.funnelVizLogic)'
     }
     actions: {
-        loadResults: (refresh?: any) => void
-        loadResultsSuccess: (results: any) => void
+        loadResults: () => void
+        loadResultsSuccess: (results: never[]) => void
         loadResultsFailure: (error: string) => void
     }
     cache: Record<string, any>
@@ -55,26 +53,26 @@ export interface funnelVizLogicType {
         action: () => any,
         fullState: any
     ) => {
-        results: any
+        results: never[]
         resultsLoading: boolean
     }
     reducerOptions: any
     reducers: {
-        results: (state: any, action: any, fullState: any) => any
+        results: (state: never[], action: any, fullState: any) => never[]
         resultsLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
         state: any
     ) => {
-        results: any
+        results: never[]
         resultsLoading: boolean
     }
     selectors: {
-        results: (state: any, props: any) => any
+        results: (state: any, props: any) => never[]
         resultsLoading: (state: any, props: any) => boolean
     }
     values: {
-        results: any
+        results: never[]
         resultsLoading: boolean
     }
     _isKea: true

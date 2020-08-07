@@ -4,15 +4,7 @@ import { insightHistoryLogicType } from './insightHistoryLogicType'
 import { toParams, deleteWithUndo } from 'lib/utils'
 import { ViewType } from '../insightLogic'
 import { toast } from 'react-toastify'
-
-export interface InsightHistory {
-    id: number
-    type: string
-    filters: Record<string, any>
-    name?: string
-    createdAt: string
-    saved: boolean
-}
+import { InsightHistory } from '~/types'
 
 const typeToInsightMap: Record<string, string> = {
     ActionsLineGraph: ViewType.TRENDS,

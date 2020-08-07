@@ -123,6 +123,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "result",
             "created_at",
             "saved",
+            "created_by",
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
@@ -180,6 +181,8 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(saved=bool(strtobool(str(request.GET["saved"]))))
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
+            elif key == "insight":
+                queryset = queryset.filter(filters__insight=request.GET["insight"])
 
         return queryset
 

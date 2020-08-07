@@ -106,7 +106,7 @@ export interface funnelLogicType {
         people: any
         peopleLoading: boolean
         filters: {}
-        stepsWithCount: null
+        stepsWithCount: never[]
         stepsWithCountLoading: boolean
     }
     reducerOptions: any
@@ -114,7 +114,7 @@ export interface funnelLogicType {
         people: (state: any, action: any, fullState: any) => any
         peopleLoading: (state: boolean, action: any, fullState: any) => boolean
         filters: (state: {}, action: any, fullState: any) => {}
-        stepsWithCount: (state: null, action: any, fullState: any) => null
+        stepsWithCount: (state: never[], action: any, fullState: any) => never[]
         stepsWithCountLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
@@ -123,14 +123,14 @@ export interface funnelLogicType {
         people: any
         peopleLoading: boolean
         filters: {}
-        stepsWithCount: null
+        stepsWithCount: never[]
         stepsWithCountLoading: boolean
     }
     selectors: {
         people: (state: any, props: any) => any
         peopleLoading: (state: any, props: any) => boolean
         filters: (state: any, props: any) => {}
-        stepsWithCount: (state: any, props: any) => null
+        stepsWithCount: (state: any, props: any) => never[]
         stepsWithCountLoading: (state: any, props: any) => boolean
         peopleSorted: (state: any, props: any) => any
         isStepsEmpty: (state: any, props: any) => boolean
@@ -143,7 +143,7 @@ export interface funnelLogicType {
         people: any
         peopleLoading: boolean
         filters: {}
-        stepsWithCount: null
+        stepsWithCount: never[]
         stepsWithCountLoading: boolean
         peopleSorted: any
         isStepsEmpty: boolean
