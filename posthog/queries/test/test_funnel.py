@@ -1,13 +1,10 @@
 from unittest.mock import patch
 
-from django.core.cache import cache
-
 from posthog.api.test.base import BaseTest
-from posthog.models import Action, ActionStep, Element, Event, Funnel, Person
+from posthog.models import Action, ActionStep, Element, Event, Person
 from posthog.models.filter import Filter
 from posthog.queries.funnel import Funnel
 from posthog.tasks.update_cache import update_cache_item
-from posthog.utils import generate_cache_key
 
 
 @patch("posthog.celery.update_cache_item_task.delay", update_cache_item)
