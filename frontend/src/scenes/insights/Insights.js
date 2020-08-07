@@ -211,11 +211,18 @@ function _Insights() {
                                     />
                                 )}
 
-                                {showDateFilter[activeView] && <DateFilter />}
+                                {showDateFilter[activeView] && (
+                                    <DateFilter
+                                        disabled={activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)}
+                                    />
+                                )}
 
                                 {showComparePrevious[activeView] && <CompareFilter />}
                                 <SaveToDashboard
-                                    disabled={disableSaveToDashboard[activeView]}
+                                    disabled={
+                                        disableSaveToDashboard[activeView] ||
+                                        (activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters))
+                                    }
                                     item={{
                                         type: determineInsightType(activeView, allFilters.display),
                                         entity: {
@@ -276,6 +283,10 @@ function TrendInsight({ view }) {
             <PeopleModal visible={showingPeople} view={view} />
         </>
     )
+}
+
+const isFunnelEmpty = (filters) => {
+    return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
 }
 
 function FunnelInsight() {

@@ -5,7 +5,7 @@ import moment from 'moment'
 import { dateFilterLogic } from './dateFilterLogic'
 import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
 
-export function DateFilter({ style }) {
+export function DateFilter({ style, disabled }) {
     const {
         dates: { dateFrom, dateTo },
     } = useValues(dateFilterLogic)
@@ -71,6 +71,7 @@ export function DateFilter({ style }) {
             onClick={onClick}
             listHeight={440}
             dropdownMatchSelectWidth={false}
+            disabled={disabled}
             dropdownRender={(menu) => {
                 if (dateRangeOpen) {
                     return (

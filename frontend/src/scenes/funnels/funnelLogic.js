@@ -98,6 +98,8 @@ export const funnelLogic = kea({
         },
         setFilters: ({ refresh }) => {
             if (refresh) actions.loadFunnel()
+            const cleanedParams = cleanFunnelParams(values.filters)
+            actions.setAllFilters(cleanedParams)
         },
         loadFunnel: async () => {
             const cleanedParams = cleanFunnelParams(values.filters)
@@ -109,16 +111,14 @@ export const funnelLogic = kea({
             const result = await api.get('api/action/funnel/?' + urlParams)
             actions.setSteps(result)
         },
+        clearFunnel: async () => {
+            actions.setAllFilters({})
+        },
     }),
     actionToUrl: ({ actions, values }) => ({
-        [actions.setSteps]: () => {
-            return ['/insights', values.propertiesForUrl]
-        },
-        [actions.clearFunnel]: () => {
-            return ['/insights', { insight: ViewType.FUNNELS }]
-        },
+        [actions.setSteps]: () => ['/insights', values.propertiesForUrl],
+        [actions.clearFunnel]: () => ['/insights', { insight: ViewType.FUNNELS }],
     }),
-
     urlToAction: ({ actions, values }) => ({
         '/insights': (_, searchParams) => {
             if (searchParams.insight === ViewType.FUNNELS) {
@@ -137,7 +137,7 @@ export const funnelLogic = kea({
                     properties: values.filters.properties,
                 }
                 if (!objectsEqual(_filters, paramsToCheck)) {
-                    actions.setFilters(paramsToCheck, true)
+                    actions.setFilters(cleanFunnelParams(paramsToCheck), true)
                 }
             }
         },
