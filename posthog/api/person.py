@@ -53,11 +53,11 @@ class PersonViewSet(viewsets.ModelViewSet):
         return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
-        if request.GET.get("id"):
-            people = request.GET["id"].split(",")
+        if request.query_params.get("id"):
+            people = request.query_params["id"].split(",")
             queryset = queryset.filter(id__in=people)
-        if request.GET.get("search"):
-            parts = request.GET["search"].split(" ")
+        if request.query_params.get("search"):
+            parts = request.query_params["search"].split(" ")
             contains = []
             for part in parts:
                 if ":" in part:
@@ -68,24 +68,23 @@ class PersonViewSet(viewsets.ModelViewSet):
                 Q(properties__icontains=" ".join(contains))
                 | Q(persondistinctid__distinct_id__icontains=" ".join(contains))
             ).distinct("id")
-        if request.GET.get("cohort"):
-            queryset = queryset.filter(cohort__id=request.GET["cohort"])
-        if request.GET.get("properties"):
+        if request.query_params.get("cohort"):
+            queryset = queryset.filter(cohort__id=request.query_params["cohort"])
+        if request.query_params.get("properties"):
             queryset = queryset.filter(
-                Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(team_id=team.pk)
+                Filter(data={"properties": json.loads(request.query_params["properties"])}).properties_to_Q(
+                    team_id=team.pk
+                )
             )
-        if request.GET.get("onlyIdentified"):
-            if int(request.GET["onlyIdentified"]):
-                queryset = queryset.exclude(
-                    Q(persondistinctid__distinct_id__regex=r'^[a-zA-Z0-9]{14}-*')
-                    & Q(properties__exact={})
-                )
-            else:
-                queryset = queryset.filter(
-                    Q(persondistinctid__distinct_id__regex=r'^[a-zA-Z0-9]{14}-*')
-                    & Q(properties__exact={})
-                )
-                
+        if request.query_params.get("category") == "identified":
+            queryset = queryset.exclude(
+                Q(persondistinctid__distinct_id__regex=r"^[a-zA-Z0-9]{14}-*") & Q(properties__exact={})
+            )
+        elif request.query_params.get("category") == "anonymous":
+            queryset = queryset.filter(
+                Q(persondistinctid__distinct_id__regex=r"^[a-zA-Z0-9]{14}-*") & Q(properties__exact={})
+            )
+
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset
 

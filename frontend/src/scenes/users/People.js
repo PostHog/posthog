@@ -30,13 +30,15 @@ function _People() {
         if (selection) setUsersType(selection)
         if (scrollTop)
             document.querySelector('section.ant-layout > .content').parentNode.scrollTo({ top: 0, behavior: 'smooth' })
-        let hasProps =
-            currentTab === 'all' ? '' : currentTab === 'identified' ? '&onlyIdentified=1' : '&onlyIdentified=0'
-        api.get(
-            url
-                ? url
-                : `api/person/?${search ? 'search=' + search : ''}${cohortId ? '&cohort=' + cohortId : ''}${hasProps}`
-        ).then((data) => {
+        if (!url) {
+            url = 'api/person/'
+            const query_params = []
+            if (search) query_params.push(`search=${search}`)
+            if (cohortId) query_params.push(`cohort=${cohortId}`)
+            if (currentTab === 'identified' || currentTab === 'anonymous') query_params.push(`category=${currentTab}`)
+            if (query_params.length) url += `?${query_params.join('&')}`
+        }
+        api.get(url).then((data) => {
             let newPagination = { ...pagination }
             newPagination[currentTab].next = data.next
             newPagination[currentTab].previous = data.previous

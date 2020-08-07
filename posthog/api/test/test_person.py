@@ -89,7 +89,7 @@ class TestPerson(BaseTest):
         self.assertEqual(len(response["results"]), 1, response)
 
     # Filters users by Identified vs Anonymous
-    # Identified users have properties set OR a distinct ID 
+    # Identified users have properties set OR a distinct ID
     def test_filter_anonymous_people(self):
         # Identified
         Person.objects.create(
@@ -101,8 +101,8 @@ class TestPerson(BaseTest):
         Person.objects.create(
             team=self.team, distinct_ids=["173c1341f28981-001e61951ee35f-31677305-13c680-173c1341f29bf8"]
         )
-        response_anon = self.client.get("/api/person/?onlyIdentified=0").json()
-        response_id = self.client.get("/api/person/?onlyIdentified=1").json()
+        response_anon = self.client.get("/api/person/?category=anonymous").json()
+        response_id = self.client.get("/api/person/?category=identified").json()
         self.assertEqual(len(response_anon["results"]), 1, response_anon["results"])
         self.assertEqual(len(response_id["results"]), 2, response_id["results"])
 
