@@ -66,23 +66,34 @@ if DEBUG:
 else:
     JS_URL = os.environ.get("JS_URL", "")
 
-SECURE_SSL_REDIRECT = False
+# This is set as a cross-domain cookie with a random value.
+# Its existence is used by the toolbar to see that we are logged in.
+TOOLBAR_COOKIE_NAME = "phtoolbar"
 
+# SSL & cookie defaults
+SECURE_SSL_REDIRECT = False
+TOOLBAR_COOKIE_SECURE = False
+SESSION_COOKIE_SECURE = False
+CSRF_COOKIE_SECURE = False
+
+# production mode
 if not DEBUG and not TEST:
     SECURE_SSL_REDIRECT = True
+    TOOLBAR_COOKIE_SECURE = True
     SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
     if os.environ.get("SENTRY_DSN"):
         sentry_sdk.init(
             dsn=os.environ["SENTRY_DSN"], integrations=[DjangoIntegration()], request_bodies="always",
         )
 
-if get_bool_from_env("LOCAL_HTTPS", False):
-    SECURE_SSL_REDIRECT = False
-    SESSION_COOKIE_SECURE = True
+if get_bool_from_env("DISABLE_SECURE_COOKIES", False):
+    TOOLBAR_COOKIE_SECURE = False
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
 
 if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
     SECURE_SSL_REDIRECT = False
-    SESSION_COOKIE_SECURE = False
 
 if get_bool_from_env("IS_BEHIND_PROXY", False):
     USE_X_FORWARDED_HOST = True
@@ -130,6 +141,7 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
+    "posthog.middleware.ToolbarCookieMiddleware",  # keep this at the top
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.AllowIP",
     "django.contrib.sessions.middleware.SessionMiddleware",

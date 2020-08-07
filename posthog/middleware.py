@@ -57,3 +57,31 @@ class AllowIP(object):
         return HttpResponse(
             "Your IP is not allowed. Check your ALLOWED_IP_BLOCKS settings. If you are behind a proxy, you need to set TRUSTED_PROXIES. See https://posthog.com/docs/deployment/running-behind-proxy"
         )
+
+
+class ToolbarCookieMiddleware(SessionMiddleware):
+    def process_response(self, request, response):
+        response = super(ToolbarCookieMiddleware, self).process_response(request, response)
+
+        toolbar_cookie_name = settings.TOOLBAR_COOKIE_NAME  # type: str
+        toolbar_cookie_secure = settings.TOOLBAR_COOKIE_SECURE  # type: bool
+
+        if (
+            request.user.is_authenticated
+            and request.user.toolbar_mode == "toolbar"
+            and toolbar_cookie_name not in response.cookies
+        ):
+            response.set_cookie(
+                toolbar_cookie_name,  # key
+                "yes",  # value
+                365 * 24 * 60 * 60,  # max_age = one year
+                None,  # expires
+                "/",  # path
+                None,  # domain
+                toolbar_cookie_secure,  # secure
+                True,  # httponly
+                "Lax",  # samesite, can't be set to "None" here :(
+            )
+            response.cookies[toolbar_cookie_name]["samesite"] = "None"  # must set explicitly
+
+        return response
