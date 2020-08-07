@@ -81,13 +81,13 @@ class PersonViewSet(viewsets.ModelViewSet):
                 )
             )
 
-        queryset_filter_or_exclude = None
+        queryset_anonymous_pass = None
         if request.query_params.get("category") == "identified":
-            queryset_filter_or_exclude = queryset.exclude
+            queryset_anonymous_pass = queryset.exclude
         elif request.query_params.get("category") == "anonymous":
-            queryset_filter_or_exclude = queryset.filter
-        if queryset_filter_or_exclude is not None:
-            queryset = queryset_filter_or_exclude(
+            queryset_anonymous_pass = queryset.filter
+        if queryset_anonymous_pass is not None:
+            queryset = queryset_anonymous_pass(
                 Q(persondistinctid__distinct_id__regex=self.AUTO_DISTINCT_ID_REGEX_PATTERN)
                 & (Q(properties__exact={}) | Q(properties__exact={"is_demo": True}))
             )
