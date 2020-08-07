@@ -42,10 +42,6 @@ class CursorPagination(BaseCursorPagination):
 
 
 class PersonViewSet(viewsets.ModelViewSet):
-    _PROD_DISTINCT_ID_REGEX_PATTERN = r"[A-Za-z0-9]{14}-[A-Za-z0-9]{14}-[A-Za-z0-9]{8}"
-    _DEMO_DISTINCT_ID_REGEX_PATTERN = r"[A-Za-z0-9]{8}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}"
-    AUTO_DISTINCT_ID_REGEX_PATTERN = fr"^(?:{_PROD_DISTINCT_ID_REGEX_PATTERN}|{_DEMO_DISTINCT_ID_REGEX_PATTERN})-"
-
     renderer_classes = (*api_settings.DEFAULT_RENDERER_CLASSES, csvrenderers.PaginatedCSVRenderer)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
@@ -83,14 +79,13 @@ class PersonViewSet(viewsets.ModelViewSet):
 
         queryset_anonymous_pass = None
         if request.query_params.get("category") == "identified":
-            queryset_anonymous_pass = queryset.exclude
-        elif request.query_params.get("category") == "anonymous":
             queryset_anonymous_pass = queryset.filter
+        elif request.query_params.get("category") == "anonymous":
+            queryset_anonymous_pass = queryset.exclude
         if queryset_anonymous_pass is not None:
-            queryset = queryset_anonymous_pass(
-                Q(persondistinctid__distinct_id__regex=self.AUTO_DISTINCT_ID_REGEX_PATTERN)
-                & (Q(properties__exact={}) | Q(properties__exact={"is_demo": True}))
-            )
+            identify_events = Event.objects.filter(team=team, event="$identify")
+            identified_people = [event.distinct_id for event in identify_events]
+            queryset = queryset_anonymous_pass(Q(persondistinctid__distinct_id__in=identified_people))
 
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset
