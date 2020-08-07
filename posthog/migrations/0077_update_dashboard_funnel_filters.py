@@ -6,11 +6,21 @@ from django.db import migrations
 def forward(apps, schema_editor):
     Funnel = apps.get_model("posthog", "Funnel")
     DashboardItem = apps.get_model("posthog", "DashboardItem")
+    Action = apps.get_model("posthog", "Action")
     for item in DashboardItem.objects.filter(type="FunnelViz").all():
         funnel_id = item.filters["funnel_id"]
         funnel = Funnel.objects.get(pk=funnel_id)
         filters = funnel.filters
         filters["insight"] = "FUNNELS"
+
+        # populate names for actions
+        if filters.get("actions", None):
+            actions = filters["actions"]
+            for index, action_item in enumerate(actions):
+                action_id = action_item["id"]
+                action_obj = Action.objects.get(pk=action_id)
+                filters["actions"][index]["name"] = action_obj.name
+
         item.filters = filters
         item.save()
 

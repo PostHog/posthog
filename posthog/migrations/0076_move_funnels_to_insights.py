@@ -5,10 +5,20 @@ from django.db import migrations
 
 def forward(apps, schema_editor):
     Funnel = apps.get_model("posthog", "Funnel")
+    Action = apps.get_model("posthog", "Action")
     DashboardItem = apps.get_model("posthog", "DashboardItem")
     for item in Funnel.objects.all():
         filters = item.filters
         filters["insight"] = "FUNNELS"
+
+        # populate names for actions
+        if filters.get("actions", None):
+            actions = filters["actions"]
+            for index, action_item in enumerate(actions):
+                action_id = action_item["id"]
+                action_obj = Action.objects.get(pk=action_id)
+                filters["actions"][index]["name"] = action_obj.name
+
         DashboardItem.objects.create(
             team=item.team,
             name=item.name,
