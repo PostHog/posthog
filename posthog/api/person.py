@@ -42,7 +42,11 @@ class CursorPagination(BaseCursorPagination):
 
 
 class PersonViewSet(viewsets.ModelViewSet):
-    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
+    _PROD_DISTINCT_ID_REGEX_PATTERN = r"[A-Za-z0-9]{14}-[A-Za-z0-9]{14}-[A-Za-z0-9]{8}"
+    _DEMO_DISTINCT_ID_REGEX_PATTERN = r"[A-Za-z0-9]{8}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}"
+    AUTO_DISTINCT_ID_REGEX_PATTERN = fr"^(?:{_PROD_DISTINCT_ID_REGEX_PATTERN}|{_DEMO_DISTINCT_ID_REGEX_PATTERN})-"
+
+    renderer_classes = (*api_settings.DEFAULT_RENDERER_CLASSES, csvrenderers.PaginatedCSVRenderer)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = CursorPagination
@@ -76,13 +80,16 @@ class PersonViewSet(viewsets.ModelViewSet):
                     team_id=team.pk
                 )
             )
+
+        queryset_filter_or_exclude = None
         if request.query_params.get("category") == "identified":
-            queryset = queryset.exclude(
-                Q(persondistinctid__distinct_id__regex=r"^[a-zA-Z0-9]{14}-*") & Q(properties__exact={})
-            )
+            queryset_filter_or_exclude = queryset.exclude
         elif request.query_params.get("category") == "anonymous":
-            queryset = queryset.filter(
-                Q(persondistinctid__distinct_id__regex=r"^[a-zA-Z0-9]{14}-*") & Q(properties__exact={})
+            queryset_filter_or_exclude = queryset.filter
+        if queryset_filter_or_exclude is not None:
+            queryset = queryset_filter_or_exclude(
+                Q(persondistinctid__distinct_id__regex=self.AUTO_DISTINCT_ID_REGEX_PATTERN)
+                & (Q(properties__exact={}) | Q(properties__exact={"is_demo": True}))
             )
 
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
