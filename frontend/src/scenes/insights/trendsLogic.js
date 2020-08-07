@@ -257,7 +257,11 @@ export const trendsLogic = kea({
 
     urlToAction: ({ actions, values, props }) => ({
         '/insights': (_, searchParams) => {
-            if (searchParams.insight === ViewType.TRENDS) {
+            if (
+                !searchParams.insight ||
+                searchParams.insight === ViewType.TRENDS ||
+                searchParams.insight === ViewType.SESSIONS
+            ) {
                 if (props.dashboardItemId) {
                     return // don't use the URL if on the dashboard
                 }

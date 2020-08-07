@@ -137,7 +137,7 @@ export const funnelLogic = kea({
                     properties: values.filters.properties,
                 }
                 if (!objectsEqual(_filters, paramsToCheck)) {
-                    actions.setFilters(cleanFunnelParams(paramsToCheck), true)
+                    actions.setFilters(cleanFunnelParams(paramsToCheck), !values.isStepsEmpty)
                 }
             }
         },
