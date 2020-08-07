@@ -57,13 +57,3 @@ class AllowIP(object):
         return HttpResponse(
             "Your IP is not allowed. Check your ALLOWED_IP_BLOCKS settings. If you are behind a proxy, you need to set TRUSTED_PROXIES. See https://posthog.com/docs/deployment/running-behind-proxy"
         )
-
-
-class SameSiteSessionMiddleware(SessionMiddleware):
-    def process_response(self, request, response):
-        response = super(SameSiteSessionMiddleware, self).process_response(request, response)
-
-        if settings.SESSION_COOKIE_NAME in response.cookies:
-            response.cookies[settings.SESSION_COOKIE_NAME]["samesite"] = "None"
-
-        return response
