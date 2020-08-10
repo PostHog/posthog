@@ -126,11 +126,13 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                                 style={{ marginLeft: '0.5rem', marginBottom: '0.5rem' }}
                                 htmlFor="webhook-checkbox"
                             >
-                                Post to Slack/Teams when this action is triggered
-                            </label>
-                            . <Link to="/setup#webhook">Configure this integration in Setup.</Link>
+                                Post to Slack/Teams when this action is triggered.
+                            </label>{' '}
+                            <Link to="/setup#webhook">
+                                {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
+                            </Link>
                         </div>
-                        <div style={{ marginBottom: 15 }}>
+                        <div style={{ marginBottom: '0.5rem' }}>
                             <input
                                 className="form-control"
                                 placeholder='message format (e.g. "[action.name] triggered by [user.name]")'
@@ -139,7 +141,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                                     setAction({ ...action, slack_message_format: e.target.value })
                                     setEdited(true)
                                 }}
-                                disabled={!action.post_to_slack}
+                                disabled={!slackEnabled || !action.post_to_slack}
                                 data-attr="edit-slack-message-format"
                             />
                             <small>
@@ -148,9 +150,8 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                                     target="_blank"
                                     rel="noopener noreferrer"
                                 >
-                                    See documentation
+                                    See documentation on how to format webhook messages.
                                 </a>
-                                &nbsp;on how to format Slack/Teams messages.
                             </small>
                         </div>
                     </div>
