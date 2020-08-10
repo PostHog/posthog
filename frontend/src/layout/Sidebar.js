@@ -248,7 +248,7 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <Link to={'/annotations'} onClick={collapseSidebar} />
                         </Menu.Item>
                         {!user.is_multi_tenancy && user.ee_available && (
-                            <Menu.Item key="licenses" style={itemStyle} data-attr="licenses">
+                            <Menu.Item key="licenses" style={itemStyle} data-attr="menu-item-licenses">
                                 <LockOutlined />
                                 <span className="sidebar-label">Licenses</span>
                                 <Link to={'/setup/licenses'} onClick={collapseSidebar} />
