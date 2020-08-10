@@ -360,3 +360,12 @@ if DEBUG and not TEST:
             "Be sure to unset DEBUG if this is supposed to be a PRODUCTION environment!",
         )
     )
+
+
+def show_toolbar(request):
+    return request.path.startswith("/api/") or request.path.startswith("/decide/") or request.path.startswith("/e/")
+
+
+DEBUG_TOOLBAR_CONFIG = {
+    "SHOW_TOOLBAR_CALLBACK": "posthog.settings.show_toolbar",
+}
