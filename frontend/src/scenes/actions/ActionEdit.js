@@ -17,7 +17,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
     const { setAction, saveAction, setCreateNew } = useActions(logic)
 
     const [edited, setEdited] = useState(false)
-    const slackEnabled = user && user.team && user.team.slack_incoming_webhook
+    const slackEnabled = user?.team?.slack_incoming_webhook
 
     if (actionLoading || !action) return <Loading />
 
@@ -111,26 +111,29 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                 {!isEditor ? (
                     <div>
                         <div style={{ marginTop: 20 }}>
-                            <label className={slackEnabled ? '' : 'disabled'} style={{ marginRight: 15 }}>
-                                <input
-                                    type="checkbox"
-                                    onChange={(e) => {
-                                        setAction({ ...action, post_to_slack: e.target.checked })
-                                        setEdited(true)
-                                    }}
-                                    checked={!!action.post_to_slack}
-                                    disabled={!slackEnabled}
-                                />
-                                &nbsp;Post to Slack/Teams when this action is triggered.
+                            <input
+                                id="webhook-checkbox"
+                                type="checkbox"
+                                onChange={(e) => {
+                                    setAction({ ...action, post_to_slack: e.target.checked })
+                                    setEdited(true)
+                                }}
+                                checked={!!action.post_to_slack}
+                                disabled={!slackEnabled}
+                            />
+                            <label
+                                className={slackEnabled ? '' : 'disabled'}
+                                style={{ marginLeft: '0.5rem', marginBottom: '0.5rem' }}
+                                htmlFor="webhook-checkbox"
+                            >
+                                Post to Slack/Teams when this action is triggered
                             </label>
-                            <Link to="/setup#slack">
-                                <small>Configure</small>
-                            </Link>
+                            . <Link to="/setup#webhook">Configure this integration in Setup.</Link>
                         </div>
                         <div style={{ marginBottom: 15 }}>
                             <input
                                 className="form-control"
-                                placeholder="Message Format: (e.g. [action.name] triggered by [user.name])"
+                                placeholder='message format (e.g. "[action.name] triggered by [user.name]")'
                                 value={action.slack_message_format}
                                 onChange={(e) => {
                                     setAction({ ...action, slack_message_format: e.target.value })
