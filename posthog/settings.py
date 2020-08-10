@@ -71,26 +71,23 @@ else:
 TOOLBAR_COOKIE_NAME = "phtoolbar"
 
 # SSL & cookie defaults
-SECURE_SSL_REDIRECT = False
-TOOLBAR_COOKIE_SECURE = False
-SESSION_COOKIE_SECURE = False
-CSRF_COOKIE_SECURE = False
+secure_cookies = get_bool_from_env("SECURE_COOKIES", None)
+
+# Default to True if in production
+if secure_cookies is None:
+    secure_cookies = not DEBUG and not TEST
+
+TOOLBAR_COOKIE_SECURE = secure_cookies
+SESSION_COOKIE_SECURE = secure_cookies
+CSRF_COOKIE_SECURE = secure_cookies
+SECURE_SSL_REDIRECT = secure_cookies
 
 # production mode
 if not DEBUG and not TEST:
-    SECURE_SSL_REDIRECT = True
-    TOOLBAR_COOKIE_SECURE = True
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
     if os.environ.get("SENTRY_DSN"):
         sentry_sdk.init(
             dsn=os.environ["SENTRY_DSN"], integrations=[DjangoIntegration()], request_bodies="always",
         )
-
-if get_bool_from_env("DISABLE_SECURE_COOKIES", False):
-    TOOLBAR_COOKIE_SECURE = False
-    SESSION_COOKIE_SECURE = False
-    CSRF_COOKIE_SECURE = False
 
 if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
     SECURE_SSL_REDIRECT = False
@@ -141,10 +138,10 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
-    "posthog.middleware.ToolbarCookieMiddleware",  # keep this at the top
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.AllowIP",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "posthog.middleware.ToolbarCookieMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
