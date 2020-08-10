@@ -14,24 +14,18 @@ def get_user_details(event: Event, site_url: str) -> Tuple[str, str]:
     except:
         user_name = event.distinct_id
 
-    if get_webhook_type(event.team) == "slack":
-        user_markdown = "<{}/person/{}|{}>".format(
-            site_url, event.distinct_id, user_name,
-        )
+    if determine_webhook_type(event.team) == "slack":
+        user_markdown = "<{}/person/{}|{}>".format(site_url, event.distinct_id, user_name,)
     else:
-        user_markdown = "[{}]({}/person/{})".format(
-            user_name, site_url, event.distinct_id,
-        )
+        user_markdown = "[{}]({}/person/{})".format(user_name, site_url, event.distinct_id,)
     return user_name, user_markdown
 
 
 def get_action_details(action: Action, event: Event, site_url: str) -> Tuple[str, str]:
-    if get_webhook_type(event.team) == "slack":
+    if determine_webhook_type(event.team) == "slack":
         action_markdown = '"<{}/action/{}|{}>"'.format(site_url, action.id, action.name)
     else:
-        action_markdown = '"[{}]({}/action/{})"'.format(
-            action.name, site_url, action.id,
-        )
+        action_markdown = '"[{}]({}/action/{})"'.format(action.name, site_url, action.id,)
     return action.name, action_markdown
 
 
@@ -44,9 +38,7 @@ def get_tokens(message_format: str) -> Tuple[list, str]:
     return matched_tokens, tokenised_message
 
 
-def get_value_of_token(
-    action: Action, event: Event, site_url: str, token_parts: list,
-) -> Tuple[str, str]:
+def get_value_of_token(action: Action, event: Event, site_url: str, token_parts: list,) -> Tuple[str, str]:
     text = ""
     markdown = ""
 
@@ -69,9 +61,7 @@ def get_value_of_token(
     return text, markdown
 
 
-def get_formatted_message(
-    action: Action, event: Event, site_url: str,
-) -> Tuple[str, str]:
+def get_formatted_message(action: Action, event: Event, site_url: str,) -> Tuple[str, str]:
     message_format = action.slack_message_format
     if message_format is None:
         message_format = "[action.name] was triggered by [user.name]"
@@ -87,9 +77,7 @@ def get_formatted_message(
         for token in tokens:
             token_parts = re.findall(r"\w+", token)
 
-            value, markdown_value = get_value_of_token(
-                action, event, site_url, token_parts,
-            )
+            value, markdown_value = get_value_of_token(action, event, site_url, token_parts,)
             values.append(value)
             markdown_values.append(markdown_value)
 
@@ -105,14 +93,14 @@ def get_formatted_message(
     return message_text, message_markdown
 
 
-def get_webhook_type(team: Team) -> str:
+def determine_webhook_type(team: Team) -> str:
     if "slack.com" in team.slack_incoming_webhook:
         return "slack"
     return "teams"
 
 
 @shared_task
-def post_event_to_slack(event_id: int, site_url: str) -> None:
+def post_event_to_webhook(event_id: int, site_url: str) -> None:
     event = Event.objects.get(pk=event_id)
     team = event.team
     actions = [action for action in event.action_set.all() if action.post_to_slack]
@@ -122,18 +110,11 @@ def post_event_to_slack(event_id: int, site_url: str) -> None:
 
     if team.slack_incoming_webhook and actions:
         for action in actions:
-            message_text, message_markdown = get_formatted_message(
-                action, event, site_url,
-            )
-            if get_webhook_type(team) == "slack":
+            message_text, message_markdown = get_formatted_message(action, event, site_url,)
+            if determine_webhook_type(team) == "slack":
                 message = {
                     "text": message_text,
-                    "blocks": [
-                        {
-                            "type": "section",
-                            "text": {"type": "mrkdwn", "text": message_markdown},
-                        },
-                    ],
+                    "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": message_markdown},},],
                 }
             else:
                 message = {

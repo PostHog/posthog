@@ -6,6 +6,7 @@ import string
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import celery
 from django.conf import settings
 from django.contrib.postgres.fields import JSONField
 from django.core.cache import cache
@@ -30,8 +31,6 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENT
 from posthog.models.entity import Entity
 from posthog.utils import generate_cache_key
 
-import celery
-
 from .action import Action
 from .action_step import ActionStep
 from .element import Element
@@ -40,8 +39,6 @@ from .filter import Filter
 from .person import Person, PersonDistinctId
 from .team import Team
 from .utils import namedtuplefetchall
-
-
 
 attribute_regex = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 
@@ -305,17 +302,16 @@ class EventManager(models.QuerySet):
             # In a few cases we have had it OOM Postgres with the query it is running
             # Short term solution is to have this be configurable to be run in batch
             if not settings.ASYNC_EVENT_ACTION_MAPPING:
-                should_post_to_slack = False
+                should_post_webhook = False
                 relations = []
                 for action in event.actions:
                     relations.append(action.events.through(action_id=action.pk, event_id=event.pk))
                     if action.post_to_slack:
-                        should_post_to_slack = True
-
+                        should_post_webhook = True
                 Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
                 team = kwargs.get("team", event.team)
-                if should_post_to_slack and team and team.slack_incoming_webhook:
-                    celery.current_app.send_task("posthog.tasks.slack.post_event_to_slack", (event.pk, site_url))
+                if should_post_webhook and team and team.slack_incoming_webhook:
+                    celery.current_app.send_task("posthog.tasks.webhooks.post_event_to_webhook", (event.pk, site_url))
 
             return event
 
