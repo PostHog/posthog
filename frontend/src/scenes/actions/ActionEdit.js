@@ -5,6 +5,7 @@ import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
 
 import { ActionStep } from './ActionStep'
+import { Input } from 'antd'
 
 export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, showNewActionButton, temporaryToken }) {
     let logic = actionEditLogic({
@@ -110,7 +111,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
 
                 {!isEditor ? (
                     <div>
-                        <div style={{ marginTop: 20 }}>
+                        <div style={{ margin: '1rem 0 0.5rem' }}>
                             <input
                                 id="webhook-checkbox"
                                 type="checkbox"
@@ -131,11 +132,9 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                             <Link to="/setup#webhook">
                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                             </Link>
-                        </div>
-                        <div style={{ marginBottom: '0.5rem' }}>
-                            <input
-                                className="form-control"
-                                placeholder='message format (e.g. "[action.name] triggered by [user.name]")'
+                            <Input
+                                addonBefore="Message format"
+                                placeholder="try: [action.name] triggered by [user.name]"
                                 value={action.slack_message_format}
                                 onChange={(e) => {
                                     setAction({ ...action, slack_message_format: e.target.value })
