@@ -21,7 +21,7 @@ export const licenseLogic = kea({
         licenses: [
             [],
             {
-                loadEvents: async () => {
+                loadLicenses: async () => {
                     return (await api.get('api/license')).results
                 },
             },
@@ -57,7 +57,7 @@ export const licenseLogic = kea({
     }),
     events: ({ actions }) => ({
         afterMount: () => {
-            actions.loadEvents()
+            actions.loadLicenses()
         },
     }),
 })
