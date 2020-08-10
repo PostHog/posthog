@@ -17,6 +17,7 @@ mypy
 mypy-extensions
 djangorestframework-stubs
 django-stubs
+freezegun
 packaging
 black
 isort
