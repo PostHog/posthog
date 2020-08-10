@@ -2,6 +2,7 @@ import re
 from typing import Tuple
 
 import requests
+from celery import Task
 from django.conf import settings
 
 from posthog.celery import app
@@ -100,7 +101,7 @@ def determine_webhook_type(team: Team) -> str:
 
 
 @app.task(bind=True, max_retries=3)
-def post_event_to_webhook(self, event_id: int, site_url: str) -> None:
+def post_event_to_webhook(self: Task, event_id: int, site_url: str) -> None:
     try:
         event = Event.objects.get(pk=event_id)
         team = event.team

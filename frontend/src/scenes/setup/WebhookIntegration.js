@@ -90,9 +90,8 @@ export function WebhookIntegration() {
             <Input
                 value={editedWebhook}
                 addonBefore="Webhook URL"
-                size="large"
                 onChange={(e) => setEditedWebhook(e.target.value)}
-                style={{ width: 500, marginBottom: '1rem', display: 'block' }}
+                style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
                 type="url"
                 placeholder="integration disabled"
             />
