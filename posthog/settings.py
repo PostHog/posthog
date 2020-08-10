@@ -71,11 +71,11 @@ else:
 TOOLBAR_COOKIE_NAME = "phtoolbar"
 
 # SSL & cookie defaults
-secure_cookies = get_bool_from_env("SECURE_COOKIES", None)
-
-# Default to True if in production
-if secure_cookies is None:
+if os.environ.get("SECURE_COOKIES", None) is None:
+    # Default to True if in production
     secure_cookies = not DEBUG and not TEST
+else:
+    secure_cookies = get_bool_from_env("SECURE_COOKIES", True)
 
 TOOLBAR_COOKIE_SECURE = secure_cookies
 SESSION_COOKIE_SECURE = secure_cookies
