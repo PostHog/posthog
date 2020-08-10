@@ -3,6 +3,9 @@
         <title>HogFlix</title>
         <script src="/static/array.js"></script>
         <script>
+            console.log("Initializing toolbar")
+            console.log(window.location.protocol + '//' + window.location.hostname)
+
             posthog.init('{{api_token}}', {
                 api_host: window.location.protocol + '//' + window.location.hostname,
             });
