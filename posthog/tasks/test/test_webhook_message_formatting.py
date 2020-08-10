@@ -1,6 +1,6 @@
 from posthog.api.test.base import BaseTest
 from posthog.models import Action, Event, Person
-from posthog.tasks.slack import (
+from posthog.tasks.webhooks import (
     determine_webhook_type,
     get_action_details,
     get_formatted_message,

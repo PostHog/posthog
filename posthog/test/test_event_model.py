@@ -440,7 +440,7 @@ class TestSendToSlack(BaseTest):
         event = Event.objects.create(team=self.team, event="user paid", site_url="http://testserver")
         self.assertEqual(patch_post_to_slack.call_count, 1)
         patch_post_to_slack.assert_has_calls(
-            [call("posthog.tasks.slack.post_event_to_webhook", (event.pk, "http://testserver"))]
+            [call("posthog.tasks.webhooks.post_event_to_webhook", (event.pk, "http://testserver"))]
         )
 
 
