@@ -83,7 +83,7 @@ export function WebhookIntegration() {
     return (
         <div>
             <p>
-                Guidance on using webhooks available in our docs,{' '}
+                Guidance on integrating with webhooks available in our docs,{' '}
                 <a href="https://posthog.com/docs/integrations/slack">for Slack</a> and{' '}
                 <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>.
             </p>
