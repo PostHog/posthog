@@ -6120,7 +6120,7 @@ kea-window-values@^0.0.1:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.0.1.tgz#918eee6647507e2d3d5d19466b9561261e7bc8d7"
   integrity sha512-60SfOqHrmnCC8hSD2LALMJemYcohQ8tGcTHlA5u4rQy0l0wFFE4gqH1WbKd+73j9m4f6zdoOk07rwJf+P8maiQ==
 
-kea@^2.2.0-rc.2:
+kea@^2.2.0-beta.5:
   version "2.2.0-rc.2"
   resolved "https://registry.yarnpkg.com/kea/-/kea-2.2.0-rc.2.tgz#1c04110dca4b4c475fb0b0f40a5bfbe609058d40"
   integrity sha512-N1ytphLYPeUmrqpal78mdZextJkO2Gzj8LQI3bahM/NagYSX8biAYS6FhJeGJfaySChkBf2zbL2hvfrScKap3A==
