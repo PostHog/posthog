@@ -1,23 +1,17 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { useValues } from 'kea'
-import api from './../lib/api'
 import { Button } from 'antd'
 import { ChangelogModal } from '~/layout/ChangelogModal'
+import { useLatestVersion } from 'lib/hooks/useLatestVersion'
 import { userLogic } from 'scenes/userLogic'
 import { CheckOutlined, BulbOutlined } from '@ant-design/icons'
 
 export function LatestVersion() {
     const { user } = useValues(userLogic)
     if (user.opt_out_capture) return null
-    const [latestVersion, setLatestVersion] = useState(null)
     const [changelogOpen, setChangelogOpen] = useState(false)
+    const latestVersion = useLatestVersion(user.posthog_version)
     const isApp = window.location.href.indexOf('app.posthog.com') > -1
-
-    useEffect(() => {
-        api.get('https://update.posthog.com/versions').then((versions) => {
-            setLatestVersion(versions[0]['version'])
-        })
-    }, [user.posthog_version])
 
     return (
         <>
