@@ -45,9 +45,9 @@ Join the [PostHog Users Slack](https://join.slack.com/t/posthogusers/shared_invi
 
 <img align="left" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/icons/Untitled_Artwork+2+copy+3+1.jpg" width="50px" />
 
-## Event autocapture
+## Event Autocapture
 
-<img src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Creating+new+action+with+toolbar.gif" width="100%">
+<img src="https://github.com/yakkomajuri/img-store/blob/master/actiongif.gif?raw=true" width="100%">
 
 <br /><br />
 
