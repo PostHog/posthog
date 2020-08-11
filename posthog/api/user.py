@@ -93,11 +93,10 @@ def redirect_to_site(request):
     request.user.temporary_token = secrets.token_urlsafe(32)
     request.user.save()
     params = {
-        "action": "mpeditor",
+        "action": "ph_authorize",
         "token": team.api_token,
         "temporaryToken": request.user.temporary_token,
         "actionId": request.GET.get("actionId"),
-        "apiURL": request.build_absolute_uri("/"),
         "userIntent": request.GET.get("userIntent"),
     }
 

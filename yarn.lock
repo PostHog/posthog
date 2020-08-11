@@ -3417,6 +3417,14 @@ cyclist@^1.0.1:
   resolved "https://registry.yarnpkg.com/cyclist/-/cyclist-1.0.1.tgz#596e9698fd0c80e12038c2b82d6eb1b35b6224d9"
   integrity sha1-WW6WmP0MgOEgOMK4LW6xs1tiJNk=
 
+cypress-terminal-report@^1.4.1:
+  version "1.4.1"
+  resolved "https://registry.yarnpkg.com/cypress-terminal-report/-/cypress-terminal-report-1.4.1.tgz#42adabc4acf93ad74649338c553a12b8dd371a94"
+  integrity sha512-Oyx7VQCSh4Nh1q0ROo9Wq6KrxxbP8adhUQRxVpNlXeyyfLj2X8AXxqbIh6Ct3V8oENKh5iHHhuOfRfQ1tmE4Tw==
+  dependencies:
+    chalk "^3.0.0"
+    methods "^1.1.2"
+
 cypress@^4.5.0:
   version "4.5.0"
   resolved "https://registry.yarnpkg.com/cypress/-/cypress-4.5.0.tgz#01940d085f6429cec3c87d290daa47bb976a7c7b"
@@ -6121,9 +6129,9 @@ kea-window-values@^0.0.1:
   integrity sha512-60SfOqHrmnCC8hSD2LALMJemYcohQ8tGcTHlA5u4rQy0l0wFFE4gqH1WbKd+73j9m4f6zdoOk07rwJf+P8maiQ==
 
 kea@^2.2.0-beta.5:
-  version "2.2.0-beta.5"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.2.0-beta.5.tgz#eafcb561cc8fcd70f0958dc691068cbee8ca6312"
-  integrity sha512-Y/djOgBMdKhcSKE9GG75LfrAi5cYRnzh/6OBi4C8RKeAnsgpWY7q57A+M6Gwqwz3BrhNy0xDr9ESz8Ij0W0oaQ==
+  version "2.2.0-rc.2"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.2.0-rc.2.tgz#1c04110dca4b4c475fb0b0f40a5bfbe609058d40"
+  integrity sha512-N1ytphLYPeUmrqpal78mdZextJkO2Gzj8LQI3bahM/NagYSX8biAYS6FhJeGJfaySChkBf2zbL2hvfrScKap3A==
 
 keyv@^3.0.0:
   version "3.1.0"
@@ -6525,7 +6533,7 @@ merge-stream@^2.0.0:
   resolved "https://registry.yarnpkg.com/merge-stream/-/merge-stream-2.0.0.tgz#52823629a14dd00c9770fb6ad47dc6310f2c1f60"
   integrity sha512-abv/qOcuPfk3URPfDzmZU1LKmuw8kT+0nIHvKrKgFrwifol/doWcdA4ZqsWQ8ENrFKkd67Mfpo/LovbIUsbt3w==
 
-methods@~1.1.2:
+methods@^1.1.2, methods@~1.1.2:
   version "1.1.2"
   resolved "https://registry.yarnpkg.com/methods/-/methods-1.1.2.tgz#5529a4d67654134edcc5266656835b0f851afcee"
   integrity sha1-VSmk1nZUE07cxSZmVoNbD4Ua/O4=
@@ -7806,15 +7814,15 @@ postcss@^7.0.14, postcss@^7.0.16, postcss@^7.0.23, postcss@^7.0.26, postcss@^7.0
     source-map "^0.6.1"
     supports-color "^6.1.0"
 
-posthog-js-lite@^0.0.1:
-  version "0.0.1"
-  resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.1.tgz#e32eebc8e5203947bc90bc794615627d7ffe7d28"
-  integrity sha512-CUfSRT/kjKLhGz23iS1YznFNYG/hkwESGzqAae6oFY2ncIXUppTeYvsQ/SM7QTajQEIHP6uUzjgDeaTQum7VWw==
+posthog-js-lite@^0.0.3:
+  version "0.0.3"
+  resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
+  integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.3.8:
-  version "1.3.8"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.3.8.tgz#796c8b3c488ebabd5a0325b283e3bf7e2a56d286"
-  integrity sha512-XmdSKnHX7RvpUE5h71gkdiLbe5MHhOwXu9NgpnkaNLmF/JZn+jq2pEGPiTMJsGsTNHYTKPRa4F0dztZYjS4oEQ==
+posthog-js@1.4.1:
+  version "1.4.1"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.4.1.tgz#c1bfa740720503c36a0666a04d433315d7f34bb3"
+  integrity sha512-8awo5wsBw4cPBCHc5klXo0z09ZQj0bpwAmKsYtr7c4irVC8lF/hPvLX65oSvTXLicB+ULZlmiJtXUau5pLD2fA==
 
 prelude-ls@^1.2.1:
   version "1.2.1"
