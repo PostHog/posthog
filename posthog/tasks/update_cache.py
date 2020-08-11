@@ -49,7 +49,7 @@ def update_cached_items() -> None:
         curr_data = cache.get(cache_key)
 
         # if task is logged leave it alone
-        if curr_data.get("task_id", None):
+        if curr_data and curr_data.get("task_id", None):
             continue
 
         payload = {"filter": filter.toJSON(), "team_id": item.team_id}
