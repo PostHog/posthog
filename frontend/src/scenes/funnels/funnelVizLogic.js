@@ -7,7 +7,8 @@ export const funnelVizLogic = kea({
     loaders: ({ props }) => ({
         results: {
             __default: [],
-            loadResults: async () => {
+            loadResults: async (refresh = false) => {
+                const { from_dashboard } = props.filters
                 const cleanedParams = cleanFunnelParams(props.filters)
                 const params = {
                     ...(refresh ? { refresh: true } : {}),
