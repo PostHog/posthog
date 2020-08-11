@@ -1,8 +1,8 @@
-import datetime
 import json
 import logging
 from typing import Any, Dict, List, Optional, Union
 
+from celery import group
 from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
 from django.db.models import Prefetch, Q
@@ -19,14 +19,13 @@ logger = logging.getLogger(__name__)
 
 
 def update_cache_item(key: str, cache_type: str, payload: dict) -> None:
+
     result: Optional[Union[List, Dict]] = None
+    filter_dict = json.loads(payload["filter"])
+    filter = Filter(data=filter_dict)
     if cache_type == TRENDS_ENDPOINT:
-        filter_dict = json.loads(payload["filter"])
-        filter = Filter(data=filter_dict)
         result = _calculate_trends(filter, int(payload["team_id"]))
     elif cache_type == FUNNEL_ENDPOINT:
-        filter_dict = json.loads(payload["filter"])
-        filter = Filter(data=filter_dict)
         result = _calculate_funnel(filter, int(payload["team_id"]))
 
     if result:
@@ -47,6 +46,12 @@ def update_cached_items() -> None:
     for item in items.filter(filters__isnull=False).exclude(filters={}).distinct("filters"):
         filter = Filter(data=item.filters)
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
+        curr_data = cache.get(cache_key)
+
+        # if task is logged leave it alone
+        if curr_data.get("task_id", None):
+            continue
+
         payload = {"filter": filter.toJSON(), "team_id": item.team_id}
         tasks.append(update_cache_item_task.s(cache_key, TRENDS_ENDPOINT, payload))
 

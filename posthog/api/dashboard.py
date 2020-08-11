@@ -148,7 +148,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         filter = Filter(data=dashboard_item.filters)
         cache_key = generate_cache_key(filter.toJSON() + "_" + str(dashboard_item.team_id))
         result = cache.get(cache_key)
-        if not result:
+        if not result or result.get("task_id", None):
             return None
         return result["result"]
 

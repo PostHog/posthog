@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+from celery.result import AsyncResult
 from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
 from django.db import connection
@@ -220,17 +221,27 @@ class ActionViewSet(viewsets.ModelViewSet):
 
         filter = Filter(request=request)
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
-        payload = {"filter": filter.toJSON(), "team_id": team.pk}
         result = {"loading": True}
 
         if refresh:
             cache.delete(cache_key)
         else:
             cached_result = cache.get(cache_key)
-            if cached_result:
-                return Response(cached_result["result"])
+            if cached_result and not cached_result.get("task_id", None):
+                task_id = cached_result.get("task_id", None)
 
-        update_cache_item_task.delay(cache_key, FUNNEL_ENDPOINT, payload)
+                if not task_id:
+                    return Response(cached_result["result"])
+                else:
+                    return Response(result)
+
+        payload = {"filter": filter.toJSON(), "team_id": team.pk}
+        task_id = request.GET.get("task_id", None)
+        if not task_id:
+            task = update_cache_item_task.delay(cache_key, FUNNEL_ENDPOINT, payload)
+            task_id = task.id
+            cache.set(cache_key, {"task_id": task_id}, 180)
+
         if dashboard_id:
             DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.datetime.now())
 
