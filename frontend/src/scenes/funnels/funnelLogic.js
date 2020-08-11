@@ -29,6 +29,7 @@ export async function pollFunnel(params = {}) {
 
 export const cleanFunnelParams = (filters) => {
     return {
+        ...filters,
         ...(filters.date_from ? { date_from: filters.date_from } : {}),
         ...(filters.date_to ? { date_to: filters.date_to } : {}),
         ...(filters.actions ? { actions: filters.actions } : {}),
@@ -163,8 +164,7 @@ export const funnelLogic = kea({
                 }
 
                 if (!objectsEqual(_filters, paramsToCheck)) {
-                    actions.clearFunnel()
-                    actions.setFilters(cleanFunnelParams(paramsToCheck), !isStepsEmpty(paramsToCheck))
+                    actions.setFilters(cleanFunnelParams(searchParams), !isStepsEmpty(paramsToCheck))
                 }
             }
         },
