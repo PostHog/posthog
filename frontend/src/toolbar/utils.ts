@@ -69,7 +69,7 @@ export function elementToSelector(element: ElementType): string {
             .map((a) => `.${cssEscape(a)}`)
             .join('')
     }
-    if (element.href) {
+    if (element.href && element.tag_name === 'a') {
         selector += `[href="${cssEscape(element.href)}"]`
     }
     if (element.nth_child) {
