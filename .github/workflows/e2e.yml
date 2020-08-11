@@ -92,6 +92,7 @@ jobs:
                   REDIS_URL: 'redis://localhost'
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
                   DISABLE_SECURE_SSL_REDIRECT: 1
+                  SECURE_COOKIES: 0
                   OPT_OUT_CAPTURE: 1
               run: |
                   python manage.py collectstatic --noinput

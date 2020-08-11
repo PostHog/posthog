@@ -32,7 +32,7 @@ def reverse(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0076_move_funnels_to_insights"),
+        ("posthog", "0077_move_funnels_to_insights"),
     ]
 
     operations = [migrations.RunPython(forward, reverse)]
