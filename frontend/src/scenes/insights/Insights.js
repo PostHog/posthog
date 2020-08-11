@@ -257,14 +257,13 @@ function TrendInsight({ view }) {
 }
 
 function FunnelInsight() {
-    const { funnel, funnelLoading } = useValues(funnelLogic({ id: null }))
-
+    const { funnel, funnelLoading, stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic({ id: null }))
+    if (!funnel && funnelLoading) return <Loading />
     return (
         <div style={{ height: 300 }}>
-            {funnelLoading ? (
-                <Loading />
-            ) : funnel.steps && funnel.steps[0] && funnel.steps[0].count > -1 ? (
-                <FunnelViz funnel={{ steps: funnel.steps }} />
+            {stepsWithCountLoading && <Loading />}
+            {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 ? (
+                <FunnelViz funnel={{ steps: stepsWithCount }} />
             ) : (
                 <div
                     style={{

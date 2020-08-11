@@ -1,5 +1,3 @@
-import time
-from typing import Optional
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -131,24 +129,6 @@ class TestGetFunnel(BaseTest):
         funnel = Funnel.objects.create(team=self.team, name="funnel", filters=filters)
         return funnel
 
-    def _poll_funnel(self, url: str, refresh=False) -> dict:
-        loading = True
-        timeout = time.time() + 10  # stop in 10 seconds
-        response = {}
-
-        if refresh:
-            response = self.client.get(url + "?refresh=true").json()
-            loading = response.get("loading", None)
-
-        while loading:
-            test = 0
-            response = self.client.get(url).json()
-            loading = response.get("loading", None)
-            if time.time() > timeout:
-                break
-            test = test - 1
-        return response
-
     def test_funnel_with_single_step(self):
         funnel = self._single_step_funnel()
 
@@ -159,9 +139,8 @@ class TestGetFunnel(BaseTest):
         person2_stopped_after_signup = Person.objects.create(distinct_ids=["stopped_after_signup2"], team=self.team)
         self._signup_event(distinct_id="stopped_after_signup2")
 
-        with self.assertNumQueries(10):
-            response = self._poll_funnel(url="/api/funnel/{}/".format(funnel.pk))
-
+        with self.assertNumQueries(6):
+            response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
         self.assertEqual(response["steps"][0]["name"], "user signed up")
         self.assertEqual(response["steps"][0]["count"], 2)
         # check ordering of people in first step
@@ -197,8 +176,8 @@ class TestGetFunnel(BaseTest):
 
         self._signup_event(distinct_id="a_user_that_got_deleted_or_doesnt_exist")
 
-        with self.assertNumQueries(12):
-            response = self._poll_funnel("/api/funnel/{}/".format(funnel.pk))
+        with self.assertNumQueries(8):
+            response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
         self.assertEqual(response["steps"][0]["name"], "user signed up")
         self.assertEqual(response["steps"][0]["count"], 4)
         # check ordering of people in first step
@@ -220,18 +199,18 @@ class TestGetFunnel(BaseTest):
         # make sure it's O(n)
         person_wrong_order = Person.objects.create(distinct_ids=["badalgo"], team=self.team)
         self._signup_event(distinct_id="badalgo")
-        with self.assertNumQueries(12):
-            response = self._poll_funnel(url="/api/funnel/{}/".format(funnel.pk), refresh=True)
+        with self.assertNumQueries(8):
+            response = self.client.get("/api/funnel/{}/?refresh=true".format(funnel.pk)).json()
 
         self._pay_event(distinct_id="badalgo")
-        with self.assertNumQueries(12):
-            response = self._poll_funnel(url="/api/funnel/{}/".format(funnel.pk), refresh=True)
+        with self.assertNumQueries(8):
+            response = self.client.get("/api/funnel/{}/?refresh=true".format(funnel.pk)).json()
 
     def test_funnel_no_events(self):
         funnel = self._basic_funnel()
 
-        with self.assertNumQueries(12):
-            response = self._poll_funnel("/api/funnel/{}/".format(funnel.pk))
+        with self.assertNumQueries(8):
+            response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
 
     def test_funnel_skipped_step(self):
         funnel = self._basic_funnel()
@@ -240,7 +219,7 @@ class TestGetFunnel(BaseTest):
         self._signup_event(distinct_id="wrong_order")
         self._movie_event(distinct_id="wrong_order")
 
-        response = self._poll_funnel("/api/funnel/{}/".format(funnel.pk))
+        response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
         self.assertEqual(response["steps"][1]["count"], 0)
         self.assertEqual(response["steps"][2]["count"], 0)
 
@@ -262,7 +241,7 @@ class TestGetFunnel(BaseTest):
         self._signup_event(distinct_id="half_property", properties={"$browser": "Safari"})
         self._pay_event(distinct_id="half_property")
 
-        response = self._poll_funnel("/api/funnel/{}/".format(funnel.pk))
+        response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
         self.assertEqual(response["steps"][0]["count"], 2)
         self.assertEqual(response["steps"][1]["count"], 1)
 
@@ -316,7 +295,7 @@ class TestGetFunnel(BaseTest):
         self._pay_event(distinct_id="half_property")
         self._movie_event(distinct_id="half_property")
 
-        response = self._poll_funnel("/api/funnel/{}/".format(funnel.pk))
+        response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
         self.assertEqual(response["steps"][0]["count"], 1)
         self.assertEqual(response["steps"][1]["count"], 1)
         self.assertEqual(response["steps"][2]["count"], 0)
