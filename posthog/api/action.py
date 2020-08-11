@@ -80,6 +80,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
             "id",
             "name",
             "post_to_slack",
+            "slack_message_format",
             "steps",
             "created_at",
             "deleted",

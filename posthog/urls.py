@@ -196,7 +196,10 @@ def logout(request):
         request.user.temporary_token = None
         request.user.save()
 
-    return auth_views.logout_then_login(request)
+    response = auth_views.logout_then_login(request)
+    response.delete_cookie(settings.TOOLBAR_COOKIE_NAME, "/")
+
+    return response
 
 
 def authorize_and_redirect(request):

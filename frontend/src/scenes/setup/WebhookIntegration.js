@@ -76,27 +76,25 @@ const logic = kea({
     }),
 })
 
-export function SlackIntegration() {
+export function WebhookIntegration() {
     const { isSaved, isSaving, error, editedWebhook } = useValues(logic)
     const { testAndSaveWebhook, setEditedWebhook } = useActions(logic)
 
     return (
         <div>
-            <label>
-                Enter your Slack or Microsoft Teams webhook URL here. Read the docs to find out how to get this URL for{' '}
-                <a href="https://posthog.com/docs/integrations/slack">Slack</a> or{' '}
-                <a href="https://posthog.com/docs/integrations/microsoft-teams">Microsoft Teams</a>
-            </label>
-            <div style={{ marginBottom: 5 }}>
-                <Input
-                    value={editedWebhook}
-                    size="large"
-                    onChange={(e) => setEditedWebhook(e.target.value)}
-                    style={{ width: 500 }}
-                    type="url"
-                />
-            </div>
-
+            <p>
+                Guidance on integrating with webhooks available in our docs,{' '}
+                <a href="https://posthog.com/docs/integrations/slack">for Slack</a> and{' '}
+                <a href="https://posthog.com/docs/integrations/microsoft-teams">for Microsoft Teams</a>.
+            </p>
+            <Input
+                value={editedWebhook}
+                addonBefore="Webhook URL"
+                onChange={(e) => setEditedWebhook(e.target.value)}
+                style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
+                type="url"
+                placeholder="integration disabled"
+            />
             <Button
                 type="primary"
                 onClick={(e) => {
@@ -115,11 +113,10 @@ export function SlackIntegration() {
 
             {isSaved && (
                 <span className="text-success" style={{ marginLeft: 10 }}>
+                    Success:{' '}
                     {editedWebhook
-                        ? `All good! You should see a message on ${
-                              editedWebhook.indexOf('slack.com') > -1 ? 'Slack' : 'Teams'
-                          }.`
-                        : 'Integration removed'}
+                        ? `you should see a message on ${editedWebhook.includes('slack.com') ? 'Slack' : 'Teams'}`
+                        : 'integration disabled'}
                 </span>
             )}
         </div>
