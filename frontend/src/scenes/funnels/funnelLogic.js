@@ -3,6 +3,7 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { objectsEqual } from 'lib/utils'
+import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 
 export const funnelLogic = kea({
     key: (props) => props.id || 'new',
