@@ -132,26 +132,30 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                             <Link to="/setup#webhook">
                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                             </Link>
-                            <Input
-                                addonBefore="Message format"
-                                placeholder="try: [action.name] triggered by [user.name]"
-                                value={action.slack_message_format}
-                                onChange={(e) => {
-                                    setAction({ ...action, slack_message_format: e.target.value })
-                                    setEdited(true)
-                                }}
-                                disabled={!slackEnabled || !action.post_to_slack}
-                                data-attr="edit-slack-message-format"
-                            />
-                            <small>
-                                <a
-                                    href="https://posthog.com/docs/integrations/message-formatting/"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                >
-                                    See documentation on how to format webhook messages.
-                                </a>
-                            </small>
+                            {action.post_to_slack && (
+                                <>
+                                    <Input
+                                        addonBefore="Message format (optional)"
+                                        placeholder="try: [action.name] triggered by [user.name]"
+                                        value={action.slack_message_format}
+                                        onChange={(e) => {
+                                            setAction({ ...action, slack_message_format: e.target.value })
+                                            setEdited(true)
+                                        }}
+                                        disabled={!slackEnabled || !action.post_to_slack}
+                                        data-attr="edit-slack-message-format"
+                                    />
+                                    <small>
+                                        <a
+                                            href="https://posthog.com/docs/integrations/message-formatting/"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                        >
+                                            See documentation on how to format webhook messages.
+                                        </a>
+                                    </small>
+                                </>
+                            )}
                         </div>
                     </div>
                 ) : (
