@@ -66,7 +66,7 @@ class SelectorPart(object):
             self.data["attr_id"] = result[3]
             tag = result[1]
         if result and "[" in tag:
-            self.data["attributes__{}".format(result[2])] = result[3]
+            self.data["attributes__attr__{}".format(result[2])] = result[3]
             tag = result[1]
         if "nth-child(" in tag:
             parts = tag.split(":nth-child(")
@@ -138,6 +138,9 @@ class EventManager(models.QuerySet):
         if not filter:
             return {}
         groups = groups.filter(**filter)
+        import ipdb
+
+        ipdb.set_trace()
         return {"elements_hash__in": groups.values_list("hash", flat=True)}
 
     def filter_by_url(self, action_step: ActionStep, subquery: QuerySet):

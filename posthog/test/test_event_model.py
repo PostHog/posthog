@@ -196,14 +196,14 @@ class TestFilterByActions(BaseTest):
             distinct_id="whatever",
             elements=[
                 Element(tag_name="span", order=0),
-                Element(tag_name="a", order=1, attributes={"data-id": "123"}),
+                Element(tag_name="a", order=1, attributes={"attr__data-id": "123"}),
             ],
         )
 
         event2 = Event.objects.create(
             team=self.team,
             distinct_id="whatever",
-            elements=[Element(tag_name="button", order=0, attributes={"data-id": "123"})],
+            elements=[Element(tag_name="button", order=0, attributes={"attr__data-id": "123"})],
         )
 
         action1 = Action.objects.create(team=self.team)
@@ -388,6 +388,17 @@ class TestActions(BaseTest):
             team=self.team,
             distinct_id="whatever",
             elements=[Element(order=0, tag_name="a", attributes={"data-id": "whatever"})],
+        )
+        self.assertEqual(event.actions, [action])
+
+    def test_attributes_2(self):
+        action = Action.objects.create(team=self.team, name="watch movie")
+        ActionStep.objects.create(action=action, selector='[data-attr="select-platform-Web"]')
+        Person.objects.create(distinct_ids=["watched_movie"], team=self.team)
+        event = Event.objects.create(
+            team=self.team,
+            distinct_id="whatever",
+            elements=[Element(order=0, tag_name="button", attributes={"data-attr": "select-platform-Web"})],
         )
         self.assertEqual(event.actions, [action])
 
