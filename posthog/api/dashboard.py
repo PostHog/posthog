@@ -137,9 +137,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             return dashboard_item
         elif validated_data["dashboard"].team == team:
             validated_data.pop("last_refresh", None)
-            dashboard_item = DashboardItem.objects.create(
-                team=team, created_by=request.user, last_refresh=now(), **validated_data
-            )
+            dashboard_item = DashboardItem.objects.create(team=team, last_refresh=now(), **validated_data)
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")

@@ -154,6 +154,40 @@ class TestFilterByActions(BaseTest):
         self.assertEqual(events[0], event1)
         self.assertEqual(len(events), 1)
 
+    def test_with_class_with_escaped_symbols(self):
+        Person.objects.create(distinct_ids=["whatever"], team=self.team)
+        action1 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=action1, selector="a.na\\\\v-link\\:b\\@ld", tag_name="a")
+        event1 = Event.objects.create(
+            team=self.team,
+            distinct_id="whatever",
+            elements=[
+                Element(tag_name="span", attr_class=None, order=0),
+                Element(tag_name="a", attr_class=["na\\v-link:b@ld"], order=1),
+            ],
+        )
+
+        events = Event.objects.filter_by_action(action1)
+        self.assertEqual(events[0], event1)
+        self.assertEqual(len(events), 1)
+
+    def test_with_class_with_escaped_slashes(self):
+        Person.objects.create(distinct_ids=["whatever"], team=self.team)
+        action1 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(action=action1, selector="a.na\\\\\\\\\\\\v-link\\:b\\@ld", tag_name="a")
+        event1 = Event.objects.create(
+            team=self.team,
+            distinct_id="whatever",
+            elements=[
+                Element(tag_name="span", attr_class=None, order=0),
+                Element(tag_name="a", attr_class=["na\\\\\\v-link:b@ld"], order=1),
+            ],
+        )
+
+        events = Event.objects.filter_by_action(action1)
+        self.assertEqual(events[0], event1)
+        self.assertEqual(len(events), 1)
+
     def test_attributes(self):
         Person.objects.create(distinct_ids=["whatever"], team=self.team)
 
@@ -431,7 +465,7 @@ class TestPreCalculation(BaseTest):
 
 
 class TestSendToSlack(BaseTest):
-    @patch("posthog.tasks.slack.post_event_to_slack.delay")
+    @patch("celery.current_app.send_task")
     def test_send_to_slack(self, patch_post_to_slack):
         self.team.slack_incoming_webhook = "http://slack.com/hook"
         action_user_paid = Action.objects.create(team=self.team, name="user paid", post_to_slack=True)
@@ -439,7 +473,9 @@ class TestSendToSlack(BaseTest):
 
         event = Event.objects.create(team=self.team, event="user paid", site_url="http://testserver")
         self.assertEqual(patch_post_to_slack.call_count, 1)
-        patch_post_to_slack.assert_has_calls([call(event.pk, "http://testserver")])
+        patch_post_to_slack.assert_has_calls(
+            [call("posthog.tasks.webhooks.post_event_to_webhook", (event.pk, "http://testserver"))]
+        )
 
 
 class TestSelectors(BaseTest):

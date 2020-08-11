@@ -3,7 +3,7 @@ import '~/toolbar/styles.scss'
 
 import React from 'react'
 import ReactDOM from 'react-dom'
-import Simmer from 'simmerjs'
+import Simmer from '@mariusandra/simmerjs'
 import { getContext } from 'kea'
 import { Provider } from 'react-redux'
 import { initKea } from '~/initKea'
