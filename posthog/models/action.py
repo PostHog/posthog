@@ -86,6 +86,7 @@ class Action(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     events: models.ManyToManyField = models.ManyToManyField("Event", blank=True)
     post_to_slack: models.BooleanField = models.BooleanField(default=False)
+    slack_message_format: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
