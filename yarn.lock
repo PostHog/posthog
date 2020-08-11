@@ -1245,6 +1245,17 @@
     react-draggable "^4.0.0"
     react-resizable "^1.10.0"
 
+"@mariusandra/simmerjs@0.5.6-posthog-2":
+  version "0.5.6-posthog-2"
+  resolved "https://registry.yarnpkg.com/@mariusandra/simmerjs/-/simmerjs-0.5.6-posthog-2.tgz#17efdf40e40e9770fdf9ac4448d4b4d779171af4"
+  integrity sha512-PfDnFBCvUidNlPJoAom7FCoLKXL9h5WAfC7mkftI1swQ0RFHeCOqRvlfvwUHM8lsCD56alL2a8o4PTbl6dg4IQ==
+  dependencies:
+    lodash.difference "^4.5.0"
+    lodash.flatmap "^4.5.0"
+    lodash.isfunction "^3.0.8"
+    lodash.take "^4.1.1"
+    lodash.takeright "^4.1.1"
+
 "@samverschueren/stream-to-observable@^0.3.0":
   version "0.3.0"
   resolved "https://registry.yarnpkg.com/@samverschueren/stream-to-observable/-/stream-to-observable-0.3.0.tgz#ecdf48d532c58ea477acfcab80348424f8d0662f"
@@ -9214,17 +9225,6 @@ signal-exit@^3.0.0, signal-exit@^3.0.2:
   version "3.0.2"
   resolved "https://registry.yarnpkg.com/signal-exit/-/signal-exit-3.0.2.tgz#b5fdc08f1287ea1178628e415e25132b73646c6d"
   integrity sha1-tf3AjxKH6hF4Yo5BXiUTK3NkbG0=
-
-simmerjs@^0.5.6:
-  version "0.5.6"
-  resolved "https://registry.yarnpkg.com/simmerjs/-/simmerjs-0.5.6.tgz#4bba4fd4cbac18d889037aa199dd742dd1402b96"
-  integrity sha512-Z00zGHUp2IVSDUuni6gzBxVVQwAEZ7jVHnqL97+2RaHVWTYKfgCNyCvgm68Uc1M6X84hjatxvtOc24Y9ECLPWQ==
-  dependencies:
-    lodash.difference "^4.5.0"
-    lodash.flatmap "^4.5.0"
-    lodash.isfunction "^3.0.8"
-    lodash.take "^4.1.1"
-    lodash.takeright "^4.1.1"
 
 simple-swizzle@^0.2.2:
   version "0.2.2"

@@ -1,4 +1,4 @@
-import Simmer from 'simmerjs'
+import Simmer from '@mariusandra/simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, ElementType } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'

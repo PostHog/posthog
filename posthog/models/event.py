@@ -53,6 +53,10 @@ class SelectorPart(object):
     direct_descendant = False
     unique_order = 0
 
+    def _unescape_class(self, class_name):
+        # separate all double slashes "\\" (replace them with "\") and remove all single slashes between them
+        return "\\".join([p.replace("\\", "") for p in class_name.split("\\\\")])
+
     def __init__(self, tag: str, direct_descendant: bool):
         self.direct_descendant = direct_descendant
         self.data: Dict[str, Union[str, List]] = {}
@@ -70,7 +74,8 @@ class SelectorPart(object):
             tag = parts[0]
         if "." in tag:
             parts = tag.split(".")
-            self.data["attr_class__contains"] = parts[1:]
+            # strip all slashes that are not followed by another slash
+            self.data["attr_class__contains"] = [self._unescape_class(p) for p in parts[1:]]
             tag = parts[0]
         if tag:
             self.data["tag_name"] = tag
