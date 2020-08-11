@@ -16,8 +16,13 @@ def forward(apps, schema_editor):
             actions = filters["actions"]
             for index, action_item in enumerate(actions):
                 action_id = action_item["id"]
-                action_obj = Action.objects.get(pk=action_id)
-                filters["actions"][index]["name"] = action_obj.name
+                name = ""
+                try:
+                    action_obj = Action.objects.get(pk=action_id)
+                    name = action_obj.name
+                    filters["actions"][index]["name"] = name
+                except:
+                    del filters["actions"][index]
 
         DashboardItem.objects.create(
             team=item.team,

@@ -8,7 +8,9 @@ def forward(apps, schema_editor):
     DashboardItem = apps.get_model("posthog", "DashboardItem")
     Action = apps.get_model("posthog", "Action")
     for item in DashboardItem.objects.filter(type="FunnelViz").all():
-        funnel_id = item.filters["funnel_id"]
+        funnel_id = item.funnel_id or item.filters.get("funnel_id", None)
+        if not funnel_id:
+            continue
         funnel = Funnel.objects.get(pk=funnel_id)
         filters = funnel.filters
         filters["insight"] = "FUNNELS"
@@ -18,8 +20,13 @@ def forward(apps, schema_editor):
             actions = filters["actions"]
             for index, action_item in enumerate(actions):
                 action_id = action_item["id"]
-                action_obj = Action.objects.get(pk=action_id)
-                filters["actions"][index]["name"] = action_obj.name
+                name = ""
+                try:
+                    action_obj = Action.objects.get(pk=action_id)
+                    name = action_obj.name
+                    filters["actions"][index]["name"] = name
+                except:
+                    del filters["actions"][index]
 
         item.filters = filters
         item.save()
