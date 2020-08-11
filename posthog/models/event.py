@@ -70,7 +70,8 @@ class SelectorPart(object):
             tag = parts[0]
         if "." in tag:
             parts = tag.split(".")
-            self.data["attr_class__contains"] = parts[1:]
+            # strip all slashes that are not followed by another slash
+            self.data["attr_class__contains"] = [re.sub("\\\\(?!\\\\)", "", p) for p in parts[1:]]
             tag = parts[0]
         if tag:
             self.data["tag_name"] = tag
