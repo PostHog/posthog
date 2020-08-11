@@ -273,6 +273,7 @@ if not REDIS_URL:
         f'The environment var "REDIS_URL" or "POSTHOG_REDIS_HOST" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011'
     )
 
+CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec

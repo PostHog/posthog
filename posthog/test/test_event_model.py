@@ -431,7 +431,7 @@ class TestPreCalculation(BaseTest):
 
 
 class TestSendToSlack(BaseTest):
-    @patch("posthog.tasks.slack.post_event_to_slack.delay")
+    @patch("celery.current_app.send_task")
     def test_send_to_slack(self, patch_post_to_slack):
         self.team.slack_incoming_webhook = "http://slack.com/hook"
         action_user_paid = Action.objects.create(team=self.team, name="user paid", post_to_slack=True)
@@ -439,7 +439,9 @@ class TestSendToSlack(BaseTest):
 
         event = Event.objects.create(team=self.team, event="user paid", site_url="http://testserver")
         self.assertEqual(patch_post_to_slack.call_count, 1)
-        patch_post_to_slack.assert_has_calls([call(event.pk, "http://testserver")])
+        patch_post_to_slack.assert_has_calls(
+            [call("posthog.tasks.webhooks.post_event_to_webhook", (event.pk, "http://testserver"))]
+        )
 
 
 class TestSelectors(BaseTest):

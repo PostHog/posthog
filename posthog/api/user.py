@@ -166,7 +166,7 @@ def test_slack_webhook(request):
     webhook = body.get("webhook")
 
     if not webhook:
-        return JsonResponse({"error": "no webhook"})
+        return JsonResponse({"error": "no webhook URL"})
     message = {"text": "Greetings from PostHog!"}
     try:
         response = requests.post(webhook, verify=False, json=message)
@@ -176,7 +176,7 @@ def test_slack_webhook(request):
         else:
             return JsonResponse({"error": response.text})
     except:
-        return JsonResponse({"error": "invalid webhook url"})
+        return JsonResponse({"error": "invalid webhook URL"})
 
 
 class UserSerializer(serializers.ModelSerializer):
