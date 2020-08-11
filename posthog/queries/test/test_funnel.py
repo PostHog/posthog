@@ -1,5 +1,3 @@
-import time
-from typing import Optional
 from unittest.mock import patch
 
 from posthog.api.test.base import BaseTest
@@ -54,24 +52,6 @@ class TestGetFunnel(BaseTest):
 
         filter = Filter(data=filters)
         return Funnel(filter=filter, team=self.team)
-
-    def _poll_funnel(self, url: str, refresh=False) -> dict:
-        loading = True
-        timeout = time.time() + 10  # stop in 10 seconds
-        response = {}
-
-        if refresh:
-            response = self.client.get(url + "?refresh=true").json()
-            loading = response.get("loading", None)
-
-        while loading:
-            test = 0
-            response = self.client.get(url).json()
-            loading = response.get("loading", None)
-            if time.time() > timeout:
-                break
-            test = test - 1
-        return response
 
     def test_funnel_with_single_step(self):
         funnel = self._single_step_funnel()
