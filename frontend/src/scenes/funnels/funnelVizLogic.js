@@ -9,7 +9,12 @@ export const funnelVizLogic = kea({
             __default: [],
             loadResults: async () => {
                 const cleanedParams = cleanFunnelParams(props.filters)
-                return await pollFunnel(cleanedParams)
+                const params = {
+                    ...(refresh ? { refresh: true } : {}),
+                    ...(from_dashboard ? { from_dashboard } : {}),
+                    ...cleanedParams,
+                }
+                return await pollFunnel(params)
             },
         },
     }),
