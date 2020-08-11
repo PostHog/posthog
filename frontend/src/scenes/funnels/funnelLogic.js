@@ -34,6 +34,7 @@ export const cleanFunnelParams = (filters) => {
         ...(filters.actions ? { actions: filters.actions } : {}),
         ...(filters.events ? { events: filters.events } : {}),
         ...(filters.properties ? { properties: filters.properties } : {}),
+        insight: ViewType.FUNNELS,
     }
 }
 

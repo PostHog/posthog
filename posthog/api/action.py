@@ -219,7 +219,7 @@ class ActionViewSet(viewsets.ModelViewSet):
         dashboard_id = request.GET.get("from_dashboard", None)
 
         filter = Filter(request=request)
-        cache_key = generate_cache_key("funnel_{}_{}".format(filter.toJSON(), team.pk))
+        cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
         payload = {"filter": filter.toJSON(), "team_id": team.pk}
         result = {"loading": True}
 
