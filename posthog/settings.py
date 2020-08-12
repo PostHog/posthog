@@ -169,6 +169,7 @@ try:
     import ee.apps
 
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
+    from ee.settings import *
 except ImportError:
     pass
 

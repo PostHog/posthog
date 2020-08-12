@@ -95,6 +95,9 @@ def group_events_to_date(
             date_to = date_to.replace(hour=0, minute=0, second=0, microsecond=0)
 
     time_index = pd.date_range(date_from, date_to, freq=FREQ_MAP[interval])
+    import ipdb
+
+    ipdb.set_trace()
     if len(aggregates) > 0:
         dataframe = build_dataframe(aggregates, interval, breakdown)
 

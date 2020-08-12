@@ -3,6 +3,8 @@ from typing import Any
 import requests
 from django.db import models
 
+from ee.clickhouse import models as something_else
+
 
 class LicenseError(Exception):
     """Exception raised for licensing errors.

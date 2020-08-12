@@ -1,5 +1,7 @@
 from django.urls import include, path, re_path
 
+from ee.clickhouse import models
+
 from .api import license as _license
 
 
