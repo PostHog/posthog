@@ -5,6 +5,7 @@ import { DeleteWithUndo } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '../../models/actionsModel'
 import { NewActionButton } from './NewActionButton'
+import moment from 'moment'
 
 export function ActionsTable() {
     const { actions, actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
@@ -57,6 +58,19 @@ export function ActionsTable() {
                         ))}
                     </span>
                 )
+            },
+        },
+        {
+            title: 'Created by',
+            render: function RenderCreatedBy(_, action) {
+                if (!action.created_by) return 'Unknown'
+                return action.created_by.first_name || action.created_by.email
+            },
+        },
+        {
+            title: 'Created at',
+            render: function RenderCreatedAt(_, action) {
+                return action.created_at ? moment(action.created_at).format('LLL') : '-'
             },
         },
         {
