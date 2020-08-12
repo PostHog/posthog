@@ -45,8 +45,8 @@ export const determineFilters = (
         if (filters.actions) count += filters.actions.length
         if (count > 0) {
             const entity: string[] = []
-            if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name}`))
-            if (filters.actions) filters.actions.forEach((action: Entity) => entity.push(`- ${action.name}`))
+            if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name}\n`))
+            if (filters.actions) filters.actions.forEach((action: Entity) => entity.push(`- ${action.name}\n`))
             result.push({ key: 'Entities', value: entity })
         }
         if (filters.interval) result.push({ key: 'Interval', value: `${filters.interval}` })
@@ -68,10 +68,10 @@ export const determineFilters = (
         if (filters.actions) count += filters.actions.length
         if (count > 0) {
             const entity: string[] = []
-            if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name || event.id}`))
+            if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name || event.id}\n`))
             if (filters.actions)
                 filters.actions.forEach((action: Entity) =>
-                    entity.push(`- ${action.name || '(action: ' + action.id + ')'}`)
+                    entity.push(`- ${action.name || '(action: ' + action.id + ')'}\n`)
                 )
             result.push({ key: 'Entities', value: entity })
         }
