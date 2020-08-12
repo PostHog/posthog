@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { TeamInvitationModal } from 'lib/components/TeamInvitation'
 import { Menu, Layout, Modal } from 'antd'
 import {
-    RocketFilled,
     UserOutlined,
     FunnelPlotOutlined,
     SettingOutlined,
@@ -25,10 +24,11 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import whiteLogo from './../../public/posthog-logo-white.svg'
 import { triggerResizeAfterADelay } from 'lib/utils'
+import { HogIcon } from 'lib/icons/HogIcon'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
+import whiteLogo from './../../public/posthog-logo-white.svg'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -120,7 +120,9 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                         onClick={() => setToolbarModalOpen(true)}
                         data-attr="menu-item-toolbar"
                     >
-                        <RocketFilled />
+                        <div className="sidebar-toolbar-imitation">
+                            <HogIcon />
+                        </div>
                         <span className="sidebar-label">Launch Toolbar!</span>
                     </Menu.Item>
 

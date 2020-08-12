@@ -6,9 +6,9 @@ export function HogIcon({ style }: { style?: CSSProperties }): JSX.Element {
             className="hog-icon"
             style={style}
             fill="none"
+            width="206"
             height="120"
             viewBox="0 0 206 120"
-            width="206"
             xmlns="http://www.w3.org/2000/svg"
         >
             <path
