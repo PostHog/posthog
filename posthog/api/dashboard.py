@@ -131,17 +131,17 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team = request.user.team_set.get()
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
-        filter_data = validated_data.pop("filters")
-        filters = Filter(data=filter_data)
+        filter_data = validated_data.pop("filters", None)
+        filters = Filter(data=filter_data) if filter_data else None
 
         if not validated_data.get("dashboard", None):
             dashboard_item = DashboardItem.objects.create(
-                team=team, created_by=request.user, filters=filters.to_dict(), **validated_data
+                team=team, created_by=request.user, filters=filters.to_dict() if filters else {}, **validated_data
             )
             return dashboard_item
         elif validated_data["dashboard"].team == team:
             dashboard_item = DashboardItem.objects.create(
-                team=team, last_refresh=now(), filters=filters.to_dict(), **validated_data
+                team=team, last_refresh=now(), filters=filters.to_dict() if filters else {}, **validated_data
             )
             return dashboard_item
         else:
