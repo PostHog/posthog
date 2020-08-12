@@ -80,6 +80,21 @@ class SelectorPart(object):
         if tag:
             self.data["tag_name"] = tag
 
+    @property
+    def extra_query(self) -> Dict[str, List[Union[str, List[str]]]]:
+        where: List[Union[str, List[str]]] = []
+        params: List[Union[str, List[str]]] = []
+        for key, value in self.data.items():
+            if "attr__" in key:
+                where.append("(attributes ->> 'attr__{}') = %s".format(key.split("attr__")[1]))
+            else:
+                if "__contains" in key:
+                    where.append("{} @> %s::varchar(200)[]".format(key.replace("__contains", "")))
+                else:
+                    where.append("{} = %s".format(key))
+            params.append(value)
+        return {"where": where, "params": params}
+
 
 class Selector(object):
     parts: List[SelectorPart] = []
@@ -105,9 +120,10 @@ class EventManager(models.QuerySet):
         subqueries = {}
         for index, tag in enumerate(selector.parts):
             subqueries["match_{}".format(index)] = Subquery(
-                Element.objects.filter(group_id=OuterRef("pk"), **tag.data)
+                Element.objects.filter(group_id=OuterRef("pk"))
                 .values("order")
                 .order_by("order")
+                .extra(**tag.extra_query)  # type: ignore
                 # If there's two of the same element, for the second one we need to shift one
                 [tag.unique_order : tag.unique_order + 1]
             )
@@ -137,10 +153,8 @@ class EventManager(models.QuerySet):
 
         if not filter:
             return {}
-        groups = groups.filter(**filter)
-        import ipdb
 
-        ipdb.set_trace()
+        groups = groups.filter(**filter)
         return {"elements_hash__in": groups.values_list("hash", flat=True)}
 
     def filter_by_url(self, action_step: ActionStep, subquery: QuerySet):
