@@ -1,13 +1,16 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface cohortsModelType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface cohortsModelType extends Logic {
     actionCreators: {
         setPollTimeout: (
             pollTimeout: any
         ) => {
             type: 'set poll timeout (models.cohortsModel)'
-            payload: { pollTimeout: any }
+            payload: {
+                pollTimeout: any
+            }
         }
         loadCohorts: () => {
             type: 'load cohorts (models.cohortsModel)'
@@ -48,15 +51,35 @@ export interface cohortsModelType {
         loadCohortsSuccess: (cohorts: any) => void
         loadCohortsFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        cohorts: any
+        cohortsLoading: boolean
+        pollTimeout: null
+    }
+    events: {
+        afterMount: () => void
+        beforeUnmount: () => void
+    }
+    key: undefined
+    listeners: {
+        loadCohortsSuccess: ((
+            payload: {
+                cohorts: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'load cohorts success (models.cohortsModel)'
+                payload: {
+                    cohorts: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['models', 'cohortsModel']
     pathString: 'models.cohortsModel'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -66,7 +89,7 @@ export interface cohortsModelType {
         cohortsLoading: boolean
         pollTimeout: null
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         cohorts: (state: any, action: any, fullState: any) => any
         cohortsLoading: (state: boolean, action: any, fullState: any) => boolean
@@ -84,10 +107,12 @@ export interface cohortsModelType {
         cohortsLoading: (state: any, props: any) => boolean
         pollTimeout: (state: any, props: any) => null
     }
+    sharedListeners: {}
     values: {
         cohorts: any
         cohortsLoading: boolean
         pollTimeout: null
     }
     _isKea: true
+    _isKeaWithKey: false
 }

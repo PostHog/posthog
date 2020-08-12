@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface toolbarLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface toolbarLogicType extends Logic {
     actionCreators: {
         authenticate: () => {
             type: 'authenticate (toolbar.toolbarLogic)'
@@ -28,15 +29,49 @@ export interface toolbarLogicType {
         authenticate: () => void
         logout: () => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        rawApiURL: string
+        rawJsURL: string
+        temporaryToken: string | null
+        actionId: number | null
+        userIntent: string | null
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: undefined
+    listeners: {
+        authenticate: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'authenticate (toolbar.toolbarLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        logout: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'logout (toolbar.toolbarLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['toolbar', 'toolbarLogic']
     pathString: 'toolbar.toolbarLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -48,7 +83,7 @@ export interface toolbarLogicType {
         actionId: number | null
         userIntent: string | null
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         rawApiURL: (state: string, action: any, fullState: any) => string
         rawJsURL: (state: string, action: any, fullState: any) => string
@@ -75,6 +110,7 @@ export interface toolbarLogicType {
         jsURL: (state: any, props: any) => string
         isAuthenticated: (state: any, props: any) => boolean
     }
+    sharedListeners: {}
     values: {
         rawApiURL: string
         rawJsURL: string
@@ -86,6 +122,7 @@ export interface toolbarLogicType {
         isAuthenticated: boolean
     }
     _isKea: true
+    _isKeaWithKey: false
     __keaTypeGenInternalSelectorTypes: {
         apiURL: (arg1: string) => string
         jsURL: (arg1: string) => string

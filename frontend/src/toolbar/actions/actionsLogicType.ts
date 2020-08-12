@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface actionsLogicType<ActionType> {
-    key: any
+import { Logic } from 'kea'
+
+export interface actionsLogicType<ActionType> extends Logic {
     actionCreators: {
         getActions: (
             _?: any
@@ -111,15 +112,17 @@ export interface actionsLogicType<ActionType> {
         deleteActionSuccess: (allActions: ActionType[]) => void
         deleteActionFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        allActions: ActionType[]
+        allActionsLoading: boolean
+    }
+    events: {}
+    key: undefined
+    listeners: {}
     path: ['toolbar', 'actions', 'actionsLogic']
     pathString: 'toolbar.actions.actionsLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -128,7 +131,7 @@ export interface actionsLogicType<ActionType> {
         allActions: ActionType[]
         allActionsLoading: boolean
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         allActions: (state: ActionType[], action: any, fullState: any) => ActionType[]
         allActionsLoading: (state: boolean, action: any, fullState: any) => boolean
@@ -146,6 +149,7 @@ export interface actionsLogicType<ActionType> {
         actionsForCurrentUrl: (state: any, props: any) => ActionType[]
         actionCount: (state: any, props: any) => number
     }
+    sharedListeners: {}
     values: {
         allActions: ActionType[]
         allActionsLoading: boolean
@@ -154,6 +158,7 @@ export interface actionsLogicType<ActionType> {
         actionCount: number
     }
     _isKea: true
+    _isKeaWithKey: false
     __keaTypeGenInternalSelectorTypes: {
         sortedActions: (arg1: ActionType[]) => ActionType[]
         actionsForCurrentUrl: (arg1: ActionType[], arg2: string) => ActionType[]

@@ -1,37 +1,48 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface cohortLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface cohortLogicType extends Logic {
     actionCreators: {
         saveCohort: (
             cohort: any
         ) => {
             type: 'save cohort (scenes.users.cohortLogic)'
-            payload: { cohort: any }
+            payload: {
+                cohort: any
+            }
         }
         setCohort: (
             cohort: any
         ) => {
             type: 'set cohort (scenes.users.cohortLogic)'
-            payload: { cohort: any }
+            payload: {
+                cohort: any
+            }
         }
         checkIsFinished: (
             cohort: any
         ) => {
             type: 'check is finished (scenes.users.cohortLogic)'
-            payload: { cohort: any }
+            payload: {
+                cohort: any
+            }
         }
         setToastId: (
             toastId: any
         ) => {
             type: 'set toast id (scenes.users.cohortLogic)'
-            payload: { toastId: any }
+            payload: {
+                toastId: any
+            }
         }
         setPollTimeout: (
             pollTimeout: any
         ) => {
             type: 'set poll timeout (scenes.users.cohortLogic)'
-            payload: { pollTimeout: any }
+            payload: {
+                pollTimeout: any
+            }
         }
         loadPersonProperties: () => {
             type: 'load person properties (scenes.users.cohortLogic)'
@@ -84,15 +95,50 @@ export interface cohortLogicType {
         loadPersonPropertiesSuccess: (personProperties: any) => void
         loadPersonPropertiesFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        personProperties: any
+        personPropertiesLoading: boolean
+        pollTimeout: null
+        cohort: null
+        toastId: null
+    }
+    events: {
+        afterMount: () => void
+        beforeUnmount: () => void
+    }
+    key: any
+    listeners: {
+        saveCohort: ((
+            payload: {
+                cohort: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'save cohort (scenes.users.cohortLogic)'
+                payload: {
+                    cohort: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        checkIsFinished: ((
+            payload: {
+                cohort: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'check is finished (scenes.users.cohortLogic)'
+                payload: {
+                    cohort: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['scenes', 'users', 'cohortLogic']
     pathString: 'scenes.users.cohortLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -104,7 +150,7 @@ export interface cohortLogicType {
         cohort: null
         toastId: null
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         personProperties: (state: any, action: any, fullState: any) => any
         personPropertiesLoading: (state: boolean, action: any, fullState: any) => boolean
@@ -128,6 +174,17 @@ export interface cohortLogicType {
         cohort: (state: any, props: any) => null
         toastId: (state: any, props: any) => null
     }
+    sharedListeners: {
+        pollIsFinished: (
+            payload: any,
+            breakpoint: BreakPointFunction,
+            action: {
+                type: string
+                payload: any
+            },
+            previousState: any
+        ) => void | Promise<void>
+    }
     values: {
         personProperties: any
         personPropertiesLoading: boolean
@@ -136,4 +193,5 @@ export interface cohortLogicType {
         toastId: null
     }
     _isKea: true
+    _isKeaWithKey: true
 }

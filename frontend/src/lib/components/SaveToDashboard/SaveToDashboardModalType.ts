@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface saveToDashboardModalLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface saveToDashboardModalLogicType extends Logic {
     actionCreators: {
         addNewDashboard: () => {
             type: 'add new dashboard (lib.components.SaveToDashboard.SaveToDashboardModal)'
@@ -19,20 +20,35 @@ export interface saveToDashboardModalLogicType {
     actions: {
         addNewDashboard: () => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {}
+    events: {}
+    key: undefined
+    listeners: {
+        addNewDashboard: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'add new dashboard (lib.components.SaveToDashboard.SaveToDashboardModal)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['lib', 'components', 'SaveToDashboard', 'SaveToDashboardModal']
     pathString: 'lib.components.SaveToDashboard.SaveToDashboardModal'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (state: any, action: () => any, fullState: any) => {}
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {}
     selector: (state: any) => {}
     selectors: {}
+    sharedListeners: {}
     values: {}
     _isKea: true
+    _isKeaWithKey: false
 }

@@ -1,14 +1,18 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface funnelLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface funnelLogicType extends Logic {
     actionCreators: {
         setFunnel: (
             funnel: any,
             update: any
         ) => {
             type: 'set funnel (scenes.funnels.funnelLogic)'
-            payload: { funnel: any; update: any }
+            payload: {
+                funnel: any
+                update: any
+            }
         }
         clearFunnel: () => {
             type: 'clear funnel (scenes.funnels.funnelLogic)'
@@ -191,15 +195,105 @@ export interface funnelLogicType {
         loadPeopleSuccess: (people: any) => void
         loadPeopleFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        funnel: {
+            filters: {}
+        }
+        funnelLoading: boolean
+        stepsWithCount: any
+        stepsWithCountLoading: boolean
+        people: any
+        peopleLoading: boolean
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: any
+    listeners: {
+        loadStepsWithCountSuccess: ((
+            payload: {
+                stepsWithCount: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'load steps with count success (scenes.funnels.funnelLogic)'
+                payload: {
+                    stepsWithCount: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        setFunnel: ((
+            payload: {
+                funnel: any
+                update: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'set funnel (scenes.funnels.funnelLogic)'
+                payload: {
+                    funnel: any
+                    update: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        loadFunnelSuccess: ((
+            payload: {
+                funnel: {
+                    filters: {}
+                }
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'load funnel success (scenes.funnels.funnelLogic)'
+                payload: {
+                    funnel: {
+                        filters: {}
+                    }
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        updateFunnelSuccess: ((
+            payload: {
+                funnel: {
+                    filters: {}
+                }
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'update funnel success (scenes.funnels.funnelLogic)'
+                payload: {
+                    funnel: {
+                        filters: {}
+                    }
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        createFunnelSuccess: ((
+            payload: {
+                funnel: {
+                    filters: {}
+                }
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'create funnel success (scenes.funnels.funnelLogic)'
+                payload: {
+                    funnel: {
+                        filters: {}
+                    }
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['scenes', 'funnels', 'funnelLogic']
     pathString: 'scenes.funnels.funnelLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -214,7 +308,7 @@ export interface funnelLogicType {
         people: any
         peopleLoading: boolean
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         funnel: (
             state: {
@@ -258,6 +352,7 @@ export interface funnelLogicType {
         peopleSorted: (state: any, props: any) => any
         isStepsEmpty: (state: any, props: any) => boolean
     }
+    sharedListeners: {}
     values: {
         funnel: {
             filters: {}
@@ -271,6 +366,7 @@ export interface funnelLogicType {
         isStepsEmpty: boolean
     }
     _isKea: true
+    _isKeaWithKey: true
     __keaTypeGenInternalSelectorTypes: {
         peopleSorted: (arg1: any, arg2: any) => any
         isStepsEmpty: (arg1: any) => boolean

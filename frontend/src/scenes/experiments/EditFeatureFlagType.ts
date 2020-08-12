@@ -1,19 +1,24 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface editLogicType {
-    key: any
+import { Logic } from 'kea'
+
+export interface editLogicType extends Logic {
     actionCreators: {
         setRolloutPercentage: (
             rollout_percentage: any
         ) => {
             type: 'set rollout percentage (scenes.experiments.EditFeatureFlag)'
-            payload: { rollout_percentage: any }
+            payload: {
+                rollout_percentage: any
+            }
         }
         setFilters: (
             filters: any
         ) => {
             type: 'set filters (scenes.experiments.EditFeatureFlag)'
-            payload: { filters: any }
+            payload: {
+                filters: any
+            }
         }
     }
     actionKeys: {
@@ -28,15 +33,17 @@ export interface editLogicType {
         setRolloutPercentage: (rollout_percentage: any) => void
         setFilters: (filters: any) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        filters: any
+        rollout_percentage: any
+    }
+    events: {}
+    key: undefined
+    listeners: {}
     path: ['scenes', 'experiments', 'EditFeatureFlag']
     pathString: 'scenes.experiments.EditFeatureFlag'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -45,7 +52,7 @@ export interface editLogicType {
         filters: any
         rollout_percentage: any
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         filters: (state: any, action: any, fullState: any) => any
         rollout_percentage: (state: any, action: any, fullState: any) => any
@@ -60,9 +67,11 @@ export interface editLogicType {
         filters: (state: any, props: any) => any
         rollout_percentage: (state: any, props: any) => any
     }
+    sharedListeners: {}
     values: {
         filters: any
         rollout_percentage: any
     }
     _isKea: true
+    _isKeaWithKey: false
 }

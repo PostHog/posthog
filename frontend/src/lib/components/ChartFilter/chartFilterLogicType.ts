@@ -1,13 +1,16 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface chartFilterLogicType {
-    key: any
+import { Logic } from 'kea'
+
+export interface chartFilterLogicType extends Logic {
     actionCreators: {
         setChartFilter: (
             filter: any
         ) => {
             type: 'set chart filter (lib.components.ChartFilter.chartFilterLogic)'
-            payload: { filter: any }
+            payload: {
+                filter: any
+            }
         }
     }
     actionKeys: {
@@ -19,15 +22,16 @@ export interface chartFilterLogicType {
     actions: {
         setChartFilter: (filter: any) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        chartFilter: 'ActionsLineGraph'
+    }
+    events: {}
+    key: undefined
+    listeners: {}
     path: ['lib', 'components', 'ChartFilter', 'chartFilterLogic']
     pathString: 'lib.components.ChartFilter.chartFilterLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -35,7 +39,7 @@ export interface chartFilterLogicType {
     ) => {
         chartFilter: 'ActionsLineGraph'
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         chartFilter: (state: 'ActionsLineGraph', action: any, fullState: any) => 'ActionsLineGraph'
     }
@@ -47,8 +51,10 @@ export interface chartFilterLogicType {
     selectors: {
         chartFilter: (state: any, props: any) => 'ActionsLineGraph'
     }
+    sharedListeners: {}
     values: {
         chartFilter: 'ActionsLineGraph'
     }
     _isKea: true
+    _isKeaWithKey: false
 }

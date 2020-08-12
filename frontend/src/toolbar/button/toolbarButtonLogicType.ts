@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface toolbarButtonLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface toolbarButtonLogicType extends Logic {
     actionCreators: {
         showHeatmapInfo: () => {
             type: 'show heatmap info (toolbar.button.toolbarButtonLogic)'
@@ -43,35 +44,49 @@ export interface toolbarButtonLogicType {
             percentage: number
         ) => {
             type: 'set extension percentage (toolbar.button.toolbarButtonLogic)'
-            payload: { percentage: number }
+            payload: {
+                percentage: number
+            }
         }
         saveDragPosition: (
             x: number,
             y: number
         ) => {
             type: 'save drag position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: number; y: number }
+            payload: {
+                x: number
+                y: number
+            }
         }
         saveHeatmapPosition: (
             x: number,
             y: number
         ) => {
             type: 'save heatmap position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: number; y: number }
+            payload: {
+                x: number
+                y: number
+            }
         }
         saveActionsPosition: (
             x: number,
             y: number
         ) => {
             type: 'save actions position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: number; y: number }
+            payload: {
+                x: number
+                y: number
+            }
         }
         saveStatsPosition: (
             x: number,
             y: number
         ) => {
             type: 'save stats position (toolbar.button.toolbarButtonLogic)'
-            payload: { x: number; y: number }
+            payload: {
+                x: number
+                y: number
+            }
         }
     }
     actionKeys: {
@@ -113,15 +128,51 @@ export interface toolbarButtonLogicType {
         saveActionsPosition: (x: number, y: number) => void
         saveStatsPosition: (x: number, y: number) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        windowHeight: number
+        windowWidth: number
+        heatmapInfoVisible: boolean
+        actionsInfoVisible: boolean
+        statsVisible: boolean
+        extensionPercentage: number
+        lastDragPosition: null | {
+            x: number
+            y: number
+        }
+        heatmapPosition: {
+            x: number
+            y: number
+        }
+        actionsPosition: {
+            x: number
+            y: number
+        }
+        statsPosition: {
+            x: number
+            y: number
+        }
+    }
+    events: {}
+    key: undefined
+    listeners: {
+        hideActionsInfo: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'hide actions info (toolbar.button.toolbarButtonLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['toolbar', 'button', 'toolbarButtonLogic']
     pathString: 'toolbar.button.toolbarButtonLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -150,7 +201,11 @@ export interface toolbarButtonLogicType {
             y: number
         }
     }
-    reducerOptions: any
+    reducerOptions: {
+        lastDragPosition: {
+            persist: boolean
+        }
+    }
     reducers: {
         windowHeight: (state: number, action: any, fullState: any) => number
         windowWidth: (state: number, action: any, fullState: any) => number
@@ -277,6 +332,7 @@ export interface toolbarButtonLogicType {
         actionsWindowVisible: (state: any, props: any) => boolean
         statsExtensionPercentage: (state: any, props: any) => number
     }
+    sharedListeners: {}
     values: {
         windowHeight: number
         windowWidth: number
@@ -314,6 +370,7 @@ export interface toolbarButtonLogicType {
         statsExtensionPercentage: number
     }
     _isKea: true
+    _isKeaWithKey: false
     __keaTypeGenInternalSelectorTypes: {
         dragPosition: (
             arg1: {

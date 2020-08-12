@@ -1,13 +1,16 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface toolbarTabLogicType<ToolbarTab> {
-    key: any
+import { Logic } from 'kea'
+
+export interface toolbarTabLogicType<ToolbarTab> extends Logic {
     actionCreators: {
         setTab: (
             tab: ToolbarTab | string
         ) => {
             type: 'set tab (toolbar.toolbarTabLogic)'
-            payload: { tab: string }
+            payload: {
+                tab: string
+            }
         }
     }
     actionKeys: {
@@ -19,15 +22,16 @@ export interface toolbarTabLogicType<ToolbarTab> {
     actions: {
         setTab: (tab: ToolbarTab | string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        tab: ToolbarTab
+    }
+    events: {}
+    key: undefined
+    listeners: {}
     path: ['toolbar', 'toolbarTabLogic']
     pathString: 'toolbar.toolbarTabLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -35,7 +39,7 @@ export interface toolbarTabLogicType<ToolbarTab> {
     ) => {
         tab: ToolbarTab
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         tab: (state: ToolbarTab, action: any, fullState: any) => ToolbarTab
     }
@@ -47,10 +51,12 @@ export interface toolbarTabLogicType<ToolbarTab> {
     selectors: {
         tab: (state: any, props: any) => ToolbarTab
     }
+    sharedListeners: {}
     values: {
         tab: ToolbarTab
     }
     _isKea: true
+    _isKeaWithKey: false
     __keaTypeGenInternalReducerActions: {
         'button (toolbar.dockLogic)': () => {
             type: 'button (toolbar.dockLogic)'

@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface dockLogicType<ToolbarMode, ToolbarAnimationState> {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface dockLogicType<ToolbarMode, ToolbarAnimationState> extends Logic {
     actionCreators: {
         button: () => {
             type: 'button (toolbar.dockLogic)'
@@ -62,7 +63,12 @@ export interface dockLogicType<ToolbarMode, ToolbarAnimationState> {
             update?: boolean
         ) => {
             type: 'set mode (toolbar.dockLogic)'
-            payload: { mode: ToolbarMode; update: boolean; windowWidth: number; windowHeight: number }
+            payload: {
+                mode: ToolbarMode
+                update: boolean
+                windowWidth: number
+                windowHeight: number
+            }
         }
     }
     actionKeys: {
@@ -101,15 +107,100 @@ export interface dockLogicType<ToolbarMode, ToolbarAnimationState> {
         hideButtonAnimated: () => void
         setMode: (mode: ToolbarMode, update?: boolean) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        windowWidth: number
+        windowHeight: number
+        windowScroll: number
+        mode: ToolbarMode
+        lastMode: ToolbarMode
+        dockStatus: ToolbarAnimationState
+        buttonStatus: ToolbarAnimationState
+    }
+    events: {
+        afterMount: () => void
+        beforeUnmount: () => void
+    }
+    key: undefined
+    listeners: {
+        button: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'button (toolbar.dockLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        dock: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'dock (toolbar.dockLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        hideButton: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'hide button (toolbar.dockLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        update: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'update (toolbar.dockLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        setMode: ((
+            payload: {
+                mode: ToolbarMode
+                update: boolean
+                windowWidth: number
+                windowHeight: number
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'set mode (toolbar.dockLogic)'
+                payload: {
+                    mode: ToolbarMode
+                    update: boolean
+                    windowWidth: number
+                    windowHeight: number
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['toolbar', 'dockLogic']
     pathString: 'toolbar.dockLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: {
+        shadowRef: string
+        padding: string
+    }
     reducer: (
         state: any,
         action: () => any,
@@ -123,7 +214,11 @@ export interface dockLogicType<ToolbarMode, ToolbarAnimationState> {
         dockStatus: ToolbarAnimationState
         buttonStatus: ToolbarAnimationState
     }
-    reducerOptions: any
+    reducerOptions: {
+        lastMode: {
+            persist: boolean
+        }
+    }
     reducers: {
         windowWidth: (state: number, action: any, fullState: any) => number
         windowHeight: (state: number, action: any, fullState: any) => number
@@ -161,6 +256,7 @@ export interface dockLogicType<ToolbarMode, ToolbarAnimationState> {
         domPadding: (state: any, props: any) => number
         dockTopMargin: (state: any, props: any) => number
     }
+    sharedListeners: {}
     values: {
         windowWidth: number
         windowHeight: number
@@ -179,6 +275,7 @@ export interface dockLogicType<ToolbarMode, ToolbarAnimationState> {
         dockTopMargin: number
     }
     _isKea: true
+    _isKeaWithKey: false
     __keaTypeGenInternalSelectorTypes: {
         isAnimating: (arg1: ToolbarAnimationState, arg2: ToolbarAnimationState) => boolean
         padding: (arg1: number) => number

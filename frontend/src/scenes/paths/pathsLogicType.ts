@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface pathsLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface pathsLogicType extends Logic {
     actionCreators: {
         loadPaths: (
             _: any
@@ -33,7 +34,9 @@ export interface pathsLogicType {
             properties: any
         ) => {
             type: 'set properties (scenes.paths.pathsLogic)'
-            payload: { properties: any }
+            payload: {
+                properties: any
+            }
         }
         setFilter: (
             filter: any
@@ -63,15 +66,50 @@ export interface pathsLogicType {
         setProperties: (properties: any) => void
         setFilter: (filter: any) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        paths: {
+            nodes: never[]
+            links: never[]
+        }
+        pathsLoading: boolean
+        initialPathname: (state: any) => any
+        filter: {
+            type: string
+        }
+        properties: {}
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: undefined
+    listeners: {
+        setProperties: ((
+            payload: {
+                properties: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'set properties (scenes.paths.pathsLogic)'
+                payload: {
+                    properties: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        setFilter: ((
+            payload: any,
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'set filter (scenes.paths.pathsLogic)'
+                payload: any
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['scenes', 'paths', 'pathsLogic']
     pathString: 'scenes.paths.pathsLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -88,7 +126,7 @@ export interface pathsLogicType {
         }
         properties: {}
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         paths: (
             state: {
@@ -147,6 +185,7 @@ export interface pathsLogicType {
         properties: (state: any, props: any) => {}
         propertiesForUrl: (state: any, props: any) => '' | { insight: string }
     }
+    sharedListeners: {}
     values: {
         paths: {
             nodes: never[]
@@ -161,6 +200,7 @@ export interface pathsLogicType {
         propertiesForUrl: '' | { insight: string }
     }
     _isKea: true
+    _isKeaWithKey: false
     __keaTypeGenInternalSelectorTypes: {
         propertiesForUrl: (arg1: any, arg2: any) => '' | { insight: string }
     }

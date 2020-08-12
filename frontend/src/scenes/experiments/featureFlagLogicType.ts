@@ -1,25 +1,29 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface featureFlagLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface featureFlagLogicType extends Logic {
     actionCreators: {
         setFunnel: (
             funnel: any,
             update: any
         ) => {
             type: 'set funnel (scenes.experiments.featureFlagLogic)'
-            payload: { funnel: any; update: any }
+            payload: {
+                funnel: any
+                update: any
+            }
         }
         loadFeatureFlags: () => {
             type: 'load feature flags (scenes.experiments.featureFlagLogic)'
             payload: any
         }
         loadFeatureFlagsSuccess: (
-            featureFlags: never[]
+            featureFlags: any[]
         ) => {
             type: 'load feature flags success (scenes.experiments.featureFlagLogic)'
             payload: {
-                featureFlags: never[]
+                featureFlags: any[]
             }
         }
         loadFeatureFlagsFailure: (
@@ -37,11 +41,11 @@ export interface featureFlagLogicType {
             payload: any
         }
         updateFeatureFlagSuccess: (
-            featureFlags: never[]
+            featureFlags: any[]
         ) => {
             type: 'update feature flag success (scenes.experiments.featureFlagLogic)'
             payload: {
-                featureFlags: never[]
+                featureFlags: any[]
             }
         }
         updateFeatureFlagFailure: (
@@ -59,11 +63,11 @@ export interface featureFlagLogicType {
             payload: any
         }
         createFeatureFlagSuccess: (
-            featureFlags: never[]
+            featureFlags: any[]
         ) => {
             type: 'create feature flag success (scenes.experiments.featureFlagLogic)'
             payload: {
-                featureFlags: never[]
+                featureFlags: any[]
             }
         }
         createFeatureFlagFailure: (
@@ -102,50 +106,92 @@ export interface featureFlagLogicType {
     actions: {
         setFunnel: (funnel: any, update: any) => void
         loadFeatureFlags: () => void
-        loadFeatureFlagsSuccess: (featureFlags: never[]) => void
+        loadFeatureFlagsSuccess: (featureFlags: any[]) => void
         loadFeatureFlagsFailure: (error: string) => void
         updateFeatureFlag: (featureFlag: any) => void
-        updateFeatureFlagSuccess: (featureFlags: never[]) => void
+        updateFeatureFlagSuccess: (featureFlags: any[]) => void
         updateFeatureFlagFailure: (error: string) => void
         createFeatureFlag: (featureFlag: any) => void
-        createFeatureFlagSuccess: (featureFlags: never[]) => void
+        createFeatureFlagSuccess: (featureFlags: any[]) => void
         createFeatureFlagFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        featureFlags: any[]
+        featureFlagsLoading: boolean
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: any
+    listeners: {
+        updateFeatureFlag: ((
+            payload: any,
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'update feature flag (scenes.experiments.featureFlagLogic)'
+                payload: any
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        updateFeatureFlagSuccess: ((
+            payload: {
+                featureFlags: any[]
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'update feature flag success (scenes.experiments.featureFlagLogic)'
+                payload: {
+                    featureFlags: any[]
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        createFeatureFlagSuccess: ((
+            payload: {
+                featureFlags: any[]
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'create feature flag success (scenes.experiments.featureFlagLogic)'
+                payload: {
+                    featureFlags: any[]
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['scenes', 'experiments', 'featureFlagLogic']
     pathString: 'scenes.experiments.featureFlagLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
         fullState: any
     ) => {
-        featureFlags: never[]
+        featureFlags: any[]
         featureFlagsLoading: boolean
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
-        featureFlags: (state: never[], action: any, fullState: any) => never[]
+        featureFlags: (state: any[], action: any, fullState: any) => any[]
         featureFlagsLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
         state: any
     ) => {
-        featureFlags: never[]
+        featureFlags: any[]
         featureFlagsLoading: boolean
     }
     selectors: {
-        featureFlags: (state: any, props: any) => never[]
+        featureFlags: (state: any, props: any) => any[]
         featureFlagsLoading: (state: any, props: any) => boolean
     }
+    sharedListeners: {}
     values: {
-        featureFlags: never[]
+        featureFlags: any[]
         featureFlagsLoading: boolean
     }
     _isKea: true
+    _isKeaWithKey: true
 }

@@ -1,28 +1,38 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface sceneLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface sceneLogicType extends Logic {
     actionCreators: {
         loadScene: (
             scene: any,
             params: any
         ) => {
             type: 'load scene (scenes.sceneLogic)'
-            payload: { scene: any; params: any }
+            payload: {
+                scene: any
+                params: any
+            }
         }
         setScene: (
             scene: any,
             params: any
         ) => {
             type: 'set scene (scenes.sceneLogic)'
-            payload: { scene: any; params: any }
+            payload: {
+                scene: any
+                params: any
+            }
         }
         setLoadedScene: (
             scene: any,
             loadedScene: any
         ) => {
             type: 'set loaded scene (scenes.sceneLogic)'
-            payload: { scene: any; loadedScene: any }
+            payload: {
+                scene: any
+                loadedScene: any
+            }
         }
     }
     actionKeys: {
@@ -40,15 +50,57 @@ export interface sceneLogicType {
         setScene: (scene: any, params: any) => void
         setLoadedScene: (scene: any, loadedScene: any) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        scene: null
+        params: {}
+        loadedScenes: {
+            404: {
+                component: () => Element
+            }
+            '4xx': {
+                component: () => Element
+            }
+        }
+        loadingScene: null
+    }
+    events: {}
+    key: undefined
+    listeners: {
+        setScene: ((
+            payload: {
+                scene: any
+                params: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'set scene (scenes.sceneLogic)'
+                payload: {
+                    scene: any
+                    params: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        loadScene: ((
+            payload: {
+                scene: any
+                params: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'load scene (scenes.sceneLogic)'
+                payload: {
+                    scene: any
+                    params: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['scenes', 'sceneLogic']
     pathString: 'scenes.sceneLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -60,10 +112,13 @@ export interface sceneLogicType {
             404: {
                 component: () => Element
             }
+            '4xx': {
+                component: () => Element
+            }
         }
         loadingScene: null
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         scene: (state: null, action: any, fullState: any) => null
         params: (state: {}, action: any, fullState: any) => {}
@@ -72,11 +127,17 @@ export interface sceneLogicType {
                 404: {
                     component: () => Element
                 }
+                '4xx': {
+                    component: () => Element
+                }
             },
             action: any,
             fullState: any
         ) => {
             404: {
+                component: () => Element
+            }
+            '4xx': {
                 component: () => Element
             }
         }
@@ -89,6 +150,9 @@ export interface sceneLogicType {
         params: {}
         loadedScenes: {
             404: {
+                component: () => Element
+            }
+            '4xx': {
                 component: () => Element
             }
         }
@@ -104,9 +168,13 @@ export interface sceneLogicType {
             404: {
                 component: () => Element
             }
+            '4xx': {
+                component: () => Element
+            }
         }
         loadingScene: (state: any, props: any) => null
     }
+    sharedListeners: {}
     values: {
         scene: null
         params: {}
@@ -114,8 +182,12 @@ export interface sceneLogicType {
             404: {
                 component: () => Element
             }
+            '4xx': {
+                component: () => Element
+            }
         }
         loadingScene: null
     }
     _isKea: true
+    _isKeaWithKey: false
 }

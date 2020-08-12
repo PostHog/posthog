@@ -1,13 +1,16 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface currentPageLogicType {
-    key: any
+import { Logic } from 'kea'
+
+export interface currentPageLogicType extends Logic {
     actionCreators: {
         setHref: (
             href: string
         ) => {
             type: 'set href (toolbar.stats.currentPageLogic)'
-            payload: { href: string }
+            payload: {
+                href: string
+            }
         }
     }
     actionKeys: {
@@ -19,15 +22,19 @@ export interface currentPageLogicType {
     actions: {
         setHref: (href: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        href: string
+    }
+    events: {
+        afterMount: () => void
+        beforeUnmount: () => void
+    }
+    key: undefined
+    listeners: {}
     path: ['toolbar', 'stats', 'currentPageLogic']
     pathString: 'toolbar.stats.currentPageLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -35,7 +42,7 @@ export interface currentPageLogicType {
     ) => {
         href: string
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         href: (state: string, action: any, fullState: any) => string
     }
@@ -47,8 +54,10 @@ export interface currentPageLogicType {
     selectors: {
         href: (state: any, props: any) => string
     }
+    sharedListeners: {}
     values: {
         href: string
     }
     _isKea: true
+    _isKeaWithKey: false
 }

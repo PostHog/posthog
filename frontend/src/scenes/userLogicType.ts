@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface userLogicType<UserType, EventProperty> {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface userLogicType<UserType, EventProperty> extends Logic {
     actionCreators: {
         loadUser: () => {
             type: 'load user (scenes.userLogic)'
@@ -14,28 +15,40 @@ export interface userLogicType<UserType, EventProperty> {
             updateKey?: string
         ) => {
             type: 'set user (scenes.userLogic)'
-            payload: { user: UserType | null; updateKey: string | undefined }
+            payload: {
+                user: UserType | null
+                updateKey: string | undefined
+            }
         }
         userUpdateRequest: (
             update: Partial<UserType>,
             updateKey?: string
         ) => {
             type: 'user update request (scenes.userLogic)'
-            payload: { update: Partial<UserType>; updateKey: string | undefined }
+            payload: {
+                update: Partial<UserType>
+                updateKey: string | undefined
+            }
         }
         userUpdateSuccess: (
             user: UserType,
             updateKey?: string
         ) => {
             type: 'user update success (scenes.userLogic)'
-            payload: { user: UserType; updateKey: string | undefined }
+            payload: {
+                user: UserType
+                updateKey: string | undefined
+            }
         }
         userUpdateFailure: (
             error: string,
             updateKey?: string
         ) => {
             type: 'user update failure (scenes.userLogic)'
-            payload: { updateKey: string | undefined; error: string }
+            payload: {
+                updateKey: string | undefined
+                error: string
+            }
         }
     }
     actionKeys: {
@@ -59,15 +72,47 @@ export interface userLogicType<UserType, EventProperty> {
         userUpdateSuccess: (user: UserType, updateKey?: string) => void
         userUpdateFailure: (error: string, updateKey?: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        user: UserType | null
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: undefined
+    listeners: {
+        loadUser: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'load user (scenes.userLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        userUpdateRequest: ((
+            payload: {
+                update: Partial<UserType>
+                updateKey: string | undefined
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'user update request (scenes.userLogic)'
+                payload: {
+                    update: Partial<UserType>
+                    updateKey: string | undefined
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['scenes', 'userLogic']
     pathString: 'scenes.userLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -75,7 +120,7 @@ export interface userLogicType<UserType, EventProperty> {
     ) => {
         user: UserType | null
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         user: (state: UserType | null, action: any, fullState: any) => UserType | null
     }
@@ -91,6 +136,7 @@ export interface userLogicType<UserType, EventProperty> {
         customEventNames: (state: any, props: any) => string[]
         eventNamesGrouped: (state: any, props: any) => { label: string; options: EventProperty[] }[]
     }
+    sharedListeners: {}
     values: {
         user: UserType | null
         eventProperties: EventProperty[]
@@ -99,6 +145,7 @@ export interface userLogicType<UserType, EventProperty> {
         eventNamesGrouped: { label: string; options: EventProperty[] }[]
     }
     _isKea: true
+    _isKeaWithKey: false
     __keaTypeGenInternalSelectorTypes: {
         eventProperties: (arg1: UserType | null) => EventProperty[]
         eventNames: (arg1: UserType | null) => string[]

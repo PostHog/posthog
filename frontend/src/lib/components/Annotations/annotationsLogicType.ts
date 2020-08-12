@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface annotationsLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface annotationsLogicType extends Logic {
     actionCreators: {
         createAnnotation: (
             content: any,
@@ -9,7 +10,12 @@ export interface annotationsLogicType {
             apply_all?: any
         ) => {
             type: 'create annotation (lib.components.Annotations.annotationsLogic)'
-            payload: { content: any; date_marker: any; created_at: Moment; apply_all: boolean }
+            payload: {
+                content: any
+                date_marker: any
+                created_at: Moment
+                apply_all: boolean
+            }
         }
         createAnnotationNow: (
             content: any,
@@ -17,13 +23,20 @@ export interface annotationsLogicType {
             apply_all?: any
         ) => {
             type: 'create annotation now (lib.components.Annotations.annotationsLogic)'
-            payload: { content: any; date_marker: any; created_at: Moment; apply_all: boolean }
+            payload: {
+                content: any
+                date_marker: any
+                created_at: Moment
+                apply_all: boolean
+            }
         }
         deleteAnnotation: (
             id: any
         ) => {
             type: 'delete annotation (lib.components.Annotations.annotationsLogic)'
-            payload: { id: any }
+            payload: {
+                id: any
+            }
         }
         clearAnnotationsToCreate: () => {
             type: 'clear annotations to create (lib.components.Annotations.annotationsLogic)'
@@ -35,13 +48,17 @@ export interface annotationsLogicType {
             dates: any
         ) => {
             type: 'update diff type (lib.components.Annotations.annotationsLogic)'
-            payload: { dates: any }
+            payload: {
+                dates: any
+            }
         }
         setDiffType: (
             type: any
         ) => {
             type: 'set diff type (lib.components.Annotations.annotationsLogic)'
-            payload: { type: any }
+            payload: {
+                type: any
+            }
         }
         loadAnnotations: ({
             before,
@@ -51,11 +68,11 @@ export interface annotationsLogicType {
             payload: any
         }
         loadAnnotationsSuccess: (
-            annotations: never[]
+            annotations: any[]
         ) => {
             type: 'load annotations success (lib.components.Annotations.annotationsLogic)'
             payload: {
-                annotations: never[]
+                annotations: any[]
             }
         }
         loadAnnotationsFailure: (
@@ -97,60 +114,114 @@ export interface annotationsLogicType {
         updateDiffType: (dates: any) => void
         setDiffType: (type: any) => void
         loadAnnotations: ({ before, after }: any) => void
-        loadAnnotationsSuccess: (annotations: never[]) => void
+        loadAnnotationsSuccess: (annotations: any[]) => void
         loadAnnotationsFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        annotations: any[]
+        annotationsLoading: boolean
+        annotationsToCreate: any[]
+        diffType: string
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: string
+    listeners: {
+        createAnnotationNow: ((
+            payload: {
+                content: any
+                date_marker: any
+                created_at: Moment
+                apply_all: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'create annotation now (lib.components.Annotations.annotationsLogic)'
+                payload: {
+                    content: any
+                    date_marker: any
+                    created_at: Moment
+                    apply_all: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        deleteAnnotation: ((
+            payload: {
+                id: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'delete annotation (lib.components.Annotations.annotationsLogic)'
+                payload: {
+                    id: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        updateDiffType: ((
+            payload: {
+                dates: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'update diff type (lib.components.Annotations.annotationsLogic)'
+                payload: {
+                    dates: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['lib', 'components', 'Annotations', 'annotationsLogic']
     pathString: 'lib.components.Annotations.annotationsLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
         fullState: any
     ) => {
-        annotations: never[]
+        annotations: any[]
         annotationsLoading: boolean
-        annotationsToCreate: never[]
+        annotationsToCreate: any[]
         diffType: string
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
-        annotations: (state: never[], action: any, fullState: any) => never[]
+        annotations: (state: any[], action: any, fullState: any) => any[]
         annotationsLoading: (state: boolean, action: any, fullState: any) => boolean
-        annotationsToCreate: (state: never[], action: any, fullState: any) => never[]
+        annotationsToCreate: (state: any[], action: any, fullState: any) => any[]
         diffType: (state: string, action: any, fullState: any) => string
     }
     selector: (
         state: any
     ) => {
-        annotations: never[]
+        annotations: any[]
         annotationsLoading: boolean
-        annotationsToCreate: never[]
+        annotationsToCreate: any[]
         diffType: string
     }
     selectors: {
-        annotations: (state: any, props: any) => never[]
+        annotations: (state: any, props: any) => any[]
         annotationsLoading: (state: any, props: any) => boolean
-        annotationsToCreate: (state: any, props: any) => never[]
+        annotationsToCreate: (state: any, props: any) => any[]
         diffType: (state: any, props: any) => string
         annotationsList: (state: any, props: any) => any[]
         groupedAnnotations: (state: any, props: any) => Dictionary<any[]>
     }
+    sharedListeners: {}
     values: {
-        annotations: never[]
+        annotations: any[]
         annotationsLoading: boolean
-        annotationsToCreate: never[]
+        annotationsToCreate: any[]
         diffType: string
         annotationsList: any[]
         groupedAnnotations: Dictionary<any[]>
     }
     _isKea: true
+    _isKeaWithKey: true
     __keaTypeGenInternalSelectorTypes: {
         annotationsList: (arg1: any, arg2: any, arg3: any) => any[]
         groupedAnnotations: (arg1: any, arg2: any) => Dictionary<any[]>

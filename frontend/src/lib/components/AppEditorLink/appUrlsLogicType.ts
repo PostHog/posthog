@@ -1,43 +1,53 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface appUrlsLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface appUrlsLogicType extends Logic {
     actionCreators: {
         addUrl: (
             value: any
         ) => {
             type: 'add url (lib.components.AppEditorLink.appUrlsLogic)'
-            payload: { value: any }
+            payload: {
+                value: any
+            }
         }
         addUrlAndGo: (
             value: any
         ) => {
             type: 'add url and go (lib.components.AppEditorLink.appUrlsLogic)'
-            payload: { value: any }
+            payload: {
+                value: any
+            }
         }
         removeUrl: (
             index: any
         ) => {
             type: 'remove url (lib.components.AppEditorLink.appUrlsLogic)'
-            payload: { index: any }
+            payload: {
+                index: any
+            }
         }
         updateUrl: (
             index: any,
             value: any
         ) => {
             type: 'update url (lib.components.AppEditorLink.appUrlsLogic)'
-            payload: { index: any; value: any }
+            payload: {
+                index: any
+                value: any
+            }
         }
         loadSuggestions: () => {
             type: 'load suggestions (lib.components.AppEditorLink.appUrlsLogic)'
             payload: any
         }
         loadSuggestionsSuccess: (
-            suggestions: never[]
+            suggestions: any[]
         ) => {
             type: 'load suggestions success (lib.components.AppEditorLink.appUrlsLogic)'
             payload: {
-                suggestions: never[]
+                suggestions: any[]
             }
         }
         loadSuggestionsFailure: (
@@ -73,49 +83,108 @@ export interface appUrlsLogicType {
         removeUrl: (index: any) => void
         updateUrl: (index: any, value: any) => void
         loadSuggestions: () => void
-        loadSuggestionsSuccess: (suggestions: never[]) => void
+        loadSuggestionsSuccess: (suggestions: any[]) => void
         loadSuggestionsFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        suggestions: any[]
+        suggestionsLoading: boolean
+        appUrls: (state: any) => string[]
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: undefined
+    listeners: {
+        addUrlAndGo: ((
+            payload: {
+                value: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'add url and go (lib.components.AppEditorLink.appUrlsLogic)'
+                payload: {
+                    value: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        removeUrl: ((
+            payload: {
+                index: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'remove url (lib.components.AppEditorLink.appUrlsLogic)'
+                payload: {
+                    index: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        updateUrl: ((
+            payload: {
+                index: any
+                value: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'update url (lib.components.AppEditorLink.appUrlsLogic)'
+                payload: {
+                    index: any
+                    value: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['lib', 'components', 'AppEditorLink', 'appUrlsLogic']
     pathString: 'lib.components.AppEditorLink.appUrlsLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
         fullState: any
     ) => {
-        suggestions: never[]
+        suggestions: any[]
         suggestionsLoading: boolean
-        appUrls: string[]
+        appUrls: (state: any) => string[]
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
-        suggestions: (state: never[], action: any, fullState: any) => never[]
+        suggestions: (state: any[], action: any, fullState: any) => any[]
         suggestionsLoading: (state: boolean, action: any, fullState: any) => boolean
-        appUrls: (state: string[], action: any, fullState: any) => string[]
+        appUrls: (state: (state: any) => string[], action: any, fullState: any) => (state: any) => string[]
     }
     selector: (
         state: any
     ) => {
-        suggestions: never[]
+        suggestions: any[]
         suggestionsLoading: boolean
-        appUrls: string[]
+        appUrls: (state: any) => string[]
     }
     selectors: {
-        suggestions: (state: any, props: any) => never[]
+        suggestions: (state: any, props: any) => any[]
         suggestionsLoading: (state: any, props: any) => boolean
-        appUrls: (state: any, props: any) => string[]
+        appUrls: (state: any, props: any) => (state: any) => string[]
+    }
+    sharedListeners: {
+        saveAppUrls: (
+            payload: any,
+            breakpoint: BreakPointFunction,
+            action: {
+                type: string
+                payload: any
+            },
+            previousState: any
+        ) => void | Promise<void>
     }
     values: {
-        suggestions: never[]
+        suggestions: any[]
         suggestionsLoading: boolean
-        appUrls: string[]
+        appUrls: (state: any) => string[]
     }
     _isKea: true
+    _isKeaWithKey: false
 }

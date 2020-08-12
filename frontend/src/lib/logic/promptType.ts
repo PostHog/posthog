@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface promptType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface promptType extends Logic {
     actionCreators: {
         prompt: ({
             title,
@@ -12,7 +13,14 @@ export interface promptType {
             failure,
         }: any) => {
             type: 'prompt (lib.logic.prompt)'
-            payload: { title: any; placeholder: any; value: any; error: any; success: any; failure: any }
+            payload: {
+                title: any
+                placeholder: any
+                value: any
+                error: any
+                success: any
+                failure: any
+            }
         }
     }
     actionKeys: {
@@ -24,20 +32,47 @@ export interface promptType {
     actions: {
         prompt: ({ title, placeholder, value, error, success, failure }: any) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {}
+    events: {
+        beforeUnmount: () => void
+    }
+    key: any
+    listeners: {
+        prompt: ((
+            payload: {
+                title: any
+                placeholder: any
+                value: any
+                error: any
+                success: any
+                failure: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'prompt (lib.logic.prompt)'
+                payload: {
+                    title: any
+                    placeholder: any
+                    value: any
+                    error: any
+                    success: any
+                    failure: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['lib', 'logic', 'prompt']
     pathString: 'lib.logic.prompt'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (state: any, action: () => any, fullState: any) => {}
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {}
     selector: (state: any) => {}
     selectors: {}
+    sharedListeners: {}
     values: {}
     _isKea: true
+    _isKeaWithKey: true
 }

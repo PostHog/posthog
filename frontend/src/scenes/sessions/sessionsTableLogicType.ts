@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface sessionsTableLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface sessionsTableLogicType extends Logic {
     actionCreators: {
         loadSessions: (
             selectedDate: any
@@ -10,11 +11,11 @@ export interface sessionsTableLogicType {
             payload: any
         }
         loadSessionsSuccess: (
-            sessions: never[]
+            sessions: any[]
         ) => {
             type: 'load sessions success (scenes.sessions.sessionsTableLogic)'
             payload: {
-                sessions: never[]
+                sessions: any[]
             }
         }
         loadSessionsFailure: (
@@ -29,7 +30,9 @@ export interface sessionsTableLogicType {
             offset: any
         ) => {
             type: 'set offset (scenes.sessions.sessionsTableLogic)'
-            payload: { offset: any }
+            payload: {
+                offset: any
+            }
         }
         fetchNextSessions: () => {
             type: 'fetch next sessions (scenes.sessions.sessionsTableLogic)'
@@ -41,19 +44,25 @@ export interface sessionsTableLogicType {
             sessions: any
         ) => {
             type: 'append new sessions (scenes.sessions.sessionsTableLogic)'
-            payload: { sessions: any }
+            payload: {
+                sessions: any
+            }
         }
         dateChanged: (
             date: any
         ) => {
             type: 'date changed (scenes.sessions.sessionsTableLogic)'
-            payload: { date: any }
+            payload: {
+                date: any
+            }
         }
         setDate: (
             date: any
         ) => {
             type: 'set date (scenes.sessions.sessionsTableLogic)'
-            payload: { date: any }
+            payload: {
+                date: any
+            }
         }
     }
     actionKeys: {
@@ -78,7 +87,7 @@ export interface sessionsTableLogicType {
     }
     actions: {
         loadSessions: (selectedDate: any) => void
-        loadSessionsSuccess: (sessions: never[]) => void
+        loadSessionsSuccess: (sessions: any[]) => void
         loadSessionsFailure: (error: string) => void
         setOffset: (offset: any) => void
         fetchNextSessions: () => void
@@ -86,29 +95,63 @@ export interface sessionsTableLogicType {
         dateChanged: (date: any) => void
         setDate: (date: any) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
-    path: ['scenes', 'sessions', 'sessionsTableLogic']
-    pathString: 'scenes.sessions.sessionsTableLogic'
-    propTypes: any
-    props: Record<string, any>
-    reducer: (
-        state: any,
-        action: () => any,
-        fullState: any
-    ) => {
-        sessions: never[]
+    constants: {}
+    defaults: {
+        sessions: any[]
         sessionsLoading: boolean
         isLoadingNext: boolean
         offset: null
         selectedDate: Moment
     }
-    reducerOptions: any
+    events: {
+        afterMount: () => void
+    }
+    key: undefined
+    listeners: {
+        fetchNextSessions: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'fetch next sessions (scenes.sessions.sessionsTableLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        dateChanged: ((
+            payload: {
+                date: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'date changed (scenes.sessions.sessionsTableLogic)'
+                payload: {
+                    date: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
+    path: ['scenes', 'sessions', 'sessionsTableLogic']
+    pathString: 'scenes.sessions.sessionsTableLogic'
+    props: Record<string, unknown>
+    reducer: (
+        state: any,
+        action: () => any,
+        fullState: any
+    ) => {
+        sessions: any[]
+        sessionsLoading: boolean
+        isLoadingNext: boolean
+        offset: null
+        selectedDate: Moment
+    }
+    reducerOptions: {}
     reducers: {
-        sessions: (state: never[], action: any, fullState: any) => never[]
+        sessions: (state: any[], action: any, fullState: any) => any[]
         sessionsLoading: (state: boolean, action: any, fullState: any) => boolean
         isLoadingNext: (state: boolean, action: any, fullState: any) => boolean
         offset: (state: null, action: any, fullState: any) => null
@@ -117,22 +160,23 @@ export interface sessionsTableLogicType {
     selector: (
         state: any
     ) => {
-        sessions: never[]
+        sessions: any[]
         sessionsLoading: boolean
         isLoadingNext: boolean
         offset: null
         selectedDate: Moment
     }
     selectors: {
-        sessions: (state: any, props: any) => never[]
+        sessions: (state: any, props: any) => any[]
         sessionsLoading: (state: any, props: any) => boolean
         isLoadingNext: (state: any, props: any) => boolean
         offset: (state: any, props: any) => null
         selectedDate: (state: any, props: any) => Moment
         selectedDateURLparam: (state: any, props: any) => any
     }
+    sharedListeners: {}
     values: {
-        sessions: never[]
+        sessions: any[]
         sessionsLoading: boolean
         isLoadingNext: boolean
         offset: null
@@ -140,6 +184,7 @@ export interface sessionsTableLogicType {
         selectedDateURLparam: any
     }
     _isKea: true
+    _isKeaWithKey: false
     __keaTypeGenInternalSelectorTypes: {
         selectedDateURLparam: (arg1: any) => any
     }

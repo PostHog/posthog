@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface deleteDemoDataLogicType {
-    key: any
+import { Logic } from 'kea'
+
+export interface deleteDemoDataLogicType extends Logic {
     actionCreators: {
         deleteDemoData: () => {
             type: 'delete demo data (scenes.setup.DeleteDemoData)'
@@ -28,15 +29,16 @@ export interface deleteDemoDataLogicType {
         deleteDemoData: () => void
         demoDataDeleted: () => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        isDeleted: boolean
+    }
+    events: {}
+    key: undefined
+    listeners: {}
     path: ['scenes', 'setup', 'DeleteDemoData']
     pathString: 'scenes.setup.DeleteDemoData'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -44,7 +46,7 @@ export interface deleteDemoDataLogicType {
     ) => {
         isDeleted: boolean
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         isDeleted: (state: boolean, action: any, fullState: any) => boolean
     }
@@ -56,8 +58,10 @@ export interface deleteDemoDataLogicType {
     selectors: {
         isDeleted: (state: any, props: any) => boolean
     }
+    sharedListeners: {}
     values: {
         isDeleted: boolean
     }
     _isKea: true
+    _isKeaWithKey: false
 }

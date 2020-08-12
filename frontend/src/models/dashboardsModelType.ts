@@ -1,25 +1,32 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface dashboardsModelType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface dashboardsModelType extends Logic {
     actionCreators: {
         delayedDeleteDashboard: (
             id: any
         ) => {
             type: 'delayed delete dashboard (models.dashboardsModel)'
-            payload: { id: any }
+            payload: {
+                id: any
+            }
         }
         setLastVisitedDashboardId: (
             id: any
         ) => {
             type: 'set last visited dashboard id (models.dashboardsModel)'
-            payload: { id: any }
+            payload: {
+                id: any
+            }
         }
         updateDashboardItem: (
             item: any
         ) => {
             type: 'update dashboard item (models.dashboardsModel)'
-            payload: { item: any }
+            payload: {
+                item: any
+            }
         }
         loadDashboards: () => {
             type: 'load dashboards (models.dashboardsModel)'
@@ -283,15 +290,63 @@ export interface dashboardsModelType {
         unpinDashboardSuccess: (dashboard: any) => void
         unpinDashboardFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        rawDashboards: {}
+        rawDashboardsLoading: boolean
+        dashboard: any
+        dashboardLoading: boolean
+        redirect: boolean
+        lastVisitedDashboardId: null
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: undefined
+    listeners: {
+        addDashboardSuccess: ((
+            payload: {
+                dashboard: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'add dashboard success (models.dashboardsModel)'
+                payload: {
+                    dashboard: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        restoreDashboardSuccess: ((
+            payload: {
+                dashboard: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'restore dashboard success (models.dashboardsModel)'
+                payload: {
+                    dashboard: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        deleteDashboardSuccess: ((
+            payload: {
+                dashboard: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'delete dashboard success (models.dashboardsModel)'
+                payload: {
+                    dashboard: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['models', 'dashboardsModel']
     pathString: 'models.dashboardsModel'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -304,7 +359,7 @@ export interface dashboardsModelType {
         redirect: boolean
         lastVisitedDashboardId: null
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         rawDashboards: (state: {}, action: any, fullState: any) => {}
         rawDashboardsLoading: (state: boolean, action: any, fullState: any) => boolean
@@ -334,6 +389,7 @@ export interface dashboardsModelType {
         dashboardsLoading: (state: any, props: any) => any
         pinnedDashboards: (state: any, props: any) => any
     }
+    sharedListeners: {}
     values: {
         rawDashboards: {}
         rawDashboardsLoading: boolean
@@ -346,6 +402,7 @@ export interface dashboardsModelType {
         pinnedDashboards: any
     }
     _isKea: true
+    _isKeaWithKey: false
     __keaTypeGenInternalSelectorTypes: {
         dashboards: (arg1: any) => any[]
         dashboardsLoading: (arg1: any) => any

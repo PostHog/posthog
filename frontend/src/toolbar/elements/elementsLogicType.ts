@@ -1,5 +1,7 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
+import { Logic, BreakPointFunction } from 'kea'
+
 export interface elementsLogicType<
     ToolbarTab,
     ToolbarMode,
@@ -10,8 +12,7 @@ export interface elementsLogicType<
     ActionElementWithMetadata,
     ActionElementMap,
     ElementMap
-> {
-    key: any
+> extends Logic {
     actionCreators: {
         enableInspect: () => {
             type: 'enable inspect (toolbar.elements.elementsLogic)'
@@ -29,13 +30,17 @@ export interface elementsLogicType<
             element: HTMLElement | null
         ) => {
             type: 'select element (toolbar.elements.elementsLogic)'
-            payload: { element: HTMLElement | null }
+            payload: {
+                element: HTMLElement | null
+            }
         }
         createAction: (
             element: HTMLElement
         ) => {
             type: 'create action (toolbar.elements.elementsLogic)'
-            payload: { element: HTMLElement }
+            payload: {
+                element: HTMLElement
+            }
         }
         updateRects: () => {
             type: 'update rects (toolbar.elements.elementsLogic)'
@@ -47,19 +52,25 @@ export interface elementsLogicType<
             element: HTMLElement | null
         ) => {
             type: 'set hover element (toolbar.elements.elementsLogic)'
-            payload: { element: HTMLElement | null }
+            payload: {
+                element: HTMLElement | null
+            }
         }
         setHighlightElement: (
             element: HTMLElement | null
         ) => {
             type: 'set highlight element (toolbar.elements.elementsLogic)'
-            payload: { element: HTMLElement | null }
+            payload: {
+                element: HTMLElement | null
+            }
         }
         setSelectedElement: (
             element: HTMLElement | null
         ) => {
             type: 'set selected element (toolbar.elements.elementsLogic)'
-            payload: { element: HTMLElement | null }
+            payload: {
+                element: HTMLElement | null
+            }
         }
     }
     actionKeys: {
@@ -92,15 +103,64 @@ export interface elementsLogicType<
         setHighlightElement: (element: HTMLElement | null) => void
         setSelectedElement: (element: HTMLElement | null) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        inspectEnabledRaw: boolean
+        rectUpdateCounter: number
+        hoverElement: HTMLElement | null
+        highlightElement: HTMLElement | null
+        selectedElement: HTMLElement | null
+        enabledLast: null | 'inspect' | 'heatmap'
+    }
+    events: {
+        afterMount: () => void
+        beforeUnmount: () => void
+    }
+    key: undefined
+    listeners: {
+        enableInspect: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'enable inspect (toolbar.elements.elementsLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        selectElement: ((
+            payload: {
+                element: HTMLElement | null
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'select element (toolbar.elements.elementsLogic)'
+                payload: {
+                    element: HTMLElement | null
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        createAction: ((
+            payload: {
+                element: HTMLElement
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'create action (toolbar.elements.elementsLogic)'
+                payload: {
+                    element: HTMLElement
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['toolbar', 'elements', 'elementsLogic']
     pathString: 'toolbar.elements.elementsLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -113,7 +173,7 @@ export interface elementsLogicType<
         selectedElement: HTMLElement | null
         enabledLast: null | 'inspect' | 'heatmap'
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         inspectEnabledRaw: (state: boolean, action: any, fullState: any) => boolean
         rectUpdateCounter: (state: number, action: any, fullState: any) => number
@@ -188,6 +248,7 @@ export interface elementsLogicType<
             count?: number | undefined
         } | null
     }
+    sharedListeners: {}
     values: {
         inspectEnabledRaw: boolean
         rectUpdateCounter: number
@@ -236,6 +297,7 @@ export interface elementsLogicType<
         } | null
     }
     _isKea: true
+    _isKeaWithKey: false
     __keaTypeGenInternalSelectorTypes: {
         inspectEnabled: (
             arg1: ToolbarMode,

@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionStepType> {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionStepType> extends Logic {
     actionCreators: {
         enableHeatmap: () => {
             type: 'enable heatmap (toolbar.elements.heatmapLogic)'
@@ -19,7 +20,9 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
             showHeatmapTooltip: boolean
         ) => {
             type: 'set show heatmap tooltip (toolbar.elements.heatmapLogic)'
-            payload: { showHeatmapTooltip: boolean }
+            payload: {
+                showHeatmapTooltip: boolean
+            }
         }
         resetEvents: () => {
             type: 'reset events (toolbar.elements.heatmapLogic)'
@@ -101,15 +104,88 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
         getEventsSuccess: (events: ElementsEventType[]) => void
         getEventsFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        heatmapEnabled: boolean
+        heatmapLoading: boolean
+        showHeatmapTooltip: boolean
+        events: ElementsEventType[]
+        eventsLoading: boolean
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: undefined
+    listeners: {
+        'set href (toolbar.stats.currentPageLogic)': ((
+            payload: {
+                href: string
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'set href (toolbar.stats.currentPageLogic)'
+                payload: {
+                    href: string
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        enableHeatmap: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'enable heatmap (toolbar.elements.heatmapLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        disableHeatmap: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'disable heatmap (toolbar.elements.heatmapLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        getEventsSuccess: ((
+            payload: {
+                events: ElementsEventType[]
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'get events success (toolbar.elements.heatmapLogic)'
+                payload: {
+                    events: ElementsEventType[]
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        setShowHeatmapTooltip: ((
+            payload: {
+                showHeatmapTooltip: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'set show heatmap tooltip (toolbar.elements.heatmapLogic)'
+                payload: {
+                    showHeatmapTooltip: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['toolbar', 'elements', 'heatmapLogic']
     pathString: 'toolbar.elements.heatmapLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -121,7 +197,7 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
         events: ElementsEventType[]
         eventsLoading: boolean
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         heatmapEnabled: (state: boolean, action: any, fullState: any) => boolean
         heatmapLoading: (state: boolean, action: any, fullState: any) => boolean
@@ -160,6 +236,7 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
         clickCount: (state: any, props: any) => number
         highestClickCount: (state: any, props: any) => number
     }
+    sharedListeners: {}
     values: {
         heatmapEnabled: boolean
         heatmapLoading: boolean
@@ -180,6 +257,7 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
         highestClickCount: number
     }
     _isKea: true
+    _isKeaWithKey: false
     __keaTypeGenInternalSelectorTypes: {
         elements: (arg1: ElementsEventType[]) => CountedHTMLElement[]
         countedElements: (
@@ -222,5 +300,15 @@ export interface heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionS
                 actionStep?: ActionStepType | undefined
             }[]
         ) => number
+    }
+    __keaTypeGenInternalReducerActions: {
+        'set href (toolbar.stats.currentPageLogic)': (
+            href: string
+        ) => {
+            type: 'set href (toolbar.stats.currentPageLogic)'
+            payload: {
+                href: string
+            }
+        }
     }
 }

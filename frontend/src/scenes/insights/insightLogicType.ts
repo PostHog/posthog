@@ -1,32 +1,42 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface insightLogicType {
-    key: any
+import { Logic } from 'kea'
+
+export interface insightLogicType extends Logic {
     actionCreators: {
         setActiveView: (
             type: any
         ) => {
             type: 'set active view (scenes.insights.insightLogic)'
-            payload: { type: any }
+            payload: {
+                type: any
+            }
         }
         updateActiveView: (
             type: any
         ) => {
             type: 'update active view (scenes.insights.insightLogic)'
-            payload: { type: any }
+            payload: {
+                type: any
+            }
         }
         setCachedUrl: (
             type: any,
             url: any
         ) => {
             type: 'set cached url (scenes.insights.insightLogic)'
-            payload: { type: any; url: any }
+            payload: {
+                type: any
+                url: any
+            }
         }
         setAllFilters: (
             filters: any
         ) => {
             type: 'set all filters (scenes.insights.insightLogic)'
-            payload: { filters: any }
+            payload: {
+                filters: any
+            }
         }
     }
     actionKeys: {
@@ -47,15 +57,18 @@ export interface insightLogicType {
         setCachedUrl: (type: any, url: any) => void
         setAllFilters: (filters: any) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        cachedUrls: {}
+        activeView: string
+        allFilters: {}
+    }
+    events: {}
+    key: undefined
+    listeners: {}
     path: ['scenes', 'insights', 'insightLogic']
     pathString: 'scenes.insights.insightLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -65,7 +78,7 @@ export interface insightLogicType {
         activeView: string
         allFilters: {}
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         cachedUrls: (state: {}, action: any, fullState: any) => {}
         activeView: (state: string, action: any, fullState: any) => string
@@ -83,10 +96,12 @@ export interface insightLogicType {
         activeView: (state: any, props: any) => string
         allFilters: (state: any, props: any) => {}
     }
+    sharedListeners: {}
     values: {
         cachedUrls: {}
         activeView: string
         allFilters: {}
     }
     _isKea: true
+    _isKeaWithKey: false
 }

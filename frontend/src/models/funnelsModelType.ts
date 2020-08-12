@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface funnelsModelType {
-    key: any
+import { Logic } from 'kea'
+
+export interface funnelsModelType extends Logic {
     actionCreators: {
         loadFunnels: () => {
             type: 'load funnels (models.funnelsModel)'
@@ -39,15 +40,19 @@ export interface funnelsModelType {
         loadFunnelsSuccess: (funnels: any) => void
         loadFunnelsFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        funnels: any
+        funnelsLoading: boolean
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: undefined
+    listeners: {}
     path: ['models', 'funnelsModel']
     pathString: 'models.funnelsModel'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -56,7 +61,7 @@ export interface funnelsModelType {
         funnels: any
         funnelsLoading: boolean
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         funnels: (state: any, action: any, fullState: any) => any
         funnelsLoading: (state: boolean, action: any, fullState: any) => boolean
@@ -71,9 +76,11 @@ export interface funnelsModelType {
         funnels: (state: any, props: any) => any
         funnelsLoading: (state: any, props: any) => boolean
     }
+    sharedListeners: {}
     values: {
         funnels: any
         funnelsLoading: boolean
     }
     _isKea: true
+    _isKeaWithKey: false
 }

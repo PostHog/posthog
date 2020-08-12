@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface annotationsModelType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface annotationsModelType extends Logic {
     actionCreators: {
         createGlobalAnnotation: (
             content: any,
@@ -9,24 +10,31 @@ export interface annotationsModelType {
             dashboard_item: any
         ) => {
             type: 'create global annotation (models.annotationsModel)'
-            payload: { content: any; date_marker: any; created_at: Moment; dashboard_item: any }
+            payload: {
+                content: any
+                date_marker: any
+                created_at: Moment
+                dashboard_item: any
+            }
         }
         deleteGlobalAnnotation: (
             id: any
         ) => {
             type: 'delete global annotation (models.annotationsModel)'
-            payload: { id: any }
+            payload: {
+                id: any
+            }
         }
         loadGlobalAnnotations: () => {
             type: 'load global annotations (models.annotationsModel)'
             payload: any
         }
         loadGlobalAnnotationsSuccess: (
-            globalAnnotations: never[]
+            globalAnnotations: any[]
         ) => {
             type: 'load global annotations success (models.annotationsModel)'
             payload: {
-                globalAnnotations: never[]
+                globalAnnotations: any[]
             }
         }
         loadGlobalAnnotationsFailure: (
@@ -56,48 +64,87 @@ export interface annotationsModelType {
         createGlobalAnnotation: (content: any, date_marker: any, dashboard_item: any) => void
         deleteGlobalAnnotation: (id: any) => void
         loadGlobalAnnotations: () => void
-        loadGlobalAnnotationsSuccess: (globalAnnotations: never[]) => void
+        loadGlobalAnnotationsSuccess: (globalAnnotations: any[]) => void
         loadGlobalAnnotationsFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        globalAnnotations: any[]
+        globalAnnotationsLoading: boolean
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: undefined
+    listeners: {
+        createGlobalAnnotation: ((
+            payload: {
+                content: any
+                date_marker: any
+                created_at: Moment
+                dashboard_item: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'create global annotation (models.annotationsModel)'
+                payload: {
+                    content: any
+                    date_marker: any
+                    created_at: Moment
+                    dashboard_item: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        deleteGlobalAnnotation: ((
+            payload: {
+                id: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'delete global annotation (models.annotationsModel)'
+                payload: {
+                    id: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['models', 'annotationsModel']
     pathString: 'models.annotationsModel'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
         fullState: any
     ) => {
-        globalAnnotations: never[]
+        globalAnnotations: any[]
         globalAnnotationsLoading: boolean
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
-        globalAnnotations: (state: never[], action: any, fullState: any) => never[]
+        globalAnnotations: (state: any[], action: any, fullState: any) => any[]
         globalAnnotationsLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
         state: any
     ) => {
-        globalAnnotations: never[]
+        globalAnnotations: any[]
         globalAnnotationsLoading: boolean
     }
     selectors: {
-        globalAnnotations: (state: any, props: any) => never[]
+        globalAnnotations: (state: any, props: any) => any[]
         globalAnnotationsLoading: (state: any, props: any) => boolean
         activeGlobalAnnotations: (state: any, props: any) => any
     }
+    sharedListeners: {}
     values: {
-        globalAnnotations: never[]
+        globalAnnotations: any[]
         globalAnnotationsLoading: boolean
         activeGlobalAnnotations: any
     }
     _isKea: true
+    _isKeaWithKey: false
     __keaTypeGenInternalSelectorTypes: {
         activeGlobalAnnotations: (arg1: any) => any
     }

@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface actionEditLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface actionEditLogicType extends Logic {
     actionCreators: {
         saveAction: () => {
             type: 'save action (scenes.actions.actionEditLogic)'
@@ -13,19 +14,25 @@ export interface actionEditLogicType {
             action: any
         ) => {
             type: 'set action (scenes.actions.actionEditLogic)'
-            payload: { action: any }
+            payload: {
+                action: any
+            }
         }
         setCreateNew: (
             createNew: any
         ) => {
             type: 'set create new (scenes.actions.actionEditLogic)'
-            payload: { createNew: any }
+            payload: {
+                createNew: any
+            }
         }
         actionAlreadyExists: (
             actionId: any
         ) => {
             type: 'action already exists (scenes.actions.actionEditLogic)'
-            payload: { actionId: any }
+            payload: {
+                actionId: any
+            }
         }
         loadAction: () => {
             type: 'load action (scenes.actions.actionEditLogic)'
@@ -75,15 +82,35 @@ export interface actionEditLogicType {
         loadActionSuccess: (action: any) => void
         loadActionFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        action: any
+        actionLoading: boolean
+        errorActionId: null
+        createNew: boolean
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: any
+    listeners: {
+        saveAction: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'save action (scenes.actions.actionEditLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['scenes', 'actions', 'actionEditLogic']
     pathString: 'scenes.actions.actionEditLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -94,7 +121,7 @@ export interface actionEditLogicType {
         errorActionId: null
         createNew: boolean
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         action: (state: any, action: any, fullState: any) => any
         actionLoading: (state: boolean, action: any, fullState: any) => boolean
@@ -115,6 +142,7 @@ export interface actionEditLogicType {
         errorActionId: (state: any, props: any) => null
         createNew: (state: any, props: any) => boolean
     }
+    sharedListeners: {}
     values: {
         action: any
         actionLoading: boolean
@@ -122,4 +150,5 @@ export interface actionEditLogicType {
         createNew: boolean
     }
     _isKea: true
+    _isKeaWithKey: true
 }

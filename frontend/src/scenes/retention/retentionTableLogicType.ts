@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface retentionTableLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface retentionTableLogicType extends Logic {
     actionCreators: {
         loadRetention: () => {
             type: 'load retention (scenes.retention.retentionTableLogic)'
@@ -45,39 +46,53 @@ export interface retentionTableLogicType {
             properties: any
         ) => {
             type: 'set properties (scenes.retention.retentionTableLogic)'
-            payload: { properties: any }
+            payload: {
+                properties: any
+            }
         }
         setFilters: (
             filters: any
         ) => {
             type: 'set filters (scenes.retention.retentionTableLogic)'
-            payload: { filters: any }
+            payload: {
+                filters: any
+            }
         }
         loadMore: (
             selectedIndex: any
         ) => {
             type: 'load more (scenes.retention.retentionTableLogic)'
-            payload: { selectedIndex: any }
+            payload: {
+                selectedIndex: any
+            }
         }
         loadMorePeople: (
             selectedIndex: any,
             peopleIds: any
         ) => {
             type: 'load more people (scenes.retention.retentionTableLogic)'
-            payload: { selectedIndex: any; peopleIds: any }
+            payload: {
+                selectedIndex: any
+                peopleIds: any
+            }
         }
         updatePeople: (
             selectedIndex: any,
             people: any
         ) => {
             type: 'update people (scenes.retention.retentionTableLogic)'
-            payload: { selectedIndex: any; people: any }
+            payload: {
+                selectedIndex: any
+                people: any
+            }
         }
         updateRetention: (
             retention: any
         ) => {
             type: 'update retention (scenes.retention.retentionTableLogic)'
-            payload: { retention: any }
+            payload: {
+                retention: any
+            }
         }
     }
     actionKeys: {
@@ -122,15 +137,80 @@ export interface retentionTableLogicType {
         updatePeople: (selectedIndex: any, people: any) => void
         updateRetention: (retention: any) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        retention: {}
+        retentionLoading: boolean
+        people: {}
+        peopleLoading: boolean
+        initialPathname: (state: any) => any
+        properties: any[]
+        filters: {}
+        loadingMore: boolean
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: undefined
+    listeners: {
+        setProperties: ((
+            payload: {
+                properties: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'set properties (scenes.retention.retentionTableLogic)'
+                payload: {
+                    properties: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        setFilters: ((
+            payload: {
+                filters: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'set filters (scenes.retention.retentionTableLogic)'
+                payload: {
+                    filters: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        loadMore: ((
+            payload: {
+                selectedIndex: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'load more (scenes.retention.retentionTableLogic)'
+                payload: {
+                    selectedIndex: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        loadMorePeople: ((
+            payload: {
+                selectedIndex: any
+                peopleIds: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'load more people (scenes.retention.retentionTableLogic)'
+                payload: {
+                    selectedIndex: any
+                    peopleIds: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['scenes', 'retention', 'retentionTableLogic']
     pathString: 'scenes.retention.retentionTableLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -141,18 +221,18 @@ export interface retentionTableLogicType {
         people: {}
         peopleLoading: boolean
         initialPathname: (state: any) => any
-        properties: never[]
+        properties: any[]
         filters: {}
         loadingMore: boolean
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         retention: (state: {}, action: any, fullState: any) => {}
         retentionLoading: (state: boolean, action: any, fullState: any) => boolean
         people: (state: {}, action: any, fullState: any) => {}
         peopleLoading: (state: boolean, action: any, fullState: any) => boolean
         initialPathname: (state: (state: any) => any, action: any, fullState: any) => (state: any) => any
-        properties: (state: never[], action: any, fullState: any) => never[]
+        properties: (state: any[], action: any, fullState: any) => any[]
         filters: (state: {}, action: any, fullState: any) => {}
         loadingMore: (state: boolean, action: any, fullState: any) => boolean
     }
@@ -164,7 +244,7 @@ export interface retentionTableLogicType {
         people: {}
         peopleLoading: boolean
         initialPathname: (state: any) => any
-        properties: never[]
+        properties: any[]
         filters: {}
         loadingMore: boolean
     }
@@ -174,25 +254,27 @@ export interface retentionTableLogicType {
         people: (state: any, props: any) => {}
         peopleLoading: (state: any, props: any) => boolean
         initialPathname: (state: any, props: any) => (state: any) => any
-        properties: (state: any, props: any) => never[]
+        properties: (state: any, props: any) => any[]
         filters: (state: any, props: any) => {}
         loadingMore: (state: any, props: any) => boolean
         propertiesForUrl: (state: any, props: any) => '' | { properties: any }
         startEntity: (state: any, props: any) => any
     }
+    sharedListeners: {}
     values: {
         retention: {}
         retentionLoading: boolean
         people: {}
         peopleLoading: boolean
         initialPathname: (state: any) => any
-        properties: never[]
+        properties: any[]
         filters: {}
         loadingMore: boolean
         propertiesForUrl: '' | { properties: any }
         startEntity: any
     }
     _isKea: true
+    _isKeaWithKey: false
     __keaTypeGenInternalSelectorTypes: {
         propertiesForUrl: (arg1: any) => '' | { properties: any }
         startEntity: (arg1: any) => any

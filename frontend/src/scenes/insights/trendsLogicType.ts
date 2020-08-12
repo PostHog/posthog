@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface trendsLogicType {
-    key: any
+import { Logic } from 'kea'
+
+export interface trendsLogicType extends Logic {
     actionCreators: {
         loadResults: (
             refresh?: any
@@ -10,11 +11,11 @@ export interface trendsLogicType {
             payload: any
         }
         loadResultsSuccess: (
-            results: never[]
+            results: any[]
         ) => {
             type: 'load results success (scenes.insights.trendsLogic)'
             payload: {
-                results: never[]
+                results: any[]
             }
         }
         loadResultsFailure: (
@@ -31,13 +32,19 @@ export interface trendsLogicType {
             fromUrl?: any
         ) => {
             type: 'set filters (scenes.insights.trendsLogic)'
-            payload: { filters: any; mergeFilters: boolean; fromUrl: boolean }
+            payload: {
+                filters: any
+                mergeFilters: boolean
+                fromUrl: boolean
+            }
         }
         setDisplay: (
             display: any
         ) => {
             type: 'set display (scenes.insights.trendsLogic)'
-            payload: { display: any }
+            payload: {
+                display: any
+            }
         }
         loadPeople: (
             action: any,
@@ -46,7 +53,12 @@ export interface trendsLogicType {
             breakdown_value: any
         ) => {
             type: 'load people (scenes.insights.trendsLogic)'
-            payload: { action: any; label: any; day: any; breakdown_value: any }
+            payload: {
+                action: any
+                label: any
+                day: any
+                breakdown_value: any
+            }
         }
         loadMorePeople: () => {
             type: 'load more people (scenes.insights.trendsLogic)'
@@ -58,13 +70,17 @@ export interface trendsLogicType {
             status: any
         ) => {
             type: 'set loading more people (scenes.insights.trendsLogic)'
-            payload: { status: any }
+            payload: {
+                status: any
+            }
         }
         setShowingPeople: (
             isShowing: any
         ) => {
             type: 'set showing people (scenes.insights.trendsLogic)'
-            payload: { isShowing: any }
+            payload: {
+                isShowing: any
+            }
         }
         setPeople: (
             people: any,
@@ -76,7 +92,15 @@ export interface trendsLogicType {
             next: any
         ) => {
             type: 'set people (scenes.insights.trendsLogic)'
-            payload: { people: any; count: any; action: any; label: any; day: any; breakdown_value: any; next: any }
+            payload: {
+                people: any
+                count: any
+                action: any
+                label: any
+                day: any
+                breakdown_value: any
+                next: any
+            }
         }
     }
     actionKeys: {
@@ -105,7 +129,7 @@ export interface trendsLogicType {
     }
     actions: {
         loadResults: (refresh?: any) => void
-        loadResultsSuccess: (results: never[]) => void
+        loadResultsSuccess: (results: any[]) => void
         loadResultsFailure: (error: string) => void
         setFilters: (filters: any, mergeFilters?: any, fromUrl?: any) => void
         setDisplay: (display: any) => void
@@ -115,29 +139,34 @@ export interface trendsLogicType {
         setShowingPeople: (isShowing: any) => void
         setPeople: (people: any, count: any, action: any, label: any, day: any, breakdown_value: any, next: any) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
-    path: ['scenes', 'insights', 'trendsLogic']
-    pathString: 'scenes.insights.trendsLogic'
-    propTypes: any
-    props: Record<string, any>
-    reducer: (
-        state: any,
-        action: () => any,
-        fullState: any
-    ) => {
-        results: never[]
+    constants: {}
+    defaults: {
+        results: any[]
         resultsLoading: boolean
         filters: any
         people: null
         showingPeople: boolean
     }
-    reducerOptions: any
+    events: {}
+    key: any
+    listeners: {}
+    path: ['scenes', 'insights', 'trendsLogic']
+    pathString: 'scenes.insights.trendsLogic'
+    props: Record<string, unknown>
+    reducer: (
+        state: any,
+        action: () => any,
+        fullState: any
+    ) => {
+        results: any[]
+        resultsLoading: boolean
+        filters: any
+        people: null
+        showingPeople: boolean
+    }
+    reducerOptions: {}
     reducers: {
-        results: (state: never[], action: any, fullState: any) => never[]
+        results: (state: any[], action: any, fullState: any) => any[]
         resultsLoading: (state: boolean, action: any, fullState: any) => boolean
         filters: (state: any, action: any, fullState: any) => any
         people: (state: null, action: any, fullState: any) => null
@@ -146,14 +175,14 @@ export interface trendsLogicType {
     selector: (
         state: any
     ) => {
-        results: never[]
+        results: any[]
         resultsLoading: boolean
         filters: any
         people: null
         showingPeople: boolean
     }
     selectors: {
-        results: (state: any, props: any) => never[]
+        results: (state: any, props: any) => any[]
         resultsLoading: (state: any, props: any) => boolean
         filters: (state: any, props: any) => any
         people: (state: any, props: any) => null
@@ -162,8 +191,9 @@ export interface trendsLogicType {
         peopleAction: (state: any, props: any) => any
         peopleDay: (state: any, props: any) => any
     }
+    sharedListeners: {}
     values: {
-        results: never[]
+        results: any[]
         resultsLoading: boolean
         filters: any
         people: null
@@ -173,6 +203,7 @@ export interface trendsLogicType {
         peopleDay: any
     }
     _isKea: true
+    _isKeaWithKey: true
     __keaTypeGenInternalSelectorTypes: {
         peopleAction: (arg1: any, arg2: any) => any
         peopleDay: (arg1: any) => any

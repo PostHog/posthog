@@ -1,18 +1,19 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface actionsModelType {
-    key: any
+import { Logic } from 'kea'
+
+export interface actionsModelType extends Logic {
     actionCreators: {
         loadActions: () => {
             type: 'load actions (models.actionsModel)'
             payload: any
         }
         loadActionsSuccess: (
-            actions: never[]
+            actions: any[]
         ) => {
             type: 'load actions success (models.actionsModel)'
             payload: {
-                actions: never[]
+                actions: any[]
             }
         }
         loadActionsFailure: (
@@ -36,48 +37,54 @@ export interface actionsModelType {
     }
     actions: {
         loadActions: () => void
-        loadActionsSuccess: (actions: never[]) => void
+        loadActionsSuccess: (actions: any[]) => void
         loadActionsFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        actions: any[]
+        actionsLoading: boolean
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: undefined
+    listeners: {}
     path: ['models', 'actionsModel']
     pathString: 'models.actionsModel'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
         fullState: any
     ) => {
-        actions: never[]
+        actions: any[]
         actionsLoading: boolean
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
-        actions: (state: never[], action: any, fullState: any) => never[]
+        actions: (state: any[], action: any, fullState: any) => any[]
         actionsLoading: (state: boolean, action: any, fullState: any) => boolean
     }
     selector: (
         state: any
     ) => {
-        actions: never[]
+        actions: any[]
         actionsLoading: boolean
     }
     selectors: {
-        actions: (state: any, props: any) => never[]
+        actions: (state: any, props: any) => any[]
         actionsLoading: (state: any, props: any) => boolean
         actionsGrouped: (state: any, props: any) => { label: string; options: never[] }[]
     }
+    sharedListeners: {}
     values: {
-        actions: never[]
+        actions: any[]
         actionsLoading: boolean
         actionsGrouped: { label: string; options: never[] }[]
     }
     _isKea: true
+    _isKeaWithKey: false
     __keaTypeGenInternalSelectorTypes: {
         actionsGrouped: (arg1: any) => { label: string; options: never[] }[]
     }

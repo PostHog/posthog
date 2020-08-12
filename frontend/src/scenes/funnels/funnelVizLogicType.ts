@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface funnelVizLogicType {
-    key: any
+import { Logic } from 'kea'
+
+export interface funnelVizLogicType extends Logic {
     actionCreators: {
         loadResults: (
             refresh?: any
@@ -41,15 +42,17 @@ export interface funnelVizLogicType {
         loadResultsSuccess: (results: any) => void
         loadResultsFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        results: any
+        resultsLoading: boolean
+    }
+    events: {}
+    key: any
+    listeners: {}
     path: ['scenes', 'funnels', 'funnelVizLogic']
     pathString: 'scenes.funnels.funnelVizLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -58,7 +61,7 @@ export interface funnelVizLogicType {
         results: any
         resultsLoading: boolean
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         results: (state: any, action: any, fullState: any) => any
         resultsLoading: (state: boolean, action: any, fullState: any) => boolean
@@ -73,9 +76,11 @@ export interface funnelVizLogicType {
         results: (state: any, props: any) => any
         resultsLoading: (state: any, props: any) => boolean
     }
+    sharedListeners: {}
     values: {
         results: any
         resultsLoading: boolean
     }
     _isKea: true
+    _isKeaWithKey: true
 }

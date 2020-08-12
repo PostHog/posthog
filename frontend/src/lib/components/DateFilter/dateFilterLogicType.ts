@@ -1,14 +1,18 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface dateFilterLogicType {
-    key: any
+import { Logic } from 'kea'
+
+export interface dateFilterLogicType extends Logic {
     actionCreators: {
         setDates: (
             dateFrom: any,
             dateTo: any
         ) => {
             type: 'set dates (lib.components.DateFilter.dateFilterLogic)'
-            payload: { dateFrom: any; dateTo: any }
+            payload: {
+                dateFrom: any
+                dateTo: any
+            }
         }
     }
     actionKeys: {
@@ -20,15 +24,16 @@ export interface dateFilterLogicType {
     actions: {
         setDates: (dateFrom: any, dateTo: any) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        dates: {}
+    }
+    events: {}
+    key: undefined
+    listeners: {}
     path: ['lib', 'components', 'DateFilter', 'dateFilterLogic']
     pathString: 'lib.components.DateFilter.dateFilterLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -36,7 +41,7 @@ export interface dateFilterLogicType {
     ) => {
         dates: {}
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         dates: (state: {}, action: any, fullState: any) => {}
     }
@@ -48,8 +53,10 @@ export interface dateFilterLogicType {
     selectors: {
         dates: (state: any, props: any) => {}
     }
+    sharedListeners: {}
     values: {
         dates: {}
     }
     _isKea: true
+    _isKeaWithKey: false
 }

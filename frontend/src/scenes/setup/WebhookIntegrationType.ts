@@ -1,22 +1,25 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface logicType {
-    key: any
+import { Logic } from 'kea'
+
+export interface logicType extends Logic {
     actionCreators: {
         setEditedWebhook: (
             webhook: any
         ) => {
-            type: 'set edited webhook (scenes.setup.SlackIntegration)'
-            payload: { webhook: any }
+            type: 'set edited webhook (scenes.setup.WebhookIntegration)'
+            payload: {
+                webhook: any
+            }
         }
         saveWebhook: () => {
-            type: 'save webhook (scenes.setup.SlackIntegration)'
+            type: 'save webhook (scenes.setup.WebhookIntegration)'
             payload: {
                 value: boolean
             }
         }
         testAndSaveWebhook: () => {
-            type: 'test and save webhook (scenes.setup.SlackIntegration)'
+            type: 'test and save webhook (scenes.setup.WebhookIntegration)'
             payload: {
                 value: boolean
             }
@@ -24,21 +27,23 @@ export interface logicType {
         setError: (
             error: any
         ) => {
-            type: 'set error (scenes.setup.SlackIntegration)'
-            payload: { error: any }
+            type: 'set error (scenes.setup.WebhookIntegration)'
+            payload: {
+                error: any
+            }
         }
     }
     actionKeys: {
-        'set edited webhook (scenes.setup.SlackIntegration)': 'setEditedWebhook'
-        'save webhook (scenes.setup.SlackIntegration)': 'saveWebhook'
-        'test and save webhook (scenes.setup.SlackIntegration)': 'testAndSaveWebhook'
-        'set error (scenes.setup.SlackIntegration)': 'setError'
+        'set edited webhook (scenes.setup.WebhookIntegration)': 'setEditedWebhook'
+        'save webhook (scenes.setup.WebhookIntegration)': 'saveWebhook'
+        'test and save webhook (scenes.setup.WebhookIntegration)': 'testAndSaveWebhook'
+        'set error (scenes.setup.WebhookIntegration)': 'setError'
     }
     actionTypes: {
-        setEditedWebhook: 'set edited webhook (scenes.setup.SlackIntegration)'
-        saveWebhook: 'save webhook (scenes.setup.SlackIntegration)'
-        testAndSaveWebhook: 'test and save webhook (scenes.setup.SlackIntegration)'
-        setError: 'set error (scenes.setup.SlackIntegration)'
+        setEditedWebhook: 'set edited webhook (scenes.setup.WebhookIntegration)'
+        saveWebhook: 'save webhook (scenes.setup.WebhookIntegration)'
+        testAndSaveWebhook: 'test and save webhook (scenes.setup.WebhookIntegration)'
+        setError: 'set error (scenes.setup.WebhookIntegration)'
     }
     actions: {
         setEditedWebhook: (webhook: any) => void
@@ -46,15 +51,19 @@ export interface logicType {
         testAndSaveWebhook: () => void
         setError: (error: any) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
-    path: ['scenes', 'setup', 'SlackIntegration']
-    pathString: 'scenes.setup.SlackIntegration'
-    propTypes: any
-    props: Record<string, any>
+    constants: {}
+    defaults: {
+        editedWebhook: (state: any) => string | undefined
+        isSaving: boolean
+        isSaved: boolean
+        error: null
+    }
+    events: {}
+    key: undefined
+    listeners: {}
+    path: ['scenes', 'setup', 'WebhookIntegration']
+    pathString: 'scenes.setup.WebhookIntegration'
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -65,7 +74,7 @@ export interface logicType {
         isSaved: boolean
         error: null
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         editedWebhook: (
             state: (state: any) => string | undefined,
@@ -90,6 +99,7 @@ export interface logicType {
         isSaved: (state: any, props: any) => boolean
         error: (state: any, props: any) => null
     }
+    sharedListeners: {}
     values: {
         editedWebhook: (state: any) => string | undefined
         isSaving: boolean
@@ -97,6 +107,7 @@ export interface logicType {
         error: null
     }
     _isKea: true
+    _isKeaWithKey: false
     __keaTypeGenInternalReducerActions: {
         __computed: (
             user: UserType,

@@ -1,25 +1,32 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface actionLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface actionLogicType extends Logic {
     actionCreators: {
         checkIsFinished: (
             action: any
         ) => {
             type: 'check is finished (scenes.actions.Action)'
-            payload: { action: any }
+            payload: {
+                action: any
+            }
         }
         setPollTimeout: (
             pollTimeout: any
         ) => {
             type: 'set poll timeout (scenes.actions.Action)'
-            payload: { pollTimeout: any }
+            payload: {
+                pollTimeout: any
+            }
         }
         setIsComplete: (
             isComplete: any
         ) => {
             type: 'set is complete (scenes.actions.Action)'
-            payload: { isComplete: any }
+            payload: {
+                isComplete: any
+            }
         }
         loadAction: () => {
             type: 'load action (scenes.actions.Action)'
@@ -66,15 +73,36 @@ export interface actionLogicType {
         loadActionSuccess: (action: any) => void
         loadActionFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        pollTimeout: null
+        isComplete: boolean
+        action: any
+        actionLoading: boolean
+    }
+    events: {
+        afterMount: () => void
+        beforeUnmount: () => void
+    }
+    key: any
+    listeners: {
+        checkIsFinished: ((
+            payload: {
+                action: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'check is finished (scenes.actions.Action)'
+                payload: {
+                    action: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['scenes', 'actions', 'Action']
     pathString: 'scenes.actions.Action'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -85,7 +113,7 @@ export interface actionLogicType {
         action: any
         actionLoading: boolean
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         pollTimeout: (state: null, action: any, fullState: any) => null
         isComplete: (state: boolean, action: any, fullState: any) => boolean
@@ -106,6 +134,7 @@ export interface actionLogicType {
         action: (state: any, props: any) => any
         actionLoading: (state: any, props: any) => boolean
     }
+    sharedListeners: {}
     values: {
         pollTimeout: null
         isComplete: boolean
@@ -113,4 +142,5 @@ export interface actionLogicType {
         actionLoading: boolean
     }
     _isKea: true
+    _isKeaWithKey: true
 }

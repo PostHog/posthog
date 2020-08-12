@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface teamLogicType {
-    key: any
+import { Logic } from 'kea'
+
+export interface teamLogicType extends Logic {
     actionCreators: {
         loadUsers: () => {
             type: 'load users (scenes.team.teamLogic)'
@@ -66,15 +67,19 @@ export interface teamLogicType {
         deleteUserSuccess: (users: {}) => void
         deleteUserFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        users: {}
+        usersLoading: boolean
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: undefined
+    listeners: {}
     path: ['scenes', 'team', 'teamLogic']
     pathString: 'scenes.team.teamLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -83,7 +88,7 @@ export interface teamLogicType {
         users: {}
         usersLoading: boolean
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         users: (state: {}, action: any, fullState: any) => {}
         usersLoading: (state: boolean, action: any, fullState: any) => boolean
@@ -98,9 +103,11 @@ export interface teamLogicType {
         users: (state: any, props: any) => {}
         usersLoading: (state: any, props: any) => boolean
     }
+    sharedListeners: {}
     values: {
         users: {}
         usersLoading: boolean
     }
     _isKea: true
+    _isKeaWithKey: false
 }

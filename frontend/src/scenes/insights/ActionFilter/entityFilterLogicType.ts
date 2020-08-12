@@ -1,31 +1,49 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface entityFilterLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface entityFilterLogicType extends Logic {
     actionCreators: {
         selectFilter: (
             filter: any
         ) => {
             type: 'select filter (scenes.insights.ActionFilter.entityFilterLogic)'
-            payload: { filter: any }
+            payload: {
+                filter: any
+            }
         }
         updateFilterMath: (
             filter: any
         ) => {
             type: 'update filter math (scenes.insights.ActionFilter.entityFilterLogic)'
-            payload: { type: any; value: any; math: any; math_property: any; index: any }
+            payload: {
+                type: any
+                value: any
+                math: any
+                math_property: any
+                index: any
+            }
         }
         updateFilter: (
             filter: any
         ) => {
             type: 'update filter (scenes.insights.ActionFilter.entityFilterLogic)'
-            payload: { type: any; index: any; value: any; name: any }
+            payload: {
+                type: any
+                index: any
+                value: any
+                name: any
+            }
         }
         removeLocalFilter: (
             filter: any
         ) => {
             type: 'remove local filter (scenes.insights.ActionFilter.entityFilterLogic)'
-            payload: { value: any; type: any; index: any }
+            payload: {
+                value: any
+                type: any
+                index: any
+            }
         }
         addFilter: () => {
             type: 'add filter (scenes.insights.ActionFilter.entityFilterLogic)'
@@ -37,19 +55,26 @@ export interface entityFilterLogicType {
             filter: any
         ) => {
             type: 'update filter property (scenes.insights.ActionFilter.entityFilterLogic)'
-            payload: { properties: any; index: any }
+            payload: {
+                properties: any
+                index: any
+            }
         }
         setFilters: (
             filters: any
         ) => {
             type: 'set filters (scenes.insights.ActionFilter.entityFilterLogic)'
-            payload: { filters: any }
+            payload: {
+                filters: any
+            }
         }
         setLocalFilters: (
             filters: any
         ) => {
             type: 'set local filters (scenes.insights.ActionFilter.entityFilterLogic)'
-            payload: { filters: any }
+            payload: {
+                filters: any
+            }
         }
     }
     actionKeys: {
@@ -82,15 +107,118 @@ export interface entityFilterLogicType {
         setFilters: (filters: any) => void
         setLocalFilters: (filters: any) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        selectedFilter: null
+        localFilters: any[]
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: any
+    listeners: {
+        updateFilter: ((
+            payload: {
+                type: any
+                index: any
+                value: any
+                name: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'update filter (scenes.insights.ActionFilter.entityFilterLogic)'
+                payload: {
+                    type: any
+                    index: any
+                    value: any
+                    name: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        updateFilterProperty: ((
+            payload: {
+                properties: any
+                index: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'update filter property (scenes.insights.ActionFilter.entityFilterLogic)'
+                payload: {
+                    properties: any
+                    index: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        updateFilterMath: ((
+            payload: {
+                type: any
+                value: any
+                math: any
+                math_property: any
+                index: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'update filter math (scenes.insights.ActionFilter.entityFilterLogic)'
+                payload: {
+                    type: any
+                    value: any
+                    math: any
+                    math_property: any
+                    index: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        removeLocalFilter: ((
+            payload: {
+                value: any
+                type: any
+                index: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'remove local filter (scenes.insights.ActionFilter.entityFilterLogic)'
+                payload: {
+                    value: any
+                    type: any
+                    index: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        addFilter: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'add filter (scenes.insights.ActionFilter.entityFilterLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        setFilters: ((
+            payload: {
+                filters: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'set filters (scenes.insights.ActionFilter.entityFilterLogic)'
+                payload: {
+                    filters: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
     path: ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic']
     pathString: 'scenes.insights.ActionFilter.entityFilterLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -99,7 +227,7 @@ export interface entityFilterLogicType {
         selectedFilter: null
         localFilters: any[]
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         selectedFilter: (state: null, action: any, fullState: any) => null
         localFilters: (state: any[], action: any, fullState: any) => any[]
@@ -117,6 +245,7 @@ export interface entityFilterLogicType {
         entities: (state: any, props: any) => { [x: string]: any }
         filters: (state: any, props: any) => { [x: string]: any }
     }
+    sharedListeners: {}
     values: {
         selectedFilter: null
         localFilters: any[]
@@ -125,6 +254,7 @@ export interface entityFilterLogicType {
         filters: { [x: string]: any }
     }
     _isKea: true
+    _isKeaWithKey: true
     __keaTypeGenInternalSelectorTypes: {
         entities: (arg1: any, arg2: any) => { [x: string]: any }
         filters: (arg1: any) => { [x: string]: any }

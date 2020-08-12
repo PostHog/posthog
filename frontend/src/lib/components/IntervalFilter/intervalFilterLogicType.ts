@@ -1,19 +1,24 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface intervalFilterLogicType {
-    key: any
+import { Logic } from 'kea'
+
+export interface intervalFilterLogicType extends Logic {
     actionCreators: {
         setIntervalFilter: (
             filter: any
         ) => {
             type: 'set interval filter (lib.components.IntervalFilter.intervalFilterLogic)'
-            payload: { filter: any }
+            payload: {
+                filter: any
+            }
         }
         setDateFrom: (
             dateFrom: any
         ) => {
             type: 'set date from (lib.components.IntervalFilter.intervalFilterLogic)'
-            payload: { dateFrom: any }
+            payload: {
+                dateFrom: any
+            }
         }
     }
     actionKeys: {
@@ -28,15 +33,17 @@ export interface intervalFilterLogicType {
         setIntervalFilter: (filter: any) => void
         setDateFrom: (dateFrom: any) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        interval: null
+        dateFrom: null
+    }
+    events: {}
+    key: undefined
+    listeners: {}
     path: ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic']
     pathString: 'lib.components.IntervalFilter.intervalFilterLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -45,7 +52,7 @@ export interface intervalFilterLogicType {
         interval: null
         dateFrom: null
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         interval: (state: null, action: any, fullState: any) => null
         dateFrom: (state: null, action: any, fullState: any) => null
@@ -60,9 +67,11 @@ export interface intervalFilterLogicType {
         interval: (state: any, props: any) => null
         dateFrom: (state: any, props: any) => null
     }
+    sharedListeners: {}
     values: {
         interval: null
         dateFrom: null
     }
     _isKea: true
+    _isKeaWithKey: false
 }

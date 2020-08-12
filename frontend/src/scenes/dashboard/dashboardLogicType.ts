@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface dashboardLogicType {
-    key: any
+import { Logic, BreakPointFunction } from 'kea'
+
+export interface dashboardLogicType extends Logic {
     actionCreators: {
         addNewDashboard: () => {
             type: 'add new dashboard (scenes.dashboard.dashboardLogic)'
@@ -19,20 +20,27 @@ export interface dashboardLogicType {
             id: any
         ) => {
             type: 'rename dashboard item (scenes.dashboard.dashboardLogic)'
-            payload: { id: any }
+            payload: {
+                id: any
+            }
         }
         renameDashboardItemSuccess: (
             item: any
         ) => {
             type: 'rename dashboard item success (scenes.dashboard.dashboardLogic)'
-            payload: { item: any }
+            payload: {
+                item: any
+            }
         }
         setIsSharedDashboard: (
             id: any,
             isShared: any
         ) => {
             type: 'set is shared dashboard (scenes.dashboard.dashboardLogic)'
-            payload: { id: any; isShared: any }
+            payload: {
+                id: any
+                isShared: any
+            }
         }
         duplicateDashboardItem: (
             id: any,
@@ -40,26 +48,37 @@ export interface dashboardLogicType {
             move?: any
         ) => {
             type: 'duplicate dashboard item (scenes.dashboard.dashboardLogic)'
-            payload: { id: any; dashboardId: any; move: boolean }
+            payload: {
+                id: any
+                dashboardId: any
+                move: boolean
+            }
         }
         duplicateDashboardItemSuccess: (
             item: any
         ) => {
             type: 'duplicate dashboard item success (scenes.dashboard.dashboardLogic)'
-            payload: { item: any }
+            payload: {
+                item: any
+            }
         }
         updateLayouts: (
             layouts: any
         ) => {
             type: 'update layouts (scenes.dashboard.dashboardLogic)'
-            payload: { layouts: any }
+            payload: {
+                layouts: any
+            }
         }
         updateContainerWidth: (
             containerWidth: any,
             columns: any
         ) => {
             type: 'update container width (scenes.dashboard.dashboardLogic)'
-            payload: { containerWidth: any; columns: any }
+            payload: {
+                containerWidth: any
+                columns: any
+            }
         }
         saveLayouts: () => {
             type: 'save layouts (scenes.dashboard.dashboardLogic)'
@@ -72,7 +91,10 @@ export interface dashboardLogicType {
             color: any
         ) => {
             type: 'update item color (scenes.dashboard.dashboardLogic)'
-            payload: { id: any; color: any }
+            payload: {
+                id: any
+                color: any
+            }
         }
         enableDragging: () => {
             type: 'enable dragging (scenes.dashboard.dashboardLogic)'
@@ -96,18 +118,20 @@ export interface dashboardLogicType {
             id: any
         ) => {
             type: 'refresh dashboard item (scenes.dashboard.dashboardLogic)'
-            payload: { id: any }
+            payload: {
+                id: any
+            }
         }
         loadDashboardItems: () => {
             type: 'load dashboard items (scenes.dashboard.dashboardLogic)'
             payload: any
         }
         loadDashboardItemsSuccess: (
-            allItems: never[]
+            allItems: any[]
         ) => {
             type: 'load dashboard items success (scenes.dashboard.dashboardLogic)'
             payload: {
-                allItems: never[]
+                allItems: any[]
             }
         }
         loadDashboardItemsFailure: (
@@ -176,32 +200,205 @@ export interface dashboardLogicType {
         disableDragging: () => void
         refreshDashboardItem: (id: any) => void
         loadDashboardItems: () => void
-        loadDashboardItemsSuccess: (allItems: never[]) => void
+        loadDashboardItemsSuccess: (allItems: any[]) => void
         loadDashboardItemsFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
-    path: ['scenes', 'dashboard', 'dashboardLogic']
-    pathString: 'scenes.dashboard.dashboardLogic'
-    propTypes: any
-    props: Record<string, any>
-    reducer: (
-        state: any,
-        action: () => any,
-        fullState: any
-    ) => {
-        allItems: never[]
+    constants: {}
+    defaults: {
+        allItems: any[]
         allItemsLoading: boolean
         draggingEnabled: () => 'off' | 'on'
         containerWidth: null
         columns: null
     }
-    reducerOptions: any
+    events: {
+        afterMount: () => void
+        beforeUnmount: () => void
+    }
+    key: any
+    listeners: {
+        addNewDashboard: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'add new dashboard (scenes.dashboard.dashboardLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        setIsSharedDashboard: ((
+            payload: {
+                id: any
+                isShared: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'set is shared dashboard (scenes.dashboard.dashboardLogic)'
+                payload: {
+                    id: any
+                    isShared: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        renameDashboard: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'rename dashboard (scenes.dashboard.dashboardLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        renameDashboardItem: ((
+            payload: {
+                id: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'rename dashboard item (scenes.dashboard.dashboardLogic)'
+                payload: {
+                    id: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        updateLayouts: ((
+            payload: {
+                layouts: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'update layouts (scenes.dashboard.dashboardLogic)'
+                payload: {
+                    layouts: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        saveLayouts: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'save layouts (scenes.dashboard.dashboardLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        updateItemColor: ((
+            payload: {
+                id: any
+                color: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'update item color (scenes.dashboard.dashboardLogic)'
+                payload: {
+                    id: any
+                    color: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        duplicateDashboardItem: ((
+            payload: {
+                id: any
+                dashboardId: any
+                move: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'duplicate dashboard item (scenes.dashboard.dashboardLogic)'
+                payload: {
+                    id: any
+                    dashboardId: any
+                    move: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        enableWobblyDragging: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'enable wobbly dragging (scenes.dashboard.dashboardLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        enableDragging: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'enable dragging (scenes.dashboard.dashboardLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        disableDragging: ((
+            payload: {
+                value: boolean
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'disable dragging (scenes.dashboard.dashboardLogic)'
+                payload: {
+                    value: boolean
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+        refreshDashboardItem: ((
+            payload: {
+                id: any
+            },
+            breakpoint: BreakPointFunction,
+            action: {
+                type: 'refresh dashboard item (scenes.dashboard.dashboardLogic)'
+                payload: {
+                    id: any
+                }
+            },
+            previousState: any
+        ) => void | Promise<void>)[]
+    }
+    path: ['scenes', 'dashboard', 'dashboardLogic']
+    pathString: 'scenes.dashboard.dashboardLogic'
+    props: Record<string, unknown>
+    reducer: (
+        state: any,
+        action: () => any,
+        fullState: any
+    ) => {
+        allItems: any[]
+        allItemsLoading: boolean
+        draggingEnabled: () => 'off' | 'on'
+        containerWidth: null
+        columns: null
+    }
+    reducerOptions: {}
     reducers: {
-        allItems: (state: never[], action: any, fullState: any) => never[]
+        allItems: (state: any[], action: any, fullState: any) => any[]
         allItemsLoading: (state: boolean, action: any, fullState: any) => boolean
         draggingEnabled: (state: () => 'off' | 'on', action: any, fullState: any) => () => 'off' | 'on'
         containerWidth: (state: null, action: any, fullState: any) => null
@@ -210,14 +407,14 @@ export interface dashboardLogicType {
     selector: (
         state: any
     ) => {
-        allItems: never[]
+        allItems: any[]
         allItemsLoading: boolean
         draggingEnabled: () => 'off' | 'on'
         containerWidth: null
         columns: null
     }
     selectors: {
-        allItems: (state: any, props: any) => never[]
+        allItems: (state: any, props: any) => any[]
         allItemsLoading: (state: any, props: any) => boolean
         draggingEnabled: (state: any, props: any) => () => 'off' | 'on'
         containerWidth: (state: any, props: any) => null
@@ -232,8 +429,9 @@ export interface dashboardLogicType {
         layout: (state: any, props: any) => any
         layoutForItem: (state: any, props: any) => {}
     }
+    sharedListeners: {}
     values: {
-        allItems: never[]
+        allItems: any[]
         allItemsLoading: boolean
         draggingEnabled: () => 'off' | 'on'
         containerWidth: null
@@ -249,6 +447,7 @@ export interface dashboardLogicType {
         layoutForItem: {}
     }
     _isKea: true
+    _isKeaWithKey: true
     __keaTypeGenInternalSelectorTypes: {
         items: (arg1: any) => any
         itemsLoading: (arg1: any) => any

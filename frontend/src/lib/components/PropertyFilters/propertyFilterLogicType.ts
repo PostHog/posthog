@@ -1,7 +1,8 @@
 // Auto-generated with kea-typegen. DO NOT EDIT!
 
-export interface propertyFilterLogicType {
-    key: any
+import { Logic } from 'kea'
+
+export interface propertyFilterLogicType extends Logic {
     actionCreators: {
         loadEventProperties: () => {
             type: 'load event properties (lib.components.PropertyFilters.propertyFilterLogic)'
@@ -13,13 +14,17 @@ export interface propertyFilterLogicType {
             properties: any
         ) => {
             type: 'set properties (lib.components.PropertyFilters.propertyFilterLogic)'
-            payload: { properties: any }
+            payload: {
+                properties: any
+            }
         }
         update: (
             filters: any
         ) => {
             type: 'update (lib.components.PropertyFilters.propertyFilterLogic)'
-            payload: { filters: any }
+            payload: {
+                filters: any
+            }
         }
         setFilter: (
             index: any,
@@ -29,13 +34,21 @@ export interface propertyFilterLogicType {
             type: any
         ) => {
             type: 'set filter (lib.components.PropertyFilters.propertyFilterLogic)'
-            payload: { index: any; key: any; value: any; operator: any; type: any }
+            payload: {
+                index: any
+                key: any
+                value: any
+                operator: any
+                type: any
+            }
         }
         setFilters: (
             filters: any
         ) => {
             type: 'set filters (lib.components.PropertyFilters.propertyFilterLogic)'
-            payload: { filters: any }
+            payload: {
+                filters: any
+            }
         }
         newFilter: () => {
             type: 'new filter (lib.components.PropertyFilters.propertyFilterLogic)'
@@ -47,7 +60,9 @@ export interface propertyFilterLogicType {
             index: any
         ) => {
             type: 'remove (lib.components.PropertyFilters.propertyFilterLogic)'
-            payload: { index: any }
+            payload: {
+                index: any
+            }
         }
         loadPersonProperties: () => {
             type: 'load person properties (lib.components.PropertyFilters.propertyFilterLogic)'
@@ -106,15 +121,21 @@ export interface propertyFilterLogicType {
         loadPersonPropertiesSuccess: (personProperties: any) => void
         loadPersonPropertiesFailure: (error: string) => void
     }
-    cache: Record<string, any>
-    connections: any
-    constants: any
-    defaults: any
-    events: any
+    constants: {}
+    defaults: {
+        personProperties: any
+        personPropertiesLoading: boolean
+        eventProperties: any[]
+        filters: any
+    }
+    events: {
+        afterMount: () => void
+    }
+    key: any
+    listeners: {}
     path: ['lib', 'components', 'PropertyFilters', 'propertyFilterLogic']
     pathString: 'lib.components.PropertyFilters.propertyFilterLogic'
-    propTypes: any
-    props: Record<string, any>
+    props: Record<string, unknown>
     reducer: (
         state: any,
         action: () => any,
@@ -122,14 +143,14 @@ export interface propertyFilterLogicType {
     ) => {
         personProperties: any
         personPropertiesLoading: boolean
-        eventProperties: never[]
+        eventProperties: any[]
         filters: any
     }
-    reducerOptions: any
+    reducerOptions: {}
     reducers: {
         personProperties: (state: any, action: any, fullState: any) => any
         personPropertiesLoading: (state: boolean, action: any, fullState: any) => boolean
-        eventProperties: (state: never[], action: any, fullState: any) => never[]
+        eventProperties: (state: any[], action: any, fullState: any) => any[]
         filters: (state: any, action: any, fullState: any) => any
     }
     selector: (
@@ -137,20 +158,22 @@ export interface propertyFilterLogicType {
     ) => {
         personProperties: any
         personPropertiesLoading: boolean
-        eventProperties: never[]
+        eventProperties: any[]
         filters: any
     }
     selectors: {
         personProperties: (state: any, props: any) => any
         personPropertiesLoading: (state: any, props: any) => boolean
-        eventProperties: (state: any, props: any) => never[]
+        eventProperties: (state: any, props: any) => any[]
         filters: (state: any, props: any) => any
     }
+    sharedListeners: {}
     values: {
         personProperties: any
         personPropertiesLoading: boolean
-        eventProperties: never[]
+        eventProperties: any[]
         filters: any
     }
     _isKea: true
+    _isKeaWithKey: true
 }
