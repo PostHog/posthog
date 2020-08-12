@@ -343,9 +343,8 @@ class TestTrends(BaseTest):
 
     def test_action_filtering(self):
         sign_up_action, person = self._create_events()
-        with freeze_time("2020-01-04"):
-            action_response = Trends().run(Filter(data={"actions": [{"id": sign_up_action.id}]}), self.team)
-            event_response = Trends().run(Filter(data={"events": [{"id": "sign up"}]}), self.team)
+        action_response = Trends().run(Filter(data={"actions": [{"id": sign_up_action.id}]}), self.team)
+        event_response = Trends().run(Filter(data={"events": [{"id": "sign up"}]}), self.team)
         self.assertEqual(len(action_response), 1)
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
