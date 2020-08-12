@@ -79,7 +79,12 @@ class Paths(BaseQuery):
         return sessions_sql
 
     def calculate_paths(
-        self, filter: Filter, start_point: str, date_query: Dict[str, datetime], request_type: str, team: Team
+        self,
+        filter: Optional[Filter],
+        start_point: Optional[str],
+        date_query: Optional[Dict[str, datetime]],
+        request_type: Optional[str],
+        team: Team,
     ):
         resp = []
         event, path_type, event_filter, start_comparator = self._determine_path_type(request_type)
@@ -88,7 +93,7 @@ class Paths(BaseQuery):
             Event.objects.add_person_id(team.pk)
             .filter(team=team, **(event_filter), **date_query)
             .filter(~Q(event__in=["$autocapture", "$pageview", "$identify", "$pageleave"]) if event is None else Q())
-            .filter(filter.properties_to_Q(team_id=team.pk) if filter.properties else Q())
+            .filter(filter.properties_to_Q(team_id=team.pk) if filter and filter.properties else Q())
             .annotate(
                 previous_timestamp=Window(
                     expression=Lag("timestamp", default=None),
@@ -171,12 +176,14 @@ class Paths(BaseQuery):
 
     def run(
         self,
-        filter: Filter,
-        start_point: str,
-        date_query: Dict[str, datetime],
-        request_type: str,
         team: Team,
+        date_query: Dict[str, datetime],
+        filter: Filter = None,
+        request_type: str = None,
+        start_point: str = None,
         *args,
         **kwargs
     ) -> List[Dict[str, Any]]:
-        return self.calculate_paths(filter, start_point, date_query, request_type, team)
+        return self.calculate_paths(
+            filter=filter, start_point=start_point, date_query=date_query, request_type=request_type, team=team
+        )
