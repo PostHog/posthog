@@ -53,7 +53,7 @@ export const pathsLogic = kea({
             },
             loadPaths: async (_, breakpoint) => {
                 const params = toParams({ ...values.filter, properties: values.properties })
-                let paths = await api.get(`api/paths${params ? `/?${params}` : ''}`)
+                let paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
                 if (values.filter.start) {
                     paths = paths.filter((checkingNode) => {
                         return (

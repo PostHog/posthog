@@ -37,8 +37,8 @@ class PathsViewSet(viewsets.ViewSet):
         date_query = request_to_date_query(request.GET, exact=False)
         filter = Filter(request=request)
         start_point = request.GET.get("start")
-        requested_type = request.GET.get("type", None)
+        request_type = request.GET.get("type", None)
         resp = paths.Paths().run(
-            filter=filter, start_point=start_point, date_query=date_query, requested_type=requested_type, team=team
+            filter=filter, start_point=start_point, date_query=date_query, request_type=request_type, team=team
         )
         return Response(resp)

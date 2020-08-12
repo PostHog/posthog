@@ -22,7 +22,7 @@ export const retentionTableLogic = kea({
                 params['properties'] = values.properties
                 if (values.startEntity) params['start_entity'] = values.startEntity
                 const urlParams = toParams(params)
-                return await api.get(`api/action/retention/?${urlParams}`)
+                return await api.get(`api/insight/retention/?${urlParams}`)
             },
         },
         people: {

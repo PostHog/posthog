@@ -23,7 +23,7 @@ export const appUrlsLogic = kea({
                     events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
                     breakdown: '$current_url',
                 }
-                let data = await api.get('api/action/trends/?' + toParams(params))
+                let data = await api.get('api/insight/trend/?' + toParams(params))
                 if (data[0]?.count === 0) return []
                 let domainsSeen = []
                 return data

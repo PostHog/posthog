@@ -125,14 +125,14 @@ export const trendsLogic = kea({
                 let response
                 if (props.view === ViewType.SESSIONS || props.filters?.session) {
                     response = await api.get(
-                        'api/event/sessions/?' +
+                        'api/insight/session/?' +
                             (refresh ? 'refresh=true&' : '') +
                             toAPIParams(filterClientSideParams(values.filters))
                     )
                     response = response.result
                 } else {
                     response = await api.get(
-                        'api/action/trends/?' +
+                        'api/insight/trend/?' +
                             (refresh ? 'refresh=true&' : '') +
                             toAPIParams(filterClientSideParams(values.filters))
                     )
