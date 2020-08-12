@@ -113,6 +113,14 @@ class InsightViewSet(viewsets.ModelViewSet):
     # Request parameteres and caching are handled here and passed onto respective .queries classes
     # ******************************************
 
+    # ******************************************
+    # /insight/trend
+    #
+    # params:
+    # - from_dashboard: (string) determines trend is being retrieved from dashboard item to update dashboard_item metadata
+    # - shown_as: (string: Volume, Stickiness) specifies the trend aggregation type
+    # - **shared filter types
+    # ******************************************
     @action(methods=["GET"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self._calculate_trends(request)
@@ -133,6 +141,13 @@ class InsightViewSet(viewsets.ModelViewSet):
 
         return result
 
+    # ******************************************
+    # /insight/session
+    #
+    # params:
+    # - session: (string: avg, dist) specifies session type
+    # - **shared filter types
+    # ******************************************
     @action(methods=["GET"], detail=False)
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = self.request.user.team_set.get()
@@ -154,6 +169,16 @@ class InsightViewSet(viewsets.ModelViewSet):
                 result.update({"date_from": date_from})
         return Response(result)
 
+    # ******************************************
+    # /insight/funnel
+    # The funnel endpoint is asynchronously processed. When a request is received, the endpoint will
+    # call an async task with an id that can be continually polled for 3 minutes.
+    #
+    # params:
+    # - refresh: (dict) specifies cache to force refresh or poll
+    # - from_dashboard: (dict) determines funnel is being retrieved from dashboard item to update dashboard_item metadata
+    # - **shared filter types
+    # ******************************************
     @action(methods=["GET"], detail=False)
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.team_set.get()
@@ -185,6 +210,12 @@ class InsightViewSet(viewsets.ModelViewSet):
 
         return Response(result)
 
+    # ******************************************
+    # /insight/retention
+    # params:
+    # - start_entity: (dict) specifies id and type of the entity to focus retention on
+    # - **shared filter types
+    # ******************************************
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.team_set.get()
@@ -201,6 +232,13 @@ class InsightViewSet(viewsets.ModelViewSet):
         result = retention.Retention().run(filter, team)
         return Response({"data": result})
 
+    # ******************************************
+    # /insight/path
+    # params:
+    # - start_point: (string) specifies the name of the starting property or element
+    # - request_type: (string: $pageview, $autocapture, $screen, custom_event) specifies the path type
+    # - **shared filter types
+    # ******************************************
     @action(methods=["GET"], detail=False)
     def path(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.team_set.get()
