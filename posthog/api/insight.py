@@ -135,9 +135,7 @@ class InsightViewSet(viewsets.ModelViewSet):
         else:
             result = trends.Trends().run(filter, team)
 
-        dashboard_id = request.GET.get("from_dashboard", None)
-        if dashboard_id:
-            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.now())
+        self._refresh_dashboard(request=request)
 
         return result
 
@@ -146,6 +144,7 @@ class InsightViewSet(viewsets.ModelViewSet):
     #
     # params:
     # - session: (string: avg, dist) specifies session type
+    # - offset: (number) offset query param for paginated list of user sessions
     # - **shared filter types
     # ******************************************
     @action(methods=["GET"], detail=False)
@@ -183,7 +182,6 @@ class InsightViewSet(viewsets.ModelViewSet):
     def funnel(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.team_set.get()
         refresh = request.GET.get("refresh", None)
-        dashboard_id = request.GET.get("from_dashboard", None)
 
         filter = Filter(request=request)
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
@@ -205,8 +203,7 @@ class InsightViewSet(viewsets.ModelViewSet):
         task_id = task.id
         cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
 
-        if dashboard_id:
-            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.datetime.now())
+        self._refresh_dashboard(request=request)
 
         return Response(result)
 
@@ -219,9 +216,7 @@ class InsightViewSet(viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.team_set.get()
-        properties = request.GET.get("properties", "{}")
-
-        filter = Filter(data={"properties": json.loads(properties)})
+        filter = Filter(request=request)
 
         start_entity_data = request.GET.get("start_entity", None)
         if start_entity_data:
@@ -250,3 +245,8 @@ class InsightViewSet(viewsets.ModelViewSet):
             filter=filter, start_point=start_point, date_query=date_query, request_type=request_type, team=team
         )
         return Response(resp)
+
+    def _refresh_dashboard(self, request) -> None:
+        dashboard_id = request.GET.get("from_dashboard", None)
+        if dashboard_id:
+            DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.now())
