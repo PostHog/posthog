@@ -9,6 +9,7 @@ from . import (
     event,
     feature_flag,
     funnel,
+    insight,
     paths,
     person,
     team,
@@ -27,3 +28,5 @@ router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"paths", paths.PathsViewSet, basename="paths")
 router.register(r"team/user", team.TeamUserViewSet)
+
+router.register(r"insight", insight.InsightViewSet)
