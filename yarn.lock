@@ -6125,10 +6125,10 @@ kea-router@^0.4.0:
   dependencies:
     url-pattern "^1.0.3"
 
-kea-typegen@^0.0.35:
-  version "0.0.35"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.0.35.tgz#a481e56280a7f8d9a2cdd1945e68b76dba938b49"
-  integrity sha512-TXSRppYBHo8WcoyYr780GZ3Y3BWkAApBYITYbc+6Q96mrGS/FSmPWxM/Elk9vLZ+3rcpiAN1fF1Gcnunzl2nPg==
+kea-typegen@^0.1.0:
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-0.1.0.tgz#dcbe0ddecc434d0194e614ba2710566b3e1f9e76"
+  integrity sha512-2dBFI8H5W3jCowJHnd76bQV9bZNoYnu4pxhFjIdnHkRTdgLtQeWlLDq23M95+nBZnNhKDC3RurKGjbVGJbcacg==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.8"
     prettier "^2.0.5"
