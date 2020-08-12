@@ -124,7 +124,16 @@ def get_event(request):
             ),
         )
     if not data:
-        return cors_response(request, HttpResponse("1"))
+        return cors_response(
+            request,
+            JsonResponse(
+                {
+                    "code": "validation",
+                    "message": "No data provided. Make sure to use a POST request when sending the payload in the body of the request.",
+                },
+                status=400,
+            ),
+        )
     sent_at = _get_sent_at(data, request)
     token = _get_token(data, request)
     if not token:
