@@ -39,6 +39,7 @@ def update_cached_items() -> None:
         DashboardItem.objects.filter(
             Q(Q(dashboard__is_shared=True) | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7)))
         )
+        .exclude(dashboard__deleted=True)
         .exclude(refreshing=True)
         .exclude(deleted=True)
     )
@@ -48,12 +49,13 @@ def update_cached_items() -> None:
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
         curr_data = cache.get(cache_key)
 
-        # if task is logged leave it alone
+        # if task is logged and loading leave it alone
         if curr_data and curr_data.get("task_id", None):
             continue
 
+        cache_type = FUNNEL_ENDPOINT if filter.insight == "FUNNELS" else TRENDS_ENDPOINT
         payload = {"filter": filter.toJSON(), "team_id": item.team_id}
-        tasks.append(update_cache_item_task.s(cache_key, TRENDS_ENDPOINT, payload))
+        tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
 
     logger.info("Found {} items to refresh".format(len(tasks)))
     taskset = group(tasks)

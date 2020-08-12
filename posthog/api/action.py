@@ -227,20 +227,17 @@ class ActionViewSet(viewsets.ModelViewSet):
             cache.delete(cache_key)
         else:
             cached_result = cache.get(cache_key)
-            if cached_result and not cached_result.get("task_id", None):
+            if cached_result:
                 task_id = cached_result.get("task_id", None)
-
                 if not task_id:
                     return Response(cached_result["result"])
                 else:
                     return Response(result)
 
         payload = {"filter": filter.toJSON(), "team_id": team.pk}
-        task_id = request.GET.get("task_id", None)
-        if not task_id:
-            task = update_cache_item_task.delay(cache_key, FUNNEL_ENDPOINT, payload)
-            task_id = task.id
-            cache.set(cache_key, {"task_id": task_id}, 180)
+        task = update_cache_item_task.delay(cache_key, FUNNEL_ENDPOINT, payload)
+        task_id = task.id
+        cache.set(cache_key, {"task_id": task_id}, 180)  # task will be live for 3 minutes
 
         if dashboard_id:
             DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.datetime.now())
