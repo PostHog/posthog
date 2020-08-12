@@ -20,9 +20,7 @@ class Paths(BaseQuery):
     def _event_subquery(self, event: str, key: str):
         return Event.objects.filter(pk=OuterRef(event)).values(key)[:1]
 
-    def _determine_path_type(self, request):
-        requested_type = request.GET.get("type", None)
-
+    def _determine_path_type(self, requested_type=None):
         # Default
         event: Optional[str] = "$pageview"
         event_filter = {"event": event}
@@ -80,9 +78,11 @@ class Paths(BaseQuery):
         )
         return sessions_sql
 
-    def calculate_paths(self, filter: Filter, start_point: str, date_query: Dict[str, datetime], team: Team):
+    def calculate_paths(
+        self, filter: Filter, start_point: str, date_query: Dict[str, datetime], request_type: str, team: Team
+    ):
         resp = []
-        event, path_type, event_filter, start_comparator = self._determine_path_type(request)
+        event, path_type, event_filter, start_comparator = self._determine_path_type(request_type)
 
         sessions = (
             Event.objects.add_person_id(team.pk)
@@ -170,6 +170,13 @@ class Paths(BaseQuery):
         return resp
 
     def run(
-        self, filter: Filter, start_point: str, date_query: Dict[str, datetime], team: Team, *args, **kwargs
+        self,
+        filter: Filter,
+        start_point: str,
+        date_query: Dict[str, datetime],
+        request_type: str,
+        team: Team,
+        *args,
+        **kwargs
     ) -> List[Dict[str, Any]]:
-        return self.calculate_paths(filter, start_point, date_query, team)
+        return self.calculate_paths(filter, start_point, date_query, request_type, team)
