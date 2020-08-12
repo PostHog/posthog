@@ -9,7 +9,7 @@ import { ViewType } from '../insightLogic'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { formatPropertyLabel } from 'lib/utils'
 import { cohortsModel } from '~/models'
-import { PropertyFilter, Entity, CohortType } from '~/types'
+import { PropertyFilter, Entity, CohortType, InsightHistory } from '~/types'
 
 const InsightHistoryType = {
     SAVED: 'SAVED',
@@ -24,6 +24,7 @@ const columns = [
         render: function renderKey(item) {
             return <b style={{ marginLeft: -8 }}>{item.key}</b>
         },
+        width: 110,
     },
     {
         render: function renderValue(item) {
@@ -44,33 +45,33 @@ export const determineFilters = (
         if (filters.actions) count += filters.actions.length
         if (count > 0) {
             const entity: string[] = []
-            if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name}\n`))
-            if (filters.actions) filters.actions.forEach((action: Entity) => entity.push(`- ${action.name}\n`))
+            if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name}`))
+            if (filters.actions) filters.actions.forEach((action: Entity) => entity.push(`- ${action.name}`))
             result.push({ key: 'Entities', value: entity })
         }
-        if (filters.interval) result.push({ key: 'Interval', value: `${filters.interval}\n` })
-        if (filters.shown_as) result.push({ key: 'Shown As', value: `${filters.shown_as}\n` })
-        if (filters.breakdown) result.push({ key: 'Breakdown', value: `${filters.breakdown}\n` })
-        if (filters.compare) result.push({ key: 'Compare', value: `${filters.compare}\n` })
+        if (filters.interval) result.push({ key: 'Interval', value: `${filters.interval}` })
+        if (filters.shown_as) result.push({ key: 'Shown As', value: `${filters.shown_as}` })
+        if (filters.breakdown) result.push({ key: 'Breakdown', value: `${filters.breakdown}` })
+        if (filters.compare) result.push({ key: 'Compare', value: `${filters.compare}` })
     } else if (viewType === ViewType.SESSIONS) {
-        if (filters.session) result.push({ key: 'Session', value: `${filters.session}\n` })
-        if (filters.interval) result.push({ key: 'Interval', value: `${filters.interval}\n` })
-        if (filters.compare) result.push({ key: 'Compare', value: `${filters.compare}\n` })
+        if (filters.session) result.push({ key: 'Session', value: `${filters.session}` })
+        if (filters.interval) result.push({ key: 'Interval', value: `${filters.interval}` })
+        if (filters.compare) result.push({ key: 'Compare', value: `${filters.compare}` })
     } else if (viewType === ViewType.RETENTION) {
-        if (filters.target) result.push({ key: 'Target', value: `${filters.target.name}\n` })
+        if (filters.target) result.push({ key: 'Target', value: `${filters.target.name}` })
     } else if (viewType === ViewType.PATHS) {
-        if (filters.type) result.push({ key: 'Path Type', value: `${filters.type}\n` })
-        if (filters.start) result.push({ key: 'Start Point', value: `Specified\n` })
+        if (filters.type) result.push({ key: 'Path Type', value: `${filters.type}` })
+        if (filters.start) result.push({ key: 'Start Point', value: `Specified` })
     } else if (viewType === ViewType.FUNNELS) {
         let count = 0
         if (filters.events) count += filters.events.length
         if (filters.actions) count += filters.actions.length
         if (count > 0) {
             const entity: string[] = []
-            if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name || event.id}\n`))
+            if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name || event.id}`))
             if (filters.actions)
                 filters.actions.forEach((action: Entity) =>
-                    entity.push(`- ${action.name || '(action: ' + action.id + ')'}\n`)
+                    entity.push(`- ${action.name || '(action: ' + action.id + ')'}`)
                 )
             result.push({ key: 'Entities', value: entity })
         }
@@ -181,7 +182,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                         loading={insightsLoading}
                         dataSource={insights}
                         loadMore={loadMoreInsights}
-                        renderItem={(insight) => {
+                        renderItem={(insight: InsightHistory) => {
                             return (
                                 <List.Item>
                                     <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
@@ -228,7 +229,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                         loading={savedInsightsLoading}
                         dataSource={savedInsights}
                         loadMore={loadMoreSavedInsights}
-                        renderItem={(insight) => {
+                        renderItem={(insight: InsightHistory) => {
                             return (
                                 <List.Item key={insight.id}>
                                     <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
@@ -263,7 +264,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                         loading={teamInsightsLoading}
                         dataSource={teamInsights}
                         loadMore={loadMoreTeamInsights}
-                        renderItem={(insight) => {
+                        renderItem={(insight: InsightHistory) => {
                             return (
                                 <List.Item key={insight.id}>
                                     <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
