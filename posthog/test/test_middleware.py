@@ -26,7 +26,9 @@ class TestSignup(TestCase):
             response = self.client.get("/", REMOTE_ADDR="10.0.0.1")
             self.assertIn(b"IP is not allowed", response.content)
 
-            response = self.client.get(f"/batch/{self.REQ_BODY_QS}", REMOTE_ADDR="10.0.0.1")
+            response = self.client.post(
+                f"/batch/", self.REQ_BODY, content_type="application/json", REMOTE_ADDR="10.0.0.1",
+            )
             self.assertEqual(b'{"status": 1}', response.content)
 
             # /31 block
@@ -36,10 +38,14 @@ class TestSignup(TestCase):
             response = self.client.get("/", REMOTE_ADDR="192.168.0.2")
             self.assertIn(b"IP is not allowed", response.content)
 
-            response = self.client.get(f"/batch/{self.REQ_BODY_QS}", REMOTE_ADDR="192.168.0.1")
+            response = self.client.post(
+                f"/batch/", self.REQ_BODY, content_type="application/json", REMOTE_ADDR="192.168.0.1",
+            )
             self.assertEqual(b'{"status": 1}', response.content)
 
-            response = self.client.get(f"/batch/{self.REQ_BODY_QS}", REMOTE_ADDR="192.168.0.2")
+            response = self.client.post(
+                f"/batch/", self.REQ_BODY, content_type="application/json", REMOTE_ADDR="192.168.0.2",
+            )
             self.assertEqual(b'{"status": 1}', response.content)
 
             # /24 block
