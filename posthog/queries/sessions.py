@@ -24,7 +24,7 @@ class Sessions(BaseQuery):
             .order_by("-timestamp")
         )
 
-        offset = kwargs.get("offset", 0)
+        offset = filter.offset
 
         if not filter.date_to:
             filter._date_to = now().isoformat()

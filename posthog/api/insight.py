@@ -1,4 +1,3 @@
-import json
 from datetime import datetime
 from distutils.util import strtobool
 from typing import Any, Dict, List
@@ -11,10 +10,9 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.celery import update_cache_item_task
-from posthog.constants import FROM_DASHBOARD
+from posthog.constants import DATE_FROM, FROM_DASHBOARD, INSIGHT, OFFSET, TRENDS_STICKINESS
 from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT, cached_function
 from posthog.models import DashboardItem, Filter
-from posthog.models.entity import Entity
 from posthog.queries import paths, retention, sessions, stickiness, trends
 from posthog.utils import generate_cache_key, request_to_date_query
 
@@ -98,8 +96,8 @@ class InsightViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(saved=bool(strtobool(str(request.GET["saved"]))))
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
-            elif key == "insight":
-                queryset = queryset.filter(filters__insight=request.GET["insight"])
+            elif key == INSIGHT:
+                queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
 
         return queryset
 
@@ -131,7 +129,7 @@ class InsightViewSet(viewsets.ModelViewSet):
     def _calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
         team = request.user.team_set.get()
         filter = Filter(request=request)
-        if filter.shown_as == "Stickiness":
+        if filter.shown_as == TRENDS_STICKINESS:
             result = stickiness.Stickiness().run(filter, team)
         else:
             result = trends.Trends().run(filter, team)
@@ -153,17 +151,15 @@ class InsightViewSet(viewsets.ModelViewSet):
         team = self.request.user.team_set.get()
 
         filter = Filter(request=request)
-        result: Dict[str, Any] = {
-            "result": sessions.Sessions().run(filter, team, offset=self.request.GET.get("offset"))
-        }
+        result: Dict[str, Any] = {"result": sessions.Sessions().run(filter, team)}
 
         # add pagination
         if filter.session_type is None:
-            offset = int(request.GET.get("offset", "0")) + 50
+            offset = filter.offset + 50
             if len(result["result"]) > 49:
                 date_from = result["result"][0]["start_time"].isoformat()
-                result.update({"offset": offset})
-                result.update({"date_from": date_from})
+                result.update({OFFSET: offset})
+                result.update({DATE_FROM: date_from})
         return Response(result)
 
     # ******************************************
@@ -216,7 +212,6 @@ class InsightViewSet(viewsets.ModelViewSet):
         team = request.user.team_set.get()
         filter = Filter(request=request)
 
-        filter._date_from = "-11d"
         result = retention.Retention().run(filter, team)
         return Response({"data": result})
 
@@ -235,6 +230,7 @@ class InsightViewSet(viewsets.ModelViewSet):
         resp = paths.Paths().run(filter=filter, date_query=date_query, team=team)
         return Response(resp)
 
+    # Checks if a dashboard id has been set and if so, update the refresh date
     def _refresh_dashboard(self, request) -> None:
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:

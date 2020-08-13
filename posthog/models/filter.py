@@ -20,6 +20,7 @@ from posthog.constants import (
     EVENTS,
     INSIGHT,
     INTERVAL,
+    OFFSET,
     PATH_TYPE,
     PROPERTIES,
     SELECTOR,
@@ -62,6 +63,7 @@ class Filter(PropertyMixin):
     path_type: Optional[PathType] = None
     start_point: Optional[str] = None
     target_entity: Optional[Entity] = None
+    _offset: Optional[str] = None
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None,) -> None:
         if request:
@@ -90,6 +92,7 @@ class Filter(PropertyMixin):
         self.path_type = data.get(PATH_TYPE)
         self.start_point = data.get(START_POINT)
         self.target_entity = self._parse_target_entity(data.get(TARGET_ENTITY))
+        self._offset = data.get(OFFSET)
 
         if data.get(ACTIONS):
             self.entities.extend(
@@ -146,6 +149,10 @@ class Filter(PropertyMixin):
             return bool(strtobool(self._compare))
         else:
             return False
+
+    @property
+    def offset(self) -> int:
+        return int(self._offset or "0")
 
     @property
     def actions(self) -> List[Entity]:
