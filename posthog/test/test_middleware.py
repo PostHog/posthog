@@ -4,6 +4,7 @@ from typing import Dict
 
 from django.conf import settings
 from django.test import Client, TestCase
+from rest_framework import status
 
 from posthog.models import Team, User
 
@@ -12,19 +13,11 @@ class TestSignup(TestCase):
     def setUp(self):
         super().setUp()
         self.client = Client()
-        self.team: Team = Team.objects.create(api_token="tokenABC123")
 
     def test_ip_range(self):
         """
         Also test that capture endpoint is not restrictied by ALLOWED_IP_BLOCKS
         """
-
-        # Sample request for a batch capturing request
-        req_body: Dict = {
-            "api_key": "tokenABC123",
-            "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
-        }
-        req_body_qs: str = urllib.parse.quote(json.dumps(req_body))
 
         with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25", "128.0.0.1"]):
 
@@ -32,8 +25,18 @@ class TestSignup(TestCase):
             response = self.client.get("/", REMOTE_ADDR="10.0.0.1")
             self.assertIn(b"IP is not allowed", response.content)
 
-            response = self.client.get("/batch/?data=%s" % req_body_qs, REMOTE_ADDR="10.0.0.1",)
-            self.assertEqual(b'{"status": 1}', response.content)
+            response = self.client.get("/batch/", REMOTE_ADDR="10.0.0.1",)
+
+            self.assertEqual(
+                response.json(),
+                {
+                    "code": "validation",
+                    "message": "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
+                },
+            )
+            self.assertEqual(
+                response.status_code, status.HTTP_400_BAD_REQUEST
+            )  # Check for a bad request exception because it means the middleware didn't block the request
 
             # /31 block
             response = self.client.get("/", REMOTE_ADDR="192.168.0.1")
@@ -42,11 +45,11 @@ class TestSignup(TestCase):
             response = self.client.get("/", REMOTE_ADDR="192.168.0.2")
             self.assertIn(b"IP is not allowed", response.content)
 
-            response = self.client.get("/batch/?data=%s" % req_body_qs, REMOTE_ADDR="192.168.0.1")
-            self.assertEqual(b'{"status": 1}', response.content)
+            response = self.client.get("/batch/", REMOTE_ADDR="192.168.0.1")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-            response = self.client.get("/batch/?data=%s" % req_body_qs, REMOTE_ADDR="192.168.0.2")
-            self.assertEqual(b'{"status": 1}', response.content)
+            response = self.client.get("/batch/", REMOTE_ADDR="192.168.0.2")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
             # /24 block
             response = self.client.get("/", REMOTE_ADDR="127.0.0.1")
