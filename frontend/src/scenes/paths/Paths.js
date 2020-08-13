@@ -189,14 +189,14 @@ export function Paths() {
                     : stripHTTP(d.name)
             )
             .on('click', async (node) => {
-                if (filter.type == AUTOCAPTURE) {
+                if (filter.path_type == AUTOCAPTURE) {
                     setModalVisible(true)
                     setEventelements(null)
                     let result = await api.get('api/event/' + node.id)
                     setEventelements(result)
                 }
             })
-            .style('cursor', filter.type == AUTOCAPTURE ? 'pointer' : 'auto')
+            .style('cursor', filter.path_type == AUTOCAPTURE ? 'pointer' : 'auto')
 
         textSelection
             .append('tspan')
@@ -210,7 +210,9 @@ export function Paths() {
 
     return (
         <div>
-            {filter.type == AUTOCAPTURE && <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>}
+            {filter.path_type == AUTOCAPTURE && (
+                <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
+            )}
             <div ref={canvas} className="paths" style={{ height: '90vh' }} data-attr="paths-viz">
                 {!pathsLoading && paths && paths.nodes.length === 0 ? (
                     <NoData />

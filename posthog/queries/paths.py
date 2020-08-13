@@ -10,6 +10,7 @@ from rest_framework import request, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, SCREEN_EVENT
 from posthog.models import Entity, Event, Filter, Team
 from posthog.utils import dict_from_cursor_fetchall, request_to_date_query
 
@@ -29,17 +30,17 @@ class Paths(BaseQuery):
 
         # determine requested type
         if requested_type:
-            if requested_type == "$screen":
-                event = "$screen"
+            if requested_type == SCREEN_EVENT:
+                event = SCREEN_EVENT
                 event_filter = {"event": event}
                 path_type = "properties->> '$screen_name'"
                 start_comparator = "{} ~".format(path_type)
-            elif requested_type == "$autocapture":
-                event = "$autocapture"
+            elif requested_type == AUTOCAPTURE_EVENT:
+                event = AUTOCAPTURE_EVENT
                 event_filter = {"event": event}
                 path_type = "tag_name_source"
                 start_comparator = "group_id ="
-            elif requested_type == "custom_event":
+            elif requested_type == CUSTOM_EVENT:
                 event = None
                 event_filter = {}
                 path_type = "event"
@@ -83,11 +84,10 @@ class Paths(BaseQuery):
         filter: Optional[Filter],
         start_point: Optional[str],
         date_query: Optional[Dict[str, datetime]],
-        request_type: Optional[str],
         team: Team,
     ):
         resp = []
-        event, path_type, event_filter, start_comparator = self._determine_path_type(request_type)
+        event, path_type, event_filter, start_comparator = self._determine_path_type(filter.path_type)
 
         sessions = (
             Event.objects.add_person_id(team.pk)
@@ -179,11 +179,8 @@ class Paths(BaseQuery):
         team: Team,
         date_query: Dict[str, datetime],
         filter: Filter = None,
-        request_type: str = None,
         start_point: str = None,
         *args,
         **kwargs
     ) -> List[Dict[str, Any]]:
-        return self.calculate_paths(
-            filter=filter, start_point=start_point, date_query=date_query, request_type=request_type, team=team
-        )
+        return self.calculate_paths(filter=filter, start_point=start_point, date_query=date_query, team=team)

@@ -11,6 +11,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.celery import update_cache_item_task
+from posthog.constants import FROM_DASHBOARD
 from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT, cached_function
 from posthog.models import DashboardItem, Filter
 from posthog.models.entity import Entity
@@ -150,17 +151,14 @@ class InsightViewSet(viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = self.request.user.team_set.get()
-        session_type = self.request.GET.get("session")
 
         filter = Filter(request=request)
         result: Dict[str, Any] = {
-            "result": sessions.Sessions().run(
-                filter, team, session_type=self.request.GET.get("session"), offset=self.request.GET.get("offset")
-            )
+            "result": sessions.Sessions().run(filter, team, offset=self.request.GET.get("offset"))
         }
 
         # add pagination
-        if session_type is None:
+        if filter.session_type is None:
             offset = int(request.GET.get("offset", "0")) + 50
             if len(result["result"]) > 49:
                 date_from = result["result"][0]["start_time"].isoformat()
@@ -239,14 +237,11 @@ class InsightViewSet(viewsets.ModelViewSet):
         team = request.user.team_set.get()
         date_query = request_to_date_query(request.GET, exact=False)
         filter = Filter(request=request)
-        start_point = request.GET.get("start")
-        request_type = request.GET.get("type", None)
-        resp = paths.Paths().run(
-            filter=filter, start_point=start_point, date_query=date_query, request_type=request_type, team=team
-        )
+        start_point = request.GET.get("start_point")
+        resp = paths.Paths().run(filter=filter, start_point=start_point, date_query=date_query, team=team)
         return Response(resp)
 
     def _refresh_dashboard(self, request) -> None:
-        dashboard_id = request.GET.get("from_dashboard", None)
+        dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
             DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=datetime.now())
