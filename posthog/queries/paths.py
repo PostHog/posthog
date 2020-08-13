@@ -83,7 +83,9 @@ class Paths(BaseQuery):
         self, filter: Optional[Filter], date_query: Optional[Dict[str, datetime]], team: Team,
     ):
         resp = []
-        event, path_type, event_filter, start_comparator = self._determine_path_type(filter.path_type)
+        event, path_type, event_filter, start_comparator = self._determine_path_type(
+            filter.path_type if filter else None
+        )
 
         sessions = (
             Event.objects.add_person_id(team.pk)
@@ -121,7 +123,7 @@ class Paths(BaseQuery):
             events_notated
         )
 
-        if filter.start_point:
+        if filter and filter.start_point:
             sessionified = self._apply_start_point(
                 start_comparator=start_comparator, query_string=sessionified, start_point=filter.start_point,
             )

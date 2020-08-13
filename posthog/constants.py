@@ -11,23 +11,10 @@ TRENDS_STICKINESS = "Stickiness"
 SESSION_AVG = "avg"
 SESSION_DIST = "dist"
 
-
-class SessionType(Enum):
-    avg = SESSION_AVG
-    dist = SESSION_DIST
-
-
 SCREEN_EVENT = "$screen"
 AUTOCAPTURE_EVENT = "$autocapture"
 PAGEVIEW_EVENT = "$pageview"
 CUSTOM_EVENT = "custom_event"
-
-
-class PathType(Enum):
-    screen = SCREEN_EVENT
-    autocapture = AUTOCAPTURE_EVENT
-    pageview = PAGEVIEW_EVENT
-    custom_event = CUSTOM_EVENT
 
 
 DATE_FROM = "date_from"

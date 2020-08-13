@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 import pytz
@@ -119,9 +120,11 @@ class TestRetention(BaseTest):
             ]
         )
 
-        start_entity = Entity({"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS})
+        start_entity = {"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS}
         result = Retention().run(
-            Filter(data={"date_from": self._date(0, hour=0), "entities": [start_entity]}), self.team, total_days=7
+            Filter(data={"date_from": self._date(0, hour=0), "target_entity": json.dumps(start_entity)}),
+            self.team,
+            total_days=7,
         )
 
         self.assertEqual(len(result), 7)

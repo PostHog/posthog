@@ -211,7 +211,7 @@ class InsightViewSet(viewsets.ModelViewSet):
     def retention(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.team_set.get()
         filter = Filter(request=request)
-
+        filter._date_from = "-11d"
         result = retention.Retention().run(filter, team)
         return Response({"data": result})
 

@@ -117,7 +117,7 @@ class TestPaths(BaseTest):
         Event.objects.create(distinct_id="person_4", event="custom_event_2", team=self.team)
 
         date_query = request_to_date_query({}, exact=False)
-        response = Paths().run(team=self.team, date_query=date_query, request_type="custom_event")
+        response = Paths().run(team=self.team, date_query=date_query, filter=Filter(data={"path_type": "custom_event"}))
 
         self.assertEqual(response[0]["source"], "1_custom_event_1", response)
         self.assertEqual(response[0]["target"], "2_custom_event_2")
@@ -172,7 +172,7 @@ class TestPaths(BaseTest):
         )
 
         date_query = request_to_date_query({}, exact=False)
-        response = Paths().run(team=self.team, date_query=date_query, request_type="$screen")
+        response = Paths().run(team=self.team, date_query=date_query, filter=Filter(data={"path_type": "$screen"}))
         self.assertEqual(response[0]["source"], "1_/", response)
         self.assertEqual(response[0]["target"], "2_/pricing")
         self.assertEqual(response[0]["value"], 2)
@@ -240,7 +240,7 @@ class TestPaths(BaseTest):
             ],
         )
         date_query = request_to_date_query({}, exact=False)
-        response = Paths().run(team=self.team, date_query=date_query, request_type="$autocapture")
+        response = Paths().run(team=self.team, date_query=date_query, filter=Filter(data={"path_type": "$autocapture"}))
 
         self.assertEqual(response[0]["source"], "1_<a> hello")
         self.assertEqual(response[0]["target"], "2_<a> goodbye")
@@ -362,7 +362,11 @@ class TestPaths(BaseTest):
         response = self.client.get("/api/paths/?type=%24pageview&start=%2Fpricing").json()
 
         date_query = request_to_date_query({}, exact=False)
-        response = Paths().run(team=self.team, date_query=date_query, request_type="$pageview", start_point="/pricing")
+        response = Paths().run(
+            team=self.team,
+            date_query=date_query,
+            filter=Filter(data={"path_type": "$pageview", "start_point": "/pricing"}),
+        )
 
         for item in response:
             self.assertEqual(item["source"], "1_/pricing")

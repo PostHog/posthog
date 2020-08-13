@@ -30,8 +30,6 @@ from posthog.constants import (
     TARGET_ENTITY,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
-    PathType,
-    SessionType,
 )
 from posthog.utils import relative_date_parse
 
@@ -59,8 +57,8 @@ class Filter(PropertyMixin):
     _compare: Optional[Union[bool, str]] = None
     funnel_id: Optional[int] = None
     insight: Optional[str] = None
-    sessing_type: Optional[SessionType] = None
-    path_type: Optional[PathType] = None
+    session_type: Optional[str] = None
+    path_type: Optional[str] = None
     start_point: Optional[str] = None
     target_entity: Optional[Entity] = None
     _offset: Optional[str] = None
