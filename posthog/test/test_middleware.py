@@ -18,20 +18,21 @@ class TestSignup(TestCase):
         """
         Also test that capture endpoint is not restrictied by ALLOWED_IP_BLOCKS
         """
-        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25", "128.0.0.1"]):
 
-            # Sample request for an event capturing request
-            req_body: Dict = {
-                "api_key": "tokenABC123",
-                "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
-            }
-            req_body_qs: str = f"?data={urllib.parse.quote_plus(json.dumps(req_body))}"
+        # Sample request for a batch capturing request
+        req_body: Dict = {
+            "api_key": "tokenABC123",
+            "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
+        }
+        req_body_qs: str = urllib.parse.quote(json.dumps(req_body))
+
+        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25", "128.0.0.1"]):
 
             # not in list
             response = self.client.get("/", REMOTE_ADDR="10.0.0.1")
             self.assertIn(b"IP is not allowed", response.content)
 
-            response = self.client.get(f"/capture{req_body_qs}", REMOTE_ADDR="10.0.0.1",)
+            response = self.client.get("/batch/?data=%s" % req_body_qs, REMOTE_ADDR="10.0.0.1",)
             self.assertEqual(b'{"status": 1}', response.content)
 
             # /31 block
@@ -41,11 +42,11 @@ class TestSignup(TestCase):
             response = self.client.get("/", REMOTE_ADDR="192.168.0.2")
             self.assertIn(b"IP is not allowed", response.content)
 
-            # response = self.client.get(f"/capture{req_body_qs}", REMOTE_ADDR="192.168.0.1")
-            # self.assertEqual(b'{"status": 1}', response.content)
+            response = self.client.get("/batch/?data=%s" % req_body_qs, REMOTE_ADDR="192.168.0.1")
+            self.assertEqual(b'{"status": 1}', response.content)
 
-            # response = self.client.get(f"/capture{req_body_qs}", REMOTE_ADDR="192.168.0.2")
-            # self.assertEqual(b'{"status": 1}', response.content)
+            response = self.client.get("/batch/?data=%s" % req_body_qs, REMOTE_ADDR="192.168.0.2")
+            self.assertEqual(b'{"status": 1}', response.content)
 
             # /24 block
             response = self.client.get("/", REMOTE_ADDR="127.0.0.1")
