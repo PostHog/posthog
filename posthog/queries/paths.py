@@ -80,11 +80,7 @@ class Paths(BaseQuery):
         return sessions_sql
 
     def calculate_paths(
-        self,
-        filter: Optional[Filter],
-        start_point: Optional[str],
-        date_query: Optional[Dict[str, datetime]],
-        team: Team,
+        self, filter: Optional[Filter], date_query: Optional[Dict[str, datetime]], team: Team,
     ):
         resp = []
         event, path_type, event_filter, start_comparator = self._determine_path_type(filter.path_type)
@@ -125,9 +121,9 @@ class Paths(BaseQuery):
             events_notated
         )
 
-        if start_point:
+        if filter.start_point:
             sessionified = self._apply_start_point(
-                start_comparator=start_comparator, query_string=sessionified, start_point=start_point,
+                start_comparator=start_comparator, query_string=sessionified, start_point=filter.start_point,
             )
 
         final = "\
@@ -175,12 +171,6 @@ class Paths(BaseQuery):
         return resp
 
     def run(
-        self,
-        team: Team,
-        date_query: Dict[str, datetime],
-        filter: Filter = None,
-        start_point: str = None,
-        *args,
-        **kwargs
+        self, team: Team, date_query: Dict[str, datetime], filter: Filter = None, *args, **kwargs
     ) -> List[Dict[str, Any]]:
-        return self.calculate_paths(filter=filter, start_point=start_point, date_query=date_query, team=team)
+        return self.calculate_paths(filter=filter, date_query=date_query, team=team)

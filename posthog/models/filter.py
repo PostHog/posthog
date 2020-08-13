@@ -25,6 +25,8 @@ from posthog.constants import (
     SELECTOR,
     SESSION,
     SHOWN_AS,
+    START_POINT,
+    TARGET_ENTITY,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
     PathType,
@@ -58,6 +60,8 @@ class Filter(PropertyMixin):
     insight: Optional[str] = None
     sessing_type: Optional[SessionType] = None
     path_type: Optional[PathType] = None
+    start_point: Optional[str] = None
+    target_entity: Optional[Entity] = None
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None,) -> None:
         if request:
@@ -84,6 +88,8 @@ class Filter(PropertyMixin):
         self.insight = data.get(INSIGHT)
         self.session_type = data.get(SESSION)
         self.path_type = data.get(PATH_TYPE)
+        self.start_point = data.get(START_POINT)
+        self.target_entity = self._parse_target_entity(data.get(TARGET_ENTITY))
 
         if data.get(ACTIONS):
             self.entities.extend(
@@ -103,6 +109,12 @@ class Filter(PropertyMixin):
             return json.loads(breakdown)
         except (TypeError, json.decoder.JSONDecodeError):
             return breakdown
+
+    def _parse_target_entity(self, target_entity_data) -> Optional[Entity]:
+        if target_entity_data:
+            data = json.loads(target_entity_data)
+            return Entity({"id": data["id"], "type": data["type"]})
+        return None
 
     def to_dict(self) -> Dict[str, Any]:
         full_dict = {

@@ -20,7 +20,7 @@ export const retentionTableLogic = kea({
             loadRetention: async () => {
                 let params = {}
                 params['properties'] = values.properties
-                if (values.startEntity) params['start_entity'] = values.startEntity
+                if (values.startEntity) params['target_entity'] = values.startEntity
                 const urlParams = toParams(params)
                 return await api.get(`api/insight/retention/?${urlParams}`)
             },

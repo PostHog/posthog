@@ -216,11 +216,6 @@ class InsightViewSet(viewsets.ModelViewSet):
         team = request.user.team_set.get()
         filter = Filter(request=request)
 
-        start_entity_data = request.GET.get("start_entity", None)
-        if start_entity_data:
-            data = json.loads(start_entity_data)
-            filter.entities = [Entity({"id": data["id"], "type": data["type"]})]
-
         filter._date_from = "-11d"
         result = retention.Retention().run(filter, team)
         return Response({"data": result})
@@ -237,8 +232,7 @@ class InsightViewSet(viewsets.ModelViewSet):
         team = request.user.team_set.get()
         date_query = request_to_date_query(request.GET, exact=False)
         filter = Filter(request=request)
-        start_point = request.GET.get("start_point")
-        resp = paths.Paths().run(filter=filter, start_point=start_point, date_query=date_query, team=team)
+        resp = paths.Paths().run(filter=filter, date_query=date_query, team=team)
         return Response(resp)
 
     def _refresh_dashboard(self, request) -> None:
