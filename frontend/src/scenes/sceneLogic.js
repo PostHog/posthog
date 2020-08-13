@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import { delay } from 'lib/utils'
 import { Error404 } from '~/layout/Error404'
+import { ErrorNetwork } from '~/layout/ErrorNetwork'
 
 export const scenes = {
     // NB! also update sceneOverride in layout/Sidebar.js if adding new scenes that belong to an old sidebar link
@@ -15,7 +16,6 @@ export const scenes = {
     actions: () => import(/* webpackChunkName: 'actions' */ './actions/Actions'),
     action: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     liveActions: () => import(/* webpackChunkName: 'liveActions' */ './actions/LiveActions'),
-    editFunnel: () => import(/* webpackChunkName: 'editFunnel' */ './funnels/Funnel'),
     funnels: () => import(/* webpackChunkName: 'funnels' */ './funnels/Funnels'),
     setup: () => import(/* webpackChunkName: 'setup' */ './setup/Setup'),
     insights: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
@@ -38,7 +38,6 @@ export const routes = {
     '/actions': 'actions',
     '/insights': 'insights',
     '/funnel': 'funnels',
-    '/funnel/new': 'editFunnel',
     '/setup': 'setup',
     '/events': 'events',
     '/person_by_id/:id': 'person',
@@ -75,6 +74,9 @@ export const sceneLogic = kea({
             {
                 '404': {
                     component: Error404,
+                },
+                '4xx': {
+                    component: ErrorNetwork,
                 },
             },
             {
@@ -126,7 +128,26 @@ export const sceneLogic = kea({
             let loadedScene = values.loadedScenes[scene]
 
             if (!loadedScene) {
-                const importedScene = await scenes[scene]()
+                let importedScene
+                try {
+                    importedScene = await scenes[scene]()
+                } catch (error) {
+                    if (error.name === 'ChunkLoadError') {
+                        console.error('Error loading webpack chunk!')
+
+                        if (scene !== null) {
+                            // we were on another page (not the first loaded scene)
+                            console.error('Reloading!')
+                            window.location.reload()
+                        } else {
+                            // first scene, show an error page
+                            console.error("Redirecting to the 'Network Error' page!")
+                            actions.setScene('4xx', {})
+                            return
+                        }
+                    }
+                    throw error
+                }
                 breakpoint()
                 const { default: defaultExport, logic, ...others } = importedScene
 

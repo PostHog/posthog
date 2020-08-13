@@ -94,6 +94,7 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                                     selector: selector,
                                     hash: event.hash,
                                 } as CountedHTMLElement)
+                                return null
                             }
 
                             if (domElements.length === 0 && i === event.elements.length - 1) {

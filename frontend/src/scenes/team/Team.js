@@ -1,5 +1,5 @@
 import React from 'react'
-import { Card, Loading } from 'lib/utils'
+import { Row, Spin } from 'antd'
 import { TeamInvitationContent } from 'lib/components/TeamInvitation'
 import { Table, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
@@ -71,27 +71,21 @@ function Team({ user }) {
 
     return (
         <>
-            <div>
-                <h1 className="page-header">Team</h1>
-                <div style={{ maxWidth: 600 }}>
-                    <i>
-                        <p>This is you and all your teammates. Manage them from here.</p>
-                        <TeamInvitationContent user={user} />
-                    </i>
-                </div>
-                <Card style={{ marginTop: '1rem' }}>
-                    {usersLoading ? (
-                        <div className="loading-overlay mt-5">
-                            <div />
-                            <Loading />
-                            <br />
-                        </div>
-                    ) : (
-                        <div className="card-body">
-                            <Table dataSource={userDataMarked} columns={columns} rowKey="distinct_id" />
-                        </div>
-                    )}
-                </Card>
+            <h1 className="page-header">Team</h1>
+            <div style={{ maxWidth: 600 }}>
+                <i>
+                    <p>This is you and all your teammates. Manage them from here.</p>
+                    <TeamInvitationContent user={user} />
+                </i>
+            </div>
+            <div style={{ marginTop: '1rem' }}>
+                {usersLoading ? (
+                    <Row justify="center">
+                        <Spin />
+                    </Row>
+                ) : (
+                    <Table dataSource={userDataMarked} columns={columns} rowKey="distinct_id" />
+                )}
             </div>
         </>
     )

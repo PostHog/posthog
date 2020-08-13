@@ -24,7 +24,7 @@ def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> Q
     return QuerySet()
 
 
-def _determine_compared_filter(filter: Filter) -> Filter:
+def determine_compared_filter(filter: Filter) -> Filter:
     if not filter.date_to or not filter.date_from:
         raise ValueError("You need date_from and date_to to compare")
     date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
@@ -61,7 +61,7 @@ def handle_compare(entity: Entity, filter: Filter, func: Callable, team_id: int)
         trend_entity = _convert_to_comparison(trend_entity, filter, "{} - {}".format(entity.name, "current"))
         entities_list.extend(trend_entity)
 
-        compared_filter = _determine_compared_filter(filter)
+        compared_filter = determine_compared_filter(filter)
         compared_trend_entity = func(entity=entity, filter=compared_filter, team_id=team_id)
 
         compared_trend_entity = _convert_to_comparison(

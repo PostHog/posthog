@@ -1,4 +1,4 @@
-import Simmer from 'simmerjs'
+import Simmer from '@mariusandra/simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, ElementType } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
@@ -302,4 +302,9 @@ export function stepToDatabaseFormat(step: ActionStepForm): ActionStepType {
         url: url_selected ? rest.url : undefined,
     }
     return newStep
+}
+
+export function clearSessionToolbarToken(): void {
+    window.sessionStorage?.removeItem('_postHogEditorParams')
+    window.localStorage?.removeItem('_postHogEditorParams')
 }

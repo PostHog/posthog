@@ -153,6 +153,7 @@ export const dockLogic = kea<dockLogicType<ToolbarMode, ToolbarAnimationState>>(
         hideButton: () => {
             posthog.capture('Toolbar Closed')
             values.mode !== '' && actions.setMode('', false)
+            window.setTimeout(toolbarLogic.actions.logout, 1000)
         },
         update: () => {
             values.mode !== '' && !values.isAnimating && actions.setMode(values.mode, true)

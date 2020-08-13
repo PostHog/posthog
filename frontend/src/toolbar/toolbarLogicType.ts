@@ -9,6 +9,12 @@ export interface toolbarLogicType {
                 value: boolean
             }
         }
+        logout: () => {
+            type: 'logout (toolbar.toolbarLogic)'
+            payload: {
+                value: boolean
+            }
+        }
         processUserIntent: () => {
             type: 'process user intent (toolbar.toolbarLogic)'
             payload: {
@@ -24,16 +30,19 @@ export interface toolbarLogicType {
     }
     actionKeys: {
         'authenticate (toolbar.toolbarLogic)': 'authenticate'
+        'logout (toolbar.toolbarLogic)': 'logout'
         'process user intent (toolbar.toolbarLogic)': 'processUserIntent'
         'clear user intent (toolbar.toolbarLogic)': 'clearUserIntent'
     }
     actionTypes: {
         authenticate: 'authenticate (toolbar.toolbarLogic)'
+        logout: 'logout (toolbar.toolbarLogic)'
         processUserIntent: 'process user intent (toolbar.toolbarLogic)'
         clearUserIntent: 'clear user intent (toolbar.toolbarLogic)'
     }
     actions: {
         authenticate: () => void
+        logout: () => void
         processUserIntent: () => void
         clearUserIntent: () => void
     }

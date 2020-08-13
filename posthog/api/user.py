@@ -93,11 +93,10 @@ def redirect_to_site(request):
     request.user.temporary_token = secrets.token_urlsafe(32)
     request.user.save()
     params = {
-        "action": "mpeditor",
+        "action": "ph_authorize",
         "token": team.api_token,
         "temporaryToken": request.user.temporary_token,
         "actionId": request.GET.get("actionId"),
-        "apiURL": request.build_absolute_uri("/"),
         "userIntent": request.GET.get("userIntent"),
     }
 
@@ -111,6 +110,7 @@ def redirect_to_site(request):
     if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
         params["instrument"] = True
         params["userEmail"] = request.user.email
+        params["distinctId"] = request.user.distinct_id
 
     state = urllib.parse.quote(json.dumps(params))
 
@@ -166,7 +166,7 @@ def test_slack_webhook(request):
     webhook = body.get("webhook")
 
     if not webhook:
-        return JsonResponse({"error": "no webhook"})
+        return JsonResponse({"error": "no webhook URL"})
     message = {"text": "Greetings from PostHog!"}
     try:
         response = requests.post(webhook, verify=False, json=message)
@@ -176,7 +176,7 @@ def test_slack_webhook(request):
         else:
             return JsonResponse({"error": response.text})
     except:
-        return JsonResponse({"error": "invalid webhook url"})
+        return JsonResponse({"error": "invalid webhook URL"})
 
 
 class UserSerializer(serializers.ModelSerializer):

@@ -192,7 +192,14 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
 
 @csrf_protect
 def logout(request):
-    return auth_views.logout_then_login(request)
+    if request.user.is_authenticated:
+        request.user.temporary_token = None
+        request.user.save()
+
+    response = auth_views.logout_then_login(request)
+    response.delete_cookie(settings.TOOLBAR_COOKIE_NAME, "/")
+
+    return response
 
 
 def authorize_and_redirect(request):

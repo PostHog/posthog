@@ -1,25 +1,18 @@
-import React, { useRef, useEffect } from 'react'
+import React, { useRef } from 'react'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { useSecondRender } from 'lib/hooks/useSecondRender'
 import root from 'react-shadow'
 import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
 import { useMountedLogic } from 'kea'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { posthog } from '~/toolbar/posthog'
 import { EditorProps } from '~/types'
+import { Slide, ToastContainer } from 'react-toastify'
 
 export function ToolbarApp(props: EditorProps = {}): JSX.Element {
     useMountedLogic(toolbarLogic(props))
 
     const shadowRef = useRef(null as null | { shadowRoot: ShadowRoot })
     useMountedLogic(dockLogic({ shadowRef }))
-
-    useEffect(() => {
-        if (props.instrument) {
-            posthog.identify((null as unknown) as string, { email: props.userEmail })
-            posthog.optIn()
-        }
-    }, [])
 
     // this runs after the shadow root has been added to the dom
     const didRender = useSecondRender(() => {
@@ -41,14 +34,11 @@ export function ToolbarApp(props: EditorProps = {}): JSX.Element {
 
     return (
         <>
-            <TypedShadowDiv id="__POSTHOG_TOOLBAR__" ref={shadowRef}>
+            <root.div id="__POSTHOG_TOOLBAR__" ref={shadowRef}>
                 <div id="posthog-toolbar-styles" />
                 {didRender ? <ToolbarContainer /> : null}
-            </TypedShadowDiv>
+                <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
+            </root.div>
         </>
     )
-}
-
-function TypedShadowDiv(props: { id: string; ref: any; children: any }): JSX.Element {
-    return <root.div {...props} />
 }
