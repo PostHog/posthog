@@ -2,13 +2,11 @@ import json
 from datetime import datetime
 
 import pytz
-from freezegun import freeze_time
 
 from posthog.api.test.base import BaseTest
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models import Action, ActionStep, Entity, Event, Filter, Person, Team
+from posthog.models import Action, ActionStep, Event, Filter, Person
 from posthog.queries.retention import Retention
-from posthog.queries.stickiness import Stickiness
 
 
 class TestRetention(BaseTest):

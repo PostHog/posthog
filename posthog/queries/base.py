@@ -4,7 +4,7 @@ from typing import Any, Callable, Dict, List, Optional
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q, QuerySet
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_STICKINESS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models import Entity, Event, Filter, Team
 from posthog.utils import get_compare_period_dates
 

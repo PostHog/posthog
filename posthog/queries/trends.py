@@ -1,8 +1,6 @@
 import copy
 import datetime
-import json
-from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -25,27 +23,20 @@ from django.db.models import (
 from django.db.models.expressions import RawSQL, Subquery
 from django.db.models.functions import Cast
 from django.utils.timezone import now
-from rest_framework import authentication, request, serializers, viewsets
-from rest_framework.decorators import action
-from rest_framework.response import Response
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_STICKINESS
-from posthog.decorators import TRENDS_ENDPOINT, cached_function
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TRENDS_CUMULATIVE
 from posthog.models import (
     Action,
     ActionStep,
     Cohort,
     CohortPeople,
-    DashboardItem,
     Entity,
     Event,
     Filter,
     Person,
     Team,
-    User,
 )
-from posthog.tasks.calculate_action import calculate_action
-from posthog.utils import TemporaryTokenAuthentication, append_data
+from posthog.utils import append_data
 
 from .base import BaseQuery, filter_events, handle_compare, process_entity_for_events
 

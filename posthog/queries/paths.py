@@ -1,4 +1,3 @@
-import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -6,13 +5,9 @@ from django.db import connection
 from django.db.models import F, OuterRef, Q
 from django.db.models.expressions import Window
 from django.db.models.functions import Lag
-from rest_framework import request, viewsets
-from rest_framework.decorators import action
-from rest_framework.response import Response
 
 from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, SCREEN_EVENT
-from posthog.models import Entity, Event, Filter, Team
-from posthog.utils import dict_from_cursor_fetchall, request_to_date_query
+from posthog.models import Event, Filter, Team
 
 from .base import BaseQuery
 

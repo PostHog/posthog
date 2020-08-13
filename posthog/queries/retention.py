@@ -1,8 +1,8 @@
 import datetime
 from datetime import timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from posthog.models import Entity, Event, Filter, Team
+from posthog.models import Event, Filter, Team
 from posthog.queries.base import BaseQuery
 
 
