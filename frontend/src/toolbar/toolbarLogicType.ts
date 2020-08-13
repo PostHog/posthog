@@ -15,18 +15,36 @@ export interface toolbarLogicType {
                 value: boolean
             }
         }
+        processUserIntent: () => {
+            type: 'process user intent (toolbar.toolbarLogic)'
+            payload: {
+                value: boolean
+            }
+        }
+        clearUserIntent: () => {
+            type: 'clear user intent (toolbar.toolbarLogic)'
+            payload: {
+                value: boolean
+            }
+        }
     }
     actionKeys: {
         'authenticate (toolbar.toolbarLogic)': 'authenticate'
         'logout (toolbar.toolbarLogic)': 'logout'
+        'process user intent (toolbar.toolbarLogic)': 'processUserIntent'
+        'clear user intent (toolbar.toolbarLogic)': 'clearUserIntent'
     }
     actionTypes: {
         authenticate: 'authenticate (toolbar.toolbarLogic)'
         logout: 'logout (toolbar.toolbarLogic)'
+        processUserIntent: 'process user intent (toolbar.toolbarLogic)'
+        clearUserIntent: 'clear user intent (toolbar.toolbarLogic)'
     }
     actions: {
         authenticate: () => void
         logout: () => void
+        processUserIntent: () => void
+        clearUserIntent: () => void
     }
     cache: Record<string, any>
     connections: any
@@ -46,7 +64,7 @@ export interface toolbarLogicType {
         rawJsURL: string
         temporaryToken: string | null
         actionId: number | null
-        userIntent: string | null
+        userIntent: 'add-action' | 'edit-action' | null
     }
     reducerOptions: any
     reducers: {
@@ -54,7 +72,11 @@ export interface toolbarLogicType {
         rawJsURL: (state: string, action: any, fullState: any) => string
         temporaryToken: (state: string | null, action: any, fullState: any) => string | null
         actionId: (state: number | null, action: any, fullState: any) => number | null
-        userIntent: (state: string | null, action: any, fullState: any) => string | null
+        userIntent: (
+            state: 'add-action' | 'edit-action' | null,
+            action: any,
+            fullState: any
+        ) => 'add-action' | 'edit-action' | null
     }
     selector: (
         state: any
@@ -63,14 +85,14 @@ export interface toolbarLogicType {
         rawJsURL: string
         temporaryToken: string | null
         actionId: number | null
-        userIntent: string | null
+        userIntent: 'add-action' | 'edit-action' | null
     }
     selectors: {
         rawApiURL: (state: any, props: any) => string
         rawJsURL: (state: any, props: any) => string
         temporaryToken: (state: any, props: any) => string | null
         actionId: (state: any, props: any) => number | null
-        userIntent: (state: any, props: any) => string | null
+        userIntent: (state: any, props: any) => 'add-action' | 'edit-action' | null
         apiURL: (state: any, props: any) => string
         jsURL: (state: any, props: any) => string
         isAuthenticated: (state: any, props: any) => boolean
@@ -80,7 +102,7 @@ export interface toolbarLogicType {
         rawJsURL: string
         temporaryToken: string | null
         actionId: number | null
-        userIntent: string | null
+        userIntent: 'add-action' | 'edit-action' | null
         apiURL: string
         jsURL: string
         isAuthenticated: boolean

@@ -127,14 +127,18 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, F
     listeners: ({ actions, values }) => ({
         selectAction: ({ id }) => {
             if (id) {
-                if (dockLogic.values.mode === 'button') {
+                const { mode } = dockLogic.values
+                if (mode === '') {
+                    dockLogic.actions.setMode('button')
+                }
+                if (mode === '' || mode === 'button') {
                     if (!values.buttonActionsVisible) {
                         actions.showButtonActions()
                     }
                     if (!toolbarButtonLogic.values.actionsInfoVisible) {
                         toolbarButtonLogic.actions.showActionsInfo()
                     }
-                } else {
+                } else if (mode === 'dock') {
                     if (toolbarTabLogic.values.tab !== 'actions') {
                         toolbarTabLogic.actions.setTab('actions')
                     }
@@ -225,7 +229,16 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionType, ActionForm, F
             actions.setShowActionsTooltip(false)
         },
         [actionsLogic.actionTypes.getActionsSuccess]: () => {
-            actions.setShowActionsTooltip(true)
+            const { userIntent } = toolbarLogic.values
+            if (userIntent === 'edit-action') {
+                actions.selectAction(toolbarLogic.values.actionId)
+                toolbarLogic.actions.clearUserIntent()
+            } else if (userIntent === 'add-action') {
+                actions.newAction()
+                toolbarLogic.actions.clearUserIntent()
+            } else {
+                actions.setShowActionsTooltip(true)
+            }
         },
         setShowActionsTooltip: async ({ showActionsTooltip }, breakpoint) => {
             if (showActionsTooltip) {
