@@ -230,7 +230,7 @@ class InsightViewSet(viewsets.ModelViewSet):
     # ******************************************
     # /insight/path
     # params:
-    # - start_point: (string) specifies the name of the starting property or element
+    # - start: (string) specifies the name of the starting property or element
     # - request_type: (string: $pageview, $autocapture, $screen, custom_event) specifies the path type
     # - **shared filter types
     # ******************************************
