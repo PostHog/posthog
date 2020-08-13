@@ -13,25 +13,24 @@ class TestSignup(TestCase):
         self.client = Client()
         self.team: Team = Team.objects.create(api_token="tokenABC123")
 
-        # Sample request for an event capturing request
-        self.REQ_BODY: Dict = {
-            "api_key": "tokenABC123",
-            "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
-        }
-        self.REQ_BODY_QS: str = f"?data={json.dumps(self.REQ_BODY)}"
-
     def test_ip_range(self):
         """
         Also test that capture endpoint is not restrictied by ALLOWED_IP_BLOCKS
         """
         with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25", "128.0.0.1"]):
+
+            # Sample request for an event capturing request
+            req_body: Dict = {
+                "api_key": "tokenABC123",
+                "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
+            }
+            req_body_qs: str = f"?data={json.dumps(req_body)}"
+
             # not in list
             response = self.client.get("/", REMOTE_ADDR="10.0.0.1")
             self.assertIn(b"IP is not allowed", response.content)
 
-            response = self.client.post(
-                "/capture", self.REQ_BODY, content_type="application/json", REMOTE_ADDR="10.0.0.1",
-            )
+            response = self.client.get(f"/capture{req_body_qs}", REMOTE_ADDR="10.0.0.1",)
             self.assertEqual(b'{"status": 1}', response.content)
 
             # /31 block
@@ -41,14 +40,10 @@ class TestSignup(TestCase):
             response = self.client.get("/", REMOTE_ADDR="192.168.0.2")
             self.assertIn(b"IP is not allowed", response.content)
 
-            response = self.client.post(
-                "/capture", self.REQ_BODY, content_type="application/json", REMOTE_ADDR="192.168.0.1",
-            )
+            response = self.client.get(f"/capture{req_body_qs}", REMOTE_ADDR="192.168.0.1")
             self.assertEqual(b'{"status": 1}', response.content)
 
-            response = self.client.post(
-                "/capture", self.REQ_BODY, content_type="application/json", REMOTE_ADDR="192.168.0.2",
-            )
+            response = self.client.get(f"/capture{req_body_qs}", REMOTE_ADDR="192.168.0.2")
             self.assertEqual(b'{"status": 1}', response.content)
 
             # /24 block
