@@ -21,13 +21,16 @@ class TestSignup(TestCase):
         self.REQ_BODY_QS: str = f"?data={json.dumps(self.REQ_BODY)}"
 
     def test_ip_range(self):
+        """
+        Also test that capture endpoint is not restrictied by ALLOWED_IP_BLOCKS
+        """
         with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25", "128.0.0.1"]):
             # not in list
             response = self.client.get("/", REMOTE_ADDR="10.0.0.1")
             self.assertIn(b"IP is not allowed", response.content)
 
             response = self.client.post(
-                f"/batch/", self.REQ_BODY, content_type="application/json", REMOTE_ADDR="10.0.0.1",
+                "/capture", self.REQ_BODY, content_type="application/json", REMOTE_ADDR="10.0.0.1",
             )
             self.assertEqual(b'{"status": 1}', response.content)
 
@@ -39,12 +42,12 @@ class TestSignup(TestCase):
             self.assertIn(b"IP is not allowed", response.content)
 
             response = self.client.post(
-                f"/batch/", self.REQ_BODY, content_type="application/json", REMOTE_ADDR="192.168.0.1",
+                "/capture", self.REQ_BODY, content_type="application/json", REMOTE_ADDR="192.168.0.1",
             )
             self.assertEqual(b'{"status": 1}', response.content)
 
             response = self.client.post(
-                f"/batch/", self.REQ_BODY, content_type="application/json", REMOTE_ADDR="192.168.0.2",
+                "/capture", self.REQ_BODY, content_type="application/json", REMOTE_ADDR="192.168.0.2",
             )
             self.assertEqual(b'{"status": 1}', response.content)
 
