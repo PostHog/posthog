@@ -23,6 +23,7 @@ class TestSignup(TestCase):
 
             # not in list
             response = self.client.get("/", REMOTE_ADDR="10.0.0.1")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertIn(b"IP is not allowed", response.content)
 
             response = self.client.get("/batch/", REMOTE_ADDR="10.0.0.1",)
@@ -40,9 +41,11 @@ class TestSignup(TestCase):
 
             # /31 block
             response = self.client.get("/", REMOTE_ADDR="192.168.0.1")
+            self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertNotIn(b"IP is not allowed", response.content)
 
             response = self.client.get("/", REMOTE_ADDR="192.168.0.2")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertIn(b"IP is not allowed", response.content)
 
             response = self.client.get("/batch/", REMOTE_ADDR="192.168.0.1")
@@ -53,16 +56,20 @@ class TestSignup(TestCase):
 
             # /24 block
             response = self.client.get("/", REMOTE_ADDR="127.0.0.1")
+            self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertNotIn(b"IP is not allowed", response.content)
 
             response = self.client.get("/", REMOTE_ADDR="127.0.0.100")
+            self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertNotIn(b"IP is not allowed", response.content)
 
             response = self.client.get("/", REMOTE_ADDR="127.0.0.200")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertIn(b"IP is not allowed", response.content)
 
             # precise ip
             response = self.client.get("/", REMOTE_ADDR="128.0.0.1")
+            self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertNotIn(b"IP is not allowed", response.content)
 
             response = self.client.get("/", REMOTE_ADDR="128.0.0.2")
