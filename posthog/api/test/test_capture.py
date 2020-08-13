@@ -120,7 +120,7 @@ class TestCapture(BaseTest):
             response.json(),
             {
                 "code": "validation",
-                "message": "No data provided. Make sure to use a POST request when sending the payload in the body of the request.",
+                "message": "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
             },
         )
         self.assertEqual(patch_process_event.call_count, 0)
@@ -132,7 +132,7 @@ class TestCapture(BaseTest):
             response.json(),
             {
                 "code": "validation",
-                "message": "No data provided. Make sure to use a POST request when sending the payload in the body of the request.",
+                "message": "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
             },
         )
         self.assertEqual(patch_process_event.call_count, 0)
