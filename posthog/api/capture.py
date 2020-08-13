@@ -119,7 +119,7 @@ def get_event(request):
         return cors_response(
             request,
             JsonResponse(
-                {"code": "validation", "message": "Invalid formatting. Make sure you're passing correct JSON.",},
+                {"code": "validation", "message": "Invalid formatting. Make sure you're sending valid JSON.",},
                 status=400,
             ),
         )
@@ -129,7 +129,7 @@ def get_event(request):
             JsonResponse(
                 {
                     "code": "validation",
-                    "message": "No data provided. Make sure to use a POST request when sending the payload in the body of the request.",
+                    "message": "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
                 },
                 status=400,
             ),
