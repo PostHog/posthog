@@ -110,8 +110,10 @@ TRUST_ALL_PROXIES = os.environ.get("TRUST_ALL_PROXIES", False)
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 
+DEFAULT_SECRET_KEY = "6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-_y7c_c^l5c0m$"
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("SECRET_KEY", "6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-_y7c_c^l5c0m$")
+SECRET_KEY = os.environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
 
 ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
 
@@ -359,6 +361,15 @@ if DEBUG and not TEST:
         (
             "️Environment variable DEBUG is set - PostHog is running in DEVELOPMENT mode!",
             "Be sure to unset DEBUG if this is supposed to be a PRODUCTION environment!",
+        )
+    )
+
+if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
+    print_warning(
+        (
+            "You have not set a unique SECRET_KEY!",
+            "For the safety of your instance, you should consider generating and setting a unique key.",
+            "More information: https://posthog.com/docs/deployment/securing-posthog#secret-key",
         )
     )
 
