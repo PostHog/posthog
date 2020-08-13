@@ -1364,10 +1364,10 @@
     react-draggable "^4.0.0"
     react-resizable "^1.10.0"
 
-"@mariusandra/simmerjs@0.5.6-posthog-2":
-  version "0.5.6-posthog-2"
-  resolved "https://registry.yarnpkg.com/@mariusandra/simmerjs/-/simmerjs-0.5.6-posthog-2.tgz#17efdf40e40e9770fdf9ac4448d4b4d779171af4"
-  integrity sha512-PfDnFBCvUidNlPJoAom7FCoLKXL9h5WAfC7mkftI1swQ0RFHeCOqRvlfvwUHM8lsCD56alL2a8o4PTbl6dg4IQ==
+"@mariusandra/simmerjs@0.6.0-posthog.1":
+  version "0.6.0-posthog.1"
+  resolved "https://registry.yarnpkg.com/@mariusandra/simmerjs/-/simmerjs-0.6.0-posthog.1.tgz#92a5792d3cec2aca842bdf059976d1f1d1e61060"
+  integrity sha512-bqIS2MwbfXGwm3U7f+s9FgcQBuiG6QpjCUbwn2un3B0yB8SektTyVlrt/0EqkDBJV77yhAxjmQgkbjifXNvEOg==
   dependencies:
     lodash.difference "^4.5.0"
     lodash.flatmap "^4.5.0"

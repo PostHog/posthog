@@ -60,8 +60,13 @@ export function elementToSelector(element: ElementType): string {
     if (element.tag_name) {
         selector += cssEscape(element.tag_name)
     }
+    if (element.attributes?.['attr__data-attr']) {
+        selector += `[data-attr="${element.attributes['attr__data-attr']}"]`
+        return selector
+    }
     if (element.attr_id) {
         selector += `#${cssEscape(element.attr_id)}`
+        return selector
     }
     if (element.attr_class) {
         selector += element.attr_class

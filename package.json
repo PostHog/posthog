@@ -27,7 +27,7 @@
         "@babel/core": "^7.11.1",
         "@babel/runtime": "^7.11.2",
         "@mariusandra/react-grid-layout": "0.18.3",
-        "@mariusandra/simmerjs": "0.5.6-posthog-2",
+        "@mariusandra/simmerjs": "0.6.0-posthog.1",
         "antd": "^4.5.4",
         "babel-preset-nano-react-app": "^0.1.0",
         "bootstrap": "^4.5.2",
