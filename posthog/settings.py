@@ -368,10 +368,11 @@ if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
     print_warning(
         (
             "You have not set a unique SECRET_KEY!",
-            "For the safety of your instance, you should consider generating and setting a unique key.",
+            "For the safety of your instance, you must generate and set a unique key.",
             "More information: https://posthog.com/docs/deployment/securing-posthog#secret-key",
         )
     )
+    sys.exit("[ERROR] SECRET_KEY missing. Process finished with exit code 1.\n")
 
 
 def show_toolbar(request):
