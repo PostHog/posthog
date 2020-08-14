@@ -21,7 +21,7 @@ class TestUser(BaseTest):
     @patch("posthog.models.user.TeamBilling")
     def test_feature_available_multi_tenancy(self, patch_team_billing):
         patch_team_billing.objects.get().plan = "enterprise"
-        self.assertTrue(self.user.feature_available("whatever"))
+        self.assertFalse(self.user.feature_available("whatever"))
 
     @patch("posthog.models.user.License.PLANS", {"enterprise": ["whatever"]})
     @patch("ee.models.license.requests.post")
