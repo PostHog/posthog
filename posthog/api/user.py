@@ -21,7 +21,7 @@ def user(request):
     if not request.user.is_authenticated:
         return HttpResponse("Unauthorized", status=401)
 
-    team = request.user.team_set.get()
+    team = request.user.team
 
     if request.method == "PATCH":
         data = json.loads(request.body)
@@ -75,6 +75,10 @@ def user(request):
             },
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
             "posthog_version": settings.VERSION if hasattr(settings, "VERSION") else None,
+            "available_features": request.user.available_features,
+            "billing_plan": request.user.billing_plan,
+            "is_multi_tenancy": hasattr(settings, "MULTI_TENANCY"),
+            "ee_available": request.user.ee_available,
         }
     )
 
