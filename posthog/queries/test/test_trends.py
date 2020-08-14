@@ -208,6 +208,11 @@ class TestTrends(BaseTest):
         self.assertEqual(response[0]["data"][3], 1.0)
         self.assertEqual(response[0]["data"][12], 1.0)
 
+    def test_response_empty_if_no_events(self):
+        self._create_events()
+        response = Trends().run(Filter(data={"date_from": "2012-12-12"}), self.team)
+        self.assertEqual(response, [])
+
     def test_interval_filtering(self):
         self._create_events(use_time=True)
 
