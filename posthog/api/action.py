@@ -31,6 +31,7 @@ from rest_framework import authentication, request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from posthog.api.user import UserSerializer
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_STICKINESS
 from posthog.decorators import TRENDS_ENDPOINT, cached_function
 from posthog.models import (
@@ -73,6 +74,7 @@ class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
 class ActionSerializer(serializers.HyperlinkedModelSerializer):
     steps = serializers.SerializerMethodField()
     count = serializers.SerializerMethodField()
+    created_by = UserSerializer(required=False, read_only=True)
 
     class Meta:
         model = Action
@@ -86,6 +88,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
             "deleted",
             "count",
             "is_calculating",
+            "created_by",
         ]
 
     def get_steps(self, action: Action):
