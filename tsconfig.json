@@ -4,7 +4,8 @@
         "paths": {
             "lib/*": ["./src/lib/*"],
             "scenes/*": ["./src/scenes/*"],
-            "~/*": ["./src/*"]
+            "~/*": ["./src/*"],
+            "types/*": ["./types/*"]
         },
         // https://www.sitepoint.com/react-with-typescript-best-practices/
         "allowJs": true, // Allow JavaScript files to be compiled
