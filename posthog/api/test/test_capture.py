@@ -108,9 +108,33 @@ class TestCapture(BaseTest):
 
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
-    def test_ignore_empty_request(self, patch_process_event):
+    def test_empty_request_returns_an_error(self, patch_process_event):
+        """
+        Empty requests that fail silently cause confusion as to whether they were successful or not.
+        """
+
+        # Empty GET
         response = self.client.get("/e/?data=", content_type="application/json", HTTP_ORIGIN="https://localhost",)
-        self.assertEqual(response.content, b"1")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {
+                "code": "validation",
+                "message": "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
+            },
+        )
+        self.assertEqual(patch_process_event.call_count, 0)
+
+        # Empty POST
+        response = self.client.post("/e/", {}, content_type="application/json", HTTP_ORIGIN="https://localhost",)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {
+                "code": "validation",
+                "message": "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
+            },
+        )
         self.assertEqual(patch_process_event.call_count, 0)
 
     @patch("posthog.models.team.TEAM_CACHE", {})
