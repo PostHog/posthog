@@ -10,6 +10,8 @@ from dateutil import parser
 from django.conf import settings
 from django.db import connection
 
+from posthog.constants import CachedEndpoint
+
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 
@@ -89,7 +91,7 @@ def check_cached_items():
 
 
 @app.task
-def update_cache_item_task(key: str, cache_type: str, payload: dict) -> None:
+def update_cache_item_task(key: str, cache_type: CachedEndpoint, payload: dict) -> None:
     from posthog.tasks.update_cache import update_cache_item
 
     update_cache_item(key, cache_type, payload)

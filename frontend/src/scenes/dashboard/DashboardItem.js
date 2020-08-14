@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react'
 import { ActionsLineGraph } from 'scenes/insights/ActionsLineGraph'
 import { ActionsTable } from 'scenes/insights/ActionsTable'
 import { ActionsPie } from 'scenes/insights/ActionsPie'
-import { FunnelViz } from 'scenes/funnels/FunnelViz'
+import { FunnelSteps } from 'scenes/funnels/FunnelViz'
 import {
     EllipsisOutlined,
     EditOutlined,
@@ -63,9 +63,9 @@ const typeMap = {
         link: ({ filters, id, dashboard, name }) =>
             combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
     },
-    FunnelViz: {
+    FunnelSteps: {
         className: 'funnel',
-        element: FunnelViz,
+        element: FunnelSteps,
         icon: FunnelPlotOutlined,
         viewText: 'View funnel',
         link: ({ funnel, id, dashboard, name }) =>
@@ -76,6 +76,8 @@ const typeMap = {
             ).url,
     },
 }
+
+typeMap.FunnelViz = typeMap.FunnelSteps // backwards compatiblity alias for less clear name from before funnel trends
 
 export function DashboardItem({
     item,

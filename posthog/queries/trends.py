@@ -29,8 +29,14 @@ from rest_framework import authentication, request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_CUMULATIVE, TRENDS_STICKINESS
-from posthog.decorators import TRENDS_ENDPOINT, cached_function
+from posthog.constants import (
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_EVENTS,
+    TRENDS_CUMULATIVE,
+    TRENDS_STICKINESS,
+    CachedEndpoint,
+)
+from posthog.decorators import cached_function
 from posthog.models import (
     Action,
     ActionStep,

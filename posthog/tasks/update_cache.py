@@ -9,9 +9,9 @@ from django.core.cache import cache
 from django.db.models import Prefetch, Q
 from django.utils import timezone
 
-from posthog.api.funnel import FunnelSerializer
+from posthog.api.funnel import FunnelStepsSerializer
 from posthog.celery import app, update_cache_item_task
-from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT
+from posthog.constants import CachedEndpoint
 from posthog.models import Action, ActionStep, DashboardItem, Entity, Filter, Funnel, Team
 from posthog.queries.trends import Trends
 from posthog.utils import generate_cache_key
@@ -19,14 +19,14 @@ from posthog.utils import generate_cache_key
 logger = logging.getLogger(__name__)
 
 
-def update_cache_item(key: str, cache_type: str, payload: dict) -> None:
+def update_cache_item(key: str, cache_type: CachedEndpoint, payload: dict) -> None:
     result: Optional[Union[List, Dict]] = None
-    if cache_type == TRENDS_ENDPOINT:
+    if cache_type == CachedEndpoint.TRENDS:
         filter_dict = json.loads(payload["filter"])
         filter = Filter(data=filter_dict)
         result = _calculate_trends(filter, int(payload["team_id"]))
-    elif cache_type == FUNNEL_ENDPOINT:
-        result = _calculate_funnel(payload["funnel_id"], int(payload["team_id"]))
+    elif cache_type == CachedEndpoint.FUNNEL_STEPS:
+        result = _calculate_funnel_steps(payload["funnel_id"], int(payload["team_id"]))
 
     if result:
         cache.set(key, {"result": result, "details": payload, "type": cache_type}, 25 * 60)
@@ -47,12 +47,12 @@ def update_cached_items() -> None:
         filter = Filter(data=item.filters)
         cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), item.team_id))
         payload = {"filter": filter.toJSON(), "team_id": item.team_id}
-        tasks.append(update_cache_item_task.s(cache_key, TRENDS_ENDPOINT, payload))
+        tasks.append(update_cache_item_task.s(cache_key, CachedEndpoint.TRENDS, payload))
 
     for item in items.filter(funnel_id__isnull=False).distinct("funnel_id"):
         cache_key = generate_cache_key("funnel_{}_{}".format(item.funnel_id, item.team_id))
         payload = {"funnel_id": item.funnel_id, "team_id": item.team_id}
-        tasks.append(update_cache_item_task.s(cache_key, FUNNEL_ENDPOINT, payload))
+        tasks.append(update_cache_item_task.s(cache_key, CachedEndpoint.FUNNEL_STEPS, payload))
 
     logger.info("Found {} items to refresh".format(len(tasks)))
     taskset = group(tasks)
@@ -69,10 +69,10 @@ def _calculate_trends(filter: Filter, team_id: int) -> List[Dict[str, Any]]:
     return result
 
 
-def _calculate_funnel(pk: int, team_id: int) -> dict:
+def _calculate_funnel_steps(pk: int, team_id: int) -> dict:
     funnel = Funnel.objects.get(pk=pk, team_id=team_id)
     dashboard_items = DashboardItem.objects.filter(team_id=team_id, funnel_id=pk)
     dashboard_items.update(refreshing=True)
-    result = FunnelSerializer(funnel, context={"cache": True}).data
+    result = FunnelStepsSerializer(funnel, context={"cache": True}).data
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result

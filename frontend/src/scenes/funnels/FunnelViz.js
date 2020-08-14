@@ -5,8 +5,9 @@ import { Loading, humanFriendlyDuration } from 'lib/utils'
 import PropTypes from 'prop-types'
 import { useValues, useActions } from 'kea'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
+import { LineGraph } from 'scenes/insights/LineGraph'
 
-export function FunnelViz({ funnel: funnelParam, dashboardItemId, funnelId }) {
+export function FunnelSteps({ funnel: funnelParam, dashboardItemId, funnelId }) {
     const container = useRef()
     const [funnel, setFunnel] = useState(funnelParam)
     const logic = funnelVizLogic({ funnelId, dashboardItemId })
@@ -80,7 +81,37 @@ export function FunnelViz({ funnel: funnelParam, dashboardItemId, funnelId }) {
     )
 }
 
-FunnelViz.propTypes = {
+FunnelSteps.propTypes = {
     funnel: PropTypes.object,
     funnelId: PropTypes.number,
+}
+
+export function FunnelLineGraph({ dashboardItemId = null, color = 'white', filters, inSharedMode }) {
+    const [{ fromItem }] = useState(router.values.hashParams)
+
+    useEffect(() => {
+        loadResults()
+    }, [toParams(filters)])
+
+    return results && !resultsLoading ? (
+        filters.session || results.reduce((total, item) => total + item.count, 0) > 0 ? (
+            <LineGraph
+                pageKey="trends-annotations"
+                data-attr="trend-line-graph"
+                type="line"
+                color={color}
+                datasets={results}
+                labels={(results[0] && results[0].labels) || []}
+                isInProgress={!filters.date_to}
+                dashboardItemId={dashboardItemId || fromItem}
+                inSharedMode={inSharedMode}
+            />
+        ) : (
+            <p style={{ textAlign: 'center', paddingTop: '4rem' }}>
+                We couldn't find any matching events. Try changing dates or pick another action or event.
+            </p>
+        )
+    ) : (
+        <Loading />
+    )
 }

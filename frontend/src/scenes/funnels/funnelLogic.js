@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
+import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic.js'
 import { objectsEqual } from 'lib/utils'
 
 export const funnelLogic = kea({
@@ -28,13 +29,42 @@ export const funnelLogic = kea({
                     return await api.update('api/funnel/' + funnel.id, funnel)
                 },
                 createFunnel: async (funnel) => {
-                    return await api.create('api/funnel', funnel)
+                    return await api.create('api/funnel/', funnel)
                 },
             },
         ],
         stepsWithCount: {
             loadStepsWithCount: async ({ id, refresh }) => {
-                return (await api.get('api/funnel/' + id + (refresh ? '/?refresh=true' : ''))).steps
+                const extraQueryParams = {}
+                extraQueryParams['refresh'] = refresh
+                extraQueryParams['interval'] = insightLogic.values.allFilters.interval
+                const extraQueryParamsString = extraQueryParams.length
+                    ? `&${Object.entries(extraQueryParams)
+                          .filter((pair) => ![undefined, null].includes(pair[0]))
+                          .map((pair) => pair.join('='))
+                          .join('&')}`
+                    : ''
+                const response = await api.get(
+                    `api/funnel/${id}/?display=${chartFilterLogic.values.chartFilterFunnels}${extraQueryParamsString}`
+                )
+                return response.steps
+            },
+        },
+        stepsWithCount: {
+            loadStepsWithCount: async ({ id, refresh }) => {
+                const extraQueryParams = {}
+                extraQueryParams['refresh'] = refresh
+                extraQueryParams['interval'] = insightLogic.values.allFilters.interval
+                const extraQueryParamsString = extraQueryParams.length
+                    ? `&${Object.entries(extraQueryParams)
+                          .filter((pair) => ![undefined, null].includes(pair[0]))
+                          .map((pair) => pair.join('='))
+                          .join('&')}`
+                    : ''
+                const response = await api.get(
+                    `api/funnel/${id}/?display=${chartFilterLogic.values.chartFilterFunnels}${extraQueryParamsString}`
+                )
+                return response.steps
             },
         },
         people: {
@@ -54,6 +84,9 @@ export const funnelLogic = kea({
             clearFunnel: () => ({ filters: {} }),
         },
         stepsWithCount: {
+            clearFunnel: () => null,
+        },
+        trends: {
             clearFunnel: () => null,
         },
         people: {
@@ -139,6 +172,7 @@ export const funnelLogic = kea({
                 const paramsToCheck = {
                     date_from: searchParams.date_from,
                     date_to: searchParams.date_to,
+                    interval: searchParams.interval,
                 }
 
                 const _filters = {

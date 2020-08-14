@@ -4,7 +4,7 @@ from django.core.cache import cache
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.decorators import TRENDS_ENDPOINT
+from posthog.constants import CachedEndpoint
 from posthog.models import Dashboard, DashboardItem, Filter
 
 from .base import BaseTest, TransactionBaseTest
