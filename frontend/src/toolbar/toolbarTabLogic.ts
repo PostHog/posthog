@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { dockLogic } from '~/toolbar/dockLogic'
-import { toolbarTabLogicType } from '~/toolbar/toolbarTabLogicType'
+import { toolbarTabLogicType } from 'types/toolbar/toolbarTabLogicType'
 import { ToolbarTab } from '~/types'
 
 export const toolbarTabLogic = kea<toolbarTabLogicType<ToolbarTab>>({
