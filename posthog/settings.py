@@ -110,8 +110,7 @@ TRUST_ALL_PROXIES = os.environ.get("TRUST_ALL_PROXIES", False)
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 
-DEFAULT_SECRET_KEY = "6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-_y7c_c^l5c0m$"
-DEFAULT_DOCKER_KEY = "<randomly generated secret key>"
+DEFAULT_SECRET_KEY = "<randomly generated secret key>"
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
@@ -365,7 +364,7 @@ if DEBUG and not TEST:
         )
     )
 
-if not DEBUG and not TEST and (SECRET_KEY == DEFAULT_SECRET_KEY or SECRET_KEY == DEFAULT_DOCKER_KEY):
+if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
     print_warning(
         (
             "You are using the default SECRET_KEY in a production environment!",
