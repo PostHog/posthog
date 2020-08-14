@@ -117,10 +117,7 @@ class User(AbstractUser):
 
         # If we're on multi-tenancy grab the team's plan
         if not MULTI_TENANCY_MISSING:
-            try:
-                return TeamBilling.objects.get(team=self.team).plan
-            except TeamBilling.DoesNotExist:
-                return None
+            return None
         # Otherwise, try to find a valid license on this instance
         license = License.objects.filter(valid_until__gte=now()).first()
         if license:
