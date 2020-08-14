@@ -203,10 +203,10 @@ export const elementsLogic = kea<
         ],
 
         actionsForElementMap: [
-            (s) => [actionsLogic.selectors.actionsForCurrentUrl, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
-            (actionsForCurrentUrl): ActionElementMap => {
+            (s) => [actionsLogic.selectors.sortedActions, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
+            (sortedActions): ActionElementMap => {
                 const actionsForElementMap = new Map<HTMLElement, ActionElementWithMetadata[]>()
-                actionsForCurrentUrl.forEach((action, index) => {
+                sortedActions.forEach((action, index) => {
                     action.steps
                         ?.filter((step) => step.event === '$autocapture')
                         .forEach((step) => {
