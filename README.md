@@ -22,7 +22,7 @@ PostHog provides open source product analytics, built for developers. Automate t
 
 See the [PostHog Docs](https://posthog.com/docs/) for in-depth walk throughs on functionality.
 
-![PostHog dashboard screenshot](https://raw.githubusercontent.com/yakkomajuri/img-store/master/app-dashboard.png)
+![PostHog dashboard screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/app-dashboard.png)
 
 Join the [PostHog Users Slack](https://join.slack.com/t/posthogusers/shared_invite/enQtOTY0MzU5NjAwMDY3LTc2MWQ0OTZlNjhkODk3ZDI3NDVjMDE1YjgxY2I4ZjI4MzJhZmVmNjJkN2NmMGJmMzc2N2U3Yjc3ZjI5NGFlZDQ) if you need help, want to chat, or are thinking of a new feature idea.
 
@@ -47,7 +47,7 @@ Join the [PostHog Users Slack](https://join.slack.com/t/posthogusers/shared_invi
 
 ## Event Autocapture
 
-<img src="https://github.com/yakkomajuri/img-store/blob/master/actiongif.gif?raw=true" width="100%">
+<img src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/action-toolbar.gif" width="100%">
 
 <br /><br />
 
