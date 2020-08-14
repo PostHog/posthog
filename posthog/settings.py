@@ -22,7 +22,7 @@ import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
 from sentry_sdk.integrations.django import DjangoIntegration
 
-VERSION = "1.12.0"
+VERSION = "1.12.1"
 
 
 def get_env(key):
@@ -161,6 +161,14 @@ try:
 
     INSTALLED_APPS.append("debug_toolbar")
     MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
+except ImportError:
+    pass
+
+# Import Enterprise Edition if we can
+try:
+    import ee.apps
+
+    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 except ImportError:
     pass
 
