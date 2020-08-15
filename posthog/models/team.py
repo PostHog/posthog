@@ -93,5 +93,5 @@ class Team(models.Model):
         if self.name:
             return self.name
         if self.app_urls and self.app_urls[0]:
-            return self.app_urls.join(", ")
+            return ", ".join(self.app_urls)
         return str(self.pk)
