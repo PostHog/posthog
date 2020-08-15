@@ -1,4 +1,4 @@
-{% if x %}
+{% if debug %}
     <div id="debug-bar" class="bottom-bar">
         <div><span>Current branch: </span><b><code>{{ git_branch|default:"unknown" }}</code></b><span>.</span></div>
         <div><span>PostHog running in </span><b><code>DEBUG</code></b> mode!</div>
@@ -7,9 +7,9 @@
             <code>×</code>
         </button>
     </div>
-{% else %}}
+{% else %}
     <div id="tls-bar" class="bottom-bar" style="display: none">
-        <div>PostHog running in dangerously <b><code>PRODUCTION</code></b> mode without TLS! Always route to <code>https://</code> with a valid TLS certificate.</div>
+        <div>PostHog dangerously running in <b><code>PRODUCTION</code></b> mode without TLS! Use a valid TLS certificate and route to <code>https://</code>.</div>
     </div>
     <script>
         const bar = document.getElementById('tls-bar')
