@@ -1,12 +1,10 @@
 <html>
     <head>
         <title>HogFlix</title>
-
-        <script src="{{request.scheme}}://{{request.get_host}}/static/array.js"></script>
+        <script src="/static/array.js"></script>
         <script>
             posthog.init('{{api_token}}', {
-                api_host: '{{request.scheme}}://{{request.get_host}}',
-                app_host: '{{request.scheme}}://{{request.get_host}}',
+                api_host: window.location.origin,
             });
         </script>
         <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />

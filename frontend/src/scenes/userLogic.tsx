@@ -3,7 +3,7 @@ import React from 'react'
 import { toast } from 'react-toastify'
 import api from '../lib/api'
 import { posthogEvents } from 'lib/utils'
-import { userLogicType } from 'scenes/userLogicType'
+import { userLogicType } from 'types/scenes/userLogicType'
 import { UserType, PersonalAPIKeyType } from '~/types'
 
 type EventProperty = { value: string; label: string }

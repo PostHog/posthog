@@ -9,7 +9,7 @@ import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
 
 import { userLogic } from 'scenes/userLogic'
 import { DeleteDemoData } from './DeleteDemoData'
-import { SlackIntegration } from 'scenes/setup/SlackIntegration'
+import { WebhookIntegration } from 'scenes/setup/WebhookIntegration'
 import { ChangePassword } from './ChangePassword'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
@@ -54,8 +54,8 @@ function _Setup() {
             where you'll be able to create Actions.
             <EditAppUrls />
             <Divider />
-            <h2 id="slack">Slack / Teams Integration</h2>
-            <SlackIntegration />
+            <h2 id="webhook">Slack / Microsoft Teams Integration</h2>
+            <WebhookIntegration />
             <Divider />
             <h2 id="demodata">Delete HogFlix Demo Data</h2>
             <DeleteDemoData />

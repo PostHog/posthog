@@ -196,7 +196,10 @@ def logout(request):
         request.user.temporary_token = None
         request.user.save()
 
-    return auth_views.logout_then_login(request)
+    response = auth_views.logout_then_login(request)
+    response.delete_cookie(settings.TOOLBAR_COOKIE_NAME, "/")
+
+    return response
 
 
 def authorize_and_redirect(request):
@@ -215,6 +218,15 @@ def is_input_valid(inp_type, val):
     if inp_type == "email":
         return len(val) > 2 and val.count("@") > 0
     return len(val) > 0
+
+
+# Include enterprise api urls
+try:
+    from ee.urls import extend_api_router
+
+    extend_api_router(router)
+except ImportError:
+    pass
 
 
 urlpatterns = [
@@ -284,6 +296,7 @@ if settings.DEBUG:
     urlpatterns += [
         path("debug/", debug),
     ]
+
 
 urlpatterns += [
     re_path(r"^.*", decorators.login_required(home)),

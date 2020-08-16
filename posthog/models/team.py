@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.db import models
@@ -88,7 +88,7 @@ class TeamManager(models.Manager):
 
 
 class Team(models.Model):
-    users: models.ManyToManyField = models.ManyToManyField(User, blank=True)
+    users: models.ManyToManyField = models.ManyToManyField("User", blank=True)
     api_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True, blank=True), default=list)

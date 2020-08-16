@@ -3,11 +3,26 @@ from typing import List, Optional, Union
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
+from django.utils.timezone import now
 from django.utils.translation import ugettext_lazy as _
-
 from rest_framework.fields import BooleanField
 
+from posthog.models.team import Team
+
 from .utils import generate_random_token
+
+EE_MISSING = False
+MULTI_TENANCY_MISSING = False
+try:
+    from ee.models.license import License
+except ImportError:
+    EE_MISSING = True
+
+try:
+    from multi_tenancy.models import TeamBilling  # type: ignore
+except ImportError:
+    TeamBilling = False
+    MULTI_TENANCY_MISSING = True
 
 
 def is_email_restricted_from_signup(email: str) -> bool:
@@ -87,3 +102,39 @@ class User(AbstractUser):
     REQUIRED_FIELDS: List[str] = []
 
     objects: UserManager = UserManager()  # type: ignore
+
+    def feature_available(self, feature: str) -> bool:
+        return feature in self.available_features
+
+    @property
+    def ee_available(self) -> bool:
+        return not EE_MISSING
+
+    @property
+    def billing_plan(self) -> Optional[str]:
+        # If the EE folder is missing no features are available
+        if EE_MISSING:
+            return None
+
+        # If we're on multi-tenancy grab the team's plan
+        if not MULTI_TENANCY_MISSING:
+            return None
+        # Otherwise, try to find a valid license on this instance
+        license = License.objects.filter(valid_until__gte=now()).first()
+        if license:
+            return license.plan
+        return None
+
+    @property
+    def available_features(self) -> List[str]:
+        user_plan = self.billing_plan
+        if not user_plan:
+            return []
+        return License.PLANS[user_plan]
+
+    @property
+    def team(self) -> Team:
+        if hasattr(self, "_team"):
+            return self._team
+        self._team: Team = self.team_set.get()
+        return self._team

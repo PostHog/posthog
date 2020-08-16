@@ -73,13 +73,14 @@ export interface ElementType {
 export type ToolbarTab = 'stats' | 'actions'
 export type ToolbarMode = 'button' | 'dock' | ''
 export type ToolbarAnimationState = 'animating' | 'fading-in' | 'complete' | 'disabled' | 'fading-out'
+export type ToolbarUserIntent = 'add-action' | 'edit-action'
 
 export type EditorProps = {
     apiURL?: string
     jsURL?: string
     temporaryToken?: string
     actionId?: number
-    userIntent?: string
+    userIntent?: ToolbarUserIntent
     instrument?: boolean
     distinctId?: boolean
     userEmail?: boolean

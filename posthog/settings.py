@@ -22,7 +22,7 @@ import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
 from sentry_sdk.integrations.django import DjangoIntegration
 
-VERSION = "1.12.0"
+VERSION = "1.12.1"
 
 
 def get_env(key):
@@ -66,23 +66,31 @@ if DEBUG:
 else:
     JS_URL = os.environ.get("JS_URL", "")
 
-SECURE_SSL_REDIRECT = False
+# This is set as a cross-domain cookie with a random value.
+# Its existence is used by the toolbar to see that we are logged in.
+TOOLBAR_COOKIE_NAME = "phtoolbar"
 
+# SSL & cookie defaults
+if os.environ.get("SECURE_COOKIES", None) is None:
+    # Default to True if in production
+    secure_cookies = not DEBUG and not TEST
+else:
+    secure_cookies = get_bool_from_env("SECURE_COOKIES", True)
+
+TOOLBAR_COOKIE_SECURE = secure_cookies
+SESSION_COOKIE_SECURE = secure_cookies
+CSRF_COOKIE_SECURE = secure_cookies
+SECURE_SSL_REDIRECT = secure_cookies
+
+# production mode
 if not DEBUG and not TEST:
-    SECURE_SSL_REDIRECT = True
-    SESSION_COOKIE_SECURE = True
     if os.environ.get("SENTRY_DSN"):
         sentry_sdk.init(
             dsn=os.environ["SENTRY_DSN"], integrations=[DjangoIntegration()], request_bodies="always",
         )
 
-if get_bool_from_env("LOCAL_HTTPS", False):
-    SECURE_SSL_REDIRECT = False
-    SESSION_COOKIE_SECURE = True
-
 if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
     SECURE_SSL_REDIRECT = False
-    SESSION_COOKIE_SECURE = False
 
 if get_bool_from_env("IS_BEHIND_PROXY", False):
     USE_X_FORWARDED_HOST = True
@@ -102,8 +110,10 @@ TRUST_ALL_PROXIES = os.environ.get("TRUST_ALL_PROXIES", False)
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 
+DEFAULT_SECRET_KEY = "<randomly generated secret key>"
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("SECRET_KEY", "6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-_y7c_c^l5c0m$")
+SECRET_KEY = os.environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
 
 ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
 
@@ -131,10 +141,10 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
-    "posthog.middleware.SameSiteSessionMiddleware",  # keep this at the top
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.AllowIP",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "posthog.middleware.ToolbarCookieMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -154,6 +164,14 @@ try:
 
     INSTALLED_APPS.append("debug_toolbar")
     MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
+except ImportError:
+    pass
+
+# Import Enterprise Edition if we can
+try:
+    import ee.apps
+
+    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 except ImportError:
     pass
 
@@ -268,6 +286,7 @@ if not REDIS_URL:
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
+CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
@@ -371,3 +390,22 @@ if DEBUG and not TEST:
             "Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!",
         )
     )
+
+if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
+    print_warning(
+        (
+            "You are using the default SECRET_KEY in a production environment!",
+            "For the safety of your instance, you must generate and set a unique key.",
+            "More information on https://posthog.com/docs/deployment/securing-posthog#secret-key",
+        )
+    )
+    sys.exit("[ERROR] Default SECRET_KEY in production. Stopping Django server…\n")
+
+
+def show_toolbar(request):
+    return request.path.startswith("/api/") or request.path.startswith("/decide/") or request.path.startswith("/e/")
+
+
+DEBUG_TOOLBAR_CONFIG = {
+    "SHOW_TOOLBAR_CALLBACK": "posthog.settings.show_toolbar",
+}

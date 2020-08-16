@@ -7,7 +7,7 @@ import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import { elementsLogicType } from '~/toolbar/elements/elementsLogicType'
+import { elementsLogicType } from 'types/toolbar/elements/elementsLogicType'
 import { ActionStepType, ActionType, ToolbarMode, ToolbarTab } from '~/types'
 import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
 
@@ -203,10 +203,10 @@ export const elementsLogic = kea<
         ],
 
         actionsForElementMap: [
-            (s) => [actionsLogic.selectors.actionsForCurrentUrl, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
-            (actionsForCurrentUrl): ActionElementMap => {
+            (s) => [actionsLogic.selectors.sortedActions, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
+            (sortedActions): ActionElementMap => {
                 const actionsForElementMap = new Map<HTMLElement, ActionElementWithMetadata[]>()
-                actionsForCurrentUrl.forEach((action, index) => {
+                sortedActions.forEach((action, index) => {
                     action.steps
                         ?.filter((step) => step.event === '$autocapture')
                         .forEach((step) => {

@@ -6,8 +6,6 @@ from django.utils import timezone
 from rest_hooks.signals import raw_hook_event
 from sentry_sdk import capture_exception
 
-from .user import User
-
 
 class Action(models.Model):
     class Meta:
@@ -95,10 +93,11 @@ class Action(models.Model):
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by: models.ForeignKey = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
     events: models.ManyToManyField = models.ManyToManyField("Event", blank=True)
     post_to_slack: models.BooleanField = models.BooleanField(default=False)
+    slack_message_format: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_calculating: models.BooleanField = models.BooleanField(default=False)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     last_calculated_at: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)

@@ -3,7 +3,7 @@ import '~/toolbar/styles.scss'
 
 import React from 'react'
 import ReactDOM from 'react-dom'
-import Simmer from 'simmerjs'
+import Simmer from '@mariusandra/simmerjs'
 import { getContext } from 'kea'
 import { Provider } from 'react-redux'
 import { initKea } from '~/initKea'
@@ -17,8 +17,14 @@ initKea()
     document.body.appendChild(container)
 
     ReactDOM.render(
-        <Provider store={getContext().store}>
-            <ToolbarApp {...editorParams} jsURL={editorParams.jsURL || editorParams.apiURL} />
+        <Provider store={getContext().store!}>
+            <ToolbarApp
+                {...editorParams}
+                actionId={
+                    typeof editorParams.actionId === 'string' ? parseInt(editorParams.actionId) : editorParams.actionId
+                }
+                jsURL={editorParams.jsURL || editorParams.apiURL}
+            />
         </Provider>,
         container
     )
