@@ -7,8 +7,7 @@ from django.utils.timezone import now
 from django.utils.translation import ugettext_lazy as _
 from rest_framework.fields import BooleanField
 
-from posthog.models.team import Team
-
+from .team import Team
 from .utils import generate_random_token
 
 EE_MISSING = False

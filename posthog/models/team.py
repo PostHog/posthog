@@ -12,14 +12,13 @@ from .action_step import ActionStep
 from .dashboard import Dashboard
 from .dashboard_item import DashboardItem
 from .personal_api_key import PersonalAPIKey
-from .user import User
 from .utils import generate_random_token
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
 
 class TeamManager(models.Manager):
-    def create_with_data(self, users: Optional[List[User]], **kwargs):
+    def create_with_data(self, users: Optional[List["User"]], **kwargs):
         kwargs["api_token"] = kwargs.get("api_token", generate_random_token())
         kwargs["signup_token"] = kwargs.get("signup_token", generate_random_token(22))
         team = Team.objects.create(**kwargs)
