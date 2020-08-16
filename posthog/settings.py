@@ -20,7 +20,9 @@ from typing import List, Optional, Sequence
 import dj_database_url
 import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
+from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
+from sentry_sdk.integrations.redis import RedisIntegration
 
 VERSION = "1.12.1"
 
@@ -86,7 +88,9 @@ SECURE_SSL_REDIRECT = secure_cookies
 if not DEBUG and not TEST:
     if os.environ.get("SENTRY_DSN"):
         sentry_sdk.init(
-            dsn=os.environ["SENTRY_DSN"], integrations=[DjangoIntegration()], request_bodies="always",
+            dsn=os.environ["SENTRY_DSN"],
+            integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration()],
+            request_bodies="always",
         )
 
 if get_bool_from_env("DISABLE_SECURE_SSL_REDIRECT", False):
