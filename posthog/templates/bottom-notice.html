@@ -1,15 +1,15 @@
 {% if debug %}
-    <div id="debug-bar" class="bottom-bar">
+    <div id="debug-bar" class="bottom-notice">
         <div><span>Current branch: </span><b><code>{{ git_branch|default:"unknown" }}</code></b><span>.</span></div>
         <div><span>PostHog running in </span><b><code>DEBUG</code></b> mode!</div>
         <div><span>Current revision: </span><b><code>{{ git_rev|default:"unknown" }}</code></b><span>.</span></div>
-        <button title="Close debug bar" onclick="document.getElementById('debug-bar').remove()">
+        <button title="Close debug bar" onclick="document.getElementById('bottom-notice').remove()">
             <code>×</code>
         </button>
     </div>
 {% else %}
-    <div id="tls-bar" class="bottom-bar" style="display: none">
-        <div>PostHog dangerously running in <b><code>PRODUCTION</code></b> mode without TLS! Use a valid TLS certificate and route to <code>https://</code>.</div>
+    <div id="tls-bar" class="bottom-notice" style="display: none">
+        <div>PostHog dangerously running in&nbsp;<b><code>PRODUCTION</code></b>&nbsp;mode without&nbsp;TLS! Use a&nbsp;valid TLS&nbsp;certificate and&nbsp;route&nbsp;to&nbsp;<code>https://</code>.</div>
     </div>
     <script>
         const bar = document.getElementById('tls-bar')
