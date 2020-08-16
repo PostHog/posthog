@@ -1,12 +1,16 @@
-name: Sync posthog/posthog-foss
+name: PostHog FOSS
 
-on: push
+on:
+  push:
+    branches:
+      - master
 
 jobs:
   repo-sync:
+    name: Sync posthog-foss with posthog
     runs-on: ubuntu-latest
     steps:
-    - name: repo-sync
+    - name: Sync repositories 1 to 1
       uses: ungless/git-sync@master # tag syncing is not currently part of wei/git-sync
       with:
         source_repo: "https://${{ secrets.SYNC_GITHUB_TOKEN }}@github.com/posthog/posthog.git"
@@ -19,12 +23,12 @@ jobs:
         repository: "posthog/posthog-foss"
         ref: master
         token: ${{ secrets.SYNC_GITHUB_TOKEN }} # SYNC_GITHUB_TOKEN is a PAT token with the workflows scope which is not in GITHUB_TOKEN
-    - name: Remove ee/
+    - name: Remove all non-FOSS parts
       uses: EndBug/add-and-commit@v4
       with:
         author_name: PostHog Bot
         author_email: hey@posthog.com
-        message: "SYNC: Remove ee/"
+        message: "Remove all non-FOSS parts"
         remove: "-r ee/"
       env: 
         GITHUB_TOKEN: ${{ secrets.SYNC_GITHUB_TOKEN }}
