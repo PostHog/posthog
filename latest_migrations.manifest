@@ -1,7 +1,7 @@
 admin: 0003_logentry_add_action_flag_choices
 auth: 0011_update_proxy_permissions
 contenttypes: 0002_remove_content_type_name
-posthog: 0076_hook
+posthog: 0077_hook
 rest_hooks: 0002_swappable_hook_model
 ee: 0001_initial
 sessions: 0001_initial
