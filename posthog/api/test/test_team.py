@@ -10,7 +10,7 @@ from .base import BaseTest
 
 
 class TestTeamUser(BaseTest):
-    z = True
+    TESTS_API = True
 
     def create_user_for_team(self, team):
         suffix = random.randint(100, 999)

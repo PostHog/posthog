@@ -6,7 +6,10 @@ import { posthogEvents } from 'lib/utils'
 import { userLogicType } from 'types/scenes/userLogicType'
 import { UserType, PersonalAPIKeyType } from '~/types'
 
-type EventProperty = { value: string; label: string }
+interface EventProperty {
+    value: string
+    label: string
+}
 
 export const userLogic = kea<userLogicType<UserType, EventProperty>>({
     actions: () => ({
@@ -57,14 +60,14 @@ export const userLogic = kea<userLogicType<UserType, EventProperty>>({
             () => [selectors.user],
             (user) =>
                 user?.team.event_properties.map(
-                    (property) => ({ value: property, label: property } as EventProperty)
+                    (property: string) => ({ value: property, label: property } as EventProperty)
                 ) || ([] as EventProperty[]),
         ],
         eventNames: [() => [selectors.user], (user) => user?.team.event_names || []],
         customEventNames: [
             () => [selectors.user],
             (user) => {
-                return user?.team.event_names.filter((event) => !event.startsWith('!')) || []
+                return user?.team.event_names.filter((event: string) => !event.startsWith('!')) || []
             },
         ],
         eventNamesGrouped: [
@@ -74,9 +77,9 @@ export const userLogic = kea<userLogicType<UserType, EventProperty>>({
                     { label: 'Custom events', options: [] as EventProperty[] },
                     { label: 'PostHog events', options: [] as EventProperty[] },
                 ]
-                user?.team.event_names.forEach((name) => {
+                user?.team.event_names.forEach((name: string) => {
                     const format = { label: name, value: name } as EventProperty
-                    if (posthogEvents.indexOf(name) > -1) return data[1].options.push(format)
+                    if (posthogEvents.includes(name)) return data[1].options.push(format)
                     data[0].options.push(format)
                 })
                 return data
@@ -106,7 +109,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty>>({
                         })
                     }
                 }
-            } catch (error) {
+            } catch {
                 actions.setUser(null)
             }
         },
@@ -119,17 +122,14 @@ export const userLogic = kea<userLogicType<UserType, EventProperty>>({
             }
         },
         createPersonalAPIKeyRequest: async ({ label }) => {
-            let newKey
             try {
-                newKey = await api.create('api/personal_api_key/', { label })
-            } catch (e) {
+                const newKey = await api.create('api/personal_api_key/', { label })
+                actions.createPersonalAPIKeySuccess(selectors.user(), newKey)
+            } catch {
                 actions.createPersonalAPIKeyFailure(label)
-                return
             }
-            const user = selectors.user()
-            actions.createPersonalAPIKeySuccess(user, newKey)
         },
-        createPersonalAPIKeySuccess: ({ key }) => {
+        createPersonalAPIKeySuccess: ({ key }: { key: PersonalAPIKeyType }) => {
             toast(<div className="text-success">Personal API key "{key.label}" successfully created</div>)
         },
         createPersonalAPIKeyFailure: ({ label }: { label: string }) => {
@@ -138,12 +138,10 @@ export const userLogic = kea<userLogicType<UserType, EventProperty>>({
         deletePersonalAPIKeyRequest: async ({ key }: { key: PersonalAPIKeyType }) => {
             try {
                 await api.delete(`api/personal_api_key/${key.id}/`)
-            } catch (e) {
+                actions.deletePersonalAPIKeySuccess(selectors.user(), key)
+            } catch {
                 actions.deletePersonalAPIKeyFailure(key)
-                return
             }
-            const user = selectors.user()
-            actions.deletePersonalAPIKeySuccess(user, key)
         },
         deletePersonalAPIKeySuccess: ({ key }) => {
             toast(<div className="text-success">Personal API key "{key.label}" successfully deleted</div>)
