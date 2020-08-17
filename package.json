@@ -13,13 +13,14 @@
     "homepage": "https://github.com/posthog/posthog#readme",
     "scripts": {
         "copy-array": "cp node_modules/posthog-js/dist/array.js* frontend/dist/",
-        "start": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack-dev-server --hotOnly",
+        "start": "concurrently -n WEBPACK,TYPEGEN -c blue,green \"yarn run start-http\" \"yarn run typegen:watch\"",
+        "start-http": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack-dev-server --hotOnly",
         "start-https": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-array && webpack-dev-server --hotOnly --https",
-        "build": "NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-array",
+        "build": "kea-typegen write && echo \"Building Webpack\" && NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-array",
         "prettier": "prettier --write \"./frontend/src/**/*.{js,css,scss}\"",
         "eslint": "eslint frontend/src",
         "eslint:github-action": "yarn run eslint",
-        "typegen:watch": "kea-typegen watch --path frontend/src"
+        "typegen:watch": "kea-typegen watch"
     },
     "license": "MIT",
     "dependencies": {
@@ -77,6 +78,7 @@
         "babel-loader": "^8.0.6",
         "babel-plugin-import": "^1.13.0",
         "babel-plugin-kea": "^0.1.0",
+        "concurrently": "^5.3.0",
         "css-loader": "^3.4.2",
         "cssnano": "^4.1.10",
         "cypress": "^4.5.0",
@@ -89,7 +91,7 @@
         "html-webpack-harddisk-plugin": "^1.0.1",
         "html-webpack-plugin": "^4.3.0",
         "husky": ">=4",
-        "kea-typegen": "^0.0.35",
+        "kea-typegen": "^0.2.0",
         "lint-staged": ">=10",
         "mini-css-extract-plugin": "^0.9.0",
         "nodemon": "^2.0.4",
@@ -101,8 +103,7 @@
         "typescript": "^3.7.2",
         "webpack": "^4.42.0",
         "webpack-cli": "^3.3.11",
-        "webpack-dev-server": "^3.11.0",
-        "webpackbar": "^4.0.0"
+        "webpack-dev-server": "^3.11.0"
     },
     "husky": {
         "hooks": {

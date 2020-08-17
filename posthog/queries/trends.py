@@ -282,12 +282,6 @@ class Trends(BaseQuery):
         actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
         entities_list = []
 
-        if len(filter.entities) == 0:
-            # If no filters, automatically grab all actions and show those instead
-            filter.entities = [
-                Entity({"id": action.id, "name": action.name, "type": TREND_FILTER_TYPE_ACTIONS,}) for action in actions
-            ]
-
         if not filter.date_from:
             filter._date_from = (
                 Event.objects.filter(team_id=team_id)

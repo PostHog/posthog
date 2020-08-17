@@ -17,10 +17,10 @@ class TestUser(BaseTest):
         self.assertFalse(self.user.feature_available("whatever"))
 
     @patch("posthog.models.user.MULTI_TENANCY_MISSING", False)
-    @patch("posthog.models.user.License.PLANS", {"enterprise": ["whatever"]})
+    @patch("posthog.models.user.License.PLANS", {"price_1234567890": ["whatever"]})
     @patch("posthog.models.user.TeamBilling")
     def test_feature_available_multi_tenancy(self, patch_team_billing):
-        patch_team_billing.objects.get().plan = "enterprise"
+        patch_team_billing.objects.get().price_id = "price_1234567890"
         self.assertTrue(self.user.feature_available("whatever"))
 
     @patch("posthog.models.user.License.PLANS", {"enterprise": ["whatever"]})

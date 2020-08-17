@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { encodeParams } from 'kea-router'
-import { actionsLogicType } from '~/toolbar/actions/actionsLogicType'
+import { actionsLogicType } from 'types/toolbar/actions/actionsLogicType'
 import { ActionType } from '~/types'
 
 export const actionsLogic = kea<actionsLogicType<ActionType>>({
