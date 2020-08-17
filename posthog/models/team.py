@@ -18,7 +18,7 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 
 
 class TeamManager(models.Manager):
-    def create_with_data(self, users: Optional[List["User"]], **kwargs):
+    def create_with_data(self, users: Optional[List[Any]], **kwargs):
         kwargs["api_token"] = kwargs.get("api_token", generate_random_token())
         kwargs["signup_token"] = kwargs.get("signup_token", generate_random_token(22))
         team = Team.objects.create(**kwargs)
