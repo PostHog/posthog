@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 COPY . /code/
 
-RUN DEBUG=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+RUN SECRET_KEY='unsafe secret key for collectstatic only'  DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 EXPOSE 8000
 CMD ["./bin/docker"]
