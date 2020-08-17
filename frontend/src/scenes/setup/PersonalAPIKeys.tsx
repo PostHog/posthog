@@ -44,7 +44,7 @@ function CreateKeyModal({
             visible={isVisible}
         >
             <p>
-                <Input addonBefore="Label" ref={inputRef} placeholder='for example "Smart fridge' maxLength={40} />
+                <Input addonBefore="Label" ref={inputRef} placeholder='for example "Zapier"' maxLength={40} />
             </p>
             {errorMessage && (
                 <p>
