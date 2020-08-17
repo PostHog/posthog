@@ -1,14 +1,29 @@
-import React, { useState, useRef } from 'react'
-import { Table, Modal, Button, Input } from 'antd'
+import React, { useState, useRef, useCallback, Dispatch, SetStateAction } from 'react'
+import { Table, Modal, Button, Input, Alert, Popconfirm } from 'antd'
 import { useActions } from 'kea'
-import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { ExclamationCircleOutlined } from '@ant-design/icons'
+import { red } from '@ant-design/colors'
 import { userLogic } from 'scenes/userLogic'
-import { UserType } from '~/types'
+import { UserType, PersonalAPIKeyType } from '~/types'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 
-function CreateKeyModal({ visible, setVisible }): JSX.Element {
+function CreateKeyModal({
+    isVisible,
+    setIsVisible,
+}: {
+    isVisible: boolean
+    setIsVisible: Dispatch<SetStateAction<boolean>>
+}): JSX.Element {
     const { createPersonalAPIKeyRequest } = useActions(userLogic)
 
-    const inputRef = useRef()
+    const [errorMessage, setErrorMessage] = useState<string | null>(null)
+    const inputRef = useRef<Input | null>(null)
+
+    const closeModal: () => void = useCallback(() => {
+        setErrorMessage(null)
+        setIsVisible(false)
+        if (inputRef.current) inputRef.current.state.value = ''
+    }, [inputRef, setIsVisible])
 
     return (
         <Modal
@@ -16,27 +31,27 @@ function CreateKeyModal({ visible, setVisible }): JSX.Element {
             okText="Create Key"
             cancelText="Cancel"
             onOk={() => {
-                const label = inputRef.current.state.value?.trim()
+                const label = inputRef.current?.state.value?.trim()
                 if (label) {
-                    createPersonalAPIKeyRequest(inputRef.current.state.value.trim())
-                    setVisible(false)
-                    inputRef.current.state.value = undefined
+                    setErrorMessage(null)
+                    createPersonalAPIKeyRequest(inputRef.current?.state.value.trim())
+                    closeModal()
+                } else {
+                    setErrorMessage('Your key needs a label!')
                 }
             }}
-            onCancel={() => {
-                setVisible(false)
-                inputRef.current.state.value = undefined
-            }}
-            visible={visible}
+            onCancel={closeModal}
+            visible={isVisible}
         >
-            <Input
-                addonBefore="Label"
-                ref={inputRef}
-                placeholder='for example "Zapier integration"'
-                minLength={0}
-                maxLength={40}
-            />
-            <p style={{ marginTop: '1rem', marginBottom: 0 }}>
+            <p>
+                <Input addonBefore="Label" ref={inputRef} placeholder='for example "Smart fridge' maxLength={40} />
+            </p>
+            {errorMessage && (
+                <p>
+                    <Alert message={errorMessage} type="error" />
+                </p>
+            )}
+            <p style={{ marginBottom: 0 }}>
                 Key value <b>will only ever be shown once</b>, immediately after creation.
                 <br />
                 Copy it to your destination right away.
@@ -45,31 +60,22 @@ function CreateKeyModal({ visible, setVisible }): JSX.Element {
     )
 }
 
-function PersonalAPIKeysTable({ keys }): JSX.Element {
-    const { confirm } = Modal
+function PersonalAPIKeysTable({ keys }: { keys: PersonalAPIKeyType[] }): JSX.Element {
     const { deletePersonalAPIKeyRequest } = useActions(userLogic)
 
-    function RowActions(_text, personalAPIKey): JSX.Element {
-        function handleClick(): void {
-            confirm({
-                title: `Delete personal API key "${personalAPIKey.label}"?`,
-                icon: <ExclamationCircleOutlined />,
-                content: 'It will be permanently invalidated.',
-                okText: 'Delete Key',
-                okType: 'danger',
-                cancelText: 'Cancel',
-                onOk() {
-                    deletePersonalAPIKeyRequest(personalAPIKey)
-                },
-            })
-        }
-
+    function RowActions(text: string, personalAPIKey: PersonalAPIKeyType): JSX.Element {
         return (
-            <div>
-                <a className="text-danger" onClick={handleClick}>
-                    <DeleteOutlined />
-                </a>
-            </div>
+            <Popconfirm
+                title={`Permanently delete key "${personalAPIKey.label}"?`}
+                okText="Delete Key"
+                okType="danger"
+                icon={<ExclamationCircleOutlined style={{ color: red.primary }} />}
+                onConfirm={() => {
+                    deletePersonalAPIKeyRequest(personalAPIKey)
+                }}
+            >
+                <a className="text-danger">Delete</a>
+            </Popconfirm>
         )
     }
 
@@ -85,12 +91,12 @@ function PersonalAPIKeysTable({ keys }): JSX.Element {
             key: 'value',
         },
         {
-            title: 'Last Used At',
+            title: 'Last Used',
             dataIndex: 'last_used_at',
             key: 'last_used_at',
         },
         {
-            title: 'Created At',
+            title: 'Created',
             dataIndex: 'created_at',
             key: 'created_at',
         },
@@ -107,8 +113,8 @@ function PersonalAPIKeysTable({ keys }): JSX.Element {
         return {
             ...key,
             value: key.value ? <b>{key.value}</b> : <i>secret</i>,
-            last_used_at: key.last_used_at ? new Date(key.last_used_at).toLocaleString() : 'never',
-            created_at: new Date(key.created_at).toLocaleString(),
+            last_used_at: key.last_used_at ? humanFriendlyDetailedTime(key.last_used_at) : 'never',
+            created_at: humanFriendlyDetailedTime(key.created_at),
         }
     })
 
@@ -124,7 +130,7 @@ function PersonalAPIKeysTable({ keys }): JSX.Element {
 }
 
 export function PersonalAPIKeys({ user }: { user: UserType }): JSX.Element {
-    const [isCreateKeyModalOpen, setIsCreateKeyModalOpen] = useState(false)
+    const [isCreateKeyModalVisible, setIsCreateKeyModalVisible] = useState(false)
 
     return (
         <>
@@ -137,12 +143,12 @@ export function PersonalAPIKeys({ user }: { user: UserType }): JSX.Element {
             <Button
                 type="primary"
                 onClick={() => {
-                    setIsCreateKeyModalOpen(true)
+                    setIsCreateKeyModalVisible(true)
                 }}
             >
                 + Create a Personal API Key
             </Button>
-            <CreateKeyModal visible={isCreateKeyModalOpen} setVisible={setIsCreateKeyModalOpen} />
+            <CreateKeyModal isVisible={isCreateKeyModalVisible} setIsVisible={setIsCreateKeyModalVisible} />
             <PersonalAPIKeysTable keys={user.personal_api_keys} />
         </>
     )
