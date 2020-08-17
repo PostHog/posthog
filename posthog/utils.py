@@ -224,25 +224,25 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
     keyword = "Bearer"
 
-    def find_key(self, request: request.Request) -> Optional[Tuple[str, str]]:
-        if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(fr"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+    def find_key(self, in_request: Union[HttpRequest, request.Request]) -> Optional[Tuple[str, str]]:
+        if "HTTP_AUTHORIZATION" in in_request.META:
+            authorization_match = re.match(fr"^{self.keyword}\s+(\S.+)$", in_request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
                 return authorization_match.group(1).strip(), "Authentication header"
-        if not hasattr(request, "data"):
+        if isinstance(in_request, request.Request):
+            data = in_request.data
+        else:
             try:
-                data = json.loads(request.body)
+                data = json.loads(in_request.body)
             except json.JSONDecodeError:
                 data = {}
-        else:
-            data = request.data
         if "personal_api_key" in data:
             return data["personal_api_key"], "body"
-        if "personal_api_key" in request.GET:
-            return request.GET["personal_api_key"], "query string"
+        if "personal_api_key" in in_request.GET:
+            return in_request.GET["personal_api_key"], "query string"
         return None
 
-    def authenticate(self, request: request.Request) -> Optional[Tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, request.Request]) -> Optional[Tuple[Any, None]]:
         personal_api_key_with_source = self.find_key(request)
         if not personal_api_key_with_source:
             return None
