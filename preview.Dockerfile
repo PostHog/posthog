@@ -57,7 +57,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 COPY . /code/
 
-RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+RUN SECRET_KEY='unsafe secret key for preview only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 RUN /etc/init.d/postgresql start\
     && DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog REDIS_URL='redis:///' python manage.py migrate\
