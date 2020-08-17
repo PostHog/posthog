@@ -231,11 +231,13 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 return authorization_match.group(1).strip(), "Authentication header"
         if not hasattr(request, "data"):
             try:
-                request.data = json.loads(request.body)
+                data = json.loads(request.body)
             except json.JSONDecodeError:
-                request.data = {}
-        if "personal_api_key" in request.data:
-            return request.data["personal_api_key"], "body"
+                data = {}
+        else:
+            data = request.data
+        if "personal_api_key" in data:
+            return data["personal_api_key"], "body"
         if "personal_api_key" in request.GET:
             return request.GET["personal_api_key"], "query string"
         return None

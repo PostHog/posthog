@@ -11,7 +11,6 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse, request
 from django.shortcuts import redirect
-from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods
 from rest_framework import exceptions, serializers
 
@@ -19,7 +18,7 @@ from posthog.models import Event, User
 from posthog.utils import PersonalAPIKeyAuthentication
 
 
-def authenticateSecondarily(request: request) -> None:
+def authenticateSecondarily(request: request.HttpRequest) -> None:
     if request.user.is_authenticated:
         return
     auth_result = PersonalAPIKeyAuthentication().authenticate(request)

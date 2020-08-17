@@ -102,6 +102,6 @@ class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
     def process_view(self, request, callback, callback_args, callback_kwargs):
         result = super().process_view(request, callback, callback_args, callback_kwargs)
         # if super().process_view did not find a valid CSRF token, try looking for a personal API key
-        if result is not None and PersonalAPIKeyAuthentication().find_key() is not None:
-            return self._accept(request)
+        if result is not None and PersonalAPIKeyAuthentication().find_key(request) is not None:
+            return super()._accept(request)
         return result
