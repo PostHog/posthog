@@ -81,7 +81,6 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                 events.forEach((event) => {
                     let combinedSelector
                     let lastSelector
-                    debugger
                     for (let i = 0; i < event.elements.length; i++) {
                         const selector = elementToSelector(event.elements[i])
                         combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector

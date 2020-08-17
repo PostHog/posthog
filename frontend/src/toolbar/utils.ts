@@ -3,13 +3,10 @@ import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, ElementType } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
 
+// these plus any element with cursor:pointer will be click targets
 const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
 
-// This trims the "hovered" DOM node down. For example:
-// - div > div > div > svg > path  <--- ignore the path, just inpsect the full image/svg
-// - div > div > button > span     <--- we probably care about the button, not the span
-// - div > div > a > span          <--- same with links
-const DOM_TRIM_DOWN_SELECTOR = 'a, svg, button'
+// always ignore the following
 const TAGS_TO_IGNORE = ['html', 'body', 'meta', 'head', 'script', 'link', 'style']
 
 const simmer = new Simmer(window, { depth: 8 })
@@ -98,7 +95,7 @@ export function hasCursorPointer(element: HTMLElement): boolean {
     return window.getComputedStyle(element)?.getPropertyValue('cursor') === 'pointer'
 }
 
-export function trimElement(element: HTMLElement, selectingClickTargets = false): HTMLElement | null {
+export function trimElement(element: HTMLElement): HTMLElement | null {
     if (!element) {
         return null
     }
@@ -107,37 +104,33 @@ export function trimElement(element: HTMLElement, selectingClickTargets = false)
     }
 
     let loopElement = element
-    if (selectingClickTargets) {
-        while (loopElement?.parentElement) {
-            // return when we find a click target
-            if (loopElement.matches(CLICK_TARGET_SELECTOR)) {
+
+    // if it's an element with only one child, go down to the lowest node as far as we can
+    // we'll come back up later
+    while (true) {
+        if (loopElement.children.length === 1) {
+            loopElement = loopElement.children[0] as HTMLElement
+        } else {
+            break
+        }
+    }
+
+    while (loopElement?.parentElement) {
+        // return when we find a click target
+        if (loopElement.matches(CLICK_TARGET_SELECTOR)) {
+            return loopElement
+        }
+        const compStyles = window.getComputedStyle(loopElement)
+        if (compStyles.getPropertyValue('cursor') === 'pointer') {
+            const parentStyles = loopElement.parentElement ? window.getComputedStyle(loopElement.parentElement) : null
+            if (!parentStyles || parentStyles.getPropertyValue('cursor') !== 'pointer') {
                 return loopElement
             }
-            const compStyles = window.getComputedStyle(loopElement)
-            if (compStyles.getPropertyValue('cursor') === 'pointer') {
-                const parentStyles = loopElement.parentElement
-                    ? window.getComputedStyle(loopElement.parentElement)
-                    : null
-                if (!parentStyles || parentStyles.getPropertyValue('cursor') !== 'pointer') {
-                    return loopElement
-                }
-            }
+        }
 
-            loopElement = loopElement.parentElement
-        }
-        return null
-    } else {
-        // selecting all elements
-        let selectedElement = loopElement
-        while (loopElement?.parentElement) {
-            // trim down the dom nodes
-            if (loopElement.matches(DOM_TRIM_DOWN_SELECTOR)) {
-                selectedElement = loopElement
-            }
-            loopElement = loopElement.parentElement
-        }
-        return selectedElement
+        loopElement = loopElement.parentElement
     }
+    return null
 }
 
 export function inBounds(min: number, value: number, max: number): number {
@@ -159,7 +152,7 @@ export function getAllClickTargets(): HTMLElement[] {
         return compStyles.getPropertyValue('cursor') === 'pointer'
     })
 
-    const selectedElements = [...elements, ...pointerElements].map((e) => trimElement(e, true))
+    const selectedElements = [...elements, ...pointerElements].map((e) => trimElement(e))
     const uniqueElements = Array.from(new Set(selectedElements)) as HTMLElement[]
 
     return uniqueElements
