@@ -11,6 +11,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse, request
 from django.shortcuts import redirect
+from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods
 from rest_framework import exceptions, serializers
 
@@ -18,7 +19,9 @@ from posthog.models import Event, User
 from posthog.utils import PersonalAPIKeyAuthentication
 
 
-def authenticateSecondarily(request: request) -> User:
+def authenticateSecondarily(request: request) -> None:
+    if request.user.is_authenticated:
+        return
     auth_result = PersonalAPIKeyAuthentication().authenticate(request)
     if isinstance(auth_result, tuple) and isinstance(auth_result[0], User):
         request.user = auth_result[0]
@@ -28,11 +31,10 @@ def authenticateSecondarily(request: request) -> User:
 
 # TODO: remake these endpoints with DRF!
 def user(request):
-    if not request.user.is_authenticated:
-        try:
-            authenticateSecondarily(request)
-        except exceptions.AuthenticationFailed as e:
-            return JsonResponse({"detail": e.detail}, status=401)
+    try:
+        authenticateSecondarily(request)
+    except exceptions.AuthenticationFailed as e:
+        return JsonResponse({"detail": e.detail}, status=401)
 
     team = request.user.team
 
@@ -106,11 +108,10 @@ def user(request):
 
 
 def redirect_to_site(request):
-    if not request.user.is_authenticated:
-        try:
-            authenticateSecondarily(request)
-        except exceptions.AuthenticationFailed as e:
-            return JsonResponse({"detail": e.detail}, status=401)
+    try:
+        authenticateSecondarily(request)
+    except exceptions.AuthenticationFailed as e:
+        return JsonResponse({"detail": e.detail}, status=401)
 
     team = request.user.team_set.get()
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
@@ -152,11 +153,10 @@ def redirect_to_site(request):
 @require_http_methods(["PATCH"])
 def change_password(request):
     """Change the password of a regular User."""
-    if not request.user.is_authenticated:
-        try:
-            authenticateSecondarily(request)
-        except exceptions.AuthenticationFailed as e:
-            return JsonResponse({"detail": e.detail}, status=401)
+    try:
+        authenticateSecondarily(request)
+    except exceptions.AuthenticationFailed as e:
+        return JsonResponse({"detail": e.detail}, status=401)
 
     try:
         body = json.loads(request.body)
@@ -187,11 +187,10 @@ def change_password(request):
 @require_http_methods(["POST"])
 def test_slack_webhook(request):
     """Change the password of a regular User."""
-    if not request.user.is_authenticated:
-        try:
-            authenticateSecondarily(request)
-        except exceptions.AuthenticationFailed as e:
-            return JsonResponse({"detail": e.detail}, status=401)
+    try:
+        authenticateSecondarily(request)
+    except exceptions.AuthenticationFailed as e:
+        return JsonResponse({"detail": e.detail}, status=401)
 
     try:
         body = json.loads(request.body)

@@ -216,31 +216,36 @@ def cors_response(request, response):
 class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
 
-    def authenticate(self, request: request.Request):
-        personal_api_key = None
-        authorization_header = request.META.get("HTTP_AUTHORIZATION")
-        if authorization_header:
-            authorization_match = re.match(fr"^{self.keyword}\s+(\S+)$", authorization_header)
+    def find_key(self, request: request.Request) -> Optional[Tuple[str, str]]:
+        if "HTTP_AUTHORIZATION" in request.META:
+            authorization_match = re.match(fr"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
-                personal_api_key = authorization_match.group(1)
-        if not personal_api_key:
+                return authorization_match.group(1).strip(), "Authentication header"
+        if not hasattr(request, "data"):
             try:
-                personal_api_key = request.data.get("personal_api_key")
-            except AttributeError:
-                personal_api_key = None
-        if personal_api_key:
-            PersonalAPIKey = apps.get_model(app_label="posthog", model_name="PersonalAPIKey")
-            try:
-                personal_api_key_object = PersonalAPIKey.objects.select_related("user").get(value=personal_api_key)
-            except PersonalAPIKey.DoesNotExist:
-                raise AuthenticationFailed(detail="Personal API key invalid.")
-            else:
-                if not personal_api_key_object.user.is_active:
-                    raise AuthenticationFailed(detail="Personal API key invalid.")
-                personal_api_key_object.last_used_at = timezone.now()
-                personal_api_key_object.save()
-                return personal_api_key_object.user, None
+                request.data = json.loads(request.body)
+            except json.JSONDecodeError:
+                request.data = {}
+        if "personal_api_key" in request.data:
+            return request.data["personal_api_key"], "body"
+        if "personal_api_key" in request.GET:
+            return request.GET["personal_api_key"], "query string"
         return None
+
+    def authenticate(self, request: request.Request) -> Optional[Tuple[Any, None]]:
+        personal_api_key, source = self.find_key(request)
+        if not personal_api_key:
+            return None
+        PersonalAPIKey = apps.get_model(app_label="posthog", model_name="PersonalAPIKey")
+        try:
+            personal_api_key_object = (
+                PersonalAPIKey.objects.select_related("user").filter(user__is_active=True).get(value=personal_api_key)
+            )
+        except PersonalAPIKey.DoesNotExist:
+            raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")
+        personal_api_key_object.last_used_at = timezone.now()
+        personal_api_key_object.save()
+        return personal_api_key_object.user, None
 
     def authenticate_header(self, request) -> str:
         return self.keyword
