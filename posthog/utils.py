@@ -214,6 +214,14 @@ def cors_response(request, response):
 
 
 class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
+    """A way of authenticating with personal API keys.
+
+    Only the first key candidate found in the request is tried, and the order is:
+    1. Request Authentication header of type Bearer.
+    2. Request body.
+    3. Request query string.
+    """
+
     keyword = "Bearer"
 
     def find_key(self, request: request.Request) -> Optional[Tuple[str, str]]:
@@ -233,9 +241,10 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return None
 
     def authenticate(self, request: request.Request) -> Optional[Tuple[Any, None]]:
-        personal_api_key, source = self.find_key(request)
-        if not personal_api_key:
+        personal_api_key_with_source = self.find_key(request)
+        if not personal_api_key_with_source:
             return None
+        personal_api_key, source = personal_api_key_with_source
         PersonalAPIKey = apps.get_model(app_label="posthog", model_name="PersonalAPIKey")
         try:
             personal_api_key_object = (
