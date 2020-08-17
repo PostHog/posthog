@@ -11,4 +11,5 @@
 !webpack.config.js
 !postcss.config.js
 !frontend/src
+!frontend/types
 !frontend/public
