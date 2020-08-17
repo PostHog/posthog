@@ -1,0 +1,26 @@
+name: Version Update
+
+on:
+  push:
+    tags:
+      - "*.**"
+
+jobs:
+  update-version:
+    name: Update VERSION
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v2
+
+    - name: Edit version.py
+      run: echo "VERSION = \"$(git describe --tags `git rev-list --tags --max-count=1`)\"" > version.py
+  
+    - name: Commit update
+      uses: EndBug/add-and-commit@v4
+      with:
+        author_name: PostHog Bot
+        author_email: hey@posthog.com
+        message: "Update VERSION"
+      env: 
+        GITHUB_TOKEN: ${{ secrets.UPDATE_GITHUB_TOKEN }}

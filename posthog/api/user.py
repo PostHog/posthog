@@ -15,6 +15,7 @@ from django.views.decorators.http import require_http_methods
 from rest_framework import serializers
 
 from posthog.models import Event, User
+from version import VERSION
 
 
 def user(request):
@@ -74,7 +75,7 @@ def user(request):
                 "completed_snippet_onboarding": team.completed_snippet_onboarding,
             },
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
-            "posthog_version": settings.VERSION if hasattr(settings, "VERSION") else None,
+            "posthog_version": VERSION if hasattr(settings, "VERSION") else None,
             "available_features": request.user.available_features,
             "billing_plan": request.user.billing_plan,
             "is_multi_tenancy": hasattr(settings, "MULTI_TENANCY"),
