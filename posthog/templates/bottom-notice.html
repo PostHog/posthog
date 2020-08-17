@@ -1,5 +1,5 @@
 {% if debug %}
-    <div id="debug-bar" class="bottom-notice">
+    <div class="bottom-notice tricolor">
         <div><span>Current branch: </span><b><code>{{ git_branch|default:"unknown" }}</code></b><span>.</span></div>
         <div><span>PostHog running in </span><b><code>DEBUG</code></b> mode!</div>
         <div><span>Current revision: </span><b><code>{{ git_rev|default:"unknown" }}</code></b><span>.</span></div>
@@ -8,12 +8,15 @@
         </button>
     </div>
 {% else %}
-    <div id="tls-bar" class="bottom-notice" style="display: none">
-        <div>PostHog dangerously running in&nbsp;<b><code>PRODUCTION</code></b>&nbsp;mode without&nbsp;TLS! Use a&nbsp;valid TLS&nbsp;certificate and&nbsp;route&nbsp;to&nbsp;<code>https://</code>.</div>
-    </div>
     <script>
-        const bar = document.getElementById('tls-bar')
-        if (location.protocol !== 'https:') bar.style = ''
-        else bar.remove()
+        if (location.protocol !== 'https:') {
+            const element = document.createElement('div')
+            element.className = 'bottom-notice warning'
+            element.innerHTML = (
+                '<div>PostHog dangerously running in&nbsp;<b><code>PRODUCTION</code></b>&nbsp;mode without&nbsp;TLS! ' +
+                'Use a&nbsp;valid TLS&nbsp;certificate and&nbsp;route&nbsp;to&nbsp;<code>https://</code>.</div>'
+            )
+            document.body.prepend(element)
+        }
     </script>
 {% endif %}

@@ -325,9 +325,20 @@ label.disabled {
     color: #fff;
     font-size: 0.75rem;
     line-height: 1.5rem;
-    &#tls-bar div {
+    &.warning div {
         height: auto;
         background: #f00;
+    }
+    &.tricolor {
+        div:nth-child(1) {
+            background: #1d4aff;
+        }
+        div:nth-child(2) {
+            background: #f54e00;
+        }
+        div:nth-child(3) {
+            background: #f9bd2b;
+        }
     }
     div {
         flex-basis: 0;
@@ -337,15 +348,6 @@ label.disabled {
     }
     span {
         display: none;
-    }
-    div:nth-child(1) {
-        background: #1d4aff;
-    }
-    div:nth-child(2) {
-        background: #f54e00;
-    }
-    div:nth-child(3) {
-        background: #f9bd2b;
     }
     button {
         border: none;
