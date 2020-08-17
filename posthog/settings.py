@@ -158,15 +158,6 @@ if STATSD_HOST:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
-# Load debug_toolbar if we can (DEBUG and Dev modes)
-try:
-    import debug_toolbar
-
-    INSTALLED_APPS.append("debug_toolbar")
-    MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
-except ImportError:
-    pass
-
 # Import Enterprise Edition if we can
 try:
     import ee.apps
@@ -382,6 +373,14 @@ if TEST:
     CACHES["default"] = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
+    # Load debug_toolbar if we can
+    try:
+        import debug_toolbar
+    except ImportError:
+        pass
+    else:
+        INSTALLED_APPS.append("debug_toolbar")
+        MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
 
 if DEBUG and not TEST:
     print_warning(
