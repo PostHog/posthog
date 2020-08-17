@@ -7,7 +7,7 @@ import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import { elementsLogicType } from '~/toolbar/elements/elementsLogicType'
+import { elementsLogicType } from 'types/toolbar/elements/elementsLogicType'
 import { ActionStepType, ActionType, ToolbarMode, ToolbarTab } from '~/types'
 import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
 

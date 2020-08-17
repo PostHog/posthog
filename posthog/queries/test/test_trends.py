@@ -1,6 +1,7 @@
 import json
 
 from freezegun import freeze_time
+from rest_framework.decorators import action
 
 from posthog.api.test.base import BaseTest
 from posthog.models import Action, ActionStep, Cohort, Event, Filter, Person, Team
@@ -109,9 +110,16 @@ class TestTrends(BaseTest):
     def test_trends_per_day_cumulative(self):
         self._create_events()
         with freeze_time("2020-01-04T13:00:01Z"):
-            with self.assertNumQueries(4):
+            with self.assertNumQueries(1):
                 response = Trends().run(
-                    Filter(data={"date_from": "-7d", "display": "ActionsLineGraphCumulative"}), self.team,
+                    Filter(
+                        data={
+                            "date_from": "-7d",
+                            "display": "ActionsLineGraphCumulative",
+                            "events": [{"id": "sign up"}],
+                        }
+                    ),
+                    self.team,
                 )
 
         self.assertEqual(response[0]["label"], "sign up")
@@ -123,7 +131,7 @@ class TestTrends(BaseTest):
     def test_trends_compare(self):
         self._create_events()
         with freeze_time("2020-01-04T13:00:01Z"):
-            response = Trends().run(Filter(data={"compare": "true"}), self.team)
+            response = Trends().run(Filter(data={"compare": "true", "events": [{"id": "sign up"}]}), self.team)
 
         self.assertEqual(response[0]["label"], "sign up - current")
         self.assertEqual(response[0]["labels"][4], "day 4")
@@ -138,7 +146,9 @@ class TestTrends(BaseTest):
         self.assertEqual(response[1]["data"][5], 0.0)
 
         with freeze_time("2020-01-04T13:00:01Z"):
-            no_compare_response = Trends().run(Filter(data={"compare": "false"}), self.team)
+            no_compare_response = Trends().run(
+                Filter(data={"compare": "false", "events": [{"id": "sign up"}]}), self.team
+            )
 
         self.assertEqual(no_compare_response[0]["label"], "sign up")
         self.assertEqual(no_compare_response[0]["labels"][4], "Wed. 1 January")
@@ -150,13 +160,15 @@ class TestTrends(BaseTest):
         self._create_events()
         with freeze_time("2020-01-04"):
             response = Trends().run(
-                Filter(data={"properties": [{"key": "$some_property", "value": "value"}]}), self.team
+                Filter(
+                    data={"properties": [{"key": "$some_property", "value": "value"}], "events": [{"id": "sign up"}]}
+                ),
+                self.team,
             )
         self.assertEqual(response[0]["labels"][4], "Wed. 1 January")
         self.assertEqual(response[0]["data"][4], 1.0)
         self.assertEqual(response[0]["labels"][5], "Thu. 2 January")
         self.assertEqual(response[0]["data"][5], 0)
-        self.assertEqual(response[1]["count"], 0)
 
     def test_filter_events_by_cohort(self):
         person1 = Person.objects.create(team=self.team, distinct_ids=["person_1"], properties={"name": "John"})
@@ -191,23 +203,32 @@ class TestTrends(BaseTest):
     def test_date_filtering(self):
         self._create_events()
         with freeze_time("2020-01-02"):
-            response = Trends().run(Filter(data={"date_from": "2019-12-21"}), self.team)
+            response = Trends().run(Filter(data={"date_from": "2019-12-21", "events": [{"id": "sign up"}]}), self.team)
         self.assertEqual(response[0]["labels"][3], "Tue. 24 December")
         self.assertEqual(response[0]["data"][3], 1.0)
         self.assertEqual(response[0]["data"][12], 1.0)
+
+    def test_response_empty_if_no_events(self):
+        self._create_events()
+        response = Trends().run(Filter(data={"date_from": "2012-12-12"}), self.team)
+        self.assertEqual(response, [])
 
     def test_interval_filtering(self):
         self._create_events(use_time=True)
 
         # test minute
         with freeze_time("2020-01-02"):
-            response = Trends().run(Filter(data={"date_from": "2020-01-01", "interval": "minute"}), self.team)
+            response = Trends().run(
+                Filter(data={"date_from": "2020-01-01", "interval": "minute", "events": [{"id": "sign up"}]}), self.team
+            )
         self.assertEqual(response[0]["labels"][6], "Wed. 1 January, 00:06")
         self.assertEqual(response[0]["data"][6], 3.0)
 
         # test hour
         with freeze_time("2020-01-02"):
-            response = Trends().run(Filter(data={"date_from": "2019-12-24", "interval": "hour"}), self.team)
+            response = Trends().run(
+                Filter(data={"date_from": "2019-12-24", "interval": "hour", "events": [{"id": "sign up"}]}), self.team
+            )
         self.assertEqual(response[0]["labels"][3], "Tue. 24 December, 03:00")
         self.assertEqual(response[0]["data"][3], 1.0)
         # 217 - 24 - 1
@@ -215,7 +236,9 @@ class TestTrends(BaseTest):
 
         # test week
         with freeze_time("2020-01-02"):
-            response = Trends().run(Filter(data={"date_from": "2019-11-24", "interval": "week"}), self.team)
+            response = Trends().run(
+                Filter(data={"date_from": "2019-11-24", "interval": "week", "events": [{"id": "sign up"}]}), self.team
+            )
         self.assertEqual(response[0]["labels"][4], "Sun. 22 December")
         self.assertEqual(response[0]["data"][4], 1.0)
         self.assertEqual(response[0]["labels"][5], "Sun. 29 December")
@@ -223,7 +246,9 @@ class TestTrends(BaseTest):
 
         # test month
         with freeze_time("2020-01-02"):
-            response = Trends().run(Filter(data={"date_from": "2019-9-24", "interval": "month"}), self.team)
+            response = Trends().run(
+                Filter(data={"date_from": "2019-9-24", "interval": "month", "events": [{"id": "sign up"}]}), self.team
+            )
         self.assertEqual(response[0]["labels"][2], "Sat. 30 November")
         self.assertEqual(response[0]["data"][2], 1.0)
         self.assertEqual(response[0]["labels"][3], "Tue. 31 December")
@@ -234,7 +259,9 @@ class TestTrends(BaseTest):
 
         # test today + hourly
         with freeze_time("2020-01-02T23:31:00Z"):
-            response = Trends().run(Filter(data={"date_from": "dStart", "interval": "hour"}), self.team)
+            response = Trends().run(
+                Filter(data={"date_from": "dStart", "interval": "hour", "events": [{"id": "sign up"}]}), self.team
+            )
         self.assertEqual(response[0]["labels"][23], "Thu. 2 January, 23:00")
         self.assertEqual(response[0]["data"][23], 1.0)
 
@@ -242,7 +269,7 @@ class TestTrends(BaseTest):
         self._create_events(use_time=True)
         # automatically sets first day as first day of any events
         with freeze_time("2020-01-04T15:01:01Z"):
-            response = Trends().run(Filter(data={"date_from": "all"}), self.team)
+            response = Trends().run(Filter(data={"date_from": "all", "events": [{"id": "sign up"}]}), self.team)
         self.assertEqual(response[0]["labels"][0], "Tue. 24 December")
         self.assertEqual(response[0]["data"][0], 1.0)
 
@@ -321,9 +348,8 @@ class TestTrends(BaseTest):
 
     def test_action_filtering(self):
         sign_up_action, person = self._create_events()
-        with freeze_time("2020-01-04"):
-            action_response = Trends().run(Filter(data={"actions": [{"id": sign_up_action.id}]}), self.team)
-            event_response = Trends().run(Filter(data={"events": [{"id": "sign up"}]}), self.team)
+        action_response = Trends().run(Filter(data={"actions": [{"id": sign_up_action.id}]}), self.team)
+        event_response = Trends().run(Filter(data={"events": [{"id": "sign up"}]}), self.team)
         self.assertEqual(len(action_response), 1)
 
         self.assertTrue(self._compare_entity_response(action_response, event_response))
