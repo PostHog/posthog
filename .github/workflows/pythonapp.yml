@@ -60,6 +60,7 @@ jobs:
           touch frontend/dist/index.html
           touch frontend/dist/layout.html
           touch frontend/dist/shared_dashboard.html
+          python manage.py collectstatic --noinput
           python manage.py test --keepdb -v 2
       - name: Typechecking
         env:
