@@ -5,7 +5,15 @@ WORKDIR /code
 
 COPY requirements.txt /code/
 
-RUN apt-get update && apt-get install -y --no-install-recommends apt-utils curl git \
+COPY package.json /code/
+COPY yarn.lock /code/
+COPY webpack.config.js /code/
+COPY postcss.config.js /code/
+COPY babel.config.js /code/
+COPY tsconfig.json /code/
+COPY .kearc /code/
+COPY frontend/ /code/frontend
+RUN apt-get update && apt-get install -y --no-install-recommends curl git \
     && curl -sL https://deb.nodesource.com/setup_12.x  | bash - \
     && apt-get install nodejs -y --no-install-recommends \
     && npm install -g yarn@1 \
@@ -33,7 +41,7 @@ COPY frontend/ /code/frontend
 
 COPY . /code/
 
-RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+RUN SECRET_KEY='unsafe secret key for collectstatic only'  DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 EXPOSE 8000
 CMD ["./bin/docker"]

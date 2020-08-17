@@ -21,13 +21,15 @@ COPY yarn.lock /code/
 COPY webpack.config.js /code/
 COPY postcss.config.js /code/
 COPY babel.config.js /code/
+COPY tsconfig.json /code/
+COPY .kearc /code/
 COPY frontend/ /code/frontend
 
 RUN mkdir /code/frontend/dist
 
 COPY . /code/
 
-RUN python manage.py collectstatic --noinput
+RUN DEBUG=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 EXPOSE 8000
 EXPOSE 8234
