@@ -135,9 +135,9 @@ export const elementsLogic = kea<
         inspectElements: [
             (s) => [s.allInspectElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
             (allInspectElements) =>
-                allInspectElements.map(
-                    (element) => ({ element, rect: getRectForElement(element) } as ElementWithMetadata)
-                ),
+                allInspectElements
+                    .map((element) => ({ element, rect: getRectForElement(element) } as ElementWithMetadata))
+                    .filter((e) => e.rect && e.rect.width * e.rect.height > 0),
         ],
 
         displayActionElements: [
