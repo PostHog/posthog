@@ -115,9 +115,12 @@ class User(AbstractUser):
         if EE_MISSING:
             return None
 
-        # If we're on multi-tenancy grab the team's plan
+        # If we're on multi-tenancy grab the team's price
         if not MULTI_TENANCY_MISSING:
-            return None
+            try:
+                return TeamBilling.objects.get(team=self.team).price_id
+            except TeamBilling.DoesNotExist:
+                return None
         # Otherwise, try to find a valid license on this instance
         license = License.objects.filter(valid_until__gte=now()).first()
         if license:
