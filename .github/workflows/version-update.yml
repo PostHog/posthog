@@ -23,4 +23,4 @@ jobs:
         author_email: hey@posthog.com
         message: "Update VERSION"
       env: 
-        GITHUB_TOKEN: ${{ secrets.UPDATE_GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.SYNC_GITHUB_TOKEN }}
