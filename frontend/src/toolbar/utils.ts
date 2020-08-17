@@ -306,3 +306,34 @@ export function clearSessionToolbarToken(): void {
     window.sessionStorage?.removeItem('_postHogEditorParams')
     window.localStorage?.removeItem('_postHogEditorParams')
 }
+
+export function getRectForElement(element: HTMLElement): DOMRect {
+    const elements = [elementToAreaRect(element)]
+
+    let loopElement = element
+    while (loopElement.children.length === 1) {
+        loopElement = loopElement.children[0] as HTMLElement
+        elements.push(elementToAreaRect(loopElement))
+    }
+
+    let maxArea = 0
+    let maxRect = elements[0].rect
+
+    for (const { rect, area } of elements) {
+        if (area >= maxArea) {
+            maxArea = area
+            maxRect = rect
+        }
+    }
+
+    return maxRect
+}
+
+function elementToAreaRect(element: HTMLElement): { element: HTMLElement; rect: DOMRect; area: number } {
+    const rect = element.getBoundingClientRect()
+    return {
+        element,
+        rect,
+        area: rect.width * rect.height,
+    }
+}
