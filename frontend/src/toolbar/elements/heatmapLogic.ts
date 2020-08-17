@@ -3,7 +3,7 @@
 import { kea } from 'kea'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { elementToActionStep, elementToSelector } from '~/toolbar/utils'
+import { elementToActionStep, elementToSelector, trimElement } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { heatmapLogicType } from 'types/toolbar/elements/heatmapLogicType'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
@@ -149,10 +149,13 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                 const elementSelector = new Map<HTMLElement, string>()
 
                 ;(elements || []).forEach(({ element, selector, count }) => {
-                    const oldCount = elementCounter.get(element) || 0
-                    elementCounter.set(element, oldCount + count)
-                    if (oldCount === 0) {
-                        elementSelector.set(element, selector)
+                    const trimmedElement = trimElement(element)
+                    if (trimmedElement) {
+                        const oldCount = elementCounter.get(trimmedElement) || 0
+                        elementCounter.set(trimmedElement, oldCount + count)
+                        if (oldCount === 0) {
+                            elementSelector.set(trimmedElement, selector)
+                        }
                     }
                 })
 
