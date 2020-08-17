@@ -75,7 +75,7 @@ def user(request):
                 "completed_snippet_onboarding": team.completed_snippet_onboarding,
             },
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
-            "posthog_version": VERSION if hasattr(settings, "VERSION") else None,
+            "posthog_version": VERSION,
             "available_features": request.user.available_features,
             "billing_plan": request.user.billing_plan,
             "is_multi_tenancy": hasattr(settings, "MULTI_TENANCY"),
