@@ -5,6 +5,17 @@ import PropTypes from 'prop-types'
 import { Spin } from 'antd'
 import moment from 'moment'
 
+const SI_PREFIXES = [
+    { value: 1e18, symbol: 'E' },
+    { value: 1e15, symbol: 'P' },
+    { value: 1e12, symbol: 'T' },
+    { value: 1e9, symbol: 'G' },
+    { value: 1e6, symbol: 'M' },
+    { value: 1e3, symbol: 'k' },
+    { value: 1, symbol: '' },
+]
+const TRAILING_ZERO_REGEX = /\.0+$|(\.[0-9]*[1-9])0+$/
+
 export function uuid() {
     return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c) =>
         (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16)
@@ -350,24 +361,14 @@ export function determineDifferenceType(firstDate, secondDate) {
     else return 'minute'
 }
 
-// adapted from https://stackoverflow.com/a/9462382/624476
 export function humanizeNumber(number, digits = 1) {
-    const SI_PREFIXES = [
-        { value: 1e18, symbol: 'E' },
-        { value: 1e15, symbol: 'P' },
-        { value: 1e12, symbol: 'T' },
-        { value: 1e9, symbol: 'G' },
-        { value: 1e6, symbol: 'M' },
-        { value: 1e3, symbol: 'k' },
-        { value: 1, symbol: '' },
-    ]
-    const RX = /\.0+$|(\.[0-9]*[1-9])0+$/
+    // adapted from https://stackoverflow.com/a/9462382/624476
     let matchingPrefix = SI_PREFIXES[SI_PREFIXES.length - 1]
-    for (currentPrefix of SI_PREFIXES) {
+    for (const currentPrefix of SI_PREFIXES) {
         if (number >= currentPrefix.value) {
             matchingPrefix = currentPrefix
             break
         }
     }
-    return (num / matchingPrefix.value).toFixed(digits).replace(RX, '$1') + matchingPrefix.symbol
+    return (number / matchingPrefix.value).toFixed(digits).replace(TRAILING_ZERO_REGEX, '$1') + matchingPrefix.symbol
 }
