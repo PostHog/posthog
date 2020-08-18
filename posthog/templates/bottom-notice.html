@@ -1,5 +1,5 @@
 {% if debug %}
-    <div class="bottom-notice tricolor">
+    <div id="bottom-notice" class="tricolor">
         <div><span>Current branch: </span><b><code>{{ git_branch|default:"unknown" }}</code></b><span>.</span></div>
         <div><span>PostHog running in </span><b><code>DEBUG</code></b> mode!</div>
         <div><span>Current revision: </span><b><code>{{ git_rev|default:"unknown" }}</code></b><span>.</span></div>
@@ -11,7 +11,8 @@
     <script>
         if (location.protocol !== 'https:') {
             const element = document.createElement('div')
-            element.className = 'bottom-notice warning'
+            element.id = 'bottom-notice'
+            element.className = 'warning'
             element.innerHTML = (
                 '<div>PostHog dangerously running in&nbsp;<b><code>PRODUCTION</code></b>&nbsp;mode without&nbsp;TLS! ' +
                 'Use a&nbsp;valid TLS&nbsp;certificate and&nbsp;route&nbsp;to&nbsp;<code>https://</code>.</div>'
