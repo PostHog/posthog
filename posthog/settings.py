@@ -389,6 +389,12 @@ DEBUG_TOOLBAR_CONFIG = {
     "SHOW_TOOLBAR_CALLBACK": "posthog.settings.show_toolbar",
 }
 
+
+POSTGRES = "postgres"
+CLICKHOUSE = "clickhouse"
+
+PRIMARY_DB = os.environ.get("PRIMARY_DB", POSTGRES)
+
 CLICKHOUSE_DATABASES = {
     "default": {"db_name": "default", "username": "default", "password": "", "migrate": True, "readonly": False},
 }
