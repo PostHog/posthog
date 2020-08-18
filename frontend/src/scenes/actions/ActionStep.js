@@ -3,7 +3,7 @@ import { EventName } from './EventName'
 import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
-import { URL_MATCHING_HINT } from 'scenes/actions/hints'
+import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 
 let getSafeText = (el) => {
     if (!el.childNodes || !el.childNodes.length) return
@@ -263,8 +263,8 @@ export class ActionStep extends Component {
                     extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
                     label="URL"
                 />
-                {step?.url_matching && step.url_matching in URL_MATCHING_HINT && (
-                    <small style={{ display: 'block', marginTop: -12 }}>{URL_MATCHING_HINT[step.url_matching]}</small>
+                {step?.url_matching && step.url_matching in URL_MATCHING_HINTS && (
+                    <small style={{ display: 'block', marginTop: -12 }}>{URL_MATCHING_HINTS[step.url_matching]}</small>
                 )}
             </div>
         )
@@ -373,9 +373,9 @@ export class ActionStep extends Component {
                                     extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
                                     label="URL"
                                 />
-                                {step.url_matching && step.url_matching in URL_MATCHING_HINT && (
+                                {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
                                     <small style={{ display: 'block', marginTop: -12 }}>
-                                        {URL_MATCHING_HINT[step.url_matching]}
+                                        {URL_MATCHING_HINTS[step.url_matching]}
                                     </small>
                                 )}
                             </div>

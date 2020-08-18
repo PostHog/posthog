@@ -1,6 +1,6 @@
 import React from 'react'
 
-export const URL_MATCHING_HINT = {
+export const URL_MATCHING_HINTS = {
     exact: undefined,
     contains: (
         <>
