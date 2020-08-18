@@ -362,7 +362,7 @@ export function humanizeNumber(number, digits = 1) {
         { value: 1, symbol: '' },
     ]
     const RX = /\.0+$|(\.[0-9]*[1-9])0+$/
-    let matchingPrefix = SI_PREFIXES[SI_PREFIXES.length-1]
+    let matchingPrefix = SI_PREFIXES[SI_PREFIXES.length - 1]
     for (currentPrefix of SI_PREFIXES) {
         if (number >= currentPrefix.value) {
             matchingPrefix = currentPrefix
