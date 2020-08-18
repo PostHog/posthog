@@ -16,18 +16,18 @@ const MATHS = {
             <>
                 Total event volume.
                 <br />
-                If a user performs an event 3 times on a given day, it counts as 3.
+                If a user performs an event 3 times in a given day/week/month, it counts as 3.
             </>
         ),
         onProperty: false,
     },
     dau: {
-        name: 'Unique',
+        name: 'Active users',
         description: (
             <>
-                Unique active users.
+                Users active in the time interval.
                 <br />
-                If a user performs an event 3 times on a given day, it counts only as 1.
+                If a user performs an event 3 times in a given day/week/month, it counts only as 1.
             </>
         ),
         onProperty: false,
