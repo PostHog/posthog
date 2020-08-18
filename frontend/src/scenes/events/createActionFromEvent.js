@@ -47,8 +47,8 @@ export async function createActionFromEvent(event, increment) {
     }
     if (increment) actionData.name = actionData.name + ' ' + increment
 
-    if (event.properties.$event_type === "submit") {
-        actionData.steps[0].properties = [{"key": "$event_type", "value": "submit"}]
+    if (event.properties.$event_type === 'submit') {
+        actionData.steps[0].properties = [{ key: "$event_type", value: "submit" }]
     }
 
     let action = false
