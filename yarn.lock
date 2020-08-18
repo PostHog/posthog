@@ -1245,10 +1245,10 @@
     react-draggable "^4.0.0"
     react-resizable "^1.10.0"
 
-"@mariusandra/simmerjs@0.5.6-posthog-2":
-  version "0.5.6-posthog-2"
-  resolved "https://registry.yarnpkg.com/@mariusandra/simmerjs/-/simmerjs-0.5.6-posthog-2.tgz#17efdf40e40e9770fdf9ac4448d4b4d779171af4"
-  integrity sha512-PfDnFBCvUidNlPJoAom7FCoLKXL9h5WAfC7mkftI1swQ0RFHeCOqRvlfvwUHM8lsCD56alL2a8o4PTbl6dg4IQ==
+"@mariusandra/simmerjs@0.6.0-posthog.1":
+  version "0.6.0-posthog.1"
+  resolved "https://registry.yarnpkg.com/@mariusandra/simmerjs/-/simmerjs-0.6.0-posthog.1.tgz#92a5792d3cec2aca842bdf059976d1f1d1e61060"
+  integrity sha512-bqIS2MwbfXGwm3U7f+s9FgcQBuiG6QpjCUbwn2un3B0yB8SektTyVlrt/0EqkDBJV77yhAxjmQgkbjifXNvEOg==
   dependencies:
     lodash.difference "^4.5.0"
     lodash.flatmap "^4.5.0"
@@ -6389,6 +6389,13 @@ lodash@4.17.15, lodash@^4.17.11, lodash@^4.17.13, lodash@^4.17.14, lodash@^4.17.
   integrity sha512-8xOcRHvCjnocdS5cpwXQXVzmmh5e5+saE2QGoeQmbKmRS6J3VQppPOIt0MnmE+4xlZoumy0GPG0D0MVIQbNA1A==
 
 log-symbols@3.0.0, log-symbols@^3.0.0:
+  version "3.0.0"
+  resolved "https://registry.yarnpkg.com/log-symbols/-/log-symbols-3.0.0.tgz#f3a08516a5dea893336a7dee14d18a1cfdab77c4"
+  integrity sha512-dSkNGuI7iG3mfvDzUuYZyvk5dD9ocYCYzNU6CYDE6+Xqd+gwme6Z00NS3dUh8mq/73HaEtT7m6W+yUPtU6BZnQ==
+  dependencies:
+    chalk "^2.4.2"
+
+log-symbols@3.0.0:
   version "3.0.0"
   resolved "https://registry.yarnpkg.com/log-symbols/-/log-symbols-3.0.0.tgz#f3a08516a5dea893336a7dee14d18a1cfdab77c4"
   integrity sha512-dSkNGuI7iG3mfvDzUuYZyvk5dD9ocYCYzNU6CYDE6+Xqd+gwme6Z00NS3dUh8mq/73HaEtT7m6W+yUPtU6BZnQ==
