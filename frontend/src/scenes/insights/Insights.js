@@ -323,7 +323,7 @@ function FunnelInsight() {
                         textAlign: 'center',
                     }}
                 >
-                    <span>Enter the details to your funnel and click 'save' to create a funnel visualization</span>
+                    <span>Enter the details to your funnel and click 'calculate' to create a funnel visualization</span>
                 </div>
             )}
         </div>

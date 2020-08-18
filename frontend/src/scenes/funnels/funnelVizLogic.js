@@ -15,7 +15,7 @@ export const funnelVizLogic = kea({
                     ...(from_dashboard ? { from_dashboard } : {}),
                     ...cleanedParams,
                 }
-                return await pollFunnel(params).result
+                return await pollFunnel(params)
             },
         },
     }),

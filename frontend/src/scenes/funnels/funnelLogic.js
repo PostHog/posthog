@@ -24,10 +24,7 @@ export async function pollFunnel(params = {}) {
     if (result.loading) {
         result = { filters: {} }
     }
-    return {
-        params,
-        result,
-    }
+    return result
 }
 
 export const cleanFunnelParams = (filters) => {
@@ -126,9 +123,8 @@ export const funnelLogic = kea({
                 actions.loadPeople(values.stepsWithCount)
             }
         },
-        setFilters: () => {
-            if (!values.isStepsEmpty) actions.loadFunnel()
-            else actions.clearFunnel()
+        setFilters: ({ refresh }) => {
+            if (refresh) actions.loadFunnel()
             const cleanedParams = cleanFunnelParams(values.filters)
             actions.setAllFilters(cleanedParams)
         },
@@ -138,10 +134,8 @@ export const funnelLogic = kea({
             actions.setAllFilters(cleanedParams)
             actions.createInsight({ ...cleanedParams, insight: ViewType.FUNNELS })
 
-            const response = await pollFunnel(cleanedParams)
-
-            // only update if the filters are still the same
-            if (objectsEqual(response.params, cleanFunnelParams(values.filters))) actions.setSteps(response.result)
+            const result = await pollFunnel(cleanedParams)
+            actions.setSteps(result)
         },
         clearFunnel: async () => {
             actions.setAllFilters({})
