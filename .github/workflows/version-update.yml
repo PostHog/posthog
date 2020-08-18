@@ -17,7 +17,7 @@ jobs:
                   fetch-depth: 0
 
             - name: Edit version.py
-              run: echo "VERSION = \"$(git describe --tags `git rev-list --tags --max-count=1`)\"" > version.py
+              run: echo "VERSION = \"$(git describe --tags `git rev-list --tags --max-count=1`)\"" > posthog/version.py
 
             - name: Commit update
               uses: stefanzweifel/git-auto-commit-action@v4
