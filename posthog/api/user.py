@@ -15,7 +15,7 @@ from django.views.decorators.http import require_http_methods
 from rest_framework import serializers
 
 from posthog.models import Event, User
-from version import VERSION
+from posthog.version import VERSION
 
 
 def user(request):
