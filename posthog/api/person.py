@@ -79,7 +79,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         return queryset
 
     def destroy(self, request: request.Request, pk=None):  # type: ignore
-        team = request.user.team_set.get()
+        team = request.user.team
         person = Person.objects.get(team=team, pk=pk)
         events = Event.objects.filter(team=team, distinct_id__in=person.distinct_ids)
         events.delete()
@@ -88,7 +88,7 @@ class PersonViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        team = self.request.user.team_set.get()
+        team = self.request.user.team
         queryset = queryset.filter(team=team)
         return self._filter_request(self.request, queryset, team)
 

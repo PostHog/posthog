@@ -29,7 +29,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         annotation = Annotation.objects.create(
-            team=request.user.team_set.get(), created_by=request.user, **validated_data
+            team=request.user.team, created_by=request.user, **validated_data
         )
         return annotation
 
@@ -40,7 +40,7 @@ class AnnotationsViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
-        team = self.request.user.team_set.get()
+        team = self.request.user.team
 
         if self.action == "list":  # type: ignore
             queryset = self._filter_request(self.request, queryset)

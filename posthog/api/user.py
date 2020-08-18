@@ -88,7 +88,7 @@ def redirect_to_site(request):
     if not request.user.is_authenticated:
         return HttpResponse("Unauthorized", status=401)
 
-    team = request.user.team_set.get()
+    team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
     use_new_toolbar = request.user.toolbar_mode == "toolbar"
 

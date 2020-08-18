@@ -90,7 +90,7 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
         context = {}
     template = get_template(template_name)
     try:
-        context["opt_out_capture"] = request.user.team_set.get().opt_out_capture
+        context["opt_out_capture"] = request.user.team.opt_out_capture
     except (Team.DoesNotExist, AttributeError):
         team = Team.objects.all()
         # if there's one team on the instance, and they've set opt_out
