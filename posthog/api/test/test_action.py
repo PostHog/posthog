@@ -78,6 +78,12 @@ class TestCreateAction(BaseTest):
                     },
                     {"href": "/a-new-link"},
                 ],
+                "created_by": {
+                    "id": 1,
+                    "distinct_id": "BLKJzxHq4z2d8P1icfpg5wo4eIHaSrMtnotkwdtD8Ok",
+                    "first_name": "person",
+                    "email": "person@email.com",
+                },
             },
             content_type="application/json",
             HTTP_ORIGIN="http://testserver",
@@ -92,7 +98,7 @@ class TestCreateAction(BaseTest):
         self.assertEqual(action.events.count(), 1)
 
         # test queries
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(6):
             response = self.client.get("/api/action/")
 
         # test remove steps

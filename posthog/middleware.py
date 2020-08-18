@@ -55,7 +55,8 @@ class AllowIP(object):
         if ip and any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
             return response
         return HttpResponse(
-            "Your IP is not allowed. Check your ALLOWED_IP_BLOCKS settings. If you are behind a proxy, you need to set TRUSTED_PROXIES. See https://posthog.com/docs/deployment/running-behind-proxy"
+            "Your IP is not allowed. Check your ALLOWED_IP_BLOCKS settings. If you are behind a proxy, you need to set TRUSTED_PROXIES. See https://posthog.com/docs/deployment/running-behind-proxy",
+            status=403,
         )
 
 

@@ -119,12 +119,21 @@ def get_event(request):
         return cors_response(
             request,
             JsonResponse(
-                {"code": "validation", "message": "Invalid formatting. Make sure you're passing correct JSON.",},
+                {"code": "validation", "message": "Invalid formatting. Make sure you're sending valid JSON.",},
                 status=400,
             ),
         )
     if not data:
-        return cors_response(request, HttpResponse("1"))
+        return cors_response(
+            request,
+            JsonResponse(
+                {
+                    "code": "validation",
+                    "message": "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
+                },
+                status=400,
+            ),
+        )
     sent_at = _get_sent_at(data, request)
     token = _get_token(data, request)
     if not token:

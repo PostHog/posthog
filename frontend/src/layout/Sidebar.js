@@ -19,16 +19,17 @@ import {
     ClockCircleOutlined,
     MessageOutlined,
     TeamOutlined,
+    LockOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import whiteLogo from './../../public/posthog-logo-white.svg'
 import { triggerResizeAfterADelay } from 'lib/utils'
-import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { HogIcon } from 'lib/icons/HogIcon'
+import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
+import whiteLogo from './../../public/posthog-logo-white.svg'
 
 const itemStyle = { display: 'flex', alignItems: 'center' }
 
@@ -61,6 +62,7 @@ const submenuOverride = {
     cohorts: 'people',
     setup: 'settings',
     annotations: 'settings',
+    licenses: 'settings',
 }
 
 export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
@@ -116,11 +118,13 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
 
                     <Menu.Item
                         key="toolbar"
-                        style={{ ...itemStyle, background: 'hsla(210, 10%, 12%, 1)' }}
+                        style={{ ...itemStyle, background: 'hsl(210, 10%, 11%)', fontWeight: 'bold' }}
                         onClick={() => setToolbarModalOpen(true)}
                         data-attr="menu-item-toolbar"
                     >
-                        <HogIcon style={{ width: '1.4em', marginLeft: '-0.2em', marginRight: 'calc(10px - 0.2em)' }} />
+                        <div className="sidebar-toolbar-imitation">
+                            <HogIcon />
+                        </div>
                         <span className="sidebar-label">Launch Toolbar!</span>
                     </Menu.Item>
 
@@ -245,6 +249,13 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <span className="sidebar-label">{'Annotations'}</span>
                             <Link to={'/annotations'} onClick={collapseSidebar} />
                         </Menu.Item>
+                        {!user.is_multi_tenancy && user.ee_available && (
+                            <Menu.Item key="licenses" style={itemStyle} data-attr="menu-item-licenses">
+                                <LockOutlined />
+                                <span className="sidebar-label">Licenses</span>
+                                <Link to={'/setup/licenses'} onClick={collapseSidebar} />
+                            </Menu.Item>
+                        )}
                     </Menu.SubMenu>
 
                     <Menu.Item key="team" style={itemStyle} data-attr="menu-item-team">

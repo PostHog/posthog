@@ -23,6 +23,7 @@ export const scenes = {
     featureFlags: () => import(/* webpackChunkName: 'featureFlags' */ './experiments/FeatureFlags'),
     annotations: () => import(/* webpackChunkName: 'annotations' */ './annotations/AnnotationsScene'),
     team: () => import(/* webpackChunkName: 'team' */ './team/Team'),
+    licenses: () => import(/* webpackChunkName: 'setup' */ './setup/Licenses'),
 }
 
 export const redirects = {
@@ -49,6 +50,7 @@ export const routes = {
     '/sessions': 'sessions',
     '/annotations': 'annotations',
     '/team': 'team',
+    '/setup/licenses': 'licenses',
 }
 
 export const sceneLogic = kea({

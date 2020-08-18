@@ -20,7 +20,7 @@ export function ChangelogModal({ onDismiss }: { onDismiss: () => void }): JSX.El
                 <span>
                     You're on version <b>{user?.posthog_version}</b> of PostHog.{' '}
                     {latestVersion &&
-                        (latestVersion !== user?.posthog_version ? (
+                        (latestVersion === user?.posthog_version ? (
                             'This is the newest version.'
                         ) : (
                             <>

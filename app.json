@@ -1,63 +1,58 @@
 {
-  "name": "PostHog - Product Analytics",
-  "website": "https://www.posthog.com",
-  "repository": "https://github.com/posthog/posthog",
-  "logo": "https://posthog.com/images/98771d009c04ff64fc4ba3b31cc46fe8/posthog-icon-color.svg",
-  "environments": {
-    "review": {
-      "scripts": {
-        "postdeploy": ""
-      },
-      "env": {
-        "DEBUG": true
-      },
-      "buildpacks": [
-        {"url": "heroku/nodejs"},
-        {"url": "https://github.com/timgl/heroku-buildpack-python.git"}
-      ],
-      "formation": {
+    "name": "PostHog - Product Analytics",
+    "website": "https://www.posthog.com",
+    "repository": "https://github.com/posthog/posthog",
+    "logo": "https://posthog.com/images/98771d009c04ff64fc4ba3b31cc46fe8/posthog-icon-color.svg",
+    "environments": {
+        "review": {
+            "scripts": {
+                "postdeploy": ""
+            },
+            "env": {
+                "DEBUG": true
+            },
+            "buildpacks": [
+                { "url": "heroku/nodejs" },
+                { "url": "https://github.com/timgl/heroku-buildpack-python.git" }
+            ],
+            "formation": {
+                "web": {
+                    "quantity": 1
+                },
+                "worker": {
+                    "quantity": 1
+                }
+            }
+        },
+        "test": {
+            "addons": ["heroku-postgresql:in-dyno"],
+            "scripts": {
+                "test": "python manage.py test --keepdb -v 2"
+            },
+            "buildpacks": [{ "url": "https://github.com/timgl/heroku-buildpack-python.git" }]
+        }
+    },
+    "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "https://github.com/timgl/heroku-buildpack-python.git" }],
+    "addons": [
+        "heroku-postgresql",
+        {
+            "plan": "heroku-redis",
+            "options": {
+                "maxmemory_policy": "allkeys-lru"
+            }
+        }
+    ],
+    "formation": {
         "web": {
-          "quantity": 1
+            "quantity": 1
         },
         "worker": {
-          "quantity": 1
+            "quantity": 1
         }
-      }
     },
-    "test": {
-      "addons": ["heroku-postgresql:in-dyno"],
-      "scripts": {
-        "test": "python manage.py test --keepdb -v 2"
-      },
-      "buildpacks": [
-        {"url": "https://github.com/timgl/heroku-buildpack-python.git"}
-      ]
+    "env": {
+        "SECRET_KEY": {
+            "generator": "secret"
+        }
     }
-  },
-  "buildpacks": [
-    {"url": "heroku/nodejs"},
-    {"url": "https://github.com/timgl/heroku-buildpack-python.git"}
-  ],
-  "addons": [
-    "heroku-postgresql",
-    {
-      "plan": "heroku-redis",
-      "options": {
-        "maxmemory_policy": "allkeys-lru"
-      }
-    }
-  ],
-  "formation": {
-    "web": {
-      "quantity": 1
-    },
-    "worker": {
-      "quantity": 1
-    }
-  },
-  "env": {
-    "SECRET_KEY": {
-      "generator": "secret"
-    }
-  }
 }

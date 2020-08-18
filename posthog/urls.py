@@ -220,6 +220,15 @@ def is_input_valid(inp_type, val):
     return len(val) > 0
 
 
+# Include enterprise api urls
+try:
+    from ee.urls import extend_api_router
+
+    extend_api_router(router)
+except ImportError:
+    pass
+
+
 urlpatterns = [
     path("_health/", health),
     path("_stats/", stats),
@@ -286,6 +295,7 @@ if settings.DEBUG:
     urlpatterns += [
         path("debug/", debug),
     ]
+
 
 urlpatterns += [
     re_path(r"^.*", decorators.login_required(home)),

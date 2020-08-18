@@ -129,7 +129,10 @@ Come help us make PostHog even better. We're growing like crazy, [and would love
 
 ## Open source / Paid
 
-This repo is entirely [MIT licensed](/LICENSE). We charge for things like user permissioning and auditability, A/B testing and dedicated support. Please email hey@posthog.com and we will gladly help with your implementation.
+
+This repo is entirely [MIT licensed](/LICENSE), with the exception of the `ee` folder (if applicable). We also have a [posthog-foss](https://github.com/PostHog/posthog-foss) version that has all proprietary code removed.
+
+To activate the features in the ee folder, you'll need a license. Please contact us at sales@posthog.com for more information.
 
 <br /><br />
 

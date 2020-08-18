@@ -17,8 +17,14 @@ initKea()
     document.body.appendChild(container)
 
     ReactDOM.render(
-        <Provider store={getContext().store}>
-            <ToolbarApp {...editorParams} jsURL={editorParams.jsURL || editorParams.apiURL} />
+        <Provider store={getContext().store!}>
+            <ToolbarApp
+                {...editorParams}
+                actionId={
+                    typeof editorParams.actionId === 'string' ? parseInt(editorParams.actionId) : editorParams.actionId
+                }
+                jsURL={editorParams.jsURL || editorParams.apiURL}
+            />
         </Provider>,
         container
     )

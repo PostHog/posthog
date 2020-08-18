@@ -190,24 +190,14 @@ class TestFilterByActions(BaseTest):
 
     def test_attributes(self):
         Person.objects.create(distinct_ids=["whatever"], team=self.team)
-
         event1 = Event.objects.create(
             team=self.team,
             distinct_id="whatever",
-            elements=[
-                Element(tag_name="span", order=0),
-                Element(tag_name="a", order=1, attributes={"data-id": "123"}),
-            ],
-        )
-
-        event2 = Event.objects.create(
-            team=self.team,
-            distinct_id="whatever",
-            elements=[Element(tag_name="button", order=0, attributes={"data-id": "123"})],
+            elements=[Element(tag_name="button", order=0, attributes={"attr__data-id": "123"})],
         )
 
         action1 = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action1, selector='a[data-id="123"]')
+        ActionStep.objects.create(action=action1, selector='[data-id="123"]')
         action1.calculate_events()
 
         events = Event.objects.filter_by_action(action1)
@@ -387,7 +377,7 @@ class TestActions(BaseTest):
         event = Event.objects.create(
             team=self.team,
             distinct_id="whatever",
-            elements=[Element(order=0, tag_name="a", attributes={"data-id": "whatever"})],
+            elements=[Element(order=0, tag_name="a", attributes={"attr__data-id": "whatever"})],
         )
         self.assertEqual(event.actions, [action])
 
@@ -515,7 +505,11 @@ class TestSelectors(BaseTest):
         )
         self.assertEqual(
             selector1.parts[1].__dict__,
-            {"data": {"tag_name": "div", "attributes__data-id": "5"}, "direct_descendant": True, "unique_order": 0,},
+            {
+                "data": {"tag_name": "div", "attributes__attr__data-id": "5"},
+                "direct_descendant": True,
+                "unique_order": 0,
+            },
         )
 
     def test_selector_id(self):
