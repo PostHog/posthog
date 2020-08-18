@@ -12,15 +12,17 @@ jobs:
     steps:
     - name: Checkout repo
       uses: actions/checkout@v2
+      with:
+        ref: master
+        fetch-depth: 0
 
     - name: Edit version.py
       run: echo "VERSION = \"$(git describe --tags `git rev-list --tags --max-count=1`)\"" > version.py
   
     - name: Commit update
-      uses: EndBug/add-and-commit@v4
+      uses: stefanzweifel/git-auto-commit-action@v4
       with:
-        author_name: PostHog Bot
-        author_email: hey@posthog.com
-        message: "Update VERSION"
-      env: 
-        GITHUB_TOKEN: ${{ secrets.SYNC_GITHUB_TOKEN }}
+        commit_message: "Update VERSION"
+        commit_user_name: PostHog Bot
+        commit_user_email: hey@posthog.com
+        commit_author: PostHog Bot <hey@posthog.com>
