@@ -1,7 +1,6 @@
 from ee.clickhouse.queries.clickhouse_trends import ClickhouseTrends
-from posthog.queries.test.test_trends import TestTrends
+from posthog.queries.test.test_trends import trend_test_factory
 
 
-class TestClickhouseTrends(TestTrends):
-    def _initialize(self):
-        self._trends = ClickhouseTrends
+class TestClickhouseTrends(trend_test_factory(ClickhouseTrends)):
+    pass
