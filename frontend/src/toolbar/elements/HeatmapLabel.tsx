@@ -31,6 +31,9 @@ export function HeatmapLabel({
     if (!rect) {
         return null
     }
+
+    const width = typeof children === 'string' ? children.length * 10 + 4 : 14
+
     return (
         <div
             style={{
@@ -45,7 +48,7 @@ export function HeatmapLabel({
                 left: `${
                     inBounds(
                         window.pageXOffset,
-                        rect.left + (align === 'left' ? 10 : rect.width) - domPadding - 14 + window.pageXOffset,
+                        rect.left + (align === 'left' ? 10 : rect.width) - domPadding - width + window.pageXOffset,
                         window.pageXOffset + window.innerWidth - 14
                     ) / domZoom
                 }px`,
