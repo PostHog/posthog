@@ -3,26 +3,7 @@ import { EventName } from './EventName'
 import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
-
-const MATCHING_NOTES = {
-    contains: (
-        <>
-            Use <code>%</code> for wildcard, for example: <code>/user/%/edit</code>.
-        </>
-    ),
-    regex: (
-        <>
-            <a
-                href="https://www.postgresql.org/docs/current/functions-matching.html#FUNCTIONS-POSIX-REGEXP"
-                target="_blank"
-                rel="noreferrer"
-            >
-                PostgreSQL regular expression syntax
-            </a>{' '}
-            applies.
-        </>
-    ),
-}
+import { URL_MATCHING_HINT } from 'scenes/actions/hints'
 
 let getSafeText = (el) => {
     if (!el.childNodes || !el.childNodes.length) return
@@ -282,8 +263,8 @@ export class ActionStep extends Component {
                     extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
                     label="URL"
                 />
-                {step?.url_matching && step.url_matching in MATCHING_NOTES && (
-                    <small style={{ display: 'block', marginTop: -12 }}>{MATCHING_NOTES[step.url_matching]}</small>
+                {step?.url_matching && step.url_matching in URL_MATCHING_HINT && (
+                    <small style={{ display: 'block', marginTop: -12 }}>{URL_MATCHING_HINT[step.url_matching]}</small>
                 )}
             </div>
         )
@@ -392,9 +373,9 @@ export class ActionStep extends Component {
                                     extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
                                     label="URL"
                                 />
-                                {step.url_matching && step.url_matching in MATCHING_NOTES && (
+                                {step.url_matching && step.url_matching in URL_MATCHING_HINT && (
                                     <small style={{ display: 'block', marginTop: -12 }}>
-                                        {MATCHING_NOTES[step.url_matching]}
+                                        {URL_MATCHING_HINT[step.url_matching]}
                                     </small>
                                 )}
                             </div>
