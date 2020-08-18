@@ -349,3 +349,24 @@ export function determineDifferenceType(firstDate, secondDate) {
     else if (first.diff(second, 'hours') !== 0) return 'hour'
     else return 'minute'
 }
+
+// https://stackoverflow.com/a/9462382/624476
+export function humanizeNumber(num, digits = 1) {
+    var si = [
+        { value: 1, symbol: '' },
+        { value: 1e3, symbol: 'k' },
+        { value: 1e6, symbol: 'M' },
+        { value: 1e9, symbol: 'G' },
+        { value: 1e12, symbol: 'T' },
+        { value: 1e15, symbol: 'P' },
+        { value: 1e18, symbol: 'E' },
+    ]
+    var rx = /\.0+$|(\.[0-9]*[1-9])0+$/
+    var i
+    for (i = si.length - 1; i > 0; i--) {
+        if (num >= si[i].value) {
+            break
+        }
+    }
+    return (num / si[i].value).toFixed(digits).replace(rx, '$1') + si[i].symbol
+}
