@@ -22,10 +22,10 @@ const MATHS = {
         onProperty: false,
     },
     dau: {
-        name: 'DAU',
+        name: 'Unique',
         description: (
             <>
-                Daily active users.
+                Unique active users.
                 <br />
                 If a user performs an event 3 times on a given day, it counts only as 1.
             </>
