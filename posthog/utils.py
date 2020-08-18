@@ -114,7 +114,6 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
 
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
-        context["version"] = settings.VERSION
         try:
             context["git_rev"] = (
                 subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("ascii").strip()

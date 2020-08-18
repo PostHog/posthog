@@ -16,6 +16,7 @@ from rest_framework import exceptions, serializers
 
 from posthog.models import Event, User
 from posthog.utils import PersonalAPIKeyAuthentication
+from version import VERSION
 
 
 def authenticateSecondarily(request: request.HttpRequest) -> None:
@@ -97,7 +98,7 @@ def user(request):
                 "completed_snippet_onboarding": team.completed_snippet_onboarding,
             },
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
-            "posthog_version": settings.VERSION if hasattr(settings, "VERSION") else None,
+            "posthog_version": VERSION,
             "available_features": request.user.available_features,
             "billing_plan": request.user.billing_plan,
             "is_multi_tenancy": hasattr(settings, "MULTI_TENANCY"),
