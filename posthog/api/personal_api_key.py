@@ -6,6 +6,8 @@ from posthog.models import PersonalAPIKey
 
 
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
+    """Standard PersonalAPIKey serializer that doesn't return key value."""
+
     class Meta:
         model = PersonalAPIKey
         fields = ["id", "label", "created_at", "last_used_at"]
@@ -13,6 +15,8 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
 
 class PersonalAPIKeySerializerCreateOnly(PersonalAPIKeySerializer):
+    """Create-only PersonalAPIKey serializer that also returns key value."""
+
     class Meta:
         model = PersonalAPIKey
         fields = ["id", "label", "value", "created_at", "last_used_at"]
@@ -25,14 +29,25 @@ class PersonalAPIKeySerializerCreateOnly(PersonalAPIKeySerializer):
 
 
 class PersonalAPIKeyViewSet(
-    mixins.RetrieveModelMixin, mixins.CreateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
 ):
     serializer_class = PersonalAPIKeySerializer
-    queryset = PersonalAPIKey.objects.all()
     lookup_field = "id"
+
+    def get_queryset(self):
+        return PersonalAPIKey.objects.filter(user_id=self.request.user.id).order_by("-created_at")
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
         if self.request.method == "POST":
             serializer_class = PersonalAPIKeySerializerCreateOnly
         return serializer_class
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        return response.Response(serializer.data)

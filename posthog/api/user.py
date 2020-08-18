@@ -76,15 +76,6 @@ def user(request):
             "email_opt_in": request.user.email_opt_in,
             "anonymize_data": request.user.anonymize_data,
             "toolbar_mode": request.user.toolbar_mode,
-            "personal_api_keys": [
-                {
-                    "id": personal_api_key.id,
-                    "label": personal_api_key.label,
-                    "created_at": personal_api_key.created_at,
-                    "last_used_at": personal_api_key.last_used_at,
-                }
-                for personal_api_key in request.user.personal_api_keys.order_by("-created_at").all()
-            ],
             "team": {
                 "app_urls": team.app_urls,
                 "api_token": team.api_token,
