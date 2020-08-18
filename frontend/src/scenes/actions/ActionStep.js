@@ -282,6 +282,9 @@ export class ActionStep extends Component {
                     extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
                     label="URL"
                 />
+                {step?.url_matching && step.url_matching in MATCHING_NOTES && (
+                    <small style={{ display: 'block', marginTop: -12 }}>{MATCHING_NOTES[step.url_matching]}</small>
+                )}
             </div>
         )
     }
