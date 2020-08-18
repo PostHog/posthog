@@ -1,10 +1,10 @@
 import React, { useState, useRef, useCallback, Dispatch, SetStateAction } from 'react'
 import { Table, Modal, Button, Input, Alert, Popconfirm } from 'antd'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ExclamationCircleOutlined } from '@ant-design/icons'
 import { red } from '@ant-design/colors'
-import { userLogic } from 'scenes/userLogic'
-import { UserType, PersonalAPIKeyType } from '~/types'
+import { personalAPIKeysLogic } from './personalAPIKeysLogic'
+import { PersonalAPIKeyType } from '~/types'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
 function CreateKeyModal({
@@ -14,7 +14,7 @@ function CreateKeyModal({
     isVisible: boolean
     setIsVisible: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
-    const { createPersonalAPIKeyRequest } = useActions(userLogic)
+    const { createKey } = useActions(personalAPIKeysLogic)
 
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const inputRef = useRef<Input | null>(null)
@@ -34,7 +34,7 @@ function CreateKeyModal({
                 const label = inputRef.current?.state.value?.trim()
                 if (label) {
                     setErrorMessage(null)
-                    createPersonalAPIKeyRequest(inputRef.current?.state.value.trim())
+                    createKey(inputRef.current?.state.value.trim())
                     closeModal()
                 } else {
                     setErrorMessage('Your key needs a label!')
@@ -60,18 +60,20 @@ function CreateKeyModal({
     )
 }
 
-function PersonalAPIKeysTable({ keys }: { keys: PersonalAPIKeyType[] }): JSX.Element {
-    const { deletePersonalAPIKeyRequest } = useActions(userLogic)
+function PersonalAPIKeysTable(): JSX.Element {
+    const { keys } = useValues(personalAPIKeysLogic) as { keys: PersonalAPIKeyType[] }
+    const { deleteKey } = useActions(personalAPIKeysLogic)
 
-    function RowActions(text: string, personalAPIKey: PersonalAPIKeyType): JSX.Element {
+    function RowActions(_: string, personalAPIKey: PersonalAPIKeyType): JSX.Element {
         return (
             <Popconfirm
                 title={`Permanently delete key "${personalAPIKey.label}"?`}
                 okText="Delete Key"
                 okType="danger"
                 icon={<ExclamationCircleOutlined style={{ color: red.primary }} />}
+                placement="left"
                 onConfirm={() => {
-                    deletePersonalAPIKeyRequest(personalAPIKey)
+                    deleteKey(personalAPIKey)
                 }}
             >
                 <a className="text-danger">Delete</a>
@@ -129,7 +131,7 @@ function PersonalAPIKeysTable({ keys }: { keys: PersonalAPIKeyType[] }): JSX.Ele
     )
 }
 
-export function PersonalAPIKeys({ user }: { user: UserType }): JSX.Element {
+export function PersonalAPIKeys(): JSX.Element {
     const [isCreateKeyModalVisible, setIsCreateKeyModalVisible] = useState(false)
 
     return (
@@ -149,7 +151,7 @@ export function PersonalAPIKeys({ user }: { user: UserType }): JSX.Element {
                 + Create a Personal API Key
             </Button>
             <CreateKeyModal isVisible={isCreateKeyModalVisible} setIsVisible={setIsCreateKeyModalVisible} />
-            <PersonalAPIKeysTable keys={user.personal_api_keys} />
+            <PersonalAPIKeysTable />
         </>
     )
 }

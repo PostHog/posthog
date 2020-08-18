@@ -15,7 +15,7 @@ import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from 'scenes/setup/ToolbarSettings'
-import { PersonalAPIKeys } from './PersonalAPIKeys'
+import { PersonalAPIKeys } from 'lib/components/PersonalAPIKeys'
 
 export const Setup = hot(_Setup)
 function _Setup() {
@@ -47,7 +47,7 @@ function _Setup() {
             variable instead of hard-coding.
             <Divider />
             <h2 id="personal-api-keys">Personal API Keys</h2>
-            <PersonalAPIKeys user={user} />
+            <PersonalAPIKeys />
             <Divider />
             <h2 id="urls">Permitted Domains/URLs</h2>
             These are the domains and URLs where the Toolbar will automatically open if you're logged in. It's also
