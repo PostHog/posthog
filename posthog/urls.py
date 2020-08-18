@@ -220,13 +220,13 @@ def is_input_valid(inp_type, val):
     return len(val) > 0
 
 
-# Include enterprise api urls
+# Try to include EE endpoints
 try:
     from ee.urls import extend_api_router
-
-    extend_api_router(router)
 except ImportError:
     pass
+else:
+    extend_api_router(router)
 
 
 urlpatterns = [

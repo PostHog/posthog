@@ -4,11 +4,10 @@ from typing import Optional
 from django.db import models
 from rest_hooks.models import AbstractHook
 
+from ee.tasks.hooks import DeliverHook
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token
-from posthog.tasks.hooks import DeliverHook
-
-from .team import Team
-from .user import User
 
 
 class Hook(AbstractHook):

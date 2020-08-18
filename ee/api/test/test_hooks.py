@@ -2,9 +2,8 @@ import json
 from datetime import datetime
 from typing import Type
 
-from posthog.models import Hook
-
-from .base import BaseTest
+from ee.models import Hook
+from posthog.api.test.base import BaseTest
 
 
 class TestHooksAPI(BaseTest):

@@ -1,7 +1,7 @@
 from django.conf import settings
 from rest_framework import exceptions, serializers, viewsets
 
-from posthog.models.hook import Hook
+from ee.models.hook import Hook
 
 
 class HookSerializer(serializers.ModelSerializer):
@@ -12,8 +12,8 @@ class HookSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Hook
-        fields = "__all__"
-        read_only_fields = ("team", "user")
+        fields = ("id", "created", "updated", "event", "target", "resource_id", "team")
+        read_only_fields = ("team",)
 
 
 class HookViewSet(viewsets.ModelViewSet):
@@ -21,9 +21,11 @@ class HookViewSet(viewsets.ModelViewSet):
     Retrieve, create, update or destroy webhooks.
     """
 
-    queryset = Hook.objects.all()
     model = Hook
     serializer_class = HookSerializer
+
+    def get_queryset(self):
+        return Hook.objects.filter(user_id=self.request.user.id).order_by("-created_at")
 
     def perform_create(self, serializer):
         user = self.request.user

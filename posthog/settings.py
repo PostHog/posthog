@@ -156,13 +156,13 @@ if STATSD_HOST:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
-# Import Enterprise Edition if we can
+# Import Enterprise Edition if available
 try:
-    import ee.apps
-
-    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
+    from ee.settings import *
 except ImportError:
     pass
+else:
+    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
 CORS_ORIGIN_ALLOW_ALL = True
@@ -333,17 +333,6 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.SessionAuthentication",
     ],
 }
-
-# Zapier
-
-HOOK_EVENTS = {
-    # "event_name": "App.Model.Action" (created/updated/deleted)
-    "action_defined": "posthog.Action.created_custom",
-    "action_performed": "posthog.Action.performed",
-    "annotation_created": "posthog.Annotation.created_custom",
-}
-HOOK_FINDER = "posthog.models.find_and_fire_hook"
-HOOK_DELIVERER = "posthog.models.hook.deliver_hook_wrapper"
 
 # Email
 EMAIL_HOST = os.environ.get("EMAIL_HOST")
