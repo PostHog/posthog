@@ -22,7 +22,7 @@ import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
 from sentry_sdk.integrations.django import DjangoIntegration
 
-VERSION = "1.12.1"
+VERSION = "1.13.0"
 
 
 def get_env(key):
