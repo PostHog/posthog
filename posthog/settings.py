@@ -156,9 +156,9 @@ if STATSD_HOST:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
-# Import Enterprise Edition if available
+# Append Enterprise Edition as an app if available
 try:
-    from ee.settings import *
+    from ee.apps import EnterpriseConfig
 except ImportError:
     pass
 else:
@@ -395,3 +395,7 @@ def show_toolbar(request):
 DEBUG_TOOLBAR_CONFIG = {
     "SHOW_TOOLBAR_CALLBACK": "posthog.settings.show_toolbar",
 }
+
+# Extend and override these settings with EE's ones
+if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
+    from ee.settings import *
