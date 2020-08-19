@@ -216,7 +216,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     """A way of authenticating with personal API keys.
 
     Only the first key candidate found in the request is tried, and the order is:
-    1. Request Authentication header of type Bearer.
+    1. Request Authorization header of type Bearer.
     2. Request body.
     3. Request query string.
     """
@@ -227,7 +227,8 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         if "HTTP_AUTHORIZATION" in in_request.META:
             authorization_match = re.match(fr"^{self.keyword}\s+(\S.+)$", in_request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
-                return authorization_match.group(1).strip(), "Authentication header"
+                print(authorization_match)
+                return authorization_match.group(1).strip(), "Authorization header"
         if isinstance(in_request, request.Request):
             data = in_request.data
         else:
