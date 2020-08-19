@@ -16,7 +16,7 @@ from rest_framework import exceptions, serializers
 
 from posthog.models import Event, User
 from posthog.utils import PersonalAPIKeyAuthentication
-from version import VERSION
+from posthog.version import VERSION
 
 
 def authenticateSecondarily(request: request.HttpRequest) -> None:
