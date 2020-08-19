@@ -47,6 +47,11 @@ def get_decide(request: HttpRequest):
         "supportedCompression": ["gzip", "lz64"],
     }
 
+    if request.COOKIES.get(settings.TOOLBAR_COOKIE_NAME):
+        response["isAuthenticated"] = True
+        if settings.JS_URL:
+            response["editorParams"] = {"jsURL": settings.JS_URL, "toolbarVersion": "toolbar"}
+
     if request.user.is_authenticated:
         team = request.user.team_set.get()
         permitted_domains = ["127.0.0.1", "localhost"]

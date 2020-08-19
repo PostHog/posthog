@@ -5,6 +5,7 @@ import { useValues, useActions } from 'kea'
 import { actionEditLogic } from './actionEditLogic'
 
 import { ActionStep } from './ActionStep'
+import { Input } from 'antd'
 
 export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, showNewActionButton, temporaryToken }) {
     let logic = actionEditLogic({
@@ -17,7 +18,7 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
     const { setAction, saveAction, setCreateNew } = useActions(logic)
 
     const [edited, setEdited] = useState(false)
-    const slackEnabled = user && user.team && user.team.slack_incoming_webhook
+    const slackEnabled = user?.team?.slack_incoming_webhook
 
     if (actionLoading || !action) return <Loading />
 
@@ -109,9 +110,10 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                 ))}
 
                 {!isEditor ? (
-                    <div style={{ marginTop: 20, marginBottom: 15 }}>
-                        <label className={slackEnabled ? '' : 'disabled'} style={{ marginRight: 5 }}>
+                    <div>
+                        <div style={{ margin: '1rem 0 0.5rem' }}>
                             <input
+                                id="webhook-checkbox"
                                 type="checkbox"
                                 onChange={(e) => {
                                     setAction({ ...action, post_to_slack: e.target.checked })
@@ -120,11 +122,41 @@ export function ActionEdit({ actionId, apiURL, onSave, user, isEditor, simmer, s
                                 checked={!!action.post_to_slack}
                                 disabled={!slackEnabled}
                             />
-                            &nbsp;Post to Slack/Teams when this action is triggered.
-                        </label>
-                        <Link to="/setup#slack">
-                            <small>Configure</small>
-                        </Link>
+                            <label
+                                className={slackEnabled ? '' : 'disabled'}
+                                style={{ marginLeft: '0.5rem', marginBottom: '0.5rem' }}
+                                htmlFor="webhook-checkbox"
+                            >
+                                Post to Slack/Teams when this action is triggered.
+                            </label>{' '}
+                            <Link to="/setup#webhook">
+                                {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
+                            </Link>
+                            {action.post_to_slack && (
+                                <>
+                                    <Input
+                                        addonBefore="Message format (optional)"
+                                        placeholder="try: [action.name] triggered by [user.name]"
+                                        value={action.slack_message_format}
+                                        onChange={(e) => {
+                                            setAction({ ...action, slack_message_format: e.target.value })
+                                            setEdited(true)
+                                        }}
+                                        disabled={!slackEnabled || !action.post_to_slack}
+                                        data-attr="edit-slack-message-format"
+                                    />
+                                    <small>
+                                        <a
+                                            href="https://posthog.com/docs/integrations/message-formatting/"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                        >
+                                            See documentation on how to format webhook messages.
+                                        </a>
+                                    </small>
+                                </>
+                            )}
+                        </div>
                     </div>
                 ) : (
                     <br />

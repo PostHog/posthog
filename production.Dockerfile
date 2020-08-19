@@ -14,6 +14,8 @@ COPY yarn.lock /code/
 COPY webpack.config.js /code/
 COPY postcss.config.js /code/
 COPY babel.config.js /code/
+COPY tsconfig.json /code/
+COPY .kearc /code/
 COPY frontend/ /code/frontend
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && curl -sL https://deb.nodesource.com/setup_12.x  | bash - \
@@ -31,7 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 COPY . /code/
 
-RUN DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+RUN SECRET_KEY='unsafe secret key for collectstatic only'  DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 EXPOSE 8000
 CMD ["./bin/docker"]

@@ -6,6 +6,7 @@ import string
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import celery
 from django.conf import settings
 from django.contrib.postgres.fields import JSONField
 from django.core.cache import cache
@@ -28,7 +29,6 @@ from psycopg2 import sql  # type: ignore
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.entity import Entity
-from posthog.tasks.slack import post_event_to_slack
 from posthog.utils import generate_cache_key
 
 from .action import Action
@@ -53,6 +53,10 @@ class SelectorPart(object):
     direct_descendant = False
     unique_order = 0
 
+    def _unescape_class(self, class_name):
+        # separate all double slashes "\\" (replace them with "\") and remove all single slashes between them
+        return "\\".join([p.replace("\\", "") for p in class_name.split("\\\\")])
+
     def __init__(self, tag: str, direct_descendant: bool):
         self.direct_descendant = direct_descendant
         self.data: Dict[str, Union[str, List]] = {}
@@ -62,7 +66,7 @@ class SelectorPart(object):
             self.data["attr_id"] = result[3]
             tag = result[1]
         if result and "[" in tag:
-            self.data["attributes__{}".format(result[2])] = result[3]
+            self.data["attributes__attr__{}".format(result[2])] = result[3]
             tag = result[1]
         if "nth-child(" in tag:
             parts = tag.split(":nth-child(")
@@ -70,10 +74,26 @@ class SelectorPart(object):
             tag = parts[0]
         if "." in tag:
             parts = tag.split(".")
-            self.data["attr_class__contains"] = parts[1:]
+            # strip all slashes that are not followed by another slash
+            self.data["attr_class__contains"] = [self._unescape_class(p) for p in parts[1:]]
             tag = parts[0]
         if tag:
             self.data["tag_name"] = tag
+
+    @property
+    def extra_query(self) -> Dict[str, List[Union[str, List[str]]]]:
+        where: List[Union[str, List[str]]] = []
+        params: List[Union[str, List[str]]] = []
+        for key, value in self.data.items():
+            if "attr__" in key:
+                where.append("(attributes ->> 'attr__{}') = %s".format(key.split("attr__")[1]))
+            else:
+                if "__contains" in key:
+                    where.append("{} @> %s::varchar(200)[]".format(key.replace("__contains", "")))
+                else:
+                    where.append("{} = %s".format(key))
+            params.append(value)
+        return {"where": where, "params": params}
 
 
 class Selector(object):
@@ -100,9 +120,10 @@ class EventManager(models.QuerySet):
         subqueries = {}
         for index, tag in enumerate(selector.parts):
             subqueries["match_{}".format(index)] = Subquery(
-                Element.objects.filter(group_id=OuterRef("pk"), **tag.data)
+                Element.objects.filter(group_id=OuterRef("pk"))
                 .values("order")
                 .order_by("order")
+                .extra(**tag.extra_query)  # type: ignore
                 # If there's two of the same element, for the second one we need to shift one
                 [tag.unique_order : tag.unique_order + 1]
             )
@@ -132,6 +153,7 @@ class EventManager(models.QuerySet):
 
         if not filter:
             return {}
+
         groups = groups.filter(**filter)
         return {"elements_hash__in": groups.values_list("hash", flat=True)}
 
@@ -302,17 +324,16 @@ class EventManager(models.QuerySet):
             # In a few cases we have had it OOM Postgres with the query it is running
             # Short term solution is to have this be configurable to be run in batch
             if not settings.ASYNC_EVENT_ACTION_MAPPING:
-                should_post_to_slack = False
+                should_post_webhook = False
                 relations = []
                 for action in event.actions:
                     relations.append(action.events.through(action_id=action.pk, event_id=event.pk))
                     if action.post_to_slack:
-                        should_post_to_slack = True
-
+                        should_post_webhook = True
                 Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)
                 team = kwargs.get("team", event.team)
-                if should_post_to_slack and team and team.slack_incoming_webhook:
-                    post_event_to_slack.delay(event.pk, site_url)
+                if should_post_webhook and team and team.slack_incoming_webhook:
+                    celery.current_app.send_task("posthog.tasks.webhooks.post_event_to_webhook", (event.pk, site_url))
 
             return event
 

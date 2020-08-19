@@ -77,17 +77,17 @@ class TestUserSlackWebhook(BaseTest):
     def test_slack_webhook_no_webhook(self):
         response = self.send_request({})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["error"], "no webhook")
+        self.assertEqual(response.json()["error"], "no webhook URL")
 
     def test_slack_webhook_bad_url(self):
         response = self.send_request({"webhook": "blabla"})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["error"], "invalid webhook url")
+        self.assertEqual(response.json()["error"], "invalid webhook URL")
 
     def test_slack_webhook_bad_url_full(self):
         response = self.send_request({"webhook": "http://localhost/bla"})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["error"], "invalid webhook url")
+        self.assertEqual(response.json()["error"], "invalid webhook URL")
 
 
 class TestLoginViews(BaseTest):

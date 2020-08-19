@@ -7,7 +7,7 @@ import {
 } from '~/toolbar/dockUtils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { posthog } from '~/toolbar/posthog'
-import { dockLogicType } from '~/toolbar/dockLogicType'
+import { dockLogicType } from 'types/toolbar/dockLogicType'
 import { ToolbarAnimationState, ToolbarMode } from '~/types'
 
 // props:
@@ -153,6 +153,7 @@ export const dockLogic = kea<dockLogicType<ToolbarMode, ToolbarAnimationState>>(
         hideButton: () => {
             posthog.capture('Toolbar Closed')
             values.mode !== '' && actions.setMode('', false)
+            window.setTimeout(toolbarLogic.actions.logout, 1000)
         },
         update: () => {
             values.mode !== '' && !values.isAnimating && actions.setMode(values.mode, true)

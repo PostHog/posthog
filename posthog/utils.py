@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse, urlsplit
 
@@ -89,34 +90,45 @@ def render_template(template_name: str, request: HttpRequest, context=None) -> H
         context = {}
     template = get_template(template_name)
     try:
-        context.update({"opt_out_capture": request.user.team_set.get().opt_out_capture})
+        context["opt_out_capture"] = request.user.team_set.get().opt_out_capture
     except (Team.DoesNotExist, AttributeError):
         team = Team.objects.all()
         # if there's one team on the instance, and they've set opt_out
         # we'll opt out anonymous users too
         if team.count() == 1:
-            context.update(
-                {
-                    "opt_out_capture": team.first().opt_out_capture,  # type: ignore
-                }
-            )
+            context["opt_out_capture"] = (team.first().opt_out_capture,)  # type: ignore
 
     if os.environ.get("OPT_OUT_CAPTURE"):
-        context.update({"opt_out_capture": True})
+        context["opt_out_capture"] = True
+
+    if os.environ.get("SOCIAL_AUTH_GITHUB_KEY") and os.environ.get("SOCIAL_AUTH_GITHUB_SECRET"):
+        context["github_auth"] = True
+
+    if os.environ.get("SOCIAL_AUTH_GITLAB_KEY") and os.environ.get("SOCIAL_AUTH_GITLAB_SECRET"):
+        context["gitlab_auth"] = True
 
     if os.environ.get("SENTRY_DSN"):
-        context.update({"sentry_dsn": os.environ["SENTRY_DSN"]})
+        context["sentry_dsn"] = os.environ["SENTRY_DSN"]
 
-    attach_social_auth(context)
+    if settings.DEBUG and not settings.TEST:
+        context["debug"] = True
+        try:
+            context["git_rev"] = (
+                subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("ascii").strip()
+            )
+        except:
+            context["git_rev"] = None
+        try:
+            context["git_branch"] = (
+                subprocess.check_output(["git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"])
+                .decode("ascii")
+                .strip()
+            )
+        except:
+            context["git_branch"] = None
+
     html = template.render(context, request=request)
     return HttpResponse(html)
-
-
-def attach_social_auth(context):
-    if os.environ.get("SOCIAL_AUTH_GITHUB_KEY") and os.environ.get("SOCIAL_AUTH_GITHUB_SECRET"):
-        context.update({"github_auth": True})
-    if os.environ.get("SOCIAL_AUTH_GITLAB_KEY") and os.environ.get("SOCIAL_AUTH_GITLAB_SECRET"):
-        context.update({"gitlab_auth": True})
 
 
 def friendly_time(seconds: float):

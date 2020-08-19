@@ -1,9 +1,7 @@
 import { kea } from 'kea'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { encodeParams } from 'kea-router'
-import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { stepMatchesHref } from '~/toolbar/utils'
-import { actionsLogicType } from '~/toolbar/actions/actionsLogicType'
+import { actionsLogicType } from 'types/toolbar/actions/actionsLogicType'
 import { ActionType } from '~/types'
 
 export const actionsLogic = kea<actionsLogicType<ActionType>>({
@@ -51,20 +49,6 @@ export const actionsLogic = kea<actionsLogicType<ActionType>>({
                     (a.name || 'Untitled').localeCompare(b.name || 'Untitled')
                 ) as ActionType[],
         ],
-        actionsForCurrentUrl: [
-            (s) => [s.sortedActions, currentPageLogic.selectors.href],
-            (sortedActions, href) => {
-                if (sortedActions.length === 0) {
-                    return []
-                }
-
-                const actionsWithSteps = sortedActions
-                    .filter((a) => a.steps && a.steps.length > 0 && a.steps.find((s) => s.event === '$autocapture'))
-                    .filter((a) => a.steps?.find((step) => stepMatchesHref(step, href)))
-
-                return actionsWithSteps
-            },
-        ],
-        actionCount: [(s) => [s.actionsForCurrentUrl], (actionsForCurrentUrl) => actionsForCurrentUrl.length],
+        actionCount: [(s) => [s.sortedActions], (sortedActions) => sortedActions.length],
     },
 })
