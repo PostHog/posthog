@@ -41,7 +41,6 @@ function CreateKeyModal({
                 }
             }}
             onCancel={closeModal}
-            okK
             visible={isVisible}
         >
             <Input
