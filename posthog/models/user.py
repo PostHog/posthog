@@ -138,8 +138,8 @@ class User(AbstractUser):
         return License.PLANS[user_plan]
 
     @property
-    def team(self) -> Team:
+    def team(self) -> Optional[Team]:
         if self.current_team:
             return self.current_team
-        self.current_team: Team = self.team_set.first()
+        self.current_team = self.team_set.first()
         return self.current_team
