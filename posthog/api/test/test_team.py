@@ -75,7 +75,7 @@ class TestTeamUser(BaseTest):
         team2.save()
 
         response = self.client.patch(
-            "/api/user/", data={"team": {"current_team": "app2"}}, content_type="application/json",
+            "/api/user/", data={"team": {"current_team": team2.id}}, content_type="application/json",
         ).json()
         self.assertEqual(response["team"]["name"], "app2")
         self.assertEqual(response["team"]["api_token"], "token12345")

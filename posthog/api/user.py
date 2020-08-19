@@ -31,8 +31,8 @@ def user(request):
         if "team" in data:
             if "current_team" in data["team"]:
                 current_team = data["team"].get("current_team", team)
-                if isinstance(current_team, str):
-                    request.user.current_team = request.user.team_set.get(name=current_team)
+                if isinstance(current_team, int):
+                    request.user.current_team = request.user.team_set.get(id=current_team)
                 else:
                     request.user.current_team = team
                 request.user.save()
