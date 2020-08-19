@@ -23,7 +23,7 @@ def user(request):
         return HttpResponse("Unauthorized", status=401)
 
     team = request.user.team
-    teams = list(request.user.team_set.all().values("name"))
+    teams = list(request.user.team_set.all().values("name", "id"))
 
     if request.method == "PATCH":
         data = json.loads(request.body)
