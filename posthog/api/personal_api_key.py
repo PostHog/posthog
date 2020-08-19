@@ -10,7 +10,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PersonalAPIKey
-        fields = ["id", "label", "created_at", "last_used_at"]
+        fields = ["id", "label", "created_at", "last_used_at", "team_id", "user_id"]
         read_only_fields = ["id", "created_at", "last_used_at", "team_id", "user_id"]
 
 
@@ -19,7 +19,7 @@ class PersonalAPIKeySerializerCreateOnly(PersonalAPIKeySerializer):
 
     class Meta:
         model = PersonalAPIKey
-        fields = ["id", "label", "value", "created_at", "last_used_at"]
+        fields = ["id", "label", "value", "created_at", "last_used_at", "team_id", "user_id"]
         read_only_fields = ["id", "value", "created_at", "last_used_at", "team_id", "user_id"]
 
     def create(self, validated_data: dict) -> PersonalAPIKey:
