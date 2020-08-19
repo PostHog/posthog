@@ -16,8 +16,9 @@ from django.contrib.auth.models import AnonymousUser
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
-from rest_framework import authentication, request
+from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.request import Request
 
 
 def relative_date_parse(input: str) -> datetime.datetime:
@@ -221,25 +222,30 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
     keyword = "Bearer"
 
-    def find_key(self, in_request: Union[HttpRequest, request.Request]) -> Optional[Tuple[str, str]]:
-        if "HTTP_AUTHORIZATION" in in_request.META:
-            authorization_match = re.match(fr"^{self.keyword}\s+(\S.+)$", in_request.META["HTTP_AUTHORIZATION"])
+    def find_key(
+        self, request: Union[HttpRequest, Request], extra_data: Optional[Dict[str, Any]] = None
+    ) -> Optional[Tuple[str, str]]:
+        if "HTTP_AUTHORIZATION" in request.META:
+            authorization_match = re.match(fr"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
                 return authorization_match.group(1).strip(), "Authorization header"
-        if isinstance(in_request, request.Request):
-            data = in_request.data
+        if isinstance(request, Request):
+            data = request.data
         else:
             try:
-                data = json.loads(in_request.body)
+                data = json.loads(request.body)
             except json.JSONDecodeError:
                 data = {}
         if "personal_api_key" in data:
             return data["personal_api_key"], "body"
-        if "personal_api_key" in in_request.GET:
-            return in_request.GET["personal_api_key"], "query string"
+        if "personal_api_key" in request.GET:
+            return request.GET["personal_api_key"], "query string"
+        if extra_data and "personal_api_key" in extra_data:
+            # compatibility with /capture endpoint
+            return extra_data["personal_api_key"], "query string data"
         return None
 
-    def authenticate(self, request: Union[HttpRequest, request.Request]) -> Optional[Tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, None]]:
         personal_api_key_with_source = self.find_key(request)
         if not personal_api_key_with_source:
             return None
@@ -260,7 +266,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
 
 class TemporaryTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: request.Request):
+    def authenticate(self, request: Request):
         # if the Origin is different, the only authentication method should be temporary_token
         # This happens when someone is trying to create actions from the editor on their own website
         if (
@@ -284,7 +290,7 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
 
 
 class PublicTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: request.Request):
+    def authenticate(self, request: Request):
         if request.GET.get("share_token") and request.parser_context and request.parser_context.get("kwargs"):
             Dashboard = apps.get_model(app_label="posthog", model_name="Dashboard")
             dashboard = Dashboard.objects.filter(

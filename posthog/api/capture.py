@@ -15,7 +15,7 @@ from sentry_sdk import push_scope
 
 from posthog.models import Team
 from posthog.tasks.process_event import process_event
-from posthog.utils import cors_response, get_ip_address
+from posthog.utils import PersonalAPIKeyAuthentication, cors_response, get_ip_address
 
 
 def _load_data(request) -> Optional[Union[Dict, List]]:
@@ -100,21 +100,6 @@ def _get_token(data, request) -> Optional[str]:
     return None
 
 
-def _get_personal_api_key(data, request) -> Optional[str]:
-    authorization_header = request.META.get("HTTP_AUTHORIZATION")  # Authorization header
-    personal_api_key = None
-    if authorization_header:
-        authorization_match = re.match(fr"^Bearer\s+(\S+)$", authorization_header)
-        if authorization_match:
-            personal_api_key = authorization_match.group(1)
-    if not personal_api_key:
-        try:
-            personal_api_key = request.data.get("personal_api_key")  # request body
-        except AttributeError:
-            personal_api_key = None
-    return personal_api_key
-
-
 def _get_distinct_id(data: Dict[str, Any]) -> str:
     try:
         return str(data["$distinct_id"])
@@ -154,7 +139,9 @@ def get_event(request):
     token = _get_token(data, request)
     is_personal_api_key = False
     if not token:
-        token = _get_personal_api_key(data, request)
+        personal_api_key_with_source = PersonalAPIKeyAuthentication().find_key(request, data)
+        if personal_api_key_with_source:
+            token = personal_api_key_with_source[0]
         is_personal_api_key = True
     if not token:
         return cors_response(
