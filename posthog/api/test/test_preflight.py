@@ -9,7 +9,7 @@ class TestPreflight(BaseTest):
 
         response = self.client.get("/_preflight/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response: Dict = response.json()
+        response = response.json()
         self.assertEqual(response["django"], True)
         self.assertEqual(response["db"], True)
 

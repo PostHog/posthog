@@ -22,6 +22,7 @@ def stats(request):
 def preflight_check(request):
     redis: bool = False
     db: bool = False
+
     try:
         redis = get_redis_heartbeat() != "offline"
     except BaseException:

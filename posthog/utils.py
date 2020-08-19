@@ -241,6 +241,7 @@ def generate_cache_key(stringified: str) -> str:
 
 
 def get_redis_heartbeat() -> Union[str, int]:
+
     if settings.REDIS_URL:
         redis_instance = redis.from_url(settings.REDIS_URL, db=0)
     else:
