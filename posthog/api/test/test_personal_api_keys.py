@@ -12,7 +12,7 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
         label = "Test key uno"
         response = self.client.post("/api/personal_api_keys/", {"label": label})
         self.assertEqual(response.status_code, 201)
-        key: Optional[PersonalAPIKey] = PersonalAPIKey.objects.first()
+        key: PersonalAPIKey = PersonalAPIKey.objects.get()
         response_data = response.json()
         response_data.pop("created_at")
         self.assertDictEqual(
