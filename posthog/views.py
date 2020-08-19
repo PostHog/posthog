@@ -1,15 +1,11 @@
-import json
-import time
 from typing import Dict, Union
 
-import redis
-from django.conf import settings
-from django.http import HttpResponse
+from django.db import DatabaseError
+from django.http import HttpResponse, JsonResponse
+from django.views.decorators.cache import never_cache
 
-if settings.REDIS_URL:
-    redis_instance = redis.from_url(settings.REDIS_URL, db=0)
-else:
-    redis_instance = None
+from .models.user import User
+from .utils import get_redis_heartbeat
 
 
 def health(request):
@@ -18,13 +14,23 @@ def health(request):
 
 def stats(request):
     stats_response: Dict[str, Union[int, str]] = {}
+    stats_response["worker_heartbeat"] = get_redis_heartbeat()
+    return JsonResponse(stats_response)
 
-    last_heartbeat = redis_instance.get("POSTHOG_HEARTBEAT") if redis_instance else None
-    worker_heartbeat = int(time.time()) - int(last_heartbeat) if last_heartbeat else None
 
-    if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
-        stats_response["worker_heartbeat"] = worker_heartbeat
-    else:
-        stats_response["worker_heartbeat"] = "offline"
+@never_cache
+def preflight_check(request):
+    redis: bool = False
+    db: bool = False
+    try:
+        redis = get_redis_heartbeat() != "offline"
+    except BaseException:
+        pass
 
-    return HttpResponse(json.dumps(stats_response), content_type="application/json")
+    try:
+        User.objects.count()
+        db = True
+    except DatabaseError:
+        pass
+
+    return JsonResponse({"django": True, "redis": redis, "db": db})

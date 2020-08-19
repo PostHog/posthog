@@ -22,7 +22,7 @@ from posthog.demo import delete_demo_data, demo
 from .api import capture, dashboard, decide, router, user
 from .models import Event, Team, User
 from .utils import render_template
-from .views import health, stats
+from .views import health, preflight_check, stats
 
 
 def home(request, **kwargs):
@@ -232,6 +232,7 @@ except ImportError:
 urlpatterns = [
     path("_health/", health),
     path("_stats/", stats),
+    path("_preflight/", preflight_check),
     path("admin/", admin.site.urls),
     path("admin/", include("loginas.urls")),
     path("api/", include(router.urls)),
