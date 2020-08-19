@@ -1,12 +1,10 @@
-import json
-from datetime import datetime
 from typing import Type
 
 from ee.models import Hook
-from posthog.api.test.base import BaseTest
+from posthog.api.test.base import TransactionBaseTest
 
 
-class TestHooksAPI(BaseTest):
+class TestHooksAPI(TransactionBaseTest):
     TESTS_API = True
 
     def test_create_hook(self):
@@ -30,9 +28,9 @@ class TestHooksAPI(BaseTest):
         self.assertEqual(hook.team, self.team)
         self.assertEqual(hook.target, data["target"])
         self.assertEqual(hook.event, data["event"])
-        self.assertEqual(hook.resource_id, int(data["resource_id"]))
+        self.assertEqual(str(hook.resource_id), data["resource_id"])
         self.assertEqual(response["id"], hook.id)
         self.assertEqual(response["event"], data["event"])
         self.assertEqual(response["target"], data["target"])
-        self.assertEqual(response["resource_id"], int(data["resource_id"]))
+        self.assertEqual(str(response["resource_id"]), data["resource_id"])
         self.assertEqual(response["team"], self.team.id)
