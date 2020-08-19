@@ -3,7 +3,7 @@
 import { kea } from 'kea'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { elementToActionStep, elementToSelector } from '~/toolbar/utils'
+import { elementToActionStep, elementToSelector, trimElement } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { heatmapLogicType } from 'types/toolbar/elements/heatmapLogicType'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
@@ -80,31 +80,60 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                 const elements: CountedHTMLElement[] = []
                 events.forEach((event) => {
                     let combinedSelector
+                    let lastSelector
                     for (let i = 0; i < event.elements.length; i++) {
                         const selector = elementToSelector(event.elements[i])
-                        combinedSelector = combinedSelector ? `${selector} > ${combinedSelector}` : selector
+                        combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
                         try {
                             const domElements = Array.from(document.querySelectorAll(combinedSelector))
 
                             if (domElements.length === 1) {
-                                elements.push({
-                                    element: domElements[0],
-                                    count: event.count,
-                                    selector: selector,
-                                    hash: event.hash,
-                                } as CountedHTMLElement)
-                                return null
+                                const e = event.elements[i]
+
+                                // element like "svg" as the first one
+                                if (
+                                    i === 0 &&
+                                    e.tag_name &&
+                                    !e.attr_class &&
+                                    !e.attr_id &&
+                                    !e.href &&
+                                    !e.text &&
+                                    e.nth_child === 1 &&
+                                    e.nth_of_type === 1 &&
+                                    !e.attributes['attr__data-attr']
+                                ) {
+                                    // too simple selector, bail
+                                } else {
+                                    elements.push({
+                                        element: domElements[0],
+                                        count: event.count,
+                                        selector: selector,
+                                        hash: event.hash,
+                                    } as CountedHTMLElement)
+                                    return null
+                                }
                             }
 
-                            if (domElements.length === 0 && i === event.elements.length - 1) {
-                                console.error('Found a case with 0 elements')
-                                return null
+                            if (domElements.length === 0) {
+                                if (i === event.elements.length - 1) {
+                                    console.error('Found a case with 0 elements')
+                                    return null
+                                } else if (i > 0 && lastSelector) {
+                                    // We already have something, but found nothing when adding the next selector.
+                                    // Skip it and try with the next one...
+                                    lastSelector = lastSelector ? `* > ${lastSelector}` : '*'
+                                    continue
+                                } else {
+                                    console.log('Found empty selector')
+                                }
                             }
                         } catch (error) {
                             console.error('Invalid selector!', combinedSelector)
                             throw error
                         }
+
+                        lastSelector = combinedSelector
 
                         // TODO: what if multiple elements will continue to match until the end?
                     }
@@ -120,10 +149,13 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                 const elementSelector = new Map<HTMLElement, string>()
 
                 ;(elements || []).forEach(({ element, selector, count }) => {
-                    const oldCount = elementCounter.get(element) || 0
-                    elementCounter.set(element, oldCount + count)
-                    if (oldCount === 0) {
-                        elementSelector.set(element, selector)
+                    const trimmedElement = trimElement(element)
+                    if (trimmedElement) {
+                        const oldCount = elementCounter.get(trimmedElement) || 0
+                        elementCounter.set(trimmedElement, oldCount + count)
+                        if (oldCount === 0) {
+                            elementSelector.set(trimmedElement, selector)
+                        }
                     }
                 })
 

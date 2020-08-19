@@ -132,6 +132,8 @@ class User(AbstractUser):
         user_plan = self.billing_plan
         if not user_plan:
             return []
+        if user_plan not in License.PLANS:
+            return []
         return License.PLANS[user_plan]
 
     @property
