@@ -6,6 +6,7 @@ from posthog.models import Team, User
 class TestMixin:
     TESTS_API: bool = False
     TESTS_PASSWORD: str = "testpassword12345"
+    TESTS_FORCE_LOGIN: bool = True
 
     def _create_user(self, email, **kwargs) -> User:
         user = User.objects.create_user(email, **kwargs)
@@ -19,7 +20,8 @@ class TestMixin:
         if self.TESTS_API:
             self.client = Client()
             self.user = self._create_user("user1", password=self.TESTS_PASSWORD)
-            self.client.force_login(self.user)
+            if self.TESTS_FORCE_LOGIN:
+                self.client.force_login(self.user)
 
 
 class BaseTest(TestMixin, TestCase):
