@@ -7,7 +7,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 
-class InsightFunctions(ABC):
+class InsightInterface(ABC):
     @abstractmethod
     def trend(self, request: Request, *args: Any, **kwargs: Any):
         pass
@@ -29,7 +29,7 @@ class InsightFunctions(ABC):
         pass
 
 
-class ClickhouseInsights(viewsets.ViewSet, InsightFunctions):
+class ClickhouseInsights(viewsets.ViewSet, InsightInterface):
     # TODO: add insight serializer
 
     def list(self, request):
