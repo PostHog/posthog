@@ -33,7 +33,6 @@ class CohortManager(models.Manager):
 
 
 class Cohort(models.Model):
-    id: models.BigIntegerField = models.BigIntegerField(primary_key=True)
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted: models.BooleanField = models.BooleanField(default=False)
@@ -109,6 +108,7 @@ class Cohort(models.Model):
 
 
 class CohortPeople(models.Model):
+    id: models.BigIntegerField = models.BigIntegerField(primary_key=True)
     cohort: models.ForeignKey = models.ForeignKey("Cohort", on_delete=models.CASCADE)
     person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
 

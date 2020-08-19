@@ -433,7 +433,6 @@ class Event(models.Model):
         filtered_actions = [action for action in actions if getattr(event, "action_{}".format(action.pk), None)]
         return filtered_actions
 
-    id: models.BigIntegerField = models.BigIntegerField(primary_key=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     objects: EventManager = EventManager.as_manager()  # type: ignore
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
