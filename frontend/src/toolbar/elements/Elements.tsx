@@ -9,7 +9,8 @@ import { InfoWindow } from '~/toolbar/elements/InfoWindow'
 import { HeatmapElement } from '~/toolbar/elements/HeatmapElement'
 import { HeatmapLabel } from '~/toolbar/elements/HeatmapLabel'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { getBoxColors } from '~/toolbar/utils'
+import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
+import { humanizeNumber } from 'lib/utils'
 
 export function Elements(): JSX.Element {
     const { domZoom, domPadding, mode } = useValues(dockLogic)
@@ -116,12 +117,18 @@ export function Elements(): JSX.Element {
                                     transition: 'opacity 0.2s, transform 0.2s linear',
                                     transform: hoverElement === element ? 'scale(1.3)' : 'none',
                                     cursor: 'pointer',
+                                    color: `hsla(${getHeatMapHue(count || 0, highestClickCount)}, 20%, 12%, 1)`,
+                                    background: `hsla(${getHeatMapHue(count || 0, highestClickCount)}, 100%, 62%, 1)`,
+                                    boxShadow: `hsla(${getHeatMapHue(
+                                        count || 0,
+                                        highestClickCount
+                                    )}, 100%, 32%, 1) 0px 1px 5px 1px`,
                                 }}
                                 onClick={() => selectElement(element)}
                                 onMouseOver={() => setHoverElement(element)}
                                 onMouseOut={() => setHoverElement(null)}
                             >
-                                {index + 1}
+                                {humanizeNumber(count || 0)}
                             </HeatmapLabel>
                         </React.Fragment>
                     )

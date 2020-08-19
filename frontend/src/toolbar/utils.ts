@@ -337,3 +337,10 @@ function elementToAreaRect(element: HTMLElement): { element: HTMLElement; rect: 
         area: rect.width * rect.height,
     }
 }
+
+export function getHeatMapHue(count: number, maxCount: number): number {
+    if (maxCount === 0) {
+        return 60
+    }
+    return 60 - (count / maxCount) * 40
+}
