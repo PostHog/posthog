@@ -32,7 +32,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
                     return {
                         children: item.date_break
                             ? item.date_break
-                            : `There are ${newEvents.length} new events. Click here to load them`,
+                            : newEvents.length === 1
+                            ? `There is 1 new event. Click here to load it.`
+                            : `There are ${newEvents.length} new events. Click here to load them.`,
                         props: {
                             colSpan: isLiveActions ? 6 : 5,
                             style: {
@@ -141,11 +143,12 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, logic, isLive
                 loading={isLoading}
                 columns={columns}
                 size="small"
+                className="ph-no-capture"
                 locale={{
                     emptyText: (
                         <span>
-                            You don't have any items here. If you haven't integrated PostHog yet,{' '}
-                            <Link to="/setup">click here to set PostHog up on your app</Link>
+                            You don't have any items here! If you haven't integrated PostHog yet,{' '}
+                            <Link to="/setup">click here to set PostHog up on your app</Link>.
                         </span>
                     ),
                 }}

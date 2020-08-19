@@ -1,0 +1,118 @@
+name: Backend CI
+
+on:
+    - pull_request
+
+jobs:
+    code-quality:
+        name: Code quality checks
+        runs-on: ubuntu-latest
+
+        services:
+            postgres:
+                image: postgres:12
+                env:
+                    POSTGRES_USER: postgres
+                    POSTGRES_PASSWORD: postgres
+                    POSTGRES_DB: postgres
+                ports: ['5432:5432']
+                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+
+        steps:
+            - uses: actions/checkout@v1
+              with:
+                  fetch-depth: 1
+
+            - name: Set up Python 3.7
+              uses: actions/setup-python@v1
+              with:
+                  python-version: 3.7
+
+            - uses: actions/cache@v1
+              with:
+                  path: ~/.cache/pip
+                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt', '**/requirements/dev.txt') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pip-
+
+            - name: Install Python dependencies with pip
+              run: |
+                  python -m pip install -U pip
+                  python -m pip install -r requirements.txt
+                  python -m pip install -r requirements/dev.txt
+              if: steps.cache.outputs.cache-hit != 'true'
+
+            - name: Check formatting with black
+              run: |
+                  black -l 120 --check .
+
+            - name: Lint with flake8
+              run: |
+                  # stop the build if there are Python syntax errors or undefined names
+                  flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+                  # exit-zero treats all errors as warnings
+                  flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+
+            - name: Typecheck
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  REDIS_URL: 'redis://localhost'
+              run: |
+                  mypy posthog
+
+    django:
+        name: Django tests
+        runs-on: ubuntu-latest
+
+        services:
+            postgres:
+                image: postgres:12
+                env:
+                    POSTGRES_USER: postgres
+                    POSTGRES_PASSWORD: postgres
+                    POSTGRES_DB: postgres
+                ports: ['5432:5432']
+                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+
+        steps:
+            - uses: actions/checkout@v1
+              with:
+                  fetch-depth: 1
+
+            - name: Set up Python 3.7
+              uses: actions/setup-python@v1
+              with:
+                  python-version: 3.7
+
+            - uses: actions/cache@v1
+              with:
+                  path: ~/.cache/pip
+                  key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pip-
+
+            - name: Install requirements.txt dependencies with pip
+              run: |
+                  python -m pip install --upgrade pip
+                  python -m pip install -r requirements.txt
+                  python -m pip install freezegun
+              if: steps.cache.outputs.cache-hit != 'true'
+
+            - name: Check migrations
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+                  REDIS_URL: 'redis://localhost'
+              run: python manage.py makemigrations --check --dry-run
+
+            - name: Run tests
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+              run: |
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html
+                  touch frontend/dist/layout.html
+                  touch frontend/dist/shared_dashboard.html
+                  python manage.py test --keepdb -v 2
