@@ -5,22 +5,20 @@ from django.db import models
 from rest_hooks.models import AbstractHook
 
 from ee.tasks.hooks import DeliverHook
-from posthog.models.team import Team
-from posthog.models.user import User
 from posthog.models.utils import generate_random_token
 
 
 class Hook(AbstractHook):
     id = models.CharField(primary_key=True, max_length=50, default=generate_random_token)
-    user = models.ForeignKey(User, related_name="rest_hooks", on_delete=models.CASCADE)
-    team = models.ForeignKey(Team, related_name="rest_hooks", on_delete=models.CASCADE)
+    user = models.ForeignKey("posthog.User", related_name="rest_hooks", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", related_name="rest_hooks", on_delete=models.CASCADE)
     resource_id = models.IntegerField(null=True, blank=True)
 
 
 def find_and_fire_hook(
     event_name: str,
     instance: models.Model,
-    user_override: Optional[Team] = None,
+    user_override: Optional["Team"] = None,
     payload_override: Optional[dict] = None,
 ):
     hooks = Hook.objects.filter(event=event_name, team=user_override)
