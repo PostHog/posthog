@@ -41,16 +41,17 @@ function CreateKeyModal({
                 }
             }}
             onCancel={closeModal}
+            okK
             visible={isVisible}
         >
-            <p>
-                <Input addonBefore="Label" ref={inputRef} placeholder='for example "Zapier"' maxLength={40} />
-            </p>
-            {errorMessage && (
-                <p>
-                    <Alert message={errorMessage} type="error" />
-                </p>
-            )}
+            <Input
+                addonBefore="Label"
+                ref={inputRef}
+                placeholder='for example "Zapier"'
+                maxLength={40}
+                style={{ marginBottom: '1rem' }}
+            />
+            {errorMessage && <Alert message={errorMessage} type="error" style={{ marginBottom: '1rem' }} />}
             <p style={{ marginBottom: 0 }}>
                 Key value <b>will only ever be shown once</b>, immediately after creation.
                 <br />
@@ -140,7 +141,12 @@ export function PersonalAPIKeys(): JSX.Element {
                 These keys allow full access to your personal account through the API, as if you were logged in. You can
                 also use them in integrations, such as <a href="https://zapier.com/apps/posthog/">our Zapier one</a>.
                 <br />
-                If you have any suspicion that one of these may be compromised, delete it and use a new one.
+                If you have any suspicion that one of these may be compromised, delete it and use a new one. Try not to
+                keep disused keys around.
+                <br />
+                <a href="https://posthog.com/docs/api/api#authentication">
+                    More about API authentication in PostHog docs.
+                </a>
             </p>
             <Button
                 type="primary"
