@@ -139,7 +139,9 @@ def get_event(request):
     token = _get_token(data, request)
     is_personal_api_key = False
     if not token:
-        personal_api_key_with_source = PersonalAPIKeyAuthentication().find_key(request, data)
+        personal_api_key_with_source = PersonalAPIKeyAuthentication().find_key(
+            request, data if isinstance(data, dict) else None
+        )
         if personal_api_key_with_source:
             token = personal_api_key_with_source[0]
         is_personal_api_key = True
