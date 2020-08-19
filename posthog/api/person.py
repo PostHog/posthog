@@ -42,7 +42,7 @@ class CursorPagination(BaseCursorPagination):
 
 
 class PersonViewSet(viewsets.ModelViewSet):
-    renderer_classes = (*api_settings.DEFAULT_RENDERER_CLASSES, csvrenderers.PaginatedCSVRenderer)
+    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = CursorPagination
@@ -53,11 +53,11 @@ class PersonViewSet(viewsets.ModelViewSet):
         return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet, team: Team) -> QuerySet:
-        if request.query_params.get("id"):
-            people = request.query_params["id"].split(",")
+        if request.GET.get("id"):
+            people = request.GET["id"].split(",")
             queryset = queryset.filter(id__in=people)
-        if request.query_params.get("search"):
-            parts = request.query_params["search"].split(" ")
+        if request.GET.get("search"):
+            parts = request.GET["search"].split(" ")
             contains = []
             for part in parts:
                 if ":" in part:
@@ -68,13 +68,11 @@ class PersonViewSet(viewsets.ModelViewSet):
                 Q(properties__icontains=" ".join(contains))
                 | Q(persondistinctid__distinct_id__icontains=" ".join(contains))
             ).distinct("id")
-        if request.query_params.get("cohort"):
-            queryset = queryset.filter(cohort__id=request.query_params["cohort"])
-        if request.query_params.get("properties"):
+        if request.GET.get("cohort"):
+            queryset = queryset.filter(cohort__id=request.GET["cohort"])
+        if request.GET.get("properties"):
             queryset = queryset.filter(
-                Filter(data={"properties": json.loads(request.query_params["properties"])}).properties_to_Q(
-                    team_id=team.pk
-                )
+                Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(team_id=team.pk)
             )
 
         queryset_anonymous_pass = None
