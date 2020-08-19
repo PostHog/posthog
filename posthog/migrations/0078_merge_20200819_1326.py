@@ -9,5 +9,3 @@ class Migration(migrations.Migration):
         ("posthog", "0077_auto_20200819_0531"),
         ("posthog", "0076_auto_20200819_1214"),
     ]
-
-    operations = []

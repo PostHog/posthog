@@ -141,5 +141,5 @@ class User(AbstractUser):
     def team(self) -> Team:
         if self.current_team:
             return self.current_team
-        self.current_team = self.team_set[0]
+        self.current_team = self.team_set.all()[0]
         return self.current_team
