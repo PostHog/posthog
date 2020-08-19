@@ -51,14 +51,10 @@ export function FunnelTab(): JSX.Element {
                 <hr />
                 <Row justify="start">
                     <Button type="primary" htmlType="submit" disabled={isStepsEmpty} data-attr="save-funnel-button">
-                        Save funnel
+                        Calculate
                     </Button>
                     {!isStepsEmpty && (
-                        <Button
-                            onClick={(): void => clearFunnel()}
-                            className="ml-2"
-                            data-attr="save-funnel-clear-button"
-                        >
+                        <Button onClick={(): void => clearFunnel()} data-attr="save-funnel-clear-button">
                             Clear
                         </Button>
                     )}

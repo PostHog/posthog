@@ -4,7 +4,6 @@ const path = require('path')
 const MiniCssExtractPlugin = require('mini-css-extract-plugin')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
-const WebpackBar = require('webpackbar')
 
 const webpackDevServerHost = process.env.WEBPACK_HOT_RELOAD_HOST || '127.0.0.1'
 
@@ -58,6 +57,7 @@ function createEntry(entry) {
                 '~': path.resolve(__dirname, 'frontend', 'src'),
                 lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),
                 scenes: path.resolve(__dirname, 'frontend', 'src', 'scenes'),
+                types: path.resolve(__dirname, 'frontend', 'types'),
                 ...(process.env.NODE_ENV !== 'production'
                     ? {
                           'react-dom': '@hot-loader/react-dom',
@@ -162,7 +162,6 @@ function createEntry(entry) {
             hot: true,
             host: webpackDevServerHost,
             port: 8234,
-            noInfo: true,
             stats: 'minimal',
             disableHostCheck: !!process.env.LOCAL_HTTPS,
             public: process.env.JS_URL
@@ -180,7 +179,6 @@ function createEntry(entry) {
         },
         plugins: [
             // common plugins for all entrypoints
-            new WebpackBar(),
         ].concat(
             entry === 'main'
                 ? [

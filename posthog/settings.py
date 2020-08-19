@@ -22,8 +22,6 @@ import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
 from sentry_sdk.integrations.django import DjangoIntegration
 
-VERSION = "1.12.0"
-
 
 def get_env(key):
     try:
@@ -110,8 +108,10 @@ TRUST_ALL_PROXIES = os.environ.get("TRUST_ALL_PROXIES", False)
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 
+DEFAULT_SECRET_KEY = "<randomly generated secret key>"
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("SECRET_KEY", "6(@hkxrx07e*z3@6ls#uwajz6v@#8-%mmvs8-_y7c_c^l5c0m$")
+SECRET_KEY = os.environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
 
 ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
 
@@ -161,6 +161,14 @@ try:
 
     INSTALLED_APPS.append("debug_toolbar")
     MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
+except ImportError:
+    pass
+
+# Import Enterprise Edition if we can
+try:
+    import ee.apps
+
+    INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 except ImportError:
     pass
 
@@ -362,6 +370,16 @@ if DEBUG and not TEST:
             "Be sure to unset DEBUG if this is supposed to be a PRODUCTION environment!",
         )
     )
+
+if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
+    print_warning(
+        (
+            "You are using the default SECRET_KEY in a production environment!",
+            "For the safety of your instance, you must generate and set a unique key.",
+            "More information on https://posthog.com/docs/deployment/securing-posthog#secret-key",
+        )
+    )
+    sys.exit("[ERROR] Default SECRET_KEY in production. Stopping Django server…\n")
 
 
 def show_toolbar(request):

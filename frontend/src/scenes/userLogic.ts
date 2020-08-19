@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from '../lib/api'
 import { posthogEvents } from 'lib/utils'
-import { userLogicType } from 'scenes/userLogicType'
+import { userLogicType } from 'types/scenes/userLogicType'
 import { UserType } from '~/types'
 
 type EventProperty = { value: string; label: string }

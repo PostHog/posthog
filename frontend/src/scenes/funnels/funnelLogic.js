@@ -66,7 +66,7 @@ export const funnelLogic = kea({
             {},
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
-                clearFunnel: () => ({}),
+                clearFunnel: (state) => ({ new_entity: state.new_entity }),
             },
         ],
         stepsWithCount: [
