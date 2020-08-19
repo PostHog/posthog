@@ -227,7 +227,6 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         if "HTTP_AUTHORIZATION" in in_request.META:
             authorization_match = re.match(fr"^{self.keyword}\s+(\S.+)$", in_request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
-                print(authorization_match)
                 return authorization_match.group(1).strip(), "Authorization header"
         if isinstance(in_request, request.Request):
             data = in_request.data
