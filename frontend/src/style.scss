@@ -312,3 +312,65 @@ label.disabled {
 .Toastify__progress-bar--default {
     background: var(--success) !important;
 }
+
+.bottom-notice {
+    z-index: 1000000000;
+    display: flex;
+    flex-direction: row;
+    position: fixed;
+    width: 100%;
+    bottom: 0;
+    left: 0;
+    background: #000;
+    color: #fff;
+    font-size: 0.75rem;
+    line-height: 1.5rem;
+    &.warning div {
+        height: auto;
+        background: #f00;
+    }
+    &.tricolor {
+        div:nth-child(1) {
+            background: #1d4aff;
+        }
+        div:nth-child(2) {
+            background: #f54e00;
+        }
+        div:nth-child(3) {
+            background: #f9bd2b;
+        }
+    }
+    div {
+        flex-basis: 0;
+        flex-grow: 1;
+        height: 1.5rem;
+        text-align: center;
+    }
+    span {
+        display: none;
+    }
+    button {
+        border: none;
+        background: transparent;
+        width: 1.5rem;
+        height: 1.5rem;
+        padding: 0;
+        font-size: 1rem;
+        font-weight: bold;
+    }
+    @media screen and (min-width: 750px) {
+        font-size: 1rem;
+        line-height: 2rem;
+        div {
+            height: 2rem;
+        }
+        span {
+            display: inline;
+        }
+        button {
+            width: 2rem;
+            height: 2rem;
+            font-size: 1.25rem;
+        }
+    }
+}

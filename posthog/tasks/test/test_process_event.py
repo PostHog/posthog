@@ -611,3 +611,21 @@ class TestIdentify(TransactionTestCase):
         self.assertEqual(people[1].distinct_ids, ["1", "2"])
         self.assertEqual(people[0].team, team2)
         self.assertEqual(people[0].distinct_ids, ["2"])
+
+    def test_set_is_identified(self) -> None:
+        team2 = Team.objects.create()
+        Person.objects.create(team=self.team, distinct_ids=["1"])
+        try:
+            process_event(
+                "1",
+                "",
+                "",
+                {"event": "$identify", "properties": {},},
+                self.team.pk,
+                now().isoformat(),
+                now().isoformat(),
+            )
+        except:
+            pass
+        person = Person.objects.get(team=self.team, persondistinctid__distinct_id="1")
+        self.assertEqual(person.is_identified, True)

@@ -7,7 +7,7 @@ import {
 } from '~/toolbar/dockUtils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { posthog } from '~/toolbar/posthog'
-import { dockLogicType } from '~/toolbar/dockLogicType'
+import { dockLogicType } from 'types/toolbar/dockLogicType'
 import { ToolbarAnimationState, ToolbarMode } from '~/types'
 
 // props:

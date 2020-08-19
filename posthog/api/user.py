@@ -15,13 +15,14 @@ from django.views.decorators.http import require_http_methods
 from rest_framework import serializers
 
 from posthog.models import Event, User
+from posthog.version import VERSION
 
 
 def user(request):
     if not request.user.is_authenticated:
         return HttpResponse("Unauthorized", status=401)
 
-    team = request.user.team_set.get()
+    team = request.user.team
 
     if request.method == "PATCH":
         data = json.loads(request.body)
@@ -74,7 +75,11 @@ def user(request):
                 "completed_snippet_onboarding": team.completed_snippet_onboarding,
             },
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
-            "posthog_version": settings.VERSION if hasattr(settings, "VERSION") else None,
+            "posthog_version": VERSION,
+            "available_features": request.user.available_features,
+            "billing_plan": request.user.billing_plan,
+            "is_multi_tenancy": hasattr(settings, "MULTI_TENANCY"),
+            "ee_available": request.user.ee_available,
         }
     )
 
@@ -93,11 +98,10 @@ def redirect_to_site(request):
     request.user.temporary_token = secrets.token_urlsafe(32)
     request.user.save()
     params = {
-        "action": "mpeditor",
+        "action": "ph_authorize",
         "token": team.api_token,
         "temporaryToken": request.user.temporary_token,
         "actionId": request.GET.get("actionId"),
-        "apiURL": request.build_absolute_uri("/"),
         "userIntent": request.GET.get("userIntent"),
     }
 
@@ -167,7 +171,7 @@ def test_slack_webhook(request):
     webhook = body.get("webhook")
 
     if not webhook:
-        return JsonResponse({"error": "no webhook"})
+        return JsonResponse({"error": "no webhook URL"})
     message = {"text": "Greetings from PostHog!"}
     try:
         response = requests.post(webhook, verify=False, json=message)
@@ -177,7 +181,7 @@ def test_slack_webhook(request):
         else:
             return JsonResponse({"error": response.text})
     except:
-        return JsonResponse({"error": "invalid webhook url"})
+        return JsonResponse({"error": "invalid webhook URL"})
 
 
 class UserSerializer(serializers.ModelSerializer):

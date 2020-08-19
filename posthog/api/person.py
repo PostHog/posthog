@@ -83,11 +83,7 @@ class PersonViewSet(viewsets.ModelViewSet):
         elif request.query_params.get("category") == "anonymous":
             queryset_anonymous_pass = queryset.exclude
         if queryset_anonymous_pass is not None:
-            identify_events = Event.objects.filter(team=team, event="$identify")
-            identified_people = [event.distinct_id for event in identify_events]
-            queryset = queryset_anonymous_pass(
-                Q(persondistinctid__distinct_id__in=identified_people) | Q(properties__contains={"is_demo": True})
-            )
+            queryset = queryset_anonymous_pass(Q(is_identified__exact=True) | Q(properties__contains={"is_demo": True}))
 
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset

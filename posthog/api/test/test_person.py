@@ -90,20 +90,6 @@ class TestPerson(BaseTest):
 
     # Filters users by Identified vs Anonymous
     # Identified users have an $identify event
-    def test_filter_anonymous_people(self):
-        Person.objects.create(
-            team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
-        )
-        Person.objects.create(team=self.team, distinct_ids=["person_2"])
-        Person.objects.create(
-            team=self.team, distinct_ids=["173c1341f28981-001e61951ee35f-31677305-13c680-173c1341f29bf8"]
-        )
-        Event.objects.create(team=self.team, distinct_id="person_1", event="$identify")
-        Event.objects.create(team=self.team, distinct_id="person_2", event="$identify")
-        response_anon = self.client.get("/api/person/?category=anonymous").json()
-        response_id = self.client.get("/api/person/?category=identified").json()
-        self.assertEqual(len(response_anon["results"]), 1, response_anon["results"])
-        self.assertEqual(len(response_id["results"]), 2, response_id["results"])
 
     def test_delete_person(self):
         person = Person.objects.create(
@@ -116,3 +102,9 @@ class TestPerson(BaseTest):
         response = self.client.delete("/api/person/%s/" % person.pk)
         self.assertEqual(Person.objects.count(), 0)
         self.assertEqual(Event.objects.count(), 1)
+
+    def test_person_is_identified(self):
+        person_identified = Person.objects.create(team=self.team, is_identified=True)
+        person_anonymous = Person.objects.create(team=self.team)
+        self.assertEqual(person_identified.is_identified, True)
+        self.assertEqual(person_anonymous.is_identified, False)

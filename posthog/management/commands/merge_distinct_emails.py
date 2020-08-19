@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.db import connection
 
-from posthog.models import Person, PersonDistinctId, Team
+from posthog.models import CohortPeople, Person, PersonDistinctId, Team
 
 
 class Command(BaseCommand):
@@ -42,17 +42,4 @@ class Command(BaseCommand):
                 first_person = people[0]
                 other_people = people[1:]
 
-                # merge the properties
-                for other_person in other_people:
-                    first_person.properties = {**other_person.properties, **first_person.properties}
-                first_person.save()
-
-                # merge the distinct_ids
-                for other_person in other_people:
-                    other_person_distinct_ids = PersonDistinctId.objects.filter(person=other_person, team_id=team_id)
-
-                    for person_distinct_id in other_person_distinct_ids:
-                        person_distinct_id.person = first_person
-                        person_distinct_id.save()
-
-                    other_person.delete()
+                first_person.merge_people(other_people)

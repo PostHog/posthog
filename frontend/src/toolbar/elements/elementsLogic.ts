@@ -2,12 +2,12 @@ import { kea } from 'kea'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { elementToActionStep, getAllClickTargets, getElementForStep } from '~/toolbar/utils'
+import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '~/toolbar/utils'
 import { dockLogic } from '~/toolbar/dockLogic'
 import { toolbarTabLogic } from '~/toolbar/toolbarTabLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import { elementsLogicType } from '~/toolbar/elements/elementsLogicType'
+import { elementsLogicType } from 'types/toolbar/elements/elementsLogicType'
 import { ActionStepType, ActionType, ToolbarMode, ToolbarTab } from '~/types'
 import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
 
@@ -124,7 +124,7 @@ export const elementsLogic = kea<
         heatmapElements: [
             (s) => [heatmapLogic.selectors.countedElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
             (countedElements) =>
-                countedElements.map((e) => ({ ...e, rect: e.element.getBoundingClientRect() } as ElementWithMetadata)),
+                countedElements.map((e) => ({ ...e, rect: getRectForElement(e.element) } as ElementWithMetadata)),
         ],
 
         allInspectElements: [
@@ -135,9 +135,9 @@ export const elementsLogic = kea<
         inspectElements: [
             (s) => [s.allInspectElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
             (allInspectElements) =>
-                allInspectElements.map(
-                    (element) => ({ element, rect: element.getBoundingClientRect() } as ElementWithMetadata)
-                ),
+                allInspectElements
+                    .map((element) => ({ element, rect: getRectForElement(element) } as ElementWithMetadata))
+                    .filter((e) => e.rect && e.rect.width * e.rect.height > 0),
         ],
 
         displayActionElements: [
@@ -172,7 +172,7 @@ export const elementsLogic = kea<
             (s) => [s.allActionElements, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
             (allActionElements) =>
                 allActionElements.map((element) =>
-                    element.element ? { ...element, rect: element.element.getBoundingClientRect() } : element
+                    element.element ? { ...element, rect: getRectForElement(element.element) } : element
                 ),
         ],
 
@@ -203,16 +203,16 @@ export const elementsLogic = kea<
         ],
 
         actionsForElementMap: [
-            (s) => [actionsLogic.selectors.actionsForCurrentUrl, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
-            (actionsForCurrentUrl): ActionElementMap => {
+            (s) => [actionsLogic.selectors.sortedActions, s.rectUpdateCounter, dockLogic.selectors.isAnimating],
+            (sortedActions): ActionElementMap => {
                 const actionsForElementMap = new Map<HTMLElement, ActionElementWithMetadata[]>()
-                actionsForCurrentUrl.forEach((action, index) => {
+                sortedActions.forEach((action, index) => {
                     action.steps
                         ?.filter((step) => step.event === '$autocapture')
                         .forEach((step) => {
                             const element = getElementForStep(step)
                             if (element) {
-                                const rect = element.getBoundingClientRect()
+                                const rect = getRectForElement(element)
                                 let array = actionsForElementMap.get(element)
                                 if (!array) {
                                     array = []

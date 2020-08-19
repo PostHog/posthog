@@ -9,7 +9,7 @@ from django.core import serializers
 from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
-from posthog.models import Element, Event, Person, PersonDistinctId, Team
+from posthog.models import Element, Event, Person, Team
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
@@ -56,20 +56,8 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
                 _alias(previous_distinct_id, distinct_id, team_id, False)
         return
 
-    if old_person and new_person:
-        if old_person == new_person:
-            return
-
-        new_person.properties = {**old_person.properties, **new_person.properties}
-        new_person.save()
-
-        old_person_distinct_ids = PersonDistinctId.objects.filter(person=old_person, team_id=team_id)
-
-        for person_distinct_id in old_person_distinct_ids:
-            person_distinct_id.person = new_person
-            person_distinct_id.save()
-
-        old_person.delete()
+    if old_person and new_person and old_person != new_person:
+        new_person.merge_people([old_person])
 
 
 def _store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
@@ -156,6 +144,20 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
     person.save()
 
 
+def _set_is_identified(team_id: int, distinct_id: str) -> None:
+    try:
+        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+    except Person.DoesNotExist:
+        try:
+            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+        # Catch race condition where in between getting and creating, another request already created this user.
+        except:
+            person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+    if not person.is_identified:
+        person.is_identified = True
+        person.save()
+
+
 def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[datetime.datetime, str]:
     if data.get("timestamp"):
         if sent_at:
@@ -183,6 +185,9 @@ def process_event(
         _alias(
             previous_distinct_id=data["properties"]["alias"], distinct_id=distinct_id, team_id=team_id,
         )
+
+    if data["event"] == "$identify":
+        _set_is_identified(team_id=team_id, distinct_id=distinct_id)
 
     if data["event"] == "$identify" and data.get("properties") and data["properties"].get("$anon_distinct_id"):
         _alias(

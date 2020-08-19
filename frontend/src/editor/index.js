@@ -1,6 +1,6 @@
 import React, { Component } from 'react'
 import ReactDOM from 'react-dom'
-import Simmer from 'simmerjs'
+import Simmer from '@mariusandra/simmerjs'
 import root from 'react-shadow'
 import { ActionEdit } from '~/scenes/actions/ActionEdit'
 import Draggable from 'react-draggable'

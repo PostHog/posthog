@@ -12,15 +12,14 @@ export function ToolbarModal(): React.ReactNode {
 
     return (
         <div className="toolbar-modal">
+            <HogIcon style={{ filter: toolbarEnabled ? '' : 'grayscale(1)' }} />
             {!toolbarEnabled ? (
                 <>
-                    <HogIcon className="hog-icon" color="#aaaaaa" eyeColor="#ffffff" />
                     <h2>Toolbar – Beta Opt-In</h2>
                     <ToolbarSettings />
                 </>
             ) : (
                 <>
-                    <HogIcon className="hog-icon" />
                     <h2>Toolbar – Permitted Domains/URLs</h2>
                     <p>
                         Make sure you're using the snippet or the latest <code>posthog-js</code> version.
