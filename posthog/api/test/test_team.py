@@ -25,6 +25,21 @@ class TestTeamUser(BaseTest):
         team: Team = Team.objects.create(api_token="token123")
         return (team, self.create_user_for_team(team))
 
+    def test_user_can_list_their_teams(self):
+
+        # Create a team with a list of multiple users first
+        teams: List = []
+        for i in range(0, 3):
+            team = Team.objects.create(name="app" + str(i), api_token="token1234" + str(i))
+            team.users.add(self.user)
+            teams.append(team)
+
+        response = self.client.get("/api/user/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data: Dict = response.json()
+
+        self.assertEqual(len(response_data["teams"]), 4)
+
     def test_user_can_list_their_team_users(self):
 
         # Create a team with a list of multiple users first
@@ -50,6 +65,20 @@ class TestTeamUser(BaseTest):
             self.assertEqual(list(_user.keys()), EXPECTED_ATTRS)
 
             self.assertIn(_user["distinct_id"], user_ids)  # Make sure only the correct users are returned
+
+    def test_user_can_change_current_team(self):
+        team1: Team = Team.objects.create(name="app1", api_token="token1234")
+        team2: Team = Team.objects.create(name="app2", api_token="token12345")
+        team1.users.add(self.user)
+        team1.save()
+        team2.users.add(self.user)
+        team2.save()
+
+        response = self.client.patch(
+            "/api/user/", data={"team": {"current_team": "app2"}}, content_type="application/json",
+        ).json()
+        self.assertEqual(response["team"]["name"], "app2")
+        self.assertEqual(response["team"]["api_token"], "token12345")
 
     def test_user_can_delete_another_team_user(self):
         team, user = self.create_team_and_user()

@@ -23,11 +23,22 @@ def user(request):
         return HttpResponse("Unauthorized", status=401)
 
     team = request.user.team
+    teams = list(request.user.team_set.all().values("name"))
 
     if request.method == "PATCH":
         data = json.loads(request.body)
 
         if "team" in data:
+            if "current_team" in data["team"]:
+                current_team = data["team"].get("current_team", team)
+                if isinstance(current_team, str):
+                    request.user.current_team = request.user.team_set.get(name=current_team)
+                else:
+                    request.user.current_team = team
+                request.user.save()
+                team = request.user.team
+            team.api_token = data["team"].get("api_token", team.api_token)
+            team.signup_token = data["team"].get("signup_token", team.signup_token)
             team.app_urls = data["team"].get("app_urls", team.app_urls)
             team.opt_out_capture = data["team"].get("opt_out_capture", team.opt_out_capture)
             team.slack_incoming_webhook = data["team"].get("slack_incoming_webhook", team.slack_incoming_webhook)
@@ -63,6 +74,7 @@ def user(request):
             "anonymize_data": request.user.anonymize_data,
             "toolbar_mode": request.user.toolbar_mode,
             "team": {
+                "name": request.user.current_team.name,
                 "app_urls": team.app_urls,
                 "api_token": team.api_token,
                 "signup_token": team.signup_token,
@@ -74,6 +86,7 @@ def user(request):
                 "event_properties_numerical": team.event_properties_numerical,
                 "completed_snippet_onboarding": team.completed_snippet_onboarding,
             },
+            "teams": teams,
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
             "posthog_version": VERSION,
             "available_features": request.user.available_features,

@@ -88,6 +88,7 @@ class User(AbstractUser):
     ]
 
     username = None  # type: ignore
+    current_team = models.ForeignKey(Team, models.SET_NULL, blank=True, null=True)
     email = models.EmailField(_("email address"), unique=True)
     temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
@@ -138,7 +139,7 @@ class User(AbstractUser):
 
     @property
     def team(self) -> Team:
-        if hasattr(self, "_team"):
-            return self._team
-        self._team: Team = self.team_set.get()
-        return self._team
+        if self.current_team:
+            return self.current_team
+        self.current_team: Team = self.team_set.first()
+        return self.current_team
