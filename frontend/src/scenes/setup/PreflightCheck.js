@@ -3,7 +3,7 @@ import { useValues, useActions } from 'kea'
 import { preflightLogic } from './preflightCheckLogic'
 import { Row, Col, Space, Card, Button } from 'antd'
 import hedgehogBlue from './../../../public/hedgehog-blue.jpg'
-import { CheckSquareFilled, CloseSquareFilled, LoadingOutlined } from '@ant-design/icons'
+import { CheckSquareFilled, CloseSquareFilled, LoadingOutlined, SyncOutlined } from '@ant-design/icons'
 
 function PreflightItem(props) {
     /*
@@ -118,17 +118,32 @@ function PreflightCheck() {
                     }}
                 >
                     <Card style={{ width: 600, width: '100%' }}>
-                        <b style={{ fontSize: 16 }}>
-                            Preflight check{' '}
-                            {state.mode && (
-                                <span
-                                    style={{ textDecoration: 'underline', cursor: 'pointer' }}
-                                    onClick={() => handleModeChange(null)}
-                                >
-                                    {`(${state.mode})`}
-                                </span>
-                            )}
-                        </b>
+                        <Row style={{ marginBottom: 16 }}>
+                            <b style={{ fontSize: 16 }}>
+                                Preflight check{' '}
+                                {state.mode && (
+                                    <span>
+                                        (
+                                        <span
+                                            style={{ textDecoration: 'underline', cursor: 'pointer' }}
+                                            onClick={() => handleModeChange(null)}
+                                        >
+                                            {state.mode}
+                                        </span>
+                                        )
+                                    </span>
+                                )}
+                            </b>
+                            <Button
+                                type="default"
+                                style={{ position: 'absolute', right: 16 }}
+                                data-attr="preflight-refresh"
+                                icon={<SyncOutlined />}
+                                onClick={() => window.location.reload()}
+                            >
+                                Refresh
+                            </Button>
+                        </Row>
                         <div>
                             Tell us what you plan to do with this installation to make sure your infrastructure is ready
                         </div>
