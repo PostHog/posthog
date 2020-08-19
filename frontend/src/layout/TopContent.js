@@ -3,6 +3,7 @@ import './TopContent.scss'
 import React from 'react'
 import { LatestVersion } from '~/layout/LatestVersion'
 import { User } from '~/layout/User'
+import { Teams } from '~/layout/Teams'
 import { WorkerStats } from '~/layout/WorkerStats'
 
 export function TopContent() {
@@ -20,6 +21,7 @@ export function TopContent() {
             >
                 <LatestVersion />
                 <WorkerStats />
+                <Teams />
                 <User />
             </div>
         </div>
