@@ -37,9 +37,9 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
         key = PersonalAPIKey(label="Test", team=self.team, user=self.user)
         key.save()
         self.assertEqual(len(PersonalAPIKey.objects.all()), 1)
-        response = self.client.delete(f"/api/personal_api_keys/{key.id}")
+        response = self.client.delete(f"/api/personal_api_keys/{key.id}/")
         self.assertEqual(response.status_code, 204)
-        self.assertEqual(len(PersonalAPIKey.objects.all()), 1)
+        self.assertEqual(len(PersonalAPIKey.objects.all()), 0)
 
     def test_list_only_user_personal_api_keys(self):
         my_label = "Test"
