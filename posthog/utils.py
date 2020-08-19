@@ -13,11 +13,9 @@ from dateutil.relativedelta import relativedelta
 from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import Q
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
-from django.utils.timezone import now
 from rest_framework import authentication, request
 from rest_framework.exceptions import AuthenticationFailed
 
