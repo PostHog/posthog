@@ -192,7 +192,7 @@ def _recalculate(team: Team) -> None:
 
 
 def demo(request):
-    team = request.user.team_set.get()
+    team = request.user.team
     if not Event.objects.filter(team=team).exists():
         _create_anonymous_users(team=team, base_url=request.build_absolute_uri("/demo/"))
         _create_funnel(team=team, base_url=request.build_absolute_uri("/demo/"))
@@ -204,7 +204,7 @@ def demo(request):
 
 
 def delete_demo_data(request):
-    team = request.user.team_set.get()
+    team = request.user.team
 
     people = PersonDistinctId.objects.filter(team=team, person__properties__is_demo=True)
     Event.objects.filter(team=team, distinct_id__in=people.values("distinct_id")).delete()

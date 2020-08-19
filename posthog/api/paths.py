@@ -50,7 +50,7 @@ class PathsViewSet(viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def elements(self, request: request.Request):
 
-        team = request.user.team_set.get()
+        team = request.user.team
         all_events = Event.objects.filter(team=team, event="$autocapture")
         all_events_SQL, sql_params = all_events.query.sql_with_params()
 
@@ -101,7 +101,7 @@ class PathsViewSet(viewsets.ViewSet):
     # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
     # To avoid unexpected results should convert date range to timestamps with timezone.
     def list(self, request):
-        team = request.user.team_set.get()
+        team = request.user.team
         resp = []
         date_query = request_to_date_query(request.GET, exact=False)
         event, path_type, event_filter, start_comparator = self._determine_path_type(request)

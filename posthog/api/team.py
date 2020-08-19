@@ -11,7 +11,7 @@ class TeamUserViewSet(mixins.DestroyModelMixin, mixins.ListModelMixin, viewsets.
     lookup_field = "distinct_id"
 
     def get_queryset(self) -> QuerySet:
-        team: Team = self.request.user.team_set.get()
+        team: Team = self.request.user.team
         return team.users.all()
 
     def destroy(self, request, *args, **kwargs):

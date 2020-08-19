@@ -36,11 +36,11 @@ class ElementViewSet(viewsets.ModelViewSet):
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
 
-        return queryset.filter(group__team=self.request.user.team_set.get())
+        return queryset.filter(group__team=self.request.user.team)
 
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request) -> response.Response:
-        team = self.request.user.team_set.get()
+        team = self.request.user.team
         filter = Filter(request=request)
 
         events = (
@@ -107,7 +107,7 @@ class ElementViewSet(viewsets.ModelViewSet):
             ORDER BY id DESC
             LIMIT 50;
         """.format(
-                where=where, team_id=request.user.team_set.get().pk, key=key
+                where=where, team_id=request.user.team.pk, key=key
             ),
             params,
         )
