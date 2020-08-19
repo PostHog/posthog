@@ -298,5 +298,6 @@ if settings.DEBUG:
 
 
 urlpatterns += [
+    path("preflight", home),  # Added individually to remove login requirement
     re_path(r"^.*", decorators.login_required(home)),
 ]
