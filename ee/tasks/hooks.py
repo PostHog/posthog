@@ -10,7 +10,7 @@ from rest_hooks.utils import get_hook_model
 class DeliverHook(Task):
     max_retries = 3
 
-    def run(self, target: str, payload: dict, hook_id: str, instance_id: Optional[int] = None) -> None:
+    def run(self, target: str, payload: dict, hook_id: str) -> None:
         try:
             response = requests.post(
                 url=target,

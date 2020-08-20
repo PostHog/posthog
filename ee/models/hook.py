@@ -24,6 +24,7 @@ def find_and_fire_hook(
 ):
     hooks = Hook.objects.select_related("user").filter(event=event_name, team=user_override)
     if event_name == "action_performed":
+        # action_performed is a resource_id-filterable hook
         hooks = hooks.filter(models.Q(resource_id=instance.pk) | models.Q(resource_id__isnull=True))
     for hook in hooks:
         if hook.user.feature_available("zapier"):
@@ -31,7 +32,5 @@ def find_and_fire_hook(
 
 
 def deliver_hook_wrapper(target, payload, instance, hook):
-    # instance is None if using custom event
-    instance_id = instance.id if instance is not None else None
-    # pass ID's not objects because using pickle for objects is a bad thing
-    DeliverHook.apply_async(kwargs=dict(target=target, payload=payload, hook_id=hook.id, instance_id=instance_id))
+    # pass IDs not objects because using pickle for objects is a bad thing
+    DeliverHook.apply_async(kwargs=dict(target=target, payload=payload, hook_id=hook.id))
