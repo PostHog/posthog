@@ -30,8 +30,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType<PersonalAPIKeyT
         createKeySuccess: ({ keys }: { keys: PersonalAPIKeyType[] }) => {
             toast(<div className="text-success">Personal API key "{keys[0].label}" created.</div>)
         },
-        deleteKeySuccess: ({ keys }: { keys: PersonalAPIKeyType[] }) => {
-            toast(<div className="text-success">Personal API key "{keys[0].label}" deleted.</div>)
+        deleteKeySuccess: ({}: { keys: PersonalAPIKeyType[] }) => {
+            toast(<div className="text-success">Personal API key deleted.</div>)
         },
     }),
 
