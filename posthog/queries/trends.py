@@ -306,4 +306,5 @@ class Trends(BaseQuery):
         return entities_list
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+        print(self.calculate_trends(filter, team.pk))
         return self.calculate_trends(filter, team.pk)

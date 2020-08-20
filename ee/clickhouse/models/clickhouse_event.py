@@ -5,7 +5,6 @@ from infi.clickhouse_orm import fields
 
 class ClickHouseEvent(ClickHouseModel):
     id = fields.UInt32Field()
-    created_at = fields.DateTime64Field()
     team_id = fields.UInt32Field()
     event = fields.StringField()
     distinct_id = fields.StringField()
