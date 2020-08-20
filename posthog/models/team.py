@@ -73,12 +73,15 @@ class TeamManager(models.Manager):
                 return None
         else:
             try:
-                personal_api_key = PersonalAPIKey.objects.select_related("user").select_related("team").get(value=token)
+                personal_api_key = (
+                    PersonalAPIKey.objects.select_related("user")
+                    .select_related("team")
+                    .filter(user__is_active=True)
+                    .get(value=token)
+                )
             except PersonalAPIKey.DoesNotExist:
                 return None
             else:
-                if not personal_api_key.user.is_active:
-                    return None
                 team = personal_api_key.team
                 personal_api_key.last_used_at = timezone.now()
                 personal_api_key.save()

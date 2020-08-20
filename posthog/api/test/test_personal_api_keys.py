@@ -120,6 +120,14 @@ class TestPersonalAPIKeysAPIAuthentication(TransactionBaseTest):
         response = self.client.get("/api/dashboard/", {"personal_api_key": key.value})
         self.assertEqual(response.status_code, 200)
 
+    def test_user_not_active(self):
+        self.user.is_active = False
+        self.user.save()
+        key = PersonalAPIKey(label="Test", team=self.team, user=self.user)
+        key.save()
+        response = self.client.get("/api/user/", HTTP_AUTHORIZATION=f"Bearer {key.value}")
+        self.assertEqual(response.status_code, 401)
+
     def test_user_endpoint(self):
         # special case as /api/user/ is (or used to be) uniquely not DRF (vanilla Django)
         key = PersonalAPIKey(label="Test", team=self.team, user=self.user)
