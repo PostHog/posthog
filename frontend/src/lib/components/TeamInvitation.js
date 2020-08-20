@@ -1,12 +1,13 @@
 import React from 'react'
 import { Modal } from 'antd'
-import { CopyToClipboard } from 'lib/components/CopyToClipboard'
+import { CopyToClipboardInput } from 'lib/components/CopyToClipboard'
 
 export function TeamInvitationLink({ user }) {
     return (
-        <CopyToClipboard
+        <CopyToClipboardInput
             data-attr="copy-invite-to-clipboard-input"
-            url={window.location.origin + '/signup/' + user.team.signup_token}
+            value={window.location.origin + '/signup/' + user.team.signup_token}
+            description="link"
         />
     )
 }

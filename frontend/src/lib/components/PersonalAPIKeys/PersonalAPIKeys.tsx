@@ -6,6 +6,7 @@ import { red } from '@ant-design/colors'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import { PersonalAPIKeyType } from '~/types'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import { CopyToClipboardInline } from '../CopyToClipboard'
 
 function CreateKeyModal({
     isVisible,
@@ -60,11 +61,14 @@ function CreateKeyModal({
     )
 }
 
-function PersonalAPIKeysTable(): JSX.Element {
-    const { keys } = useValues(personalAPIKeysLogic) as { keys: PersonalAPIKeyType[] }
-    const { deleteKey } = useActions(personalAPIKeysLogic)
+function RowValue(value: string): JSX.Element {
+    return value ? <CopyToClipboardInline description="key value">{value}</CopyToClipboardInline> : <i>secret</i>
+}
 
-    function RowActions(_: string, personalAPIKey: PersonalAPIKeyType): JSX.Element {
+function RowActionsCreator(
+    deleteKey: (key: PersonalAPIKeyType) => void
+): (personalAPIKey: PersonalAPIKeyType) => JSX.Element {
+    return function RowActions(personalAPIKey: PersonalAPIKeyType) {
         return (
             <Popconfirm
                 title={`Permanently delete key "${personalAPIKey.label}"?`}
@@ -80,6 +84,11 @@ function PersonalAPIKeysTable(): JSX.Element {
             </Popconfirm>
         )
     }
+}
+
+function PersonalAPIKeysTable(): JSX.Element {
+    const { keys } = useValues(personalAPIKeysLogic) as { keys: PersonalAPIKeyType[] }
+    const { deleteKey } = useActions(personalAPIKeysLogic)
 
     const columns = [
         {
@@ -91,38 +100,31 @@ function PersonalAPIKeysTable(): JSX.Element {
             title: 'Value',
             dataIndex: 'value',
             key: 'value',
+            render: RowValue,
         },
         {
             title: 'Last Used',
             dataIndex: 'last_used_at',
-            key: 'last_used_at',
+            key: 'lastUsedAt',
+            render: (lastUsedAt: string) => (lastUsedAt ? humanFriendlyDetailedTime(lastUsedAt) : 'never'),
         },
         {
             title: 'Created',
             dataIndex: 'created_at',
-            key: 'created_at',
+            key: 'createdAt',
+            render: humanFriendlyDetailedTime,
         },
         {
             title: '',
-            dataIndex: 'actions',
             key: 'actions',
             align: 'center',
-            render: RowActions,
+            render: RowActionsCreator(deleteKey),
         },
     ]
 
-    const processedKeysData = keys.map((key) => {
-        return {
-            ...key,
-            value: key.value ? <b>{key.value}</b> : <i>secret</i>,
-            last_used_at: key.last_used_at ? humanFriendlyDetailedTime(key.last_used_at) : 'never',
-            created_at: humanFriendlyDetailedTime(key.created_at),
-        }
-    })
-
     return (
         <Table
-            dataSource={processedKeysData}
+            dataSource={keys}
             columns={columns}
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
