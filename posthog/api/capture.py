@@ -206,39 +206,6 @@ def get_event(request):
                 ),
             )
 
-        extra_properties_json = event.get("extra_properties_json")
-        extra_properties = None
-        if extra_properties_json:
-            try:
-                extra_properties = json.loads(extra_properties_json)
-            except json.JSONDecodeError:
-                return cors_response(
-                    request,
-                    JsonResponse(
-                        {
-                            "code": "validation",
-                            "message": "Field `extra_properties_json` is malformed!",
-                            "item": event,
-                        },
-                        status=400,
-                    ),
-                )
-        if extra_properties is not None:
-            if isinstance(extra_properties, dict):
-                event["extra_properties"] = extra_properties
-            else:
-                return cors_response(
-                    request,
-                    JsonResponse(
-                        {
-                            "code": "validation",
-                            "message": "Field `extra_properties_json` must contain an object!",
-                            "item": event,
-                        },
-                        status=400,
-                    ),
-                )
-
         process_event.delay(
             distinct_id=distinct_id,
             ip=get_ip_address(request),

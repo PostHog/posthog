@@ -181,9 +181,6 @@ def process_event(
         _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
 
     properties = data.get("properties", data.get("$set", {}))
-    if data.get("extra_properties"):
-        # merge properties parsed from JSON string with the object
-        properties.update(data["extra_properties"])
 
     _capture(
         ip=ip,
