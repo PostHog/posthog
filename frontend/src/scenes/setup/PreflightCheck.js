@@ -3,7 +3,7 @@ import { useValues, useActions } from 'kea'
 import { preflightLogic } from './preflightCheckLogic'
 import { Row, Col, Space, Card, Button } from 'antd'
 import hedgehogBlue from './../../../public/hedgehog-blue.jpg'
-import { CheckSquareFilled, CloseSquareFilled, LoadingOutlined, SyncOutlined } from '@ant-design/icons'
+import { CheckSquareFilled, CloseSquareFilled, LoadingOutlined, SyncOutlined, WarningFilled } from '@ant-design/icons'
 
 function PreflightItem(props) {
     /*
@@ -11,19 +11,31 @@ function PreflightItem(props) {
     status === false -> Item not ready (fail to validate)
     status === true -> Item ready (validated)
     */
-    const { name, status } = props
+    const { name, status, caption, failedState } = props
     let textColor
 
     if (status) textColor = '#28A745'
-    else if (status === false) textColor = '#F96132'
-    else textColor = '#666666'
+    else if (status === false) {
+        if (failedState === 'warning') textColor = '#F7A501'
+        else if (failedState === 'not-required') textColor = '#666666'
+        else textColor = '#F96132'
+    } else textColor = '#666666'
 
     return (
         <Col span={12} style={{ textAlign: 'left', marginTop: 16, display: 'flex', alignItems: 'center' }}>
-            {status === false && <CloseSquareFilled style={{ fontSize: 20, color: textColor }} />}
+            {status === false && failedState !== 'warning' && (
+                <CloseSquareFilled style={{ fontSize: 20, color: textColor }} />
+            )}
+            {status === false && failedState === 'warning' && (
+                <WarningFilled style={{ fontSize: 20, color: textColor }} />
+            )}
+
             {status === true && <CheckSquareFilled style={{ fontSize: 20, color: textColor }} />}
             {status !== true && status !== false && <LoadingOutlined style={{ fontSize: 20, color: textColor }} />}
-            <span style={{ color: textColor, paddingLeft: 8 }}>{name}</span>
+            <span style={{ color: textColor, paddingLeft: 8 }}>
+                {name}{' '}
+                {caption && status === false && <div style={{ fontSize: 12, fontWeight: 'bold' }}>{caption}</div>}
+            </span>
         </Col>
     )
 }
@@ -59,6 +71,11 @@ function PreflightCheck() {
             id: 'tls',
             name: 'SSL/TLS certificate',
             status: window.location.protocol === 'https:',
+            caption:
+                state.mode === 'Experimentation'
+                    ? 'Not required for testing / experimenting'
+                    : 'Required, but may be installed later',
+            failedState: state.mode === 'Experimentation' ? 'not-required' : 'warning',
         },
     ]
 
