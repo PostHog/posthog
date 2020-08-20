@@ -3,7 +3,15 @@ import { useValues, useActions } from 'kea'
 import { preflightLogic } from './preflightCheckLogic'
 import { Row, Col, Space, Card, Button } from 'antd'
 import hedgehogBlue from './../../../public/hedgehog-blue.jpg'
-import { CheckSquareFilled, CloseSquareFilled, LoadingOutlined, SyncOutlined, WarningFilled } from '@ant-design/icons'
+import {
+    CheckSquareFilled,
+    CloseSquareFilled,
+    LoadingOutlined,
+    SyncOutlined,
+    WarningFilled,
+    RocketFilled,
+    ApiTwoTone,
+} from '@ant-design/icons'
 
 function PreflightItem(props) {
     /*
@@ -133,7 +141,7 @@ function PreflightCheck() {
                 <div
                     style={{
                         display: 'flex',
-                        justifyContent: 'center',
+                        justifyContent: 'flex-start',
                         marginLeft: 32,
                         flexDirection: 'column',
                         paddingTop: 32,
@@ -168,9 +176,11 @@ function PreflightCheck() {
                                 </>
                             )}
                         </Row>
-                        <div>
-                            Tell us what you plan to do with this installation to make sure your infrastructure is ready
-                        </div>
+                        {!state.mode && (
+                            <div>
+                                What's your plan for this installation? We'll make infrastructure checks accordingly.
+                            </div>
+                        )}
                         <div
                             className="text-center"
                             style={{ padding: 32, display: 'flex', justifyContent: 'center', maxWidth: 600 }}
@@ -181,16 +191,18 @@ function PreflightCheck() {
                                         type="default"
                                         data-attr="preflight-experimentation"
                                         onClick={() => handleModeChange('Experimentation')}
+                                        icon={<ApiTwoTone />}
                                     >
-                                        🧪 Just experimenting
+                                        Just experimenting
                                     </Button>
                                     <Button
                                         type="primary"
                                         style={{ marginLeft: 16 }}
                                         data-attr="preflight-live"
                                         onClick={() => handleModeChange('Live')}
+                                        icon={<RocketFilled />}
                                     >
-                                        🚀 Live implementation
+                                        Live implementation
                                     </Button>
                                 </>
                             )}
@@ -210,25 +222,29 @@ function PreflightCheck() {
                             We will not enforce some security requirements in experimentation mode.
                         </div>
                     </Card>
-                    <div className="space-top text-center">
-                        {!isReady && <b>Please review the items above before continuing</b>}
-                        {isReady && (
-                            <b style={{ color: '#28A745' }}>
-                                Congratulations! Looks like your infrastructure is ready!
-                            </b>
-                        )}
-                    </div>
-                    <div className="space-top text-center" style={{ marginBottom: 64 }}>
-                        <Button
-                            type="primary"
-                            data-attr="preflight-complete"
-                            data-source={state.mode}
-                            disabled={!isReady}
-                            onClick={handlePreflightFinished}
-                        >
-                            Continue
-                        </Button>
-                    </div>
+                    {state.mode && (
+                        <>
+                            <div className="space-top text-center">
+                                {!isReady && <b>Please review the items above before continuing</b>}
+                                {isReady && (
+                                    <b style={{ color: '#28A745' }}>
+                                        Congratulations! Looks like your infrastructure is ready!
+                                    </b>
+                                )}
+                            </div>
+                            <div className="space-top text-center" style={{ marginBottom: 64 }}>
+                                <Button
+                                    type="primary"
+                                    data-attr="preflight-complete"
+                                    data-source={state.mode}
+                                    disabled={!isReady}
+                                    onClick={handlePreflightFinished}
+                                >
+                                    Continue
+                                </Button>
+                            </div>
+                        </>
+                    )}
                 </div>
             </Row>
         </>
