@@ -35,5 +35,5 @@ EXPOSE 8000
 EXPOSE 8234
 RUN yarn install
 RUN yarn build
-ENV DEBUG true
+ENV DEBUG 1
 CMD ["./bin/docker-dev"]
