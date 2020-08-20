@@ -1,5 +1,5 @@
+from unittest.mock import patch
 from posthog.models import Team, User
-
 from .base import BaseTest
 
 
@@ -39,6 +39,34 @@ class TestUser(BaseTest):
         team = Team.objects.get(id=self.team.id)
         self.assertEqual(team.opt_out_capture, True)
         self.assertEqual(team.anonymize_ips, False)
+
+    @patch("secrets.token_urlsafe")
+    def test_user_team_update_signup_token(self, patch_token):
+        patch_token.return_value= "abcde"
+        response = self.client.patch(
+            "/api/user/",
+            data={"team": {"signup_token": False}},
+            content_type="application/json",
+        ).json()
+
+        self.assertEqual(response["team"]["signup_token"], None)
+
+        team = Team.objects.get(id=self.team.id)
+        self.assertEqual(team.signup_token, None)
+
+        response = self.client.patch(
+            "/api/user/",
+            data={"team": {"signup_token": True}},
+            content_type="application/json",
+        ).json()
+
+       # self.assertEqual(response["team"]["signup_token"], "abcde")
+
+        team = Team.objects.get(id=self.team.id)
+        self.assertEqual(team.signup_token, "abcde")
+
+
+
 
 
 class TestUserChangePassword(BaseTest):

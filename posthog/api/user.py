@@ -35,6 +35,11 @@ def user(request):
             team.completed_snippet_onboarding = data["team"].get(
                 "completed_snippet_onboarding", team.completed_snippet_onboarding
             )
+            if data["team"].get("signup_token") == True:
+                team.signup_token = secrets.token_urlsafe(22)
+            elif data["team"].get("signup_token") == False:
+                team.signup_token = None
+
             team.save()
 
         if "user" in data:
