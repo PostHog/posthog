@@ -91,7 +91,7 @@ class TestUserSlackWebhook(BaseTest):
 
 
 class TestLoginViews(BaseTest):
-    def test_redirect_to_setup_admin_when_no_users(self):
+    def test_redirect_to_preflight_when_no_users(self):
         User.objects.all().delete()
         response = self.client.get("/", follow=True)
-        self.assertRedirects(response, "/setup_admin")
+        self.assertRedirects(response, "/preflight")

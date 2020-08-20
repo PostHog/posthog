@@ -45,6 +45,7 @@ function PreflightCheck() {
     const logic = preflightLogic()
     const { preflight } = useValues(logic)
     const { loadPreflight, loadPreflightSuccess } = useActions(logic)
+    const isReady = preflight.django && preflight.db && preflight.redis
 
     const checks = [
         {
@@ -93,6 +94,10 @@ function PreflightCheck() {
         } else {
             localStorage.removeItem('preflightMode')
         }
+    }
+
+    const handlePreflightFinished = () => {
+        window.location.href = '/setup_admin'
     }
 
     useEffect(() => {
@@ -204,10 +209,21 @@ function PreflightCheck() {
                         </div>
                     </Card>
                     <div className="space-top text-center">
-                        <b>Please review the items above before continuing</b>
+                        {!isReady && <b>Please review the items above before continuing</b>}
+                        {isReady && (
+                            <b style={{ color: '#28A745' }}>
+                                Congratulations! Looks like your infrastructure is ready!
+                            </b>
+                        )}
                     </div>
                     <div className="space-top text-center" style={{ marginBottom: 64 }}>
-                        <Button type="primary" data-attr="preflight-complete" data-source={state.mode} disabled>
+                        <Button
+                            type="primary"
+                            data-attr="preflight-complete"
+                            data-source={state.mode}
+                            disabled={!isReady}
+                            onClick={handlePreflightFinished}
+                        >
                             Continue
                         </Button>
                     </div>

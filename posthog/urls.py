@@ -36,7 +36,7 @@ def login_view(request):
         return redirect("/")
 
     if not User.objects.exists():
-        return redirect("/setup_admin")
+        return redirect("/preflight")
     if request.method == "POST":
         email = request.POST["email"]
         password = request.POST["password"]
@@ -57,7 +57,7 @@ def signup_to_team_view(request, token):
     if not token:
         return redirect("/")
     if not User.objects.exists():
-        return redirect("/setup_admin")
+        return redirect("/preflight")
     try:
         team = Team.objects.get(signup_token=token)
     except Team.DoesNotExist:
