@@ -12,6 +12,7 @@ import {
     RocketFilled,
     ApiTwoTone,
 } from '@ant-design/icons'
+import { volcano, green, red, grey, blue } from '@ant-design/colors'
 
 function PreflightItem(props) {
     /*
@@ -22,15 +23,15 @@ function PreflightItem(props) {
     const { name, status, caption, failedState } = props
     let textColor
 
-    if (status) textColor = '#28A745'
+    if (status) textColor = green.primary
     else if (status === false) {
-        if (failedState === 'warning') textColor = '#F7A501'
-        else if (failedState === 'not-required') textColor = '#666666'
-        else textColor = '#F96132'
-    } else textColor = '#666666'
+        if (failedState === 'warning') textColor = volcano.primary
+        else if (failedState === 'not-required') textColor = grey.primary
+        else textColor = red.primary
+    } else textColor = grey.primary
 
     return (
-        <Col span={12} style={{ textAlign: 'left', marginTop: 16, display: 'flex', alignItems: 'center' }}>
+        <Col span={12} style={{ textAlign: 'left', marginBottom: 16, display: 'flex', alignItems: 'center' }}>
             {status === false && failedState !== 'warning' && (
                 <CloseSquareFilled style={{ fontSize: 20, color: textColor }} />
             )}
@@ -41,8 +42,7 @@ function PreflightItem(props) {
             {status === true && <CheckSquareFilled style={{ fontSize: 20, color: textColor }} />}
             {status !== true && status !== false && <LoadingOutlined style={{ fontSize: 20, color: textColor }} />}
             <span style={{ color: textColor, paddingLeft: 8 }}>
-                {name}{' '}
-                {caption && status === false && <div style={{ fontSize: 12, fontWeight: 'bold' }}>{caption}</div>}
+                {name} {caption && status === false && <div style={{ fontSize: 12 }}>{caption}</div>}
             </span>
         </Col>
     )
@@ -73,7 +73,7 @@ function PreflightCheck() {
         },
         {
             id: 'frontend',
-            name: 'Frontend built (Node)',
+            name: 'Frontend built (Webpack)',
             status: true, // If this code is run, the front-end is already built
         },
         {
@@ -82,8 +82,8 @@ function PreflightCheck() {
             status: window.location.protocol === 'https:',
             caption:
                 state.mode === 'Experimentation'
-                    ? 'Not required for testing / experimenting'
-                    : 'Required, but may be installed later',
+                    ? 'Not required for development or testing'
+                    : 'Install before ingesting real user data',
             failedState: state.mode === 'Experimentation' ? 'not-required' : 'warning',
         },
     ]
@@ -121,41 +121,42 @@ function PreflightCheck() {
                 </h1>
                 <div className="page-caption text-center">Understand your users. Build a better product.</div>
             </Space>
-            <Col xs={24} style={{ marginTop: 60 }}>
+            <Col xs={24} style={{ margin: '32px 16px' }}>
                 <h2 className="subtitle text-center space-top">
-                    We're glad to have you here! We'll now guide you to setting up PostHog.
+                    We're&nbsp;glad to&nbsp;have you&nbsp;here! Let's&nbsp;get&nbsp;you started with&nbsp;PostHog.
                 </h2>
             </Col>
             <Row style={{ display: 'flex', justifyContent: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'column' }}>
                     <img src={hedgehogBlue} style={{ maxHeight: '100%' }} />
+                    <p>Got any PostHog questions?</p>
                     <Button type="default" data-attr="support" data-source="preflight">
                         <a href="https://posthog.com/support" target="_blank" rel="noreferrer">
-                            Get Help
+                            Find support
                         </a>
                     </Button>
                     <div className="breadcrumbs space-top">
-                        <span className="selected">Pre-flight check</span> &gt; Event capture &gt; Team setup
+                        <span className="selected">Preflight check</span> &gt; Event capture &gt; Team setup
                     </div>
                 </div>
                 <div
                     style={{
                         display: 'flex',
                         justifyContent: 'flex-start',
-                        marginLeft: 32,
+                        margin: '0 32px',
                         flexDirection: 'column',
                         paddingTop: 32,
                     }}
                 >
                     <Card style={{ width: 600, width: '100%' }}>
-                        <Row style={{ marginBottom: 16 }}>
-                            {!state.mode && <b style={{ fontSize: 16 }}>Preflight check</b>}
+                        <Row style={{ display: 'flex', justifyContent: 'space-between', lineHeight: '32px' }}>
+                            {!state.mode && <b style={{ fontSize: 16 }}>Select preflight mode</b>}
                             {state.mode && (
                                 <>
                                     <b style={{ fontSize: 16 }}>
                                         <span>
                                             <span
-                                                style={{ color: '#1890ff', cursor: 'pointer' }}
+                                                style={{ color: blue.primary, cursor: 'pointer' }}
                                                 onClick={() => handleModeChange(null)}
                                             >
                                                 Select preflight mode
@@ -165,7 +166,6 @@ function PreflightCheck() {
                                     </b>
                                     <Button
                                         type="default"
-                                        style={{ position: 'absolute', right: 16 }}
                                         data-attr="preflight-refresh"
                                         icon={<SyncOutlined />}
                                         onClick={() => window.location.reload()}
@@ -183,7 +183,7 @@ function PreflightCheck() {
                         )}
                         <div
                             className="text-center"
-                            style={{ padding: 32, display: 'flex', justifyContent: 'center', maxWidth: 600 }}
+                            style={{ padding: '24px 0', display: 'flex', justifyContent: 'center', maxWidth: 533 }}
                         >
                             {!state.mode && (
                                 <>
@@ -218,18 +218,17 @@ function PreflightCheck() {
                             )}
                         </div>
 
-                        <div style={{ fontSize: 12 }}>
+                        <div style={{ fontSize: 12, textAlign: 'center' }}>
                             We will not enforce some security requirements in experimentation mode.
                         </div>
                     </Card>
                     {state.mode && (
                         <>
                             <div className="space-top text-center">
-                                {!isReady && <b>Please review the items above before continuing</b>}
-                                {isReady && (
-                                    <b style={{ color: '#28A745' }}>
-                                        Congratulations! Looks like your infrastructure is ready!
-                                    </b>
+                                {isReady ? (
+                                    <b style={{ color: green.primary }}>All systems go!</b>
+                                ) : (
+                                    <b>Checks in progress…</b>
                                 )}
                             </div>
                             <div className="space-top text-center" style={{ marginBottom: 64 }}>
