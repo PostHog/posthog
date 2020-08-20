@@ -23,12 +23,12 @@ jobs:
         repository: "posthog/posthog-foss"
         ref: master
         token: ${{ secrets.SYNC_GITHUB_TOKEN }} # SYNC_GITHUB_TOKEN is a PAT token with the workflows scope which is not in GITHUB_TOKEN
-    - name: Sync and remove all non-FOSS parts
+    - name: Commit "Sync and remove all non-FOSS parts"
       uses: EndBug/add-and-commit@v4
       with:
         author_name: PostHog Bot
         author_email: hey@posthog.com
-        message: "Remove all non-FOSS parts"
+        message: "Sync and remove all non-FOSS parts"
         remove: "-r ee/"
       env: 
         GITHUB_TOKEN: ${{ secrets.SYNC_GITHUB_TOKEN }}
