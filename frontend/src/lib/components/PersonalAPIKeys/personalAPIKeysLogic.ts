@@ -1,5 +1,4 @@
 import { kea } from 'kea'
-import React from 'react'
 import { toast } from 'react-toastify'
 import api from 'lib/api'
 import { PersonalAPIKeyType } from '~/types'
@@ -28,10 +27,10 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType<PersonalAPIKeyT
 
     listeners: () => ({
         createKeySuccess: ({ keys }: { keys: PersonalAPIKeyType[] }) => {
-            toast(<div className="text-success">Personal API key "{keys[0].label}" created.</div>)
+            toast.success(`Personal API key "${keys[0].label}" created.`)
         },
         deleteKeySuccess: ({}: { keys: PersonalAPIKeyType[] }) => {
-            toast(<div className="text-success">Personal API key deleted.</div>)
+            toast.success(`Personal API key deleted.`)
         },
     }),
 
