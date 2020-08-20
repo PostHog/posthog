@@ -123,7 +123,7 @@ function PreflightCheck() {
                     <img src={hedgehogBlue} style={{ maxHeight: '100%' }} />
                     <Button type="default" data-attr="support" data-source="preflight">
                         <a href="https://posthog.com/support" target="_blank" rel="noreferrer">
-                            Support
+                            Get Help
                         </a>
                     </Button>
                     <div className="breadcrumbs space-top">
@@ -141,30 +141,32 @@ function PreflightCheck() {
                 >
                     <Card style={{ width: 600, width: '100%' }}>
                         <Row style={{ marginBottom: 16 }}>
-                            <b style={{ fontSize: 16 }}>
-                                Preflight check{' '}
-                                {state.mode && (
-                                    <span>
-                                        (
-                                        <span
-                                            style={{ textDecoration: 'underline', cursor: 'pointer' }}
-                                            onClick={() => handleModeChange(null)}
-                                        >
-                                            {state.mode}
+                            {!state.mode && <b style={{ fontSize: 16 }}>Preflight check</b>}
+                            {state.mode && (
+                                <>
+                                    <b style={{ fontSize: 16 }}>
+                                        <span>
+                                            <span
+                                                style={{ color: '#1890ff', cursor: 'pointer' }}
+                                                onClick={() => handleModeChange(null)}
+                                            >
+                                                Select preflight mode
+                                            </span>{' '}
+                                            &gt; {state.mode}
                                         </span>
-                                        )
-                                    </span>
-                                )}
-                            </b>
-                            <Button
-                                type="default"
-                                style={{ position: 'absolute', right: 16 }}
-                                data-attr="preflight-refresh"
-                                icon={<SyncOutlined />}
-                                onClick={() => window.location.reload()}
-                            >
-                                Refresh
-                            </Button>
+                                    </b>
+                                    <Button
+                                        type="default"
+                                        style={{ position: 'absolute', right: 16 }}
+                                        data-attr="preflight-refresh"
+                                        icon={<SyncOutlined />}
+                                        onClick={() => window.location.reload()}
+                                        disabled={Object.keys(preflight).length === 0}
+                                    >
+                                        Refresh
+                                    </Button>
+                                </>
+                            )}
                         </Row>
                         <div>
                             Tell us what you plan to do with this installation to make sure your infrastructure is ready
@@ -205,7 +207,7 @@ function PreflightCheck() {
                         </div>
 
                         <div style={{ fontSize: 12 }}>
-                            We will not enforce some security requirements on experimentation mode.
+                            We will not enforce some security requirements in experimentation mode.
                         </div>
                     </Card>
                     <div className="space-top text-center">
