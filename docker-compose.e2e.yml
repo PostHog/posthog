@@ -23,7 +23,6 @@ services:
             IS_DOCKER: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: '<randomly generated secret key>'
             DEBUG: 1
             DISABLE_SECURE_SSL_REDIRECT: 1
             OPT_OUT_CAPTURE: 1

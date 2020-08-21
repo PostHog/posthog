@@ -20,6 +20,7 @@ from typing import List, Optional, Sequence
 import dj_database_url
 import sentry_sdk
 from django.core.exceptions import ImproperlyConfigured
+from django.core.management.utils import get_random_secret_key
 from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
@@ -115,7 +116,20 @@ TRUST_ALL_PROXIES = os.environ.get("TRUST_ALL_PROXIES", False)
 DEFAULT_SECRET_KEY = "<randomly generated secret key>"
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("SECRET_KEY", DEFAULT_SECRET_KEY)
+SECRET_KEY = os.environ.get("SECRET_KEY")
+
+if not SECRET_KEY:
+    _secrets_file = os.path.join(BASE_DIR, "secret_key.txt")
+
+    # Create secret_key.txt and populate if does not exist or is empty
+    if not os.path.exists(_secrets_file) or os.path.getsize(_secrets_file) == 0:
+        with open(_secrets_file, "w") as f:
+            f.write(get_random_secret_key())
+
+    with open(_secrets_file) as f:
+        SECRET_KEY = f.read()
+
+    del _secrets_file
 
 ALLOWED_HOSTS = get_list(os.environ.get("ALLOWED_HOSTS", "*"))
 

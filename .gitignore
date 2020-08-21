@@ -25,3 +25,4 @@ yarn-error.log
 .yalc
 yalc.lock
 cypress/screenshots/*
+secret_key.txt

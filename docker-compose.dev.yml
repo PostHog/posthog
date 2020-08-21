@@ -29,7 +29,7 @@ services:
             IS_DOCKER: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: '<randomly generated secret key>'
+            SECRET_KEY: 'rofl'
             DEBUG: 'true'
         depends_on:
             - db
@@ -48,7 +48,7 @@ services:
             IS_DOCKER: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: '<randomly generated secret key>'
+            SECRET_KEY: 'rofl'
             DEBUG: 'true'
         depends_on:
             - db
