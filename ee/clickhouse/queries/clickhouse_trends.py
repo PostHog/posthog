@@ -58,7 +58,6 @@ class ClickhouseTrends(BaseQuery):
         )
 
         result = ch_client.execute(VOLUME_SQL.format(null_sql=null_sql, content_sql=content_sql))
-
         counts = [item[0] for item in result]
         dates = [
             item[1].strftime("%Y-%m-%d {}".format("%H:%M" if filter.interval == "hour" else "")) for item in result
@@ -121,9 +120,8 @@ def get_time_diff(interval: str, start_time: datetime, end_time: datetime) -> Tu
         "hour": 3600,
         "day": 3600 * 24,
         "week": 3600 * 24 * 7,
-        "month": 3600 * 24 * 7 * 30,
+        "month": 3600 * 24 * 30,
     }
 
     diff = end_time - start_time
-
     return int(diff.total_seconds() / time_diffs[interval]), time_diffs[interval]
