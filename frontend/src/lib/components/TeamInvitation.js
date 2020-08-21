@@ -1,5 +1,5 @@
 import React from 'react'
-import { Modal } from 'antd'
+import { Modal, Switch } from 'antd'
 import { CopyToClipboard } from 'lib/components/CopyToClipboard'
 
 export function TeamInvitationLink({ user }) {
@@ -16,6 +16,7 @@ export function TeamInvitationContent({ user }) {
         <div>
             <p>
                 <TeamInvitationLink user={user} />
+                <Switch defaultChecked />
             </p>
             Invite teammates with the link above.
             <br />
