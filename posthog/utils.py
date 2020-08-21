@@ -142,7 +142,6 @@ def friendly_time(seconds: float):
 
 
 def append_data(dates_filled: List, interval=None, math="sum") -> Dict:
-    print(dates_filled)
     append: Dict[str, Any] = {}
     append["data"] = []
     append["labels"] = []
