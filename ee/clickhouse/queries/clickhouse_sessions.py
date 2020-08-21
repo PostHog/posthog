@@ -1,5 +1,6 @@
 from typing import Any, Dict, List
 
+from ee.clickhouse.client import ch_client
 from posthog.models.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.base import BaseQuery
@@ -80,16 +81,37 @@ DIST_SQL = """
     sessions=SESSION_SQL
 )
 
-
+# TODO: handle date and defaults
 class ClickhouseSessions(BaseQuery):
-    def calculate_list(self):
-        pass
 
-    def calculate_avg(self):
-        pass
+    # TODO: handle offset
+    def calculate_list(self, filter: Filter, team: Team, offset: int):
+        result = ch_client.execute(
+            SESSION_SQL.format(team_id=team.pk, date_from=filter.date_from, date_to=filter.date_to)
+        )
+        return result
 
-    def calculate_dist(self):
-        pass
+    def calculate_avg(self, filter: Filter, team: Team):
+        result = ch_client.execute(
+            AVERAGE_SQL.format(team_id=team.pk, date_from=filter.date_from, date_to=filter.date_to)
+        )
+        return result
+
+    def calculate_dist(self, filter: Filter, team: Team):
+        result = ch_client.execute(DIST_SQL.format(team_id=team.pk, date_from=filter.date_from, date_to=filter.date_to))
+        return result
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        return []
+
+        session_type = kwargs.get("session_type", None)
+        offset = kwargs.get("offset", 0)
+
+        result: List = []
+        if session_type == "avg":
+            result = self.calculate_avg(filter, team)
+        elif session_type == "dist":
+            result = self.calculate_dist(filter, team)
+        else:
+            result = self.calculate_list(filter, team, offset)
+
+        return result
