@@ -9,7 +9,7 @@ from dateutil.relativedelta import relativedelta
 from django.http import HttpResponseNotFound, JsonResponse
 from django.utils.timezone import now
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, DisplayMode
 from posthog.models import (
     Action,
     ActionStep,
@@ -164,7 +164,7 @@ def _create_funnel(team: Team, base_url: str) -> None:
 
     funnel = Funnel.objects.create(
         team=team,
-        name="HogFlix signup -> watching movie",
+        name="HogFlix Signup → Watching Movie",
         filters={
             "actions": [
                 {"id": homepage.id, "order": 0, "type": TREND_FILTER_TYPE_ACTIONS},
@@ -174,12 +174,20 @@ def _create_funnel(team: Team, base_url: str) -> None:
         },
     )
 
-    dashboard = Dashboard.objects.create(name="Default", pinned=True, team=team, share_token=secrets.token_urlsafe(22))
+    dashboard = Dashboard.objects.create(name="Funnels", pinned=True, team=team, share_token=secrets.token_urlsafe(22))
     DashboardItem.objects.create(
         team=team,
         dashboard=dashboard,
-        name="HogFlix signup -> watching movie",
-        type="FunnelSteps",
+        name=funnel.name,
+        type=DisplayMode.FUNNEL_STEPS,
+        funnel_id=funnel.pk,
+        filters={"funnel_id": funnel.pk},
+    )
+    DashboardItem.objects.create(
+        team=team,
+        dashboard=dashboard,
+        name=f"{funnel.name} (over time)",
+        type=DisplayMode.FUNNEL_TRENDS,
         funnel_id=funnel.pk,
         filters={"funnel_id": funnel.pk},
     )
