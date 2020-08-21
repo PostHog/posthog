@@ -79,7 +79,7 @@ class FunnelViewSet(viewsets.ModelViewSet):
     def retrieve(self, request: request.Request, pk=None):
         return Response(self._cached_retrieve(request, pk))
 
-    # @cached_function(cache_type=CachedEndpoint.FUNNEL_STEPS)
+    # TODO @cached_function(cache_type=CachedEndpoint.FUNNEL_STEPS)
     def _cached_retrieve(self, request: request.Request, pk=None) -> dict:
         instance = self.get_object()
         serializer = self.get_serializer(instance)

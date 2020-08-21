@@ -52,7 +52,7 @@ export function SaveToDashboardModal({
     const { addNewDashboard } = useActions(saveToDashboardModalLogic({ setDashboardId }))
     const [name, setName] = useState(fromItemName || initialName || '')
     const [visible, setVisible] = useState(true)
-    const [newItem, setNewItem] = useState(type === 'FunnelSteps' || !fromItem)
+    const [newItem, setNewItem] = useState(type === 'FunnelViz' || !fromItem)
     const fromDashboardName =
         (fromDashboard ? dashboards.find((d) => d.id === parseInt(fromDashboard)) : null)?.name || 'Untitled'
 
@@ -99,7 +99,7 @@ export function SaveToDashboardModal({
             okText={newItem ? 'Add panel to dashboard' : 'Update panel on dashboard'}
         >
             <form onSubmit={save}>
-                {fromItem && type !== 'FunnelSteps' ? (
+                {fromItem && type !== 'FunnelViz' ? (
                     <Radio.Group
                         onChange={(e) => setNewItem(e.target.value === 'true')}
                         value={`${newItem}`}
@@ -113,7 +113,7 @@ export function SaveToDashboardModal({
                         </Radio>
                     </Radio.Group>
                 ) : null}
-                {fromItem && type === 'FunnelSteps' ? (
+                {fromItem && type === 'FunnelViz' ? (
                     <div style={{ marginBottom: 30 }}>
                         <Alert
                             message="Already on a dashboard"

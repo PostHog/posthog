@@ -68,7 +68,7 @@ export function ChartFilter({
                     dropdownMatchSelectWidth={false}
                     data-attr="chart-filter"
                 >
-                    <Select.Option value="FunnelSteps" key="chart-type-steps">
+                    <Select.Option value="FunnelViz" key="chart-type-steps">
                         Steps
                     </Select.Option>
                     <Select.Option value="FunnelTrends" key="chart-type-trends">

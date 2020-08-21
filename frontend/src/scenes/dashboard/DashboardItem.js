@@ -63,7 +63,7 @@ const typeMap = {
         link: ({ filters, id, dashboard, name }) =>
             combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
     },
-    FunnelSteps: {
+    FunnelViz: {
         className: 'funnel',
         element: FunnelSteps,
         icon: FunnelPlotOutlined,
@@ -76,8 +76,6 @@ const typeMap = {
             ).url,
     },
 }
-
-typeMap.FunnelViz = typeMap.FunnelSteps // backwards compatiblity alias for less clear name from before funnel trends
 
 export function DashboardItem({
     item,

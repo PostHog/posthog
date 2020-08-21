@@ -25,7 +25,7 @@ def update_cache_item(key: str, cache_type: CachedEndpoint, payload: dict) -> No
         filter_dict = json.loads(payload["filter"])
         filter = Filter(data=filter_dict)
         result = _calculate_trends(filter, int(payload["team_id"]))
-    elif cache_type == CachedEndpoint.FUNNEL_STEPS:
+    elif cache_type == CachedEndpoint.FUNNEL_VIZ:
         result = _calculate_funnel_steps(payload["funnel_id"], int(payload["team_id"]))
 
     if result:
@@ -52,7 +52,7 @@ def update_cached_items() -> None:
     for item in items.filter(funnel_id__isnull=False).distinct("funnel_id"):
         cache_key = generate_cache_key("funnel_{}_{}".format(item.funnel_id, item.team_id))
         payload = {"funnel_id": item.funnel_id, "team_id": item.team_id}
-        tasks.append(update_cache_item_task.s(cache_key, CachedEndpoint.FUNNEL_STEPS, payload))
+        tasks.append(update_cache_item_task.s(cache_key, CachedEndpoint.FUNNEL_VIZ, payload))
 
     logger.info("Found {} items to refresh".format(len(tasks)))
     taskset = group(tasks)
