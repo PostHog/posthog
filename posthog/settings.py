@@ -82,9 +82,9 @@ SESSION_COOKIE_SECURE = secure_cookies
 CSRF_COOKIE_SECURE = secure_cookies
 SECURE_SSL_REDIRECT = secure_cookies
 
-# production mode
-if not DEBUG and not TEST:
+if not TEST:
     if os.environ.get("SENTRY_DSN"):
+        # https://docs.sentry.io/platforms/python/
         sentry_sdk.init(
             dsn=os.environ["SENTRY_DSN"],
             integrations=[DjangoIntegration(), CeleryIntegration(), RedisIntegration()],
