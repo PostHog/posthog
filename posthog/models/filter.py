@@ -22,8 +22,8 @@ class Filter(PropertyMixin):
     This class just allows for stronger typing of this object.
     """
 
-    _date_from: Optional[str] = None
-    _date_to: Optional[str] = None
+    _date_from: Optional[Union[str, datetime.datetime]] = None
+    _date_to: Optional[Union[str, datetime.datetime]] = None
     properties: List[Property] = []
     interval: Optional[str] = None
     entities: List[Entity] = []
@@ -120,13 +120,19 @@ class Filter(PropertyMixin):
         if self._date_from:
             if self._date_from == "all":
                 return None
-            return relative_date_parse(self._date_from)
+            elif isinstance(self._date_from, str):
+                return relative_date_parse(self._date_from)
+            else:
+                return self._date_from
         return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
 
     @property
     def date_to(self) -> Optional[datetime.datetime]:
         if self._date_to:
-            return relative_date_parse(self._date_to)
+            if isinstance(self._date_to, str):
+                return relative_date_parse(self._date_to)
+            else:
+                return self._date_to
         return None
 
     @property
