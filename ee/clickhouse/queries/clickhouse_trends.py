@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from itertools import accumulate
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -12,11 +12,15 @@ from posthog.utils import relative_date_parse
 
 # TODO: use timezone from timestamp request and not UTC remove from all below—should be localized to requester timezone
 TEST_SQL = """
-SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from clickhouseevent where team_id = {team_id} and event = '{event}' and timestamp > '2020-08-06 00:00:00' and timestamp < '2020-08-20 00:00:00' GROUP BY {interval}({timestamp})
+SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from clickhouseevent where team_id = {team_id} and event = '{event}' {date_from} {date_to} GROUP BY {interval}({timestamp})
 """
 
 NULL_SQL = """
 SELECT toUInt16(0) AS total, {interval}(now() - number * {seconds_in_interval}) as day_start from numbers({num_intervals})
+"""
+
+VOLUME_SQL = """
+SELECT SUM(total), day_start from ({null_sql} UNION ALL {content_sql}) group by day_start order by day_start
 """
 
 
@@ -30,30 +34,38 @@ class ClickhouseTrends(BaseQuery):
             "labels": [],
             "days": [],
         }
+
+        # get params
         inteval_annotation = get_interval_annotation(filter.interval)
         num_intervals, seconds_in_interval = get_time_diff(
             filter.interval or "day",
             filter.date_from or relative_date_parse("-14d"),
             filter.date_to or datetime.now(timezone.utc),
         )
+        date_from, date_to = parse_timestamps(filter=filter)
 
         # TODO: remove hardcoded params
         content_sql = TEST_SQL.format(
-            interval=inteval_annotation, timestamp="timestamp", team_id=team.pk, event="$pageview"
+            interval=inteval_annotation,
+            timestamp="timestamp",
+            team_id=team.pk,
+            event="$pageview",
+            date_from=(date_from or ""),
+            date_to=(date_to or ""),
         )
         null_sql = NULL_SQL.format(
             interval=inteval_annotation, seconds_in_interval=seconds_in_interval, num_intervals=num_intervals
         )
 
-        result = ch_client.execute(
-            "SELECT SUM(total), day_start from ({null_sql} UNION ALL {content_sql}) group by day_start order by day_start".format(
-                null_sql=null_sql, content_sql=content_sql
-            )
-        )
+        result = ch_client.execute(VOLUME_SQL.format(null_sql=null_sql, content_sql=content_sql))
 
         counts = [item[0] for item in result]
-        dates = [item[1].strftime("%Y-%m-%d") for item in result]
-        labels = [item[1].strftime("%a. %-d %B") for item in result]
+        dates = [
+            item[1].strftime("%Y-%m-%d {}".format("%H:%M" if filter.interval == "hour" else "")) for item in result
+        ]
+        labels = [
+            item[1].strftime("%a. %-d %B {}".format("%I:%M %p" if filter.interval == "hour" else "")) for item in result
+        ]
         serialized.update(data=counts, labels=labels, days=dates, count=sum(counts))
 
         if filter.display == TRENDS_CUMULATIVE:
@@ -71,6 +83,21 @@ class ClickhouseTrends(BaseQuery):
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
         return self._calculate_trends(filter, team)
+
+
+def parse_timestamps(filter: Filter) -> Tuple[Optional[str], Optional[str]]:
+    date_from = None
+    date_to = None
+
+    if filter.date_from:
+        date_from = "and timestamp > '{}'".format(filter.date_from.strftime("%Y-%m-%d 00:00:00"))
+
+    if filter.date_to:
+        date_to = "and timestamp < '{}'".format(filter.date_from.strftime("%Y-%m-%d 00:00:00"))
+    else:
+        date_to = "and timestamp < '{}'".format(datetime.now().strftime("%Y-%m-%d 00:00:00"))
+
+    return date_from, date_to
 
 
 def get_interval_annotation(interval: Optional[str]) -> str:
