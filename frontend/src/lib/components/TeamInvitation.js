@@ -16,11 +16,12 @@ export function TeamInvitationContent({ user }) {
         <div>
             <p>
                 <TeamInvitationLink user={user} />
-                <Switch defaultChecked />
             </p>
             Invite teammates with the link above.
             <br />
             Build an even better product, <i>together</i>.
+            <br />
+            Disable Link Sharing: <Switch defaultChecked />
         </div>
     )
 }
