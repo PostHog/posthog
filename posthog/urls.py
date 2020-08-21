@@ -43,7 +43,7 @@ def login_view(request):
         user = cast(Optional[User], authenticate(request, email=email, password=password))
         if user is not None:
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-            if user.distinct_id:
+            if user.distinct_id and not os.environ.get("OPT_OUT_CAPTURE"):
                 posthoganalytics.capture(user.distinct_id, "user logged in")
             return redirect("/")
         else:
@@ -93,8 +93,9 @@ def signup_to_team_view(request, token):
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         team.users.add(user)
         team.save()
-        posthoganalytics.capture(user.distinct_id, "user signed up", properties={"is_first_user": False})
-        posthoganalytics.identify(user.distinct_id, {"email_opt_in": user.email_opt_in})
+        if not os.environ.get("OPT_OUT_CAPTURE"):
+            posthoganalytics.capture(user.distinct_id, "user signed up", properties={"is_first_user": False})
+            posthoganalytics.identify(user.distinct_id, {"email_opt_in": user.email_opt_in})
         return redirect("/")
     return render_template("signup_to_team.html", request, context={"team": team, "signup_token": token})
 
