@@ -206,6 +206,22 @@ h1.page-header {
     font-size: 24px;
 }
 
+h1.title {
+    // New implementation of h1.page-hader
+    font-size: 32px;
+    font-weight: bold;
+}
+
+h2.subtitle {
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.page-caption {
+    color: rgba(0, 0, 0, 0.6);
+    font-size: 14px;
+}
+
 button.no-style {
     background: none;
     border: none;
@@ -296,13 +312,19 @@ label.disabled {
     }
 }
 
+.property-key-info {
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
 .property-key-info-logo {
     margin-right: 6px;
     display: inline-block;
     vertical-align: top;
     height: 19px;
-    width: 15px;
-    background-image: url('/static/posthog-logo.png');
+    width: 19px;
+    background-image: url('../public/posthog-icon.svg');
     background-size: cover;
 }
 .ant-select-selection-item .property-key-info-logo {
@@ -372,5 +394,16 @@ label.disabled {
             height: 2rem;
             font-size: 1.25rem;
         }
+    }
+}
+
+.space-top {
+    margin-top: 32px;
+}
+
+.breadcrumbs {
+    .selected {
+        color: #35416b;
+        font-weight: bold;
     }
 }

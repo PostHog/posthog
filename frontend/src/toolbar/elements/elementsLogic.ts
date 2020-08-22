@@ -10,6 +10,7 @@ import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { elementsLogicType } from 'types/toolbar/elements/elementsLogicType'
 import { ActionStepType, ActionType, ToolbarMode, ToolbarTab } from '~/types'
 import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
+import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 
 type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 type ElementMap = Map<HTMLElement, ElementWithMetadata>
@@ -128,7 +129,7 @@ export const elementsLogic = kea<
         ],
 
         allInspectElements: [
-            (s) => [s.inspectEnabled],
+            (s) => [s.inspectEnabled, currentPageLogic.selectors.href],
             (inspectEnabled) => (inspectEnabled ? getAllClickTargets() : []),
         ],
 

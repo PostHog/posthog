@@ -1245,10 +1245,10 @@
     react-draggable "^4.0.0"
     react-resizable "^1.10.0"
 
-"@mariusandra/simmerjs@0.6.0-posthog.1":
-  version "0.6.0-posthog.1"
-  resolved "https://registry.yarnpkg.com/@mariusandra/simmerjs/-/simmerjs-0.6.0-posthog.1.tgz#92a5792d3cec2aca842bdf059976d1f1d1e61060"
-  integrity sha512-bqIS2MwbfXGwm3U7f+s9FgcQBuiG6QpjCUbwn2un3B0yB8SektTyVlrt/0EqkDBJV77yhAxjmQgkbjifXNvEOg==
+"@mariusandra/simmerjs@0.6.1-posthog.1":
+  version "0.6.1-posthog.1"
+  resolved "https://registry.yarnpkg.com/@mariusandra/simmerjs/-/simmerjs-0.6.1-posthog.1.tgz#d86b9a0cd6bba363adc43800e7075e85dbf849ae"
+  integrity sha512-aWfbkhOZCZflzdaqj/zWpNII74wr+VztUshyoX4HWbGnCC6RJLP76ZcPXfPK27iafEhIqgeAEbv+3Fdj8RMhOw==
   dependencies:
     lodash.difference "^4.5.0"
     lodash.flatmap "^4.5.0"
@@ -1428,11 +1428,6 @@
   dependencies:
     "@types/prop-types" "*"
     csstype "^2.2.0"
-
-"@types/simmerjs@^0.5.1":
-  version "0.5.1"
-  resolved "https://registry.yarnpkg.com/@types/simmerjs/-/simmerjs-0.5.1.tgz#74ff8f8614ddf995c135eebc6348fb5d42cadaa1"
-  integrity sha512-246t3U8Y3zVaUPwI5kDlOah0eL3rc2tZ1dX72SYBs0he6GyINOhZMP8qXEdgxbl4q/ARQkrYHZl9fLgDmBpo9w==
 
 "@types/sinon-chai@3.2.3":
   version "3.2.3"
@@ -6389,13 +6384,6 @@ lodash@4.17.15, lodash@^4.17.11, lodash@^4.17.13, lodash@^4.17.14, lodash@^4.17.
   integrity sha512-8xOcRHvCjnocdS5cpwXQXVzmmh5e5+saE2QGoeQmbKmRS6J3VQppPOIt0MnmE+4xlZoumy0GPG0D0MVIQbNA1A==
 
 log-symbols@3.0.0, log-symbols@^3.0.0:
-  version "3.0.0"
-  resolved "https://registry.yarnpkg.com/log-symbols/-/log-symbols-3.0.0.tgz#f3a08516a5dea893336a7dee14d18a1cfdab77c4"
-  integrity sha512-dSkNGuI7iG3mfvDzUuYZyvk5dD9ocYCYzNU6CYDE6+Xqd+gwme6Z00NS3dUh8mq/73HaEtT7m6W+yUPtU6BZnQ==
-  dependencies:
-    chalk "^2.4.2"
-
-log-symbols@3.0.0:
   version "3.0.0"
   resolved "https://registry.yarnpkg.com/log-symbols/-/log-symbols-3.0.0.tgz#f3a08516a5dea893336a7dee14d18a1cfdab77c4"
   integrity sha512-dSkNGuI7iG3mfvDzUuYZyvk5dD9ocYCYzNU6CYDE6+Xqd+gwme6Z00NS3dUh8mq/73HaEtT7m6W+yUPtU6BZnQ==
