@@ -144,7 +144,7 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
     person.save()
 
 
-def _set_is_identified(team_id: int, distinct_id: str) -> None:
+def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = True) -> None:
     try:
         person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
     except Person.DoesNotExist:
@@ -154,7 +154,7 @@ def _set_is_identified(team_id: int, distinct_id: str) -> None:
         except:
             person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
     if not person.is_identified:
-        person.is_identified = True
+        person.is_identified = is_identified
         person.save()
 
 
