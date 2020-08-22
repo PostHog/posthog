@@ -34,8 +34,8 @@ describe('Funnels', () => {
         cy.get('[data-attr=add-action-event-button]').click()
         cy.get('[data-attr=trend-element-subject-0]').click()
         cy.contains('Pageviews').click()
-
-        cy.get('[data-attr=save-funnel-button]').click()
+        cy.wait(500)
+        cy.get('[data-attr=save-funnel-button]', { timeout: 7000 }).click()
 
         cy.get('[data-attr=funnel-viz]').should('exist')
     })
