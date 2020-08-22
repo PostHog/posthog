@@ -11,11 +11,12 @@ import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 
 const { TabPane } = Tabs
-const defaultPaginationObj = {
+const INITIAL_PAGINATION_STATE = {
     all: {},
     identified: {},
     anonymous: {},
 }
+const ALLOWED_CATEGORIES = ['all', 'identified', 'anonymous']
 
 export const People = hot(_People)
 function _People() {
@@ -23,17 +24,15 @@ function _People() {
     const [people, setPeople] = useState(null)
     const [search, setSearch] = useState('')
     const [cohortId, setCohortId] = useState(fromParams()['cohort'])
-    const [pagination, setPagination] = useState({ ...defaultPaginationObj })
+    // unfortunately – as this is JS – JSON is the best solution for deep copying initial state here
+    const [pagination, setPagination] = useState(JSON.parse(JSON.stringify(INITIAL_PAGINATION_STATE)))
     const { push } = useActions(router)
     const {
         searchParams: { category: categoryRaw = 'all' },
     } = useValues(router)
 
     // ensure that there's no invalid category error
-    const category = useMemo(
-        () => (['all', 'identified', 'anonymous'].includes(categoryRaw) ? categoryRaw : 'all'),
-        categoryRaw
-    )
+    const category = useMemo(() => (ALLOWED_CATEGORIES.includes(categoryRaw) ? categoryRaw : 'all'), categoryRaw)
 
     function fetchPeople(url, scrollTop, categoryOverride) {
         setIsLoading(true)
@@ -69,7 +68,7 @@ function _People() {
     }, [cohortId])
 
     useEffect(() => {
-        if (!['all', 'identified', 'anonymous'].includes(categoryRaw)) push('/people?category=all')
+        if (!ALLOWED_CATEGORIES.includes(categoryRaw)) push('/people?category=all')
     }, [categoryRaw])
 
     const exampleEmail =
