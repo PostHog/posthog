@@ -312,6 +312,12 @@ label.disabled {
     }
 }
 
+.property-key-info {
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
 .property-key-info-logo {
     margin-right: 6px;
     display: inline-block;
