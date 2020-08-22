@@ -25,7 +25,7 @@
         <script id="sentry-snippet">location.host.indexOf('127.0.0.1') == -1 && Sentry.init({ dsn: '{{sentry_dsn}}' });</script>
     {% endif %}
 
-    <%= htmlWebpackPlugin.tags.headTags %><%# This adds the main.css file! %>
+    <%= htmlWebpackPlugin.tags.headTags %><%/* This adds the main.css file! */%>
   </head>
   <body>
     <script>
