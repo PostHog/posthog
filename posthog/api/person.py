@@ -82,7 +82,9 @@ class PersonViewSet(viewsets.ModelViewSet):
         elif category == "anonymous":
             queryset_category_pass = queryset.exclude
         if queryset_category_pass is not None:
-            queryset = queryset_category_pass(Q(is_identified__exact=True) | Q(properties__contains={"is_demo": True}))
+            queryset = queryset_category_pass(
+                Q(is_identified=True) | ~(Q(properties={}) | Q(properties={"is_demo": True}))
+            )
 
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset
