@@ -108,6 +108,7 @@ class Cohort(models.Model):
 
 
 class CohortPeople(models.Model):
+    id: models.BigAutoField = models.BigAutoField(primary_key=True)
     cohort: models.ForeignKey = models.ForeignKey("Cohort", on_delete=models.CASCADE)
     person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
 
