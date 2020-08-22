@@ -2,7 +2,6 @@ import React, { useEffect, useState, useMemo } from 'react'
 import { useValues, useActions } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { fromParams } from 'lib/utils'
 import { Cohort } from './Cohort'
 import { PeopleTable } from './PeopleTable'
 
@@ -23,12 +22,11 @@ function _People() {
     const [isLoading, setIsLoading] = useState(true)
     const [people, setPeople] = useState(null)
     const [search, setSearch] = useState('')
-    const [cohortId, setCohortId] = useState(fromParams()['cohort'])
     // unfortunately – as this is JS – JSON is the best solution for deep copying initial state here
     const [pagination, setPagination] = useState(JSON.parse(JSON.stringify(INITIAL_PAGINATION_STATE)))
     const { push } = useActions(router)
     const {
-        searchParams: { category: categoryRaw = 'all' },
+        searchParams: { category: categoryRaw = 'all', cohort: cohortId },
     } = useValues(router)
 
     // ensure that there's no invalid category error
@@ -68,7 +66,7 @@ function _People() {
     }, [cohortId])
 
     useEffect(() => {
-        if (!ALLOWED_CATEGORIES.includes(categoryRaw)) push('/people?category=all')
+        if (!ALLOWED_CATEGORIES.includes(categoryRaw)) push('/people', { category, cohort: cohortId })
     }, [categoryRaw])
 
     const exampleEmail =
@@ -77,7 +75,11 @@ function _People() {
     return (
         <div>
             <h1 className="page-header">Users</h1>
-            <Cohort onChange={setCohortId} />
+            <Cohort
+                onChange={(cohortId) => {
+                    push('/people', { category, cohort: cohortId })
+                }}
+            />
             <Button
                 type="default"
                 icon={<ExportOutlined />}
@@ -99,9 +101,9 @@ function _People() {
             <br />
             <Tabs
                 defaultActiveKey={category}
-                onChange={(key) => {
-                    push('/people', { category: key })
-                    fetchPeople(undefined, undefined, key)
+                onChange={(category) => {
+                    push('/people', { category, cohort: cohortId })
+                    fetchPeople(undefined, undefined, category)
                 }}
                 type="card"
             >
