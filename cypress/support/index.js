@@ -21,6 +21,7 @@ beforeEach(() => {
 
             cy.get('.btn').click()
         }
+        cy.wait(200)
         cy.get('body', { timeout: 7000 }).then(($body) => {
             if ($body.find('[data-attr=select-platform-Web]').length) {
                 cy.get('[data-attr=select-platform-Web]').click()
