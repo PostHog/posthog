@@ -106,8 +106,11 @@ describe('Trends actions & events', () => {
 
     it('Save to dashboard', () => {
         cy.get('[data-attr=save-to-dashboard-button]').click()
+        cy.get('.ant-input').type('Pageviews')
+        cy.get('form > .ant-select > .ant-select-selector').click()
+        cy.get(':nth-child(1) > .ant-select-item-option-content').click()
         cy.contains('Add panel to dashboard').click()
-        cy.wait(700) // not ideal but toast has a delay render
-        cy.get('[data-attr=success-toast]').should('exist')
+        cy.wait(300) // not ideal but toast has a delay render
+        cy.get('[data-attr=success-toast]', { timeout: 7000 }).should('exist')
     })
 })
