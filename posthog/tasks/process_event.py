@@ -137,7 +137,7 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
     except Person.DoesNotExist:
         try:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-        # Catch race condition where in between getting and creating, another request already created this user.
+        # Catch race condition where in between getting and creating, another request already created this person
         except:
             person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
     person.properties.update(properties)
@@ -150,7 +150,7 @@ def _set_is_identified(team_id: int, distinct_id: str) -> None:
     except Person.DoesNotExist:
         try:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-        # Catch race condition where in between getting and creating, another request already created this user.
+        # Catch race condition where in between getting and creating, another request already created this person
         except:
             person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
     if not person.is_identified:
