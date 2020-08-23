@@ -1,9 +1,7 @@
 import React from 'react'
 
 function indent(n) {
-    return Array(n)
-        .fill('')
-        .map((_, i) => <span key={i}>&nbsp;&nbsp;&nbsp;&nbsp;</span>)
+    return Array(n).fill('    ')
 }
 
 export function EventElements({ event }) {
@@ -20,7 +18,7 @@ export function EventElements({ event }) {
                         margin: 0,
                         padding: 0,
                         borderRadius: 0,
-                        ...(index === elements.length - 1 ? { backgroundColor: 'var(--blue)' } : {}),
+                        backgroundColor: index === elements.length - 1 ? 'var(--blue)' : undefined,
                     }}
                 >
                     {indent(index)}
@@ -40,6 +38,7 @@ export function EventElements({ event }) {
                 .reverse()
                 .slice(1)
                 .map((element, index) => (
+                    // TODO: make use of CodeSnippet here
                     <pre className="code" key={index} style={{ margin: 0, padding: 0, borderRadius: 0 }}>
                         {indent(elements.length - index - 2)}
                         &lt;/{element.tag_name}&gt;

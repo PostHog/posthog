@@ -15,6 +15,7 @@ import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from 'scenes/setup/ToolbarSettings'
+import { CodeSnippet } from 'scenes/onboarding/FrameworkInstructions/CodeSnippet'
 
 export const Setup = hot(_Setup)
 function _Setup() {
@@ -38,7 +39,7 @@ function _Setup() {
             <h2 id="apikey">API key</h2>
             You can use this api key in any of our
             <a href="https://posthog.com/docs/integrations"> libraries</a>.
-            <pre className="code">{user.team.api_token}</pre>
+            <CodeSnippet>{user.team.api_token}</CodeSnippet>
             This key is write-only, in that it can only create new events. It can't read any events or any of your other
             data stored on PostHog.
             <Divider />
