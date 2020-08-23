@@ -60,7 +60,7 @@ class TestUser(BaseTest):
             content_type="application/json",
         ).json()
 
-        # self.assertEqual(response["team"]["signup_token"], "abcde")
+        self.assertEqual(response["team"]["signup_token"], "abcde")
 
         team = Team.objects.get(id=self.team.id)
         self.assertEqual(team.signup_token, "abcde")

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Modal, Switch } from 'antd'
 import { CopyToClipboard } from 'lib/components/CopyToClipboard'
 
@@ -12,18 +12,27 @@ export function TeamInvitationLink({ user }) {
 }
 
 export function TeamInvitationContent({ user }) {
-    return (
-        <div>
-            <p>
-                <TeamInvitationLink user={user} />
-            </p>
-            Invite teammates with the link above.
-            <br />
-            Build an even better product, <i>together</i>.
-            <br />
-            Disable Link Sharing: <Switch defaultChecked />
-        </div>
-    )
+    const [linkSharingEnabled, setLinkState] = useState(true)
+    if (linkSharingEnabled) {
+        return (
+            <div>
+                <p>
+                    <TeamInvitationLink user={user} />
+                </p>
+                Invite teammates with the link above.
+                <br />
+                Build an even better product, <i>together</i>.
+                <br />
+                Link Sharing: <Switch defaultChecked onChange={() => setLinkState(!linkSharingEnabled)} />
+            </div>
+        )
+    } else {
+        return (
+            <div>
+                Link Sharing: <Switch onChange={() => setLinkState(!linkSharingEnabled)} />
+            </div>
+        )
+    }
 }
 
 export function TeamInvitationModal({ user, visible, onCancel }) {
