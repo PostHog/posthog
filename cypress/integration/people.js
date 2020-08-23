@@ -17,6 +17,7 @@ describe('People', () => {
         cy.wait(200)
         cy.get('#tab-identified > span', { timeout: 7000 }).click()
         cy.get('[data-row-key="100"] > :nth-child(2) > .ph-no-capture').should('contain', '@')
+        cy.wait(200)
         cy.location('pathname').should('eq', '/people?category=identified')
         cy.get('#tab-anonymous > span').click()
         cy.wait(200)
