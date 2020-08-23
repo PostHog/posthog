@@ -617,13 +617,7 @@ class TestIdentify(TransactionTestCase):
         person_before_event = Person.objects.create(team=self.team, distinct_ids=[distinct_id])
         self.assertEqual(person_before_event.is_identified, False)
         process_event(
-            "1",
-            "",
-            "",
-            {"event": "$identify", "properties": {},},
-            self.team.pk,
-            now().isoformat(),
-            now().isoformat(),
+            "1", "", "", {"event": "$identify", "properties": {},}, self.team.pk, now().isoformat(), now().isoformat(),
         )
         person_after_event = Person.objects.get(team=self.team, persondistinctid__distinct_id=distinct_id)
         self.assertEqual(person_after_event.is_identified, True)
