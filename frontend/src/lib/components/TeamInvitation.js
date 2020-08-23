@@ -12,7 +12,15 @@ export function TeamInvitationLink({ user }) {
 }
 
 export function TeamInvitationContent({ user }) {
-    const [linkSharingEnabled, setLinkState] = useState(true)
+    const url = window.location.origin
+    const signup_data = signup_token => ({
+        method: 'PATCH', // POST, PUT, DELETE, etc.
+        headers: {
+            team: { signup_token: signup_token },
+            'Content-Type': 'application/json',
+        },
+    })
+    console.log(user)
     if (user['team']['signup_token'] != null) {
         return (
             <div>
@@ -23,13 +31,13 @@ export function TeamInvitationContent({ user }) {
                 <br />
                 Build an even better product, <i>together</i>.
                 <br />
-                Link Sharing: <Switch defaultChecked onChange={() => setLinkState(!linkSharingEnabled)} />
+                Link Sharing: <Switch defaultChecked onChange={() => fetch(url, signup_data(false))} />
             </div>
         )
     } else {
         return (
             <div>
-                Link Sharing: <Switch onChange={() => setLinkState(!linkSharingEnabled)} />
+                Link Sharing: <Switch onChange={() => fetch(url, signup_data(true))} />
             </div>
         )
     }
