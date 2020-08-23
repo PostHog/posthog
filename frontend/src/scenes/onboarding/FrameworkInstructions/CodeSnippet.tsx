@@ -2,7 +2,7 @@ import React from 'react'
 import { toast } from 'react-toastify'
 import { CopyOutlined } from '@ant-design/icons'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
-import a11yDark from 'react-syntax-highlighter/dist/esm/styles/prism/a11y-dark'
+import synthwave84 from 'react-syntax-highlighter/dist/esm/styles/prism/synthwave84'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
 import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx'
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
@@ -87,7 +87,7 @@ export function CodeSnippet({
                 }}
             />
             <SyntaxHighlighter
-                style={a11yDark}
+                style={synthwave84}
                 language={language}
                 customStyle={{ borderRadius: 2 }}
                 wrapLines={wrap}
