@@ -10,11 +10,6 @@ import { ExportOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { hot } from 'react-hot-loader/root'
 
 const { TabPane } = Tabs
-const INITIAL_PAGINATION_STATE = {
-    all: {},
-    identified: {},
-    anonymous: {},
-}
 const ALLOWED_CATEGORIES = ['all', 'identified', 'anonymous']
 
 export const People = hot(_People)
@@ -22,8 +17,11 @@ function _People() {
     const [isLoading, setIsLoading] = useState(true)
     const [people, setPeople] = useState(null)
     const [search, setSearch] = useState('')
-    // unfortunately – as this is JS – JSON is the best solution for deep copying initial state here
-    const [pagination, setPagination] = useState(JSON.parse(JSON.stringify(INITIAL_PAGINATION_STATE)))
+    const [pagination, setPagination] = useState({
+        all: {},
+        identified: {},
+        anonymous: {},
+    })
     const { push } = useActions(router)
     const {
         searchParams: { category: categoryRaw = 'all', cohort: cohortId },
