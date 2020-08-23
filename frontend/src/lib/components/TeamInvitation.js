@@ -13,7 +13,7 @@ export function TeamInvitationLink({ user }) {
 
 export function TeamInvitationContent({ user }) {
     const [linkSharingEnabled, setLinkState] = useState(true)
-    if (linkSharingEnabled) {
+    if (user['team']['signup_token'] != null) {
         return (
             <div>
                 <p>
