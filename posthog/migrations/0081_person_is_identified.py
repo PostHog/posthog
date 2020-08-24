@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0077_cohortpeople_id_to_bigautofield"),
+        ("posthog", "0080_update_dashboard_funnel_filters"),
     ]
 
     operations = [
