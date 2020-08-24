@@ -1,12 +1,11 @@
 import React from 'react'
 import PropTypes, { bool } from 'prop-types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Table,Input } from 'antd'
+import { Table, Input } from 'antd'
 
-
-export function PersonTable({ properties}) {
+export function PersonTable({ properties }) {
     const onChange = properties.onChange._handleChange
-    const props = {...properties.props, distinct_id:properties.distinct_id}
+    const props = { ...properties.props, distinct_id: properties.distinct_id }
 
     const columns = [
         {
@@ -18,7 +17,7 @@ export function PersonTable({ properties}) {
         {
             title: 'value',
             render: function renderValue(item) {
-                return _propertiesTable(item[1],item[0])
+                return _propertiesTable(item[1], item[0])
             },
         },
     ]
@@ -49,15 +48,18 @@ export function PersonTable({ properties}) {
             )
         if (properties === true) return 'true'
         if (properties === false) return 'false'
-        if (typeof(properties) === 'string'){
-            return (<Input 
-                disabled = {_key === 'distinct_id'} 
-                placeholder = {_key} 
-                defaultValue = {properties} 
-                onChange = {onChange} tag = {_key} 
-                required = {true}
-            />)
-        }else return null
+        if (typeof properties === 'string') {
+            return (
+                <Input
+                    disabled={_key === 'distinct_id'}
+                    placeholder={_key}
+                    defaultValue={properties}
+                    onChange={onChange}
+                    tag={_key}
+                    required={true}
+                />
+            )
+        } else return null
     }
 }
 PersonTable.propTypes = {

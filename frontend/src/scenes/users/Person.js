@@ -20,28 +20,27 @@ function _Person({ _: distinctId, id }) {
         api.get(url).then(setPerson)
     }, [distinctId, id])
 
-    function _handleChange(event){
+    function _handleChange(event) {
         var tag = event.target.getAttribute('tag')
         var newState = {}
-        if (tag == 'first' || tag == 'last'){
+        if (tag == 'first' || tag == 'last') {
             newState = {
                 ...person,
                 properties: {
                     ...person.properties,
-                    name:{
+                    name: {
                         ...person.properties.name,
-                        [tag]: event.target.value || ""
-                    }
-                }
+                        [tag]: event.target.value || '',
+                    },
+                },
             }
-        }
-        else {
+        } else {
             newState = {
                 ...person,
-                properties:{
+                properties: {
                     ...person.properties,
-                    [tag]: event.target.value || ""
-                }
+                    [tag]: event.target.value || '',
+                },
             }
         }
         setPerson(newState)
@@ -56,19 +55,17 @@ function _Person({ _: distinctId, id }) {
             >
                 Delete all data on this person
             </Button>
-            <h1 className="page-header">{person.properties.name.first} {person.properties.name.last}</h1>
-            <Button
-                className="float-right"
-            >
-                Save Person's Data
-            </Button>
-           
+            <h1 className="page-header">
+                {person.properties.name.first} {person.properties.name.last}
+            </h1>
+            <Button className="float-right">Save Person's Data</Button>
+
             <div style={{ maxWidth: 750 }}>
                 <PersonTable
                     properties={{
-                        props: {...person.properties},
+                        props: { ...person.properties },
                         distinct_id: person.distinct_ids,
-                        onChange: {_handleChange}
+                        onChange: { _handleChange },
                     }}
                 />
                 <small>
