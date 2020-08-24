@@ -22,7 +22,7 @@ from posthog.demo import delete_demo_data, demo
 from .api import capture, dashboard, decide, router, user
 from .models import Event, Team, User
 from .utils import render_template
-from .views import health, stats
+from .views import health, preflight_check, stats
 
 
 def home(request, **kwargs):
@@ -36,7 +36,7 @@ def login_view(request):
         return redirect("/")
 
     if not User.objects.exists():
-        return redirect("/setup_admin")
+        return redirect("/preflight")
     if request.method == "POST":
         email = request.POST["email"]
         password = request.POST["password"]
@@ -57,7 +57,7 @@ def signup_to_team_view(request, token):
     if not token:
         return redirect("/")
     if not User.objects.exists():
-        return redirect("/setup_admin")
+        return redirect("/preflight")
     try:
         team = Team.objects.get(signup_token=token)
     except Team.DoesNotExist:
@@ -232,6 +232,7 @@ else:
 urlpatterns = [
     path("_health/", health),
     path("_stats/", stats),
+    path("_preflight/", preflight_check),
     path("admin/", admin.site.urls),
     path("admin/", include("loginas.urls")),
     path("api/", include(router.urls)),
@@ -299,5 +300,6 @@ if settings.DEBUG:
 
 
 urlpatterns += [
+    path("preflight", home),  # Added individually to remove login requirement
     re_path(r"^.*", decorators.login_required(home)),
 ]

@@ -4,10 +4,12 @@ import json
 import os
 import re
 import subprocess
+import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse, urlsplit
 
 import pytz
+import redis
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.apps import apps
@@ -304,3 +306,18 @@ class PublicTokenAuthentication(authentication.BaseAuthentication):
 
 def generate_cache_key(stringified: str) -> str:
     return "cache_" + hashlib.md5(stringified.encode("utf-8")).hexdigest()
+
+
+def get_redis_heartbeat() -> Union[str, int]:
+
+    if settings.REDIS_URL:
+        redis_instance = redis.from_url(settings.REDIS_URL, db=0)
+    else:
+        return "offline"
+
+    last_heartbeat = redis_instance.get("POSTHOG_HEARTBEAT") if redis_instance else None
+    worker_heartbeat = int(time.time()) - int(last_heartbeat) if last_heartbeat else None
+
+    if worker_heartbeat and (worker_heartbeat == 0 or worker_heartbeat < 300):
+        return worker_heartbeat
+    return "offline"
