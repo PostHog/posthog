@@ -232,7 +232,6 @@ except ImportError:
 urlpatterns = [
     path("_health/", health),
     path("_stats/", stats),
-    path("_preflight/", preflight_check),
     path("admin/", admin.site.urls),
     path("admin/", include("loginas.urls")),
     path("api/", include(router.urls)),
@@ -254,6 +253,7 @@ urlpatterns = [
     path("capture/", capture.get_event),
     path("batch", capture.get_event),
     path("batch/", capture.get_event),
+    path("_preflight/", preflight_check),
 ]
 
 if not settings.EMAIL_HOST:
