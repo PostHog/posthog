@@ -9,6 +9,7 @@ from django.core import serializers
 from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
+from posthog.ee import check_ee_enabled
 from posthog.models import Element, Event, Person, Team
 
 
@@ -112,23 +113,37 @@ def _capture(
     if not team.anonymize_ips:
         properties["$ip"] = ip
 
-    Event.objects.create(
-        event=event,
-        distinct_id=distinct_id,
-        properties=properties,
-        team=team,
-        site_url=site_url,
-        **({"timestamp": timestamp} if timestamp else {}),
-        **({"elements": elements_list} if elements_list else {})
-    )
     _store_names_and_properties(team=team, event=event, properties=properties)
 
-    if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
-        # Catch race condition where in between getting and creating, another request already created this user.
-        try:
-            Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-        except IntegrityError:
-            pass
+    if check_ee_enabled():
+        from ee.clickhouse.process_event import capture_ee
+
+        capture_ee(
+            event=event,
+            distinct_id=distinct_id,
+            properties=properties,
+            site_url=site_url,
+            team=team,
+            **({"timestamp": timestamp} if timestamp else {}),
+            **({"elements": elements_list} if elements_list else {"elements": []})
+        )
+    else:
+        Event.objects.create(
+            event=event,
+            distinct_id=distinct_id,
+            properties=properties,
+            team=team,
+            site_url=site_url,
+            **({"timestamp": timestamp} if timestamp else {}),
+            **({"elements": elements_list} if elements_list else {})
+        )
+
+        if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
+            # Catch race condition where in between getting and creating, another request already created this user.
+            try:
+                Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+            except IntegrityError:
+                pass
 
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:

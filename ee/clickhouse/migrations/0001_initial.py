@@ -1,12 +1,11 @@
 from infi.clickhouse_orm import migrations
 
 EVENT_SQL = """
-CREATE TABLE events
+CREATE TABLE default.events
 (
-    id Int32,
+    id UUID,
     event VARCHAR,
     properties VARCHAR,
-    element VARCHAR,
     timestamp DateTime,
     team_id Int32,
     distinct_id VARCHAR,
