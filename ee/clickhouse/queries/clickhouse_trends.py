@@ -12,7 +12,7 @@ from posthog.utils import relative_date_parse
 
 # TODO: use timezone from timestamp request and not UTC remove from all below—should be localized to requester timezone
 VOLUME_SQL = """
-SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from clickhouseevent where team_id = {team_id} and event = '{event}' {date_from} {date_to} GROUP BY {interval}({timestamp})
+SELECT count(*) as total, toDateTime({interval}({timestamp}), 'UTC') as day_start from events where team_id = {team_id} and event = '{event}' {date_from} {date_to} GROUP BY {interval}({timestamp})
 """
 
 NULL_SQL = """
