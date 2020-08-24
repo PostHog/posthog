@@ -1,5 +1,5 @@
 import React from 'react'
-import PropTypes, { bool } from 'prop-types'
+import PropTypes from 'prop-types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Table, Input } from 'antd'
 

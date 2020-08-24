@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Events } from '../events/Events'
 import api from 'lib/api'
 import { PersonTable } from './PersonTable'
-import { deletePersonData, setPersonData } from 'lib/utils'
+import { deletePersonData } from 'lib/utils'
 import { Button } from 'antd'
 import { hot } from 'react-hot-loader/root'
 
