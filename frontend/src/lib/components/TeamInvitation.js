@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { Modal, Switch } from 'antd'
 import { CopyToClipboard } from 'lib/components/CopyToClipboard'
 import api from '../api'
@@ -16,8 +16,6 @@ export function TeamInvitationContent({ user }) {
     const url = window.location.origin
     const signup_token_state = user['team']['signup_token']
     const signup_data = `{'team':{'signup_token': ${signup_token_state}}}`
-    // TODO : Remove this console log statement
-    console.log(signup_data)
     if (signup_token_state != null) {
         return (
             <div>
