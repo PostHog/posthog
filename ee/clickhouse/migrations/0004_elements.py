@@ -7,14 +7,15 @@ CREATE TABLE default.elements
     text VARCHAR,
     tag_name VARCHAR,
     href VARCHAR,
-    attr_id DateTime,
+    attr_id VARCHAR,
     attr_class Array(VARCHAR),
     nth_child Int32,
     nth_of_type Int32,
     attributes VARCHAR,
     order Int32,
     team_id Int32,
-    created_at DateTime
+    created_at DateTime,
+    group_id UUID
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(created_at)
 ORDER BY (id, intHash32(team_id))

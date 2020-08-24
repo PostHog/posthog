@@ -6,10 +6,9 @@ CREATE TABLE default.events
     id UUID,
     event VARCHAR,
     properties VARCHAR,
-    element VARCHAR,
     timestamp DateTime,
     team_id Int32,
-    distinct_id UUID,
+    distinct_id VARCHAR,
     elements_hash VARCHAR,
     created_at DateTime
 ) ENGINE = MergeTree()

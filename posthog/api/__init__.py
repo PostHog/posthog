@@ -1,5 +1,6 @@
-from django.conf import settings
 from rest_framework import routers
+
+from posthog.ee import check_ee_enabled
 
 from . import (
     action,
@@ -18,7 +19,7 @@ from . import (
 router = routers.DefaultRouter()
 
 # TODO: add other checks necessary for using EE code
-if settings.PRIMARY_DB == settings.CLICKHOUSE:
+if check_ee_enabled():
     try:
         from ee.clickhouse.views import ClickhouseActions, ClickhouseEvents, ClickhouseInsights, ClickhousePerson
 
