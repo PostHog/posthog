@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { Modal, Switch } from 'antd'
 import { CopyToClipboard } from 'lib/components/CopyToClipboard'
+import api from '../api'
 
 export function TeamInvitationLink({ user }) {
     return (
@@ -13,15 +14,11 @@ export function TeamInvitationLink({ user }) {
 
 export function TeamInvitationContent({ user }) {
     const url = window.location.origin
-    const signup_data = signup_token => ({
-        method: 'PATCH', // POST, PUT, DELETE, etc.
-        headers: {
-            team: { signup_token: signup_token },
-            'Content-Type': 'application/json',
-        },
-    })
-    console.log(user)
-    if (user['team']['signup_token'] != null) {
+    const signup_token_state = user['team']['signup_token']
+    const signup_data = `{'team':{'signup_token': ${signup_token_state}}}`
+    // TODO : Remove this console log statement
+    console.log(signup_data)
+    if (signup_token_state != null) {
         return (
             <div>
                 <p>
@@ -31,13 +28,13 @@ export function TeamInvitationContent({ user }) {
                 <br />
                 Build an even better product, <i>together</i>.
                 <br />
-                Link Sharing: <Switch defaultChecked onChange={() => fetch(url, signup_data(false))} />
+                Link Sharing: <Switch defaultChecked onChange={() => api.update(url, signup_data)} />
             </div>
         )
     } else {
         return (
             <div>
-                Link Sharing: <Switch onChange={() => fetch(url, signup_data(true))} />
+                Link Sharing: <Switch onChange={() => api.update(url, signup_data)} />
             </div>
         )
     }
