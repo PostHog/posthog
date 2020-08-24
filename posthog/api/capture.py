@@ -184,7 +184,7 @@ def get_event(request):
                     {"code": "validation", "message": "You need to set a distinct_id.", "item": event,}, status=400,
                 ),
             )
-        process_event(
+        process_event.delay(
             distinct_id=distinct_id,
             ip=get_ip_address(request),
             site_url=request.build_absolute_uri("/")[:-1],
