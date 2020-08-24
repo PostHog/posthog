@@ -2,7 +2,7 @@
 
 <br />
 
-PostHog provides open-source product analytics, built for developers. Automate the collection of every event on your website or app, with no need to send data to 3rd parties. Just 1 click to deploy on your own infrastructure, with full API/SQL access to the underlying data. 
+PostHog provides open-source product analytics, built for developers. Automate the collection of every event on your website or app, with no need to send data to 3rd parties. With just 1 click you can deploy on your own infrastructure, having full API/SQL access to the underlying data. 
 
 <br /><br />
 
@@ -121,7 +121,7 @@ Not sure where to start? [Book a free, no-pressure pairing session](mailto:tim@p
 
 ## We're hiring!
 
-Come help us make PostHog even better. We're growing like crazy, [and would love for you to join us](https://posthog.com/careers).
+Come help us make PostHog even better. We're growing fast, [and would love for you to join us](https://posthog.com/careers).
 
 <br /><br />
 
