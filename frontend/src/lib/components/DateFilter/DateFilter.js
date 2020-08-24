@@ -3,10 +3,9 @@ import { Select, DatePicker, Button } from 'antd'
 import { useValues, useActions } from 'kea'
 import moment from 'moment'
 import { dateFilterLogic } from './dateFilterLogic'
-import { ViewType } from 'scenes/insights/insightLogic'
 import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
 
-export function DateFilter({ style, filters, view }) {
+export function DateFilter({ style, disabled }) {
     const {
         dates: { dateFrom, dateTo },
     } = useValues(dateFilterLogic)
@@ -61,10 +60,7 @@ export function DateFilter({ style, filters, view }) {
             data-attr="date-filter"
             bordered={false}
             id="daterange_selector"
-            value={dateFilterToText(
-                view === ViewType.FUNNELS ? filters.date_from : dateFrom,
-                view === ViewType.FUNNELS ? filters.date_to : dateTo
-            )}
+            value={dateFilterToText(dateFrom, dateTo)}
             onChange={_onChange}
             style={{
                 marginRight: 4,
@@ -75,6 +71,7 @@ export function DateFilter({ style, filters, view }) {
             onClick={onClick}
             listHeight={440}
             dropdownMatchSelectWidth={false}
+            disabled={disabled}
             dropdownRender={(menu) => {
                 if (dateRangeOpen) {
                     return (

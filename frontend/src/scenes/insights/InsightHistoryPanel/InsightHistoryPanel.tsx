@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Tabs, Modal, Input, Button, List, Col, Spin, Table, Row, Tooltip } from 'antd'
+import { Tabs, Button, List, Col, Spin, Table, Row, Tooltip } from 'antd'
 import { toParams, dateFilterToText } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { PushpinOutlined, PushpinFilled, DeleteOutlined } from '@ant-design/icons'
@@ -9,11 +9,13 @@ import { ViewType } from '../insightLogic'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { formatPropertyLabel } from 'lib/utils'
 import { cohortsModel } from '~/models'
-import { PropertyFilter, Entity, CohortType } from '~/types'
+import { PropertyFilter, Entity, CohortType, InsightHistory } from '~/types'
+import SaveModal from '../SaveModal'
 
 const InsightHistoryType = {
     SAVED: 'SAVED',
     RECENT: 'RECENT',
+    TEAM: 'TEAM',
 }
 
 const { TabPane } = Tabs
@@ -23,6 +25,7 @@ const columns = [
         render: function renderKey(item) {
             return <b style={{ marginLeft: -8 }}>{item.key}</b>
         },
+        width: 110,
     },
     {
         render: function renderValue(item) {
@@ -31,7 +34,11 @@ const columns = [
     },
 ]
 
-const determineFilters = (viewType: string, filters: Record<string, any>, cohorts: CohortType[]): JSX.Element => {
+export const determineFilters = (
+    viewType: string,
+    filters: Record<string, any>,
+    cohorts: CohortType[]
+): JSX.Element => {
     const result = []
     if (viewType === ViewType.TRENDS) {
         let count = 0
@@ -43,21 +50,32 @@ const determineFilters = (viewType: string, filters: Record<string, any>, cohort
             if (filters.actions) filters.actions.forEach((action: Entity) => entity.push(`- ${action.name}\n`))
             result.push({ key: 'Entities', value: entity })
         }
-        if (filters.interval) result.push({ key: 'Interval', value: `${filters.interval}\n` })
-        if (filters.shown_as) result.push({ key: 'Shown As', value: `${filters.shown_as}\n` })
-        if (filters.breakdown) result.push({ key: 'Breakdown', value: `${filters.breakdown}\n` })
-        if (filters.compare) result.push({ key: 'Compare', value: `${filters.compare}\n` })
+        if (filters.interval) result.push({ key: 'Interval', value: `${filters.interval}` })
+        if (filters.shown_as) result.push({ key: 'Shown As', value: `${filters.shown_as}` })
+        if (filters.breakdown) result.push({ key: 'Breakdown', value: `${filters.breakdown}` })
+        if (filters.compare) result.push({ key: 'Compare', value: `${filters.compare}` })
     } else if (viewType === ViewType.SESSIONS) {
-        if (filters.session) result.push({ key: 'Session', value: `${filters.session}\n` })
-        if (filters.interval) result.push({ key: 'Interval', value: `${filters.interval}\n` })
-        if (filters.compare) result.push({ key: 'Compare', value: `${filters.compare}\n` })
+        if (filters.session) result.push({ key: 'Session', value: `${filters.session}` })
+        if (filters.interval) result.push({ key: 'Interval', value: `${filters.interval}` })
+        if (filters.compare) result.push({ key: 'Compare', value: `${filters.compare}` })
     } else if (viewType === ViewType.RETENTION) {
-        if (filters.target) result.push({ key: 'Target', value: `${filters.target.name}\n` })
+        if (filters.target) result.push({ key: 'Target', value: `${filters.target.name}` })
     } else if (viewType === ViewType.PATHS) {
-        if (filters.type) result.push({ key: 'Path Type', value: `${filters.type}\n` })
-        if (filters.start) result.push({ key: 'Start Point', value: `Specified\n` })
+        if (filters.type) result.push({ key: 'Path Type', value: `${filters.type}` })
+        if (filters.start) result.push({ key: 'Start Point', value: `Specified` })
     } else if (viewType === ViewType.FUNNELS) {
-        if (filters.name) result.push({ key: 'Name', value: `${filters.name}\n` })
+        let count = 0
+        if (filters.events) count += filters.events.length
+        if (filters.actions) count += filters.actions.length
+        if (count > 0) {
+            const entity: string[] = []
+            if (filters.events) filters.events.forEach((event: Entity) => entity.push(`- ${event.name || event.id}\n`))
+            if (filters.actions)
+                filters.actions.forEach((action: Entity) =>
+                    entity.push(`- ${action.name || '(action: ' + action.id + ')'}\n`)
+                )
+            result.push({ key: 'Entities', value: entity })
+        }
     }
     if (filters.properties && filters.properties.length > 0) {
         const properties: string[] = []
@@ -89,17 +107,23 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
         insightsLoading,
         savedInsights,
         savedInsightsLoading,
+        teamInsights,
+        teamInsightsLoading,
         insightsNext,
         savedInsightsNext,
+        teamInsightsNext,
         loadingMoreInsights,
         loadingMoreSavedInsights,
+        loadingMoreTeamInsights,
     } = useValues(insightHistoryLogic)
-    const { saveInsight, deleteInsight, loadNextInsights, loadNextSavedInsights } = useActions(insightHistoryLogic)
+    const { saveInsight, deleteInsight, loadNextInsights, loadNextSavedInsights, loadNextTeamInsights } = useActions(
+        insightHistoryLogic
+    )
     const { cohorts } = useValues(cohortsModel)
 
     const [visible, setVisible] = useState(false)
     const [activeTab, setActiveTab] = useState(InsightHistoryType.RECENT)
-    const [selectedInsight, setSelectedInsight] = useState<number | null>(null)
+    const [selectedInsight, setSelectedInsight] = useState<InsightHistory | null>(null)
 
     const loadMoreInsights = insightsNext ? (
         <div
@@ -127,6 +151,19 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
         </div>
     ) : null
 
+    const loadMoreTeamInsights = teamInsightsNext ? (
+        <div
+            style={{
+                textAlign: 'center',
+                marginTop: 12,
+                height: 32,
+                lineHeight: '32px',
+            }}
+        >
+            {loadingMoreTeamInsights ? <Spin /> : <Button onClick={loadNextTeamInsights}>Load more</Button>}
+        </div>
+    ) : null
+
     return (
         <div data-attr="insight-history-panel">
             <Tabs
@@ -146,7 +183,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                         loading={insightsLoading}
                         dataSource={insights}
                         loadMore={loadMoreInsights}
-                        renderItem={(insight) => {
+                        renderItem={(insight: InsightHistory) => {
                             return (
                                 <List.Item>
                                     <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
@@ -170,7 +207,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                                                         className="clickable button-border"
                                                         onClick={() => {
                                                             setVisible(true)
-                                                            setSelectedInsight(insight.id)
+                                                            setSelectedInsight(insight)
                                                         }}
                                                         style={{ cursor: 'pointer' }}
                                                     />
@@ -193,7 +230,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                         loading={savedInsightsLoading}
                         dataSource={savedInsights}
                         loadMore={loadMoreSavedInsights}
-                        renderItem={(insight) => {
+                        renderItem={(insight: InsightHistory) => {
                             return (
                                 <List.Item key={insight.id}>
                                     <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
@@ -219,8 +256,39 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                         }}
                     />
                 </TabPane>
+                <TabPane
+                    tab={<span data-attr="insight-saved-tab">Team</span>}
+                    key={InsightHistoryType.TEAM}
+                    data-attr="insight-team-pane"
+                >
+                    <List
+                        loading={teamInsightsLoading}
+                        dataSource={teamInsights}
+                        loadMore={loadMoreTeamInsights}
+                        renderItem={(insight: InsightHistory) => {
+                            return (
+                                <List.Item key={insight.id}>
+                                    <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
+                                        <Row justify="space-between" align="middle">
+                                            {insight.type && (
+                                                <Link onClick={onChange} to={'/insights?' + toParams(insight.filters)}>
+                                                    {insight.name}
+                                                </Link>
+                                            )}
+                                        </Row>
+                                        <span>{determineFilters(insight.type, insight.filters, cohorts)}</span>
+                                    </Col>
+                                </List.Item>
+                            )
+                        }}
+                    />
+                </TabPane>
             </Tabs>
-            <SaveChartModal
+            <SaveModal
+                title="Save Chart"
+                prompt="Name of Chart"
+                textLabel="Name"
+                textPlaceholder="DAUs Last 14 days"
                 visible={visible}
                 onCancel={(): void => {
                     setVisible(false)
@@ -235,51 +303,5 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                 }}
             />
         </div>
-    )
-}
-
-interface SaveChartModalProps {
-    visible: boolean
-    onCancel: () => void
-    onSubmit: (input: string) => void
-}
-
-const SaveChartModal: React.FC<SaveChartModalProps> = (props) => {
-    const { visible, onCancel, onSubmit } = props
-    const [input, setInput] = useState<string>('')
-
-    function _onCancel(): void {
-        setInput('')
-        onCancel()
-    }
-
-    function _onSubmit(input: string): void {
-        setInput('')
-        onSubmit(input)
-    }
-
-    return (
-        <Modal
-            visible={visible}
-            footer={
-                <Button type="primary" onClick={(): void => _onSubmit(input)}>
-                    Save
-                </Button>
-            }
-            onCancel={_onCancel}
-        >
-            <div data-attr="invite-team-modal">
-                <h2>Save Chart</h2>
-                <label>Name of Chart</label>
-                <Input
-                    name="Name"
-                    required
-                    type="text"
-                    placeholder="DAUs Last 14 days"
-                    value={input}
-                    onChange={(e): void => setInput(e.target.value)}
-                />
-            </div>
-        </Modal>
     )
 }

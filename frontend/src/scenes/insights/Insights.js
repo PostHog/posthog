@@ -12,7 +12,7 @@ import { ActionsLineGraph } from './ActionsLineGraph'
 import { PeopleModal } from './PeopleModal'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
-import { Tabs, Row, Col, Button, Drawer } from 'antd'
+import { Tabs, Row, Col, Button, Drawer, Tooltip } from 'antd'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
     ACTIONS_LINE_GRAPH_CUMULATIVE,
@@ -42,6 +42,8 @@ import { insightLogic, ViewType } from './insightLogic'
 import { trendsLogic } from './trendsLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
+import { SavedFunnels } from './SavedCard'
+import { InfoCircleOutlined } from '@ant-design/icons'
 
 const { TabPane } = Tabs
 
@@ -129,20 +131,14 @@ function _Insights() {
                     onChange={(key) => setActiveView(key)}
                     animated={false}
                 >
-                    <TabPane
-                        tab={<span data-attr="insight-trends-tab">Trends</span>}
-                        key={ViewType.TRENDS}
-                        data-attr="insight-trend-tab"
-                    ></TabPane>
+                    <TabPane tab={<span data-attr="insight-trends-tab">Trends</span>} key={ViewType.TRENDS}></TabPane>
                     <TabPane
                         tab={<span data-attr="insight-sessions-tab">Sessions</span>}
                         key={ViewType.SESSIONS}
-                        data-attr="insight-sessions-tab"
                     ></TabPane>
                     <TabPane
                         tab={<span data-attr="insight-funnels-tab">Funnels</span>}
                         key={ViewType.FUNNELS}
-                        data-attr="insight-funnels-tab"
                     ></TabPane>
                     <TabPane
                         tab={<span data-attr="insight-retention-tab">Retention</span>}
@@ -188,6 +184,30 @@ function _Insights() {
                             }
                         </div>
                     </Card>
+                    {activeView === ViewType.FUNNELS && (
+                        <Card
+                            title={
+                                <Row align="middle">
+                                    <span>Saved Funnels</span>
+                                    <Tooltip
+                                        key="1"
+                                        getPopupContainer={(trigger) => trigger.parentElement}
+                                        placement="right"
+                                        title="These consist of funnels by you and the rest of the team"
+                                    >
+                                        <InfoCircleOutlined
+                                            className="info"
+                                            style={{ color: '#007bff' }}
+                                        ></InfoCircleOutlined>
+                                    </Tooltip>
+                                </Row>
+                            }
+                        >
+                            <div className="card-body px-4 mb-0">
+                                <SavedFunnels></SavedFunnels>
+                            </div>
+                        </Card>
+                    )}
                 </Col>
                 <Col xs={24} xl={17}>
                     {/* 
@@ -211,20 +231,24 @@ function _Insights() {
                                     />
                                 )}
 
-                                {showDateFilter[activeView] && <DateFilter view={activeView} filters={allFilters} />}
+                                {showDateFilter[activeView] && (
+                                    <DateFilter
+                                        disabled={activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)}
+                                    />
+                                )}
 
                                 {showComparePrevious[activeView] && <CompareFilter />}
                                 <SaveToDashboard
-                                    disabled={disableSaveToDashboard[activeView]}
+                                    disabled={
+                                        disableSaveToDashboard[activeView] ||
+                                        (activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters))
+                                    }
                                     item={{
                                         type: determineInsightType(activeView, allFilters.display),
-                                        entity:
-                                            activeView === ViewType.FUNNELS
-                                                ? allFilters
-                                                : {
-                                                      filters: allFilters,
-                                                      annotations: annotationsToCreate,
-                                                  },
+                                        entity: {
+                                            filters: allFilters,
+                                            annotations: annotationsToCreate,
+                                        },
                                     }}
                                 />
                             </div>
@@ -281,21 +305,25 @@ function TrendInsight({ view }) {
     )
 }
 
+const isFunnelEmpty = (filters) => {
+    return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
+}
+
 function FunnelInsight() {
-    const { funnel, funnelLoading, stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic({ id: null }))
-    if (!funnel && funnelLoading) return <Loading />
+    const { stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic)
+
     return (
         <div style={{ height: 300 }}>
             {stepsWithCountLoading && <Loading />}
             {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 ? (
-                <FunnelViz funnel={{ steps: stepsWithCount }} />
+                <FunnelViz steps={stepsWithCount} />
             ) : (
                 <div
                     style={{
                         textAlign: 'center',
                     }}
                 >
-                    <span>Enter the details to your funnel and click 'save' to create a funnel visualization</span>
+                    <span>Enter the details to your funnel and click 'calculate' to create a funnel visualization</span>
                 </div>
             )}
         </div>
@@ -303,8 +331,8 @@ function FunnelInsight() {
 }
 
 function FunnelPeople() {
-    const { funnel } = useValues(funnelLogic({ id: null }))
-    if (funnel.id) {
+    const { stepsWithCount } = useValues(funnelLogic)
+    if (stepsWithCount && stepsWithCount.length > 0) {
         return (
             <div className="funnel">
                 <People />

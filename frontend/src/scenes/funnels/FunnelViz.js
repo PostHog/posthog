@@ -1,31 +1,30 @@
 import React, { useRef, useEffect, useState } from 'react'
 import FunnelGraph from 'funnel-graph-js'
-import { Link } from 'lib/components/Link'
 import { Loading, humanFriendlyDuration } from 'lib/utils'
 import PropTypes from 'prop-types'
 import { useValues, useActions } from 'kea'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 
-export function FunnelViz({ funnel: funnelParam, dashboardItemId, funnelId }) {
+export function FunnelViz({ steps: stepsParam, dashboardItemId, funnelId }) {
     const container = useRef()
-    const [funnel, setFunnel] = useState(funnelParam)
+    const [steps, setSteps] = useState(stepsParam)
     const logic = funnelVizLogic({ funnelId, dashboardItemId })
-    const { results: funnelResult, resultsLoading: funnelLoading } = useValues(logic)
+    const { results: stepsResult, resultsLoading: funnelLoading } = useValues(logic)
     const { loadResults: loadFunnel } = useActions(logic)
 
     function buildChart() {
-        if (!funnel || funnel.steps.length == 0) return
+        if (!steps || steps.length == 0) return
         if (container.current) container.current.innerHTML = ''
         let graph = new FunnelGraph({
             container: '.funnel-graph',
             data: {
-                labels: funnel.steps.map(
+                labels: steps.map(
                     (step) =>
                         `${step.name} (${step.count})  ${
                             step.average_time ? 'Avg Time: ' + humanFriendlyDuration(step.average_time) || '' : ''
                         }`
                 ),
-                values: funnel.steps.map((step) => step.count),
+                values: steps.map((step) => step.count),
                 colors: ['#66b0ff', 'var(--blue)'],
             },
             displayPercent: true,
@@ -40,7 +39,7 @@ export function FunnelViz({ funnel: funnelParam, dashboardItemId, funnelId }) {
     }
 
     useEffect(() => {
-        if (funnel) buildChart()
+        if (stepsParam) buildChart()
         else loadFunnel()
 
         window.addEventListener('resize', buildChart)
@@ -49,20 +48,20 @@ export function FunnelViz({ funnel: funnelParam, dashboardItemId, funnelId }) {
 
     useEffect(() => {
         buildChart()
-    }, [funnel])
+    }, [steps])
 
     useEffect(() => {
-        setFunnel(funnelParam)
-    }, [funnelParam])
+        setSteps(stepsParam)
+    }, [stepsParam])
 
     useEffect(() => {
-        if (funnelResult) {
-            setFunnel(funnelResult)
+        if (stepsResult && !stepsParam) {
+            setSteps(stepsResult)
         }
-    }, [funnelResult])
+    }, [stepsResult])
 
-    return funnel && !funnelLoading ? (
-        funnel.steps.length > 0 ? (
+    return !funnelLoading ? (
+        steps && steps.length > 0 ? (
             <div
                 data-attr="funnel-viz"
                 ref={container}
@@ -70,10 +69,7 @@ export function FunnelViz({ funnel: funnelParam, dashboardItemId, funnelId }) {
                 style={{ height: '100%', width: '100%' }}
             ></div>
         ) : (
-            <p style={{ margin: '1rem' }}>
-                This funnel doesn't have any steps.{' '}
-                <Link to={'/funnel/' + funnel.id}>Click here to add some steps.</Link>
-            </p>
+            <p style={{ margin: '1rem' }}>This funnel doesn't have any steps. </p>
         )
     ) : (
         <Loading />

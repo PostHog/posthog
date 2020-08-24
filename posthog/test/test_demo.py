@@ -11,7 +11,6 @@ class TestDemo(BaseTest):
         self.client.get("/demo")
         self.assertEqual(Event.objects.count(), 190)
         self.assertEqual(Person.objects.count(), 100)
-        self.assertEqual(Funnel.objects.count(), 1)
         self.assertEqual(Action.objects.count(), 3)
 
         self.assertEqual(Action.objects.all()[1].events.count(), 9)

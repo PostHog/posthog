@@ -68,12 +68,13 @@ const typeMap = {
         element: FunnelViz,
         icon: FunnelPlotOutlined,
         viewText: 'View funnel',
-        link: ({ funnel, id, dashboard, name }) =>
-            combineUrl(
+        link: ({ id, dashboard, name, filters }) => {
+            return combineUrl(
                 `/insights`,
-                { insight: ViewType.FUNNELS, id: funnel },
+                { insight: ViewType.FUNNELS, ...filters },
                 { fromItem: id, fromItemName: name, fromDashboard: dashboard }
-            ).url,
+            ).url
+        },
     },
 }
 

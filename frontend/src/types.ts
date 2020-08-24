@@ -101,3 +101,16 @@ export interface CohortType {
     name?: string
     groups?: Record<string, any>[]
 }
+
+export interface InsightHistory {
+    id: number
+    type: string
+    filters: Record<string, any>
+    name?: string
+    createdAt: string
+    saved: boolean
+}
+
+export interface SavedFunnel extends InsightHistory {
+    created_by: string
+}
