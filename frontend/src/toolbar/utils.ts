@@ -25,15 +25,13 @@ export function getSafeText(el: HTMLElement): string {
     return elText
 }
 
-export function elementToQuery(element: HTMLElement): string | null {
+export function elementToQuery(element: HTMLElement): string | undefined {
     if (!element) {
-        return null
+        return
     }
-    return (
-        simmer(element)
-            // Turn tags into lower cases
-            .replace(/(^[A-Z]+| [A-Z]+)/g, (d: string) => d.toLowerCase())
-    )
+
+    // Turn tags into lower cases
+    return simmer(element)?.replace(/(^[A-Z]+| [A-Z]+)/g, (d: string) => d.toLowerCase())
 }
 
 export function elementToActionStep(element: HTMLElement): ActionStepType {

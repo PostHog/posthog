@@ -226,7 +226,7 @@ export function PropertyKeyInfo({ value, type = 'event' }) {
                 </span>
             }
         >
-            <div style={{ width: '100%' }}>
+            <div className="property-key-info">
                 <span className="property-key-info-logo" />
                 {data.label}
             </div>
