@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { Events } from '../events/Events'
 import api from 'lib/api'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { deletePersonData } from 'lib/utils'
+import { PersonTable } from './PersonTable'
+import { deletePersonData, setPersonData } from 'lib/utils'
 import { Button } from 'antd'
 import { hot } from 'react-hot-loader/root'
 
@@ -20,6 +20,33 @@ function _Person({ _: distinctId, id }) {
         api.get(url).then(setPerson)
     }, [distinctId, id])
 
+    function _handleChange(event){
+        var tag = event.target.getAttribute('tag')
+        var newState = {}
+        if (tag == 'first' || tag == 'last'){
+            newState = {
+                ...person,
+                properties: {
+                    ...person.properties,
+                    name:{
+                        ...person.properties.name,
+                        [tag]: event.target.value || ""
+                    }
+                }
+            }
+        }
+        else {
+            newState = {
+                ...person,
+                properties:{
+                    ...person.properties,
+                    [tag]: event.target.value || ""
+                }
+            }
+        }
+        setPerson(newState)
+    }
+
     return person ? (
         <div>
             <Button
@@ -29,12 +56,19 @@ function _Person({ _: distinctId, id }) {
             >
                 Delete all data on this person
             </Button>
-            <h1 className="page-header">{person.name}</h1>
+            <h1 className="page-header">{person.properties.name.first} {person.properties.name.last}</h1>
+            <Button
+                className="float-right"
+            >
+                Save Person's Data
+            </Button>
+           
             <div style={{ maxWidth: 750 }}>
-                <PropertiesTable
+                <PersonTable
                     properties={{
-                        ...person.properties,
+                        props: {...person.properties},
                         distinct_id: person.distinct_ids,
+                        onChange: {_handleChange}
                     }}
                 />
                 <small>
