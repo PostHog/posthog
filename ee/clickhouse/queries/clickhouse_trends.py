@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from itertools import accumulate
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -86,7 +86,6 @@ class ClickhouseTrends(BaseQuery):
             else:
                 entity_result = self._serialize_entity(entity, filter, team)
                 result.append(entity_result)
-
         return result
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
@@ -101,9 +100,11 @@ def parse_timestamps(filter: Filter) -> Tuple[Optional[str], Optional[str]]:
         date_from = "and timestamp > '{}'".format(filter.date_from.strftime("%Y-%m-%d 00:00:00"))
 
     if filter.date_to:
-        date_to = "and timestamp < '{}'".format(filter.date_to.strftime("%Y-%m-%d 00:00:00"))
+        _date_to = filter.date_to + timedelta(days=1)
     else:
-        date_to = "and timestamp < '{}'".format(datetime.now().strftime("%Y-%m-%d 00:00:00"))
+        _date_to = datetime.now() + timedelta(days=1)
+
+    date_to = "and timestamp < '{}'".format(_date_to.strftime("%Y-%m-%d 00:00:00"))
 
     return date_from, date_to
 
