@@ -163,26 +163,20 @@ def _create_funnel(team: Team, base_url: str) -> None:
         action=user_paid, event="$autocapture", url="%s2/" % base_url, url_matching="exact", selector="button",
     )
 
-    funnel = Funnel.objects.create(
-        team=team,
-        name="HogFlix signup -> watching movie",
-        filters={
-            "actions": [
-                {"id": homepage.id, "order": 0, "type": TREND_FILTER_TYPE_ACTIONS},
-                {"id": user_signed_up.id, "order": 1, "type": TREND_FILTER_TYPE_ACTIONS,},
-                {"id": user_paid.id, "order": 2, "type": TREND_FILTER_TYPE_ACTIONS},
-            ]
-        },
-    )
-
     dashboard = Dashboard.objects.create(name="Default", pinned=True, team=team, share_token=secrets.token_urlsafe(22))
     DashboardItem.objects.create(
         team=team,
         dashboard=dashboard,
         name="HogFlix signup -> watching movie",
         type="FunnelViz",
-        funnel_id=funnel.pk,
-        filters={"funnel_id": funnel.pk},
+        filters={
+            "actions": [
+                {"id": homepage.id, "name": "HogFlix homepage view", "order": 0, "type": TREND_FILTER_TYPE_ACTIONS},
+                {"id": user_signed_up.id, "name": "HogFlix signed up", "order": 1, "type": TREND_FILTER_TYPE_ACTIONS,},
+                {"id": user_paid.id, "name": "HogFlix paid", "order": 2, "type": TREND_FILTER_TYPE_ACTIONS},
+            ],
+            "insight": "FUNNELS",
+        },
     )
 
 

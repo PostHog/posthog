@@ -6,7 +6,7 @@ import { Card, percentage, Loading } from 'lib/utils'
 import { EntityTypes } from 'scenes/insights/trendsLogic'
 
 export function People() {
-    const { stepsWithCount, peopleSorted, peopleLoading } = useValues(funnelLogic({ id: null }))
+    const { stepsWithCount, peopleSorted, peopleLoading } = useValues(funnelLogic)
 
     return (
         <Card title="Per user">
