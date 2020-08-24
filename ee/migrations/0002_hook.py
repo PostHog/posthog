@@ -10,7 +10,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0077_personalapikey"),
+        ("posthog", "0078_personalapikey"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ("ee", "0001_initial"),
     ]
