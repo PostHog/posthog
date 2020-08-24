@@ -4,6 +4,8 @@ import { toParams } from 'lib/utils'
 import { ViewType } from 'scenes/insights/insightLogic'
 import { SavedFunnel } from '~/types'
 import { funnelsModelType } from './funnelsModelType'
+import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
 const parseSavedFunnel = (result: Record<string, any>): SavedFunnel => {
     return {
@@ -37,6 +39,9 @@ export const funnelsModel = kea<funnelsModelType<SavedFunnel>>({
             },
         },
     }),
+    connect: {
+        actions: [insightHistoryLogic, ['saveInsight'], funnelLogic, ['saveFunnelInsight']],
+    },
     reducers: () => ({
         next: [
             null as null | string,
@@ -67,6 +72,8 @@ export const funnelsModel = kea<funnelsModelType<SavedFunnel>>({
             actions.setNext(response.next)
             actions.appendFunnels(result)
         },
+        saveInsight: () => actions.loadFunnels(),
+        saveFunnelInsight: () => actions.loadFunnels(),
     }),
     events: ({ actions }) => ({
         afterMount: actions.loadFunnels,

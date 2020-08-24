@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Tabs, Modal, Input, Button, List, Col, Spin, Table, Row, Tooltip } from 'antd'
+import { Tabs, Button, List, Col, Spin, Table, Row, Tooltip } from 'antd'
 import { toParams, dateFilterToText } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { PushpinOutlined, PushpinFilled, DeleteOutlined } from '@ant-design/icons'
@@ -10,6 +10,7 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { formatPropertyLabel } from 'lib/utils'
 import { cohortsModel } from '~/models'
 import { PropertyFilter, Entity, CohortType, InsightHistory } from '~/types'
+import SaveModal from '../SaveModal'
 
 const InsightHistoryType = {
     SAVED: 'SAVED',
@@ -122,7 +123,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
 
     const [visible, setVisible] = useState(false)
     const [activeTab, setActiveTab] = useState(InsightHistoryType.RECENT)
-    const [selectedInsight, setSelectedInsight] = useState<number | null>(null)
+    const [selectedInsight, setSelectedInsight] = useState<InsightHistory | null>(null)
 
     const loadMoreInsights = insightsNext ? (
         <div
@@ -206,7 +207,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                                                         className="clickable button-border"
                                                         onClick={() => {
                                                             setVisible(true)
-                                                            setSelectedInsight(insight.id)
+                                                            setSelectedInsight(insight)
                                                         }}
                                                         style={{ cursor: 'pointer' }}
                                                     />
@@ -283,7 +284,11 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                     />
                 </TabPane>
             </Tabs>
-            <SaveChartModal
+            <SaveModal
+                title="Save Chart"
+                prompt="Name of Chart"
+                textLabel="Name"
+                textPlaceholder="DAUs Last 14 days"
                 visible={visible}
                 onCancel={(): void => {
                     setVisible(false)
@@ -298,51 +303,5 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ onChan
                 }}
             />
         </div>
-    )
-}
-
-interface SaveChartModalProps {
-    visible: boolean
-    onCancel: () => void
-    onSubmit: (input: string) => void
-}
-
-const SaveChartModal: React.FC<SaveChartModalProps> = (props) => {
-    const { visible, onCancel, onSubmit } = props
-    const [input, setInput] = useState<string>('')
-
-    function _onCancel(): void {
-        setInput('')
-        onCancel()
-    }
-
-    function _onSubmit(input: string): void {
-        setInput('')
-        onSubmit(input)
-    }
-
-    return (
-        <Modal
-            visible={visible}
-            footer={
-                <Button type="primary" onClick={(): void => _onSubmit(input)}>
-                    Save
-                </Button>
-            }
-            onCancel={_onCancel}
-        >
-            <div data-attr="invite-team-modal">
-                <h2>Save Chart</h2>
-                <label>Name of Chart</label>
-                <Input
-                    name="Name"
-                    required
-                    type="text"
-                    placeholder="DAUs Last 14 days"
-                    value={input}
-                    onChange={(e): void => setInput(e.target.value)}
-                />
-            </div>
-        </Modal>
     )
 }
