@@ -35,12 +35,12 @@ def user(request):
             team.completed_snippet_onboarding = data["team"].get(
                 "completed_snippet_onboarding", team.completed_snippet_onboarding
             )
-            signup_state = data["team"].get("signup_token")
+            # regenerate or disable team signup link
+            signup_state = data["team"].get("signup_state")
             if signup_state == True:
                 team.signup_token = secrets.token_urlsafe(22)
             elif signup_state == False:
                 team.signup_token = None
-
             team.save()
 
         if "user" in data:

@@ -1,48 +1,43 @@
 import React from 'react'
 import { Modal, Switch } from 'antd'
 import { CopyToClipboard } from 'lib/components/CopyToClipboard'
-import api from '../api'
-
-export function TeamInvitationLink({ user }) {
-    return (
-        <CopyToClipboard
-            data-attr="copy-invite-to-clipboard-input"
-            url={window.location.origin + '/signup/' + user.team.signup_token}
-        />
-    )
-}
+import { useActions } from 'kea'
+import { userLogic } from 'scenes/userLogic'
 
 export function TeamInvitationContent({ user }) {
-    const url = window.location.origin
-    const signup_token_state = user['team']['signup_token']
-    const signup_data = `{'team':{'signup_token': ${signup_token_state}}}`
-    if (signup_token_state != null) {
-        return (
-            <div>
-                <p>
-                    <TeamInvitationLink user={user} />
-                </p>
-                Invite teammates with the link above.
-                <br />
-                Build an even better product, <i>together</i>.
-                <br />
-                Link Sharing: <Switch defaultChecked onChange={() => api.update(url, signup_data)} />
-            </div>
-        )
-    } else {
-        return (
-            <div>
-                Link Sharing: <Switch onChange={() => api.update(url, signup_data)} />
-            </div>
-        )
-    }
+    const { userUpdateRequest } = useActions(userLogic)
+    const isSignupEnabled = Boolean(user.team.signup_token)
+
+    return (
+        <div>
+            <p>
+                <CopyToClipboard
+                    data-attr="copy-invite-to-clipboard-input"
+                    url={isSignupEnabled ? window.location.origin + '/signup/' + user.team.signup_token : null}
+                    placeholder={'disabled and revoked – use switch to generate a new link'}
+                    addonBefore="Team Invite Link"
+                    addonAfter={
+                        <Switch
+                            style={{ lineHeight: 0 }}
+                            size="small"
+                            checked={isSignupEnabled}
+                            onChange={() => {
+                                userUpdateRequest({ team: { signup_state: !isSignupEnabled } }, 'team.signup_state')
+                            }}
+                        />
+                    }
+                />
+            </p>
+            Build an even better product <i>together</i>.
+        </div>
+    )
 }
 
 export function TeamInvitationModal({ user, visible, onCancel }) {
     return (
         <Modal visible={visible} footer={null} onCancel={onCancel}>
             <div data-attr="invite-team-modal">
-                <h2>Team Invitation</h2>
+                <h2>Invite Teammate</h2>
                 <TeamInvitationContent user={user} />
             </div>
         </Modal>
