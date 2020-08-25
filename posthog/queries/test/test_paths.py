@@ -46,8 +46,8 @@ class TestPaths(BaseTest):
         Event.objects.create(
             properties={"$current_url": "/pricing"}, distinct_id="person_4", event="$pageview", team=self.team,
         )
-        date_query = request_to_date_query({}, exact=False)
-        response = Paths().run(team=self.team, date_query=date_query)
+        filter = Filter(data={"date_from": "-7d"})
+        response = Paths().run(team=self.team, filter=filter)
         self.assertEqual(response[0]["source"], "1_/", response)
         self.assertEqual(response[0]["target"], "2_/pricing")
         self.assertEqual(response[0]["value"], 2)
@@ -84,15 +84,16 @@ class TestPaths(BaseTest):
         date_to = now() + relativedelta(days=7)
 
         date_params = {"date_from": date_from.strftime("%Y-%m-%d"), "date_to": date_to.strftime("%Y-%m-%d")}
-        date_query = request_to_date_query(date_params, exact=False)
-        response = Paths().run(team=self.team, date_query=date_query)
+
+        filter = Filter(data={**date_params})
+        response = Paths().run(team=self.team, filter=filter)
         self.assertEqual(len(response), 4)
 
         date_from = now() + relativedelta(days=7)
         date_to = now() - relativedelta(days=7)
         date_params = {"date_from": date_from.strftime("%Y-%m-%d"), "date_to": date_to.strftime("%Y-%m-%d")}
-        date_query = request_to_date_query(date_params, exact=False)
-        response = Paths().run(team=self.team, date_query=date_query)
+        filter = Filter(data={**date_params})
+        response = Paths().run(team=self.team, filter=filter)
         self.assertEqual(len(response), 0)
 
     def test_custom_event_paths(self):
@@ -116,8 +117,7 @@ class TestPaths(BaseTest):
         Event.objects.create(distinct_id="person_4", event="custom_event_1", team=self.team)
         Event.objects.create(distinct_id="person_4", event="custom_event_2", team=self.team)
 
-        date_query = request_to_date_query({}, exact=False)
-        response = Paths().run(team=self.team, date_query=date_query, filter=Filter(data={"path_type": "custom_event"}))
+        response = Paths().run(team=self.team, filter=Filter(data={"path_type": "custom_event"}))
 
         self.assertEqual(response[0]["source"], "1_custom_event_1", response)
         self.assertEqual(response[0]["target"], "2_custom_event_2")
@@ -171,8 +171,7 @@ class TestPaths(BaseTest):
             properties={"$screen_name": "/pricing"}, distinct_id="person_4", event="$screen", team=self.team,
         )
 
-        date_query = request_to_date_query({}, exact=False)
-        response = Paths().run(team=self.team, date_query=date_query, filter=Filter(data={"path_type": "$screen"}))
+        response = Paths().run(team=self.team, filter=Filter(data={"path_type": "$screen"}))
         self.assertEqual(response[0]["source"], "1_/", response)
         self.assertEqual(response[0]["target"], "2_/pricing")
         self.assertEqual(response[0]["value"], 2)
@@ -239,8 +238,7 @@ class TestPaths(BaseTest):
                 Element(href="/a-url-2", nth_child=0, nth_of_type=0, order=2),
             ],
         )
-        date_query = request_to_date_query({}, exact=False)
-        response = Paths().run(team=self.team, date_query=date_query, filter=Filter(data={"path_type": "$autocapture"}))
+        response = Paths().run(team=self.team, filter=Filter(data={"path_type": "$autocapture"}))
 
         self.assertEqual(response[0]["source"], "1_<a> hello")
         self.assertEqual(response[0]["target"], "2_<a> goodbye")
@@ -308,8 +306,7 @@ class TestPaths(BaseTest):
 
         filter = Filter(data={"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]})
 
-        date_query = request_to_date_query({}, exact=False)
-        response = Paths().run(team=self.team, filter=filter, date_query=date_query)
+        response = Paths().run(team=self.team, filter=filter)
 
         self.assertEqual(response[0]["source"], "1_/")
         self.assertEqual(response[0]["target"], "2_/about")
@@ -361,11 +358,8 @@ class TestPaths(BaseTest):
 
         response = self.client.get("/api/paths/?type=%24pageview&start=%2Fpricing").json()
 
-        date_query = request_to_date_query({}, exact=False)
         response = Paths().run(
-            team=self.team,
-            date_query=date_query,
-            filter=Filter(data={"path_type": "$pageview", "start_point": "/pricing"}),
+            team=self.team, filter=Filter(data={"path_type": "$pageview", "start_point": "/pricing"}),
         )
 
         for item in response:
@@ -392,8 +386,7 @@ class TestPaths(BaseTest):
                 properties={"$current_url": "/about"}, distinct_id="person_1", event="$pageview", team=self.team,
             )
 
-        date_query = request_to_date_query({"date_from": "2020-04-13"}, exact=False)
-        response = Paths().run(team=self.team, date_query=date_query)
+        response = Paths().run(team=self.team, filter=Filter(data={"date_from": "2020-04-13"}))
 
         self.assertEqual(response[0]["source"], "1_/")
         self.assertEqual(response[0]["target"], "2_/about")

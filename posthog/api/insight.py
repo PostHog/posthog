@@ -225,9 +225,8 @@ class InsightViewSet(viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def path(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = request.user.team_set.get()
-        date_query = request_to_date_query(request.GET, exact=False)
         filter = Filter(request=request)
-        resp = paths.Paths().run(filter=filter, date_query=date_query, team=team)
+        resp = paths.Paths().run(filter=filter, team=team)
         return Response(resp)
 
     # Checks if a dashboard id has been set and if so, update the refresh date
