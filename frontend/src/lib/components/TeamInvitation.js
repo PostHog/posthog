@@ -1,5 +1,5 @@
 import React from 'react'
-=import { CopyToClipboardInput } from 'lib/components/CopyToClipboard'
+import { CopyToClipboardInput } from 'lib/components/CopyToClipboard'
 import { Modal, Switch, Popconfirm } from 'antd'
 import { useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'

@@ -11,7 +11,8 @@ interface InlineProps {
 }
 
 interface InputProps {
-    value?: string
+    value: string
+    placeholder?: string
     description?: string
     isValueSensitive?: boolean
 }
@@ -52,6 +53,7 @@ export function CopyToClipboardInline({
 
 export function CopyToClipboardInput({
     value,
+    placeholder,
     description,
     isValueSensitive = false,
     ...props
@@ -61,14 +63,18 @@ export function CopyToClipboardInput({
             className={isValueSensitive ? 'ph-no-capture' : undefined}
             type="text"
             value={value}
+            placeholder={placeholder || 'nothing to show here'}
+            disabled={!value}
             suffix={
-                <Tooltip title="Copy to Clipboard">
-                    <CopyOutlined
-                        onClick={() => {
-                            copyToClipboard(value, description)
-                        }}
-                    />
-                </Tooltip>
+                value ? (
+                    <Tooltip title="Copy to Clipboard">
+                        <CopyOutlined
+                            onClick={() => {
+                                copyToClipboard(value, description)
+                            }}
+                        />
+                    </Tooltip>
+                ) : null
             }
             {...props}
         />

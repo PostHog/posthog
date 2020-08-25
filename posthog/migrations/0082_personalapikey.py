@@ -11,7 +11,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0077_cohortpeople_id_to_bigautofield"),
+        ("posthog", "0081_person_is_identified"),
     ]
 
     operations = [
