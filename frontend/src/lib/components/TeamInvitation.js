@@ -6,9 +6,10 @@ import { userLogic } from 'scenes/userLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { red } from '@ant-design/colors'
 
-export function TeamInvitationContent({ user }) {
+export function TeamInvitationContent({ user, confirmRevocation = true }) {
     const { userUpdateRequest } = useActions(userLogic)
     const isSignupEnabled = Boolean(user.team.signup_token)
+    const confirmChange = confirmRevocation && isSignupEnabled
 
     return (
         <div>
@@ -27,14 +28,17 @@ export function TeamInvitationContent({ user }) {
                             onConfirm={() => {
                                 userUpdateRequest({ team: { signup_state: false } }, 'team.signup_state')
                             }}
-                            disabled={!isSignupEnabled}
+                            disabled={!confirmChange}
                         >
                             <Switch
                                 size="small"
                                 checked={isSignupEnabled}
                                 onChange={() => {
-                                    if (!isSignupEnabled)
-                                        userUpdateRequest({ team: { signup_state: true } }, 'team.signup_state')
+                                    if (!confirmChange)
+                                        userUpdateRequest(
+                                            { team: { signup_state: !isSignupEnabled } },
+                                            'team.signup_state'
+                                        )
                                 }}
                             />
                         </Popconfirm>
@@ -51,7 +55,10 @@ export function TeamInvitationModal({ user, visible, onCancel }) {
         <Modal visible={visible} footer={null} onCancel={onCancel}>
             <div data-attr="invite-team-modal">
                 <h2>Invite Teammate</h2>
-                <TeamInvitationContent user={user} />
+                <TeamInvitationContent
+                    user={user}
+                    confirmRevocation={false /* Popconfirm doesn't show up properly in Modal */}
+                />
             </div>
         </Modal>
     )
