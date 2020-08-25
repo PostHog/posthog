@@ -1,5 +1,3 @@
-import './AnnotationMarker.scss'
-
 import React, { useState, useEffect, useRef } from 'react'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
@@ -161,7 +159,7 @@ export function AnnotationMarker({
                                     </div>
                                     {(!data.created_by || data.created_by.id === id || data.created_by === 'local') && (
                                         <DeleteOutlined
-                                            className="clickable"
+                                            className="button-border clickable"
                                             onClick={() => {
                                                 onDelete(data)
                                             }}
@@ -227,7 +225,7 @@ export function AnnotationMarker({
                     {label}
                     {focused && (
                         <CloseOutlined
-                            className="clickable"
+                            className="button-border clickable"
                             onClick={() => {
                                 setFocused(false)
                                 onClose?.()

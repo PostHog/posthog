@@ -74,6 +74,15 @@ class PersonViewSet(viewsets.ModelViewSet):
                 Filter(data={"properties": json.loads(request.GET["properties"])}).properties_to_Q(team_id=team.pk)
             )
 
+        queryset_category_pass = None
+        category = request.query_params.get("category")
+        if category == "identified":
+            queryset_category_pass = queryset.filter
+        elif category == "anonymous":
+            queryset_category_pass = queryset.exclude
+        if queryset_category_pass is not None:
+            queryset = queryset_category_pass(is_identified=True)
+
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         return queryset
 

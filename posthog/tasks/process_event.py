@@ -9,6 +9,7 @@ from django.core import serializers
 from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
+from posthog.ee import check_ee_enabled
 from posthog.models import Element, Event, Person, Team
 
 
@@ -112,23 +113,37 @@ def _capture(
     if not team.anonymize_ips:
         properties["$ip"] = ip
 
-    Event.objects.create(
-        event=event,
-        distinct_id=distinct_id,
-        properties=properties,
-        team=team,
-        site_url=site_url,
-        **({"timestamp": timestamp} if timestamp else {}),
-        **({"elements": elements_list} if elements_list else {})
-    )
     _store_names_and_properties(team=team, event=event, properties=properties)
 
-    if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
-        # Catch race condition where in between getting and creating, another request already created this user.
-        try:
-            Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-        except IntegrityError:
-            pass
+    if check_ee_enabled():
+        from ee.clickhouse.process_event import capture_ee
+
+        capture_ee(
+            event=event,
+            distinct_id=distinct_id,
+            properties=properties,
+            site_url=site_url,
+            team=team,
+            **({"timestamp": timestamp} if timestamp else {}),
+            **({"elements": elements_list} if elements_list else {"elements": []})
+        )
+    else:
+        Event.objects.create(
+            event=event,
+            distinct_id=distinct_id,
+            properties=properties,
+            team=team,
+            site_url=site_url,
+            **({"timestamp": timestamp} if timestamp else {}),
+            **({"elements": elements_list} if elements_list else {})
+        )
+
+        if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
+            # Catch race condition where in between getting and creating, another request already created this user.
+            try:
+                Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+            except IntegrityError:
+                pass
 
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
@@ -137,11 +152,25 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
     except Person.DoesNotExist:
         try:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-        # Catch race condition where in between getting and creating, another request already created this user.
+        # Catch race condition where in between getting and creating, another request already created this person
         except:
             person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
     person.properties.update(properties)
     person.save()
+
+
+def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = True) -> None:
+    try:
+        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+    except Person.DoesNotExist:
+        try:
+            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+        # Catch race condition where in between getting and creating, another request already created this person
+        except:
+            person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+    if not person.is_identified:
+        person.is_identified = is_identified
+        person.save()
 
 
 def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[datetime.datetime, str]:
@@ -171,14 +200,14 @@ def process_event(
         _alias(
             previous_distinct_id=data["properties"]["alias"], distinct_id=distinct_id, team_id=team_id,
         )
-
-    if data["event"] == "$identify" and data.get("properties") and data["properties"].get("$anon_distinct_id"):
-        _alias(
-            previous_distinct_id=data["properties"]["$anon_distinct_id"], distinct_id=distinct_id, team_id=team_id,
-        )
-
-    if data["event"] == "$identify" and data.get("$set"):
-        _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
+    elif data["event"] == "$identify":
+        _set_is_identified(team_id=team_id, distinct_id=distinct_id)
+        if data.get("properties") and data["properties"].get("$anon_distinct_id"):
+            _alias(
+                previous_distinct_id=data["properties"]["$anon_distinct_id"], distinct_id=distinct_id, team_id=team_id,
+            )
+        if data.get("$set"):
+            _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
 
     _capture(
         ip=ip,

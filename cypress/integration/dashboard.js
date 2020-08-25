@@ -17,7 +17,7 @@ describe('Dashboards', () => {
         cy.get('[data-attr=share-dashboard-link]')
             .invoke('val')
             .then((link) => {
-                cy.wait(500)
+                cy.wait(200)
                 cy.visit(link)
             })
     })

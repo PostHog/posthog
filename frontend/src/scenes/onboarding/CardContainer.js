@@ -10,7 +10,11 @@ export function CardContainer(props) {
                 title={
                     <Row align="middle" data-attr="wizard-step-counter">
                         {props.index !== 0 && (
-                            <ArrowLeftOutlined className="clickable" onClick={() => props.onBack()}></ArrowLeftOutlined>
+                            <ArrowLeftOutlined
+                                className="button-border clickable"
+                                style={{ marginRight: 4 }}
+                                onClick={() => props.onBack()}
+                            ></ArrowLeftOutlined>
                         )}
                         {`Step ${props.index + 1} ${props.totalSteps ? 'of' : ''} ${
                             props.totalSteps ? props.totalSteps : ''

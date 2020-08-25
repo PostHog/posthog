@@ -1,5 +1,6 @@
 import secrets
 from datetime import datetime
+from distutils.util import strtobool
 from typing import Any, Dict, List
 
 from django.contrib.auth.models import AnonymousUser
@@ -120,7 +121,9 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "last_refresh",
             "refreshing",
             "result",
-            "funnel",
+            "created_at",
+            "saved",
+            "created_by",
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
@@ -129,9 +132,15 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         team = request.user.team_set.get()
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
-        if validated_data["dashboard"].team == team:
-            validated_data.pop("last_refresh", None)
-            dashboard_item = DashboardItem.objects.create(team=team, last_refresh=now(), **validated_data)
+        if not validated_data.get("dashboard", None):
+            dashboard_item = DashboardItem.objects.create(team=team, created_by=request.user, **validated_data)
+            return dashboard_item
+        elif validated_data["dashboard"].team == team:
+            filter_data = validated_data.pop("filters", None)
+            filters = Filter(data=filter_data) if filter_data else None
+            dashboard_item = DashboardItem.objects.create(
+                team=team, last_refresh=now(), filters=filters.to_dict() if filters else {}, **validated_data
+            )
             return dashboard_item
         else:
             raise serializers.ValidationError("Dashboard not found")
@@ -142,7 +151,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         filter = Filter(data=dashboard_item.filters)
         cache_key = generate_cache_key(filter.toJSON() + "_" + str(dashboard_item.team_id))
         result = cache.get(cache_key)
-        if not result:
+        if not result or result.get("task_id", None):
             return None
         return result["result"]
 
@@ -155,7 +164,28 @@ class DashboardItemsViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         if self.action == "list":  # type: ignore
             queryset = queryset.filter(deleted=False)
-        return queryset.filter(team=self.request.user.team_set.get()).order_by("order")
+            queryset = self._filter_request(self.request, queryset)
+
+        order = self.request.GET.get("order", None)
+        if order:
+            queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("order")
+
+        return queryset.filter(team=self.request.user.team_set.get())
+
+    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
+        filters = request.GET.dict()
+
+        for key in filters:
+            if key == "saved":
+                queryset = queryset.filter(saved=bool(strtobool(str(request.GET["saved"]))))
+            elif key == "user":
+                queryset = queryset.filter(created_by=request.user)
+            elif key == "insight":
+                queryset = queryset.filter(filters__insight=request.GET["insight"])
+
+        return queryset
 
     @action(methods=["patch"], detail=False)
     def layouts(self, request):
