@@ -1,5 +1,6 @@
 from datetime import timedelta
-from unittest.mock import call, patch
+from typing import Any
+from unittest.mock import patch
 
 from django.test import TransactionTestCase
 from django.utils.timezone import now
@@ -52,7 +53,7 @@ class ProcessEvent(BaseTest):
             )
 
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
-        event = Event.objects.last()
+        event = Event.objects.order_by("-pk")[0]
         self.assertEqual(event.event, "$autocapture")
         elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by("order")
         self.assertEqual(elements[0].tag_name, "a")
@@ -448,7 +449,7 @@ class ProcessEvent(BaseTest):
         self.assertEqual(len(Element.objects.get().text), 400)
 
     @patch("posthog.tasks.process_event.posthoganalytics.capture")
-    def test_capture_first_team_event(self, mock) -> None:
+    def test_capture_first_team_event(self, mock: Any) -> None:
         """
         Assert that we report to posthoganalytics the first event ingested by a team.
         """
