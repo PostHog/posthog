@@ -4,6 +4,7 @@ import { SelectorCount } from '~/toolbar/actions/SelectorCount'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { UrlMatchingToggle } from '~/toolbar/actions/UrlMatchingToggle'
 import { ActionStepForm } from '~/toolbar/types'
+import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 
 interface StepFieldProps {
     item: 'href' | 'text' | 'selector' | 'url'
@@ -42,6 +43,9 @@ export function StepField({ field, step, item, label }: StepFieldProps): JSX.Ele
             <Form.Item name={[field.name, item]} fieldKey={([field.fieldKey, item] as unknown) as number}>
                 {item === 'selector' ? <Input.TextArea autoSize style={fieldStyle} /> : <Input style={fieldStyle} />}
             </Form.Item>
+            {item === 'url' && step?.url_matching && step.url_matching in URL_MATCHING_HINTS ? (
+                <div className="action-field-hint">{URL_MATCHING_HINTS[step.url_matching]}</div>
+            ) : null}
         </div>
     )
 }

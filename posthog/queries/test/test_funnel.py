@@ -1,86 +1,10 @@
 from unittest.mock import patch
 
-from django.core.cache import cache
-
-from posthog.models import Action, ActionStep, Element, Event, Funnel, Person
+from posthog.api.test.base import BaseTest
+from posthog.models import Action, ActionStep, Element, Event, Person
+from posthog.models.filter import Filter
+from posthog.queries.funnel import Funnel
 from posthog.tasks.update_cache import update_cache_item
-from posthog.utils import generate_cache_key
-
-from .base import BaseTest
-
-
-@patch("posthog.celery.update_cache_item_task.delay", update_cache_item)
-class TestCreateFunnel(BaseTest):
-    TESTS_API = True
-
-    def test_create_funnel(self):
-        action_sign_up = Action.objects.create(team=self.team, name="signed up")
-        ActionStep.objects.create(action=action_sign_up, tag_name="button", text="Sign up!")
-        action_credit_card = Action.objects.create(team=self.team, name="paid")
-        ActionStep.objects.create(action=action_credit_card, tag_name="button", text="Pay $10")
-        action_play_movie = Action.objects.create(team=self.team, name="watched movie")
-        ActionStep.objects.create(action=action_play_movie, tag_name="a", href="/movie")
-        action_logout = Action.objects.create(team=self.team, name="user logged out")
-
-        [action.calculate_events() for action in Action.objects.all()]
-
-        response = self.client.post(
-            "/api/funnel/",
-            data={
-                "name": "Whatever",
-                "filters": {
-                    "events": [{"id": "user signed up", "type": "events", "order": 0},],
-                    "actions": [{"id": action_sign_up.pk, "type": "actions", "order": 1},],
-                },
-            },
-            content_type="application/json",
-        ).json()
-        funnels = Funnel.objects.get()
-        self.assertEqual(funnels.filters["actions"][0]["id"], action_sign_up.pk)
-        self.assertEqual(funnels.filters["events"][0]["id"], "user signed up")
-        self.assertEqual(funnels.get_steps()[0]["order"], 0)
-        self.assertEqual(funnels.get_steps()[1]["order"], 1)
-
-    def test_create_funnel_element_filters(self):
-        self.client.post(
-            "/api/funnel/",
-            data={
-                "name": "Whatever",
-                "filters": {
-                    "events": [
-                        {
-                            "id": "$autocapture",
-                            "name": "$autocapture",
-                            "type": "events",
-                            "order": 0,
-                            "properties": [{"key": "text", "type": "element", "value": "Sign up"}],
-                        }
-                    ]
-                },
-            },
-            content_type="application/json",
-        ).json()
-        funnels = Funnel.objects.get()
-        self.assertEqual(funnels.filters["events"][0]["id"], "$autocapture")
-        self.assertEqual(funnels.get_steps()[0]["order"], 0)
-
-    def test_delete_funnel(self):
-        funnel = Funnel.objects.create(team=self.team)
-        response = self.client.patch(
-            "/api/funnel/%s/" % funnel.pk, data={"deleted": True, "steps": []}, content_type="application/json",
-        ).json()
-        response = self.client.get("/api/funnel/").json()
-        self.assertEqual(len(response["results"]), 0)
-
-    # Autosaving in frontend means funnel without steps get created
-    def test_create_and_update_funnel_no_steps(self):
-        response = self.client.post("/api/funnel/", data={"name": "Whatever"}, content_type="application/json").json()
-        self.assertEqual(Funnel.objects.get().name, "Whatever")
-
-        response = self.client.patch(
-            "/api/funnel/%s/" % response["id"], data={"name": "Whatever2"}, content_type="application/json",
-        ).json()
-        self.assertEqual(Funnel.objects.get().name, "Whatever2")
 
 
 @patch("posthog.celery.update_cache_item_task.delay", update_cache_item)
@@ -105,8 +29,8 @@ class TestGetFunnel(BaseTest):
         if properties is not None:
             filters.update({"properties": properties})
 
-        funnel = Funnel.objects.create(team=self.team, name="funnel", filters=filters)
-        return funnel
+        filter = Filter(data=filters)
+        return Funnel(filter=filter, team=self.team)
 
     def _basic_funnel(self, properties=None, filters=None):
         action_credit_card = Action.objects.create(team=self.team, name="paid")
@@ -126,8 +50,8 @@ class TestGetFunnel(BaseTest):
         if properties is not None:
             filters.update({"properties": properties})
 
-        funnel = Funnel.objects.create(team=self.team, name="funnel", filters=filters)
-        return funnel
+        filter = Filter(data=filters)
+        return Funnel(filter=filter, team=self.team)
 
     def test_funnel_with_single_step(self):
         funnel = self._single_step_funnel()
@@ -139,13 +63,13 @@ class TestGetFunnel(BaseTest):
         person2_stopped_after_signup = Person.objects.create(distinct_ids=["stopped_after_signup2"], team=self.team)
         self._signup_event(distinct_id="stopped_after_signup2")
 
-        with self.assertNumQueries(6):
-            response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
-        self.assertEqual(response["steps"][0]["name"], "user signed up")
-        self.assertEqual(response["steps"][0]["count"], 2)
+        with self.assertNumQueries(1):
+            result = funnel.run()
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[0]["count"], 2)
         # check ordering of people in first step
         self.assertEqual(
-            response["steps"][0]["people"], [person1_stopped_after_signup.pk, person2_stopped_after_signup.pk],
+            result[0]["people"], [person1_stopped_after_signup.pk, person2_stopped_after_signup.pk],
         )
 
     def test_funnel_events(self):
@@ -176,13 +100,12 @@ class TestGetFunnel(BaseTest):
 
         self._signup_event(distinct_id="a_user_that_got_deleted_or_doesnt_exist")
 
-        with self.assertNumQueries(8):
-            response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
-        self.assertEqual(response["steps"][0]["name"], "user signed up")
-        self.assertEqual(response["steps"][0]["count"], 4)
+        result = funnel.run()
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[0]["count"], 4)
         # check ordering of people in first step
         self.assertEqual(
-            response["steps"][0]["people"],
+            result[0]["people"],
             [
                 person_stopped_after_movie.pk,
                 person_stopped_after_pay.pk,
@@ -190,27 +113,27 @@ class TestGetFunnel(BaseTest):
                 person_wrong_order.pk,
             ],
         )
-        self.assertEqual(response["steps"][1]["name"], "paid")
-        self.assertEqual(response["steps"][1]["count"], 2)
-        self.assertEqual(response["steps"][2]["name"], "watched movie")
-        self.assertEqual(response["steps"][2]["count"], 1)
-        self.assertEqual(response["steps"][2]["people"], [person_stopped_after_movie.pk])
+        self.assertEqual(result[1]["name"], "paid")
+        self.assertEqual(result[1]["count"], 2)
+        self.assertEqual(result[2]["name"], "watched movie")
+        self.assertEqual(result[2]["count"], 1)
+        self.assertEqual(result[2]["people"], [person_stopped_after_movie.pk])
 
         # make sure it's O(n)
         person_wrong_order = Person.objects.create(distinct_ids=["badalgo"], team=self.team)
         self._signup_event(distinct_id="badalgo")
-        with self.assertNumQueries(8):
-            response = self.client.get("/api/funnel/{}/?refresh=true".format(funnel.pk)).json()
+        with self.assertNumQueries(3):
+            funnel.run()
 
         self._pay_event(distinct_id="badalgo")
-        with self.assertNumQueries(8):
-            response = self.client.get("/api/funnel/{}/?refresh=true".format(funnel.pk)).json()
+        with self.assertNumQueries(3):
+            funnel.run()
 
     def test_funnel_no_events(self):
         funnel = self._basic_funnel()
 
-        with self.assertNumQueries(8):
-            response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
+        with self.assertNumQueries(3):
+            funnel.run()
 
     def test_funnel_skipped_step(self):
         funnel = self._basic_funnel()
@@ -219,9 +142,9 @@ class TestGetFunnel(BaseTest):
         self._signup_event(distinct_id="wrong_order")
         self._movie_event(distinct_id="wrong_order")
 
-        response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
-        self.assertEqual(response["steps"][1]["count"], 0)
-        self.assertEqual(response["steps"][2]["count"], 0)
+        result = funnel.run()
+        self.assertEqual(result[1]["count"], 0)
+        self.assertEqual(result[2]["count"], 0)
 
     def test_funnel_prop_filters(self):
         funnel = self._basic_funnel(properties={"$browser": "Safari"})
@@ -241,9 +164,9 @@ class TestGetFunnel(BaseTest):
         self._signup_event(distinct_id="half_property", properties={"$browser": "Safari"})
         self._pay_event(distinct_id="half_property")
 
-        response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
-        self.assertEqual(response["steps"][0]["count"], 2)
-        self.assertEqual(response["steps"][1]["count"], 1)
+        result = funnel.run()
+        self.assertEqual(result[0]["count"], 2)
+        self.assertEqual(result[1]["count"], 1)
 
     def test_funnel_prop_filters_per_entity(self):
         action_credit_card = Action.objects.create(team=self.team, name="paid")
@@ -295,49 +218,8 @@ class TestGetFunnel(BaseTest):
         self._pay_event(distinct_id="half_property")
         self._movie_event(distinct_id="half_property")
 
-        response = self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
-        self.assertEqual(response["steps"][0]["count"], 1)
-        self.assertEqual(response["steps"][1]["count"], 1)
-        self.assertEqual(response["steps"][2]["count"], 0)
+        result = funnel.run()
 
-    def test_cached_funnel(self):
-        action_sign_up = Action.objects.create(team=self.team, name="signed up")
-        ActionStep.objects.create(action=action_sign_up, tag_name="button", text="Sign up!")
-        action_credit_card = Action.objects.create(team=self.team, name="paid")
-        ActionStep.objects.create(action=action_credit_card, tag_name="button", text="Pay $10")
-        action_play_movie = Action.objects.create(team=self.team, name="watched movie")
-        ActionStep.objects.create(action=action_play_movie, tag_name="a", href="/movie")
-        Action.objects.create(team=self.team, name="user logged out")
-
-        [action.calculate_events() for action in Action.objects.all()]
-
-        self.client.post(
-            "/api/funnel/",
-            data={
-                "name": "Whatever",
-                "filters": {
-                    "events": [{"id": "user signed up", "type": "events", "order": 0},],
-                    "actions": [{"id": action_sign_up.pk, "type": "actions", "order": 1},],
-                },
-            },
-            content_type="application/json",
-        ).json()
-        funnel = Funnel.objects.get()
-
-        funnel_key = generate_cache_key("funnel_{}_{}".format(funnel.pk, self.team.pk))
-
-        # no refresh after getting
-        self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
-        original_name = cache.get(funnel_key)["result"]["name"]
-
-        self.client.patch(
-            "/api/funnel/{}/".format(funnel.pk), data={"name": "Whatever2"}, content_type="application/json"
-        ).json()
-
-        self.client.get("/api/funnel/{}/".format(funnel.pk)).json()
-        refreshed_name = cache.get(funnel_key)["result"]["name"]
-        self.assertEqual("Whatever", refreshed_name)
-
-        self.client.get("/api/funnel/{}/?refresh=true".format(funnel.pk)).json()
-        refreshed_name = cache.get(funnel_key)["result"]["name"]
-        self.assertEqual("Whatever2", refreshed_name)
+        self.assertEqual(result[0]["count"], 1)
+        self.assertEqual(result[1]["count"], 1)
+        self.assertEqual(result[2]["count"], 0)

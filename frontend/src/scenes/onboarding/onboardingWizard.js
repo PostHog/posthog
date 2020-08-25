@@ -108,9 +108,9 @@ const content = {
     PLATFORM_TYPE: function CreatePlatformPanel(props) {
         return (
             <CardContainer index={0}>
-                <h1>Welcome to Posthog</h1>
+                <h1>Welcome to PostHog</h1>
                 <p className="prompt-text">
-                    Let's get you up and running with Posthog! What type of platform is your app? (You can connect to
+                    Let's get you up and running with PostHog! What type of platform is your app? (You can connect to
                     multi-deployments later)
                 </p>
                 <Row>
@@ -169,7 +169,7 @@ const content = {
                 </Row>
                 <Row align="middle" style={{ float: 'right', marginTop: 8 }}>
                     Don't see a supported framework?
-                    <b style={{ marginLeft: 5 }} className="clickable" onClick={() => onApiContinue()}>
+                    <b style={{ marginLeft: 5 }} className="button-border clickable" onClick={() => onApiContinue()}>
                         Continue with API
                     </b>
                 </Row>
@@ -277,7 +277,7 @@ function VerificationPanel({ reverse }) {
                     <b
                         data-attr="wizard-complete-button"
                         style={{ float: 'right' }}
-                        className="clickable"
+                        className="button-border clickable"
                         onClick={() => userUpdateRequest({ team: { completed_snippet_onboarding: true } })}
                     >
                         Continue without verifying
@@ -287,7 +287,7 @@ function VerificationPanel({ reverse }) {
                 <>
                     <h2>Successfully sent events!</h2>
                     <p className="prompt-text">
-                        You will now be able to explore Posthog and take advantage of all its features to understand
+                        You will now be able to explore PostHog and take advantage of all its features to understand
                         your users.
                     </p>
                     <Button
@@ -312,7 +312,7 @@ function AutocapturePanel({ user, onSubmit, reverse, onCustomContinue }) {
                 <b
                     style={{ marginLeft: 5, color: '#007bff', marginBottom: 10, marginRight: 0 }}
                     onClick={onCustomContinue}
-                    className="clickable"
+                    className="button-border clickable"
                 >
                     {'I also want to capture Custom Events'}
                 </b>
@@ -352,10 +352,10 @@ function InstructionsPanel({ user, onSubmit, reverse, platformType, framework })
     if (framework === PURE_JS) {
         return (
             <CardContainer index={2} totalSteps={4} nextButton={true} onSubmit={onSubmit} onBack={reverse}>
-                <h2>Posthog-JS</h2>
+                <h2>posthog-js</h2>
                 <p className="prompt-text">
                     {
-                        'Posthog-JS will automatically capture page views, page leaves, and interactions with specific elements (<a>, <button>, <input>, <textarea>, <form>)'
+                        'posthog-js will automatically capture page views, page leaves, and interactions with specific elements (<a>, <button>, <input>, <textarea>, <form>)'
                     }
                 </p>
                 {webFrameworksSnippet[framework]({ user })}

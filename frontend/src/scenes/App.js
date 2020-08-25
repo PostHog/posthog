@@ -14,7 +14,7 @@ const OnboardingWizard = lazy(() => import('~/scenes/onboarding/onboardingWizard
 import BillingToolbar from 'lib/components/BillingToolbar'
 
 import { userLogic } from 'scenes/userLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { sceneLogic, unauthenticatedRoutes } from 'scenes/sceneLogic'
 import { SceneLoading } from 'lib/utils'
 import { router } from 'kea-router'
 
@@ -50,6 +50,10 @@ function App() {
     useEffect(() => {
         setImage(urlBackgroundMap[location.pathname])
     }, [location.pathname])
+
+    if (unauthenticatedRoutes.includes(scene)) {
+        return <Scene {...params} />
+    }
 
     if (!user) {
         return null
