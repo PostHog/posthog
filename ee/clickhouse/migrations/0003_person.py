@@ -1,7 +1,7 @@
 from django_clickhouse import migrations
 
 PERSON_SQL = """
-CREATE TABLE default.person
+CREATE TABLE person
 (
     id UUID,
     created_at datetime,
@@ -12,7 +12,7 @@ Order By (id)
 """
 
 PERSON_DISTINCT_ID_SQL = """
-CREATE TABLE default.person_distinct_id
+CREATE TABLE person_distinct_id
 (
     id UUID,
     distinct_id VARCHAR,
