@@ -28,7 +28,9 @@ class ProcessEvent(BaseTest):
         ActionStep.objects.create(action=action2, selector="a", event="$autocapture")
         team_id = self.team.pk
 
-        with self.assertNumQueries(21):
+        Event.objects.create(team=self.team)  # create one event to avoid sending `first event ingested` to PostHog
+
+        with self.assertNumQueries(22):
             process_event(
                 2,
                 "",
@@ -50,7 +52,7 @@ class ProcessEvent(BaseTest):
             )
 
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
-        event = Event.objects.get()
+        event = Event.objects.last()
         self.assertEqual(event.event, "$autocapture")
         elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by("order")
         self.assertEqual(elements[0].tag_name, "a")
@@ -444,6 +446,35 @@ class ProcessEvent(BaseTest):
         )
         self.assertEqual(len(Element.objects.get().href), 2048)
         self.assertEqual(len(Element.objects.get().text), 400)
+
+    @patch("posthog.tasks.process_event.posthoganalytics.capture")
+    def test_capture_first_team_event(self, mock) -> None:
+        """
+        Assert that we report to posthoganalytics the first event ingested by a team.
+        """
+        team = Team.objects.create(api_token="token456")
+        user = User.objects.create_user("testuser@posthog.com")
+        team.users.add(user)
+        team.save()
+
+        process_event(
+            2,
+            "",
+            "",
+            {
+                "event": "$autocapture",
+                "properties": {
+                    "distinct_id": 1,
+                    "token": team.api_token,
+                    "$elements": [{"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},],
+                },
+            },
+            team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+
+        mock.assert_called_once_with(user.distinct_id, "first event ingested")
 
 
 class TestIdentify(TransactionTestCase):

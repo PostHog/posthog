@@ -2,6 +2,7 @@ import datetime
 from numbers import Number
 from typing import Dict, Optional, Union
 
+import posthoganalytics
 from celery import shared_task
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
@@ -9,7 +10,7 @@ from django.core import serializers
 from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
-from posthog.models import Element, Event, Person, Team
+from posthog.models import Element, Event, Person, Team, User
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
@@ -193,6 +194,11 @@ def process_event(
             )
         if data.get("$set"):
             _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
+
+    if not Event.objects.filter(team_id=team_id).exists():
+        # Capture first event for the team
+        for user in Team.objects.get(pk=team_id).users.all():
+            posthoganalytics.capture(user.distinct_id, "first event ingested")
 
     _capture(
         ip=ip,

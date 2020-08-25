@@ -57,6 +57,7 @@ def user(request):
                     "toolbar_mode": request.user.toolbar_mode,
                     "billing_plan": request.user.billing_plan,
                     "is_team_unique_user": (team.users.count() == 1),
+                    "team_setup_complete": (team.completed_snippet_onboarding and team.event_set.exists()),
                 },
             )
             request.user.save()
