@@ -44,7 +44,7 @@ class TestUser(BaseTest):
     def test_user_team_update_signup_token(self, patch_token):
         patch_token.return_value = "abcde"
         response = self.client.patch(
-            "/api/user/", data={"team": {"signup_token": False}}, content_type="application/json",
+            "/api/user/", data={"team": {"signup_state": False}}, content_type="application/json",
         ).json()
 
         self.assertEqual(response["team"]["signup_token"], None)
@@ -53,7 +53,7 @@ class TestUser(BaseTest):
         self.assertEqual(team.signup_token, None)
 
         response = self.client.patch(
-            "/api/user/", data={"team": {"signup_token": True}}, content_type="application/json",
+            "/api/user/", data={"team": {"signup_state": True}}, content_type="application/json",
         ).json()
 
         self.assertEqual(response["team"]["signup_token"], "abcde")
