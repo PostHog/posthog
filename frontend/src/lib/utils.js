@@ -219,6 +219,16 @@ export function isOperatorFlag(operator) {
     return ['is_set', 'is_not_set'].includes(operator)
 }
 
+export function formatPropertyLabel(item, cohorts, keyMapping) {
+    const { value, key, operator, type } = item
+    return type === 'cohort'
+        ? cohorts?.find((cohort) => cohort.id === value)?.name || value
+        : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
+              (isOperatorFlag(operator)
+                  ? ` ${operatorMap[operator]}`
+                  : ` ${(operatorMap[operator || 'exact'] || '?').split(' ')[0]} ${value || ''}`)
+}
+
 export const formatProperty = (property) => {
     return property.key + ` ${operatorMap[property.operator || 'exact'].split(' ')[0]} ` + property.value
 }
@@ -359,6 +369,34 @@ export function determineDifferenceType(firstDate, secondDate) {
     else if (first.diff(second, 'days') !== 0) return 'day'
     else if (first.diff(second, 'hours') !== 0) return 'hour'
     else return 'minute'
+}
+
+export const dateMapping = {
+    Today: ['dStart'],
+    Yesterday: ['-1d', 'dStart'],
+    'Last 24 hours': ['-24h'],
+    'Last 48 hours': ['-48h'],
+    'Last week': ['-7d'],
+    'Last 2 weeks': ['-14d'],
+    'Last 30 days': ['-30d'],
+    'Last 90 days': ['-90d'],
+    'This month': ['mStart'],
+    'Previous month': ['-1mStart', '-1mEnd'],
+    'Year to date': ['yStart'],
+    'All time': ['all'],
+}
+
+export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
+
+export function dateFilterToText(date_from, date_to) {
+    if (isDate.test(date_from)) return `${date_from} - ${date_to}`
+    if (moment.isMoment(date_from)) return `${date_from.format('YYYY-MM-DD')} - ${date_to.format('YYYY-MM-DD')}`
+    if (date_from === 'dStart') return 'Today' // Changed to "last 24 hours" but this is backwards compatibility
+    let name = 'Last 7 days'
+    Object.entries(dateMapping).map(([key, value]) => {
+        if (value[0] === date_from && value[1] === date_to) name = key
+    })[0]
+    return name
 }
 
 export function humanizeNumber(number, digits = 1) {

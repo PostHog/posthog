@@ -51,8 +51,14 @@ def user(request):
             team.slack_incoming_webhook = data["team"].get("slack_incoming_webhook", team.slack_incoming_webhook)
             team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
             team.completed_snippet_onboarding = data["team"].get(
-                "completed_snippet_onboarding", team.completed_snippet_onboarding
+                "completed_snippet_onboarding", team.completed_snippet_onboarding,
             )
+            # regenerate or disable team signup link
+            signup_state = data["team"].get("signup_state")
+            if signup_state == True:
+                team.signup_token = secrets.token_urlsafe(22)
+            elif signup_state == False:
+                team.signup_token = None
             team.save()
 
         if "user" in data:
@@ -66,6 +72,9 @@ def user(request):
                     "anonymize_data": request.user.anonymize_data,
                     "email": request.user.email if not request.user.anonymize_data else None,
                     "is_signed_up": True,
+                    "toolbar_mode": request.user.toolbar_mode,
+                    "billing_plan": request.user.billing_plan,
+                    "is_team_unique_user": (team.users.count() == 1),
                 },
             )
             request.user.save()
