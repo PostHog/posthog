@@ -1,10 +1,10 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { insightHistoryLogicType } from './insightHistoryLogicType'
 import { toParams, deleteWithUndo } from 'lib/utils'
 import { ViewType } from '../insightLogic'
 import { toast } from 'react-toastify'
 import { InsightHistory } from '~/types'
+import { insightHistoryLogicType } from 'types/scenes/insights/InsightHistoryPanel/insightHistoryLogicType'
 
 const typeToInsightMap: Record<string, string> = {
     ActionsLineGraph: ViewType.TRENDS,
@@ -142,7 +142,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
     }),
     actions: () => ({
         createInsight: (filters: Record<string, any>) => ({ filters }),
-        saveInsight: (id: number, name: string) => ({ id, name }),
+        saveInsight: (insight: InsightHistory, name: string) => ({ insight, name }),
         deleteInsight: (insight: InsightHistory) => ({ insight }),
         loadNextInsights: true,
         loadNextSavedInsights: true,
@@ -161,7 +161,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             })
             actions.loadInsights()
         },
-        saveInsight: async ({ id, name }) => {
+        saveInsight: async ({ insight: { id }, name }) => {
             await api.update(`api/insight/${id}`, {
                 name,
                 saved: true,

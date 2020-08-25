@@ -1,25 +1,51 @@
 import React from 'react'
-import { Modal } from 'antd'
+import { Modal, Switch, Popconfirm } from 'antd'
 import { CopyToClipboard } from 'lib/components/CopyToClipboard'
+import { useActions } from 'kea'
+import { userLogic } from 'scenes/userLogic'
+import { InfoCircleOutlined } from '@ant-design/icons'
+import { red } from '@ant-design/colors'
 
-export function TeamInvitationLink({ user }) {
-    return (
-        <CopyToClipboard
-            data-attr="copy-invite-to-clipboard-input"
-            url={window.location.origin + '/signup/' + user.team.signup_token}
-        />
-    )
-}
+export function TeamInvitationContent({ user, confirmRevocation = true }) {
+    const { userUpdateRequest } = useActions(userLogic)
+    const isSignupEnabled = Boolean(user.team.signup_token)
+    const confirmChange = confirmRevocation && isSignupEnabled
 
-export function TeamInvitationContent({ user }) {
     return (
         <div>
             <p>
-                <TeamInvitationLink user={user} />
+                <CopyToClipboard
+                    data-attr="copy-invite-to-clipboard-input"
+                    url={isSignupEnabled ? window.location.origin + '/signup/' + user.team.signup_token : null}
+                    placeholder="disabled and revoked – switch on to generate a new link"
+                    addonBefore="Team Invite Link"
+                    addonAfter={
+                        <Popconfirm
+                            title="Revoke current link globally?"
+                            okText="Revoke"
+                            okType="danger"
+                            icon={<InfoCircleOutlined style={{ color: red.primary }} />}
+                            onConfirm={() => {
+                                userUpdateRequest({ team: { signup_state: false } }, 'team.signup_state')
+                            }}
+                            disabled={!confirmChange}
+                        >
+                            <Switch
+                                size="small"
+                                checked={isSignupEnabled}
+                                onChange={() => {
+                                    if (!confirmChange)
+                                        userUpdateRequest(
+                                            { team: { signup_state: !isSignupEnabled } },
+                                            'team.signup_state'
+                                        )
+                                }}
+                            />
+                        </Popconfirm>
+                    }
+                />
             </p>
-            Invite teammates with the link above.
-            <br />
-            Build an even better product, <i>together</i>.
+            Build an even better product <i>together</i>.
         </div>
     )
 }
@@ -28,8 +54,11 @@ export function TeamInvitationModal({ user, visible, onCancel }) {
     return (
         <Modal visible={visible} footer={null} onCancel={onCancel}>
             <div data-attr="invite-team-modal">
-                <h2>Team Invitation</h2>
-                <TeamInvitationContent user={user} />
+                <h2>Invite Teammate</h2>
+                <TeamInvitationContent
+                    user={user}
+                    confirmRevocation={false /* Popconfirm doesn't show up properly in Modal */}
+                />
             </div>
         </Modal>
     )

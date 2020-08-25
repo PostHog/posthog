@@ -53,6 +53,7 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
         )
         if index % 3 == 0:
             person.properties.update(demo_data[demo_data_index])
+            person.is_identified = True
             person.save()
             demo_data_index += 1
             Event.objects.create(

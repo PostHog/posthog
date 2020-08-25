@@ -3,7 +3,7 @@ import { toast } from 'react-toastify'
 import { Tooltip, Input } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
 
-export function CopyToClipboard({ url, ...props }) {
+export function CopyToClipboard({ url, placeholder, addonBefore, addonAfter, ...props }) {
     const urlRef = useRef()
 
     function copyToClipboard() {
@@ -19,11 +19,17 @@ export function CopyToClipboard({ url, ...props }) {
             type="text"
             ref={urlRef}
             value={url}
+            placeholder={placeholder || 'nothing to show here'}
+            disabled={!url}
             suffix={
-                <Tooltip title="Copy to Clipboard">
-                    <CopyOutlined onClick={copyToClipboard} />
-                </Tooltip>
+                url ? (
+                    <Tooltip title="Copy to Clipboard">
+                        <CopyOutlined onClick={copyToClipboard} />
+                    </Tooltip>
+                ) : null
             }
+            addonBefore={addonBefore}
+            addonAfter={addonAfter}
             {...props}
         />
     )

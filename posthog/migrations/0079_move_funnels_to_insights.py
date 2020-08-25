@@ -41,7 +41,7 @@ def reverse(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0077_auto_20200731_1323"),
+        ("posthog", "0078_auto_20200731_1323"),
     ]
 
     operations = [migrations.RunPython(forward, reverse)]

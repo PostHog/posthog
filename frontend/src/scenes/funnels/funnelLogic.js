@@ -47,6 +47,7 @@ export const funnelLogic = kea({
         clearFunnel: true,
         setFilters: (filters, refresh = false) => ({ filters, refresh }),
         loadFunnel: true,
+        saveFunnelInsight: (name) => ({ name }),
     }),
 
     connect: {
@@ -136,6 +137,13 @@ export const funnelLogic = kea({
 
             const result = await pollFunnel(cleanedParams)
             actions.setSteps(result)
+        },
+        saveFunnelInsight: async ({ name }) => {
+            await api.create('api/insight', {
+                filters: values.filters,
+                name,
+                saved: true,
+            })
         },
         clearFunnel: async () => {
             actions.setAllFilters({})

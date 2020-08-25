@@ -8,12 +8,22 @@ import { userLogic } from 'scenes/userLogic'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { Link } from 'lib/components/Link'
 import { Button, Row } from 'antd'
+import { useState } from 'react'
+import SaveModal from '../SaveModal'
 
 export function FunnelTab(): JSX.Element {
-    const { isStepsEmpty, filters } = useValues(funnelLogic)
-    const { loadFunnel, clearFunnel, setFilters } = useActions(funnelLogic)
+    const { isStepsEmpty, filters, stepsWithCount } = useValues(funnelLogic)
+    const { loadFunnel, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic)
     const { actions, actionsLoading } = useValues(actionsModel)
     const { eventProperties } = useValues(userLogic)
+    const [savingModal, setSavingModal] = useState<boolean>(false)
+
+    const showModal = (): void => setSavingModal(true)
+    const closeModal = (): void => setSavingModal(false)
+    const onSubmit = (input: string): void => {
+        saveFunnelInsight(input)
+        closeModal()
+    }
 
     return (
         <div data-attr="funnel-tab">
@@ -49,17 +59,38 @@ export function FunnelTab(): JSX.Element {
                     style={{ marginBottom: 20 }}
                 />
                 <hr />
-                <Row justify="start">
-                    <Button type="primary" htmlType="submit" disabled={isStepsEmpty} data-attr="save-funnel-button">
-                        Calculate
-                    </Button>
-                    {!isStepsEmpty && (
-                        <Button onClick={(): void => clearFunnel()} data-attr="save-funnel-clear-button">
-                            Clear
+                <Row justify="space-between">
+                    <Row justify="start">
+                        <Button
+                            className="mr-1"
+                            type="primary"
+                            htmlType="submit"
+                            disabled={isStepsEmpty}
+                            data-attr="save-funnel-button"
+                        >
+                            Calculate
+                        </Button>
+                        {!isStepsEmpty && (
+                            <Button onClick={(): void => clearFunnel()} data-attr="save-funnel-clear-button">
+                                Clear
+                            </Button>
+                        )}
+                    </Row>
+                    {!isStepsEmpty && Array.isArray(stepsWithCount) && !!stepsWithCount.length && (
+                        <Button type="primary" onClick={showModal}>
+                            Save
                         </Button>
                     )}
                 </Row>
             </form>
+            <SaveModal
+                title="Save Funnel"
+                prompt="Enter the name of the funnel"
+                textLabel="Name"
+                visible={savingModal}
+                onCancel={closeModal}
+                onSubmit={onSubmit}
+            />
         </div>
     )
 }
