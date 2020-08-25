@@ -97,7 +97,6 @@ INSERT INTO events SELECT generateUUIDv4(), '{event}', '{properties}', parseDate
 def _create_event(
     event: str, properties: Dict, timestamp: Union[datetime, str], team: Team, element_hash: str, distinct_id: str
 ) -> None:
-    print(event)
     query = INSERT_EVENT_SQL.format(
         event=event,
         properties=json.dumps(properties),
