@@ -14,7 +14,7 @@ export function TeamInvitationContent({ user }) {
                 <CopyToClipboard
                     data-attr="copy-invite-to-clipboard-input"
                     url={isSignupEnabled ? window.location.origin + '/signup/' + user.team.signup_token : null}
-                    placeholder={'disabled and revoked – use switch to generate a new link'}
+                    placeholder="disabled and revoked – switch on to generate a new link"
                     addonBefore="Team Invite Link"
                     addonAfter={
                         <Switch
