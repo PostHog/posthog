@@ -1,5 +1,5 @@
 import React from 'react'
-import { Modal, Switch } from 'antd'
+import { Modal, Switch, Popconfirm } from 'antd'
 import { CopyToClipboard } from 'lib/components/CopyToClipboard'
 import { useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
@@ -17,14 +17,23 @@ export function TeamInvitationContent({ user }) {
                     placeholder="disabled and revoked – switch on to generate a new link"
                     addonBefore="Team Invite Link"
                     addonAfter={
-                        <Switch
-                            style={{ lineHeight: 0 }}
-                            size="small"
-                            checked={isSignupEnabled}
-                            onChange={() => {
-                                userUpdateRequest({ team: { signup_state: !isSignupEnabled } }, 'team.signup_state')
+                        <Popconfirm
+                            title="Revoke current link globally?"
+                            okText="Revoke"
+                            onConfirm={() => {
+                                userUpdateRequest({ team: { signup_state: false } }, 'team.signup_state')
                             }}
-                        />
+                            disabled={!isSignupEnabled}
+                        >
+                            <Switch
+                                size="small"
+                                checked={isSignupEnabled}
+                                onChange={() => {
+                                    if (!isSignupEnabled)
+                                        userUpdateRequest({ team: { signup_state: true } }, 'team.signup_state')
+                                }}
+                            />
+                        </Popconfirm>
                     }
                 />
             </p>
