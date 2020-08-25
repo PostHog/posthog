@@ -28,7 +28,7 @@ function _ToolbarContainer(): JSX.Element {
             {showButton && windowWidth >= 0 ? <DraggableButton showInvisibleButton={showInvisibleButton} /> : null}
 
             {showDock ? (
-                <div id="dock-toolbar" className={showInvisibleDock ? 'toolbar-invisible' : ''}>
+                <div id="dock-toolbar" className={`ph-no-capture${showInvisibleDock ? ' toolbar-invisible' : ''}`}>
                     <div
                         className={`toolbar-close-button${dockStatus === 'complete' ? ' visible' : ''}`}
                         onClick={selectedElement ? () => setSelectedElement(null) : button}
