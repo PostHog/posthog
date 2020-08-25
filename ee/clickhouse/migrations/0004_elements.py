@@ -1,7 +1,7 @@
 from django_clickhouse import migrations
 
 ELEMENTS_SQL = """
-CREATE TABLE default.elements
+CREATE TABLE elements
 (
     id UUID,
     text VARCHAR,
@@ -22,7 +22,7 @@ ORDER BY (id, intHash32(team_id))
 """
 
 ELEMENT_GROUP_SQL = """
-CREATE TABLE default.elements_group
+CREATE TABLE elements_group
 (
     id UUID,
     elements_hash VARCHAR,

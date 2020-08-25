@@ -4,6 +4,7 @@ from typing import Dict, List, Union
 from uuid import uuid4
 
 from ee.clickhouse.client import ch_client
+from ee.clickhouse.models.event import create_event
 from posthog.models.element import Element
 from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
@@ -24,7 +25,7 @@ def capture_ee(
     element_hash = _create_elements(elements, team)
 
     # # determine create events
-    _create_event(
+    create_event(
         event=event,
         properties=properties,
         timestamp=timestamp,
@@ -87,25 +88,6 @@ def _create_elements(elements: List[Element], team: Team) -> str:
         ch_client.execute(element_query)
 
     return element_hash
-
-
-INSERT_EVENT_SQL = """
-INSERT INTO events SELECT generateUUIDv4(), '{event}', '{properties}', parseDateTimeBestEffort('{timestamp}'), {team_id}, '{distinct_id}', '{element_hash}', now()
-"""
-
-
-def _create_event(
-    event: str, properties: Dict, timestamp: Union[datetime, str], team: Team, element_hash: str, distinct_id: str
-) -> None:
-    query = INSERT_EVENT_SQL.format(
-        event=event,
-        properties=json.dumps(properties),
-        timestamp=timestamp,
-        team_id=team.pk,
-        distinct_id=distinct_id,
-        element_hash=element_hash,
-    )
-    ch_client.execute(query)
 
 
 PERSON_DISTINCT_ID_EXISTS_SQL = """

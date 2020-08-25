@@ -1,7 +1,7 @@
 from infi.clickhouse_orm import migrations
 
 EVENTS_WITH_PROPS_SQL = """
-CREATE MATERIALIZED VIEW default.events_with_array_props_view
+CREATE MATERIALIZED VIEW events_with_array_props_view
 ENGINE = MergeTree()
 ORDER BY (team_id, created_at, id)
 PARTITION BY toYYYYMM(timestamp)
@@ -68,11 +68,11 @@ JSONExtractString(properties, '$created') ,
 JSONExtractString(properties, 'searchTerm') ,
 JSONExtractString(properties, 'searchId') ,
 JSONExtractString(properties, 'name')
-FROM default.events;
+FROM events;
 """
 
 PROP_SQL = """
-CREATE MATERIALIZED VIEW default.events_properties_view
+CREATE MATERIALIZED VIEW events_properties_view
 ENGINE = MergeTree()
 ORDER BY (team_id, key, value, event_id)
 POPULATE
@@ -80,7 +80,7 @@ AS SELECT id as event_id,
 team_id,
 array_property_keys as key,
 array_property_values as value
-from default.events_with_array_props_view
+from events_with_array_props_view
 ARRAY JOIN array_property_keys, array_property_values
 """
 
