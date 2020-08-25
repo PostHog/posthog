@@ -3,6 +3,8 @@ import { Modal, Switch, Popconfirm } from 'antd'
 import { CopyToClipboard } from 'lib/components/CopyToClipboard'
 import { useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
+import { InfoCircleOutlined } from '@ant-design/icons'
+import { red } from '@ant-design/colors'
 
 export function TeamInvitationContent({ user }) {
     const { userUpdateRequest } = useActions(userLogic)
@@ -20,6 +22,8 @@ export function TeamInvitationContent({ user }) {
                         <Popconfirm
                             title="Revoke current link globally?"
                             okText="Revoke"
+                            okType="danger"
+                            icon={<InfoCircleOutlined style={{ color: red.primary }} />}
                             onConfirm={() => {
                                 userUpdateRequest({ team: { signup_state: false } }, 'team.signup_state')
                             }}
