@@ -14,10 +14,15 @@ def create_event(
     event: str,
     team: Team,
     distinct_id: str,
+    timestamp: Optional[Union[datetime, str]] = None,
     properties: Optional[Dict] = {},
-    timestamp: Optional[Union[datetime, str]] = datetime.now(),
     element_hash: Optional[str] = "",
 ) -> None:
+
+    # timestamp can be filled in at runtime
+    if not timestamp:
+        timestamp = datetime.now()
+
     query = INSERT_EVENT_SQL.format(
         event=event,
         properties=json.dumps(properties),

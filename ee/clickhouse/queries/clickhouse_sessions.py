@@ -1,4 +1,7 @@
-from typing import Any, Dict, List
+from datetime import datetime
+from typing import Any, Dict, List, Tuple
+
+from django.db.models import query
 
 from ee.clickhouse.client import ch_client
 from posthog.models.filter import Filter
@@ -33,15 +36,15 @@ FROM
             neighbor(distinct_id, -1) as possible_neighbor,
             neighbor(event, -1) as possible_prev_event, 
             neighbor(timestamp, -1) as possible_prev, 
-            if(possible_neighbor != distinct_id or dateDiff('minute', possible_prev, timestamp) > 30, 1, 0) as new_session
+            if(possible_neighbor != distinct_id or dateDiff('minute', timestamp, possible_prev) > 30, 1, 0) as new_session
             FROM (
                 SELECT 
                     timestamp, 
                     distinct_id, 
                     event 
                 FROM events 
-                WHERE team_id = {team_id} and timestamp >= toDate('{date_from}') and timestamp <= toDate('{date_to}') 
-                GROUP BY distinct_id, timestamp, event ORDER BY timestamp DESC
+                WHERE team_id = {team_id} and timestamp >= parseDateTimeBestEffort('{date_from}') and timestamp <= parseDateTimeBestEffort('{date_to}') 
+                GROUP BY distinct_id, timestamp, event ORDER BY distinct_id, timestamp DESC
             )
         )
     )
@@ -86,14 +89,29 @@ class ClickhouseSessions(BaseQuery):
 
     # TODO: handle offset
     def calculate_list(self, filter: Filter, team: Team, offset: int):
-        result = ch_client.execute(
-            SESSION_SQL.format(team_id=team.pk, date_from=filter.date_from, date_to=filter.date_to)
+        query_result = ch_client.execute(
+            SESSION_SQL.format(team_id=team.pk, date_from=filter.date_from, date_to=filter.date_to or datetime.now())
         )
+        result = self._parse_list_results(query_result)
         return result
+
+    def _parse_list_results(self, results: List[Tuple]):
+        final = []
+        for result in results:
+            final.append(
+                {
+                    "distinct_id": result[0],
+                    "global_session_id": result[1],
+                    "events": result[2],
+                    "timestamps": result[3],
+                    "length": result[4],
+                }
+            )
+        return final
 
     def calculate_avg(self, filter: Filter, team: Team):
         result = ch_client.execute(
-            AVERAGE_SQL.format(team_id=team.pk, date_from=filter.date_from, date_to=filter.date_to)
+            AVERAGE_SQL.format(team_id=team.pk, date_from=filter.date_from, date_to=filter.date_to or datetime.now())
         )
         return result
 
