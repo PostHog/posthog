@@ -17,8 +17,11 @@ export function UrlMatchingToggle({ value, onChange, style }: UrlMatchingToggleP
             >
                 Contains
             </Button>
+            <Button type={value === 'regex' ? 'primary' : 'default'} onClick={() => onChange && onChange('regex')}>
+                Regex
+            </Button>
             <Button type={value === 'exact' ? 'primary' : 'default'} onClick={() => onChange && onChange('exact')}>
-                Exactly Matches
+                Exact match
             </Button>
         </Button.Group>
     )

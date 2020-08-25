@@ -1,5 +1,5 @@
+from unittest.mock import patch
 from posthog.models import Team, User
-
 from .base import BaseTest
 
 
@@ -39,6 +39,27 @@ class TestUser(BaseTest):
         team = Team.objects.get(id=self.team.id)
         self.assertEqual(team.opt_out_capture, True)
         self.assertEqual(team.anonymize_ips, False)
+
+    @patch("secrets.token_urlsafe")
+    def test_user_team_update_signup_token(self, patch_token):
+        patch_token.return_value = "abcde"
+        response = self.client.patch(
+            "/api/user/", data={"team": {"signup_state": False}}, content_type="application/json",
+        ).json()
+
+        self.assertEqual(response["team"]["signup_token"], None)
+
+        team = Team.objects.get(id=self.team.id)
+        self.assertEqual(team.signup_token, None)
+
+        response = self.client.patch(
+            "/api/user/", data={"team": {"signup_state": True}}, content_type="application/json",
+        ).json()
+
+        self.assertEqual(response["team"]["signup_token"], "abcde")
+
+        team = Team.objects.get(id=self.team.id)
+        self.assertEqual(team.signup_token, "abcde")
 
 
 class TestUserChangePassword(BaseTest):
@@ -91,7 +112,7 @@ class TestUserSlackWebhook(BaseTest):
 
 
 class TestLoginViews(BaseTest):
-    def test_redirect_to_setup_admin_when_no_users(self):
+    def test_redirect_to_preflight_when_no_users(self):
         User.objects.all().delete()
         response = self.client.get("/", follow=True)
-        self.assertRedirects(response, "/setup_admin")
+        self.assertRedirects(response, "/preflight")
