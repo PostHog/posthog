@@ -12,7 +12,9 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         user = User.objects.create(email="test@posthog.com", password="pass")
-        team = Team.objects.create_with_data(users=[user], name="PostHog")
+        user.set_password("pass")
+        user.save()
+        team = Team.objects.create_with_data(users=[user], name="PostHog", completed_snippet_onboarding=True)
         base_url = "https://{}.herokuapp.com/demo/".format(os.environ.get("HEROKU_APP_NAME"))
         _create_anonymous_users(team=team, base_url=base_url)
         _create_funnel(team=team, base_url=base_url)
