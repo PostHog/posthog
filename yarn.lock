@@ -7836,10 +7836,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.4.3:
-  version "1.4.3"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.4.3.tgz#d35d4680950cad5bde5cc6deb19e6f4985772ddf"
-  integrity sha512-Pi8+2B3Bx7hFjwPggZFkeGbKSLqso+cQc7XayeMDJ3Rqojs9kMklyLKWlEeVJv7IMxo6FFjW0fNcXNExjNKvrw==
+posthog-js@^1.4.4:
+  version "1.4.4"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.4.4.tgz#163fd3a87abf2ba094cbd43f17f92fa85d1f1f54"
+  integrity sha512-m9ZjebaAXS7JPPaBsACuRPsWJ6j9by9B2eC8FzuNffVa7wAIY9nbtzLmfKSkl9KSja7PcNuRquecqcUArF/Iew==
 
 prelude-ls@^1.2.1:
   version "1.2.1"
