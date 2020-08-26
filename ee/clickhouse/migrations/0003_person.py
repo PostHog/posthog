@@ -1,26 +1,5 @@
 from django_clickhouse import migrations
 
-PERSON_SQL = """
-CREATE TABLE person
-(
-    id UUID,
-    created_at datetime,
-    properties varchar,
-    team_id Int32
-) ENGINE = MergeTree()
-Order By (id)
-"""
+from ee.clickhouse.sql.person import PERSONS_DISTINCT_ID_TABLE_SQL, PERSONS_TABLE_SQL
 
-PERSON_DISTINCT_ID_SQL = """
-CREATE TABLE person_distinct_id
-(
-    id UUID,
-    distinct_id VARCHAR,
-    person_id UUID,
-    team_id Int32
-) ENGINE = MergeTree()
-Order By (id)
-"""
-
-
-operations = [migrations.RunSQL(PERSON_SQL), migrations.RunSQL(PERSON_DISTINCT_ID_SQL)]
+operations = [migrations.RunSQL(PERSONS_TABLE_SQL), migrations.RunSQL(PERSONS_DISTINCT_ID_TABLE_SQL)]
