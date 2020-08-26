@@ -15,6 +15,7 @@ import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { hot } from 'react-hot-loader/root'
 import { ToolbarSettings } from 'scenes/setup/ToolbarSettings'
+import { CodeSnippet } from 'scenes/onboarding/FrameworkInstructions/CodeSnippet'
 import { PersonalAPIKeys } from 'lib/components/PersonalAPIKeys'
 
 export const Setup = hot(_Setup)
@@ -41,7 +42,7 @@ function _Setup() {
             <h2 id="team-api-key">Team API Key</h2>
             You can use this write-only key in any one of{' '}
             <a href="https://posthog.com/docs/integrations">our libraries</a>.
-            <pre className="code">{user.team.api_token}</pre>
+            <CodeSnippet>{user.team.api_token}</CodeSnippet>
             Write-only means it can only create new events. It can't read events or any of your other data stored with
             PostHog, so it's safe to use in public apps. Still, if possible, include it in the build as an environment
             variable instead of hard-coding.

@@ -2,14 +2,8 @@ import secrets
 from datetime import datetime
 from distutils.util import strtobool
 from typing import Any, Dict, List
-from posthog.utils import (
-    render_template,
-    generate_cache_key,
-    PublicTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-)
+
 from django.contrib.auth.models import AnonymousUser
-from django.http import HttpRequest
 from django.core.cache import cache
 from django.db.models import Prefetch, QuerySet
 from django.http import HttpRequest
@@ -20,7 +14,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 
 from posthog.models import Dashboard, DashboardItem, Filter
-from posthog.utils import generate_cache_key, render_template
+from posthog.utils import PersonalAPIKeyAuthentication, PublicTokenAuthentication, generate_cache_key, render_template
 
 
 class DashboardSerializer(serializers.ModelSerializer):

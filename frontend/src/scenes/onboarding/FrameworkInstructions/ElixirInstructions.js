@@ -1,20 +1,16 @@
 import React from 'react'
-import Snippet from './snippet'
+import { CodeSnippet } from './CodeSnippet'
 
 function ElixirInstallSnippet() {
-    return (
-        <Snippet>
-            <span>{'def deps do\n    [\n        {:posthog, "~> 0.1"}\n    ]\nend'}</span>
-        </Snippet>
-    )
+    return <CodeSnippet language="elixir">{'def deps do\n    [\n        {:posthog, "~> 0.1"}\n    ]\nend'}</CodeSnippet>
 }
 
 function ElixirSetupSnippet({ user }) {
     let url = window.location.origin
     return (
-        <Snippet>
-            <span>{'config :posthog,\n    api_url: "' + url + '",\n    api_key: "' + user.team.api_token + '"'}</span>
-        </Snippet>
+        <CodeSnippet language="elixir">
+            {'config :posthog,\n    api_url: "' + url + '",\n    api_key: "' + user.team.api_token + '"'}
+        </CodeSnippet>
     )
 }
 
