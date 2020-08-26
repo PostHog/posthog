@@ -23,7 +23,9 @@ def sessions_test_factory(sessions, event_factory):
                 event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
-                response = sessions().run(Filter(data={"events": []}), self.team, session_type=None)
+                response = sessions().run(
+                    Filter(data={"events": [], "date_from": "2012-01-15T04:01:34.000Z"}), self.team, session_type=None
+                )
 
             self.assertEqual(len(response), 2)
             self.assertEqual(response[0]["global_session_id"], 1)

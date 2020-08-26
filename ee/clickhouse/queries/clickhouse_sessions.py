@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
+from dateutil.relativedelta import relativedelta
 from django.db.models import query
 
 from ee.clickhouse.client import ch_client
@@ -15,8 +16,8 @@ SELECT
     groupArray(event) events, 
     groupArray(timestamp) timestamps, 
     dateDiff('second', arrayReduce('min', 
-    groupArray(timestamp)), 
-    arrayReduce('max', groupArray(timestamp))) AS elapsed 
+    groupArray(timestamp)), arrayReduce('max', groupArray(timestamp))) AS elapsed,
+    arrayReduce('min', groupArray(timestamp)) as start_time
 FROM 
 (
     SELECT
@@ -89,9 +90,10 @@ class ClickhouseSessions(BaseQuery):
 
     # TODO: handle offset
     def calculate_list(self, filter: Filter, team: Team, offset: int):
-        query_result = ch_client.execute(
-            SESSION_SQL.format(team_id=team.pk, date_from=filter.date_from, date_to=filter.date_to or datetime.now())
-        )
+        date_from = filter.date_from
+        date_to = filter.date_from + relativedelta(days=1)
+
+        query_result = ch_client.execute(SESSION_SQL.format(team_id=team.pk, date_from=date_from, date_to=date_to))
         result = self._parse_list_results(query_result)
         return result
 
@@ -105,6 +107,7 @@ class ClickhouseSessions(BaseQuery):
                     "events": result[2],
                     "timestamps": result[3],
                     "length": result[4],
+                    "start_time": result[5],
                 }
             )
         return final
@@ -116,7 +119,9 @@ class ClickhouseSessions(BaseQuery):
         return result
 
     def calculate_dist(self, filter: Filter, team: Team):
-        result = ch_client.execute(DIST_SQL.format(team_id=team.pk, date_from=filter.date_from, date_to=filter.date_to))
+        result = ch_client.execute(
+            DIST_SQL.format(team_id=team.pk, date_from=filter.date_from, date_to=filter.date_to or datetime.now())
+        )
         return result
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
