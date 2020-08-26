@@ -234,13 +234,13 @@ def is_input_valid(inp_type, val):
     return len(val) > 0
 
 
-# Include enterprise api urls
+# Try to include EE endpoints
 try:
     from ee.urls import extend_api_router
-
-    extend_api_router(router)
 except ImportError:
     pass
+else:
+    extend_api_router(router)
 
 
 urlpatterns = [
@@ -257,11 +257,12 @@ urlpatterns = [
     path("decide/", decide.get_decide),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
-    path("engage/", capture.get_event),
-    path("engage", capture.get_event),
     re_path(r"^demo.*", decorators.login_required(demo)),
     path("delete_demo_data/", decorators.login_required(delete_demo_data)),
     path("e/", capture.get_event),
+    path("e", capture.get_event),
+    path("engage/", capture.get_event),
+    path("engage", capture.get_event),
     path("track", capture.get_event),
     path("track/", capture.get_event),
     path("capture", capture.get_event),

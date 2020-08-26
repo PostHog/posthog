@@ -137,11 +137,25 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
     except Person.DoesNotExist:
         try:
             person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-        # Catch race condition where in between getting and creating, another request already created this user.
+        # Catch race condition where in between getting and creating, another request already created this person
         except:
             person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
     person.properties.update(properties)
     person.save()
+
+
+def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = True) -> None:
+    try:
+        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+    except Person.DoesNotExist:
+        try:
+            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+        # Catch race condition where in between getting and creating, another request already created this person
+        except:
+            person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+    if not person.is_identified:
+        person.is_identified = is_identified
+        person.save()
 
 
 def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[datetime.datetime, str]:
@@ -171,14 +185,16 @@ def process_event(
         _alias(
             previous_distinct_id=data["properties"]["alias"], distinct_id=distinct_id, team_id=team_id,
         )
+    elif data["event"] == "$identify":
+        _set_is_identified(team_id=team_id, distinct_id=distinct_id)
+        if data.get("properties") and data["properties"].get("$anon_distinct_id"):
+            _alias(
+                previous_distinct_id=data["properties"]["$anon_distinct_id"], distinct_id=distinct_id, team_id=team_id,
+            )
+        if data.get("$set"):
+            _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
 
-    if data["event"] == "$identify" and data.get("properties") and data["properties"].get("$anon_distinct_id"):
-        _alias(
-            previous_distinct_id=data["properties"]["$anon_distinct_id"], distinct_id=distinct_id, team_id=team_id,
-        )
-
-    if data["event"] == "$identify" and data.get("$set"):
-        _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
+    properties = data.get("properties", data.get("$set", {}))
 
     _capture(
         ip=ip,
@@ -186,6 +202,6 @@ def process_event(
         team_id=team_id,
         event=data["event"],
         distinct_id=distinct_id,
-        properties=data.get("properties", data.get("$set", {})),
+        properties=properties,
         timestamp=_handle_timestamp(data, now, sent_at),
     )

@@ -14,19 +14,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
 
 from posthog.models import Dashboard, DashboardItem, Filter
-from posthog.utils import generate_cache_key, render_template
-
-
-class PublicTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: request.Request):
-        if request.GET.get("share_token") and request.parser_context and request.parser_context.get("kwargs"):
-            dashboard = Dashboard.objects.filter(
-                share_token=request.GET.get("share_token"), pk=request.parser_context["kwargs"].get("pk"),
-            )
-            if not dashboard.exists():
-                raise AuthenticationFailed(detail="Dashboard doesn't exist")
-            return (AnonymousUser(), None)
-        return None
+from posthog.utils import PersonalAPIKeyAuthentication, PublicTokenAuthentication, generate_cache_key, render_template
 
 
 class DashboardSerializer(serializers.ModelSerializer):
@@ -71,6 +59,7 @@ class DashboardsViewSet(viewsets.ModelViewSet):
     serializer_class = DashboardSerializer
     authentication_classes = [
         PublicTokenAuthentication,
+        PersonalAPIKeyAuthentication,
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
