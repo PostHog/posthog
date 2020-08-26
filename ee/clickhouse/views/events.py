@@ -9,7 +9,37 @@ from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL
 from posthog.models.filter import Filter
 
 
+# reference raw sql for
+class ClickhouseEventSerializer(serializers.Serializer):
+    id = serializers.SerializerMethodField()
+    properties = serializers.SerializerMethodField()
+    event = serializers.SerializerMethodField()
+    timestamp = serializers.SerializerMethodField()
+    person = serializers.SerializerMethodField()
+    elements = serializers.SerializerMethodField()
+
+    def get_id(self, event):
+        return str(event[0])
+
+    def get_properties(self, event):
+        return dict(zip(event[8], event[9]))
+
+    def get_event(self, event):
+        return event[1]
+
+    def get_timestamp(self, event):
+        return event[3]
+
+    def get_person(self, event):
+        return event[5]
+
+    def get_elements(self, event):
+        return []
+
+
 class ClickhouseEvents(viewsets.ViewSet):
+    serializer_class = ClickhouseEventSerializer
+
     def list(self, request):
         team = request.user.team_set.get()
         filter = Filter(request=request)
@@ -19,20 +49,10 @@ class ClickhouseEvents(viewsets.ViewSet):
             SELECT_EVENT_WITH_ARRAY_PROPS_SQL.format(conditions=conditions, limit=limit),
             {"team_id": team.pk, **condition_params},
         )
-        result = [self._parse_event(res) for res in query_result]
-        return Response({"next": None, "results": result})
 
-    def _parse_event(self, result) -> Dict[str, str]:
-        return {
-            "id": str(result[0]),
-            "event": result[1],
-            "timestamp": result[3],
-            "team_id": result[4],
-            "person": result[5],
-            "element_hash": result[6],
-            "elements": [],
-            "properties": dict(zip(result[8], result[9])),
-        }
+        result = ClickhouseEventSerializer(query_result, many=True).data
+
+        return Response({"next": None, "results": result})
 
     def retrieve(self, request, pk=None):
         # TODO: implement retrieve event by id
