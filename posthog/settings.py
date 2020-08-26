@@ -15,7 +15,7 @@ import os
 import shutil
 import sys
 from distutils.util import strtobool
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import dj_database_url
 import sentry_sdk
@@ -165,7 +165,7 @@ try:
 except ImportError:
     pass
 else:
-    HOOK_EVENTS = {}
+    HOOK_EVENTS: Dict[str, str] = {}
     INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 
