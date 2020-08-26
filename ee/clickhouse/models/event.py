@@ -3,11 +3,8 @@ from datetime import datetime
 from typing import Dict, Optional, Union
 
 from ee.clickhouse.client import ch_client
+from ee.clickhouse.sql.events import INSERT_EVENT_SQL
 from posthog.models.team import Team
-
-INSERT_EVENT_SQL = """
-INSERT INTO events SELECT generateUUIDv4(), '{event}', '{properties}', parseDateTimeBestEffort('{timestamp}'), {team_id}, '{distinct_id}', '{element_hash}', now()
-"""
 
 
 def create_event(
@@ -23,12 +20,14 @@ def create_event(
     if not timestamp:
         timestamp = datetime.now()
 
-    query = INSERT_EVENT_SQL.format(
-        event=event,
-        properties=json.dumps(properties),
-        timestamp=timestamp,
-        team_id=team.pk,
-        distinct_id=distinct_id,
-        element_hash=element_hash,
+    ch_client.execute(
+        INSERT_EVENT_SQL,
+        {
+            "event": event,
+            "properties": json.dumps(properties),
+            "timestamp": timestamp,
+            "team_id": team.pk,
+            "distinct_id": distinct_id,
+            "element_hash": element_hash,
+        },
     )
-    ch_client.execute(query)
