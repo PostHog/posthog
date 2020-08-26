@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Tuple, Union
 
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.sql.events import INSERT_EVENT_SQL
@@ -26,3 +26,16 @@ def create_event(
             "element_hash": element_hash,
         },
     )
+
+
+def determine_event_conditions(conditions: Dict[str, str]) -> Tuple[str, Dict]:
+    result = ""
+    params = {}
+    for idx, (k, v) in enumerate(conditions.items()):
+        if k == "after":
+            result += "AND timestamp > %(after)s"
+            params.update({"after": v})
+        elif k == "before":
+            result += "AND timestamp < %(before)s"
+            params.update({"before": v})
+    return result, params

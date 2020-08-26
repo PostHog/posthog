@@ -4,6 +4,7 @@ from typing import Dict, List, Union
 from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import check_and_create_person_distinct_ids
+from ee.clickhouse.models.property import parse_filter
 from posthog.models.team import Team
 
 
