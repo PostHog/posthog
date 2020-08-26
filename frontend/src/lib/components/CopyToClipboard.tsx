@@ -1,10 +1,10 @@
-import React, { ReactNode } from 'react'
-import { toast } from 'react-toastify'
+import React from 'react'
 import { Tooltip, Input } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
+import { copyToClipboard } from 'lib/utils'
 
 interface InlineProps {
-    children: ReactNode | string
+    children: JSX.Element | string
     explicitValue?: string
     description?: string
     isValueSensitive?: boolean
@@ -15,16 +15,6 @@ interface InputProps {
     placeholder?: string
     description?: string
     isValueSensitive?: boolean
-}
-
-function copyToClipboard(value: string, description?: string): void {
-    const descriptionAdjusted = description ? description.trim() + ' ' : ''
-    try {
-        navigator.clipboard.writeText(value)
-        toast.success(`Copied ${descriptionAdjusted}to clipboard!`)
-    } catch (e) {
-        toast.error(`Could not copy ${descriptionAdjusted}to clipboard: ${e}`)
-    }
 }
 
 export function CopyToClipboardInline({
@@ -40,7 +30,7 @@ export function CopyToClipboardInline({
                 className={isValueSensitive ? 'ph-no-capture' : undefined}
                 style={{ cursor: 'pointer' }}
                 onClick={() => {
-                    copyToClipboard(explicitValue ?? children!.toString(), description)
+                    copyToClipboard(explicitValue ?? children.toString(), description)
                 }}
                 {...props}
             >

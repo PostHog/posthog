@@ -1,5 +1,4 @@
 import React from 'react'
-import { toast } from 'react-toastify'
 import { CopyOutlined } from '@ant-design/icons'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import okaidia from 'react-syntax-highlighter/dist/esm/styles/prism/okaidia'
@@ -19,6 +18,7 @@ import json from 'react-syntax-highlighter/dist/esm/languages/prism/json'
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
 import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
 import http from 'react-syntax-highlighter/dist/esm/languages/prism/http'
+import { copyToClipboard } from 'lib/utils'
 
 export enum Language {
     Text = 'text',
@@ -58,16 +58,6 @@ SyntaxHighlighter.registerLanguage(Language.YAML, yaml)
 SyntaxHighlighter.registerLanguage(Language.HTML, markup)
 SyntaxHighlighter.registerLanguage(Language.XML, markup)
 SyntaxHighlighter.registerLanguage(Language.HTTP, http)
-
-function copyToClipboard(value: string, description?: string): void {
-    const descriptionAdjusted = description ? description.trim() + ' ' : ''
-    try {
-        navigator.clipboard.writeText(value)
-        toast.success(`Copied ${descriptionAdjusted}to clipboard!`)
-    } catch (e) {
-        toast.error(`Could not copy ${descriptionAdjusted}to clipboard: ${e}`)
-    }
-}
 
 export function CodeSnippet({
     children,
