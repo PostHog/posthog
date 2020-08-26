@@ -22,18 +22,18 @@ ORDER BY (id, intHash32(team_id))
 INSERT_ELEMENTS_SQL = """
 INSERT INTO elements SELECT 
     generateUUIDv4(), 
-    '{text}',
-    '{tag_name}',
-    '{href}',
-    '{attr_id}',
-    {attr_class},
-    {nth_child},
-    {nth_of_type},
-    '{attributes}',
-    {order},
-    {team_id},
+    %(text)s,
+    %(tag_name)s,
+    %(href)s,
+    %(attr_id)s,
+    %(attr_class)s,
+    %(nth_child)s,
+    %(nth_of_type)s,
+    %(attributes)s,
+    %(order)s,
+    %(team_id)s,
     now(),
-    '{group_id}'
+    %(group_id)s
 """
 
 ELEMENT_GROUP_TABLE_SQL = """
@@ -48,5 +48,5 @@ ORDER BY (id)
 
 
 INSERT_ELEMENT_GROUP_SQL = """
-INSERT INTO elements_group SELECT '{id}', '{element_hash}', {team_id}
+INSERT INTO elements_group SELECT %(id)s, %(element_hash)s, %(team_id)s
 """

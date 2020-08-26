@@ -20,7 +20,7 @@ SAMPLE BY intHash32(team_id)
 """
 
 INSERT_EVENT_SQL = """
-INSERT INTO events SELECT generateUUIDv4(), '{event}', '{properties}', parseDateTimeBestEffort('{timestamp}'), {team_id}, '{distinct_id}', '{element_hash}', now()
+INSERT INTO events SELECT generateUUIDv4(), %(event)s, %(properties)s, parseDateTimeBestEffort(%(timestamp)s), %(team_id)s, %(distinct_id)s, %(element_hash)s, now()
 """
 
 MAT_EVENTS_WITH_PROPS_TABLE_SQL = """

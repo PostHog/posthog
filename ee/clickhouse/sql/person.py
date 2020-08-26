@@ -25,9 +25,9 @@ SELECT count(*) FROM person_distinct_id inner join (SELECT arrayJoin({}) as dist
 """
 
 INSERT_PERSON_SQL = """
-INSERT INTO person SELECT '{id}', now(), '{properties}', {team_id}
+INSERT INTO person SELECT %(id)s, now(), %(properties)s, %(team_id)s
 """
 
 INSERT_PERSON_DISTINCT_ID = """
-INSERT INTO person_distinct_id SELECT generateUUIDv4(), '{distinct_id}', '{person_id}', {team_id}
+INSERT INTO person_distinct_id SELECT generateUUIDv4(), %(distinct_id)s, %(person_id)s, %(team_id)s
 """

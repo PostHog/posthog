@@ -15,12 +15,14 @@ def create_event(
     timestamp: Optional[Union[datetime, str]] = datetime.now(),
     element_hash: Optional[str] = "",
 ) -> None:
-    query = INSERT_EVENT_SQL.format(
-        event=event,
-        properties=json.dumps(properties),
-        timestamp=timestamp,
-        team_id=team.pk,
-        distinct_id=distinct_id,
-        element_hash=element_hash,
+    ch_client.execute(
+        INSERT_EVENT_SQL,
+        {
+            "event": event,
+            "properties": json.dumps(properties),
+            "timestamp": timestamp,
+            "team_id": team.pk,
+            "distinct_id": distinct_id,
+            "element_hash": element_hash,
+        },
     )
-    ch_client.execute(query)

@@ -8,14 +8,14 @@ from posthog.models.team import Team
 
 
 def create_person(team: Team, id: UUID = uuid4(), properties: Dict = {}) -> UUID:
-    query = INSERT_PERSON_SQL.format(id=id, properties=json.dumps(properties), team_id=team.pk)
-    ch_client.execute(query)
+    ch_client.execute(INSERT_PERSON_SQL, {"id": id, "properties": json.dumps(properties), "team_id": team.pk})
     return id
 
 
 def create_person_distinct_id(team: Team, distinct_id: str, person_id: UUID) -> None:
-    query = INSERT_PERSON_DISTINCT_ID.format(distinct_id=distinct_id, person_id=person_id, team=team.pk)
-    ch_client.execute(query)
+    ch_client.execute(
+        INSERT_PERSON_DISTINCT_ID, {"distinct_id": distinct_id, "person_id": person_id, "team_id": team.pk}
+    )
 
 
 def distinct_ids_exist(ids: List[str]) -> bool:
