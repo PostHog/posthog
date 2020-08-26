@@ -127,23 +127,23 @@ def _capture(
             **({"timestamp": timestamp} if timestamp else {}),
             **({"elements": elements_list} if elements_list else {"elements": []})
         )
-    else:
-        Event.objects.create(
-            event=event,
-            distinct_id=distinct_id,
-            properties=properties,
-            team=team,
-            site_url=site_url,
-            **({"timestamp": timestamp} if timestamp else {}),
-            **({"elements": elements_list} if elements_list else {})
-        )
 
-        if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
-            # Catch race condition where in between getting and creating, another request already created this user.
-            try:
-                Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-            except IntegrityError:
-                pass
+    Event.objects.create(
+        event=event,
+        distinct_id=distinct_id,
+        properties=properties,
+        team=team,
+        site_url=site_url,
+        **({"timestamp": timestamp} if timestamp else {}),
+        **({"elements": elements_list} if elements_list else {})
+    )
+
+    if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
+        # Catch race condition where in between getting and creating, another request already created this user.
+        try:
+            Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+        except IntegrityError:
+            pass
 
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:

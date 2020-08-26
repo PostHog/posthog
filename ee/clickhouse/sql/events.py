@@ -8,7 +8,7 @@ CREATE TABLE events
     id UUID,
     event VARCHAR,
     properties VARCHAR,
-    timestamp DateTime,
+    timestamp DateTime('UTC'),
     team_id Int32,
     distinct_id VARCHAR,
     elements_hash VARCHAR,

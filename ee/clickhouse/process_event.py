@@ -19,6 +19,7 @@ def capture_ee(
     timestamp: Union[datetime, str],
     elements: List,
 ) -> None:
+
     # determine/create elements
     element_hash = create_elements(elements, team)
 

@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -30,7 +32,8 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return event[1]
 
     def get_timestamp(self, event):
-        return event[3]
+        dt = event[3].replace(tzinfo=timezone.utc)
+        return dt.astimezone().isoformat()
 
     def get_person(self, event):
         return event[5]
@@ -73,7 +76,3 @@ class ClickhouseEvents(viewsets.ViewSet):
         if key:
             result = get_property_values_for_key(key, team)
         return Response([{"name": convert_property_value(value[0])} for value in result])
-
-    def retrieve(self, request: Request, pk=None):
-        # TODO: implement retrieve event by id
-        return Response([])
