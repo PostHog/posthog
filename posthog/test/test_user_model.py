@@ -33,6 +33,7 @@ class TestUser(BaseTest):
 
     @patch("posthog.models.user.License.PLANS", {"enterprise": ["whatever"]})
     @patch("ee.models.license.requests.post")
+    @patch("posthog.models.user.MULTI_TENANCY_MISSING", True)
     def test_feature_available_self_hosted_has_license(self, patch_post):
         mock = Mock()
         mock.json.return_value = {"plan": "enterprise", "valid_until": now() + relativedelta(days=1)}
