@@ -15,7 +15,7 @@ import os
 import shutil
 import sys
 from distutils.util import strtobool
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import dj_database_url
 import sentry_sdk
@@ -138,7 +138,6 @@ INSTALLED_APPS = [
     "loginas",
     "corsheaders",
     "social_django",
-    "rest_hooks",
 ]
 
 
@@ -166,6 +165,8 @@ try:
 except ImportError:
     pass
 else:
+    HOOK_EVENTS: Dict[str, str] = {}
+    INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
