@@ -87,6 +87,6 @@ WHERE id IN
 (
     SELECT event_id
     FROM events_properties_view AS ep
-    WHERE %(filters)s AND team_id = %(team_id)s
-) AND event = %(event)s %(limit)s
+    WHERE {filters} AND team_id = %(team_id)s
+) {conditions} {limit}
 """
