@@ -1,22 +1,7 @@
 from infi.clickhouse_orm import migrations
 
-EVENT_SQL = """
-CREATE TABLE default.events
-(
-    id UUID,
-    event VARCHAR,
-    properties VARCHAR,
-    timestamp DateTime,
-    team_id Int32,
-    distinct_id VARCHAR,
-    elements_hash VARCHAR,
-    created_at DateTime
-) ENGINE = MergeTree()
-PARTITION BY toYYYYMM(timestamp)
-ORDER BY (id, timestamp, intHash32(team_id))
-SAMPLE BY intHash32(team_id)
-"""
+from ee.clickhouse.sql.events import EVENTS_TABLE_SQL
 
 operations = [
-    migrations.RunSQL(EVENT_SQL),
+    migrations.RunSQL(EVENTS_TABLE_SQL),
 ]
