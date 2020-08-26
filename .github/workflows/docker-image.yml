@@ -1,4 +1,4 @@
-name: Test building Docker image
+name: Docker
 
 on:
     - pull_request
@@ -17,5 +17,5 @@ jobs:
                   cache_froms: posthog/posthog:latest
                   dockerfile: production.Dockerfile
                   repository: posthog/posthog
-                  build: false
+                  push: false
                   tags: latest
