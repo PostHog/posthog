@@ -106,9 +106,17 @@ def _capture(
             for index, el in enumerate(elements)
         ]
 
-    team = Team.objects.only("slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips").get(
-        pk=team_id
-    )
+    team = Team.objects.only(
+        "slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips", "ingested_event",
+    ).get(pk=team_id)
+
+    if not team.ingested_event:
+        # First event for the team captured
+        for user in Team.objects.get(pk=team_id).users.all():
+            posthoganalytics.capture(user.distinct_id, "first team event ingested", {"team": str(team.uuid)})
+
+        team.ingested_event = True
+        team.save()
 
     if not team.anonymize_ips:
         properties["$ip"] = ip
@@ -194,11 +202,6 @@ def process_event(
             )
         if data.get("$set"):
             _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
-
-    if not Event.objects.filter(team_id=team_id).exists():
-        # Capture first event for the team
-        for user in Team.objects.get(pk=team_id).users.all():
-            posthoganalytics.capture(user.distinct_id, "first event ingested")
 
     properties = data.get("properties", data.get("$set", {}))
 

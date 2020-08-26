@@ -28,10 +28,10 @@ class ProcessEvent(BaseTest):
         action2 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action2, selector="a", event="$autocapture")
         team_id = self.team.pk
+        self.team.ingested_event = True  # avoid sending `first team event ingested` to PostHog
+        self.team.save()
 
-        Event.objects.create(team=self.team)  # create one event to avoid sending `first event ingested` to PostHog
-
-        with self.assertNumQueries(30):
+        with self.assertNumQueries(29):
             process_event(
                 2,
                 "",
@@ -475,7 +475,10 @@ class ProcessEvent(BaseTest):
             now().isoformat(),
         )
 
-        mock.assert_called_once_with(user.distinct_id, "first event ingested")
+        mock.assert_called_once_with(user.distinct_id, "first team event ingested", {"team": str(team.uuid)})
+
+        team.refresh_from_db()
+        self.assertEqual(team.ingested_event, True)
 
 
 class TestIdentify(TransactionTestCase):
