@@ -1,12 +1,14 @@
-from typing import Dict
-
-from rest_framework import serializers, status, viewsets
+from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.clickhouse.client import ch_client
 from ee.clickhouse.models.event import determine_event_conditions
+from ee.clickhouse.models.property import get_property_values_for_key
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL
 from posthog.models.filter import Filter
+from posthog.utils import convert_property_value
 
 
 # reference raw sql for
@@ -50,10 +52,19 @@ class ClickhouseEvents(viewsets.ViewSet):
             {"team_id": team.pk, **condition_params},
         )
 
-        result = ClickhouseEventSerializer(query_result, many=True).data
+        result = ClickhouseEventSerializer(query_result, many=True, context={"elements": None, "people": None}).data
 
         return Response({"next": None, "results": result})
 
-    def retrieve(self, request, pk=None):
+    @action(methods=["GET"], detail=False)
+    def values(self, request: Request) -> Response:
+        key = request.GET.get("key")
+        team = request.user.team_set.get()
+        result = []
+        if key:
+            result = get_property_values_for_key(key, team)
+        return Response([{"name": convert_property_value(value[0])} for value in result])
+
+    def retrieve(self, request: Request, pk=None):
         # TODO: implement retrieve event by id
         return Response([])

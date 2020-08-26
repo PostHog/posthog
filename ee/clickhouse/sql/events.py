@@ -75,6 +75,10 @@ from events_with_array_props_view
 ARRAY JOIN array_property_keys, array_property_values
 """
 
+SELECT_PROP_VALUES_SQL = """
+SELECT DISTINCT value FROM events_properties_view where key = %(key)s AND team_id = %(team_id)s LIMIT 50
+"""
+
 SELECT_EVENT_WITH_PROP_SQL = """
 SELECT
     *
