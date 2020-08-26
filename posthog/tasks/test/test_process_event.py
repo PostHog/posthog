@@ -31,7 +31,7 @@ class ProcessEvent(BaseTest):
 
         Event.objects.create(team=self.team)  # create one event to avoid sending `first event ingested` to PostHog
 
-        with self.assertNumQueries(22):
+        with self.assertNumQueries(30):
             process_event(
                 2,
                 "",

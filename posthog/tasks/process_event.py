@@ -200,12 +200,14 @@ def process_event(
         for user in Team.objects.get(pk=team_id).users.all():
             posthoganalytics.capture(user.distinct_id, "first event ingested")
 
+    properties = data.get("properties", data.get("$set", {}))
+
     _capture(
         ip=ip,
         site_url=site_url,
         team_id=team_id,
         event=data["event"],
         distinct_id=distinct_id,
-        properties=data.get("properties", data.get("$set", {})),
+        properties=properties,
         timestamp=_handle_timestamp(data, now, sent_at),
     )
