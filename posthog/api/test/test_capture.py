@@ -10,6 +10,8 @@ from django.conf import settings
 from django.utils import timezone
 from freezegun import freeze_time
 
+from posthog.models import PersonalAPIKey
+
 from .base import BaseTest
 
 
@@ -42,6 +44,45 @@ class TestCapture(BaseTest):
         now = timezone.now()
         with freeze_time(now):
             with self.assertNumQueries(1):
+                response = self.client.get(
+                    "/e/?data=%s" % quote(self._dict_to_json(data)),
+                    content_type="application/json",
+                    HTTP_ORIGIN="https://localhost",
+                )
+        self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
+        arguments = patch_process_event.call_args[1]
+        arguments.pop("now")  # can't compare fakedate
+        arguments.pop("sent_at")  # can't compare fakedate
+        self.assertDictEqual(
+            arguments,
+            {
+                "distinct_id": "2",
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "data": data,
+                "team_id": self.team.pk,
+            },
+        )
+
+    @patch("posthog.models.team.TEAM_CACHE", {})
+    @patch("posthog.tasks.process_event.process_event.delay")
+    def test_personal_api_key(self, patch_process_event):
+        key = PersonalAPIKey(label="X", user=self.user, team=self.team)
+        key.save()
+        data = {
+            "event": "$autocapture",
+            "personal_api_key": key.value,
+            "properties": {
+                "distinct_id": 2,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
+                ],
+            },
+        }
+        now = timezone.now()
+        with freeze_time(now):
+            with self.assertNumQueries(2):
                 response = self.client.get(
                     "/e/?data=%s" % quote(self._dict_to_json(data)),
                     content_type="application/json",
@@ -260,7 +301,7 @@ class TestCapture(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             response.json()["message"],
-            "API key is incorrect. You can find your API key in the /setup page in PostHog.",
+            "Team or personal API key invalid. You can find your team API key in the /setup page in PostHog.",
         )
 
     def test_batch_token_not_set(self):
@@ -272,7 +313,8 @@ class TestCapture(BaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
-            response.json()["message"], "No api_key set. You can find your API key in the /setup page in posthog",
+            response.json()["message"],
+            "Neither api_key nor personal_api_key set. You can find your API key in the /setup page in PostHog.",
         )
 
     def test_batch_distinct_id_not_set(self):
@@ -283,7 +325,7 @@ class TestCapture(BaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["message"], "You need to set a distinct_id.")
+        self.assertEqual(response.json()["message"], "You need to set user distinct ID field `distinct_id`.")
 
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.tasks.process_event.process_event.delay")
