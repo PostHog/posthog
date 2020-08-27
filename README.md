@@ -91,7 +91,7 @@ Our suggested method for quick deployment is Heroku's one-click option:
 
 [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/posthog/posthog)
 
-However, PostHog can be deployed anywhere you want! Here are setp-by-step tutorials we've written for deployment options using all the major cloud providers:
+However, PostHog can be deployed anywhere you want! Here are step-by-step tutorials we've written for deployment options using all the major cloud providers:
 
 * [AWS](https://posthog.com/docs/deployment/deploy-aws)
 * [Microsoft Azure](https://posthog.com/docs/deployment/deploy-azure)
