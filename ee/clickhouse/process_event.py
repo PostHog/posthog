@@ -167,12 +167,14 @@ def process_event_ee(
         if data.get("$set"):
             _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
 
+    properties = data.get("properties", data.get("$set", {}))
+
     _capture_ee(
         ip=ip,
         site_url=site_url,
         team_id=team_id,
         event=data["event"],
         distinct_id=distinct_id,
-        properties=data.get("properties", data.get("$set", {})),
+        properties=properties,
         timestamp=handle_timestamp(data, now, sent_at),
     )

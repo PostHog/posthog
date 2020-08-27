@@ -19,23 +19,24 @@ class LicenseError(Exception):
 
 class LicenseManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
-        validate = requests.post("https://license.posthog.com/validate_license", data={"key": kwargs["key"]})
+        validate = requests.post("https://license.posthog.com/licenses/activate", data={"key": kwargs["key"]})
         resp = validate.json()
         if not validate.ok:
             raise LicenseError(resp["code"], resp["detail"])
 
-        kwargs["valid_until"] = resp["data"]["valid_until"]
-        kwargs["plan"] = resp["data"]["plan"]
+        kwargs["valid_until"] = resp["valid_until"]
+        kwargs["plan"] = resp["plan"]
         return super().create(*args, **kwargs)
 
 
 class License(models.Model):
     objects = LicenseManager()
+
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     plan: models.CharField = models.CharField(max_length=200)
     valid_until: models.DateTimeField = models.DateTimeField()
     key: models.CharField = models.CharField(max_length=200)
 
     ENTERPRISE_PLAN = "enterprise"
-    ENTERPRISE_FEATURES = [""]
+    ENTERPRISE_FEATURES = ["zapier"]
     PLANS = {ENTERPRISE_PLAN: ENTERPRISE_FEATURES}

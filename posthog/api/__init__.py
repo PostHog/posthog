@@ -13,7 +13,8 @@ from . import (
     funnel,
     paths,
     person,
-    team,
+    personal_api_key,
+    team_user,
 )
 
 router = routers.DefaultRouter()
@@ -43,4 +44,5 @@ router.register(r"dashboard", dashboard.DashboardsViewSet)
 router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"paths", paths.PathsViewSet, basename="paths")
-router.register(r"team/user", team.TeamUserViewSet)
+router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, basename="personal_api_keys")
+router.register(r"team/user", team_user.TeamUserViewSet)

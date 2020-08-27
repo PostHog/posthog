@@ -17,7 +17,7 @@ from ee.clickhouse.process_event import process_event_ee
 from posthog.ee import check_ee_enabled
 from posthog.models import Team
 from posthog.tasks.process_event import process_event
-from posthog.utils import cors_response, get_ip_address
+from posthog.utils import PersonalAPIKeyAuthentication, cors_response, get_ip_address
 
 
 def _load_data(request) -> Optional[Union[Dict, List]]:
@@ -121,7 +121,7 @@ def get_event(request):
         return cors_response(
             request,
             JsonResponse(
-                {"code": "validation", "message": "Invalid formatting. Make sure you're sending valid JSON.",},
+                {"code": "validation", "message": "Malformed request data. Make sure you're sending valid JSON.",},
                 status=400,
             ),
         )
@@ -137,28 +137,36 @@ def get_event(request):
             ),
         )
     sent_at = _get_sent_at(data, request)
+
     token = _get_token(data, request)
+    is_personal_api_key = False
+    if not token:
+        personal_api_key_with_source = PersonalAPIKeyAuthentication().find_key(
+            request, data if isinstance(data, dict) else None
+        )
+        if personal_api_key_with_source:
+            token = personal_api_key_with_source[0]
+        is_personal_api_key = True
     if not token:
         return cors_response(
             request,
             JsonResponse(
                 {
                     "code": "validation",
-                    "message": "No api_key set. You can find your API key in the /setup page in posthog",
+                    "message": "Neither api_key nor personal_api_key set. You can find your API key in the /setup page in PostHog.",
                 },
                 status=400,
             ),
         )
 
-    try:
-        team_id = Team.objects.get_cached_from_token(token).pk
-    except Team.DoesNotExist:
+    team = Team.objects.get_cached_from_token(token, is_personal_api_key)
+    if team is None:
         return cors_response(
             request,
             JsonResponse(
                 {
                     "code": "validation",
-                    "message": "API key is incorrect. You can find your API key in the /setup page in PostHog.",
+                    "message": "Team or personal API key invalid. You can find your team API key in the /setup page in PostHog.",
                 },
                 status=400,
             ),
@@ -183,15 +191,29 @@ def get_event(request):
             return cors_response(
                 request,
                 JsonResponse(
-                    {"code": "validation", "message": "You need to set a distinct_id.", "item": event,}, status=400,
+                    {
+                        "code": "validation",
+                        "message": "You need to set user distinct ID field `distinct_id`.",
+                        "item": event,
+                    },
+                    status=400,
                 ),
             )
+        if "event" not in event:
+            return cors_response(
+                request,
+                JsonResponse(
+                    {"code": "validation", "message": "You need to set event name field `event`.", "item": event,},
+                    status=400,
+                ),
+            )
+
         process_event.delay(
             distinct_id=distinct_id,
             ip=get_ip_address(request),
             site_url=request.build_absolute_uri("/")[:-1],
             data=event,
-            team_id=team_id,
+            team_id=team.id,
             now=now,
             sent_at=sent_at,
         )

@@ -1,3 +1,4 @@
+git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
 amqp==2.5.2
 appnope==0.1.0
 asgiref==3.2.7

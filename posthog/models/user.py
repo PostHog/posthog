@@ -1,4 +1,3 @@
-import secrets
 from typing import List, Optional, Union
 
 from django.conf import settings
@@ -8,7 +7,8 @@ from django.utils.timezone import now
 from django.utils.translation import ugettext_lazy as _
 from rest_framework.fields import BooleanField
 
-from posthog.models.team import Team
+from .team import Team
+from .utils import generate_random_token
 
 EE_MISSING = False
 MULTI_TENANCY_MISSING = False
@@ -63,7 +63,7 @@ class UserManager(BaseUserManager):
         """Create and save a regular User with the given email and password."""
         extra_fields.setdefault("is_staff", False)
         extra_fields.setdefault("is_superuser", False)
-        extra_fields.setdefault("distinct_id", secrets.token_urlsafe(32))
+        extra_fields.setdefault("distinct_id", generate_random_token())
         return self._create_user(email, password, **extra_fields)
 
     def create_superuser(self, email, password, **extra_fields):
