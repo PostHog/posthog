@@ -154,12 +154,12 @@ def _create_funnel(team: Team, base_url: str) -> None:
 
     user_signed_up = Action.objects.create(team=team, name="HogFlix signed up")
     ActionStep.objects.create(
-        action=user_signed_up, event="$autocapture", url="%s1/" % base_url, url_matching="exact", selector="button",
+        action=user_signed_up, event="$autocapture", url="%s1" % base_url, url_matching="contains", selector="button",
     )
 
     user_paid = Action.objects.create(team=team, name="HogFlix paid")
     ActionStep.objects.create(
-        action=user_paid, event="$autocapture", url="%s2/" % base_url, url_matching="exact", selector="button",
+        action=user_paid, event="$autocapture", url="%s2" % base_url, url_matching="contains", selector="button",
     )
 
     funnel = Funnel.objects.create(
