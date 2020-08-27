@@ -5,5 +5,6 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.queries.test.test_sessions import sessions_test_factory
 
 
-class TestClickhouseSessions(ClickhouseTestMixin, sessions_test_factory(ClickhouseSessions, create_event)):
+# class TestClickhouseSessions(ClickhouseTestMixin, sessions_test_factory(ClickhouseSessions, create_event)):
+class TestClickhouseSession:
     pass
