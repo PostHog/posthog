@@ -18,8 +18,8 @@ class PostHogConfig(AppConfig):
             if os.getenv("RUN_MAIN") == "true":
                 # MAC addresses are 6 bits long, so overflow shouldn't happen
                 # hashing here as we don't care about the actual address, just it being rather consistent
-                mac_address_hash = hashlib.md5(uuid.getnode().to_bytes(6, "little")).hexdigest()
-                posthoganalytics.capture(mac_address_hash, "development server launched")
+                mac_address_hash = hashlib.md5(uuid.getnode().to_bytes(6, "little"))
+                posthoganalytics.capture(mac_address_hash.hexdigest(), "development server launched")
             posthoganalytics.disabled = True
         elif settings.TEST or os.environ.get("OPT_OUT_CAPTURE"):
             posthoganalytics.disabled = True
