@@ -2,6 +2,7 @@ import datetime
 from typing import Dict, List, Optional, Union
 
 from celery import shared_task
+from django.db import IntegrityError
 
 from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.models.event import create_event
