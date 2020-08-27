@@ -16,15 +16,15 @@ def create_event(
     team: Team,
     distinct_id: str,
     properties: Optional[Dict] = {},
-    timestamp: Optional[Union[datetime, str]] = datetime.now(),
+    timestamp: Union[datetime, str] = datetime.now(),
     element_hash: Optional[str] = "",
 ) -> None:
 
     # clickhouse specific formatting
     if isinstance(timestamp, str):
         timestamp = isoparse(timestamp)
-
-    timestamp = timestamp.astimezone(pytz.utc)
+    else:
+        timestamp = timestamp.astimezone(pytz.utc)
 
     ch_client.execute(
         INSERT_EVENT_SQL,
