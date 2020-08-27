@@ -38,7 +38,7 @@ COPY webpack.config.js /code/
 COPY postcss.config.js /code/
 COPY babel.config.js /code/
 COPY frontend/ /code/frontend
-
+RUN true
 COPY . /code/
 
 RUN SECRET_KEY='unsafe secret key for collectstatic only'  DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
