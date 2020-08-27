@@ -97,7 +97,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         )
 
         events = get_events()
-        returned_time = datetime.strptime(events[0]["timestamp"], "%Y-%m-%dT%H:%M:%S%z")
+        returned_time = datetime.strptime(events[0]["timestamp"], "%Y-%m-%dT%H:%M:%S.%f%z")
         event_seconds_before_now = (right_now - returned_time).seconds
 
         # assert that the event is actually recorded 10 minutes before now
@@ -132,7 +132,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         )
 
         events = get_events()
-        returned_time = datetime.strptime(events[0]["timestamp"], "%Y-%m-%dT%H:%M:%S%z")
+        returned_time = datetime.strptime(events[0]["timestamp"], "%Y-%m-%dT%H:%M:%S.%f%z")
 
         event_seconds_before_now = (right_now - returned_time).seconds
 
@@ -163,7 +163,7 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         )
 
         events = get_events()
-        returned_time = datetime.strptime(events[0]["timestamp"], "%Y-%m-%dT%H:%M:%S%z")
+        returned_time = datetime.strptime(events[0]["timestamp"], "%Y-%m-%dT%H:%M:%S.%f%z")
 
         difference = abs((tomorrow - returned_time).seconds)
 
@@ -379,8 +379,8 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         )  # sent at makes no difference for offset
 
         events = get_events()
-        returned_time = datetime.strptime(events[0]["timestamp"], "%Y-%m-%dT%H:%M:%S%z")
-        self.assertEqual(returned_time.isoformat(), "2020-01-01T12:00:05+00:00")
+        returned_time = datetime.strptime(events[0]["timestamp"], "%Y-%m-%dT%H:%M:%S.%f%z")
+        self.assertEqual(returned_time.isoformat(), "2020-01-01T12:00:05.050000+00:00")
 
     def test_offset_timestamp_no_sent_at(self) -> None:
         process_event_ee(
@@ -394,8 +394,8 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         )  # no sent at makes no difference for offset
 
         events = get_events()
-        returned_time = datetime.strptime(events[0]["timestamp"], "%Y-%m-%dT%H:%M:%S%z")
-        self.assertEqual(returned_time.isoformat(), "2020-01-01T12:00:05+00:00")
+        returned_time = datetime.strptime(events[0]["timestamp"], "%Y-%m-%dT%H:%M:%S.%f%z")
+        self.assertEqual(returned_time.isoformat(), "2020-01-01T12:00:05.050000+00:00")
 
     # def test_alias_merge_properties(self) -> None:
     #     Person.objects.create(

@@ -1,7 +1,9 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from typing import Dict, Optional, Tuple, Union
 
+import pytz
+from dateutil.parser import isoparse
 from rest_framework import serializers
 
 from ee.clickhouse.client import ch_client
@@ -17,12 +19,19 @@ def create_event(
     timestamp: Optional[Union[datetime, str]] = datetime.now(),
     element_hash: Optional[str] = "",
 ) -> None:
+
+    # clickhouse specific formatting
+    if isinstance(timestamp, str):
+        timestamp = isoparse(timestamp)
+
+    timestamp = timestamp.astimezone(pytz.utc)
+
     ch_client.execute(
         INSERT_EVENT_SQL,
         {
             "event": event,
             "properties": json.dumps(properties),
-            "timestamp": timestamp,
+            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
             "team_id": team.pk,
             "distinct_id": distinct_id,
             "element_hash": element_hash,
