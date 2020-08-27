@@ -8,7 +8,7 @@ from posthog.models import Team, User
 
 
 class Command(BaseCommand):
-    help = "Migrate data to new model"
+    help = "Set up review instance with demo data"
 
     def handle(self, *args, **options):
         user = User.objects.create(email="test@posthog.com", password="pass")
