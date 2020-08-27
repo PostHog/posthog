@@ -38,10 +38,11 @@ COPY webpack.config.js /code/
 COPY postcss.config.js /code/
 COPY babel.config.js /code/
 COPY frontend/ /code/frontend
+# RUN in between COPYs to avert a build issue https://github.com/moby/moby/issues/37965#issuecomment-426853382
 RUN true
 COPY . /code/
 
-RUN SECRET_KEY='unsafe secret key for collectstatic only'  DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+RUN SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 EXPOSE 8000
 CMD ["./bin/docker"]
