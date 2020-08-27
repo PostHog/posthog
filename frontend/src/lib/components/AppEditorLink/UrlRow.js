@@ -71,6 +71,8 @@ export function UrlRow({ actionId, url, saveUrl, deleteUrl, allowNavigation }) {
                     <a
                         data-attr="app-url-item"
                         href={appEditorUrl(actionId, editedValue)}
+                        target="_blank"
+                        rel="noreferrer noopener"
                         onClick={(e) => !allowNavigation && e.preventDefault()}
                     >
                         {editedValue}
