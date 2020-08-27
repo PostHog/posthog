@@ -18,12 +18,6 @@ jobs:
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
 
-            clickhouse-server:
-                image: yandex/clickhouse-server
-                ports:
-                    - '8123:8123'
-                    - '9000:9000'
-                    - '9009:9009'
         steps:
             - uses: actions/checkout@v1
               with:
@@ -81,6 +75,12 @@ jobs:
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
 
+            clickhouse-server:
+                image: yandex/clickhouse-server
+                ports:
+                    - '8123:8123'
+                    - '9000:9000'
+                    - '9009:9009'
         steps:
             - uses: actions/checkout@v1
               with:
