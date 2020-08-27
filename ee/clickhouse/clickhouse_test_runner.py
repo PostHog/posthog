@@ -1,7 +1,7 @@
 from django.test.runner import DiscoverRunner
 from infi.clickhouse_orm import Database  # type: ignore
 
-TEST_DB = "test_clickhhouse"
+TEST_DB = "test_clickhouse"
 
 
 class ClickhouseTestRunner(DiscoverRunner):
