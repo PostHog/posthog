@@ -658,5 +658,5 @@ def trend_test_factory(trends):
     return TestTrends
 
 
-class TestDjangoTrends(trend_test_factory(Trends)):
+class TestDjangoTrends(trend_test_factory(Trends)):  # type: ignore
     pass

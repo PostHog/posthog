@@ -1,5 +1,5 @@
 from django.test.runner import DiscoverRunner
-from infi.clickhouse_orm import Database
+from infi.clickhouse_orm import Database  # type: ignore
 
 TEST_DB = "ch_test"
 

@@ -226,5 +226,5 @@ def sessions_test_factory(sessions, event_factory):
     return TestSessions
 
 
-class DjangoSessionsTest(sessions_test_factory(Sessions, Event.objects.create)):
+class DjangoSessionsTest(sessions_test_factory(Sessions, Event.objects.create)):  # type: ignore
     pass

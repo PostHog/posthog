@@ -128,7 +128,7 @@ def _capture(
     check_and_create_person(team_id=team_id, distinct_id=distinct_id)
 
 
-def check_and_create_person(team_id: int, distinct_id: str):
+def check_and_create_person(team_id: int, distinct_id: str) -> Optional[Person]:
     if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
         # Catch race condition where in between getting and creating, another request already created this user.
         try:
