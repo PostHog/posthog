@@ -2,13 +2,25 @@ DROP_EVENTS_TABLE_SQL = """
 DROP TABLE events
 """
 
+DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL = """
+DROP TABLE events_with_array_props_view
+"""
+
+DROP_MAT_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL = """
+DROP TABLE events_with_array_props_mv
+"""
+
+DROP_MAT_EVENTS_PROP_TABLE_SQL = """
+DROP TABLE events_properties_view
+"""
+
 EVENTS_TABLE_SQL = """
 CREATE TABLE events
 (
     id UUID,
     event VARCHAR,
     properties VARCHAR,
-    timestamp DateTime('UTC'),
+    timestamp DateTime64(6, 'UTC'),
     team_id Int32,
     distinct_id VARCHAR,
     elements_hash VARCHAR,
@@ -23,13 +35,17 @@ INSERT_EVENT_SQL = """
 INSERT INTO events SELECT generateUUIDv4(), %(event)s, %(properties)s, parseDateTimeBestEffort(%(timestamp)s), %(team_id)s, %(distinct_id)s, %(element_hash)s, now()
 """
 
+GET_EVENTS_SQL = """
+SELECT * FROM events_with_array_props_view
+"""
+
 EVENTS_WITH_PROPS_TABLE_SQL = """
 CREATE TABLE events_with_array_props_view
 (
     id UUID,
     event VARCHAR,
     properties VARCHAR,
-    timestamp DateTime,
+    timestamp DateTime64(6, 'UTC'),
     team_id Int32,
     distinct_id VARCHAR,
     elements_hash VARCHAR,

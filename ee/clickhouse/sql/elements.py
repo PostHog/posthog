@@ -1,3 +1,12 @@
+DROP_ELEMENTS_TABLE_SQL = """
+DROP TABLE elements
+"""
+
+DROP_ELEMENTS_GROUP_TABLE_SQL = """
+DROP TABLE elements_group
+"""
+
+
 ELEMENTS_TABLE_SQL = """
 CREATE TABLE elements
 (
@@ -49,4 +58,16 @@ ORDER BY (id)
 
 INSERT_ELEMENT_GROUP_SQL = """
 INSERT INTO elements_group SELECT %(id)s, %(element_hash)s, %(team_id)s
+"""
+
+GET_ELEMENT_GROUP_BY_HASH_SQL = """
+SELECT * FROM elements_group where elements_hash = %(elements_hash)s
+"""
+
+GET_ELEMENT_BY_GROUP_SQL = """
+SELECT * FROM elements where group_id = %(group_id)s order by order ASC
+"""
+
+GET_ELEMENTS_SQL = """
+SELECT * FROM elements order by order ASC
 """

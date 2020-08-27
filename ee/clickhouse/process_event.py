@@ -39,7 +39,7 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
     if not old_person and new_person:
         try:
             new_person.add_distinct_id(previous_distinct_id)
-            attach_distinct_ids(new_person.pk, [distinct_id], team_id)
+            attach_distinct_ids(new_person.pk, [previous_distinct_id], team_id)
         # Catch race case when somebody already added this distinct_id between .get and .add_distinct_id
         except IntegrityError:
             if retry_if_failed:  # run everything again to merge the users if needed

@@ -1,3 +1,11 @@
+DROP_PERSON_TABLE_SQL = """
+DROP TABLE person
+"""
+
+DROP_PERSON_DISTINCT_ID_TABLE_SQL = """
+DROP TABLE person_distinct_id
+"""
+
 PERSONS_TABLE_SQL = """
 CREATE TABLE person
 (
@@ -6,6 +14,10 @@ CREATE TABLE person
     team_id Int32
 ) ENGINE = MergeTree()
 Order By (id)
+"""
+
+GET_PERSON_SQL = """
+SELECT * FROM person
 """
 
 PERSONS_DISTINCT_ID_TABLE_SQL = """
@@ -17,6 +29,10 @@ CREATE TABLE person_distinct_id
     team_id Int32
 ) ENGINE = MergeTree()
 Order By (id)
+"""
+
+GET_DISTINCT_IDS_SQL = """
+SELECT * FROM person_distinct_id
 """
 
 GET_PERSON_BY_DISTINCT_ID = """

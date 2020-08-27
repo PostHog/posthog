@@ -6,40 +6,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.clickhouse.client import ch_client
-from ee.clickhouse.models.event import determine_event_conditions
+from ee.clickhouse.models.event import ClickhouseEventSerializer, determine_event_conditions
 from ee.clickhouse.models.property import get_property_values_for_key, parse_filter
 from ee.clickhouse.sql.events import SELECT_EVENT_WITH_ARRAY_PROPS_SQL, SELECT_EVENT_WITH_PROP_SQL
 from posthog.models.filter import Filter
 from posthog.utils import convert_property_value
-
-
-# reference raw sql for
-class ClickhouseEventSerializer(serializers.Serializer):
-    id = serializers.SerializerMethodField()
-    properties = serializers.SerializerMethodField()
-    event = serializers.SerializerMethodField()
-    timestamp = serializers.SerializerMethodField()
-    person = serializers.SerializerMethodField()
-    elements = serializers.SerializerMethodField()
-
-    def get_id(self, event):
-        return str(event[0])
-
-    def get_properties(self, event):
-        return dict(zip(event[8], event[9]))
-
-    def get_event(self, event):
-        return event[1]
-
-    def get_timestamp(self, event):
-        dt = event[3].replace(tzinfo=timezone.utc)
-        return dt.astimezone().isoformat()
-
-    def get_person(self, event):
-        return event[5]
-
-    def get_elements(self, event):
-        return []
 
 
 class ClickhouseEvents(viewsets.ViewSet):
