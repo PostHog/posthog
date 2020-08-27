@@ -18,6 +18,12 @@ jobs:
                 ports: ['5432:5432']
                 options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
 
+            clickhouse-server:
+                image: yandex/clickhouse-server
+                ports:
+                    - '8123:8123'
+                    - '9000:9000'
+                    - '9009:9009'
         steps:
             - uses: actions/checkout@v1
               with:
@@ -120,6 +126,7 @@ jobs:
             - name: Run EE tests
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+                  PRIMARY_DB: 'clickhouse'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
