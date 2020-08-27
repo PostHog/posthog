@@ -85,9 +85,20 @@ You can [sign up for a free account](https://app.posthog.com/signup) on our host
 
 <img align="left" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/icons/Untitled_Artwork+2+copy+8+1.jpg" width="50px" />
 
-## Deploy to Heroku
+## Deployment Options
+
+Our suggested method for quick deployment is Heroku's one-click option:
 
 [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/posthog/posthog)
+
+However, PostHog can be deployed anywhere you want! Here are step-by-step tutorials we've written for deployment options using all the major cloud providers:
+
+* [AWS](https://posthog.com/docs/deployment/deploy-aws)
+* [Microsoft Azure](https://posthog.com/docs/deployment/deploy-azure)
+* [Digital Ocean](https://posthog.com/docs/deployment/deploy-digital-ocean)
+* [Google Cloud](https://posthog.com/docs/deployment/deploy-gcs)
+* [Linode](https://posthog.com/docs/deployment/deploy-linode)
+* [Render](https://posthog.com/docs/deployment/deploy-render)
 
 <br /><br />
 
