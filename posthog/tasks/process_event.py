@@ -61,7 +61,7 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
         new_person.merge_people([old_person])
 
 
-def _store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
+def store_names_and_properties(team: Team, event: str, properties: Dict) -> None:
     # In _capture we only prefetch a couple of fields in Team to avoid fetching too much data
     save = False
     if event not in team.event_names:
@@ -113,37 +113,31 @@ def _capture(
     if not team.anonymize_ips:
         properties["$ip"] = ip
 
-    _store_names_and_properties(team=team, event=event, properties=properties)
+    store_names_and_properties(team=team, event=event, properties=properties)
 
-    if check_ee_enabled():
-        from ee.clickhouse.process_event import capture_ee
+    Event.objects.create(
+        event=event,
+        distinct_id=distinct_id,
+        properties=properties,
+        team=team,
+        site_url=site_url,
+        **({"timestamp": timestamp} if timestamp else {}),
+        **({"elements": elements_list} if elements_list else {})
+    )
 
-        capture_ee(
-            event=event,
-            distinct_id=distinct_id,
-            properties=properties,
-            site_url=site_url,
-            team=team,
-            **({"timestamp": timestamp} if timestamp else {}),
-            **({"elements": elements_list} if elements_list else {"elements": []})
-        )
-    else:
-        Event.objects.create(
-            event=event,
-            distinct_id=distinct_id,
-            properties=properties,
-            team=team,
-            site_url=site_url,
-            **({"timestamp": timestamp} if timestamp else {}),
-            **({"elements": elements_list} if elements_list else {})
-        )
+    check_and_create_person(team_id=team_id, distinct_id=distinct_id)
 
-        if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
-            # Catch race condition where in between getting and creating, another request already created this user.
-            try:
-                Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
-            except IntegrityError:
-                pass
+
+def check_and_create_person(team_id: int, distinct_id: str) -> Optional[Person]:
+    if not Person.objects.distinct_ids_exist(team_id=team_id, distinct_ids=[str(distinct_id)]):
+        # Catch race condition where in between getting and creating, another request already created this user.
+        try:
+            person = Person.objects.create(team_id=team_id, distinct_ids=[str(distinct_id)])
+        except IntegrityError:
+            pass
+
+        return person
+    return None
 
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
@@ -173,7 +167,7 @@ def _set_is_identified(team_id: int, distinct_id: str, is_identified: bool = Tru
         person.save()
 
 
-def _handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[datetime.datetime, str]:
+def handle_timestamp(data: dict, now: str, sent_at: Optional[str]) -> Union[datetime.datetime, str]:
     if data.get("timestamp"):
         if sent_at:
             # sent_at - timestamp == now - x
@@ -209,12 +203,14 @@ def process_event(
         if data.get("$set"):
             _update_person_properties(team_id=team_id, distinct_id=distinct_id, properties=data["$set"])
 
+    properties = data.get("properties", data.get("$set", {}))
+
     _capture(
         ip=ip,
         site_url=site_url,
         team_id=team_id,
         event=data["event"],
         distinct_id=distinct_id,
-        properties=data.get("properties", data.get("$set", {})),
-        timestamp=_handle_timestamp(data, now, sent_at),
+        properties=properties,
+        timestamp=handle_timestamp(data, now, sent_at),
     )

@@ -28,7 +28,6 @@ def sessions_test_factory(sessions, event_factory):
                 )
 
             self.assertEqual(len(response), 2)
-            self.assertEqual(response[0]["global_session_id"], 1)
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = sessions().run(
@@ -226,5 +225,5 @@ def sessions_test_factory(sessions, event_factory):
     return TestSessions
 
 
-class DjangoSessionsTest(sessions_test_factory(Sessions, Event.objects.create)):
+class DjangoSessionsTest(sessions_test_factory(Sessions, Event.objects.create)):  # type: ignore
     pass

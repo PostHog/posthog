@@ -1,4 +1,4 @@
-from django_clickhouse import migrations
+from infi.clickhouse_orm import migrations
 
 from ee.clickhouse.sql.elements import ELEMENT_GROUP_TABLE_SQL, ELEMENTS_TABLE_SQL
 

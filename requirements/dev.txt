@@ -30,7 +30,7 @@ importlib-metadata==1.7.0  # via flake8-comprehensions
 ipdb==0.13.2              # via -r requirements/dev.in
 ipython-genutils==0.2.0   # via traitlets
 ipython==7.14.0           # via ipdb
-isort==5.1.4              # via -r requirements/dev.in
+isort==5.2.2              # via -r requirements/dev.in
 jedi==0.17.0              # via ipython
 mccabe==0.6.1             # via flake8
 mypy-extensions==0.4.3    # via -r requirements/dev.in, mypy

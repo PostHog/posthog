@@ -13,7 +13,8 @@ from . import (
     funnel,
     paths,
     person,
-    team,
+    personal_api_key,
+    team_user,
 )
 
 router = routers.DefaultRouter()
@@ -23,18 +24,17 @@ if check_ee_enabled():
     try:
         from ee.clickhouse.views import ClickhouseActions, ClickhouseEvents, ClickhouseInsights, ClickhousePerson
 
-        router.register(r"action", ClickhouseActions, basename="action")
-        router.register(r"event", ClickhouseEvents, basename="event")
-        router.register(r"insight", ClickhouseInsights, basename="insight")
-        router.register(r"person", ClickhousePerson, basename="person")
+        # router.register(r"action", ClickhouseActions, basename="action")
+        # router.register(r"event", ClickhouseEvents, basename="event")
+        # router.register(r"insight", ClickhouseInsights, basename="insight")
+        # router.register(r"person", ClickhousePerson, basename="person")
 
     except ImportError:
         print("Clickhouse enabled but missing enterprise capabilities. Defaulting to postgres")
-else:
-    # TODO: add insight
-    router.register(r"action", action.ActionViewSet)
-    router.register(r"event", event.EventViewSet)
-    router.register(r"person", person.PersonViewSet)
+
+router.register(r"action", action.ActionViewSet)
+router.register(r"event", event.EventViewSet)
+router.register(r"person", person.PersonViewSet)
 
 router.register(r"annotation", annotation.AnnotationsViewSet)
 router.register(r"element", element.ElementViewSet)
@@ -44,4 +44,5 @@ router.register(r"dashboard", dashboard.DashboardsViewSet)
 router.register(r"dashboard_item", dashboard.DashboardItemsViewSet)
 router.register(r"cohort", cohort.CohortViewSet)
 router.register(r"paths", paths.PathsViewSet, basename="paths")
-router.register(r"team/user", team.TeamUserViewSet)
+router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, basename="personal_api_keys")
+router.register(r"team/user", team_user.TeamUserViewSet)

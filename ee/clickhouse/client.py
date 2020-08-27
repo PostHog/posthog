@@ -1,4 +1,4 @@
-from clickhouse_driver import Client
+from clickhouse_driver import Client  # type: ignore
 
 from ee.clickhouse.clickhouse_test_runner import TEST_DB
 from posthog.settings import TEST

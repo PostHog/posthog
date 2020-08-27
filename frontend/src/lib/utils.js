@@ -410,3 +410,15 @@ export function humanizeNumber(number, digits = 1) {
     }
     return (number / matchingPrefix.value).toFixed(digits).replace(TRAILING_ZERO_REGEX, '$1') + matchingPrefix.symbol
 }
+
+export function copyToClipboard(value, description) {
+    const descriptionAdjusted = description ? description.trim() + ' ' : ''
+    try {
+        navigator.clipboard.writeText(value)
+        toast.success(`Copied ${descriptionAdjusted}to clipboard!`)
+        return true
+    } catch (e) {
+        toast.error(`Could not copy ${descriptionAdjusted}to clipboard: ${e}`)
+        return false
+    }
+}

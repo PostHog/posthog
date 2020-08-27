@@ -161,5 +161,5 @@ def retention_test_factory(retention):
     return TestRetention
 
 
-class TestDjangoRetention(retention_test_factory(Retention)):
+class TestDjangoRetention(retention_test_factory(Retention)):  # type: ignore
     pass
