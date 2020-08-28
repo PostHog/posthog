@@ -134,7 +134,7 @@ function TrendInsight({ view }): JSX.Element {
 }
 
 function FunnelInsight(): JSX.Element {
-    const { funnel, funnelLoading, stepsWithCount, stepsWithCountLoading, trendsLoading } = useValues(
+    const { funnel, funnelLoading, stepsWithCount, stepsWithCountLoading, trends, trendsLoading } = useValues(
         funnelLogic({ id: null })
     )
     const { chartFilterFunnels } = useValues(chartFilterLogic)
@@ -142,13 +142,17 @@ function FunnelInsight(): JSX.Element {
     let content: JSX.Element
     if (stepsWithCountLoading || trendsLoading) {
         content = <Loading />
-    } else if (stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1) {
-        if (chartFilterFunnels === FUNNEL_STEPS) {
-            content = <FunnelSteps funnel={{ steps: stepsWithCount }} />
-        } else if (chartFilterFunnels === FUNNEL_TRENDS) {
-            content = <FunnelLineGraph funnel={{ steps: stepsWithCount }} />
-        } else {
-            content = <h3>Unsupported funnel visualization type.</h3>
+    } else if ((stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1) || trends?.length) {
+        switch (chartFilterFunnels) {
+            case FUNNEL_STEPS:
+                content = <FunnelSteps funnel={{ steps: stepsWithCount }} />
+                break
+            case FUNNEL_TRENDS:
+                content = <FunnelLineGraph funnel={{ ...funnel, trends }} />
+                break
+            default:
+                content = <h3>Unknown funnel visualization type: {chartFilterFunnels}.</h3>
+                break
         }
     } else {
         content = (

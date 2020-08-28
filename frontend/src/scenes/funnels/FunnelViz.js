@@ -1,18 +1,19 @@
 import React, { useRef, useEffect, useState } from 'react'
 import FunnelGraph from 'funnel-graph-js'
 import { Link } from 'lib/components/Link'
-import { Loading, humanFriendlyDuration } from 'lib/utils'
+import { Loading, humanFriendlyDuration, toParams } from 'lib/utils'
 import PropTypes from 'prop-types'
 import { useValues, useActions } from 'kea'
 import { funnelVizLogic } from 'scenes/funnels/funnelVizLogic'
 import { LineGraph } from 'scenes/insights/LineGraph'
+import { router } from 'kea-router'
 
-export function FunnelSteps({ funnel: funnelParam, dashboardItemId, funnelId }) {
+export function FunnelSteps({ funnel: funnelProp, dashboardItemId, funnelId }) {
     const container = useRef()
-    const [funnel, setFunnel] = useState(funnelParam)
+    const [funnel, setFunnel] = useState(funnelProp)
     const logic = funnelVizLogic({ funnelId, dashboardItemId })
-    const { results: funnelResult, resultsLoading: funnelLoading } = useValues(logic)
-    const { loadResults: loadFunnel } = useActions(logic)
+    const { stepsResults, stepsResultsLoading } = useValues(logic)
+    const { loadSteps } = useActions(logic)
 
     function buildChart() {
         if (!funnel || funnel.steps.length == 0) return
@@ -42,7 +43,7 @@ export function FunnelSteps({ funnel: funnelParam, dashboardItemId, funnelId }) 
 
     useEffect(() => {
         if (funnel) buildChart()
-        else loadFunnel()
+        else loadSteps()
 
         window.addEventListener('resize', buildChart)
         return window.removeEventListener('resize', buildChart)
@@ -53,16 +54,16 @@ export function FunnelSteps({ funnel: funnelParam, dashboardItemId, funnelId }) 
     }, [funnel])
 
     useEffect(() => {
-        setFunnel(funnelParam)
-    }, [funnelParam])
+        setFunnel(funnelProp)
+    }, [funnelProp])
 
     useEffect(() => {
-        if (funnelResult) {
-            setFunnel(funnelResult)
+        if (stepsResults) {
+            setFunnel(stepsResults)
         }
-    }, [funnelResult])
+    }, [stepsResults])
 
-    return funnel && !funnelLoading ? (
+    return funnel && !stepsResultsLoading ? (
         funnel.steps.length > 0 ? (
             <div
                 data-attr="funnel-viz"
@@ -86,31 +87,39 @@ FunnelSteps.propTypes = {
     funnelId: PropTypes.number,
 }
 
-export function FunnelLineGraph({ dashboardItemId = null, color = 'white', filters, inSharedMode }) {
+export function FunnelLineGraph({ funnel: funnelProp, dashboardItemId, inSharedMode, color = 'white' }) {
+    const [funnel, setFunnel] = useState(funnelProp)
+    const logic = funnelVizLogic({ funnelId: funnel.id, dashboardItemId })
+    const { trendsResults, trendsResultsLoading } = useValues(logic)
+    const { loadTrends } = useActions(logic)
     const [{ fromItem }] = useState(router.values.hashParams)
 
     useEffect(() => {
-        loadResults()
-    }, [toParams(filters)])
+        loadTrends()
+    }, [toParams(funnel)])
 
-    return results && !resultsLoading ? (
-        filters.session || results.reduce((total, item) => total + item.count, 0) > 0 ? (
-            <LineGraph
-                pageKey="trends-annotations"
-                data-attr="trend-line-graph"
-                type="line"
-                color={color}
-                datasets={results}
-                labels={(results[0] && results[0].labels) || []}
-                isInProgress={!filters.date_to}
-                dashboardItemId={dashboardItemId || fromItem}
-                inSharedMode={inSharedMode}
-            />
-        ) : (
-            <p style={{ textAlign: 'center', paddingTop: '4rem' }}>
-                We couldn't find any matching events. Try changing dates or pick another action or event.
-            </p>
-        )
+    useEffect(() => {
+        setFunnel(funnelProp)
+    }, [funnelProp])
+
+    useEffect(() => {
+        if (trendsResults) {
+            setFunnel(trendsResults)
+        }
+    }, [trendsResults])
+
+    return trendsResults && !trendsResultsLoading ? (
+        <LineGraph
+            pageKey="trends-annotations"
+            data-attr="trend-line-graph-funnel"
+            type="line"
+            color={color}
+            datasets={trendsResults}
+            labels={trendsResults.labels ?? []}
+            isInProgress={!funnel.filters.date_to}
+            dashboardItemId={dashboardItemId || fromItem}
+            inSharedMode={inSharedMode}
+        />
     ) : (
         <Loading />
     )

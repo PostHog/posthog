@@ -4,7 +4,7 @@ export const ACTIONS_TABLE = 'ActionsTable'
 export const ACTIONS_PIE_CHART = 'ActionsPie'
 export const RETENTION_TABLE = 'RetentionTable'
 export const PATHS_VIZ = 'PathsViz'
-export const FUNNEL_STEPS = 'FunnelSteps'
+export const FUNNEL_STEPS = 'FunnelViz' // Viz instead of Steps for backwards compatiblity
 export const FUNNEL_TRENDS = 'FunnelTrends'
 
 export const STICKINESS = 'Stickiness'

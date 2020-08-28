@@ -4,6 +4,7 @@ import { toast } from 'react-toastify'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic.js'
 import { objectsEqual } from 'lib/utils'
+import { FUNNEL_TRENDS } from 'lib/constants'
 
 export const funnelLogic = kea({
     key: (props) => props.id || 'new',
@@ -15,6 +16,7 @@ export const funnelLogic = kea({
 
     connect: {
         actions: [insightLogic, ['setAllFilters']],
+        values: [chartFilterLogic, ['chartFilterFunnels']],
     },
 
     loaders: ({ props }) => ({
@@ -44,14 +46,12 @@ export const funnelLogic = kea({
                           .map((pair) => pair.join('='))
                           .join('&')}`
                     : ''
-                const response = await api.get(
-                    `api/funnel/${id}/?display=${chartFilterLogic.values.chartFilterFunnels}${extraQueryParamsString}`
-                )
+                const response = await api.get(`api/funnel/${id}/?display=FunnelSteps${extraQueryParamsString}`)
                 return response.steps
             },
         },
-        stepsWithCount: {
-            loadStepsWithCount: async ({ id, refresh }) => {
+        trends: {
+            loadTrends: async ({ id, refresh }) => {
                 const extraQueryParams = {}
                 extraQueryParams['refresh'] = refresh
                 extraQueryParams['interval'] = insightLogic.values.allFilters.interval
@@ -61,10 +61,8 @@ export const funnelLogic = kea({
                           .map((pair) => pair.join('='))
                           .join('&')}`
                     : ''
-                const response = await api.get(
-                    `api/funnel/${id}/?display=${chartFilterLogic.values.chartFilterFunnels}${extraQueryParamsString}`
-                )
-                return response.steps
+                const response = await api.get(`api/funnel/${id}/?display=FunnelTrends${extraQueryParamsString}`)
+                return response.trends
             },
         },
         people: {
@@ -131,7 +129,8 @@ export const funnelLogic = kea({
             })
         },
         updateFunnelSuccess: async ({ funnel }) => {
-            actions.loadStepsWithCount({ id: funnel.id, refresh: true })
+            const load = values.chartFilterFunnels === FUNNEL_TRENDS ? actions.loadTrends : actions.loadStepsWithCount
+            load({ id: funnel.id, refresh: true })
             actions.setAllFilters({
                 funnelId: funnel.id,
                 name: funnel.name,
@@ -141,7 +140,8 @@ export const funnelLogic = kea({
             toast('Funnel saved!')
         },
         createFunnelSuccess: ({ funnel }) => {
-            actions.loadStepsWithCount({ id: funnel.id, refresh: true })
+            const load = values.chartFilterFunnels === FUNNEL_TRENDS ? actions.loadTrends : actions.loadStepsWithCount
+            load({ id: funnel.id, refresh: true })
             actions.setAllFilters({
                 funnelId: funnel.id,
                 name: funnel.name,
@@ -166,7 +166,9 @@ export const funnelLogic = kea({
                 const id = searchParams.id
                 if (id != values.funnel.id) {
                     actions.loadFunnel(id)
-                    actions.loadStepsWithCount({ id })
+                    const load =
+                        values.chartFilterFunnels === FUNNEL_TRENDS ? actions.loadTrends : actions.loadStepsWithCount
+                    load({ id })
                 }
 
                 const paramsToCheck = {
@@ -193,7 +195,8 @@ export const funnelLogic = kea({
             }
 
             actions.loadFunnel()
-            actions.loadStepsWithCount({ id: props.id })
+            const load = values.chartFilterFunnels === FUNNEL_TRENDS ? actions.loadTrends : actions.loadStepsWithCount
+            load({ id: props.id })
         },
     }),
 })
