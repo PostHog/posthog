@@ -37,7 +37,7 @@ import { RetentionTable } from 'scenes/retention/RetentionTable'
 import { Paths } from 'scenes/paths/Paths'
 
 import { insightFilters } from './insightFilters'
-import { FunnelSteps, FunnelLineGraph } from 'scenes/funnels/FunnelViz'
+import { FunnelSteps } from 'scenes/funnels/FunnelViz'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { People } from 'scenes/funnels/People'
 import { insightLogic, ViewType } from './insightLogic'
@@ -108,77 +108,6 @@ function determineInsightType(activeView: string, display?: string): string | nu
     } else {
         return null
     }
-}
-
-function TrendInsight({ view }): JSX.Element {
-    const { filters, loading, showingPeople } = useValues(trendsLogic({ dashboardItemId: null, view, filters: null }))
-
-    return (
-        <>
-            {(filters.actions || filters.events || filters.session) && (
-                <div
-                    style={{
-                        minHeight: '70vh',
-                        position: 'relative',
-                    }}
-                >
-                    {loading && <Loading />}
-                    {(!filters.display ||
-                        filters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                        filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) && <ActionsLineGraph view={view} />}
-                    {filters.display === ACTIONS_TABLE && <ActionsTable filters={filters} view={view} />}
-                    {filters.display === ACTIONS_PIE_CHART && <ActionsPie filters={filters} view={view} />}
-                </div>
-            )}
-            <PeopleModal visible={showingPeople} view={view} />
-        </>
-    )
-}
-
-function FunnelInsight(): JSX.Element {
-    const { funnel, funnelLoading, stepsWithCount, stepsWithCountLoading, trends, trendsLoading } = useValues(
-        funnelLogic({ id: null })
-    )
-    const { chartFilterFunnels } = useValues(chartFilterLogic)
-    if (!funnel && funnelLoading) return <Loading />
-    let content: JSX.Element
-    if (stepsWithCountLoading || trendsLoading) {
-        content = <Loading />
-    } else if ((stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1) || trends?.length) {
-        switch (chartFilterFunnels) {
-            case FUNNEL_STEPS:
-                content = <FunnelSteps funnel={{ steps: stepsWithCount }} />
-                break
-            case FUNNEL_TRENDS:
-                content = <FunnelLineGraph funnel={{ ...funnel, trends }} />
-                break
-            default:
-                content = <h3>Unknown funnel visualization type: {chartFilterFunnels}.</h3>
-                break
-        }
-    } else {
-        content = (
-            <div
-                style={{
-                    textAlign: 'center',
-                }}
-            >
-                <h3>Describe your funnel and click "Save funnel" to create a funnel visualization.</h3>
-            </div>
-        )
-    }
-    return <div style={{ height: 300, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>{content}</div>
-}
-
-function FunnelPeople(): JSX.Element {
-    const { funnel } = useValues(funnelLogic({ id: null }))
-    return (
-        funnel.id && (
-            <div className="funnel">
-                <People />
-            </div>
-        )
-    )
 }
 
 const insightGraphs: { [viewType: string]: JSX.Element } = {
@@ -335,9 +264,9 @@ export const Insights = hot(function () {
             </Drawer>
         </div>
     )
-}
+})
 
-function TrendInsight({ view }) {
+function TrendInsight({ view }): JSX.Element {
     const { filters, loading, showingPeople } = useValues(trendsLogic({ dashboardItemId: null, view, filters: null }))
 
     return (
@@ -362,18 +291,18 @@ function TrendInsight({ view }) {
     )
 }
 
-const isFunnelEmpty = (filters) => {
+function isFunnelEmpty(filters): boolean {
     return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
 }
 
-function FunnelInsight() {
+function FunnelInsight(): JSX.Element {
     const { stepsWithCount, stepsWithCountLoading } = useValues(funnelLogic)
 
     return (
         <div style={{ height: 300 }}>
             {stepsWithCountLoading && <Loading />}
             {stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1 ? (
-                <FunnelViz steps={stepsWithCount} />
+                <FunnelSteps steps={stepsWithCount} />
             ) : (
                 <div
                     style={{
@@ -387,7 +316,7 @@ function FunnelInsight() {
     )
 }
 
-function FunnelPeople() {
+function FunnelPeople(): JSX.Element {
     const { stepsWithCount } = useValues(funnelLogic)
     if (stepsWithCount && stepsWithCount.length > 0) {
         return (

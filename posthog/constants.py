@@ -15,13 +15,13 @@ class CachedEndpoint(str, Enum):
     """Cached endpoint type."""
 
     TRENDS = "Trends"
-    FUNNEL_VIZ = "FunnelViz"
+    FUNNEL = "Funnel"
 
 
 class DisplayMode(str, Enum):
     """Insight display mode."""
 
-    FUNNEL_STEPS = "FunnelViz"  # Viz instead of Steps for backwards compatiblity
+    FUNNEL_STEPS = "FunnelViz"  # keeping "Viz" instead of naming "Steps" for backwards compatiblity
     FUNNEL_TRENDS = "FunnelTrends"
 
 

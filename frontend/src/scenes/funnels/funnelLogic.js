@@ -3,7 +3,6 @@ import api from 'lib/api'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
 import { objectsEqual, toParams } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import { FUNNEL_TRENDS } from 'lib/constants'
 
 function wait(ms = 1000) {
     return new Promise((resolve) => {

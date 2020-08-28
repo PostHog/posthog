@@ -28,7 +28,7 @@ def cached_function(cache_type: CachedEndpoint, expiry=30):
                 filter = Filter(request=request)
                 cache_key = generate_cache_key(filter.toJSON() + "_" + str(team.pk))
                 payload = {"filter": filter.toJSON(), "team_id": team.pk}
-            elif cache_type == CachedEndpoint.FUNNEL_VIZ:
+            elif cache_type == CachedEndpoint.FUNNEL:
                 pk = args[2]
                 cache_key = generate_cache_key("funnel_{}_{}".format(pk, team.pk))
                 payload = {"funnel_id": pk, "team_id": team.pk}
