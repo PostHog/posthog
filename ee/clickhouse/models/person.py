@@ -26,8 +26,10 @@ def create_person_distinct_id(team_id: Team, distinct_id: str, person_id: int) -
     )
 
 
-def distinct_ids_exist(ids: List[str]) -> bool:
-    return bool(ch_client.execute(PERSON_DISTINCT_ID_EXISTS_SQL.format(ids))[0][0])
+def distinct_ids_exist(team_id: int, ids: List[str]) -> bool:
+    return bool(
+        ch_client.execute(PERSON_DISTINCT_ID_EXISTS_SQL.format([str(id) for id in ids]), {"team_id": team_id})[0][0]
+    )
 
 
 def person_exists(id: int) -> bool:
@@ -37,7 +39,7 @@ def person_exists(id: int) -> bool:
 def create_person_with_distinct_id(person_id: int, distinct_ids: List[str], team_id: int) -> None:
     if not person_exists(person_id):
         create_person(id=person_id, team_id=team_id)
-    if not distinct_ids_exist(distinct_ids):
+    if not distinct_ids_exist(team_id, distinct_ids):
         attach_distinct_ids(person_id, distinct_ids, team_id)
 
 

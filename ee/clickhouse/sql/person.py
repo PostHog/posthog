@@ -40,7 +40,7 @@ SELECT p.id FROM person as p inner join person_distinct_id as pid on p.id = pid.
 """
 
 PERSON_DISTINCT_ID_EXISTS_SQL = """
-SELECT count(*) FROM person_distinct_id inner join (SELECT arrayJoin({}) as distinct_id) as id_params ON id_params.distinct_id = person_distinct_id.distinct_id
+SELECT count(*) FROM person_distinct_id inner join (SELECT arrayJoin({}) as distinct_id) as id_params ON id_params.distinct_id = person_distinct_id.distinct_id where person_distinct_id.team_id = %(team_id)s
 """
 
 PERSON_EXISTS_SQL = """
