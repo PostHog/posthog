@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 import { Link } from 'lib/components/Link'
 import { kea, useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Input, Select, Modal, Radio, Alert } from 'antd'
+import { Input, Select, Modal, Radio } from 'antd'
 import { prompt } from 'lib/logic/prompt'
 import moment from 'moment'
 
@@ -39,7 +39,6 @@ export function SaveToDashboardModal({
     name: initialName,
     type,
     filters,
-    funnelId,
     fromItem,
     fromDashboard,
     fromItemName,
@@ -52,7 +51,7 @@ export function SaveToDashboardModal({
     const { addNewDashboard } = useActions(saveToDashboardModalLogic({ setDashboardId }))
     const [name, setName] = useState(fromItemName || initialName || '')
     const [visible, setVisible] = useState(true)
-    const [newItem, setNewItem] = useState(type === 'FunnelViz' || !fromItem)
+    const [newItem, setNewItem] = useState(!fromItem)
     const fromDashboardName =
         (fromDashboard ? dashboards.find((d) => d.id === parseInt(fromDashboard)) : null)?.name || 'Untitled'
 
@@ -60,8 +59,7 @@ export function SaveToDashboardModal({
         event.preventDefault()
         if (newItem) {
             const response = await api.create('api/dashboard_item', {
-                filters: funnelId ? {} : filters,
-                funnel: funnelId,
+                filters,
                 type,
                 name,
                 dashboard: dashboardId,
@@ -78,7 +76,7 @@ export function SaveToDashboardModal({
                 }
             }
         } else {
-            await api.update(`api/dashboard_item/${fromItem}`, { filters, type, funnel: funnelId })
+            await api.update(`api/dashboard_item/${fromItem}`, { filters, type })
         }
         toast(
             <div data-attr="success-toast">
@@ -99,7 +97,7 @@ export function SaveToDashboardModal({
             okText={newItem ? 'Add panel to dashboard' : 'Update panel on dashboard'}
         >
             <form onSubmit={save}>
-                {fromItem && type !== 'FunnelViz' ? (
+                {fromItem ? (
                     <Radio.Group
                         onChange={(e) => setNewItem(e.target.value === 'true')}
                         value={`${newItem}`}
@@ -112,25 +110,6 @@ export function SaveToDashboardModal({
                             Add as a new panel
                         </Radio>
                     </Radio.Group>
-                ) : null}
-                {fromItem && type === 'FunnelViz' ? (
-                    <div style={{ marginBottom: 30 }}>
-                        <Alert
-                            message="Already on a dashboard"
-                            description={
-                                <>
-                                    <p>
-                                        This funnel is already saved on the Dashboard{' '}
-                                        <Link to={`/dashboard/${fromDashboard}`}>{fromDashboardName}</Link> as "
-                                        <strong>{fromItemName}</strong>" and updated automatically.
-                                    </p>
-                                    <p style={{ marginBottom: 0 }}>You can still add it to another dashboard.</p>
-                                </>
-                            }
-                            type="warning"
-                            showIcon
-                        />
-                    </div>
                 ) : null}
                 {newItem ? (
                     <>

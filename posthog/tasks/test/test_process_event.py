@@ -28,7 +28,7 @@ class ProcessEvent(BaseTest):
         ActionStep.objects.create(action=action2, selector="a", event="$autocapture")
         team_id = self.team.pk
 
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(29):
             process_event(
                 2,
                 "",
@@ -611,3 +611,19 @@ class TestIdentify(TransactionTestCase):
         self.assertEqual(people[1].distinct_ids, ["1", "2"])
         self.assertEqual(people[0].team, team2)
         self.assertEqual(people[0].distinct_ids, ["2"])
+
+    def test_set_is_identified(self) -> None:
+        distinct_id = "777"
+        person_before_event = Person.objects.create(team=self.team, distinct_ids=[distinct_id])
+        self.assertFalse(person_before_event.is_identified)
+        process_event(
+            distinct_id,
+            "",
+            "",
+            {"event": "$identify", "properties": {},},
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+        person_after_event = Person.objects.get(team=self.team, persondistinctid__distinct_id=distinct_id)
+        self.assertTrue(person_after_event.is_identified)

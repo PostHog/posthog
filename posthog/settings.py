@@ -15,7 +15,7 @@ import os
 import shutil
 import sys
 from distutils.util import strtobool
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import dj_database_url
 import sentry_sdk
@@ -148,7 +148,7 @@ MIDDLEWARE = [
     "posthog.middleware.ToolbarCookieMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
+    "posthog.middleware.CsrfOrKeyViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -159,22 +159,15 @@ if STATSD_HOST:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
     MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
-# Load debug_toolbar if we can (DEBUG and Dev modes)
+# Append Enterprise Edition as an app if available
 try:
-    import debug_toolbar
-
-    INSTALLED_APPS.append("debug_toolbar")
-    MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
+    from ee.apps import EnterpriseConfig
 except ImportError:
     pass
-
-# Import Enterprise Edition if we can
-try:
-    import ee.apps
-
+else:
+    HOOK_EVENTS: Dict[str, str] = {}
+    INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
-except ImportError:
-    pass
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
 CORS_ORIGIN_ALLOW_ALL = True
@@ -282,12 +275,15 @@ if not REDIS_URL and os.environ.get("POSTHOG_REDIS_HOST", ""):
 
 if not REDIS_URL:
     raise ImproperlyConfigured(
-        f'The environment var "REDIS_URL" or "POSTHOG_REDIS_HOST" is absolutely required to run this software. If you\'re upgrading from an earlier version of PostHog, see here: https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011'
+        "Env var REDIS_URL or POSTHOG_REDIS_HOST is absolutely required to run this software.\n"
+        "If upgrading from PostHog 1.0.10 or earlier, see here: "
+        "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
+CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
 REDBEAT_LOCK_TIMEOUT = 45  # keep distributed beat lock for 45sec
 
 # Password validation
@@ -337,6 +333,11 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "PAGE_SIZE": 100,
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated",],
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "posthog.utils.PersonalAPIKeyAuthentication",
+        "rest_framework.authentication.BasicAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+    ],
 }
 
 # Email
@@ -365,12 +366,20 @@ if TEST:
     CACHES["default"] = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
+    # Load debug_toolbar if we can
+    try:
+        import debug_toolbar
+    except ImportError:
+        pass
+    else:
+        INSTALLED_APPS.append("debug_toolbar")
+        MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
 
 if DEBUG and not TEST:
     print_warning(
         (
-            "️Environment variable DEBUG is set - PostHog is running in DEVELOPMENT mode!",
-            "Be sure to unset DEBUG if this is supposed to be a PRODUCTION environment!",
+            "️Environment variable DEBUG is set - PostHog is running in DEVELOPMENT MODE!",
+            "Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!",
         )
     )
 
@@ -392,3 +401,7 @@ def show_toolbar(request):
 DEBUG_TOOLBAR_CONFIG = {
     "SHOW_TOOLBAR_CALLBACK": "posthog.settings.show_toolbar",
 }
+
+# Extend and override these settings with EE's ones
+if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:
+    from ee.settings import *

@@ -6,7 +6,7 @@
     "environments": {
         "review": {
             "scripts": {
-                "postdeploy": ""
+                "postdeploy": "python manage.py setup_review"
             },
             "env": {
                 "DEBUG": true

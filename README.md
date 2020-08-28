@@ -2,13 +2,13 @@
 
 <br />
 
-PostHog provides open source product analytics, built for developers. Automate the collection of every event on your website or app, with no need to send data to 3rd parties. It's just 1 click to deploy on your own infrastructure, with full API/SQL access to the underlying data. 
- 
-<br /><br /> 
- 
+PostHog provides open-source product analytics, built for developers. Automate the collection of every event on your website or app, with no need to send data to 3rd parties. With just 1 click you can deploy on your own infrastructure, having full API/SQL access to the underlying data. 
+
+<br /><br />
+
 <img align="left" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/icons/Untitled_Artwork+2.jpg" width="50px" />
 
-## Quick start
+## Quick Start
 
 1-click Heroku deploy:
 
@@ -18,13 +18,13 @@ PostHog provides open source product analytics, built for developers. Automate t
 
 <img align="left" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/icons/Untitled_Artwork+3.jpg" width="50px" />
 
-## In-depth Walkthrough 
+## Make the Best of PostHog
 
-See the [PostHog Docs](https://posthog.com/docs/) for in-depth walk throughs on functionality.
+See [PostHog Docs](https://posthog.com/docs/) for in-depth walk-throughs on functionality.
 
 ![PostHog dashboard screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/app-dashboard.png)
 
-Join the [PostHog Users Slack](https://join.slack.com/t/posthogusers/shared_invite/enQtOTY0MzU5NjAwMDY3LTc2MWQ0OTZlNjhkODk3ZDI3NDVjMDE1YjgxY2I4ZjI4MzJhZmVmNjJkN2NmMGJmMzc2N2U3Yjc3ZjI5NGFlZDQ) if you need help, want to chat, or are thinking of a new feature idea.
+Join [our PostHog Users Slack community](https://join.slack.com/t/posthogusers/shared_invite/enQtOTY0MzU5NjAwMDY3LTc2MWQ0OTZlNjhkODk3ZDI3NDVjMDE1YjgxY2I4ZjI4MzJhZmVmNjJkN2NmMGJmMzc2N2U3Yjc3ZjI5NGFlZDQ) if you need help, want to chat, or are thinking of a new feature. We're here to help - and to make PostHog even better.
 
 <br /><br />
 
@@ -32,14 +32,14 @@ Join the [PostHog Users Slack](https://join.slack.com/t/posthogusers/shared_invi
 
 ## Features
 
--   **Event-based** analytics at a user level - see which users are doing what in your application.
--   **Complete control** over your data - host it yourself.
--   **Automatically capture** clicks and page views to do analyze what your users are doing **retroactively**.
--   **Feature flags** understand the impact of new features before rolling them out more widely
--   Libraries for **[JS](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration)** + [API](https://posthog.com/docs/integrations/api) for anything else.
--   Beautiful **[graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [user cohorts](https://posthog.com/docs/features/cohorts), [user paths](https://posthog.com/docs/features/paths), [retention tables](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards)**.
--   A [Toolbar](https://posthog.com/docs/features/toolbar) that's as useful as it is cool
--   Super easy deploy using **Docker** or **Heroku**.
+- **Event-based** analytics at a user level - see which users are doing what in your application.
+- **Complete control** over your data - host it yourself.
+- **Automatically capture** clicks and page views to do analyze what your users are doing **retroactively**.
+- **Feature flags** understand the impact of new features before rolling them out more widely
+- **Ready-made libraries** for **[JS](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration)** + [API](https://posthog.com/docs/integrations/api) for anything else.
+- **Beautiful data visualizations**: [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [user cohorts](https://posthog.com/docs/features/cohorts), [user paths](https://posthog.com/docs/features/paths), [retention tables](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards).
+- **Analytics right on your website** with the playful [PostHog Toolbar](https://posthog.com/docs/features/toolbar).
+- **Super easy deploy** using Docker or Heroku.
 
 <br /><br />
 
@@ -57,7 +57,7 @@ Join the [PostHog Users Slack](https://join.slack.com/t/posthogusers/shared_invi
 
 Many engineers find it painful to work out how their products are being used. This makes design decisions tough. PostHog solves that.
 
-In our view, third-party analytics does not work anymore in a world of Cookie Laws, GDPR, CCPA, and many other four-letter acronyms. There should be an alternative to sending all of your customers' personal information and usage data to third-parties like Google.
+In our view, third-party analytics does not work anymore in a world of cookie laws, GDPR, CCPA, and many other four-letter acronyms. There should be an alternative to sending all of your customers' personal information and usage data to third-parties like Google.
 
 PostHog gives you full control over all the data from your users, while allowing anyone to do powerful analytics.
 
@@ -67,17 +67,17 @@ This means you can know who is using your app, how they're using it, and where y
 
 <img align="left" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/icons/Untitled_Artwork+2+copy+6+1.jpg" width="50px" />
 
-## What's cool about this?
+## What's Cool About This?
 
-PostHog is the only **product-focused** open source analytics library, with an event and user-driven architecture. That means tracking identifiable (where applicable) user behavior, and creating user profiles. We are an open source alternative to products such as Mixpanel, Amplitude, or Heap, designed to be more developer-friendly.
+PostHog is the only **product-focused** open-source analytics library, with an event and user-driven architecture. That means tracking identifiable (where applicable) user behavior, and creating user profiles. We are an open-source alternative to products such as Mixpanel, Amplitude, or Heap, that's designed to be more developer-friendly than them.
 
-There are a few session-based open source libraries that are nice alternatives to Google Analytics. That's not what we are focused on.
+There are a few session-based open-source libraries that are nice alternatives to Google Analytics. That's not what we are focused on. 
 
 <br /><br />
 
 <img align="left" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/icons/Untitled_Artwork+2+copy+7+1.jpg" width="50px" />
 
-## PostHog SaaS
+## PostHog Cloud
 
 You can [sign up for a free account](https://app.posthog.com/signup) on our hosted platform.
 
@@ -85,15 +85,26 @@ You can [sign up for a free account](https://app.posthog.com/signup) on our host
 
 <img align="left" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/icons/Untitled_Artwork+2+copy+8+1.jpg" width="50px" />
 
-## Deploy to Heroku
+## Deployment Options
+
+Our suggested method for quick deployment is Heroku's one-click option:
 
 [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/posthog/posthog)
+
+However, PostHog can be deployed anywhere you want! Here are step-by-step tutorials we've written for deployment options using all the major cloud providers:
+
+* [AWS](https://posthog.com/docs/deployment/deploy-aws)
+* [Microsoft Azure](https://posthog.com/docs/deployment/deploy-azure)
+* [Digital Ocean](https://posthog.com/docs/deployment/deploy-digital-ocean)
+* [Google Cloud](https://posthog.com/docs/deployment/deploy-gcs)
+* [Linode](https://posthog.com/docs/deployment/deploy-linode)
+* [Render](https://posthog.com/docs/deployment/deploy-render)
 
 <br /><br />
 
 <img align="left" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/icons/Untitled_Artwork+2+copy+10+1.jpg" width="50px" />
 
-## Production deployment
+## Production Deployment
 
 [See our Docs for production deployment options.](https://posthog.com/docs/deployment)
 
@@ -101,7 +112,7 @@ You can [sign up for a free account](https://app.posthog.com/signup) on our host
 
 <img align="left" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/icons/Untitled_Artwork+2+copy+11+1.jpg" width="50px" />
 
-## Developing locally
+## Developing Locally
 
 [See our Docs for instructions on developing locally.](https://posthog.com/docs/developing-locally)
 
@@ -121,18 +132,17 @@ Not sure where to start? [Book a free, no-pressure pairing session](mailto:tim@p
 
 ## We're hiring!
 
-Come help us make PostHog even better. We're growing like crazy, [and would love for you to join us](https://posthog.com/careers).
+Come help us make PostHog even better. We're growing fast, [and would love for you to join us](https://posthog.com/careers).
 
 <br /><br />
 
 <img align="left" src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/rebrand/icons/Untitled_Artwork+2+copy+14+1.jpg" width="50px" />
 
-## Open source / Paid
+## Open-Source vs. Paid
 
+This repo is entirely [MIT licensed](/LICENSE), with the exception of the `ee` directory (if applicable). Need _absolutely 💯% FOSS_? Check out our [posthog-foss](https://github.com/PostHog/posthog-foss) repository, which is purged of all proprietary code and features.
 
-This repo is entirely [MIT licensed](/LICENSE), with the exception of the `ee` folder (if applicable). We also have a [posthog-foss](https://github.com/PostHog/posthog-foss) version that has all proprietary code removed.
-
-To activate the features in the ee folder, you'll need a license. Please contact us at sales@posthog.com for more information.
+Premium features (contained in the `ee` directory) require a PostHog license. Contact us at sales@posthog.com for more information.
 
 <br /><br />
 
