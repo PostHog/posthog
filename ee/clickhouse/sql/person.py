@@ -43,6 +43,10 @@ PERSON_DISTINCT_ID_EXISTS_SQL = """
 SELECT count(*) FROM person_distinct_id inner join (SELECT arrayJoin({}) as distinct_id) as id_params ON id_params.distinct_id = person_distinct_id.distinct_id
 """
 
+PERSON_EXISTS_SQL = """
+SELECT count(*) FROM person where id = %(id)s
+"""
+
 INSERT_PERSON_SQL = """
 INSERT INTO person SELECT %(id)s, now(), %(team_id)s
 """

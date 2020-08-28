@@ -137,7 +137,9 @@ def check_and_create_person(team_id: int, distinct_id: str) -> Optional[Person]:
             pass
 
         return person
-    return None
+    else:
+        person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+        return person
 
 
 def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) -> None:
