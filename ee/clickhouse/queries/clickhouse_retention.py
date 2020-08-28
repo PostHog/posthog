@@ -9,13 +9,13 @@ from posthog.queries.base import BaseQuery
 
 
 class ClickhouseRetention(BaseQuery):
-    def calculate_retention(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+    def calculate_retention(self, filter: Filter, team: Team, total_days: int) -> List[Dict[str, Any]]:
         if filter.date_from:
             date_from = filter.date_from
-            date_to = date_from + timedelta(days=10)
+            date_to = date_from + timedelta(days=total_days)
         else:
             date_to = datetime.now()
-            date_from = date_to - timedelta(days=10)
+            date_from = date_to - timedelta(days=total_days)
 
         result = ch_client.execute(
             RETENTION_SQL,
@@ -30,7 +30,6 @@ class ClickhouseRetention(BaseQuery):
 
         for res in result:
             result_dict.update({(res[0], res[1]): {"count": res[2], "people": []}})
-        total_days = 11
 
         labels_format = "%a. %-d %B"
         parsed = [
@@ -48,4 +47,5 @@ class ClickhouseRetention(BaseQuery):
         return parsed
 
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        return self.calculate_retention(filter, team)
+        total_days = kwargs.get("total_days", 11)
+        return self.calculate_retention(filter, team, total_days)

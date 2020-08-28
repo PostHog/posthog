@@ -58,11 +58,11 @@ def retention_test_factory(retention, create_event, create_person):
             )
 
         def test_retention_with_properties(self):
-            person1 = Person.objects.create(
-                team=self.team, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"}
+            person1 = create_person(
+                team_id=self.team.pk, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"}
             )
-            person2 = Person.objects.create(
-                team=self.team, distinct_ids=["person2"], properties={"email": "person2@test.com"}
+            person2 = create_person(
+                team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "person2@test.com"}
             )
 
             self._create_pageviews(
