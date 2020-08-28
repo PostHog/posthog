@@ -9,6 +9,7 @@ from ee.clickhouse.sql.person import (
     INSERT_PERSON_DISTINCT_ID,
     INSERT_PERSON_SQL,
     PERSON_DISTINCT_ID_EXISTS_SQL,
+    PERSON_EXISTS_SQL,
 )
 from posthog.models.team import Team
 
@@ -29,9 +30,15 @@ def distinct_ids_exist(ids: List[str]) -> bool:
     return bool(ch_client.execute(PERSON_DISTINCT_ID_EXISTS_SQL.format(ids))[0][0])
 
 
+def person_exists(id: int) -> bool:
+    return bool(ch_client.execute(PERSON_EXISTS_SQL, {"id": id})[0][0])
+
+
 def create_person_with_distinct_id(person_id: int, distinct_ids: List[str], team_id: int) -> None:
-    create_person(id=person_id, team_id=team_id)
-    attach_distinct_ids(person_id, distinct_ids, team_id)
+    if not person_exists(person_id):
+        create_person(id=person_id, team_id=team_id)
+    if not distinct_ids_exist(distinct_ids):
+        attach_distinct_ids(person_id, distinct_ids, team_id)
 
 
 def attach_distinct_ids(person_id: int, distinct_ids: List[str], team_id: int) -> None:
