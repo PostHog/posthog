@@ -11,11 +11,11 @@ from posthog.queries.stickiness import Stickiness
 
 
 # parameterize tests to reuse in EE
-def retention_test_factory(retention):
+def retention_test_factory(retention, create_event, create_person):
     class TestRetention(BaseTest):
         def test_retention(self):
-            person1 = Person.objects.create(team=self.team, distinct_ids=["person1", "alias1"])
-            person2 = Person.objects.create(team=self.team, distinct_ids=["person2"])
+            person1 = create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            person2 = create_person(team_id=self.team.pk, distinct_ids=["person2"])
 
             self._create_pageviews(
                 [
@@ -33,7 +33,6 @@ def retention_test_factory(retention):
             )
 
             result = retention().run(Filter(data={"date_from": self._date(0, hour=0)}), self.team)
-
             self.assertEqual(len(result), 11)
             self.assertEqual(
                 self.pluck(result, "label"),
@@ -139,7 +138,7 @@ def retention_test_factory(retention):
 
         def _create_pageviews(self, user_and_timestamps):
             for distinct_id, timestamp in user_and_timestamps:
-                Event.objects.create(
+                create_event(
                     team=self.team, event="$pageview", distinct_id=distinct_id, timestamp=timestamp,
                 )
 
@@ -161,5 +160,5 @@ def retention_test_factory(retention):
     return TestRetention
 
 
-class TestDjangoRetention(retention_test_factory(Retention)):  # type: ignore
+class TestDjangoRetention(retention_test_factory(Retention, Event.objects.create, Person.objects.create)):  # type: ignore
     pass

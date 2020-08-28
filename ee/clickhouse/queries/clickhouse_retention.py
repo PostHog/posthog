@@ -1,28 +1,51 @@
+from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
+from ee.clickhouse.client import ch_client
+from ee.clickhouse.sql.retention import RETENTION_SQL
 from posthog.models.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.base import BaseQuery
 
-RETENTION_SQL = """
-select first_event, delta as days_on_site, groupArray(person_id) from 
-(
-    select pdi.person_id
-    , toDate(min(e.timestamp)) first_event
-    , max(e.timestamp) last_event
-    , datediff('day', min(e.timestamp), max(e.timestamp)) delta
-    from events e join person_distinct_id pdi on e.distinct_id = pdi.distinct_id
-    where e.timestamp >= toDate({date})
-    AND e.team_id = {team_id}
-    group by pdi.person_id
-    having toDate(min(e.timestamp)) = toDate({date})
-)
-group by first_event, delta
-order by first_event, delta asc
-limit {days};
-"""
-
 
 class ClickhouseRetention(BaseQuery):
+    def calculate_retention(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+        if filter.date_from:
+            date_from = filter.date_from
+            date_to = date_from + timedelta(days=10)
+        else:
+            date_to = datetime.now()
+            date_from = date_to - timedelta(days=10)
+
+        result = ch_client.execute(
+            RETENTION_SQL,
+            {
+                "team_id": team.pk,
+                "start_date": date_from.strftime("%Y-%m-%d"),
+                "end_date": date_to.strftime("%Y-%m-%d"),
+            },
+        )
+
+        result_dict = {}
+
+        for res in result:
+            result_dict.update({(res[0], res[1]): {"count": res[2], "people": []}})
+        total_days = 11
+
+        labels_format = "%a. %-d %B"
+        parsed = [
+            {
+                "values": [
+                    result_dict.get((first_day, day), {"count": 0, "people": []})
+                    for day in range(total_days - first_day)
+                ],
+                "label": "Day {}".format(first_day),
+                "date": (date_from + timedelta(days=first_day)).strftime(labels_format),
+            }
+            for first_day in range(total_days)
+        ]
+
+        return parsed
+
     def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        return []
+        return self.calculate_retention(filter, team)
