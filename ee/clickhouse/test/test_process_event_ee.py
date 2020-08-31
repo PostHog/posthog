@@ -1,10 +1,11 @@
+import json
 from datetime import datetime, timedelta
 
 from django.utils.timezone import now
 
 from ee.clickhouse.models.element import get_element_group_by_hash, get_elements, get_elements_by_group
 from ee.clickhouse.models.event import get_events
-from ee.clickhouse.models.person import create_person_with_distinct_id, get_person_distinct_ids
+from ee.clickhouse.models.person import create_person_with_distinct_id, get_person_distinct_ids, get_persons
 from ee.clickhouse.process_event import process_event_ee
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.base import BaseTest
@@ -397,43 +398,61 @@ class ClickhouseProcessEvent(ClickhouseTestMixin, BaseTest):
         returned_time = datetime.strptime(events[0]["timestamp"], "%Y-%m-%dT%H:%M:%S.%f%z")
         self.assertEqual(returned_time.isoformat(), "2020-01-01T12:00:05.050000+00:00")
 
-    # def test_alias_merge_properties(self) -> None:
-    #     Person.objects.create(
-    #         team=self.team,
-    #         distinct_ids=["old_distinct_id"],
-    #         properties={"key_on_both": "old value both", "key_on_old": "old value"},
-    #     )
+    def test_alias_merge_properties(self) -> None:
+        person1 = Person.objects.create(
+            team=self.team,
+            distinct_ids=["old_distinct_id"],
+            properties={"key_on_both": "old value both", "key_on_old": "old value"},
+        )
 
-    #     Person.objects.create(
-    #         team=self.team,
-    #         distinct_ids=["new_distinct_id"],
-    #         properties={"key_on_both": "new value both", "key_on_new": "new value"},
-    #     )
+        create_person_with_distinct_id(
+            person_id=person1.pk,
+            distinct_ids=["old_distinct_id"],
+            team_id=self.team.pk,
+            properties={"key_on_both": "old value both", "key_on_old": "old value"},
+        )
 
-    #     process_event(
-    #         "new_distinct_id",
-    #         "",
-    #         "",
-    #         {
-    #             "event": "$create_alias",
-    #             "properties": {
-    #                 "distinct_id": "new_distinct_id",
-    #                 "token": self.team.api_token,
-    #                 "alias": "old_distinct_id",
-    #             },
-    #         },
-    #         self.team.pk,
-    #         now().isoformat(),
-    #         now().isoformat(),
-    #     )
+        person2 = Person.objects.create(
+            team=self.team,
+            distinct_ids=["new_distinct_id"],
+            properties={"key_on_both": "new value both", "key_on_new": "new value"},
+        )
 
-    #     self.assertEqual(Event.objects.count(), 1)
+        create_person_with_distinct_id(
+            person_id=person2.pk,
+            distinct_ids=["new_distinct_id"],
+            team_id=self.team.pk,
+            properties={"key_on_both": "new value both", "key_on_new": "new value"},
+        )
 
-    #     person = Person.objects.get()
-    #     self.assertEqual(person.distinct_ids, ["old_distinct_id", "new_distinct_id"])
-    #     self.assertEqual(
-    #         person.properties, {"key_on_both": "new value both", "key_on_new": "new value", "key_on_old": "old value",},
-    #     )
+        process_event_ee(
+            "new_distinct_id",
+            "",
+            "",
+            {
+                "event": "$create_alias",
+                "properties": {
+                    "distinct_id": "new_distinct_id",
+                    "token": self.team.api_token,
+                    "alias": "old_distinct_id",
+                },
+            },
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+
+        events = get_events()
+        self.assertEqual(len(events), 1)
+
+        distinct_ids = [item["distinct_id"] for item in get_person_distinct_ids()]
+        self.assertEqual(sorted(distinct_ids), sorted(["old_distinct_id", "new_distinct_id"]))
+
+        persons = get_persons()
+        self.assertEqual(
+            json.loads(persons[0]["properties"]),
+            {"key_on_both": "new value both", "key_on_new": "new value", "key_on_old": "old value",},
+        )
 
     def test_long_htext(self) -> None:
         process_event_ee(
