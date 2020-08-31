@@ -33,7 +33,7 @@ class TransactionBaseTest(TestMixin, TransactionTestCase):
     pass
 
 
-class APIBaseTest(TestMixin, APITestCase):
+class APIBaseTest(APITestCase):
     """
     Test API using Django REST Framework test suite.
     """
