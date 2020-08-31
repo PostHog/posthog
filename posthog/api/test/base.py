@@ -1,4 +1,5 @@
 from django.test import Client, TestCase, TransactionTestCase
+from rest_framework.test import APITestCase
 
 from posthog.models import Team, User
 
@@ -29,4 +30,12 @@ class BaseTest(TestMixin, TestCase):
 
 
 class TransactionBaseTest(TestMixin, TransactionTestCase):
+    pass
+
+
+class APIBaseTest(TestMixin, APITestCase):
+    """
+    Test API using Django REST Framework test suite.
+    """
+
     pass

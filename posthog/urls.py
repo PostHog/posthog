@@ -19,7 +19,7 @@ from rest_framework import permissions
 
 from posthog.demo import delete_demo_data, demo
 
-from .api import capture, dashboard, decide, router, user
+from .api import capture, dashboard, decide, router, team, user
 from .models import Event, Team, User
 from .utils import render_template
 from .views import health, preflight_check, stats
@@ -254,6 +254,7 @@ urlpatterns = [
     path("api/user/redirect_to_site/", user.redirect_to_site),
     path("api/user/change_password/", user.change_password),
     path("api/user/test_slack_webhook/", user.test_slack_webhook),
+    path("api/team/signup/", team.TeamSignupViewset.as_view()),
     path("decide/", decide.get_decide),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),

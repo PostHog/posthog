@@ -1,12 +1,13 @@
 import random
 from typing import Dict, List
+from unittest.mock import patch
 
 from django.db.models import Q
 from rest_framework import status
 
 from posthog.models import Team, User
 
-from .base import BaseTest
+from .base import APIBaseTest, BaseTest
 
 
 class TestTeamUser(BaseTest):
@@ -145,3 +146,50 @@ class TestTeamUser(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         response_data = response.json()
         self.assertEqual(response_data, {"detail": "Authentication credentials were not provided."})
+
+
+class TestTeamSignup(APIBaseTest):
+    @patch("posthog.api.team.EE_MISSING", True)
+    @patch("posthog.api.team.posthoganalytics.identify")
+    @patch("posthog.api.team.posthoganalytics.capture")
+    def test_can_sign_up_team(self, mock_capture, mock_identify):
+        response = self.client.post(
+            "/api/team/signup/",
+            {
+                "first_name": "John",
+                "email": "hedgehog@posthog.com",
+                "password": "NotSecure1",
+                "company_name": "Hedgehogs United, LLC",
+                "email_opt_in": False,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = User.objects.last()
+        team = user.team_set.first()
+        self.assertEqual(
+            response.data,
+            {"id": user.pk, "distinct_id": user.distinct_id, "first_name": "John", "email": "hedgehog@posthog.com",},
+        )
+
+        # Check that the user was properly created
+        self.assertEqual(user.first_name, "John")
+        self.assertEqual(user.email, "hedgehog@posthog.com")
+        self.assertEqual(user.email_opt_in, False)
+
+        # Check that the team was properly created
+        self.assertEqual(team.name, "Hedgehogs United, LLC")
+
+        # Check that the sign up event & identify calls were sent to PostHog analytics
+        mock_capture.assert_called_once_with(
+            user.distinct_id, "user signed up", properties={"is_first_user": True, "is_team_first_user": True},
+        )
+
+        mock_identify.assert_called_once_with(
+            user.distinct_id, properties={"email": "hedgehog@posthog.com", "realm": "hosted", "ee_available": False},
+        )
+
+        # Check that the user is logged in
+        response = self.client.get("/api/user/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], "hedgehog@posthog.com")
