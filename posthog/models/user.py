@@ -23,8 +23,6 @@ except ImportError:
     TeamBilling = False
     MULTI_TENANCY_MISSING = True
 
-REALM: str = "cloud" if not MULTI_TENANCY_MISSING else "hosted"
-
 
 def is_email_restricted_from_signup(email: str) -> bool:
     if not hasattr(settings, "RESTRICT_SIGNUPS"):

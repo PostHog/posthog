@@ -1,11 +1,11 @@
 import posthoganalytics
-from django.contrib.auth import login
+from django.contrib.auth import login, password_validation
 from django.db import transaction
 from rest_framework import generics, permissions, serializers
 
 from posthog.api.user import UserSerializer
 from posthog.models import Team, User
-from posthog.models.user import EE_MISSING, REALM
+from posthog.models.user import EE_MISSING, MULTI_TENANCY_MISSING
 
 
 class TeamSignupSerializer(serializers.Serializer):
@@ -17,9 +17,20 @@ class TeamSignupSerializer(serializers.Serializer):
     )
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
 
+    def validate_password(self, value):
+        password_validation.validate_password(value)
+        return value
+
     def create(self, validated_data):
         company_name = validated_data.pop("company_name", "")
         is_first_user: bool = not User.objects.exists()
+        realm: str = "cloud" if not MULTI_TENANCY_MISSING else "hosted"
+
+        if self.context["request"].user.is_authenticated:
+            raise serializers.ValidationError("Authenticated users may not create additional teams.")
+
+        if not is_first_user and MULTI_TENANCY_MISSING:
+            raise serializers.ValidationError("This instance does not support multiple teams.")
 
         with transaction.atomic():
             user = User.objects.create_user(**validated_data)
@@ -34,7 +45,7 @@ class TeamSignupSerializer(serializers.Serializer):
         )
 
         posthoganalytics.identify(
-            user.distinct_id, properties={"email": user.email, "realm": REALM, "ee_available": not EE_MISSING},
+            user.distinct_id, properties={"email": user.email, "realm": realm, "ee_available": not EE_MISSING},
         )
 
         return user
