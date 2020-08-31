@@ -1,7 +1,7 @@
 name: Multitenancy CI
 
 on:
-    - pull_request
+    - push
 
 jobs:
     django:
