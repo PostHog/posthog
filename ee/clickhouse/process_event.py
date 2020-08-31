@@ -6,7 +6,12 @@ from django.db import IntegrityError
 
 from ee.clickhouse.models.element import create_elements
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.person import attach_distinct_ids, create_person_with_distinct_id
+from ee.clickhouse.models.person import (
+    attach_distinct_ids,
+    create_person_with_distinct_id,
+    merge_people,
+    update_person_properties,
+)
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -61,7 +66,10 @@ def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_f
         return
 
     if old_person and new_person and old_person != new_person:
+        old_person_id = old_person.pk
+        old_person_props = old_person.properties
         new_person.merge_people([old_person])
+        merge_people(new_person, old_person_id, old_person_props)
 
 
 def _capture_ee(
@@ -131,6 +139,8 @@ def _update_person_properties(team_id: int, distinct_id: str, properties: Dict) 
         # Catch race condition where in between getting and creating, another request already created this person
         except:
             person = Person.objects.get(team_id=team_id, persondistinctid__distinct_id=str(distinct_id))
+
+    update_person_properties(person.pk, properties)
     person.properties.update(properties)
     person.save()
 
