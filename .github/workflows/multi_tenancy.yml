@@ -24,7 +24,7 @@ jobs:
                   curl -L https://github.com/posthog/posthog-production/tarball/master | tar --strip-components=1 -xz --
                   mkdir deploy/
 
-            - uses: actions/checkout@v1
+            - uses: actions/checkout@v2
               with:
                   path: 'deploy/'
 
