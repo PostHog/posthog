@@ -1,9 +1,9 @@
-import secrets
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from django.contrib.postgres.fields import ArrayField, JSONField
 from django.db import models
+from django.utils import timezone
 
 from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 
@@ -11,14 +11,16 @@ from .action import Action
 from .action_step import ActionStep
 from .dashboard import Dashboard
 from .dashboard_item import DashboardItem
+from .personal_api_key import PersonalAPIKey
+from .utils import generate_random_token
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
 
 class TeamManager(models.Manager):
     def create_with_data(self, users: Optional[List[Any]], **kwargs):
-        kwargs["api_token"] = kwargs.get("api_token", secrets.token_urlsafe(32))
-        kwargs["signup_token"] = kwargs.get("signup_token", secrets.token_urlsafe(22))
+        kwargs["api_token"] = kwargs.get("api_token", generate_random_token())
+        kwargs["signup_token"] = kwargs.get("signup_token", generate_random_token(22))
         team = Team.objects.create(**kwargs)
         if users:
             team.users.set(users)
@@ -27,7 +29,7 @@ class TeamManager(models.Manager):
         ActionStep.objects.create(action=action, event="$pageview")
 
         dashboard = Dashboard.objects.create(
-            name="Default", pinned=True, team=team, share_token=secrets.token_urlsafe(22)
+            name="Default", pinned=True, team=team, share_token=generate_random_token()
         )
 
         DashboardItem.objects.create(
@@ -60,10 +62,29 @@ class TeamManager(models.Manager):
         )
         return team
 
-    def get_cached_from_token(self, token: str) -> "Team":
-        if TEAM_CACHE.get(token):
-            return TEAM_CACHE[token]
-        team = Team.objects.get(api_token=token)
+    def get_cached_from_token(self, token: str, is_personal_api_key: bool = False) -> Optional["Team"]:
+        team_from_cache = TEAM_CACHE.get(token)
+        if team_from_cache:
+            return team_from_cache
+        if not is_personal_api_key:
+            try:
+                team = Team.objects.get(api_token=token)
+            except Team.DoesNotExist:
+                return None
+        else:
+            try:
+                personal_api_key = (
+                    PersonalAPIKey.objects.select_related("user")
+                    .select_related("team")
+                    .filter(user__is_active=True)
+                    .get(value=token)
+                )
+            except PersonalAPIKey.DoesNotExist:
+                return None
+            else:
+                team = personal_api_key.team
+                personal_api_key.last_used_at = timezone.now()
+                personal_api_key.save()
         TEAM_CACHE[token] = team
         return team
 

@@ -141,15 +141,15 @@ $body-color: #37352f;
     position: relative;
     .copy-icon {
         position: absolute;
-        top: 8px;
-        right: 8px;
+        top: 1em;
+        right: 1em;
         padding: 2px;
         color: white;
         background-color: inherit;
         cursor: pointer;
         &:hover {
-            transition: all 0.2s ease-in-out;
-            transform: scale(1.1);
+            transition: all 0.2s ease;
+            transform: scale(1.2);
         }
     }
 }
@@ -179,6 +179,7 @@ pre.code {
     height: 720px;
     svg {
         height: 100% !important;
+        width: 100%;
     }
 }
 .secondary {

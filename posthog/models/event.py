@@ -332,6 +332,7 @@ class EventManager(models.QuerySet):
                 relations = []
                 for action in event.actions:
                     relations.append(action.events.through(action_id=action.pk, event_id=event.pk))
+                    action.on_perform(event)
                     if action.post_to_slack:
                         should_post_webhook = True
                 Action.events.through.objects.bulk_create(relations, ignore_conflicts=True)

@@ -3,6 +3,14 @@ ENV PYTHONUNBUFFERED 1
 RUN mkdir /code
 WORKDIR /code
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl git \
+    && curl -sL https://deb.nodesource.com/setup_12.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g yarn@1 \
+    && yarn config set network-timeout 300000 \
+    && yarn --frozen-lockfile
+
 COPY requirements.txt /code/
 # install dependencies but ignore any we don't need for dev environment
 RUN pip install $(grep -ivE "psycopg2" requirements.txt) --compile\
@@ -16,12 +24,6 @@ COPY babel.config.js /code/
 COPY tsconfig.json /code/
 COPY .kearc /code/
 COPY frontend/ /code/frontend
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
-    && curl -sL https://deb.nodesource.com/setup_12.x  | bash - \
-    && apt-get install nodejs -y --no-install-recommends \
-    && npm install -g yarn@1 \
-    && yarn config set network-timeout 300000 \
-    && yarn --frozen-lockfile 
 
 RUN mkdir /code/frontend/dist
 
@@ -33,4 +35,5 @@ EXPOSE 8000
 EXPOSE 8234
 RUN yarn install
 RUN yarn build
+ENV DEBUG 1
 CMD ["./bin/docker-dev"]

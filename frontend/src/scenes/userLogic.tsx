@@ -4,7 +4,10 @@ import { posthogEvents } from 'lib/utils'
 import { userLogicType } from 'types/scenes/userLogicType'
 import { UserType } from '~/types'
 
-type EventProperty = { value: string; label: string }
+interface EventProperty {
+    value: string
+    label: string
+}
 
 export const userLogic = kea<userLogicType<UserType, EventProperty>>({
     actions: () => ({
@@ -37,14 +40,14 @@ export const userLogic = kea<userLogicType<UserType, EventProperty>>({
             () => [selectors.user],
             (user) =>
                 user?.team.event_properties.map(
-                    (property) => ({ value: property, label: property } as EventProperty)
+                    (property: string) => ({ value: property, label: property } as EventProperty)
                 ) || ([] as EventProperty[]),
         ],
         eventNames: [() => [selectors.user], (user) => user?.team.event_names || []],
         customEventNames: [
             () => [selectors.user],
             (user) => {
-                return user?.team.event_names.filter((event) => !event.startsWith('!')) || []
+                return user?.team.event_names.filter((event: string) => !event.startsWith('!')) || []
             },
         ],
         eventNamesGrouped: [
@@ -54,9 +57,9 @@ export const userLogic = kea<userLogicType<UserType, EventProperty>>({
                     { label: 'Custom events', options: [] as EventProperty[] },
                     { label: 'PostHog events', options: [] as EventProperty[] },
                 ]
-                user?.team.event_names.forEach((name) => {
+                user?.team.event_names.forEach((name: string) => {
                     const format = { label: name, value: name } as EventProperty
-                    if (posthogEvents.indexOf(name) > -1) return data[1].options.push(format)
+                    if (posthogEvents.includes(name)) return data[1].options.push(format)
                     data[0].options.push(format)
                 })
                 return data
@@ -86,7 +89,7 @@ export const userLogic = kea<userLogicType<UserType, EventProperty>>({
                         })
                     }
                 }
-            } catch (error) {
+            } catch {
                 actions.setUser(null)
             }
         },
