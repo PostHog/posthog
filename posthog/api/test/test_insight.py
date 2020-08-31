@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta
 
 from django.test.utils import override_settings
-from freezegun.api import freeze_time
+from freezegun import freeze_time
 
 from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
