@@ -23,12 +23,12 @@ def sessions_test_factory(sessions, event_factory):
                 event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
-                response = Sessions().run(Filter(data={"events": [], "session": None}), self.team)
+                response = sessions().run(Filter(data={"events": [], "session": None}), self.team)
             self.assertEqual(len(response), 2)
             self.assertEqual(response[0]["global_session_id"], 1)
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
-                response = Sessions().run(
+                response = sessions().run(
                     Filter(data={"events": [], "properties": [{"key": "$os", "value": "Mac OS X"}], "session": None}),
                     self.team,
                 )
@@ -48,7 +48,7 @@ def sessions_test_factory(sessions, event_factory):
                 event_factory(team=self.team, event="4th action", distinct_id="1")
                 event_factory(team=self.team, event="4th action", distinct_id="2")
 
-            response = Sessions().run(Filter(data={"date_from": "all", "session": "avg"}), self.team)
+            response = sessions().run(Filter(data={"date_from": "all", "session": "avg"}), self.team)
             self.assertEqual(response[0]["count"], 3)  # average length of all sessions
 
             # time series
@@ -83,7 +83,7 @@ def sessions_test_factory(sessions, event_factory):
                 event_factory(team=self.team, event="4th action", distinct_id="2")
 
             # month
-            month_response = Sessions().run(
+            month_response = sessions().run(
                 Filter(
                     data={"date_from": "2012-01-01", "date_to": "2012-04-01", "interval": "month", "session": "avg"}
                 ),
@@ -97,7 +97,7 @@ def sessions_test_factory(sessions, event_factory):
             self.assertEqual(month_response[0]["days"][1], "2012-02-29")
 
             # # week
-            week_response = Sessions().run(
+            week_response = sessions().run(
                 Filter(data={"date_from": "2012-01-01", "date_to": "2012-02-01", "interval": "week", "session": "avg"}),
                 self.team,
             )
@@ -109,7 +109,7 @@ def sessions_test_factory(sessions, event_factory):
             self.assertEqual(week_response[0]["days"][1], "2012-01-08")
 
             # # # hour
-            hour_response = Sessions().run(
+            hour_response = sessions().run(
                 Filter(data={"date_from": "2012-03-14", "date_to": "2012-03-16", "interval": "hour", "session": "avg"}),
                 self.team,
             )
@@ -121,7 +121,7 @@ def sessions_test_factory(sessions, event_factory):
             self.assertEqual(hour_response[0]["days"][1], "2012-03-14 01:00:00")
 
         def test_no_events(self):
-            response = Sessions().run(
+            response = sessions().run(
                 Filter(data={"date_from": "2012-01-20", "date_to": "2012-01-30", "interval": "day", "session": "avg"}),
                 self.team,
             )
@@ -150,7 +150,7 @@ def sessions_test_factory(sessions, event_factory):
                 }
             )
             # Run without anything to compare to
-            compare_response = Sessions().run(filter=filter, team=self.team)
+            compare_response = sessions().run(filter=filter, team=self.team)
             self.assertEqual(compare_response[0]["data"][5], 120.0)
             self.assertEqual(compare_response[1]["data"][4], 240.0)
 
@@ -211,8 +211,8 @@ def sessions_test_factory(sessions, event_factory):
             with freeze_time("2012-01-21T06:00:30.000Z"):
                 event_factory(team=self.team, event="3rd action", distinct_id="2")
 
-            response = Sessions().run(Filter(data={"date_from": "all", "session": "dist"}), self.team)
-            compared_response = Sessions().run(
+            response = sessions().run(Filter(data={"date_from": "all", "session": "dist"}), self.team)
+            compared_response = sessions().run(
                 Filter(data={"date_from": "all", "compare": True, "session": "dist"}), self.team
             )
             for index, item in enumerate(response):

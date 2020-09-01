@@ -10,7 +10,7 @@ from django.core import serializers
 from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
-from posthog.models import Element, Event, Person, Team
+from posthog.models import Element, Event, Person, Team, User
 
 
 def _alias(previous_distinct_id: str, distinct_id: str, team_id: int, retry_if_failed: bool = True,) -> None:
