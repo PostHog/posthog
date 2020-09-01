@@ -1,0 +1,21 @@
+name: Docker
+
+on:
+    - pull_request
+
+jobs:
+    build:
+        name: Test building of Docker image
+        runs-on: ubuntu-20.04
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v2
+
+            - name: Build and push Docker images
+              uses: docker/build-push-action@v1
+              with:
+                  cache_froms: posthog/posthog:latest
+                  dockerfile: production.Dockerfile
+                  repository: posthog/posthog
+                  push: false
+                  tags: latest
