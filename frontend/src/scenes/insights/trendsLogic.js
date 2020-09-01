@@ -7,6 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
 import { STICKINESS, ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
 import { ViewType, insightLogic } from './insightLogic'
+import { insightHistoryLogic } from './InsightHistoryPanel/insightHistoryLogic'
 
 export const EntityTypes = {
     ACTIONS: 'actions',
@@ -113,7 +114,7 @@ export const trendsLogic = kea({
 
     connect: {
         values: [userLogic, ['eventNames'], actionsModel, ['actions']],
-        actions: [insightLogic, ['setAllFilters']],
+        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
     },
 
     loaders: ({ values, props }) => ({
@@ -124,14 +125,14 @@ export const trendsLogic = kea({
                 let response
                 if (props.view === ViewType.SESSIONS || props.filters?.session) {
                     response = await api.get(
-                        'api/event/sessions/?' +
+                        'api/insight/session/?' +
                             (refresh ? 'refresh=true&' : '') +
                             toAPIParams(filterClientSideParams(values.filters))
                     )
                     response = response.result
                 } else {
                     response = await api.get(
-                        'api/action/trends/?' +
+                        'api/insight/trend/?' +
                             (refresh ? 'refresh=true&' : '') +
                             toAPIParams(filterClientSideParams(values.filters))
                     )
@@ -234,8 +235,14 @@ export const trendsLogic = kea({
                 people.next
             )
         },
-        [actions.setFilters]: () => {
+        [actions.setFilters]: async () => {
             actions.setAllFilters(values.filters)
+        },
+        loadResultsSuccess: () => {
+            actions.createInsight({
+                ...values.filters,
+                insight: values.filters.session ? ViewType.SESSIONS : ViewType.TRENDS,
+            })
         },
     }),
 
@@ -244,49 +251,54 @@ export const trendsLogic = kea({
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-
             return ['/insights', values.filters]
         },
     }),
 
     urlToAction: ({ actions, values, props }) => ({
         '/insights': (_, searchParams) => {
-            if (props.dashboardItemId) {
-                return // don't use the URL if on the dashboard
-            }
-
-            const cleanSearchParams = cleanFilters(searchParams)
-
-            const keys = Object.keys(searchParams)
-
-            // opening /trends without any params, just open $pageview, $screen or the first random event
             if (
-                (keys.length === 0 || (!searchParams.actions && !searchParams.events)) &&
-                values.eventNames &&
-                values.eventNames[0]
+                !searchParams.insight ||
+                searchParams.insight === ViewType.TRENDS ||
+                searchParams.insight === ViewType.SESSIONS
             ) {
-                const event = values.eventNames.includes('$pageview')
-                    ? '$pageview'
-                    : values.eventNames.includes('$screen')
-                    ? '$screen'
-                    : values.eventNames[0]
+                if (props.dashboardItemId) {
+                    return // don't use the URL if on the dashboard
+                }
 
-                cleanSearchParams[EntityTypes.EVENTS] = [
-                    {
-                        id: event,
-                        name: event,
-                        type: EntityTypes.EVENTS,
-                        order: 0,
-                    },
-                ]
-            }
+                const cleanSearchParams = cleanFilters(searchParams)
 
-            if (searchParams.insight === ViewType.SESSIONS && !searchParams.session) {
-                cleanSearchParams['session'] = 'avg'
-            }
+                const keys = Object.keys(searchParams)
 
-            if (!objectsEqual(cleanSearchParams, values.filters)) {
-                actions.setFilters(cleanSearchParams, false, true)
+                // opening /trends without any params, just open $pageview, $screen or the first random event
+                if (
+                    (keys.length === 0 || (!searchParams.actions && !searchParams.events)) &&
+                    values.eventNames &&
+                    values.eventNames[0]
+                ) {
+                    const event = values.eventNames.includes('$pageview')
+                        ? '$pageview'
+                        : values.eventNames.includes('$screen')
+                        ? '$screen'
+                        : values.eventNames[0]
+
+                    cleanSearchParams[EntityTypes.EVENTS] = [
+                        {
+                            id: event,
+                            name: event,
+                            type: EntityTypes.EVENTS,
+                            order: 0,
+                        },
+                    ]
+                }
+
+                if (searchParams.insight === ViewType.SESSIONS && !searchParams.session) {
+                    cleanSearchParams['session'] = 'avg'
+                }
+
+                if (!objectsEqual(cleanSearchParams, values.filters)) {
+                    actions.setFilters(cleanSearchParams, false, true)
+                }
             }
         },
     }),

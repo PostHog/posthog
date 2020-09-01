@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 from dateutil.relativedelta import relativedelta
@@ -9,9 +9,10 @@ from django.db.models import F, Prefetch, Q, QuerySet
 from django.db.models.expressions import Window
 from django.db.models.functions import Lag
 from django.utils.timezone import now
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
+from posthog.constants import DATE_FROM, OFFSET
 from posthog.models import (
     Action,
     Element,
@@ -132,7 +133,8 @@ class EventViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(filter.properties_to_Q(team_id=team.pk))
         return queryset
 
-    def _serialize_actions(self, event: Event) -> Dict:
+    @staticmethod
+    def serialize_actions(event: Event) -> Dict:
         return {
             "id": "{}-{}".format(event.action.pk, event.id),  # type: ignore
             "event": EventSerializer(event).data,
@@ -196,25 +198,34 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def actions(self, request: request.Request) -> response.Response:
+        action_id, action_id_raw = None, request.query_params.get("id")
+        if action_id_raw is not None:
+            try:
+                action_id = int(action_id_raw)
+            except (TypeError, ValueError):
+                raise exceptions.ValidationError(detail="Invalid query param `id`.")
+        extra_event_filters = {}
+        if action_id is not None:
+            extra_event_filters["action__id"] = action_id
         events = (
             self.get_queryset()
-            .filter(action__deleted=False, action__isnull=False)
+            .filter(action__deleted=False, action__isnull=False, **extra_event_filters)
             .prefetch_related(Prefetch("action_set", queryset=Action.objects.filter(deleted=False).order_by("id")))[
                 0:101
             ]
         )
         matches = []
-        ids_seen: List[int] = []
+        ids_seen: Set[int] = set()
         for event in events:
             if event.pk in ids_seen:
                 continue
-            ids_seen.append(event.pk)
-            for action in event.action_set.all():
-                event.action = action
+            ids_seen.add(event.pk)
+            for this_action in event.action_set.all():
+                event.action = this_action
                 matches.append(event)
         prefetched_events = self._prefetch_events(matches)
         return response.Response(
-            {"next": len(events) > 100, "results": [self._serialize_actions(event) for event in prefetched_events],}
+            {"next": len(events) > 100, "results": [self.serialize_actions(event) for event in prefetched_events],}
         )
 
     @action(methods=["GET"], detail=False)
@@ -259,20 +270,15 @@ class EventViewSet(viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def sessions(self, request: request.Request) -> response.Response:
         team = self.request.user.team
-        session_type = self.request.GET.get("session")
 
         filter = Filter(request=request)
-        result: Dict[str, Any] = {
-            "result": Sessions().run(
-                filter, team, session_type=self.request.GET.get("session"), offset=self.request.GET.get("offset")
-            )
-        }
+        result: Dict[str, Any] = {"result": Sessions().run(filter, team)}
 
         # add pagination
-        if session_type is None:
-            offset = int(request.GET.get("offset", "0")) + 50
+        if filter.session_type is None:
+            offset = filter.offset + 50
             if len(result["result"]) > 49:
                 date_from = result["result"][0]["start_time"].isoformat()
-                result.update({"offset": offset})
-                result.update({"date_from": date_from})
+                result.update({OFFSET: offset})
+                result.update({DATE_FROM: date_from})
         return response.Response(result)

@@ -141,15 +141,15 @@ $body-color: #37352f;
     position: relative;
     .copy-icon {
         position: absolute;
-        top: 8px;
-        right: 8px;
+        top: 1em;
+        right: 1em;
         padding: 2px;
         color: white;
         background-color: inherit;
         cursor: pointer;
         &:hover {
-            transition: all 0.2s ease-in-out;
-            transform: scale(1.1);
+            transition: all 0.2s ease;
+            transform: scale(1.2);
         }
     }
 }
@@ -179,6 +179,7 @@ pre.code {
     height: 720px;
     svg {
         height: 100% !important;
+        width: 100%;
     }
 }
 .secondary {
@@ -204,6 +205,22 @@ h5.modal-title {
 
 h1.page-header {
     font-size: 24px;
+}
+
+h1.title {
+    // New implementation of h1.page-hader
+    font-size: 32px;
+    font-weight: bold;
+}
+
+h2.subtitle {
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.page-caption {
+    color: rgba(0, 0, 0, 0.6);
+    font-size: 14px;
 }
 
 button.no-style {
@@ -296,13 +313,19 @@ label.disabled {
     }
 }
 
+.property-key-info {
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
 .property-key-info-logo {
     margin-right: 6px;
     display: inline-block;
     vertical-align: top;
     height: 19px;
-    width: 15px;
-    background-image: url('/static/posthog-logo.png');
+    width: 19px;
+    background-image: url('../public/posthog-icon.svg');
     background-size: cover;
 }
 .ant-select-selection-item .property-key-info-logo {
@@ -373,4 +396,32 @@ label.disabled {
             font-size: 1.25rem;
         }
     }
+}
+
+.button-border {
+    padding: 8px;
+    border-radius: 4px;
+}
+
+.clickable {
+    cursor: pointer;
+}
+
+.clickable:hover {
+    background-color: gainsboro;
+}
+
+.space-top {
+    margin-top: 32px;
+}
+
+.breadcrumbs {
+    .selected {
+        color: #35416b;
+        font-weight: bold;
+    }
+}
+
+.btn-action {
+    background-color: #f0f0f0 !important;
 }

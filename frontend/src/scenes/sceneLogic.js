@@ -16,7 +16,6 @@ export const scenes = {
     actions: () => import(/* webpackChunkName: 'actions' */ './actions/Actions'),
     action: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     liveActions: () => import(/* webpackChunkName: 'liveActions' */ './actions/LiveActions'),
-    funnels: () => import(/* webpackChunkName: 'funnels' */ './funnels/Funnels'),
     setup: () => import(/* webpackChunkName: 'setup' */ './setup/Setup'),
     insights: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
     cohorts: () => import(/* webpackChunkName: 'cohorts' */ './users/Cohorts'),
@@ -24,7 +23,11 @@ export const scenes = {
     annotations: () => import(/* webpackChunkName: 'annotations' */ './annotations/AnnotationsScene'),
     team: () => import(/* webpackChunkName: 'team' */ './team/Team'),
     licenses: () => import(/* webpackChunkName: 'setup' */ './setup/Licenses'),
+    preflight: () => import(/* webpackChunkName: 'preflightCheck' */ './setup/PreflightCheck'),
 }
+
+/* List of routes that do not require authentication (N.B. add to posthog.urls too) */
+export const unauthenticatedRoutes = ['preflight']
 
 export const redirects = {
     '/': '/insights',
@@ -38,7 +41,6 @@ export const routes = {
     '/actions/live': 'liveActions',
     '/actions': 'actions',
     '/insights': 'insights',
-    '/funnel': 'funnels',
     '/setup': 'setup',
     '/events': 'events',
     '/person_by_id/:id': 'person',
@@ -51,6 +53,7 @@ export const routes = {
     '/annotations': 'annotations',
     '/team': 'team',
     '/setup/licenses': 'licenses',
+    '/preflight': 'preflight',
 }
 
 export const sceneLogic = kea({
@@ -74,7 +77,7 @@ export const sceneLogic = kea({
         ],
         loadedScenes: [
             {
-                '404': {
+                404: {
                     component: Error404,
                 },
                 '4xx': {

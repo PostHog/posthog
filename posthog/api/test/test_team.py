@@ -136,12 +136,16 @@ class TestTeamUser(BaseTest):
 
         # Cannot partially update users
         email: str = user.email
-        response = self.client.patch(f"/api/team/user/{user.distinct_id}/", {"email": "newemail@posthog.com"})
+        response = self.client.patch(
+            f"/api/team/user/{user.distinct_id}/", {"email": "newemail@posthog.com"}, "application/json"
+        )
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(response.json(), {"detail": 'Method "PATCH" not allowed.'})
 
         # Cannot update users
-        response = self.client.put(f"/api/team/user/{user.distinct_id}/", {"email": "newemail@posthog.com"})
+        response = self.client.put(
+            f"/api/team/user/{user.distinct_id}/", {"email": "newemail@posthog.com"}, "application/json"
+        )
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(response.json(), {"detail": 'Method "PUT" not allowed.'})
 
@@ -150,7 +154,9 @@ class TestTeamUser(BaseTest):
 
         # Cannot create users
         count: int = User.objects.count()
-        response = self.client.post(f"/api/team/user/{user.distinct_id}/", {"email": "newuser@posthog.com"})
+        response = self.client.post(
+            f"/api/team/user/{user.distinct_id}/", {"email": "newuser@posthog.com"}, "application/json"
+        )
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(response.json(), {"detail": 'Method "POST" not allowed.'})
         self.assertEqual(User.objects.count(), count)
@@ -160,11 +166,11 @@ class TestTeamUser(BaseTest):
         self.client.logout()
 
         response = self.client.get("/api/team/user/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         response_data: Dict = response.json()
         self.assertEqual(response_data, {"detail": "Authentication credentials were not provided."})
 
         response = self.client.delete(f"/api/team/user/{user.distinct_id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         response_data = response.json()
         self.assertEqual(response_data, {"detail": "Authentication credentials were not provided."})

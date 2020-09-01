@@ -1,5 +1,6 @@
 from datetime import timedelta
-from unittest.mock import call, patch
+from typing import Any
+from unittest.mock import patch
 
 from django.test import TransactionTestCase
 from django.utils.timezone import now
@@ -27,8 +28,10 @@ class ProcessEvent(BaseTest):
         action2 = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action2, selector="a", event="$autocapture")
         team_id = self.team.pk
+        self.team.ingested_event = True  # avoid sending `first team event ingested` to PostHog
+        self.team.save()
 
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(29):
             process_event(
                 2,
                 "",
@@ -50,7 +53,7 @@ class ProcessEvent(BaseTest):
             )
 
         self.assertEqual(Person.objects.get().distinct_ids, ["2"])
-        event = Event.objects.get()
+        event = Event.objects.order_by("-pk")[0]
         self.assertEqual(event.event, "$autocapture")
         elements = ElementGroup.objects.get(hash=event.elements_hash).element_set.all().order_by("order")
         self.assertEqual(elements[0].tag_name, "a")
@@ -445,6 +448,38 @@ class ProcessEvent(BaseTest):
         self.assertEqual(len(Element.objects.get().href), 2048)
         self.assertEqual(len(Element.objects.get().text), 400)
 
+    @patch("posthog.tasks.process_event.posthoganalytics.capture")
+    def test_capture_first_team_event(self, mock: Any) -> None:
+        """
+        Assert that we report to posthoganalytics the first event ingested by a team.
+        """
+        team = Team.objects.create(api_token="token456")
+        user = User.objects.create_user("testuser@posthog.com")
+        team.users.add(user)
+        team.save()
+
+        process_event(
+            2,
+            "",
+            "",
+            {
+                "event": "$autocapture",
+                "properties": {
+                    "distinct_id": 1,
+                    "token": team.api_token,
+                    "$elements": [{"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},],
+                },
+            },
+            team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+
+        mock.assert_called_once_with(user.distinct_id, "first team event ingested", {"team": str(team.uuid)})
+
+        team.refresh_from_db()
+        self.assertEqual(team.ingested_event, True)
+
 
 class TestIdentify(TransactionTestCase):
     def setUp(self) -> None:
@@ -611,3 +646,19 @@ class TestIdentify(TransactionTestCase):
         self.assertEqual(people[1].distinct_ids, ["1", "2"])
         self.assertEqual(people[0].team, team2)
         self.assertEqual(people[0].distinct_ids, ["2"])
+
+    def test_set_is_identified(self) -> None:
+        distinct_id = "777"
+        person_before_event = Person.objects.create(team=self.team, distinct_ids=[distinct_id])
+        self.assertFalse(person_before_event.is_identified)
+        process_event(
+            distinct_id,
+            "",
+            "",
+            {"event": "$identify", "properties": {},},
+            self.team.pk,
+            now().isoformat(),
+            now().isoformat(),
+        )
+        person_after_event = Person.objects.get(team=self.team, persondistinctid__distinct_id=distinct_id)
+        self.assertTrue(person_after_event.is_identified)

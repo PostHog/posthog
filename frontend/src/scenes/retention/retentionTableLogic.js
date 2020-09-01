@@ -3,11 +3,13 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { toParams, objectsEqual } from 'lib/utils'
 import { ViewType, insightLogic } from 'scenes/insights/insightLogic'
+import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 
 function cleanRetentionParams(filters, properties) {
     return {
         ...filters,
         properties: properties,
+        insight: ViewType.RETENTION,
     }
 }
 
@@ -41,7 +43,7 @@ export const retentionTableLogic = kea({
         },
     }),
     connect: {
-        actions: [insightLogic, ['setAllFilters']],
+        actions: [insightLogic, ['setAllFilters'], insightHistoryLogic, ['createInsight']],
     },
     actions: () => ({
         setProperties: (properties) => ({ properties }),
@@ -125,8 +127,8 @@ export const retentionTableLogic = kea({
                 return
             }
 
-            if (!objectsEqual(searchParams.properties || {}, values.properties)) {
-                actions.setProperties(searchParams.properties || {})
+            if (!objectsEqual(searchParams.properties || [], values.properties)) {
+                actions.setProperties(searchParams.properties || [])
             }
             if (searchParams.target && values.startEntity.id !== searchParams.target?.id) {
                 actions.setFilters({
@@ -143,6 +145,9 @@ export const retentionTableLogic = kea({
         setFilters: () => {
             actions.loadRetention()
             actions.setAllFilters(cleanRetentionParams({ target: values.startEntity }, values.properties))
+        },
+        loadRetentionSuccess: () => {
+            actions.createInsight(cleanRetentionParams({ target: values.startEntity }, values.properties))
         },
         loadMore: async ({ selectedIndex }) => {
             let peopleToAdd = []

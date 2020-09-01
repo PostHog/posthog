@@ -33,9 +33,10 @@ class TestUser(BaseTest):
 
     @patch("posthog.models.user.License.PLANS", {"enterprise": ["whatever"]})
     @patch("ee.models.license.requests.post")
+    @patch("posthog.models.user.MULTI_TENANCY_MISSING", True)
     def test_feature_available_self_hosted_has_license(self, patch_post):
         mock = Mock()
-        mock.json.return_value = {"data": {"plan": "enterprise", "valid_until": now() + relativedelta(days=1)}}
+        mock.json.return_value = {"plan": "enterprise", "valid_until": now() + relativedelta(days=1)}
         patch_post.return_value = mock
         License.objects.create(key="key")
         self.assertTrue(self.user.feature_available("whatever"))
@@ -50,7 +51,7 @@ class TestUser(BaseTest):
     @patch("ee.models.license.requests.post")
     def test_feature_available_self_hosted_license_expired(self, patch_post):
         mock = Mock()
-        mock.json.return_value = {"data": {"plan": "enterprise", "valid_until": "2012-01-14T12:00:00.000Z"}}
+        mock.json.return_value = {"plan": "enterprise", "valid_until": "2012-01-14T12:00:00.000Z"}
         patch_post.return_value = mock
         License.objects.create(key="key")
 

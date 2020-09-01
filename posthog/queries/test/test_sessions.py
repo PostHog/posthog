@@ -22,15 +22,14 @@ class TestSessions(BaseTest):
             Event.objects.create(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = Sessions().run(Filter(data={"events": []}), self.team, session_type=None)
+            response = Sessions().run(Filter(data={"events": [], "session": None}), self.team)
         self.assertEqual(len(response), 2)
         self.assertEqual(response[0]["global_session_id"], 1)
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
             response = Sessions().run(
-                Filter(data={"events": [], "properties": [{"key": "$os", "value": "Mac OS X"}]}),
+                Filter(data={"events": [], "properties": [{"key": "$os", "value": "Mac OS X"}], "session": None}),
                 self.team,
-                session_type=None,
             )
         self.assertEqual(len(response), 1)
 
@@ -48,7 +47,7 @@ class TestSessions(BaseTest):
             Event.objects.create(team=self.team, event="4th action", distinct_id="1")
             Event.objects.create(team=self.team, event="4th action", distinct_id="2")
 
-        response = Sessions().run(Filter(data={"date_from": "all"}), self.team, session_type="avg")
+        response = Sessions().run(Filter(data={"date_from": "all", "session": "avg"}), self.team)
         self.assertEqual(response[0]["count"], 3)  # average length of all sessions
 
         # time series
@@ -84,9 +83,8 @@ class TestSessions(BaseTest):
 
         # month
         month_response = Sessions().run(
-            Filter(data={"date_from": "2012-01-01", "date_to": "2012-04-01", "interval": "month"}),
+            Filter(data={"date_from": "2012-01-01", "date_to": "2012-04-01", "interval": "month", "session": "avg"}),
             self.team,
-            session_type="avg",
         )
         self.assertEqual(month_response[0]["data"][0], 180)
         self.assertEqual(month_response[0]["data"][2], 180)
@@ -97,9 +95,8 @@ class TestSessions(BaseTest):
 
         # # week
         week_response = Sessions().run(
-            Filter(data={"date_from": "2012-01-01", "date_to": "2012-02-01", "interval": "week"}),
+            Filter(data={"date_from": "2012-01-01", "date_to": "2012-02-01", "interval": "week", "session": "avg"}),
             self.team,
-            session_type="avg",
         )
         self.assertEqual(week_response[0]["data"][1], 240.0)
         self.assertEqual(week_response[0]["data"][3], 120.0)
@@ -110,9 +107,8 @@ class TestSessions(BaseTest):
 
         # # # hour
         hour_response = Sessions().run(
-            Filter(data={"date_from": "2012-03-14", "date_to": "2012-03-16", "interval": "hour"}),
+            Filter(data={"date_from": "2012-03-14", "date_to": "2012-03-16", "interval": "hour", "session": "avg"}),
             self.team,
-            session_type="avg",
         )
         self.assertEqual(hour_response[0]["data"][3], 240.0)
         self.assertEqual(hour_response[0]["data"][27], 120.0)
@@ -123,9 +119,8 @@ class TestSessions(BaseTest):
 
     def test_no_events(self):
         response = Sessions().run(
-            Filter(data={"date_from": "2012-01-20", "date_to": "2012-01-30", "interval": "day"}),
+            Filter(data={"date_from": "2012-01-20", "date_to": "2012-01-30", "interval": "day", "session": "avg"}),
             self.team,
-            session_type="avg",
         )
         self.assertEqual(response, [])
 
@@ -142,13 +137,17 @@ class TestSessions(BaseTest):
         with freeze_time("2012-01-25T04:01:34.000Z"):
             Event.objects.create(team=self.team, event="4th action", distinct_id="1")
             Event.objects.create(team=self.team, event="4th action", distinct_id="2")
-
-        # Run without anything to compare to
-        compare_response = Sessions().run(
-            Filter(data={"date_from": "2012-01-20", "date_to": "2012-01-30", "interval": "day", "compare": True}),
-            self.team,
-            session_type="avg",
+        filter = Filter(
+            data={
+                "date_from": "2012-01-20",
+                "date_to": "2012-01-30",
+                "interval": "day",
+                "compare": True,
+                "session": "avg",
+            }
         )
+        # Run without anything to compare to
+        compare_response = Sessions().run(filter=filter, team=self.team)
         self.assertEqual(compare_response[0]["data"][5], 120.0)
         self.assertEqual(compare_response[1]["data"][4], 240.0)
 
@@ -209,9 +208,9 @@ class TestSessions(BaseTest):
         with freeze_time("2012-01-21T06:00:30.000Z"):
             Event.objects.create(team=self.team, event="3rd action", distinct_id="2")
 
-        response = Sessions().run(Filter(data={"date_from": "all"}), self.team, session_type="dist")
+        response = Sessions().run(Filter(data={"date_from": "all", "session": "dist"}), self.team)
         compared_response = Sessions().run(
-            Filter(data={"date_from": "all", "compare": True}), self.team, session_type="dist"
+            Filter(data={"date_from": "all", "compare": True, "session": "dist"}), self.team
         )
         for index, item in enumerate(response):
             if item["label"] == "30-60 minutes" or item["label"] == "3-10 seconds":

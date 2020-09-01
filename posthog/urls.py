@@ -22,7 +22,7 @@ from posthog.demo import delete_demo_data, demo
 from .api import capture, dashboard, decide, router, user
 from .models import Event, Team, User
 from .utils import render_template
-from .views import health, stats
+from .views import health, preflight_check, stats
 
 
 def home(request, **kwargs):
@@ -36,7 +36,7 @@ def login_view(request):
         return redirect("/")
 
     if not User.objects.exists():
-        return redirect("/setup_admin")
+        return redirect("/preflight")
     if request.method == "POST":
         email = request.POST["email"]
         password = request.POST["password"]
@@ -57,7 +57,7 @@ def signup_to_team_view(request, token):
     if not token:
         return redirect("/")
     if not User.objects.exists():
-        return redirect("/setup_admin")
+        return redirect("/preflight")
     try:
         team = Team.objects.get(signup_token=token)
     except Team.DoesNotExist:
@@ -93,8 +93,18 @@ def signup_to_team_view(request, token):
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         team.users.add(user)
         team.save()
-        posthoganalytics.capture(user.distinct_id, "user signed up", properties={"is_first_user": False})
-        posthoganalytics.identify(user.distinct_id, {"email_opt_in": user.email_opt_in})
+        posthoganalytics.capture(
+            user.distinct_id, "user signed up", properties={"is_first_user": False, "first_team_user": False},
+        )
+        posthoganalytics.identify(
+            user.distinct_id,
+            {
+                "email": request.user.email if not request.user.anonymize_data else None,
+                "company_name": team.name,
+                "team_id": team.pk,  # TO-DO: handle multiple teams
+                "is_team_first_user": False,
+            },
+        )
         return redirect("/")
     return render_template("signup_to_team.html", request, context={"team": team, "signup_token": token})
 
@@ -117,7 +127,6 @@ def setup_admin(request):
         company_name = request.POST.get("company_name")
         name = request.POST.get("name")
         email_opt_in = request.POST.get("emailOptIn") == "on"
-        is_first_user = not User.objects.exists()
         valid_inputs = (
             is_input_valid("name", name)
             and is_input_valid("email", email)
@@ -131,13 +140,19 @@ def setup_admin(request):
                 context={"email": email, "name": name, "invalid_input": True, "company": company_name},
             )
         user = User.objects.create_user(email=email, password=password, first_name=name, email_opt_in=email_opt_in,)
-        Team.objects.create_with_data(users=[user], name=company_name)
+        team = Team.objects.create_with_data(users=[user], name=company_name)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         posthoganalytics.capture(
-            user.distinct_id, "user signed up", properties={"is_first_user": is_first_user},
+            user.distinct_id, "user signed up", properties={"is_first_user": True, "first_team_user": True},
         )
         posthoganalytics.identify(
-            user.distinct_id, properties={"email": user.email, "company_name": company_name, "name": user.first_name,},
+            user.distinct_id,
+            properties={
+                "email": user.email,
+                "company_name": company_name,
+                "team_id": team.pk,  # TO-DO: handle multiple teams
+                "is_team_first_user": True,
+            },
         )
         return redirect("/")
 
@@ -185,7 +200,9 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
 
     team.users.add(user)
     team.save()
-    posthoganalytics.capture(user.distinct_id, "user signed up", properties={"is_first_user": False})
+    posthoganalytics.capture(
+        user.distinct_id, "user signed up", properties={"is_first_user": False, "is_first_team_user": False}
+    )
 
     return {"is_new": True, "user": user}
 
@@ -220,18 +237,19 @@ def is_input_valid(inp_type, val):
     return len(val) > 0
 
 
-# Include enterprise api urls
+# Try to include EE endpoints
 try:
     from ee.urls import extend_api_router
-
-    extend_api_router(router)
 except ImportError:
     pass
+else:
+    extend_api_router(router)
 
 
 urlpatterns = [
     path("_health/", health),
     path("_stats/", stats),
+    path("_preflight/", preflight_check),
     path("admin/", admin.site.urls),
     path("admin/", include("loginas.urls")),
     path("api/", include(router.urls)),
@@ -242,11 +260,12 @@ urlpatterns = [
     path("decide/", decide.get_decide),
     path("authorize_and_redirect/", decorators.login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
-    path("engage/", capture.get_event),
-    path("engage", capture.get_event),
     re_path(r"^demo.*", decorators.login_required(demo)),
     path("delete_demo_data/", decorators.login_required(delete_demo_data)),
     path("e/", capture.get_event),
+    path("e", capture.get_event),
+    path("engage/", capture.get_event),
+    path("engage", capture.get_event),
     path("track", capture.get_event),
     path("track/", capture.get_event),
     path("capture", capture.get_event),
@@ -298,5 +317,6 @@ if settings.DEBUG:
 
 
 urlpatterns += [
+    path("preflight", home),  # Added individually to remove login requirement
     re_path(r"^.*", decorators.login_required(home)),
 ]

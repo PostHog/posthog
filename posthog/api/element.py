@@ -5,7 +5,7 @@ from rest_framework import authentication, request, response, serializers, views
 from rest_framework.decorators import action
 
 from posthog.models import Element, ElementGroup, Event, Filter, Team
-from posthog.utils import TemporaryTokenAuthentication
+from posthog.utils import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -29,6 +29,7 @@ class ElementViewSet(viewsets.ModelViewSet):
     serializer_class = ElementSerializer
     authentication_classes = [
         TemporaryTokenAuthentication,
+        PersonalAPIKeyAuthentication,
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]

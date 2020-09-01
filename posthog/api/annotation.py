@@ -2,7 +2,10 @@ from distutils.util import strtobool
 from typing import Any, Dict
 
 from django.db.models import QuerySet
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 from rest_framework import request, serializers, viewsets
+from rest_hooks.signals import raw_hook_event
 
 from posthog.api.user import UserSerializer
 from posthog.models import Annotation
@@ -64,3 +67,16 @@ class AnnotationsViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(deleted=bool(strtobool(str(request.GET["deleted"]))))
 
         return queryset
+
+
+@receiver(post_save, dispatch_uid="hook-annotation-created")
+def annotation_created(sender, instance, created, raw, using, **kwargs):
+    """Trigger action_defined hooks on Annotation creation."""
+    if isinstance(instance, Annotation) and created:
+        raw_hook_event.send(
+            sender=None,
+            event_name="annotation_created",
+            instance=instance,
+            payload=AnnotationSerializer(instance).data,
+            user=instance.team,
+        )

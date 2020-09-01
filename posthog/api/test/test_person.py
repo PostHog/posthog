@@ -1,6 +1,9 @@
 import json
 
+from django.utils import timezone
+
 from posthog.models import Cohort, Event, Person
+from posthog.tasks.process_event import process_event
 
 from .base import BaseTest
 
@@ -88,6 +91,40 @@ class TestPerson(BaseTest):
         response = self.client.get("/api/person/?cohort=%s" % cohort.pk).json()
         self.assertEqual(len(response["results"]), 1, response)
 
+    def test_category_param(self):
+        person_anonymous = Person.objects.create(team=self.team, distinct_ids=["xyz"])
+        person_identified_already = Person.objects.create(team=self.team, distinct_ids=["tuv"], is_identified=True,)
+        person_identified_using_event = Person.objects.create(team=self.team, distinct_ids=["klm"],)
+
+        # all
+        response = self.client.get("/api/person/").json()
+        self.assertEqual(len(response["results"]), 3)
+        response_all = self.client.get("/api/person/?category=all").json()
+        self.assertListEqual(response["results"], response_all["results"])
+
+        # person_identified_using_event should have is_identified set to True after an $identify event
+        process_event(
+            person_identified_using_event.distinct_ids[0],
+            "",
+            "",
+            {"event": "$identify",},
+            self.team.pk,
+            timezone.now().isoformat(),
+            timezone.now().isoformat(),
+        )
+
+        self.assertTrue(Person.objects.get(team_id=self.team.id, persondistinctid__distinct_id="klm").is_identified)
+        # anonymous
+        response_anonymous = self.client.get("/api/person/?category=anonymous").json()
+        self.assertEqual(len(response_anonymous["results"]), 1)
+        self.assertEqual(response_anonymous["results"][0]["id"], person_anonymous.id)
+
+        # identified
+        response_identified = self.client.get("/api/person/?category=identified").json()
+        self.assertEqual(len(response_identified["results"]), 2)
+        self.assertEqual(response_identified["results"][0]["id"], person_identified_using_event.id)
+        self.assertEqual(response_identified["results"][1]["id"], person_identified_already.id)
+
     def test_delete_person(self):
         person = Person.objects.create(
             team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
@@ -99,3 +136,9 @@ class TestPerson(BaseTest):
         response = self.client.delete("/api/person/%s/" % person.pk)
         self.assertEqual(Person.objects.count(), 0)
         self.assertEqual(Event.objects.count(), 1)
+
+    def test_person_is_identified(self):
+        person_identified = Person.objects.create(team=self.team, is_identified=True)
+        person_anonymous = Person.objects.create(team=self.team)
+        self.assertEqual(person_identified.is_identified, True)
+        self.assertEqual(person_anonymous.is_identified, False)

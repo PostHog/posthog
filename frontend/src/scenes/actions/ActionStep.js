@@ -1,28 +1,9 @@
 import React, { Component } from 'react'
 import { EventName } from './EventName'
-import { AppEditorLink } from '../../lib/components/AppEditorLink/AppEditorLink'
+import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import PropTypes from 'prop-types'
-
-const MATCHING_NOTES = {
-    contains: (
-        <>
-            Use <code>%</code> for wildcard, for example: <code>/user/%/edit</code>.
-        </>
-    ),
-    regex: (
-        <>
-            <a
-                href="https://www.postgresql.org/docs/current/functions-matching.html#FUNCTIONS-POSIX-REGEXP"
-                target="_blank"
-                rel="noreferrer"
-            >
-                PostgreSQL regular expression syntax
-            </a>{' '}
-            applies.
-        </>
-    ),
-}
+import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 
 let getSafeText = (el) => {
     if (!el.childNodes || !el.childNodes.length) return
@@ -43,7 +24,7 @@ export class ActionStep extends Component {
         super(props)
         this.state = {
             step: props.step,
-            selection: Object.keys(props.step).filter((key) => key != 'id' && key != 'isNew' && props.step[key]),
+            selection: Object.keys(props.step).filter((key) => key !== 'id' && key !== 'isNew' && props.step[key]),
             inspecting: false,
         }
         this.AutocaptureFields = this.AutocaptureFields.bind(this)
@@ -55,10 +36,10 @@ export class ActionStep extends Component {
         let rect = element.getBoundingClientRect()
         this.box.style.display = 'block'
         this.box.style.position = 'absolute'
-        this.box.style.top = parseInt(rect.top + window.pageYOffset) + 'px'
-        this.box.style.left = parseInt(rect.left + window.pageXOffset) + 'px'
-        this.box.style.width = parseInt(rect.right - rect.left) + 'px'
-        this.box.style.height = parseInt(rect.bottom - rect.top) + 'px'
+        this.box.style.top = `${rect.top + window.pageYOffset}px`
+        this.box.style.left = `${rect.left + window.pageXOffset}px`
+        this.box.style.width = `${rect.right - rect.left}px`
+        this.box.style.height = `${rect.bottom - rect.top}px`
         this.box.style.background = '#007bff'
         this.box.style.opacity = '0.5'
         this.box.style.zIndex = '9999999999'
@@ -72,8 +53,8 @@ export class ActionStep extends Component {
         let tagName = el.tagName.toLowerCase()
 
         let selection = ['selector']
-        if (tagName == 'a') selection = ['href', 'selector']
-        else if (tagName == 'button') selection = ['text', 'selector']
+        if (tagName === 'a') selection = ['href', 'selector']
+        else if (tagName === 'button') selection = ['text', 'selector']
         else if (el.getAttribute('name')) selection = ['name', 'selector']
         let step = {
             ...this.props.step,
@@ -95,7 +76,7 @@ export class ActionStep extends Component {
     }
     onKeyDown = (event) => {
         // stop selecting if esc key was pressed
-        if (event.keyCode == 27) this.stop()
+        if (event.keyCode === 27) this.stop()
     }
     start() {
         this.setState({ inspecting: true })
@@ -175,7 +156,7 @@ export class ActionStep extends Component {
                     />{' '}
                     {props.label} {props.extra_options}
                 </label>
-                {props.item == 'selector' ? (
+                {props.item === 'selector' ? (
                     <textarea className="form-control" onChange={onChange} value={this.props.step[props.item] || ''} />
                 ) : (
                     <input
@@ -199,13 +180,13 @@ export class ActionStep extends Component {
                             this.setState(
                                 {
                                     selection: Object.keys(step).filter(
-                                        (key) => key != 'id' && key != 'isNew' && step[key]
+                                        (key) => key !== 'id' && key !== 'isNew' && step[key]
                                     ),
                                 },
                                 () => this.sendStep({ ...step, event: '$autocapture' })
                             )
                         }
-                        className={'btn ' + (step.event == '$autocapture' ? 'btn-secondary' : 'btn-light')}
+                        className={'btn ' + (step.event === '$autocapture' ? 'btn-secondary' : 'btn-light btn-action')}
                     >
                         Frontend element
                     </button>
@@ -215,10 +196,10 @@ export class ActionStep extends Component {
                         className={
                             'btn ' +
                             (typeof step.event !== 'undefined' &&
-                            step.event != '$autocapture' &&
-                            step.event != '$pageview'
+                            step.event !== '$autocapture' &&
+                            step.event !== '$pageview'
                                 ? 'btn-secondary'
-                                : 'btn-light')
+                                : 'btn-light btn-action')
                         }
                     >
                         Custom event
@@ -239,7 +220,7 @@ export class ActionStep extends Component {
                                 })
                             )
                         }}
-                        className={'btn ' + (step.event == '$pageview' ? 'btn-secondary' : 'btn-light')}
+                        className={'btn ' + (step.event === '$pageview' ? 'btn-secondary' : 'btn-light btn-action')}
                         data-attr="action-step-pageview"
                     >
                         Page view
@@ -282,6 +263,9 @@ export class ActionStep extends Component {
                     extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
                     label="URL"
                 />
+                {step?.url_matching && step.url_matching in URL_MATCHING_HINTS && (
+                    <small style={{ display: 'block', marginTop: -12 }}>{URL_MATCHING_HINTS[step.url_matching]}</small>
+                )}
             </div>
         )
     }
@@ -293,7 +277,7 @@ export class ActionStep extends Component {
                     type="button"
                     className={
                         'btn btn-sm ' +
-                        (!step.url_matching || step.url_matching == 'contains' ? 'btn-secondary' : 'btn-light')
+                        (!step.url_matching || step.url_matching === 'contains' ? 'btn-secondary' : 'btn-light')
                     }
                 >
                     contains
@@ -301,14 +285,14 @@ export class ActionStep extends Component {
                 <button
                     onClick={() => this.sendStep({ ...step, url_matching: 'regex' })}
                     type="button"
-                    className={'btn btn-sm ' + (step.url_matching == 'regex' ? 'btn-secondary' : 'btn-light')}
+                    className={'btn btn-sm ' + (step.url_matching === 'regex' ? 'btn-secondary' : 'btn-light')}
                 >
                     matches regex
                 </button>
                 <button
                     onClick={() => this.sendStep({ ...step, url_matching: 'exact' })}
                     type="button"
-                    className={'btn btn-sm ' + (step.url_matching == 'exact' ? 'btn-secondary' : 'btn-light')}
+                    className={'btn btn-sm ' + (step.url_matching === 'exact' ? 'btn-secondary' : 'btn-light')}
                 >
                     matches exactly
                 </button>
@@ -367,7 +351,7 @@ export class ActionStep extends Component {
                         {step.event === '$autocapture' && (
                             <this.AutocaptureFields step={step} isEditor={isEditor} actionId={actionId} />
                         )}
-                        {step.event != null && step.event != '$autocapture' && step.event != '$pageview' && (
+                        {step.event != null && step.event !== '$autocapture' && step.event !== '$pageview' && (
                             <div style={{ marginTop: '2rem' }}>
                                 <label>Event name: {step.event}</label>
                                 <EventName
@@ -389,9 +373,9 @@ export class ActionStep extends Component {
                                     extra_options={<this.URLMatching step={step} isEditor={isEditor} />}
                                     label="URL"
                                 />
-                                {step.url_matching && step.url_matching in MATCHING_NOTES && (
+                                {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
                                     <small style={{ display: 'block', marginTop: -12 }}>
-                                        {MATCHING_NOTES[step.url_matching]}
+                                        {URL_MATCHING_HINTS[step.url_matching]}
                                     </small>
                                 )}
                             </div>

@@ -1,3 +1,4 @@
+import functools
 import json
 import os
 import secrets
@@ -9,19 +10,36 @@ from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
-from rest_framework import serializers
+from rest_framework import exceptions, serializers
 
 from posthog.models import Event, User
+from posthog.utils import PersonalAPIKeyAuthentication
 from posthog.version import VERSION
 
 
-def user(request):
-    if not request.user.is_authenticated:
-        return HttpResponse("Unauthorized", status=401)
+def authenticate_secondarily(endpoint):
+    @functools.wraps(endpoint)
+    def wrapper(request: HttpRequest):
+        if not request.user.is_authenticated:
+            try:
+                auth_result = PersonalAPIKeyAuthentication().authenticate(request)
+                if isinstance(auth_result, tuple) and isinstance(auth_result[0], User):
+                    request.user = auth_result[0]
+                else:
+                    raise exceptions.AuthenticationFailed("Authentication credentials were not provided.")
+            except exceptions.AuthenticationFailed as e:
+                return JsonResponse({"detail": e.detail}, status=401)
+        return endpoint(request)
 
+    return wrapper
+
+
+# TODO: remake these endpoints with DRF!
+@authenticate_secondarily
+def user(request):
     team = request.user.team
     teams = list(request.user.team_set.all().values("name", "id"))
 
@@ -44,8 +62,14 @@ def user(request):
             team.slack_incoming_webhook = data["team"].get("slack_incoming_webhook", team.slack_incoming_webhook)
             team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
             team.completed_snippet_onboarding = data["team"].get(
-                "completed_snippet_onboarding", team.completed_snippet_onboarding
+                "completed_snippet_onboarding", team.completed_snippet_onboarding,
             )
+            # regenerate or disable team signup link
+            signup_state = data["team"].get("signup_state")
+            if signup_state == True:
+                team.signup_token = secrets.token_urlsafe(22)
+            elif signup_state == False:
+                team.signup_token = None
             team.save()
 
         if "user" in data:
@@ -59,6 +83,10 @@ def user(request):
                     "anonymize_data": request.user.anonymize_data,
                     "email": request.user.email if not request.user.anonymize_data else None,
                     "is_signed_up": True,
+                    "toolbar_mode": request.user.toolbar_mode,
+                    "billing_plan": request.user.billing_plan,
+                    "is_team_unique_user": (team.users.count() == 1),
+                    "team_setup_complete": (team.completed_snippet_onboarding and team.ingested_event),
                 },
             )
             request.user.save()
@@ -97,10 +125,8 @@ def user(request):
     )
 
 
+@authenticate_secondarily
 def redirect_to_site(request):
-    if not request.user.is_authenticated:
-        return HttpResponse("Unauthorized", status=401)
-
     team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
     use_new_toolbar = request.user.toolbar_mode == "toolbar"
@@ -139,11 +165,9 @@ def redirect_to_site(request):
 
 
 @require_http_methods(["PATCH"])
+@authenticate_secondarily
 def change_password(request):
     """Change the password of a regular User."""
-    if not request.user.is_authenticated:
-        return JsonResponse({}, status=401)
-
     try:
         body = json.loads(request.body)
     except (TypeError, json.decoder.JSONDecodeError):
@@ -171,11 +195,9 @@ def change_password(request):
 
 
 @require_http_methods(["POST"])
+@authenticate_secondarily
 def test_slack_webhook(request):
     """Change the password of a regular User."""
-    if not request.user.is_authenticated:
-        return JsonResponse({}, status=401)
-
     try:
         body = json.loads(request.body)
     except (TypeError, json.decoder.JSONDecodeError):

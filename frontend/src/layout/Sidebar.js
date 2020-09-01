@@ -5,7 +5,6 @@ import { TeamInvitationModal } from 'lib/components/TeamInvitation'
 import { Menu, Layout, Modal } from 'antd'
 import {
     UserOutlined,
-    FunnelPlotOutlined,
     SettingOutlined,
     RiseOutlined,
     PlusOutlined,
@@ -47,8 +46,6 @@ function Logo() {
 // to show the right page in the sidebar
 const sceneOverride = {
     action: 'actions',
-    funnel: 'funnels',
-    editFunnel: 'funnels',
     person: 'people',
     dashboard: 'dashboards',
     featureFlags: 'experiments',
@@ -214,12 +211,6 @@ export function Sidebar({ user, sidebarCollapsed, setSidebarCollapsed }) {
                             <Link to={'/people/cohorts'} onClick={collapseSidebar} />
                         </Menu.Item>
                     </Menu.SubMenu>
-
-                    <Menu.Item key="funnels" style={itemStyle} data-attr="menu-item-funnels">
-                        <FunnelPlotOutlined />
-                        <span className="sidebar-label">{'Funnels'}</span>
-                        <Link to={'/funnel'} onClick={collapseSidebar} />
-                    </Menu.Item>
                     <Menu.Item key="experiments" style={itemStyle} data-attr="menu-item-feature-f">
                         <ExperimentOutlined />
                         <span className="sidebar-label">{'Experiments'}</span>
