@@ -150,9 +150,10 @@ class TestTeamUser(BaseTest):
 
 class TestTeamSignup(APIBaseTest):
     @patch("posthog.api.team.EE_MISSING", True)
+    @patch("posthog.api.team.MULTI_TENANCY_MISSING", True)
     @patch("posthog.api.team.posthoganalytics.identify")
     @patch("posthog.api.team.posthoganalytics.capture")
-    def test_can_sign_up_team(self, mock_capture, mock_identify):
+    def test_api_sign_up(self, mock_capture, mock_identify):
         response = self.client.post(
             "/api/team/signup/",
             {
@@ -326,7 +327,8 @@ class TestTeamSignup(APIBaseTest):
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
 
-    def test_cant_create_multiple_teams_without_multitenancy_or_enterprise(self):
+    @patch("posthog.api.team.MULTI_TENANCY_MISSING", True)
+    def test_cant_create_multiple_teams_without_multitenancy(self):
 
         # Create a user first to make sure additional users CANT be created
         User.objects.create(email="i_was_first@posthog.com")
