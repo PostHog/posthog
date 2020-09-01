@@ -313,8 +313,11 @@ if settings.DEBUG:
         path("debug/", debug),
     ]
 
+# Routes added individually to remove login requirement
+frontend_unauthenticated_routes = ["preflight", "signup"]
+for route in frontend_unauthenticated_routes:
+    urlpatterns.append(path(route, home))
 
 urlpatterns += [
-    path("preflight", home),  # Added individually to remove login requirement
     re_path(r"^.*", decorators.login_required(home)),
 ]
