@@ -40,7 +40,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             __default: [] as InsightHistory[],
             loadInsights: async () => {
                 const response = await api.get(
-                    'api/dashboard_item/?' +
+                    'api/insight/?' +
                         toParams({
                             order: '-created_at',
                             limit: 6,
@@ -57,7 +57,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             __default: [] as InsightHistory[],
             loadSavedInsights: async () => {
                 const response = await api.get(
-                    'api/dashboard_item/?' +
+                    'api/insight/?' +
                         toParams({
                             order: '-created_at',
                             saved: true,
@@ -75,7 +75,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
             __default: [] as InsightHistory[],
             loadTeamInsights: async () => {
                 const response = await api.get(
-                    'api/dashboard_item/?' +
+                    'api/insight/?' +
                         toParams({
                             order: '-created_at',
                             saved: true,
@@ -156,13 +156,13 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
     }),
     listeners: ({ actions, values }) => ({
         createInsight: async ({ filters }) => {
-            await api.create('api/dashboard_item', {
+            await api.create('api/insight', {
                 filters,
             })
             actions.loadInsights()
         },
         saveInsight: async ({ insight: { id }, name }) => {
-            await api.update(`api/dashboard_item/${id}`, {
+            await api.update(`api/insight/${id}`, {
                 name,
                 saved: true,
             })
@@ -172,7 +172,7 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<InsightHistory>>(
         },
         deleteInsight: ({ insight }) => {
             deleteWithUndo({
-                endpoint: 'dashboard_item',
+                endpoint: 'insight',
                 object: { name: insight.name, id: insight.id },
                 callback: () => actions.loadSavedInsights(),
             })

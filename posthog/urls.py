@@ -93,7 +93,9 @@ def signup_to_team_view(request, token):
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         team.users.add(user)
         team.save()
-        posthoganalytics.capture(user.distinct_id, "user signed up", properties={"is_first_user": False})
+        posthoganalytics.capture(
+            user.distinct_id, "user signed up", properties={"is_first_user": False, "first_team_user": False},
+        )
         posthoganalytics.identify(
             user.distinct_id,
             {
@@ -125,7 +127,6 @@ def setup_admin(request):
         company_name = request.POST.get("company_name")
         name = request.POST.get("name")
         email_opt_in = request.POST.get("emailOptIn") == "on"
-        is_first_user = not User.objects.exists()
         valid_inputs = (
             is_input_valid("name", name)
             and is_input_valid("email", email)
@@ -142,7 +143,7 @@ def setup_admin(request):
         team = Team.objects.create_with_data(users=[user], name=company_name)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         posthoganalytics.capture(
-            user.distinct_id, "user signed up", properties={"is_first_user": is_first_user},
+            user.distinct_id, "user signed up", properties={"is_first_user": True, "first_team_user": True},
         )
         posthoganalytics.identify(
             user.distinct_id,
@@ -199,7 +200,9 @@ def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
 
     team.users.add(user)
     team.save()
-    posthoganalytics.capture(user.distinct_id, "user signed up", properties={"is_first_user": False})
+    posthoganalytics.capture(
+        user.distinct_id, "user signed up", properties={"is_first_user": False, "is_first_team_user": False}
+    )
 
     return {"is_new": True, "user": user}
 

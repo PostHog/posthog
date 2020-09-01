@@ -23,6 +23,9 @@ describe('Funnels', () => {
         cy.get('[data-attr=date-filter]').click()
         cy.contains('Last 30 days').click()
 
+        cy.get('[data-attr=date-filter]').click()
+        cy.contains('Last 30 days').click()
+
         cy.get('[data-attr=funnel-viz]').should('exist')
     })
 

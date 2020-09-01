@@ -35,8 +35,8 @@ function checkRoot(nodeToVerify, paths, start) {
 
 function cleanPathParams(filters, properties) {
     return {
-        start: filters.start,
-        type: filters.type,
+        start_point: filters.start_point,
+        path_type: filters.path_type,
         date_from: filters.date_from,
         date_to: filters.date_to,
         properties: properties,
@@ -53,12 +53,12 @@ export const pathsLogic = kea({
             },
             loadPaths: async (_, breakpoint) => {
                 const params = toParams({ ...values.filter, properties: values.properties })
-                let paths = await api.get(`api/paths${params ? `/?${params}` : ''}`)
-                if (values.filter.start) {
+                let paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
+                if (values.filter.start_point) {
                     paths = paths.filter((checkingNode) => {
                         return (
-                            checkingNode.source.includes(values.filter.start) ||
-                            checkRoot(checkingNode, paths, values.filter.start)
+                            checkingNode.source.includes(values.filter.start_point) ||
+                            checkRoot(checkingNode, paths, values.filter.start_point)
                         )
                     })
                 }
@@ -81,7 +81,7 @@ export const pathsLogic = kea({
         initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
         filter: [
             {
-                type: '$pageview',
+                path_type: '$pageview',
             },
             {
                 setFilter: (state, filter) => ({ ...state, ...filter }),
@@ -106,8 +106,8 @@ export const pathsLogic = kea({
         },
         setFilter: () => {
             if (
-                values.filter.type !== AUTOCAPTURE ||
-                (values.filter.type === AUTOCAPTURE && !isNaN(values.filter.start))
+                values.filter.path_type !== AUTOCAPTURE ||
+                (values.filter.path_type === AUTOCAPTURE && !isNaN(values.filter.start_point))
             )
                 actions.loadPaths()
 

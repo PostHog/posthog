@@ -231,10 +231,14 @@ class EventManager(models.QuerySet):
             events = events.order_by(order_by)
         return events
 
-    def query_retention(self, filters, team, start_entity: Optional[Entity] = None) -> dict:
+    def query_retention(self, filters: Filter, team) -> dict:
 
         events: QuerySet = QuerySet()
-        entity = Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}) if not start_entity else start_entity
+        entity = (
+            Entity({"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
+            if not filters.target_entity
+            else filters.target_entity
+        )
         if entity.type == TREND_FILTER_TYPE_EVENTS:
             events = Event.objects.filter_by_event_with_people(event=entity.id, team_id=team.id)
         elif entity.type == TREND_FILTER_TYPE_ACTIONS:
