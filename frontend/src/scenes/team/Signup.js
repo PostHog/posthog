@@ -1,26 +1,31 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
+import { useActions, useValues } from 'kea'
+import { signupLogic } from './signupLogic'
 import hedgehogBlue from './../../../public/hedgehog-blue.jpg'
 import posthogLogo from './../../../public/posthog-icon.svg'
 import { Row, Col, Space, Button, Input, Checkbox } from 'antd'
 
 function Signup() {
-    const [state, setState] = useState({ loading: false, submitted: false })
+    const [state, setState] = useState({ submitted: false })
     const [formState, setFormState] = useState({
-        name: {},
-        company_name: {},
+        firstName: {},
+        companyName: {},
         email: {},
         password: {},
         emailOptIn: { value: true },
     })
     const passwordInput = useRef(null)
+    const logic = signupLogic()
+    const { createAccount } = useActions(logic)
+    const { account, accountLoading } = useValues(logic)
 
     const updateForm = (name, target, valueAttr = 'value') => {
-        setFormState({ ...formState, [name]: { ...formState[name], value: target[valueAttr] } })
-
         /* Validate password (if applicable) */
         if (name === 'password') {
             const valid = target[valueAttr].length >= 8
-            setFormState({ ...formState, password: { ...formState.password, valid } })
+            setFormState({ ...formState, password: { ...formState.password, valid, value: target[valueAttr] } })
+        } else {
+            setFormState({ ...formState, [name]: { ...formState[name], value: target[valueAttr] } })
         }
     }
 
@@ -33,7 +38,19 @@ function Signup() {
             passwordInput.current.focus()
             return
         }
+        const payload = {
+            first_name: formState.firstName.value,
+            company_name: formState.companyName.value || undefined,
+            email: formState.email.value,
+            password: formState.password.value,
+            email_opt_in: formState.emailOptIn.value,
+        }
+        createAccount(payload)
     }
+
+    useEffect(() => {
+        if (account && Object.keys(account).length > 0) window.location.href = '/'
+    }, [account])
 
     return (
         <>
@@ -66,9 +83,10 @@ function Signup() {
                                     <Input
                                         placeholder="John"
                                         autoFocus
-                                        value={formState.name.value}
-                                        onChange={(e) => updateForm('name', e.target)}
+                                        value={formState.firstName.value}
+                                        onChange={(e) => updateForm('firstName', e.target)}
                                         required
+                                        disabled={accountLoading}
                                     />
                                 </div>
                             </Col>
@@ -77,8 +95,9 @@ function Signup() {
                                     <label>Company or Project</label>
                                     <Input
                                         placeholder="Rocket Rides"
-                                        value={formState.company_name.value}
-                                        onChange={(e) => updateForm('company_name', e.target)}
+                                        value={formState.companyName.value}
+                                        onChange={(e) => updateForm('companyName', e.target)}
+                                        disabled={accountLoading}
                                     />
                                 </div>
                             </Col>
@@ -93,6 +112,7 @@ function Signup() {
                                         value={formState.email.value}
                                         onChange={(e) => updateForm('email', e.target)}
                                         required
+                                        disabled={accountLoading}
                                     />
                                     <span className="caption">This will be your username.</span>
                                 </div>
@@ -110,6 +130,7 @@ function Signup() {
                                         onChange={(e) => updateForm('password', e.target)}
                                         required
                                         ref={passwordInput}
+                                        disabled={accountLoading}
                                     />
                                     <span className="caption">At least 8 characters.</span>
                                 </div>
@@ -119,6 +140,7 @@ function Signup() {
                             <Checkbox
                                 checked={formState.emailOptIn.value}
                                 onChange={(e) => updateForm('emailOptIn', e.target, 'checked')}
+                                disabled={accountLoading}
                             >
                                 Send me emails about security and product updates (unsubscribe at any time).
                             </Checkbox>
@@ -129,6 +151,7 @@ function Signup() {
                                 htmlType="submit"
                                 data-attr="signup"
                                 disabled={state.submitted && !formState.password.valid}
+                                loading={accountLoading}
                             >
                                 Create my account
                             </Button>

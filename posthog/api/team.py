@@ -13,7 +13,7 @@ class TeamSignupSerializer(serializers.Serializer):
     email: serializers.Field = serializers.EmailField()
     password: serializers.Field = serializers.CharField()
     company_name: serializers.Field = serializers.CharField(
-        max_length=128, required=False,
+        max_length=128, required=False, allow_blank=True,
     )
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
 
