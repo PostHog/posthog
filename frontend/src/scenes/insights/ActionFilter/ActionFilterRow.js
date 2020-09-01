@@ -77,6 +77,7 @@ const MATHS = {
         onProperty: true,
     },
 }
+const MATH_ENTRIES = Object.entries(MATHS)
 
 const determineFilterLabel = (visible, filter) => {
     if (visible) return 'Hide filters'
@@ -92,7 +93,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
     const node = useRef()
     const { selectedFilter, entities } = useValues(logic)
     const { selectFilter, updateFilterMath, removeLocalFilter, updateFilterProperty } = useActions(logic)
-    const { eventProperties } = useValues(userLogic)
+    const { eventProperties, eventPropertiesNumerical } = useValues(userLogic)
     const [entityFilterVisible, setEntityFilterVisible] = useState(false)
 
     let entity, name, value
@@ -153,7 +154,16 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                 {name || 'Select action'}
                 <DownOutlined style={{ marginLeft: '3px', color: 'rgba(0, 0, 0, 0.25)' }} />
             </button>
-            {!hideMathSelector && <MathSelector math={math} index={index} onMathSelect={onMathSelect} />}
+            {!hideMathSelector && (
+                <MathSelector
+                    math={math}
+                    index={index}
+                    onMathSelect={onMathSelect}
+                    areEventPropertiesNumericalAvailable={
+                        eventPropertiesNumerical && eventPropertiesNumerical.length > 0
+                    }
+                />
+            )}
             {!hideMathSelector && MATHS[math]?.onProperty && (
                 <MathPropertySelector
                     name={name}
@@ -161,7 +171,7 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
                     mathProperty={mathProperty}
                     index={index}
                     onMathPropertySelect={onMathPropertySelect}
-                    properties={eventProperties}
+                    properties={eventPropertiesNumerical}
                 />
             )}
             <div
@@ -206,23 +216,43 @@ export function ActionFilterRow({ logic, filter, index, hideMathSelector }) {
     )
 }
 
-function MathSelector(props) {
+function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAvailable }) {
+    const numericalNotice = `This can only be used on on properties that have at least one number type occurence in your events.${
+        areEventPropertiesNumericalAvailable ? '' : ' None have been found yet!'
+    }`
+
     return (
         <Dropdown
-            title={MATHS[props.math || 'total']?.name}
+            title={MATHS[math || 'total']?.name}
             buttonClassName="btn btn-sm btn-light ml-2"
-            data-attr={`math-selector-${props.index}`}
+            data-attr={`math-selector-${index}`}
         >
-            {Object.entries(MATHS).map(([key, value]) => (
-                <Tooltip placement="right" title={value.description} key={`math-${key}`}>
-                    <a
-                        href="#"
-                        className="dropdown-item"
-                        onClick={() => props.onMathSelect(props.index, key)}
-                        data-attr={`math-${key}-${props.index}`}
-                    >
-                        {value.name}
-                    </a>
+            {MATH_ENTRIES.map(([key, { name, description, onProperty }]) => (
+                <Tooltip
+                    placement="right"
+                    title={
+                        onProperty ? (
+                            <>
+                                {description}
+                                <br />
+                                {numericalNotice}
+                            </>
+                        ) : (
+                            description
+                        )
+                    }
+                    key={`math-${key}`}
+                >
+                    <div>
+                        <button
+                            className="dropdown-item"
+                            disabled={onProperty && !areEventPropertiesNumericalAvailable}
+                            onClick={() => onMathSelect(index, key)}
+                            data-attr={`math-${key}-${index}`}
+                        >
+                            {name}
+                        </button>
+                    </div>
                 </Tooltip>
             ))}
         </Dropdown>
