@@ -49,6 +49,7 @@
         "posthog-js": "^1.4.4",
         "posthog-js-lite": "^0.0.3",
         "prop-types": "^15.7.2",
+        "query-string": "^6.13.1",
         "react": "^16.13.1",
         "react-datepicker": "^2.13.0",
         "react-dom": "^16.13.1",

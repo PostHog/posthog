@@ -4,6 +4,7 @@ import { signupLogic } from './signupLogic'
 import hedgehogBlue from './../../../public/hedgehog-blue.jpg'
 import posthogLogo from './../../../public/posthog-icon.svg'
 import { Row, Col, Space, Button, Input, Checkbox } from 'antd'
+import queryString from 'query-string'
 
 function Signup() {
     const [state, setState] = useState({ submitted: false })
@@ -18,6 +19,7 @@ function Signup() {
     const logic = signupLogic()
     const { createAccount } = useActions(logic)
     const { account, accountLoading } = useValues(logic)
+    const { plan } = queryString.parse(location.search)
 
     const updateForm = (name, target, valueAttr = 'value') => {
         /* Validate password (if applicable) */
@@ -44,6 +46,7 @@ function Signup() {
             email: formState.email.value,
             password: formState.password.value,
             email_opt_in: formState.emailOptIn.value,
+            plan, // Pass it along if on QS, won't have any effect unless on multitenancy
         }
         createAccount(payload)
     }
