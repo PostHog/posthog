@@ -121,7 +121,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python manage.py test --keepdb -v 2
+                  python manage.py test posthog --keepdb -v 2
 
             - name: Run EE tests
               env:
@@ -206,4 +206,4 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  python manage.py test --keepdb -v 2
+                  python manage.py test posthog --keepdb -v 2
