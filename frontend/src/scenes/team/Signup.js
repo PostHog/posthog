@@ -90,6 +90,7 @@ function Signup() {
                                         onChange={(e) => updateForm('firstName', e.target)}
                                         required
                                         disabled={accountLoading}
+                                        id="signupFirstName"
                                     />
                                 </div>
                             </Col>
@@ -101,6 +102,7 @@ function Signup() {
                                         value={formState.companyName.value}
                                         onChange={(e) => updateForm('companyName', e.target)}
                                         disabled={accountLoading}
+                                        id="signupCompanyName"
                                     />
                                 </div>
                             </Col>
@@ -116,6 +118,7 @@ function Signup() {
                                         onChange={(e) => updateForm('email', e.target)}
                                         required
                                         disabled={accountLoading}
+                                        id="signupEmail"
                                     />
                                     <span className="caption">This will be your username.</span>
                                 </div>
@@ -134,6 +137,7 @@ function Signup() {
                                         required
                                         ref={passwordInput}
                                         disabled={accountLoading}
+                                        id="signupPassword"
                                     />
                                     <span className="caption">At least 8 characters.</span>
                                 </div>

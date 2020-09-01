@@ -109,54 +109,6 @@ def signup_to_team_view(request, token):
     return render_template("signup_to_team.html", request, context={"team": team, "signup_token": token})
 
 
-def setup_admin(request):
-    if User.objects.exists():
-        return redirect("/login")
-    if request.method == "GET":
-        if request.user.is_authenticated:
-            return redirect("/")
-        try:
-            return render_template("setup_admin.html", request)
-        except TemplateDoesNotExist:
-            return HttpResponse(
-                "Frontend not built yet. Please try again shortly or build manually using <code>./bin/start-frontend</code>"
-            )
-    if request.method == "POST":
-        email = request.POST["email"]
-        password = request.POST["password"]
-        company_name = request.POST.get("company_name")
-        name = request.POST.get("name")
-        email_opt_in = request.POST.get("emailOptIn") == "on"
-        valid_inputs = (
-            is_input_valid("name", name)
-            and is_input_valid("email", email)
-            and is_input_valid("password", password)
-            and is_input_valid("company", company_name)
-        )
-        if not valid_inputs:
-            return render_template(
-                "setup_admin.html",
-                request=request,
-                context={"email": email, "name": name, "invalid_input": True, "company": company_name},
-            )
-        user = User.objects.create_user(email=email, password=password, first_name=name, email_opt_in=email_opt_in,)
-        team = Team.objects.create_with_data(users=[user], name=company_name)
-        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-        posthoganalytics.capture(
-            user.distinct_id, "user signed up", properties={"is_first_user": True, "first_team_user": True},
-        )
-        posthoganalytics.identify(
-            user.distinct_id,
-            properties={
-                "email": user.email,
-                "company_name": company_name,
-                "team_id": team.pk,  # TO-DO: handle multiple teams
-                "is_team_first_user": True,
-            },
-        )
-        return redirect("/")
-
-
 def social_create_user(strategy, details, backend, user=None, *args, **kwargs):
     if user:
         return {"is_new": False}
@@ -286,7 +238,6 @@ urlpatterns = urlpatterns + [
     path("login", login_view, name="login"),
     path("signup/<str:token>", signup_to_team_view, name="signup"),
     path("", include("social_django.urls", namespace="social")),
-    path("setup_admin", setup_admin, name="setup_admin"),
     path(
         "accounts/reset/<uidb64>/<token>/",
         auth_views.PasswordResetConfirmView.as_view(

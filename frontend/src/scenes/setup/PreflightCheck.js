@@ -105,7 +105,7 @@ function PreflightCheck() {
     }
 
     const handlePreflightFinished = () => {
-        window.location.href = '/setup_admin'
+        window.location.href = '/signup'
     }
 
     useEffect(() => {
