@@ -52,7 +52,11 @@ function App() {
     }, [location.pathname])
 
     if (unauthenticatedRoutes.includes(scene)) {
-        return <Scene {...params} />
+        return (
+            <>
+                <Scene {...params} /> <ToastContainer autoClose={8000} transition={Slide} position="bottom-center" />
+            </>
+        )
     }
 
     if (!user) {
