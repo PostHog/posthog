@@ -38,7 +38,12 @@ export const elementsLogic = kea<
         updateRects: true,
         setHoverElement: (element: HTMLElement | null) => ({ element }),
         setHighlightElement: (element: HTMLElement | null) => ({ element }),
-        setSelectedElement: (element: HTMLElement | null) => ({ element }),
+        setSelectedElement: (element: HTMLElement | null, x?: number, y?: number) => ({
+            element,
+            x,
+            y,
+        }),
+        setMouseCoordinates: (x: number, y: number) => ({ x, y }),
     },
 
     reducers: () => ({
@@ -88,12 +93,30 @@ export const elementsLogic = kea<
                 [actionsTabLogic.actionTypes.selectAction]: () => null,
             },
         ],
+        selectedElementMouseCoordinates: [
+            null as null | { x: number; y: number },
+            {
+                setSelectedElement: (_, { x, y }) =>
+                    typeof x !== 'undefined' && typeof y !== 'undefined' ? { x, y } : null,
+                disableInspect: () => null,
+                createAction: () => null,
+                [toolbarTabLogic.actionTypes.setTab]: () => null,
+                [heatmapLogic.actionTypes.disableHeatmap]: () => null,
+                [actionsTabLogic.actionTypes.selectAction]: () => null,
+            },
+        ],
         enabledLast: [
             null as null | 'inspect' | 'heatmap',
             {
                 // keep track of what to disable first with ESC
                 enableInspect: () => 'inspect',
                 [heatmapLogic.actionTypes.enableHeatmap]: () => 'heatmap',
+            },
+        ],
+        mouseCoordinates: [
+            { x: undefined, y: undefined } as { x: number | undefined; y: number | undefined },
+            {
+                setMouseCoordinates: (_, { x, y }) => ({ x, y }),
             },
         ],
     }),
@@ -372,20 +395,28 @@ export const elementsLogic = kea<
                     return
                 }
             }
+            cache.onMouseMove = (e: MouseEvent) => {
+                const { x, y } = values.mouseCoordinates
+                if (x !== e.clientX || y !== e.clientY) {
+                    actions.setMouseCoordinates(e.clientX, e.clientY)
+                }
+            }
             window.addEventListener('click', cache.onClick)
             window.addEventListener('resize', cache.onScrollResize)
             window.addEventListener('keydown', cache.onKeyDown)
+            window.addEventListener('mousemove', cache.onMouseMove)
             window.document.addEventListener('scroll', cache.onScrollResize, true)
         },
         beforeUnmount: () => {
             window.removeEventListener('click', cache.onClick)
             window.removeEventListener('resize', cache.onScrollResize)
             window.removeEventListener('keydown', cache.onKeyDown)
+            window.removeEventListener('mousemove', cache.onMouseMove)
             window.document.removeEventListener('scroll', cache.onScrollResize, true)
         },
     }),
 
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         enableInspect: () => {
             actionsLogic.actions.getActions()
         },
@@ -401,7 +432,7 @@ export const elementsLogic = kea<
                     actionsTabLogic.actions.inspectElementSelected(element, actionsTabLogic.values.inspectingElement)
                 }
             } else {
-                actions.setSelectedElement(element)
+                actions.setSelectedElement(element, values.mouseCoordinates.x, values.mouseCoordinates.y)
             }
         },
         createAction: ({ element }) => {
