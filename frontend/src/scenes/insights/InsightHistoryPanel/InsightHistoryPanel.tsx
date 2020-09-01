@@ -61,7 +61,7 @@ export const determineFilters = (
     } else if (viewType === ViewType.RETENTION) {
         if (filters.target) result.push({ key: 'Target', value: `${filters.target.name}` })
     } else if (viewType === ViewType.PATHS) {
-        if (filters.type) result.push({ key: 'Path Type', value: `${filters.type}` })
+        if (filters.type) result.push({ key: 'Path Type', value: `${filters.type || filters.path_type}` })
         if (filters.start) result.push({ key: 'Start Point', value: `Specified` })
     } else if (viewType === ViewType.FUNNELS) {
         let count = 0

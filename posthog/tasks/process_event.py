@@ -2,6 +2,7 @@ import datetime
 from numbers import Number
 from typing import Dict, Optional, Union
 
+import posthoganalytics
 from celery import shared_task
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
@@ -9,7 +10,6 @@ from django.core import serializers
 from django.db import IntegrityError
 from sentry_sdk import capture_exception
 
-from posthog.ee import check_ee_enabled
 from posthog.models import Element, Event, Person, Team
 
 
@@ -106,9 +106,17 @@ def _capture(
             for index, el in enumerate(elements)
         ]
 
-    team = Team.objects.only("slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips").get(
-        pk=team_id
-    )
+    team = Team.objects.only(
+        "slack_incoming_webhook", "event_names", "event_properties", "anonymize_ips", "ingested_event",
+    ).get(pk=team_id)
+
+    if not team.ingested_event:
+        # First event for the team captured
+        for user in Team.objects.get(pk=team_id).users.all():
+            posthoganalytics.capture(user.distinct_id, "first team event ingested", {"team": str(team.uuid)})
+
+        team.ingested_event = True
+        team.save()
 
     if not team.anonymize_ips:
         properties["$ip"] = ip
