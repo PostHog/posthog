@@ -1,3 +1,4 @@
+import uuid as uuidlib
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -103,6 +104,8 @@ class Team(models.Model):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     anonymize_ips: models.BooleanField = models.BooleanField(default=False)
     completed_snippet_onboarding: models.BooleanField = models.BooleanField(default=False)
+    ingested_event: models.BooleanField = models.BooleanField(default=False)
+    uuid: models.UUIDField = models.UUIDField(default=uuidlib.uuid4, editable=False, unique=True)
 
     # DEPRECATED: this field is deprecated in favour of OPT_OUT_CAPTURE env variable and anonymized data
     # However, we still honor teams that have set this previously
