@@ -5,14 +5,7 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 
 export function InfoWindow(): JSX.Element | null {
-    const {
-        hoverElement,
-        hoverElementMeta,
-        selectedElement,
-        selectedElementMeta,
-        mouseCoordinates,
-        selectedElementMouseCoordinates,
-    } = useValues(elementsLogic)
+    const { hoverElement, hoverElementMeta, selectedElement, selectedElementMeta } = useValues(elementsLogic)
     const { setSelectedElement } = useActions(elementsLogic)
 
     // use rectUpdateCounter to reload component when it changes, but discard the output
@@ -34,14 +27,7 @@ export function InfoWindow(): JSX.Element | null {
     const windowWidth = Math.min(document.documentElement.clientWidth, window.innerWidth)
     const windowHeight = Math.min(document.documentElement.clientHeight, window.innerHeight)
 
-    const mouseX =
-        pointerEvents && selectedElementMouseCoordinates ? selectedElementMouseCoordinates.x : mouseCoordinates.x
-    const mouseY =
-        pointerEvents && selectedElementMouseCoordinates ? selectedElementMouseCoordinates.y : mouseCoordinates.y
-
-    let left =
-        window.pageXOffset +
-        (typeof mouseX !== 'undefined' ? mouseX + 5 : rect.left + (rect.width > 300 ? (rect.width - 300) / 2 : 0))
+    let left = rect.left + window.pageXOffset + (rect.width > 300 ? (rect.width - 300) / 2 : 0)
     let width = 300
     if (left + width > windowWidth - 10) {
         left -= left + width - (windowWidth - 10)
@@ -51,20 +37,17 @@ export function InfoWindow(): JSX.Element | null {
         }
     }
 
-    let top: number | undefined = Math.max(
-        window.pageYOffset + 16,
-        (typeof mouseY !== 'undefined' ? mouseY + 5 : rect.top + rect.height + 10) + window.pageYOffset
-    )
+    let top: number | undefined = Math.max(window.pageYOffset + 16, rect.top + rect.height + 10 + window.pageYOffset)
     let bottom: number | undefined
     const minHeight: number | undefined = 50
     let maxHeight: number | undefined
 
-    const spaceAbove = Math.max(minHeight, (typeof mouseY !== 'undefined' ? mouseY : rect.top) - 20)
+    const spaceAbove = Math.max(minHeight, rect.top - 20)
     const spaceBelow = Math.max(minHeight, windowHeight - top + window.pageYOffset - 10)
 
     if (spaceAbove > spaceBelow) {
         top = undefined
-        bottom = windowHeight - (typeof mouseY !== 'undefined' ? mouseY - 5 : rect.top - 10) - window.pageYOffset
+        bottom = windowHeight - rect.top + 10 - window.pageYOffset
         maxHeight = spaceAbove
     } else {
         maxHeight = spaceBelow
