@@ -13,6 +13,7 @@ black==19.10b0            # via -r requirements/dev.in
 click==7.1.1              # via black, pip-tools
 decorator==4.4.2          # via ipython, traitlets
 django-debug-toolbar==2.2  # via -r requirements/dev.in
+django-extensions==3.0.6  # via -r requirements/dev.in
 django-stubs==1.5.0       # via -r requirements/dev.in, djangorestframework-stubs
 django==3.0.6             # via django-debug-toolbar, django-stubs
 djangorestframework-stubs==1.1.0  # via -r requirements/dev.in
