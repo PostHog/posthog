@@ -186,7 +186,7 @@ export class ActionStep extends Component {
                                 () => this.sendStep({ ...step, event: '$autocapture' })
                             )
                         }
-                        className={'btn ' + (step.event === '$autocapture' ? 'btn-secondary' : 'btn-light action-btn')}
+                        className={'btn ' + (step.event === '$autocapture' ? 'btn-secondary' : 'btn-light btn-action')}
                     >
                         Frontend element
                     </button>
@@ -199,7 +199,7 @@ export class ActionStep extends Component {
                             step.event !== '$autocapture' &&
                             step.event !== '$pageview'
                                 ? 'btn-secondary'
-                                : 'btn-light action-btn')
+                                : 'btn-light btn-action')
                         }
                     >
                         Custom event
@@ -220,7 +220,7 @@ export class ActionStep extends Component {
                                 })
                             )
                         }}
-                        className={'btn ' + (step.event === '$pageview' ? 'btn-secondary' : 'btn-light action-btn')}
+                        className={'btn ' + (step.event === '$pageview' ? 'btn-secondary' : 'btn-light btn-action')}
                         data-attr="action-step-pageview"
                     >
                         Page view
