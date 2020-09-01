@@ -143,27 +143,6 @@ def retention_test_factory(retention):
                     team=self.team, event="$pageview", distinct_id=distinct_id, timestamp=timestamp,
                 )
 
-                result = retention().run(
-                    Filter(
-                        data={
-                            "properties": [{"key": "email", "value": "person1@test.com", "type": "person"}],
-                            "date_from": self._date(0, hour=0),
-                        }
-                    ),
-                    self.team,
-                    total_days=7,
-                )
-
-                self.assertEqual(len(result), 7)
-                self.assertEqual(
-                    self.pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"],
-                )
-                self.assertEqual(result[0]["date"], "Wed. 10 June")
-                self.assertEqual(
-                    self.pluck(result, "values", "count"),
-                    [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1]],
-                )
-
         def _create_signup_actions(self, user_and_timestamps):
             sign_up_action = Action.objects.create(team=self.team, name="sign up")
             ActionStep.objects.create(action=sign_up_action, event="sign up")
