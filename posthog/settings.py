@@ -116,11 +116,13 @@ if get_bool_from_env("ASYNC_EVENT_ACTION_MAPPING", False):
 
 # Clickhouse Settings
 
+CLICKHOUSE_TEST_DB = "posthog_test"
+
 CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_USERNAME = os.environ.get("CLICKHOUSE_USERNAME", "")
 CLICKHOUSE_PASSWORD = os.environ.get("CLICKHOUSE_PASSWORD", "")
-CLICKHOUSE_DATABASE = os.environ.get("CLICKHOUSE_DATABASE", "posthog_test")
-CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", "clickhouse.crt")
+CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.environ.get("CLICKHOUSE_DATABASE", "posthog_test")
+CLICKHOUSE_CA = os.environ.get("CLICKHOUSE_CA", None)
 CLICKHOUSE_SECURE = get_bool_from_env("CLICKHOUSE_SECURE", True)
 CLICKHOUSE_VERIFY = get_bool_from_env("CLICKHOUSE_VERIFY", True)
 

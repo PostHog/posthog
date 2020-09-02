@@ -1,6 +1,5 @@
 from clickhouse_driver import Client  # type: ignore
 
-from ee.clickhouse.clickhouse_test_runner import TEST_DB
 from posthog.settings import (
     CLICKHOUSE_CA,
     CLICKHOUSE_DATABASE,
@@ -8,7 +7,6 @@ from posthog.settings import (
     CLICKHOUSE_PASSWORD,
     CLICKHOUSE_SECURE,
     CLICKHOUSE_VERIFY,
-    TEST,
 )
 
 # Bootstrap ClickHouse with Database
@@ -26,7 +24,7 @@ ch_client.execute("CREATE DATABASE IF NOT EXISTS {database}".format(database=CLI
 # Reconnect scoped to the database provided for security
 ch_client = Client(
     host=CLICKHOUSE_HOST,
-    database=TEST_DB if TEST else CLICKHOUSE_DATABASE,
+    database=CLICKHOUSE_DATABASE,
     secure=CLICKHOUSE_SECURE,
     password=CLICKHOUSE_PASSWORD,
     ca_certs=CLICKHOUSE_CA,
