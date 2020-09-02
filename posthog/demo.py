@@ -153,8 +153,8 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                             timestamp=date + relativedelta(seconds=60),
                         )
                     )
-    Team.event_properties_numerical.append("purchase")
-    Team.save()
+    team.event_properties_numerical.append("purchase")
+    team.save()
     PersonDistinctId.objects.bulk_create(distinct_ids)
     Event.objects.bulk_create(events)
 
