@@ -12,7 +12,7 @@ from posthog.settings import (
 )
 
 if PRIMARY_DB != CLICKHOUSE:
-    ch_client = Client()
+    ch_client = Client(host="localhost")
 else:
     ch_client = Client(
         host=CLICKHOUSE_HOST,
