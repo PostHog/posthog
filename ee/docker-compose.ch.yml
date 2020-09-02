@@ -3,7 +3,6 @@ version: '3'
 services:
     db:
         image: postgres:alpine
-        container_name: posthog_db
         environment:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
@@ -12,16 +11,15 @@ services:
             - '5439:5432'
     redis:
         image: 'redis:alpine'
-        container_name: posthog_redis
         ports:
             - '6379:6379'
     web:
         build:
-            context: .
+            context: ../
             dockerfile: dev.Dockerfile
         command: ./bin/docker-dev-web
         volumes:
-            - .:/code
+            - ..:/code
         ports:
             - '8000:8000'
             - '8234:8234'
@@ -29,10 +27,8 @@ services:
             IS_DOCKER: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             CLICKHOUSE_HOST: 'clickhouse'
-            CLICKHOUSE_SECURE: 'False'
-            #            CLICKHOUSE_PASSWORD: 'Posthog'
             CLICKHOUSE_DATABASE: 'posthog'
-            CLICKHOUSE_CA: 'server.crt'
+            CLICKHOUSE_SECURE: 'False'
             CLICKHOUSE_VERIFY: 'False'
             REDIS_URL: 'redis://redis:6379/'
             SECRET_KEY: '<randomly generated secret key>'
@@ -46,19 +42,17 @@ services:
             - redis:redis
     worker:
         build:
-            context: .
+            context: ../
             dockerfile: dev.Dockerfile
         command: ./bin/docker-worker
         volumes:
-            - .:/code
+            - ..:/code
         environment:
             IS_DOCKER: 'true'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             CLICKHOUSE_HOST: 'clickhouse'
-            CLICKHOUSE_SECURE: 'False'
-            #            CLICKHOUSE_PASSWORD: 'Posthog'
             CLICKHOUSE_DATABASE: 'posthog'
-            CLICKHOUSE_CA: 'server.crt'
+            CLICKHOUSE_SECURE: 'False'
             CLICKHOUSE_VERIFY: 'False'
             REDIS_URL: 'redis://redis:6379/'
             SECRET_KEY: '<randomly generated secret key>'
@@ -72,7 +66,6 @@ services:
             - redis:redis
     clickhouse:
         image: yandex/clickhouse-server
-        container_name: posthog_clickhouse
         ports:
             - '8123:8123'
             - '9000:9000'
