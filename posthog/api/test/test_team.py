@@ -108,7 +108,7 @@ class TestTeamUser(BaseTest):
         # Cannot partially update users
         email: str = user.email
         response = self.client.patch(
-            f"/api/team/user/{user.distinct_id}/", {"email": "newemail@posthog.com"}, "application/json"
+            f"/api/team/user/{user.distinct_id}", {"email": "newemail@posthog.com"}, "application/json"
         )
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(response.json(), {"detail": 'Method "PATCH" not allowed.'})
