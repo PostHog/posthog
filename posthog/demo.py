@@ -137,6 +137,15 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                     )
                     events.append(
                         Event(
+                            event="purchase",
+                            team=team,
+                            distinct_id=distinct_id,
+                            properties={"cost": 10},
+                            timestamp=date + relativedelta(seconds=60),
+                        )
+                    )
+                    events.append(
+                        Event(
                             event="$pageview",
                             team=team,
                             distinct_id=distinct_id,
@@ -144,7 +153,8 @@ def _create_anonymous_users(team: Team, base_url: str) -> None:
                             timestamp=date + relativedelta(seconds=60),
                         )
                     )
-
+    Team.event_properties_numerical.append("purchase")
+    Team.save()
     PersonDistinctId.objects.bulk_create(distinct_ids)
     Event.objects.bulk_create(events)
 
