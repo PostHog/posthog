@@ -15,10 +15,13 @@ def create_event(
     event: str,
     team: Team,
     distinct_id: str,
+    timestamp: Optional[Union[datetime, str]],
     properties: Optional[Dict] = {},
-    timestamp: Union[datetime, str] = datetime.now(),
     element_hash: Optional[str] = "",
 ) -> None:
+
+    if not timestamp:
+        timestamp = datetime.now()
 
     # clickhouse specific formatting
     if isinstance(timestamp, str):
