@@ -66,11 +66,11 @@ def _store_names_and_properties(team: Team, event: str, properties: Dict) -> Non
     if event not in team.event_names:
         save = True
         team.event_names.append(event)
-    for key in properties.keys():
+    for key, value in properties.items():
         if key not in team.event_properties:
             team.event_properties.append(key)
             save = True
-        if isinstance(key, Number) and key not in team.event_properties_numerical:
+        if isinstance(value, Number) and key not in team.event_properties_numerical:
             team.event_properties_numerical.append(key)
             save = True
     if save:
