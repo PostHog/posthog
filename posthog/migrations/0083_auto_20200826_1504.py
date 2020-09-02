@@ -5,6 +5,13 @@ import uuid
 from django.db import migrations, models
 
 
+def create_uuid(apps, schema_editor):
+    Team = apps.get_model("posthog", "Team")
+    for team in Team.objects.all():
+        team.uuid = uuid.uuid4()
+        team.save()
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -13,7 +20,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(model_name="team", name="ingested_event", field=models.BooleanField(default=False),),
-        migrations.AddField(
-            model_name="team", name="uuid", field=models.UUIDField(default=uuid.uuid4, editable=False, unique=True),
-        ),
+        migrations.AddField(model_name="team", name="uuid", field=models.UUIDField(blank=True, null=True),),
+        migrations.RunPython(create_uuid),
+        migrations.AlterField(model_name="team", name="uuid", field=models.UUIDField(default=uuid.uuid4, unique=True)),
     ]
