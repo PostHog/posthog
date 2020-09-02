@@ -227,34 +227,43 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
             buttonClassName="btn btn-sm btn-light ml-2"
             data-attr={`math-selector-${index}`}
         >
-            {MATH_ENTRIES.map(([key, { name, description, onProperty }]) => (
-                <Tooltip
-                    placement="right"
-                    title={
-                        onProperty ? (
-                            <>
-                                {description}
-                                <br />
-                                {numericalNotice}
-                            </>
-                        ) : (
-                            description
-                        )
-                    }
-                    key={`math-${key}`}
-                >
-                    <div>
-                        <button
-                            className="dropdown-item"
-                            disabled={onProperty && !areEventPropertiesNumericalAvailable}
-                            onClick={() => onMathSelect(index, key)}
-                            data-attr={`math-${key}-${index}`}
-                        >
-                            {name}
-                        </button>
-                    </div>
-                </Tooltip>
-            ))}
+            {MATH_ENTRIES.map(([key, { name, description, onProperty }]) => {
+                const disabled = onProperty && !areEventPropertiesNumericalAvailable
+                return (
+                    <Tooltip
+                        placement="right"
+                        title={
+                            onProperty ? (
+                                <>
+                                    {description}
+                                    <br />
+                                    {numericalNotice}
+                                </>
+                            ) : (
+                                description
+                            )
+                        }
+                        key={`math-${key}`}
+                    >
+                        <div>
+                            <button
+                                className="dropdown-item"
+                                disabled={disabled}
+                                onClick={
+                                    disabled
+                                        ? () => {
+                                              onMathSelect(index, key)
+                                          }
+                                        : undefined
+                                }
+                                data-attr={`math-${key}-${index}`}
+                            >
+                                {name}
+                            </button>
+                        </div>
+                    </Tooltip>
+                )
+            })}
         </Dropdown>
     )
 }
