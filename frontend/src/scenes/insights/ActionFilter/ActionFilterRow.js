@@ -251,10 +251,10 @@ function MathSelector({ math, index, onMathSelect, areEventPropertiesNumericalAv
                                 disabled={disabled}
                                 onClick={
                                     disabled
-                                        ? () => {
+                                        ? undefined
+                                        : () => {
                                               onMathSelect(index, key)
                                           }
-                                        : undefined
                                 }
                                 data-attr={`math-${key}-${index}`}
                             >
