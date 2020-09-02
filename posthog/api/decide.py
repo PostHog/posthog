@@ -2,7 +2,7 @@ import base64
 import gzip
 import json
 import secrets
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 import lzstring  # type: ignore
@@ -46,17 +46,13 @@ def _load_data(request):
         data = json.loads(data)
     except json.JSONDecodeError:
         # if not, it's probably base64 encoded from other libraries
-        data = json.loads(
-            base64.b64decode(data.replace(" ", "+") + "===")
-            .decode("utf8", "surrogatepass")
-            .encode("utf-16", "surrogatepass")
-        )
+        data = _base64_to_json(data)
 
     # FIXME: data can also be an array, function assumes it's either None or a dictionary.
     return data
 
 
-def _base64_to_json(data):
+def _base64_to_json(data) -> Dict:
     return json.loads(
         base64.b64decode(data.replace(" ", "+") + "===")
         .decode("utf8", "surrogatepass")
