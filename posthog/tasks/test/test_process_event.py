@@ -28,7 +28,7 @@ class ProcessEvent(BaseTest):
         ActionStep.objects.create(action=action2, selector="a", event="$autocapture")
         team_id = self.team.pk
 
-        with self.assertNumQueries(29):
+        with self.assertNumQueries(30):
             process_event(
                 2,
                 "",
