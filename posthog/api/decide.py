@@ -1,9 +1,11 @@
 import base64
+import gzip
 import json
 import secrets
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
+import lzstring  # type: ignore
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -12,7 +14,49 @@ from posthog.models import FeatureFlag, Team
 from posthog.utils import cors_response
 
 
-def _load_data(data: str) -> Dict[str, Any]:
+def _load_data(request):
+    # JS Integration reloadFeatureFlags call
+    if request.content_type == "application/x-www-form-urlencoded":
+        return _base64_to_json(request.POST["data"])
+
+    if request.content_type == "application/json":
+        data = request.body
+    else:
+        data = request.POST.get("data")
+
+    if not data:
+        return None
+
+    compression = (
+        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
+    )
+    compression = compression.lower()
+
+    if compression == "gzip":
+        data = gzip.decompress(data)
+
+    if compression == "lz64":
+        if isinstance(data, str):
+            data = lzstring.LZString().decompressFromBase64(data.replace(" ", "+"))
+        else:
+            data = lzstring.LZString().decompressFromBase64(data.decode().replace(" ", "+"))
+
+    #  Is it plain json?
+    try:
+        data = json.loads(data)
+    except json.JSONDecodeError:
+        # if not, it's probably base64 encoded from other libraries
+        data = json.loads(
+            base64.b64decode(data.replace(" ", "+") + "===")
+            .decode("utf8", "surrogatepass")
+            .encode("utf-16", "surrogatepass")
+        )
+
+    # FIXME: data can also be an array, function assumes it's either None or a dictionary.
+    return data
+
+
+def _base64_to_json(data):
     return json.loads(
         base64.b64decode(data.replace(" ", "+") + "===")
         .decode("utf8", "surrogatepass")
@@ -20,13 +64,27 @@ def _load_data(data: str) -> Dict[str, Any]:
     )
 
 
-def feature_flags(request: HttpRequest) -> List[str]:
-    if request.method != "POST" or not request.POST.get("data"):
-        return []
-    data = _load_data(request.POST["data"])
-    team = Team.objects.get_cached_from_token(data["token"])
-    flags_enabled = []
+def _get_token(data, request) -> Optional[str]:
+    if request.POST.get("api_key"):
+        return request.POST["api_key"]
+    if request.POST.get("token"):
+        return request.POST["token"]
+    if "token" in data:
+        return data["token"]  # JS reloadFeatures call
+    if "api_key" in data:
+        return data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
+    return None
 
+
+def feature_flags(request: HttpRequest) -> List[str]:
+    if request.method != "POST":
+        return []
+    data = _load_data(request)
+    if not data:
+        return []
+    token = _get_token(data, request)
+    team = Team.objects.get_cached_from_token(token)
+    flags_enabled = []
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False)
     for feature_flag in feature_flags:
         if feature_flag.distinct_id_matches(data["distinct_id"]):
