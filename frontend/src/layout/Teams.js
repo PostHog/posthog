@@ -30,9 +30,9 @@ export function Teams() {
 
     return (
         <Dropdown overlay={options}>
-            <span data-attr="user-options-dropdown" className="btn btn-sm btn-light">
+            <div data-attr="user-options-dropdown" className="btn btn-sm btn-light" style={{ marginRight: '0.75rem' }}>
                 {user.team.name}
-            </span>
+            </div>
         </Dropdown>
     )
 }

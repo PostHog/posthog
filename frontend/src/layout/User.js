@@ -18,9 +18,9 @@ export function User() {
 
     return (
         <Dropdown overlay={options}>
-            <span data-attr="user-options-dropdown" className="btn btn-sm btn-light">
+            <div data-attr="user-options-dropdown" className="btn btn-sm btn-light">
                 {user.email}
-            </span>
+            </div>
         </Dropdown>
     )
 }
