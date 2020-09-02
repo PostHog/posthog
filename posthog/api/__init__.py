@@ -16,7 +16,14 @@ from . import (
     team_user,
 )
 
-router = routers.DefaultRouter()
+
+class OptionalTrailingSlashRouter(routers.DefaultRouter):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.trailing_slash = "/?"
+
+
+router = OptionalTrailingSlashRouter()
 router.register(r"annotation", annotation.AnnotationsViewSet)
 router.register(r"event", event.EventViewSet)
 router.register(r"element", element.ElementViewSet)
