@@ -9,7 +9,7 @@ import requests
 from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
@@ -47,14 +47,6 @@ def user(request):
         data = json.loads(request.body)
 
         if "team" in data:
-            if "current_team" in data["team"]:
-                current_team = data["team"].get("current_team", team)
-                if isinstance(current_team, int):
-                    request.user.current_team = request.user.team_set.get(id=current_team)
-                else:
-                    request.user.current_team = team
-                request.user.save()
-                team = request.user.team
             team.api_token = data["team"].get("api_token", team.api_token)
             team.signup_token = data["team"].get("signup_token", team.signup_token)
             team.app_urls = data["team"].get("app_urls", team.app_urls)
@@ -73,6 +65,8 @@ def user(request):
             team.save()
 
         if "user" in data:
+            if "current_team_id" in data["user"]:
+                request.user.current_team = request.user.team_set.get(id=int(data["user"]["current_team_id"]))
             request.user.email_opt_in = data["user"].get("email_opt_in", request.user.email_opt_in)
             request.user.anonymize_data = data["user"].get("anonymize_data", request.user.anonymize_data)
             request.user.toolbar_mode = data["user"].get("toolbar_mode", request.user.toolbar_mode)
