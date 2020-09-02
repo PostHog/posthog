@@ -19,5 +19,5 @@ class Command(BaseCommand):
             db_url=CLICKHOUSE_HTTP_URL,
             username=CLICKHOUSE_USERNAME,
             password=CLICKHOUSE_PASSWORD,
-            verify_ssl_cert=CLICKHOUSE_VERIFY,
+            verify_ssl_cert=False,
         ).migrate("ee.clickhouse.migrations")
