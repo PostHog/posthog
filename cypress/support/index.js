@@ -15,11 +15,7 @@ beforeEach(() => {
         } else if (url.includes('signup')) {
             signUp()
         } else if (url.includes('login')) {
-            cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
-
-            cy.get('#inputPassword').type('Test1234').should('have.value', 'Test1234')
-
-            cy.get('.btn').click()
+            logIn()
         }
         cy.wait(200)
         cy.get('body', { timeout: 7000 }).then(($body) => {
@@ -45,8 +41,18 @@ const signUp = () => {
 
     cy.get('button[data-attr="signup"]').click()
 
+    cy.wait(200)
+
     cy.visit('/demo')
-    cy.visit('/')
+    // cy.visit('/')
+}
+
+const logIn = () => {
+    cy.get('#inputEmail').type('fake@posthog.com').should('have.value', 'fake@posthog.com')
+
+    cy.get('#inputPassword').type('Test1234').should('have.value', 'Test1234')
+
+    cy.get('.btn').click()
 }
 
 Cypress.on('uncaught:exception', () => {
