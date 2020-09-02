@@ -14,7 +14,7 @@ from posthog.models import FeatureFlag, Team
 from posthog.utils import cors_response
 
 
-def _load_data(request):
+def _load_data(request) -> Optional[Dict[str, Any]]:
     # JS Integration reloadFeatureFlags call
     if request.content_type == "application/x-www-form-urlencoded":
         return _base64_to_json(request.POST["data"])
