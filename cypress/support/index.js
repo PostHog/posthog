@@ -41,10 +41,10 @@ const signUp = () => {
 
     cy.get('button[data-attr="signup"]').click()
 
-    cy.wait(200)
+    cy.wait(1000)
 
     cy.visit('/demo')
-    // cy.visit('/')
+    cy.visit('/')
 }
 
 const logIn = () => {
