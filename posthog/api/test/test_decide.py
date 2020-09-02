@@ -92,10 +92,11 @@ class TestDecide(BaseTest):
             ).json()
         self.assertEqual(response["featureFlags"][0], "beta-feature")
 
+        # Perform the request differently to test if both ways work
         with self.assertNumQueries(3):  # Caching of teams saves 1 query
             response = self.client.post(
                 "/decide/",
-                {"data": self._dict_to_b64({"token": self.team.api_token, "distinct_id": "another_id"})},
+                data={"data": json.dumps({"api_key": self.team.api_token, "distinct_id": "another_id"})},
                 HTTP_ORIGIN="http://127.0.0.1:8000",
             ).json()
         self.assertEqual(len(response["featureFlags"]), 0)

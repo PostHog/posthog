@@ -64,7 +64,7 @@ def _base64_to_json(data):
     )
 
 
-def _get_token(data, request) -> Optional[str]:
+def _get_token(data, request):
     if request.POST.get("api_key"):
         return request.POST["api_key"]
     if request.POST.get("token"):
