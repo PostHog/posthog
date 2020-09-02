@@ -9,7 +9,7 @@ class TestDemo(BaseTest):
 
     def test_create_demo_data(self):
         self.client.get("/demo")
-        self.assertEqual(Event.objects.count(), 190)
+        self.assertEqual(Event.objects.count(), 192)
         self.assertEqual(Person.objects.count(), 100)
         self.assertEqual(Action.objects.count(), 3)
 
@@ -23,7 +23,7 @@ class TestDemo(BaseTest):
 
     def test_delete_demo_data(self):
         self.client.get("/demo")
-        self.assertEqual(Event.objects.count(), 190)
+        self.assertEqual(Event.objects.count(), 192)
         Person.objects.create(team=self.team, distinct_ids=["random_real_person"])
         response = self.client.delete("/delete_demo_data/").json()
         self.assertEqual(response["status"], "ok")
