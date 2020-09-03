@@ -79,3 +79,63 @@ SELECT * FROM elements where group_id = %(group_id)s order by order ASC
 GET_ELEMENTS_SQL = """
 SELECT * FROM elements order by order ASC
 """
+
+ELEMENTS_WITH_ARRAY_PROPS = """
+CREATE TABLE elements_with_array_props_view
+(
+    id UUID,
+    text VARCHAR,
+    tag_name VARCHAR,
+    href VARCHAR,
+    attr_id VARCHAR,
+    attr_class Array(VARCHAR),
+    nth_child Int32,
+    nth_of_type Int32,
+    attributes VARCHAR,
+    order Int32,
+    team_id Int32,
+    created_at DateTime,
+    group_id UUID,
+    array_attribute_keys Array(VARCHAR),
+    array_attribute_values Array(VARCHAR)
+) ENGINE = {engine}
+PARTITION BY toYYYYMM(created_at)
+ORDER BY (id, team_id)
+{storage_policy}
+""".format(
+    engine=table_engine("elements_with_array_props_view"), storage_policy=STORAGE_POLICY
+)
+
+ELEMENTS_WITH_ARRAY_PROPS_MAT = """
+CREATE MATERIALIZED VIEW elements_with_array_props_mv
+TO elements_with_array_props_view
+AS SELECT
+id,
+text,
+tag_name,
+href,
+attr_id,
+attr_class,
+nth_child,
+nth_of_type,
+attributes,
+order,
+team_id,
+group_id,
+arrayMap(k -> k.1, JSONExtractKeysAndValues(attributes, 'varchar')) array_attribute_keys,
+arrayMap(k -> k.2, JSONExtractKeysAndValues(attributes, 'varchar')) array_attribute_values
+FROM elements
+"""
+
+ELEMENTS_PROPERTIES_MAT = """
+CREATE MATERIALIZED VIEW elements_properties_view
+ENGINE = MergeTree()
+ORDER BY (key, value, id)
+POPULATE
+AS SELECT id,
+team_id,
+array_attribute_keys as key,
+array_attribute_values as value
+from elements_with_array_props_view
+ARRAY JOIN array_attribute_keys, array_attribute_values
+"""
