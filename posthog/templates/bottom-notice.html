@@ -20,4 +20,27 @@
             document.body.prepend(element)
         }
     </script>
+    
+{% endif %}
+
+{% if request.get_host == 'app.posthog.com' %}
+      <script>
+        window.Papercups = {
+          config: {
+            accountId: '873f5102-d267-4b09-9de0-d6e741e0e076',
+            title: 'Welcome to PostHog',
+            subtitle: 'Ask us anything in the chat window below 😊',
+            primaryColor: '#1890ff',
+            greeting: '',
+            newMessagePlaceholder: 'Start typing...',
+            baseUrl: 'https://app.papercups.io'
+          },
+        };
+      </script>
+      <script
+        type="text/javascript"
+        async
+        defer
+        src="https://app.papercups.io/widget.js"
+      ></script>
 {% endif %}
