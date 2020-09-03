@@ -18,7 +18,7 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
         self.assertEqual(response.status_code, 201)
         response_data = response.json()
         response_data.pop("created_at")
-        key: PersonalAPIKey = PersonalAPIKey.objects.latest()
+        key: PersonalAPIKey = PersonalAPIKey.objects.last()
         self.assertDictEqual(
             response_data,
             {
