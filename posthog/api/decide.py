@@ -9,7 +9,7 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from posthog.models import FeatureFlag, Team
-from posthog.utils import authenticate_secondarily, cors_response
+from posthog.utils import cors_response
 
 
 def _load_data(data: str) -> Dict[str, Any]:
@@ -38,7 +38,6 @@ def parse_domain(url: Any) -> Optional[str]:
     return urlparse(url).hostname
 
 
-@authenticate_secondarily
 @csrf_exempt
 def get_decide(request: HttpRequest):
     response = {
