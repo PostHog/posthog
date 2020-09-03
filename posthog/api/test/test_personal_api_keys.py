@@ -18,7 +18,8 @@ class TestPersonalAPIKeysAPI(TransactionBaseTest):
         self.assertEqual(response.status_code, 201)
         response_data = response.json()
         response_data.pop("created_at")
-        key: PersonalAPIKey = PersonalAPIKey.objects.last()
+        key = PersonalAPIKey.objects.order_by("-created_at").first()
+        assert key is not None  # for mypy
         self.assertDictEqual(
             response_data,
             {
