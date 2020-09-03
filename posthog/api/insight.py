@@ -9,10 +9,12 @@ from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from ee.clickhouse.models.action import query_action
 from posthog.celery import update_cache_item_task
 from posthog.constants import DATE_FROM, FROM_DASHBOARD, INSIGHT, OFFSET, TRENDS_STICKINESS
 from posthog.decorators import FUNNEL_ENDPOINT, TRENDS_ENDPOINT, cached_function
 from posthog.models import DashboardItem, Filter
+from posthog.models.action import Action
 from posthog.queries import paths, retention, sessions, stickiness, trends
 from posthog.utils import generate_cache_key, request_to_date_query
 
@@ -123,6 +125,8 @@ class InsightViewSet(viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self._calculate_trends(request)
+        action = Action.objects.get(pk=6)
+        print(len(query_action(action)))
         return Response(result)
 
     @cached_function(cache_type=TRENDS_ENDPOINT)

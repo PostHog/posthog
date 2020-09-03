@@ -104,7 +104,7 @@ class SelectorPart(object):
                 if "__contains" in key:
                     where.append(" {} IN {}".format(key.replace("__contains", ""), value))
                 else:
-                    where.append(" {} = {}".format(key, value))
+                    where.append(" {} = '{}'".format(key, value))
         separator = "AND "
         return separator.join(where)
 

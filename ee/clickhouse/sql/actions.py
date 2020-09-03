@@ -1,16 +1,17 @@
 ACTION_QUERY = """
-SELECT * FROM EVENTS WHERE id IN {action_filter}
+SELECT * FROM events WHERE id IN {action_filter}
 """
 
 # action_filter — concatenation of element_action_filters and event_action_filters
 
 ELEMENT_ACTION_FILTER = """
-SELECT id FROM events WHERE 
-elements_hash IN (
-    SELECT hash FROM element_group WHERE id IN (
-        SELECT group_id from elements WHERE id IN
-            {element_filter}
-    ) 
+(
+    SELECT id FROM events WHERE 
+    elements_hash IN (
+        SELECT elements_hash FROM elements_group WHERE id IN (
+            SELECT group_id from elements WHERE {element_filter}
+        ) 
+    ) {event_filter}
 )
 """
 
@@ -35,11 +36,13 @@ ELEMENT_PROP_FILTER = """
 
 
 EVENT_ACTION_FILTER = """
-SELECT id from events_with_array_props_view WHERE id IN (
-    SELECT event_id
-    FROM events_properties_view AS ep
-    WHERE team_id = %(team_id)s {property_filter}
-) {event_filter}
+(
+    SELECT id from events_with_array_props_view WHERE id IN (
+        SELECT event_id
+        FROM events_properties_view AS ep
+        WHERE team_id = %(team_id)s {property_filter}
+    ) {event_filter}
+)
 """
 
 #####
