@@ -4,6 +4,8 @@
 
 - [Insight History](https://github.com/PostHog/posthog/pull/1379)
 
+![Insight History Screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/insight-history.png)
+
 Eric really killed this one with a massive pull request where 55 files were modified. 
 
 As a result, PostHog now allows you to look through a history of the charts you've made on 'Insights', so that you don't have to worry about forgetting the exact filters you used to reach a certain conclusion, or feeling bad about not having saved that perfect chart from a week ago.
@@ -12,6 +14,8 @@ Experiment with insights all you want, now without the fear of losing your work.
 
 - [Personal API Keys](https://github.com/PostHog/posthog/pull/1281)
 
+![Personal API Keys Screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/personal-api.png)
+
 We also merged another huge PR (58 files changed!) from Michael that's been a long time in the making because we wanted to get this just right. 
 
 To facilitate integrations with external services, as well as make the experience of using our API simpler and safer, we have now introduced Personal API Keys. They can be generated and deleted on the PostHog setup page. It's worth noting that this is a private API Key, compared to your public 'Team API Key' used in the snippet. 
@@ -19,6 +23,9 @@ To facilitate integrations with external services, as well as make the experienc
 Lastly, because of this change, we have deprecated authentication with username and password for API endpoints.
 
 - [Public Roadmap](https://github.com/orgs/PostHog/projects/1)
+
+![Public Roadmap Screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/public-roadmap.png)
+
 
 At PostHog, one of our core values is transparency. As a result, we try to make as much information public as we can, from what we're working on to how we operate. 
 
