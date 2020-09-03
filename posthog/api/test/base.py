@@ -16,7 +16,7 @@ class TestMixin:
 
     def setUp(self):
         super().setUp()  # type: ignore
-        self.team: Team = Team.objects.create(api_token="token123")
+        self.team: Team = Team.objects.create(name="Test", api_token="token123")
         if self.TESTS_API:
             self.client = Client()
             self.user = self._create_user("user1", password=self.TESTS_PASSWORD)

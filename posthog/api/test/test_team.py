@@ -22,15 +22,15 @@ class TestTeamUser(BaseTest):
         return user
 
     def create_team_and_user(self):
-        team: Team = Team.objects.create(api_token="token123")
+        team: Team = Team.objects.create(api_token="token_ein")
         return (team, self.create_user_for_team(team))
 
     def test_user_can_list_their_teams(self):
 
         # Create a team with a list of multiple users first
         teams: List = []
-        for i in range(0, 3):
-            team = Team.objects.create(name="app" + str(i), api_token="token1234" + str(i))
+        for i in range(1, 4):
+            team = Team.objects.create(name=f"Test {i}", api_token=str(i))
             team.users.add(self.user)
             teams.append(team)
 
@@ -38,7 +38,9 @@ class TestTeamUser(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data: Dict = response.json()
 
-        self.assertEqual(len(response_data["teams"]), 4)
+        self.assertEqual(
+            set(map(lambda team: team["name"], response_data["teams"])), {"Test", "Test 1", "Test 2", "Test 3"}
+        )
 
     def test_user_can_list_their_team_users(self):
 
@@ -67,36 +69,49 @@ class TestTeamUser(BaseTest):
             self.assertIn(_user["distinct_id"], user_ids)  # Make sure only the correct users are returned
 
     def test_user_can_change_current_team(self):
-        team1: Team = Team.objects.create(name="app1", api_token="EIN")
-        team2: Team = Team.objects.create(name="app2", api_token="ZWEI")
-        team1.users.add(self.user)
+        team1: Team = Team.objects.create(name="Test 111", api_token="token_ein")
         team1.save()
-        team2.users.add(self.user)
+        team2: Team = Team.objects.create(name="Test 222", api_token="token_zwei")
         team2.save()
+        team1.users.add(self.user)
+        team2.users.add(self.user)
+        response = self.client.get("/api/user/", content_type="application/json",)
+        self.assertEqual(response.status_code, 200)
+        response_data = response.json()
+        print()
+        print(response_data)
+        print()
+        self.assertEqual(response_data["team"]["name"], "Test 111")
+        self.assertEqual(response_data["team"]["api_token"], "token_ein")
 
         response = self.client.patch(
             "/api/user/", data={"user": {"current_team_id": team2.id}}, content_type="application/json",
-        ).json()
-        self.assertEqual(response["team"]["name"], "app2")
-        self.assertEqual(response["team"]["api_token"], "ZWEI")
+        )
+        self.assertEqual(response.status_code, 200)
+        response_data = response.json()
+        print()
+        print(response_data)
+        print()
+        self.assertEqual(response_data["team"]["name"], "Test 222")
+        self.assertEqual(response_data["team"]["api_token"], "token_zwei")
 
     def test_user_cannot_switch_to_unavailable_team(self):
-        team1: Team = Team.objects.create(name="app1", api_token="token1234")
+        team1: Team = Team.objects.create(name="app1", api_token="token_zwei")
 
         response = self.client.patch(
             "/api/user/", data={"user": {"current_team_id": team1.id}}, content_type="application/json",
-        ).json()
+        )
         self.assertEqual(response.status_code, 404)
 
         response = self.client.patch(
             "/api/user/", data={"user": {"current_team_id": 54353453}}, content_type="application/json",
-        ).json()
+        )
         self.assertEqual(response.status_code, 404)
 
     def test_user_can_only_switch_teams_with_id(self):
         response = self.client.patch(
             "/api/user/", data={"user": {"current_team_id": "abc"}}, content_type="application/json",
-        ).json()
+        )
         self.assertEqual(response.status_code, 400)
 
     def test_user_can_delete_another_team_user(self):
