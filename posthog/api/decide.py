@@ -7,7 +7,7 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from posthog.models import FeatureFlag, Team
-from posthog.utils import base64_to_json, cors_response, load_data_from_request
+from posthog.utils import base64_to_json, cors_response, get_token_from_personal_api_key, load_data_from_request
 
 
 def _load_data(request) -> Optional[Union[Dict[str, Any], List]]:
@@ -37,7 +37,12 @@ def feature_flags(request: HttpRequest) -> List[str]:
     if not data:
         return []
     token = _get_token(data, request)
-    team = Team.objects.get_cached_from_token(token)
+    is_personal_api_key = False
+    if not token:
+        token, is_personal_api_key = get_token_from_personal_api_key(request, data)
+    if not token:
+        return []
+    team = Team.objects.get_cached_from_token(token, is_personal_api_key)
     flags_enabled = []
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False)
     for feature_flag in feature_flags:

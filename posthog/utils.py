@@ -373,3 +373,13 @@ def load_data_from_request(request) -> Optional[Union[Dict[str, Any], List]]:
         data = base64_to_json(data)
     # FIXME: data can also be an array, function assumes it's either None or a dictionary.
     return data
+
+
+def get_token_from_personal_api_key(request, data) -> (Optional[str], bool):
+    personal_api_key_with_source = PersonalAPIKeyAuthentication().find_key(
+        request, data if isinstance(data, dict) else None
+    )
+    if personal_api_key_with_source:
+        token = personal_api_key_with_source[0]
+    is_personal_api_key = True
+    return (token, is_personal_api_key)
