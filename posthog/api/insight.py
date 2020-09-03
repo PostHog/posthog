@@ -125,8 +125,6 @@ class InsightViewSet(viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self._calculate_trends(request)
-        action = Action.objects.get(pk=6)
-        print(len(query_action(action)))
         return Response(result)
 
     @cached_function(cache_type=TRENDS_ENDPOINT)
