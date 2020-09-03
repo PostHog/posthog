@@ -23,17 +23,14 @@ def sessions_test_factory(sessions, event_factory):
                 event_factory(team=self.team, event="4th action", distinct_id="2", properties={"$os": "Windows 95"})
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
-                response = sessions().run(
-                    Filter(data={"events": [], "date_from": "2012-01-15T04:01:34.000Z"}), self.team, session_type=None
-                )
-
+                response = sessions().run(Filter(data={"events": [], "session": None}), self.team)
             self.assertEqual(len(response), 2)
+            self.assertEqual(response[0]["global_session_id"], 1)
 
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 response = sessions().run(
-                    Filter(data={"events": [], "properties": [{"key": "$os", "value": "Mac OS X"}]}),
+                    Filter(data={"events": [], "properties": [{"key": "$os", "value": "Mac OS X"}], "session": None}),
                     self.team,
-                    session_type=None,
                 )
             self.assertEqual(len(response), 1)
 
@@ -51,7 +48,7 @@ def sessions_test_factory(sessions, event_factory):
                 event_factory(team=self.team, event="4th action", distinct_id="1")
                 event_factory(team=self.team, event="4th action", distinct_id="2")
 
-            response = sessions().run(Filter(data={"date_from": "all"}), self.team, session_type="avg")
+            response = sessions().run(Filter(data={"date_from": "all", "session": "avg"}), self.team)
             self.assertEqual(response[0]["count"], 3)  # average length of all sessions
 
             # time series
@@ -87,9 +84,10 @@ def sessions_test_factory(sessions, event_factory):
 
             # month
             month_response = sessions().run(
-                Filter(data={"date_from": "2012-01-01", "date_to": "2012-04-01", "interval": "month"}),
+                Filter(
+                    data={"date_from": "2012-01-01", "date_to": "2012-04-01", "interval": "month", "session": "avg"}
+                ),
                 self.team,
-                session_type="avg",
             )
             self.assertEqual(month_response[0]["data"][0], 180)
             self.assertEqual(month_response[0]["data"][2], 180)
@@ -100,9 +98,8 @@ def sessions_test_factory(sessions, event_factory):
 
             # # week
             week_response = sessions().run(
-                Filter(data={"date_from": "2012-01-01", "date_to": "2012-02-01", "interval": "week"}),
+                Filter(data={"date_from": "2012-01-01", "date_to": "2012-02-01", "interval": "week", "session": "avg"}),
                 self.team,
-                session_type="avg",
             )
             self.assertEqual(week_response[0]["data"][1], 240.0)
             self.assertEqual(week_response[0]["data"][3], 120.0)
@@ -113,9 +110,8 @@ def sessions_test_factory(sessions, event_factory):
 
             # # # hour
             hour_response = sessions().run(
-                Filter(data={"date_from": "2012-03-14", "date_to": "2012-03-16", "interval": "hour"}),
+                Filter(data={"date_from": "2012-03-14", "date_to": "2012-03-16", "interval": "hour", "session": "avg"}),
                 self.team,
-                session_type="avg",
             )
             self.assertEqual(hour_response[0]["data"][3], 240.0)
             self.assertEqual(hour_response[0]["data"][27], 120.0)
@@ -126,13 +122,12 @@ def sessions_test_factory(sessions, event_factory):
 
         def test_no_events(self):
             response = sessions().run(
-                Filter(data={"date_from": "2012-01-20", "date_to": "2012-01-30", "interval": "day"}),
+                Filter(data={"date_from": "2012-01-20", "date_to": "2012-01-30", "interval": "day", "session": "avg"}),
                 self.team,
-                session_type="avg",
             )
             self.assertEqual(response, [])
 
-        def test_compare_sessions(self):
+        def test_compare(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):
                 event_factory(team=self.team, event="1st action", distinct_id="1")
                 event_factory(team=self.team, event="1st action", distinct_id="2")
@@ -145,12 +140,17 @@ def sessions_test_factory(sessions, event_factory):
             with freeze_time("2012-01-25T04:01:34.000Z"):
                 event_factory(team=self.team, event="4th action", distinct_id="1")
                 event_factory(team=self.team, event="4th action", distinct_id="2")
-            # Run without anything to compare to
-            compare_response = sessions().run(
-                Filter(data={"date_from": "2012-01-20", "date_to": "2012-01-30", "interval": "day", "compare": True}),
-                self.team,
-                session_type="avg",
+            filter = Filter(
+                data={
+                    "date_from": "2012-01-20",
+                    "date_to": "2012-01-30",
+                    "interval": "day",
+                    "compare": True,
+                    "session": "avg",
+                }
             )
+            # Run without anything to compare to
+            compare_response = sessions().run(filter=filter, team=self.team)
             self.assertEqual(compare_response[0]["data"][5], 120.0)
             self.assertEqual(compare_response[1]["data"][4], 240.0)
 
@@ -210,9 +210,9 @@ def sessions_test_factory(sessions, event_factory):
             with freeze_time("2012-01-21T06:00:30.000Z"):
                 event_factory(team=self.team, event="3rd action", distinct_id="2")
 
-            response = sessions().run(Filter(data={"date_from": "all"}), self.team, session_type="dist")
+            response = sessions().run(Filter(data={"date_from": "all", "session": "dist"}), self.team)
             compared_response = sessions().run(
-                Filter(data={"date_from": "all", "compare": True}), self.team, session_type="dist"
+                Filter(data={"date_from": "all", "compare": True, "session": "dist"}), self.team
             )
             for index, item in enumerate(response):
                 if item["label"] == "30-60 minutes" or item["label"] == "3-10 seconds":

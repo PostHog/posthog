@@ -1,6 +1,24 @@
 from clickhouse_driver import Client  # type: ignore
 
-from ee.clickhouse.clickhouse_test_runner import TEST_DB
-from posthog.settings import TEST
+from posthog.settings import (
+    CLICKHOUSE,
+    CLICKHOUSE_CA,
+    CLICKHOUSE_DATABASE,
+    CLICKHOUSE_HOST,
+    CLICKHOUSE_PASSWORD,
+    CLICKHOUSE_SECURE,
+    CLICKHOUSE_VERIFY,
+    PRIMARY_DB,
+)
 
-ch_client = Client(host="localhost", database=TEST_DB if TEST else "default")
+if PRIMARY_DB != CLICKHOUSE:
+    ch_client = Client(host="localhost")
+else:
+    ch_client = Client(
+        host=CLICKHOUSE_HOST,
+        database=CLICKHOUSE_DATABASE,
+        secure=CLICKHOUSE_SECURE,
+        password=CLICKHOUSE_PASSWORD,
+        ca_certs=CLICKHOUSE_CA,
+        verify=CLICKHOUSE_VERIFY,
+    )

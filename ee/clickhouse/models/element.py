@@ -17,7 +17,8 @@ from posthog.models.element_group import hash_elements
 from posthog.models.team import Team
 
 
-def create_element_group(team: Team, element_hash: str, id: UUID = uuid4()) -> UUID:
+def create_element_group(team: Team, element_hash: str) -> UUID:
+    id = uuid4()
     ch_client.execute(INSERT_ELEMENT_GROUP_SQL, {"id": id, "element_hash": element_hash, "team_id": team.pk})
     return id
 

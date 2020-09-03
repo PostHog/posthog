@@ -1,11 +1,11 @@
+import json
 from datetime import datetime
 
 import pytz
-from freezegun import freeze_time
 
 from posthog.api.test.base import BaseTest
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models import Action, ActionStep, Entity, Event, Filter, Person, Team
+from posthog.models import Action, ActionStep, Entity, Event, Filter, Person
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 
@@ -120,9 +120,11 @@ def retention_test_factory(retention, create_event, create_person):
                 ]
             )
 
-            start_entity = Entity({"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS})
+            start_entity = json.dumps({"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS})
             result = retention().run(
-                Filter(data={"date_from": self._date(0, hour=0), "entities": [start_entity]}), self.team, total_days=7
+                Filter(data={"date_from": self._date(0, hour=0), "target_entity": start_entity}),
+                self.team,
+                total_days=7,
             )
 
             self.assertEqual(len(result), 7)
