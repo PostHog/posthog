@@ -65,8 +65,14 @@ def user(request):
             team.save()
 
         if "user" in data:
-            if "current_team_id" in data["user"]:
+            try:
                 request.user.current_team = request.user.team_set.get(id=int(data["user"]["current_team_id"]))
+            except (KeyError, TypeError):
+                pass
+            except ValueError:
+                return JsonResponse({"detail": "Team ID must be an integer."}, status=400)
+            except ObjectDoesNotExist:
+                return JsonResponse({"detail": "Team not found for user."}, status=404)
             request.user.email_opt_in = data["user"].get("email_opt_in", request.user.email_opt_in)
             request.user.anonymize_data = data["user"].get("anonymize_data", request.user.anonymize_data)
             request.user.toolbar_mode = data["user"].get("toolbar_mode", request.user.toolbar_mode)
@@ -95,8 +101,8 @@ def user(request):
             "email_opt_in": request.user.email_opt_in,
             "anonymize_data": request.user.anonymize_data,
             "toolbar_mode": request.user.toolbar_mode,
-            "team": {
-                "name": request.user.current_team.name,
+            "team": {  # TODO: refactor this so that Team gets its own endpoint (/api/user/team/)
+                "name": request.user.team.name,
                 "app_urls": team.app_urls,
                 "api_token": team.api_token,
                 "signup_token": team.signup_token,

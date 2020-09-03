@@ -88,7 +88,7 @@ class User(AbstractUser):
     ]
 
     username = None  # type: ignore
-    current_team = models.ForeignKey(Team, models.SET_NULL, blank=True, null=True)
+    current_team = models.ForeignKey(Team, models.SET_NULL, null=True)
     email = models.EmailField(_("email address"), unique=True)
     temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
@@ -142,4 +142,5 @@ class User(AbstractUser):
         if self.current_team:
             return self.current_team
         self.current_team = self.team_set.all()[0]
+        self.save()
         return self.current_team

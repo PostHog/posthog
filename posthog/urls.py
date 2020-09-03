@@ -139,8 +139,9 @@ def setup_admin(request):
                 request=request,
                 context={"email": email, "name": name, "invalid_input": True, "company": company_name},
             )
+        team = Team.objects.create_with_data(name=company_name)
         user = User.objects.create_user(email=email, password=password, first_name=name, email_opt_in=email_opt_in,)
-        team = Team.objects.create_with_data(users=[user], name=company_name)
+        team.users.add(user)
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         posthoganalytics.capture(
             user.distinct_id, "user signed up", properties={"is_first_user": True, "first_team_user": True},
