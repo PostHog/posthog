@@ -19,12 +19,10 @@ TEAM_CACHE: Dict[str, "Team"] = {}
 
 
 class TeamManager(models.Manager):
-    def create_with_data(
-        self, users: Optional[List[Any]] = None, api_token: Optional[str] = None, signup_token: Optional[str] = None
-    ):
-        api_token = api_token or generate_random_token()
-        signup_token = signup_token or generate_random_token(22)
-        team = Team.objects.create(api_token=api_token, signup_token=signup_token)
+    def create_with_data(self, users: Optional[List[Any]] = None, **kwargs):
+        kwargs["api_token"] = kwargs.get("api_token", generate_random_token())
+        kwargs["signup_token"] = kwargs.get("signup_token", generate_random_token(22))
+        team = Team.objects.create(**kwargs)
         if users:
             team.users.set(users)
 
