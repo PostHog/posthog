@@ -67,18 +67,37 @@ class TestTeamUser(BaseTest):
             self.assertIn(_user["distinct_id"], user_ids)  # Make sure only the correct users are returned
 
     def test_user_can_change_current_team(self):
-        team1: Team = Team.objects.create(name="app1", api_token="token1234")
-        team2: Team = Team.objects.create(name="app2", api_token="token12345")
+        team1: Team = Team.objects.create(name="app1", api_token="EIN")
+        team2: Team = Team.objects.create(name="app2", api_token="ZWEI")
         team1.users.add(self.user)
         team1.save()
         team2.users.add(self.user)
         team2.save()
 
         response = self.client.patch(
-            "/api/user/", data={"team": {"current_team": team2.id}}, content_type="application/json",
+            "/api/user/", data={"user": {"current_team_id": team2.id}}, content_type="application/json",
         ).json()
         self.assertEqual(response["team"]["name"], "app2")
-        self.assertEqual(response["team"]["api_token"], "token12345")
+        self.assertEqual(response["team"]["api_token"], "ZWEI")
+
+    def test_user_cannot_switch_to_unavailable_team(self):
+        team1: Team = Team.objects.create(name="app1", api_token="token1234")
+
+        response = self.client.patch(
+            "/api/user/", data={"user": {"current_team_id": team1.id}}, content_type="application/json",
+        ).json()
+        self.assertEqual(response.status_code, 404)
+
+        response = self.client.patch(
+            "/api/user/", data={"user": {"current_team_id": 54353453}}, content_type="application/json",
+        ).json()
+        self.assertEqual(response.status_code, 404)
+
+    def test_user_can_only_switch_teams_with_id(self):
+        response = self.client.patch(
+            "/api/user/", data={"user": {"current_team_id": "abc"}}, content_type="application/json",
+        ).json()
+        self.assertEqual(response.status_code, 400)
 
     def test_user_can_delete_another_team_user(self):
         team, user = self.create_team_and_user()
