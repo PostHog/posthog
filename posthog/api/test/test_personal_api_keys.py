@@ -1,6 +1,6 @@
 from typing import Optional, Type
 
-from posthog.models import PersonalAPIKey
+from posthog.models import FeatureFlag, PersonalAPIKey
 
 from .base import TransactionBaseTest
 
@@ -137,4 +137,3 @@ class TestPersonalAPIKeysAPIAuthentication(TransactionBaseTest):
     def test_decide(self):
         response = self.client.get("/decide/", {"personal_api_key": self.personal_api_key.value})
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()["isAuthenticated"])
