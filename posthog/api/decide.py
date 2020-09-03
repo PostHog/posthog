@@ -46,7 +46,8 @@ def feature_flags(request: HttpRequest) -> List[str]:
     flags_enabled = []
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False)
     for feature_flag in feature_flags:
-        if feature_flag.distinct_id_matches(data["distinct_id"]):
+        # distinct_id will always be a string, but data can have non-string values ("Any")
+        if feature_flag.distinct_id_matches(data["distinct_id"]):  # type: ignore
             flags_enabled.append(feature_flag.key)
     return flags_enabled
 

@@ -375,7 +375,7 @@ def load_data_from_request(request) -> Optional[Union[Dict[str, Any], List]]:
     return data
 
 
-def get_token_from_personal_api_key(request, data) -> (Optional[str], bool):
+def get_token_from_personal_api_key(request, data) -> Tuple[Optional[str], bool]:
     personal_api_key_with_source = PersonalAPIKeyAuthentication().find_key(
         request, data if isinstance(data, dict) else None
     )
